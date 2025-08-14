@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.wrangler/
+.editorconfig
+.eslintignore
+.gitignore
+.tool-versions
+.env
+.dev.vars
+pnpm-lock.yaml
+.next
+cache

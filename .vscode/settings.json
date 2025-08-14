@@ -1,0 +1,42 @@
+{
+  "python.analysis.typeCheckingMode": "off",
+  "cursorpyright.analysis.typeCheckingMode": "off",
+  
+  // TypeScript settings to reduce false positives
+  "typescript.preferences.quoteStyle": "single",
+  "typescript.suggest.autoImports": true,
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "typescript.preferences.includePackageJsonAutoImports": "auto",
+  
+  // ESLint settings
+  "eslint.format.enable": true,
+  "eslint.validate": [
+    "javascript",
+    "javascriptreact",
+    "typescript",
+    "typescriptreact"
+  ],
+  
+  // Disable problematic extensions for React/TSX files
+  "typescript.suggest.enabled": true,
+  "typescript.validate.enable": true,
+  
+  // Editor settings to reduce parsing conflicts
+  "editor.codeActionsOnSave": {
+    "source.fixAll.eslint": "explicit"
+  },
+  
+  // Prevent false positives from conflicting parsers
+  "typescript.disableAutomaticTypeAcquisition": false,
+  "typescript.preferences.importModuleSpecifier": "relative",
+  
+  // File associations
+  "files.associations": {
+    "*.tsx": "typescriptreact",
+    "*.ts": "typescript"
+  },
+  
+  // Reduce noise from temporary parsing issues
+  "problems.decorations.enabled": true,
+  "typescript.reportStyleChecksAsWarnings": false
+}

@@ -1,0 +1,34 @@
+{
+    "mcpServers": {
+      "supabase-mcp-server": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@supabase/mcp-server-supabase@latest",
+          "--access-token",
+          "sbp_333ff7bc3b12411b78cf333993854577317fcd68"
+        ],
+        "env": {}
+      },
+      "clerk": {
+        "command": "npx",
+        "args": [
+          "-y",
+          "@clerk/agent-toolkit",
+          "-p=local-mcp",
+          "--tools=users",
+          "--secret-key=sk_test_F5XjlBqzL0UAV59RBVPNJzFFcf7Ay35MrrlaHzjEVU"
+        ]
+      },
+      "dodopayments_api": {
+        "command": "npx",
+        "args": ["-y", "mcp-remote@latest", "https://mcp.dodopayments.com/sse"],
+        "env": {
+          "DODO_PAYMENTS_API_KEY": "SdjDTUUqaTnjV3a4.ZG_4yPedntnuWcuG1svSFgW2cPPpacaEgJmuw3XuYoJKta2V"
+        }
+      },
+      "context7": {
+        "httpUrl": "https://mcp.context7.com/mcp"
+      }
+    }
+  }

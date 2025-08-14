@@ -1,0 +1,63 @@
+[project]
+name = "cheatcode"
+version = "1.0"
+description = "AI Coding Agent for Building Mobile Apps and Websites"
+authors = [{ name = "Jigyansu Rout", email = "jigyanshu15@gmail.com" }]
+readme = "README.md"
+license = { text = "Apache-2.0" }
+classifiers = [
+  "License :: OSI Approved :: Apache-2.0 License",
+  "Programming Language :: Python :: 3.11",
+]
+requires-python = ">=3.11"
+dependencies = [
+  "python-dotenv==1.0.1",
+  "litellm==1.72.2",
+  "click==8.1.7",
+  "requests==2.32.3",
+  "packaging==24.1",
+  "setuptools==75.3.0",
+  "pytest==8.3.3",
+  "pytest-asyncio==0.24.0",
+  "asyncio==3.4.3",
+  "fastapi==0.115.12",
+  "uvicorn==0.27.1",
+  "python-multipart==0.0.20",
+  "redis==5.2.1",
+  "supabase==2.15.0",
+  "pyjwt==2.10.1",
+  "certifi==2024.2.2",
+  "daytona-sdk==0.21.0",
+  "daytona-api-client==0.21.0",
+  "daytona-api-client-async==0.21.0",
+  "boto3==1.37.3",
+  "openai==1.90.0",
+  "nest-asyncio==1.6.0",
+  "tavily-python==0.5.4",
+  "Pillow>=10.4.0",
+  "qrcode>=7.4.0",
+  "mcp==1.9.4",
+  "httpx>=0.28.1",
+  "aiohttp==3.12.0",
+  "email-validator==2.0.0",
+  "mailtrap==2.0.1",
+  "sentry-sdk[fastapi]==2.29.1",
+  "gunicorn>=23.0.0",
+  "cryptography>=41.0.0",
+  "structlog==25.4.0",
+  "google-genai>=1.0.0",
+  "numpy>=1.24.0",
+  "dramatiq==1.18.0",
+  "langfuse==2.60.5",
+  "dodopayments==1.44.0",
+  "clerk-backend-api==3.1.11",
+  "freestyle>=0.0.1",
+]
+
+[project.urls]
+homepage = "https://www.trycheatcode.com/"
+
+[tool.uv]
+package = false
+
+[tool.uv.sources]
