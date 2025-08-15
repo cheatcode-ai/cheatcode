@@ -22,11 +22,13 @@ class DodoPaymentsService:
             logger.warning("DODO_PAYMENTS_API_KEY not configured - payment processing will be unavailable")
             self.client = None
         else:
-            # Initialize SDK - it handles base URL and authentication automatically
+            # Initialize SDK - environment based on ENV_MODE
+            dodo_environment = "live_mode" if config.ENV_MODE.value == "production" else "test_mode"
             self.client = DodoPayments(
                 bearer_token=self.api_key,
-                environment="test_mode",  # TODO: Change to "live_mode" for production
+                environment=dodo_environment,
             )
+            logger.info(f"DodoPayments SDK initialized in {dodo_environment} mode")
             logger.info(f"DodoPayments SDK initialized successfully with API key: {'*' * 20}{self.api_key[-4:] if len(self.api_key) > 4 else '****'}")
     
     def is_configured(self) -> bool:

@@ -27,25 +27,38 @@ def initialize():
     redis_host = os.getenv("REDIS_HOST", "redis")
     redis_port = int(os.getenv("REDIS_PORT", 6379))
     redis_password = os.getenv("REDIS_PASSWORD", "")
+    redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
     
     # Connection pool configuration
     max_connections = int(os.getenv("REDIS_MAX_CONNECTIONS", 2048))
     retry_on_timeout = not (os.getenv("REDIS_RETRY_ON_TIMEOUT", "True").lower() != "true")
 
-    logger.info(f"Initializing Redis connection pool to {redis_host}:{redis_port} with max {max_connections} connections")
+    ssl_status = "with SSL" if redis_ssl else "without SSL"
+    logger.info(f"Initializing Redis connection pool to {redis_host}:{redis_port} {ssl_status} with max {max_connections} connections")
 
-    # Create connection pool
-    pool = redis.ConnectionPool(
-        host=redis_host,
-        port=redis_port,
-        password=redis_password,
-        decode_responses=True,
-        socket_timeout=20.0,
-        socket_connect_timeout=20.0,
-        retry_on_timeout=retry_on_timeout,
-        health_check_interval=30,
-        max_connections=max_connections,
-    )
+    # Create connection pool with SSL support for Upstash
+    pool_kwargs = {
+        "host": redis_host,
+        "port": redis_port,
+        "password": redis_password,
+        "decode_responses": True,
+        "socket_timeout": 20.0,
+        "socket_connect_timeout": 20.0,
+        "retry_on_timeout": retry_on_timeout,
+        "health_check_interval": 30,
+        "max_connections": max_connections,
+    }
+    
+    # Add SSL configuration for Upstash
+    if redis_ssl:
+        import ssl
+        pool_kwargs.update({
+            "connection_class": redis.SSLConnection,
+            "ssl_cert_reqs": ssl.CERT_NONE,  # Required for Upstash
+            "ssl_check_hostname": False,
+        })
+    
+    pool = redis.ConnectionPool(**pool_kwargs)
 
     # Create Redis client from connection pool
     client = redis.Redis(connection_pool=pool)

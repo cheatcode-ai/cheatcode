@@ -22,13 +22,26 @@ from services.langfuse import langfuse, safe_trace
 redis_host = os.getenv('REDIS_HOST', 'redis')
 redis_port = int(os.getenv('REDIS_PORT', 6379))
 redis_password = os.getenv('REDIS_PASSWORD', '')
-redis_broker = RedisBroker(
-    host=redis_host,
-    port=redis_port,
-    password=redis_password if redis_password else None,
-    namespace="dramatiq",
-    middleware=[dramatiq.middleware.AsyncIO()],
-)
+redis_ssl = os.getenv('REDIS_SSL', 'false').lower() == 'true'
+
+# Configure SSL for Upstash if needed
+broker_kwargs = {
+    "host": redis_host,
+    "port": redis_port,
+    "password": redis_password if redis_password else None,
+    "namespace": "dramatiq",
+    "middleware": [dramatiq.middleware.AsyncIO()],
+}
+
+if redis_ssl:
+    import ssl
+    broker_kwargs.update({
+        "ssl": True,
+        "ssl_cert_reqs": ssl.CERT_NONE,  # Required for Upstash
+        "ssl_check_hostname": False,
+    })
+
+redis_broker = RedisBroker(**broker_kwargs)
 dramatiq.set_broker(redis_broker)
 
 _initialized = False
