@@ -17,6 +17,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.38.1
         version: 6.38.1
+      '@iamjr15/react-currency-localizer':
+        specifier: ^1.1.2
+        version: 1.1.2(@tanstack/react-query@5.84.1(react@18.3.1))(react@18.3.1)
       '@next/third-parties':
         specifier: ^15.3.1
         version: 15.4.5(next@15.4.5(react-dom@18.3.1(react@18.3.1))(react@18.3.1))(react@18.3.1)
@@ -487,6 +490,12 @@ packages:
   '@humanwhocodes/retry@0.4.3':
     resolution: {integrity: sha512-bV0Tgo9K4hfPCek+aMAn81RppFKv2ySDQeMoSZuvTASywNTnVJCArCZE2FWqpvIatKu7VMRLWlR1EazvVhDyhQ==}
     engines: {node: '>=18.18'}
+
+  '@iamjr15/react-currency-localizer@1.1.2':
+    resolution: {integrity: sha512-7f6k7IwsC+WX4IkUztQvIPX035xbkbDmQW2+VSx5wMCKgEFdxfesmgphg3/LOLNifO5o2V1kNG3dl4b8UP7TdQ==}
+    peerDependencies:
+      '@tanstack/react-query': '>=5.0.0'
+      react: '>=18.0.0'
 
   '@img/sharp-darwin-arm64@0.34.3':
     resolution: {integrity: sha512-ryFMfvxxpQRsgZJqBd4wsttYQbCxsJksrv9Lw/v798JcQ8+w84mBWuXwl+TT0WJ/WrYOLaYpwQXi3sA9nTIaIg==}
@@ -1564,13 +1573,28 @@ packages:
   '@tanstack/query-core@5.83.1':
     resolution: {integrity: sha512-OG69LQgT7jSp+5pPuCfzltq/+7l2xoweggjme9vlbCPa/d7D7zaqv5vN/S82SzSYZ4EDLTxNO1PWrv49RAS64Q==}
 
+  '@tanstack/query-core@5.85.3':
+    resolution: {integrity: sha512-9Ne4USX83nHmRuEYs78LW+3lFEEO2hBDHu7mrdIgAFx5Zcrs7ker3n/i8p4kf6OgKExmaDN5oR0efRD7i2J0DQ==}
+
   '@tanstack/query-devtools@5.84.0':
     resolution: {integrity: sha512-fbF3n+z1rqhvd9EoGp5knHkv3p5B2Zml1yNRjh7sNXklngYI5RVIWUrUjZ1RIcEoscarUb0+bOvIs5x9dwzOXQ==}
+
+  '@tanstack/query-persist-client-core@5.85.3':
+    resolution: {integrity: sha512-b6PfSvBbxr1ZGk1bt6aysJr3RcQBkWDzj8HtZUFHDSvSBzWipRtPYPpvJBPwmWKkVPjIKUo40lBsEA0drRgvvA==}
+
+  '@tanstack/query-sync-storage-persister@5.85.3':
+    resolution: {integrity: sha512-fa9tVJBhM01vAKnWloaBINwDQwfuHPD7M6N55VF30GfyM2BrVacVI68bO958cl5VrlLMw5YeHRM/PrX96+bkBA==}
 
   '@tanstack/react-query-devtools@5.84.1':
     resolution: {integrity: sha512-nle+OQ9B3Z3EG2R3ixvaNcJ6OeqGwmAc5iMDW6Vj+emLZkWRrN3BDsrzZQu414n34lpxplnC7z1jmKuU/scHCQ==}
     peerDependencies:
       '@tanstack/react-query': ^5.84.1
+      react: ^18 || ^19
+
+  '@tanstack/react-query-persist-client@5.85.3':
+    resolution: {integrity: sha512-FiQ2zHGwtWMeBt3elkINcxKxiO3FM/U3Q6fZXEIWiZGuoS9DK8WV1uEwOgb66ZyzI8z2OyJzLkePSD82fGD5Rw==}
+    peerDependencies:
+      '@tanstack/react-query': ^5.85.3
       react: ^18 || ^19
 
   '@tanstack/react-query@5.84.1':
@@ -4339,6 +4363,13 @@ snapshots:
 
   '@humanwhocodes/retry@0.4.3': {}
 
+  '@iamjr15/react-currency-localizer@1.1.2(@tanstack/react-query@5.84.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/query-sync-storage-persister': 5.85.3
+      '@tanstack/react-query': 5.84.1(react@18.3.1)
+      '@tanstack/react-query-persist-client': 5.85.3(@tanstack/react-query@5.84.1(react@18.3.1))(react@18.3.1)
+      react: 18.3.1
+
   '@img/sharp-darwin-arm64@0.34.3':
     optionalDependencies:
       '@img/sharp-libvips-darwin-arm64': 1.2.0
@@ -5470,11 +5501,28 @@ snapshots:
 
   '@tanstack/query-core@5.83.1': {}
 
+  '@tanstack/query-core@5.85.3': {}
+
   '@tanstack/query-devtools@5.84.0': {}
+
+  '@tanstack/query-persist-client-core@5.85.3':
+    dependencies:
+      '@tanstack/query-core': 5.85.3
+
+  '@tanstack/query-sync-storage-persister@5.85.3':
+    dependencies:
+      '@tanstack/query-core': 5.85.3
+      '@tanstack/query-persist-client-core': 5.85.3
 
   '@tanstack/react-query-devtools@5.84.1(@tanstack/react-query@5.84.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@tanstack/query-devtools': 5.84.0
+      '@tanstack/react-query': 5.84.1(react@18.3.1)
+      react: 18.3.1
+
+  '@tanstack/react-query-persist-client@5.85.3(@tanstack/react-query@5.84.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      '@tanstack/query-persist-client-core': 5.85.3
       '@tanstack/react-query': 5.84.1(react@18.3.1)
       react: 18.3.1
 
