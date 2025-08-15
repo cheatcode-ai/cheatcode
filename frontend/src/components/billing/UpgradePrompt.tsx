@@ -28,8 +28,6 @@ export function UpgradePrompt({ trigger, autoOpen = false, onClose }: UpgradePro
   
   // Initialize DodoPayments overlay checkout
   const { openCheckout, isLoading: checkoutLoading } = useDodoCheckout({
-    mode: process.env.NODE_ENV === 'production' ? 'live' : 'test',
-    theme: 'dark',
     onSuccess: () => {
       toast.success('Payment successful! Your plan has been upgraded.');
       setIsOpen(false);
@@ -42,8 +40,6 @@ export function UpgradePrompt({ trigger, autoOpen = false, onClose }: UpgradePro
     onError: (error) => {
       console.error('Checkout error:', error);
       toast.error(`Payment failed: ${error}`);
-    },
-    onClose: () => {
       setUpgrading(null);
     }
   });
