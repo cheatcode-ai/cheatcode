@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CheckCircleIcon, StarIcon, Zap, ArrowRight } from 'lucide-react';
-import { motion, Transition } from 'framer-motion';
+import { motion, Transition, Easing } from 'framer-motion';
 import { usePlansQuery } from '@/hooks/react-query/billing/use-plans';
 import { useBilling } from '@/contexts/BillingContext';
 import { createDodoCheckoutSession, InsufficientCreditsError } from '@/lib/api';
@@ -504,7 +504,7 @@ export function BorderTrail({
   const BASE_TRANSITION = {
     repeat: Infinity,
     duration: 5,
-    ease: 'linear',
+    ease: [0, 0, 1, 1] as Easing, // Linear easing as cubic-bezier
   };
 
   return (
