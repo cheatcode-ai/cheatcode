@@ -98,7 +98,17 @@ export default function RootLayout({
             src="https://www.googletagmanager.com/ns.html?id=GTM-MB8GJRLK"
             height="0"
             width="0"
-            style={{ display: 'none', visibility: 'hidden' }}
+            style={{ 
+              display: 'none', 
+              visibility: 'hidden',
+              position: 'absolute',
+              top: '-9999px',
+              left: '-9999px',
+              border: 'none',
+              outline: 'none',
+              margin: '0',
+              padding: '0'
+            }}
           />
         </noscript>
         {/* End Google Tag Manager (noscript) */}
