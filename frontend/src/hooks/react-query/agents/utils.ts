@@ -18,8 +18,6 @@ export type Agent = {
   avatar_color?: string;
   created_at: string;
   updated_at: string;
-  avatar?: string;
-  avatar_color?: string;
 };
 
 // Removed ThreadAgentResponse type and getThreadAgent function - no longer needed for hardcoded agent display

@@ -53,7 +53,7 @@ export const useThreadQuery = (threadId: string) => {
           return failureCount < 5;
         }
         // Don't retry for real 404s (thread actually doesn't exist)
-        if (error?.status === 404) return false;
+        if ((error as any)?.status === 404) return false;
         return failureCount < 2;
       },
       // Keep showing cached thread while refetching

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext, useCallback, useRef } from 'react';
-import { useAuth } from '@clerk/nextjs';
+import { useAuth, useUser } from '@clerk/nextjs';
 
 interface AuthTokenContextType {
   getCachedToken: () => Promise<string | null>;
@@ -147,7 +147,8 @@ export function useCachedAuth() {
  * Drop-in replacement for useAuth() with caching benefits
  */
 export function useOptimizedAuth() {
-  const { isLoaded, isSignedIn, user, ...clerkAuth } = useAuth();
+  const { isLoaded, isSignedIn, ...clerkAuth } = useAuth();
+  const { user } = useUser();
   const { getCachedToken, invalidateTokenCache, isTokenCached } = useCachedAuth();
 
   return {

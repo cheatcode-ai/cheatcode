@@ -329,7 +329,7 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
                 ))}
               </div>
 
-              {appsData.page_info && appsData.page_info.has_more && (
+              {appsData.page_info && appsData.page_info.has_next_page && (
                 <div className="flex justify-center pt-4">
                   <Button
                     onClick={() => setPage(page + 1)}

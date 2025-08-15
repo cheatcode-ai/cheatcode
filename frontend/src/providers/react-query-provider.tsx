@@ -5,6 +5,7 @@ import {
   HydrationBoundary,
   QueryClient,
   QueryClientProvider,
+  DehydratedState,
 } from '@tanstack/react-query';
 import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { handleApiError } from '@/lib/error-handler';
@@ -14,7 +15,7 @@ export function ReactQueryProvider({
   dehydratedState,
 }: {
   children: React.ReactNode;
-  dehydratedState?: unknown;
+  dehydratedState?: DehydratedState;
 }) {
   const [queryClient] = useState(
     () =>
@@ -37,8 +38,7 @@ export function ReactQueryProvider({
             refetchOnMount: false,
             refetchOnWindowFocus: false,
             refetchOnReconnect: true,
-            // Return cached data while refetching in background
-            staleWhileRevalidate: true,
+            // React Query serves cached data while refetching by default
           },
           mutations: {
             retry: (failureCount, error: any) => {

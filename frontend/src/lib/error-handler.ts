@@ -138,7 +138,7 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
         }).catch(() => {
           // Fallback to regular toast if dynamic import fails
           const message = extractErrorMessage(error);
-          toast.error(message, toastOptions);
+          toast.error(message, { duration: 5000 });
         });
         return; // Return early to prevent showing regular toast
       }

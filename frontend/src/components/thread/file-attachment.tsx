@@ -413,9 +413,7 @@ export function FileAttachment({
                             {Renderer ? (
                                 <Renderer
                                     content={fileContent}
-                                    previewUrl={fileUrl}
                                     className="h-full w-full"
-                                    project={project}
                                 />
                             ) : (
                                 <div className="p-4 text-muted-foreground">

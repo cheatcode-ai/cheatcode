@@ -35,7 +35,6 @@ import { Examples } from '@/components/suggestions/examples';
 const PENDING_PROMPT_KEY = 'pendingAgentPrompt';
 
 export function HeroSection() {
-  const { hero } = siteConfig;
   const tablet = useMediaQuery('(max-width: 1024px)');
   const [mounted, setMounted] = useState(false);
   const [isScrolling, setIsScrolling] = useState(false);

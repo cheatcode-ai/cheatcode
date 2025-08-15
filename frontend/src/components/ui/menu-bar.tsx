@@ -1,7 +1,7 @@
 "use client"
 
 import * as React from "react"
-import { motion } from "framer-motion"
+import { motion, Easing } from "framer-motion"
 import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 import { LucideIcon } from "lucide-react"
@@ -28,8 +28,8 @@ const glowVariants = {
     opacity: 1,
     scale: 2,
     transition: {
-      opacity: { duration: 0.5, ease: [0.4, 0, 0.2, 1] },
-      scale: { duration: 0.5, type: "spring", stiffness: 300, damping: 25 },
+      opacity: { duration: 0.5, ease: [0.4, 0, 0.2, 1] as Easing },
+      scale: { duration: 0.5, type: "spring" as const, stiffness: 300, damping: 25 },
     },
   },
 }
@@ -40,7 +40,7 @@ const navGlowVariants = {
     opacity: 1,
     transition: {
       duration: 0.5,
-      ease: [0.4, 0, 0.2, 1],
+      ease: [0.4, 0, 0.2, 1] as Easing,
     },
   },
 }

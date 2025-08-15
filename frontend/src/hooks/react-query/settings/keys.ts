@@ -176,7 +176,20 @@ export const settingsMutationKeys = {
 } as const;
 
 // Type exports for TypeScript support
-export type SettingsQueryKey = ReturnType<typeof settingsKeys[keyof typeof settingsKeys]>;
+// Simplified type that covers the main query key patterns
+export type SettingsQueryKey = 
+  | readonly ['settings']
+  | readonly ['settings', 'account']
+  | readonly ['settings', 'account', string]
+  | readonly ['settings', 'account', string, any]
+  | readonly ['settings', 'byok']
+  | readonly ['settings', 'byok', string]
+  | readonly ['settings', 'byok', string, any]
+  | readonly ['settings', 'integrations']
+  | readonly ['settings', 'integrations', string]
+  | readonly ['settings', 'integrations', string, any]
+  | readonly ['settings', 'preferences']
+  | readonly ['settings', 'preferences', string];
 export type SettingsMutationKey = typeof settingsMutationKeys[keyof typeof settingsMutationKeys][keyof typeof settingsMutationKeys[keyof typeof settingsMutationKeys]];
 
 /**
