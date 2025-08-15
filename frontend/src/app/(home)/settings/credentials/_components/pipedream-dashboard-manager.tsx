@@ -14,6 +14,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Zap, Settings, ExternalLink, Store, Server, AlertTriangle, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
@@ -279,35 +286,47 @@ export function PipedreamDashboardManager({ compact = false }: PipedreamDashboar
 
   if (profiles.length === 0) {
     return (
-      <div className="text-center py-16 px-8 bg-gradient-to-br from-muted/20 via-muted/10 to-background rounded-2xl border-2 border-dashed border-border/50 shadow-sm">
-        <div className="mx-auto w-16 h-16 bg-gradient-to-br from-primary/20 to-primary/10 rounded-2xl flex items-center justify-center mb-6 border border-primary/20">
-          <Zap className="h-8 w-8 text-primary" />
+      <div className="relative text-center py-20 px-8 bg-gradient-to-br from-card/50 via-card to-muted/20 rounded-2xl border border-border/30 shadow-lg">
+        {/* Subtle background pattern */}
+        <div className="absolute inset-0 opacity-20 rounded-2xl">
+          <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:24px_24px]" />
         </div>
-        <h4 className="text-lg font-semibold text-foreground mb-3">
-          No integrations configured
-        </h4>
-        <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto leading-relaxed">
-          Connect your apps below to make them available for dashboard chats. All tools will be automatically enabled when you connect.
-        </p>
-        <div className="flex gap-3 justify-center">
-          <Button 
-            onClick={() => setShowIntegrations(true)} 
-            variant="default"
-            size="lg"
-            className="shadow-sm"
-          >
-            <Store className="h-4 w-4 mr-2" />
-            Browse Apps
-          </Button>
-          <Button 
-            onClick={() => setShowCustomMCPDialog(true)} 
-            variant="outline"
-            size="lg"
-            className="shadow-sm"
-          >
-            <Server className="h-4 w-4 mr-2" />
-            Custom MCP
-          </Button>
+        
+        <div className="relative">
+          {/* Clean icon */}
+          <div className="mx-auto w-20 h-20 bg-gradient-to-br from-primary/15 to-primary/5 rounded-2xl flex items-center justify-center mb-6 border border-primary/20 shadow-sm">
+            <Zap className="h-10 w-10 text-primary" />
+          </div>
+          
+          {/* Original content */}
+          <h4 className="text-lg font-semibold text-foreground mb-3">
+            No integrations configured
+          </h4>
+          <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto leading-relaxed">
+            Connect your apps below to make them available for dashboard chats. All tools will be automatically enabled when you connect.
+          </p>
+          
+          {/* Cleaner buttons */}
+          <div className="flex gap-3 justify-center">
+            <Button 
+              onClick={() => setShowIntegrations(true)} 
+              variant="default"
+              size="lg"
+              className="shadow-sm hover:shadow-md transition-shadow"
+            >
+              <Store className="h-4 w-4 mr-2" />
+              Browse Apps
+            </Button>
+            <Button 
+              onClick={() => setShowCustomMCPDialog(true)} 
+              variant="outline"
+              size="lg"
+              className="shadow-sm hover:shadow-md transition-shadow"
+            >
+              <Server className="h-4 w-4 mr-2" />
+              Custom MCP
+            </Button>
+          </div>
         </div>
       </div>
     );
@@ -466,29 +485,22 @@ export function PipedreamDashboardManager({ compact = false }: PipedreamDashboar
       </AlertDialog>
 
       {/* Integrations Dialog */}
-      {showIntegrations && (
-        <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-          <div className="bg-background border rounded-lg shadow-lg max-w-4xl w-full max-h-[80vh] overflow-hidden">
-            <div className="flex items-center justify-between p-4 border-b">
-              <h2 className="text-lg font-semibold">Integrations</h2>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => setShowIntegrations(false)}
-                className="h-8 w-8 p-0"
-              >
-                ×
-              </Button>
-            </div>
-            <div className="overflow-auto max-h-[calc(80vh-80px)]">
-              <PipedreamRegistry
-                onProfileSelected={handleProfileSelected}
-                onToolsSelected={handleToolsSelected}
-              />
-            </div>
+      <Dialog open={showIntegrations} onOpenChange={setShowIntegrations}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Browse Integrations</DialogTitle>
+            <DialogDescription>
+              Browse and connect apps to make them available for dashboard chats
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto flex-1">
+            <PipedreamRegistry
+              onProfileSelected={handleProfileSelected}
+              onToolsSelected={handleToolsSelected}
+            />
           </div>
-        </div>
-      )}
+        </DialogContent>
+      </Dialog>
 
       {/* Custom MCP Dialog */}
       <CustomMCPDialog

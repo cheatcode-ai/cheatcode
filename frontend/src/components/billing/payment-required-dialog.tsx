@@ -15,8 +15,8 @@ export const PaymentRequiredDialog = () => {
     
     return (
       <Dialog open={isModalOpen} onOpenChange={onClose}>
-        <DialogContent className="w-[95vw] max-w-[900px] max-h-[90vh] overflow-hidden flex flex-col p-4 sm:p-6">
-          <div className="w-full">
+        <DialogContent className="w-[95vw] max-w-[900px] max-h-[90vh] overflow-y-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent flex flex-col p-4 sm:p-6">
+          <div className="w-full min-h-0">
             <BillingPricingSection 
               insideDialog={true} 
               hideFree={false} 
