@@ -24,29 +24,11 @@ export const useDevServer = ({ sandboxId, isPreviewTabActive, appType = 'web', p
       const token = await getToken();
       if (!token) return;
 
-      // For mobile projects, if we have a preview URL, test it directly
-      if (appType === 'mobile' && previewUrl) {
-        try {
-          const testResponse = await fetch(previewUrl, { 
-            method: 'HEAD',
-            mode: 'no-cors',
-            cache: 'no-cache'
-          });
-          
-          console.log('[MOBILE DEV SERVER] Direct URL test result:', {
-            url: previewUrl,
-            ok: testResponse.ok,
-            status: testResponse.status
-          });
-          
-          // For no-cors mode, we can't read the status, but if no error is thrown, URL is accessible
-          setStatus('running');
-          setError(null);
-          return;
-        } catch (urlError) {
-          console.log('[MOBILE DEV SERVER] Direct URL test failed:', urlError);
-          // Fall back to command execution
-        }
+      // For mobile projects, always check the expo process instead of URL
+      // The preview URL might be accessible even when expo isn't running
+      if (appType === 'mobile') {
+        console.log('[MOBILE DEV SERVER] Checking expo process status for mobile app');
+        // Fall through to command execution to check expo process
       }
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
