@@ -59,9 +59,10 @@ export function ExpandableTabs({
 
 
   React.useEffect(() => {
-    // Ensure web app is selected by default on mount
+    // Ensure web app is selected by default on mount (only once)
     onChange?.(0);
-  }, [onChange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Remove onChange dependency to prevent race condition
 
   const handleSelect = (index: number) => {
     setSelected(index);

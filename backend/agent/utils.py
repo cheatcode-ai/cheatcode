@@ -54,7 +54,7 @@ async def stop_agent_run(db, agent_run_id: str, error_message: Optional[str] = N
         logger.error(f"Failed to publish STOP signal to global channel {global_control_channel}: {str(e)}")
 
     try:
-        instance_keys = await redis.keys(f"active_run:*:{agent_run_id}")
+        instance_keys = await redis.scan_keys(f"active_run:*:{agent_run_id}")
         logger.debug(f"Found {len(instance_keys)} active instance keys for agent run {agent_run_id}")
 
         for key in instance_keys:

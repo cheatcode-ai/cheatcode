@@ -24,6 +24,8 @@ dependencies = [
   "uvicorn==0.27.1",
   "python-multipart==0.0.20",
   "redis>=5.2.0",
+  "upstash-redis>=1.4.0",
+  "aiohttp>=3.8.0",
   "supabase==2.15.0",
   "pyjwt==2.10.1",
   "certifi==2024.2.2",

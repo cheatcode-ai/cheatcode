@@ -76,14 +76,25 @@ class FeatureFlagManager:
             return False
     
     async def list_flags(self) -> Dict[str, bool]:
-        """List all feature flags with their status"""
+        """List all feature flags with their status - optimized to reduce Redis calls"""
         try:
             redis_client = await redis.get_client()
             flag_keys = await redis_client.smembers(self.flag_list_key)
             flags = {}
             
-            for key in flag_keys:
-                flags[key] = await self.is_enabled(key)
+            # Batch get all flag data in one pipeline operation instead of N+1 queries
+            if flag_keys:
+                pipe = redis_client.pipeline()
+                for key in flag_keys:
+                    flag_key = f"{self.flag_prefix}{key}"
+                    pipe.hget(flag_key, 'enabled')
+                
+                results = await pipe.execute()
+                
+                # Map results back to flag keys
+                for i, key in enumerate(flag_keys):
+                    enabled_value = results[i] if i < len(results) else None
+                    flags[key] = enabled_value == 'true' if enabled_value else False
             
             return flags
         except Exception as e:
@@ -91,16 +102,26 @@ class FeatureFlagManager:
             return {}
     
     async def get_all_flags_details(self) -> Dict[str, Dict[str, str]]:
-        """Get all feature flags with detailed information"""
+        """Get all feature flags with detailed information - optimized with pipelining"""
         try:
             redis_client = await redis.get_client()
             flag_keys = await redis_client.smembers(self.flag_list_key)
             flags = {}
             
-            for key in flag_keys:
-                flag_data = await self.get_flag(key)
-                if flag_data:
-                    flags[key] = flag_data
+            # Batch get all flag details in one pipeline operation
+            if flag_keys:
+                pipe = redis_client.pipeline()
+                for key in flag_keys:
+                    flag_key = f"{self.flag_prefix}{key}"
+                    pipe.hgetall(flag_key)
+                
+                results = await pipe.execute()
+                
+                # Map results back to flag keys
+                for i, key in enumerate(flag_keys):
+                    flag_data = results[i] if i < len(results) else None
+                    if flag_data:
+                        flags[key] = flag_data
             
             return flags
         except Exception as e:

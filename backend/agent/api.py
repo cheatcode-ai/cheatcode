@@ -134,7 +134,7 @@ async def cleanup():
     # Use the instance_id to find and clean up this instance's keys
     try:
         if instance_id: # Ensure instance_id is set
-            running_keys = await redis.keys(f"active_run:{instance_id}:*")
+            running_keys = await redis.scan_keys(f"active_run:{instance_id}:*")
             logger.info(f"Found {len(running_keys)} running agent runs for instance {instance_id} to clean up")
 
             for key in running_keys:
@@ -433,8 +433,8 @@ async def start_agent(
         # Update agent run status to failed
         await client.table('agent_runs').update({
             "status": "failed",
-            "error_message": f"Failed to queue background task: {str(e)}",
-            "finished_at": datetime.now(timezone.utc).isoformat()
+            "error": f"Failed to queue background task: {str(e)}",
+            "completed_at": datetime.now(timezone.utc).isoformat()
         }).eq('run_id', agent_run_id).execute()
         raise HTTPException(status_code=500, detail=f"Failed to queue background task: {str(e)}")
 
@@ -1376,8 +1376,8 @@ async def initiate_agent_with_files(
             # Update agent run status to failed
             await client.table('agent_runs').update({
                 "status": "failed",
-                "error_message": f"Failed to queue background task: {str(e)}",
-                "finished_at": datetime.now(timezone.utc).isoformat()
+                "error": f"Failed to queue background task: {str(e)}",
+                "completed_at": datetime.now(timezone.utc).isoformat()
             }).eq('run_id', agent_run_id).execute()
             raise HTTPException(status_code=500, detail=f"Failed to queue background task: {str(e)}")
 

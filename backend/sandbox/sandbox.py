@@ -97,6 +97,10 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
                     except Exception as retry_err:
                         logger.error(f"Retry after freeing memory failed: {retry_err}")
                         raise e  # Raise original error
+                elif "RUNNING" in error_msg or "already running" in error_msg.lower():
+                    # Sandbox is already running - this is fine, just continue
+                    logger.debug(f"Sandbox {sandbox_id} is already running, continuing...")
+                    pass
                 else:
                     logger.error(f"Error starting sandbox: {e}")
                     raise e

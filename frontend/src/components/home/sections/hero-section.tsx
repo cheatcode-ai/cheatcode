@@ -252,7 +252,7 @@ export function HeroSection() {
 
           {/* Example prompts */}
           <div className="w-full max-w-4xl">
-            <Examples onSelectPrompt={setInputValue} appType={appType} />
+            <Examples key={appType} onSelectPrompt={setInputValue} appType={appType} />
           </div>
         </div>
       </div>

@@ -99,7 +99,7 @@ async def run_agent_background(
         # Check if the run is already being handled by another instance
         existing_instance = await redis.get(run_lock_key)
         if existing_instance:
-            logger.info(f"Agent run {agent_run_id} is already being processed by instance {existing_instance.decode() if isinstance(existing_instance, bytes) else existing_instance}. Skipping duplicate execution.")
+            logger.info(f"Agent run {agent_run_id} is already being processed by instance {existing_instance}. Skipping duplicate execution.")
             return
         else:
             # Lock exists but no value, try to acquire again

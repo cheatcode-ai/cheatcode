@@ -448,11 +448,30 @@ async def execute_command(
         # Get project to determine app_type for default cwd
         default_cwd = '/workspace/cheatcode-app'  # fallback
         try:
-            project_result = await client.table('projects').select('app_type').filter('sandbox->>id', 'eq', sandbox_id).execute()
+            # Try JSON field query first (correct syntax: ->> for text extraction)
+            project_result = await client.table('projects').select('app_type, sandbox').filter('sandbox->>id', 'eq', sandbox_id).execute()
             if project_result.data:
                 app_type = project_result.data[0].get('app_type', 'web')
                 default_cwd = '/workspace/cheatcode-mobile' if app_type == 'mobile' else '/workspace/cheatcode-app'
                 logger.debug(f"Using default cwd {default_cwd} for app_type: {app_type}")
+                logger.info(f"Successfully found project with app_type: {app_type} for sandbox: {sandbox_id}")
+            else:
+                # Fallback: get all projects and filter in Python
+                logger.warning(f"JSON query failed, trying fallback method for sandbox {sandbox_id}")
+                all_projects = await client.table('projects').select('app_type, sandbox').execute()
+                matching_project = None
+                for project in all_projects.data or []:
+                    sandbox_data = project.get('sandbox', {})
+                    if isinstance(sandbox_data, dict) and sandbox_data.get('id') == sandbox_id:
+                        matching_project = project
+                        break
+                
+                if matching_project:
+                    app_type = matching_project.get('app_type', 'web')
+                    default_cwd = '/workspace/cheatcode-mobile' if app_type == 'mobile' else '/workspace/cheatcode-app'
+                    logger.info(f"Fallback query found project with app_type: {app_type} for sandbox: {sandbox_id}")
+                else:
+                    logger.warning(f"No project found for sandbox {sandbox_id} even with fallback, using web default")
         except Exception as e:
             logger.warning(f"Could not determine app_type for sandbox {sandbox_id}, using web default: {e}")
         
