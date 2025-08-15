@@ -129,12 +129,18 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
   // Special-case: route billing errors to modal instead of toast when possible
   if (typeof window !== 'undefined') {
     try {
-      const { useModal } = await import('@/hooks/use-modal-store');
-      const { onOpen } = useModal.getState();
+      // Use dynamic import with promise to avoid async requirement
       const msg = extractErrorMessage(error).toLowerCase();
       if (msg.includes('payment required') || msg.includes('upgrade required') || msg.includes('insufficient credits')) {
-        onOpen('paymentRequiredDialog');
-        return;
+        import('@/hooks/use-modal-store').then(({ useModal }) => {
+          const { onOpen } = useModal.getState();
+          onOpen('paymentRequiredDialog');
+        }).catch(() => {
+          // Fallback to regular toast if dynamic import fails
+          const message = extractErrorMessage(error);
+          toast.error(message, toastOptions);
+        });
+        return; // Return early to prevent showing regular toast
       }
     } catch {}
   }
