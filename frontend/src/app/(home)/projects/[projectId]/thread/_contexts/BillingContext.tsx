@@ -15,11 +15,6 @@ interface BillingContextValue {
   setBillingData: React.Dispatch<React.SetStateAction<BillingData>>;
   onDismissBilling: () => void;
   
-  // Upgrade dialog
-  showUpgradeDialog: boolean;
-  setShowUpgradeDialog: React.Dispatch<React.SetStateAction<boolean>>;
-  handleDismissUpgradeDialog: () => void;
-  
   // Subscription data
   subscriptionStatus: 'active' | 'no_subscription';
 }
@@ -40,7 +35,6 @@ interface BillingProviderProps {
 
 export function BillingProvider({ children }: BillingProviderProps) {
   const { project, initialLoadCompleted } = useThreadState();
-  const [showUpgradeDialog, setShowUpgradeDialog] = useState(false);
 
   const {
     showBillingAlert,
@@ -60,31 +54,12 @@ export function BillingProvider({ children }: BillingProviderProps) {
     setShowBillingAlert(false);
   }, [setShowBillingAlert]);
 
-  const handleDismissUpgradeDialog = useCallback(() => {
-    setShowUpgradeDialog(false);
-    localStorage.setItem('suna_upgrade_dialog_displayed', 'true');
-  }, []);
-
-  // Show upgrade dialog for free tier users
-  useEffect(() => {
-    if (initialLoadCompleted && subscriptionData) {
-      const hasSeenUpgradeDialog = localStorage.getItem('suna_upgrade_dialog_displayed');
-      const isFreeTier = subscriptionStatus === 'no_subscription';
-      if (!hasSeenUpgradeDialog && isFreeTier && !isLocalMode()) {
-        setShowUpgradeDialog(true);
-      }
-    }
-  }, [subscriptionData, subscriptionStatus, initialLoadCompleted]);
-
   const value: BillingContextValue = {
     showBillingAlert,
     setShowBillingAlert,
     billingData,
     setBillingData,
     onDismissBilling,
-    showUpgradeDialog,
-    setShowUpgradeDialog,
-    handleDismissUpgradeDialog,
     subscriptionStatus,
   };
 
