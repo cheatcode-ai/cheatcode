@@ -32,7 +32,7 @@ export function NavMenu() {
         setIsReady(true);
       }
     }
-  }, [navs.length]);
+  }, []); // navs is a module constant, doesn't need to be a dependency
 
   React.useEffect(() => {
     if (navs.length === 0) return;

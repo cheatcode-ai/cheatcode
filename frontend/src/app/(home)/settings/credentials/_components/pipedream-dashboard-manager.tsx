@@ -106,7 +106,7 @@ export function PipedreamDashboardManager({ compact = false }: PipedreamDashboar
         autoEnableTools.mutate();
       }
     }
-  }, [profiles]);
+  }, [profiles, autoEnableTools]);
 
   // Update dashboard default mutation
   const updateDashboardDefault = useMutation({

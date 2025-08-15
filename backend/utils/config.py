@@ -67,10 +67,7 @@ class Configuration:
     SUPABASE_SERVICE_ROLE_KEY: str
     
     # Redis configuration
-    REDIS_HOST: str
-    REDIS_PORT: int = 6379
-    REDIS_PASSWORD: Optional[str] = None
-    REDIS_SSL: bool = True
+    REDIS_URL: str
     
     # Daytona sandbox configuration
     DAYTONA_API_KEY: str
@@ -79,7 +76,6 @@ class Configuration:
     
     # Search and other API keys
     TAVILY_API_KEY: str
-    RAPID_API_KEY: Optional[str] = None
     CLOUDFLARE_API_TOKEN: Optional[str] = None
     FIRECRAWL_API_KEY: str
     FIRECRAWL_URL: Optional[str] = "https://api.firecrawl.dev"

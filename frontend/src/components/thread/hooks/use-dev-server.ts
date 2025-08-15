@@ -189,7 +189,7 @@ export const useDevServer = ({ sandboxId, isPreviewTabActive, appType = 'web', p
       setError('Failed to start development server');
       setStatus('stopped');
     }
-  }, [sandboxId, getToken, checkStatus, previewUrl]);
+  }, [sandboxId, getToken, checkStatus, previewUrl, appType]);
 
   // Check dev server status when preview tab is active
   useEffect(() => {

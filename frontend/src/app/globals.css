@@ -306,10 +306,18 @@
     text-rendering: optimizeLegibility;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    border: none !important;
+    outline: none !important;
+    margin: 0;
+    padding: 0;
   }
   body {
     @apply bg-background text-foreground;
     font-feature-settings: 'palt'; /* Adjusts spacing for CJK text */
+    border: none !important;
+    outline: none !important;
+    margin: 0;
+    padding: 0;
   }
 
   /* Add font fallbacks for CJK characters */

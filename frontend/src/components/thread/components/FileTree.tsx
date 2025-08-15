@@ -166,7 +166,7 @@ export const FileTree: React.FC<FileTreeProps> = ({
         );
       }
     });
-  }, [handleFileSelect, workspacePath, loadingDirectories, handleTreeDirectoryToggle]);
+  }, [handleFileSelect, workspacePath, loadingDirectories]);
 
   if (isLoading) {
     return (

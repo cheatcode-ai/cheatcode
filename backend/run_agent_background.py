@@ -19,27 +19,17 @@ from utils.retry import retry
 from services.langfuse import langfuse, safe_trace
 
 # Redis Configuration for Dramatiq
-redis_host = os.getenv('REDIS_HOST', 'redis')
-redis_port = int(os.getenv('REDIS_PORT', 6379))
-redis_password = os.getenv('REDIS_PASSWORD', '')
-redis_ssl = os.getenv('REDIS_SSL', 'false').lower() == 'true'
+# Use Upstash Redis URL for Dramatiq broker
+redis_url = os.getenv('REDIS_URL')
 
-# Configure SSL for Upstash if needed
+if not redis_url:
+    raise ValueError("REDIS_URL environment variable is required")
+
 broker_kwargs = {
-    "host": redis_host,
-    "port": redis_port,
-    "password": redis_password if redis_password else None,
+    "url": redis_url,
     "namespace": "dramatiq",
     "middleware": [dramatiq.middleware.AsyncIO()],
 }
-
-if redis_ssl:
-    import ssl
-    broker_kwargs.update({
-        "ssl": True,
-        "ssl_cert_reqs": ssl.CERT_NONE,  # Required for Upstash
-        "ssl_check_hostname": False,
-    })
 
 redis_broker = RedisBroker(**broker_kwargs)
 dramatiq.set_broker(redis_broker)

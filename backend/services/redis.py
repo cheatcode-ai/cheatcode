@@ -1,14 +1,13 @@
-import redis.asyncio as redis
 import os
 from dotenv import load_dotenv
 import asyncio
+import redis.asyncio as redis_py
 from utils.logger import logger
-from typing import List, Any
+from typing import List, Any, Optional
 from utils.retry import retry
 
-# Redis client and connection pool
-client: redis.Redis | None = None
-pool: redis.ConnectionPool | None = None
+# Simple Redis setup using redis-py for all operations
+redis_client: redis_py.Redis | None = None
 _initialized = False
 _init_lock = asyncio.Lock()
 
@@ -17,157 +16,181 @@ REDIS_KEY_TTL = 3600 * 24  # 24 hour TTL as safety mechanism
 
 
 def initialize():
-    """Initialize Redis connection pool and client using environment variables."""
-    global client, pool
+    """Initialize Redis client."""
+    global redis_client
 
     # Load environment variables if not already loaded
     load_dotenv()
 
     # Get Redis configuration
-    redis_host = os.getenv("REDIS_HOST", "redis")
-    redis_port = int(os.getenv("REDIS_PORT", 6379))
-    redis_password = os.getenv("REDIS_PASSWORD", "")
-    redis_ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
+    redis_url = os.getenv("REDIS_URL")
     
-    # Connection pool configuration
-    max_connections = int(os.getenv("REDIS_MAX_CONNECTIONS", 2048))
-    retry_on_timeout = not (os.getenv("REDIS_RETRY_ON_TIMEOUT", "True").lower() != "true")
+    if not redis_url:
+        raise ValueError("REDIS_URL environment variable is required")
 
-    ssl_status = "with SSL" if redis_ssl else "without SSL"
-    logger.info(f"Initializing Redis connection pool to {redis_host}:{redis_port} {ssl_status} with max {max_connections} connections")
+    logger.info(f"Initializing Redis client...")
+    logger.info(f"- Redis URL: {redis_url[:20]}...")
 
-    # Create connection pool with SSL support for Upstash
-    pool_kwargs = {
-        "host": redis_host,
-        "port": redis_port,
-        "password": redis_password,
-        "decode_responses": True,
-        "socket_timeout": 20.0,
-        "socket_connect_timeout": 20.0,
-        "retry_on_timeout": retry_on_timeout,
-        "health_check_interval": 30,
-        "max_connections": max_connections,
-    }
-    
-    # Add SSL configuration for Upstash
-    if redis_ssl:
-        import ssl
-        pool_kwargs.update({
-            "connection_class": redis.SSLConnection,
-            "ssl_cert_reqs": ssl.CERT_NONE,  # Required for Upstash
-            "ssl_check_hostname": False,
-        })
-    
-    pool = redis.ConnectionPool(**pool_kwargs)
+    # Create redis-py client for all operations
+    redis_client = redis_py.from_url(redis_url)
 
-    # Create Redis client from connection pool
-    client = redis.Redis(connection_pool=pool)
-
-    return client
+    return redis_client
 
 
 async def initialize_async():
     """Initialize Redis connection asynchronously."""
-    global client, _initialized
+    global redis_client, _initialized
 
     async with _init_lock:
-        if not _initialized:
-            logger.info("Initializing Redis connection")
-            initialize()
+        if _initialized:
+            return
+
+        # Load environment variables if not already loaded
+        load_dotenv()
+
+        # Get Redis configuration
+        redis_url = os.getenv("REDIS_URL")
+        
+        if not redis_url:
+            raise ValueError("REDIS_URL environment variable is required")
+
+        logger.info(f"Initializing Redis client...")
+        logger.info(f"- Redis URL: {redis_url[:20]}...")
+
+        # Create redis-py client for all operations
+        redis_client = redis_py.from_url(redis_url)
 
         try:
-            await client.ping()
-            logger.info("Successfully connected to Redis")
+            # Test connection
+            await redis_client.ping()
+            logger.info("Redis connection verified")
+            logger.info("Redis initialization completed successfully")
             _initialized = True
         except Exception as e:
-            logger.error(f"Failed to connect to Redis: {e}")
-            client = None
-            _initialized = False
+            logger.error(f"Failed to initialize Redis: {e}")
             raise
-
-    return client
 
 
 async def close():
-    """Close Redis connection and connection pool."""
-    global client, pool, _initialized
-    if client:
-        logger.info("Closing Redis connection")
-        await client.aclose()
-        client = None
+    """Close Redis connections."""
+    global redis_client, _initialized
     
-    if pool:
-        logger.info("Closing Redis connection pool")
-        await pool.aclose()
-        pool = None
+    if redis_client:
+        logger.info("Closing Redis connection")
+        await redis_client.aclose()
+        redis_client = None
     
     _initialized = False
-    logger.info("Redis connection and pool closed")
+    logger.info("Redis connection closed")
 
 
 async def get_client():
     """Get the Redis client, initializing if necessary."""
-    global client, _initialized
-    if client is None or not _initialized:
+    global redis_client, _initialized
+    if not _initialized:
         await retry(lambda: initialize_async())
-    return client
+    return redis_client
 
 
-# Basic Redis operations
-async def set(key: str, value: str, ex: int = None, nx: bool = False):
-    """Set a Redis key."""
-    redis_client = await get_client()
-    return await redis_client.set(key, value, ex=ex, nx=nx)
+async def ping():
+    """Ping Redis to test connection."""
+    client = await get_client()
+    return await client.ping()
 
 
-async def get(key: str, default: str = None):
-    """Get a Redis key."""
-    redis_client = await get_client()
-    result = await redis_client.get(key)
-    return result if result is not None else default
+async def set_value(key: str, value: str, ttl: int = REDIS_KEY_TTL):
+    """Set a value in Redis with optional TTL."""
+    client = await get_client()
+    return await client.set(key, value, ex=ttl)
 
 
-async def delete(key: str):
-    """Delete a Redis key."""
-    redis_client = await get_client()
-    return await redis_client.delete(key)
+async def get_value(key: str) -> Optional[str]:
+    """Get a value from Redis."""
+    client = await get_client()
+    result = await client.get(key)
+    return result.decode('utf-8') if result else None
 
 
+async def delete_key(key: str) -> bool:
+    """Delete a key from Redis."""
+    client = await get_client()
+    return bool(await client.delete(key))
+
+
+async def exists(key: str) -> bool:
+    """Check if a key exists in Redis."""
+    client = await get_client()
+    return bool(await client.exists(key))
+
+
+async def increment(key: str, amount: int = 1) -> int:
+    """Increment a key's value in Redis."""
+    client = await get_client()
+    return await client.incr(key, amount)
+
+
+async def set_hash(key: str, mapping: dict, ttl: int = REDIS_KEY_TTL):
+    """Set a hash in Redis."""
+    client = await get_client()
+    await client.hset(key, mapping=mapping)
+    if ttl:
+        await client.expire(key, ttl)
+
+
+async def get_hash(key: str) -> dict:
+    """Get a hash from Redis."""
+    client = await get_client()
+    return await client.hgetall(key)
+
+
+async def add_to_list(key: str, value: str, ttl: int = REDIS_KEY_TTL):
+    """Add a value to a Redis list."""
+    client = await get_client()
+    await client.lpush(key, value)
+    if ttl:
+        await client.expire(key, ttl)
+
+
+async def get_list(key: str, start: int = 0, end: int = -1) -> List[str]:
+    """Get values from a Redis list."""
+    client = await get_client()
+    return await client.lrange(key, start, end)
+
+
+async def add_to_set(key: str, value: str, ttl: int = REDIS_KEY_TTL):
+    """Add a value to a Redis set."""
+    client = await get_client()
+    await client.sadd(key, value)
+    if ttl:
+        await client.expire(key, ttl)
+
+
+async def get_set_members(key: str) -> set:
+    """Get members of a Redis set."""
+    client = await get_client()
+    return await client.smembers(key)
+
+
+async def is_member_of_set(key: str, value: str) -> bool:
+    """Check if a value is a member of a Redis set."""
+    client = await get_client()
+    return await client.sismember(key, value)
+
+
+# Pub/Sub operations
 async def publish(channel: str, message: str):
     """Publish a message to a Redis channel."""
-    redis_client = await get_client()
-    return await redis_client.publish(channel, message)
+    client = await get_client()
+    return await client.publish(channel, message)
 
 
-async def create_pubsub():
-    """Create a Redis pubsub object."""
-    redis_client = await get_client()
-    return redis_client.pubsub()
+async def subscribe(channel: str):
+    """Subscribe to a Redis channel."""
+    client = await get_client()
+    pubsub = client.pubsub()
+    await pubsub.subscribe(channel)
+    return pubsub
 
 
-# List operations
-async def rpush(key: str, *values: Any):
-    """Append one or more values to a list."""
-    redis_client = await get_client()
-    return await redis_client.rpush(key, *values)
-
-
-async def lrange(key: str, start: int, end: int) -> List[str]:
-    """Get a range of elements from a list."""
-    redis_client = await get_client()
-    return await redis_client.lrange(key, start, end)
-
-
-# Key management
-
-async def expire(key: str, ttl: int):
-    """Set TTL on a key."""
-    redis_client = await get_client()
-    return await redis_client.expire(key, ttl)
-
-
-
-async def keys(pattern: str) -> List[str]:
-    """Get keys matching a pattern."""
-    redis_client = await get_client()
-    return await redis_client.keys(pattern)
+# For backward compatibility
+get_redis_client = get_client

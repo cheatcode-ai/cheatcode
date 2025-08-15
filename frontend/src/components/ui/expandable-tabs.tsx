@@ -61,7 +61,7 @@ export function ExpandableTabs({
   React.useEffect(() => {
     // Ensure web app is selected by default on mount
     onChange?.(0);
-  }, []);
+  }, [onChange]);
 
   const handleSelect = (index: number) => {
     setSelected(index);

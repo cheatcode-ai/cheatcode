@@ -23,7 +23,7 @@ dependencies = [
   "fastapi==0.115.12",
   "uvicorn==0.27.1",
   "python-multipart==0.0.20",
-  "redis==5.2.1",
+  "redis>=5.2.0",
   "supabase==2.15.0",
   "pyjwt==2.10.1",
   "certifi==2024.2.2",
