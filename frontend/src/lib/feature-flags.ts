@@ -245,8 +245,29 @@ export const useFeatureFlag = (flagName: string, options?: {
   gcTime?: number;
   refetchOnWindowFocus?: boolean;
 }) => {
-  // Short-circuit if feature flags are disabled globally
+  // Check if feature flags are disabled globally
   const flagsEnabled = process.env.NEXT_PUBLIC_FEATURE_FLAGS_ENABLED === 'true';
+
+  const query = useQuery({
+    queryKey: featureFlagKeys.flag(flagName),
+    queryFn: () => fetchFeatureFlag(flagName),
+    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
+    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
+    enabled: flagsEnabled && (options?.enabled ?? true), // Disable query if flags are globally disabled
+    retry: (failureCount, error) => {
+      // Don't retry on 4xx errors, but retry on network errors
+      if (error instanceof Error && error.message.includes('4')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+    meta: {
+      errorMessage: `Failed to fetch feature flag: ${flagName}`,
+    },
+  });
+
+  // If feature flags are disabled globally, return a static disabled state
   if (!flagsEnabled) {
     return {
       enabled: false, // Always return false if the system is off
@@ -269,25 +290,6 @@ export const useFeatureFlag = (flagName: string, options?: {
     };
   }
 
-  const query = useQuery({
-    queryKey: featureFlagKeys.flag(flagName),
-    queryFn: () => fetchFeatureFlag(flagName),
-    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
-    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
-    refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
-    enabled: options?.enabled ?? true,
-    retry: (failureCount, error) => {
-      // Don't retry on 4xx errors, but retry on network errors
-      if (error instanceof Error && error.message.includes('4')) {
-        return false;
-      }
-      return failureCount < 3;
-    },
-    meta: {
-      errorMessage: `Failed to fetch feature flag: ${flagName}`,
-    },
-  });
-
   // Return backward-compatible interface
   return {
     enabled: query.data ?? false,
@@ -303,8 +305,24 @@ export const useFeatureFlagDetails = (flagName: string, options?: {
   staleTime?: number;
   gcTime?: number;
 }) => {
-  // Short-circuit if feature flags are disabled globally
+  // Check if feature flags are disabled globally
   const flagsEnabled = process.env.NEXT_PUBLIC_FEATURE_FLAGS_ENABLED === 'true';
+
+  const query = useQuery({
+    queryKey: featureFlagKeys.flagDetails(flagName),
+    queryFn: () => fetchFeatureFlagDetails(flagName),
+    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
+    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
+    enabled: flagsEnabled && (options?.enabled ?? true), // Disable query if flags are globally disabled
+    retry: (failureCount, error) => {
+      if (error instanceof Error && error.message.includes('4')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+
+  // If feature flags are disabled globally, return a static disabled state
   if (!flagsEnabled) {
     return {
       data: null,
@@ -324,19 +342,7 @@ export const useFeatureFlagDetails = (flagName: string, options?: {
     };
   }
 
-  return useQuery({
-    queryKey: featureFlagKeys.flagDetails(flagName),
-    queryFn: () => fetchFeatureFlagDetails(flagName),
-    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
-    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
-    enabled: options?.enabled ?? true,
-    retry: (failureCount, error) => {
-      if (error instanceof Error && error.message.includes('4')) {
-        return false;
-      }
-      return failureCount < 3;
-    },
-  });
+  return query;
 };
 
 export const useAllFeatureFlags = (options?: {
@@ -344,8 +350,24 @@ export const useAllFeatureFlags = (options?: {
   staleTime?: number;
   gcTime?: number;
 }) => {
-  // Short-circuit if feature flags are disabled globally
+  // Check if feature flags are disabled globally
   const flagsEnabled = process.env.NEXT_PUBLIC_FEATURE_FLAGS_ENABLED === 'true';
+
+  const query = useQuery({
+    queryKey: featureFlagKeys.allFlags(),
+    queryFn: fetchAllFeatureFlags,
+    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
+    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
+    enabled: flagsEnabled && (options?.enabled ?? true), // Disable query if flags are globally disabled
+    retry: (failureCount, error) => {
+      if (error instanceof Error && error.message.includes('4')) {
+        return false;
+      }
+      return failureCount < 3;
+    },
+  });
+
+  // If feature flags are disabled globally, return a static disabled state
   if (!flagsEnabled) {
     return {
       data: {},
@@ -365,19 +387,7 @@ export const useAllFeatureFlags = (options?: {
     };
   }
 
-  return useQuery({
-    queryKey: featureFlagKeys.allFlags(),
-    queryFn: fetchAllFeatureFlags,
-    staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
-    gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
-    enabled: options?.enabled ?? true,
-    retry: (failureCount, error) => {
-      if (error instanceof Error && error.message.includes('4')) {
-        return false;
-      }
-      return failureCount < 3;
-    },
-  });
+  return query;
 };
 
 export const useFeatureFlags = (flagNames: string[], options?: {
@@ -385,21 +395,8 @@ export const useFeatureFlags = (flagNames: string[], options?: {
   staleTime?: number;
   gcTime?: number;
 }) => {
-  // Short-circuit if feature flags are disabled globally
+  // Check if feature flags are disabled globally
   const flagsEnabled = process.env.NEXT_PUBLIC_FEATURE_FLAGS_ENABLED === 'true';
-  if (!flagsEnabled) {
-    // Create a flags object where every requested flag is set to false
-    const flags = flagNames.reduce((acc, name) => {
-      acc[name] = false;
-      return acc;
-    }, {} as Record<string, boolean>);
-
-    return {
-      flags,
-      loading: false,
-      error: null,
-    };
-  }
 
   const queries = useQueries({
     queries: flagNames.map((flagName) => ({
@@ -407,7 +404,7 @@ export const useFeatureFlags = (flagNames: string[], options?: {
       queryFn: () => fetchFeatureFlag(flagName),
       staleTime: options?.staleTime ?? 5 * 60 * 1000, // 5 minutes
       gcTime: options?.gcTime ?? 10 * 60 * 1000, // 10 minutes
-      enabled: options?.enabled ?? true,
+      enabled: flagsEnabled && (options?.enabled ?? true), // Disable queries if flags are globally disabled
       retry: (failureCount: number, error: Error) => {
         if (error.message.includes('4')) {
           return false;
@@ -419,13 +416,21 @@ export const useFeatureFlags = (flagNames: string[], options?: {
 
   // Transform the results into a more convenient format
   const flags = React.useMemo(() => {
+    if (!flagsEnabled) {
+      // Create a flags object where every requested flag is set to false
+      return flagNames.reduce((acc, name) => {
+        acc[name] = false;
+        return acc;
+      }, {} as Record<string, boolean>);
+    }
+
     const result: Record<string, boolean> = {};
     flagNames.forEach((flagName, index) => {
       const query = queries[index];
       result[flagName] = query.data ?? false;
     });
     return result;
-  }, [queries, flagNames]);
+  }, [queries, flagNames, flagsEnabled]);
 
   const loading = queries.some(query => query.isLoading);
   const error = queries.find(query => query.error)?.error?.message ?? null;

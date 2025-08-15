@@ -129,7 +129,8 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
   // Special-case: route billing errors to modal instead of toast when possible
   if (typeof window !== 'undefined') {
     try {
-      const { onOpen } = (require('@/hooks/use-modal-store') as typeof import('@/hooks/use-modal-store')).useModal.getState();
+      const { useModal } = await import('@/hooks/use-modal-store');
+      const { onOpen } = useModal.getState();
       const msg = extractErrorMessage(error).toLowerCase();
       if (msg.includes('payment required') || msg.includes('upgrade required') || msg.includes('insufficient credits')) {
         onOpen('paymentRequiredDialog');

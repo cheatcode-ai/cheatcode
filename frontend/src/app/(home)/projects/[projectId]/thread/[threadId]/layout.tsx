@@ -1,6 +1,7 @@
 import type { Metadata, ResolvingMetadata } from 'next'
 import { createClerkBackendApi } from '@/lib/api-client'
 import { auth } from '@clerk/nextjs/server'
+import { ModalProviders } from '@/providers/modal-providers'
 
 type Props = {
   params: Promise<{ projectId: string; threadId: string }>
@@ -49,7 +50,7 @@ export default function ThreadLayout({
 }: {
   children: React.ReactNode
 }) {
-  const ModalProviders = require('@/providers/modal-providers').ModalProviders
+
   return (
     <>
       <ModalProviders />
