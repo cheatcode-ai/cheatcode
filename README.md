@@ -1,8 +1,9 @@
 <div align="center">
 
-## Cheatcode AI
+## cheatcode
 
-An open-source, production-ready AI coding and automation platform.
+
+An open-source, production-ready AI coding Agent for Apps and Websites.
 
 Build, run, and ship full-stack apps with an agent that codes, executes, deploys, and integrates with your stack.
 
@@ -10,6 +11,9 @@ Build, run, and ship full-stack apps with an agent that codes, executes, deploys
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)](#backend)
 [![Frontend](https://img.shields.io/badge/Frontend-Next.js_15-000000)](#frontend)
 [![DB](https://img.shields.io/badge/DB-Supabase-3FCF8E)](#database)
+
+![Cheatcode AI](frontend/public/cheatcode-github-hero.png)
+
 
 </div>
 
@@ -41,8 +45,6 @@ Cheatcode is a full-stack application that pairs a Next.js dashboard with a Fast
 The platform is designed to run locally via Docker Compose or be self-hosted on your own infra.
 
 ### Architecture
-
-![Architecture Diagram](docs/images/diagram.png)
 
 - Backend API (FastAPI, Python 3.11)
   - REST endpoints, thread/project/message management
@@ -112,15 +114,139 @@ graph TD
   LLM --> OpenRouter
 ```
 
-### Tech stack
+### Complete Tech Stack
 
-- Backend: Python 3.11, FastAPI, Uvicorn/Gunicorn, Dramatiq, Redis, httpx, aiohttp, boto3, Sentry, Langfuse
-- Model routing: LiteLLM, OpenRouter, OpenAI, Anthropic, Groq, Google GenAI
-- Frontend: Next.js 15, React 18, Tailwind v4, shadcn/ui, Radix UI, TanStack Query, Zustand
-- Auth: Clerk
-- Data: Supabase (DB + storage)
-- Job/workers: Dramatiq + Redis
-- Sandbox: Daytona SDK (remote container workspaces)
+## **Frontend Stack**
+
+### **Core Framework & Runtime**
+- **Next.js 15.3.1** - React framework with App Router
+- **React 18** - Frontend UI library  
+- **TypeScript 5** - Type-safe JavaScript
+- **Node.js 20** - Runtime environment (Docker)
+
+### **Styling & UI Components**
+- **Tailwind CSS 4** - Utility-first CSS framework
+- **Radix UI** - Headless UI component library (accordion, dialog, dropdown, etc.)
+- **shadcn/ui** - Component system built on Radix UI
+- **Lucide React** - Icon library
+- **Framer Motion** - Animation library
+- **PostCSS** - CSS preprocessing
+
+### **State Management & Data Fetching**
+- **TanStack React Query 5.85.3** - Server state management
+- **Zustand 5** - Client state management
+- **SWR 2.2.5** - Data fetching library
+
+### **Code Editor & Development**
+- **CodeMirror 6** - In-browser code editor
+- **React CodeMirror** - React integration for CodeMirror
+- **Shiki** - Syntax highlighting
+
+### **Authentication & Database**
+- **Clerk** - Authentication provider
+- **Supabase** - Backend-as-a-Service (database, auth, storage)
+
+### **Development Tools**
+- **ESLint 9** - Code linting
+- **Prettier 3.5.3** - Code formatting
+- **TypeScript 5** - Static type checking
+
+## **Backend Stack**
+
+### **Core Framework & Runtime**
+- **Python 3.11** - Programming language
+- **FastAPI 0.115.12** - Web framework
+- **uvicorn 0.27.1** - ASGI server
+- **Gunicorn 23** - WSGI HTTP server for production
+- **uv 0.6.5** - Python package manager
+
+### **AI & LLM Integration**
+- **LiteLLM 1.72.2** - Unified LLM API interface
+- **OpenAI 1.90.0** - OpenAI API client
+- **Google GenAI 1.0.0** - Google Gemini API
+- **Anthropic** - Claude API integration
+- **OpenRouter** - LLM API aggregator
+- **Tavily Python 0.5.4** - Web search API
+
+### **Task Queue & Background Processing**
+- **Dramatiq 1.18.0** - Task queue system
+- **Redis 8-alpine** - Message broker and caching
+- **Upstash Redis** - Managed Redis service
+
+### **Database & Storage**
+- **Supabase** - PostgreSQL database with real-time features
+- **Clerk Backend API** - User management
+- **Basejump** - Supabase extensions for multi-tenancy
+
+### **Development Environment & Sandboxing**
+- **Daytona SDK** - Cloud development environments
+- **MCP (Model Context Protocol)** - Tool integration protocol
+- **Docker** - Containerization
+
+### **Payment & Billing**
+- **DodoPayments 1.44.0** - Payment processing
+- **Stripe** - Payment infrastructure (via DodoPayments)
+
+### **Monitoring & Observability**
+- **Sentry SDK** - Error tracking and performance monitoring
+- **Langfuse 2.60.5** - LLM observability and analytics
+- **Structlog 25.4.0** - Structured logging
+
+### **Integrations & APIs**
+- **Pipedream** - Workflow automation platform
+- **Mailtrap 2.0.1** - Email testing
+- **AWS Boto3** - Amazon Web Services SDK
+- **Smithery Registry** - MCP server discovery
+
+### **Security & Utilities**
+- **PyJWT 2.10.1** - JSON Web Token handling
+- **Cryptography 41** - Cryptographic operations
+- **Email Validator** - Email validation
+- **Python Multipart** - File upload handling
+- **Requests 2.32.3** - HTTP client library
+- **HTTPX 0.28.1** - Async HTTP client
+- **AIOHTTP 3.12.0** - Async HTTP framework
+
+## **DevOps & Infrastructure**
+
+### **Containerization**
+- **Docker** - Container platform
+- **Docker Compose** - Multi-container orchestration
+- **GitHub Container Registry** - Container image registry
+
+### **Development Tools**
+- **mise** - Development environment manager
+- **Git** - Version control
+- **pnpm** - Node.js package manager (frontend)
+- **npm** - Node.js package manager (alternative)
+
+### **Configuration Management**
+- **python-dotenv** - Environment variable management
+- **TOML** - Configuration file format
+
+### **Cloud Services Integration**
+- **Vercel** - Frontend deployment platform
+- **Upstash** - Managed Redis
+- **Supabase Cloud** - Managed PostgreSQL
+- **AWS S3** - Object storage (experimental)
+- **Google Cloud** - Cloud services
+- **Daytona Cloud** - Development environments
+
+## **Additional Technologies**
+
+### **File Processing**
+- **Pillow** - Image processing
+- **QRCode** - QR code generation
+- **JSZip** - ZIP file handling (frontend)
+
+### **Testing**
+- **pytest** - Python testing framework
+- **pytest-asyncio** - Async testing support
+
+### **Build Tools**
+- **Webpack** - Module bundler (via Next.js)
+- **PostCSS** - CSS processing
+- **Autoprefixer** - CSS vendor prefixing
 
 ### Services & Integrations
 
@@ -153,13 +279,14 @@ backend/                  # FastAPI service, workers, agents, services, utils
 frontend/                 # Next.js 15 app
   src/app/                # App Router pages (home, projects, settings, api routes)
   src/components/         # UI components
+  src/contexts/           # React contexts
   src/hooks/              # React Query and custom hooks
   src/lib/                # API clients, config, supabase helpers
-  middleware.ts           # Clerk auth protection
+  src/middleware.ts       # Clerk auth protection
+  src/providers/          # App-wide providers
+  src/types/              # Shared types
   package.json
 
-templates/                # App and mobile templates scaffolded by the agent
-docs/                     # Self-hosting and integration docs
 docker-compose.yaml       # API, worker, redis, frontend services
 ```
 
@@ -184,10 +311,11 @@ SUPABASE_SERVICE_ROLE_KEY=YOUR_SUPABASE_SERVICE_ROLE_KEY
 CLERK_SECRET_KEY=YOUR_CLERK_SECRET_KEY
 
 # Redis (compose uses service name `redis`)
-# For local development, use local Redis
-UPSTASH_REDIS_REST_URL=http://localhost:8080
-UPSTASH_REDIS_REST_TOKEN=local-token
-REDIS_URL=redis://localhost:6379
+# For Docker Compose, point to the service hostname
+REDIS_URL=redis://redis:6379
+# Optional: Only if using Upstash REST (leave empty locally)
+UPSTASH_REDIS_REST_URL=
+UPSTASH_REDIS_REST_TOKEN=
 
 # Models (choose at least one)
 OPENAI_API_KEY=...
@@ -208,7 +336,6 @@ LANGFUSE_SECRET_KEY=...
 
 ```env
 NEXT_PUBLIC_BACKEND_URL=http://localhost:8000
-BACKEND_URL=http://localhost:8000
 
 NEXT_PUBLIC_SUPABASE_URL=YOUR_SUPABASE_URL
 NEXT_PUBLIC_SUPABASE_ANON_KEY=YOUR_SUPABASE_ANON_KEY
@@ -219,7 +346,7 @@ NEXT_PUBLIC_URL=http://localhost:3000
 # Clerk
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=YOUR_CLERK_PUBLISHABLE_KEY
 
-# Optional
+# Optional flags/telemetry
 NEXT_PUBLIC_FEATURE_FLAGS_ENABLED=false
 EDGE_CONFIG= # if using Vercel Edge Config
 ```
@@ -243,7 +370,7 @@ Backend (`backend/.env`) — key variables loaded by `utils/config.py`:
 - Core: `ENV_MODE`, `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
 - Auth: `CLERK_SECRET_KEY`, `ADMIN_API_KEY`
 - Models: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `MODEL_TO_USE`
-- Redis: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `REDIS_URL`
+- Redis: `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`, `REDIS_URL` (use `redis://redis:6379` when running via Docker Compose)
 - Daytona: `DAYTONA_API_KEY`, `DAYTONA_SERVER_URL`, `DAYTONA_TARGET`
 - Search & crawl: `TAVILY_API_KEY`, `FIRECRAWL_API_KEY`, `FIRECRAWL_URL`, `RAPID_API_KEY`, `CLOUDFLARE_API_TOKEN`
 - Observability: `LANGFUSE_PUBLIC_KEY`, `LANGFUSE_SECRET_KEY`, `LANGFUSE_HOST`, `SENTRY_DSN`
@@ -251,7 +378,7 @@ Backend (`backend/.env`) — key variables loaded by `utils/config.py`:
 
 Frontend (`frontend/.env.local`):
 
-- Backend: `NEXT_PUBLIC_BACKEND_URL`, `BACKEND_URL`
+- Backend: `NEXT_PUBLIC_BACKEND_URL`
 - Supabase: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - App URLs: `NEXT_PUBLIC_APP_URL`, `NEXT_PUBLIC_URL`
 - Clerk: `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
@@ -271,7 +398,7 @@ Worker:
 
 ```bash
 cd backend
-uv run dramatiq --processes 2 --threads 2 run_agent_background
+uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
 ```
 
 Frontend:
@@ -281,7 +408,42 @@ cd frontend
 npm install
 npm run dev
 ```
+### First run checklist
 
+Use this to verify a clean first run:
+
+1) __Backend env (`backend/.env`)__
+   - `ENV_MODE=local`
+   - Set `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`
+   - Set `CLERK_SECRET_KEY`
+   - Provide at least one model key: `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` or `OPENROUTER_API_KEY`
+   - If using Docker Compose: `REDIS_URL=redis://redis:6379`
+
+2) __Frontend env (`frontend/.env.local`)__
+   - `NEXT_PUBLIC_BACKEND_URL=http://localhost:8000`
+   - `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+   - `NEXT_PUBLIC_APP_URL` and `NEXT_PUBLIC_URL` = `http://localhost:3000`
+   - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
+
+3) __Database (Supabase)__
+   - Ensure required tables exist (e.g., `projects`, `threads`, `messages`, `agent_runs`, `accounts`)
+   - For local dev, verify RLS isn’t blocking your user for basic reads/writes
+
+4) __Start services__
+   - Run: `docker compose up --build`
+   - Wait until API reports healthy
+
+5) __Verify locally__
+   - API health: open `http://localhost:8000/api/health` (expect `{ "status": "ok" }`)
+   - Frontend: open `http://localhost:3000`, sign in with Clerk
+   - Create a project, open a thread, send a message, start the agent
+
+6) __Troubleshooting quick tips__
+   - Agent fails: check model keys in `backend/.env`
+   - 401s: verify Clerk keys and [frontend/src/middleware.ts](cci:7://file:///c:/Users/USER/Desktop/deployment-cheatcode/frontend/src/middleware.ts:0:0-0:0)
+   - CORS: confirm `NEXT_PUBLIC_BACKEND_URL` and `allowed_origins` in [backend/main.py](cci:7://file:///c:/Users/USER/Desktop/deployment-cheatcode/backend/main.py:0:0-0:0)
+   - Queues: ensure Redis healthy and `worker` service running
+   
 ### Self-hosting
 
 This app runs anywhere Docker is available. Use the compose file for a production-like setup, or run services manually for development.
@@ -375,123 +537,8 @@ Contributions, issues, and feature requests are welcome. Please open an issue or
 
 ### License
 
-Apache 2.0 © Cheatcode AI. See [`LICENSE`](./LICENSE).
+Apache 2.0  Cheatcode AI. See [`LICENSE`](./LICENSE).
 
 —
 
 Built by [Jigyansu Rout](https://jigyansurout.com/)
-
-<div align="center">
-
-# Cheatcode AI — Coding Agent for Apps and Websites
-
-(that acts on your behalf)
-
-![CheatCode Screenshot](frontend/public/banner.png)
-
-CheatCode is a fully open source AI assistant that helps you accomplish real-world tasks with ease. Through natural conversation, CheatCode becomes your digital companion for research, data analysis, and everyday challenges—combining powerful capabilities with an intuitive interface that understands what you need and delivers results.
-
-CheatCode's powerful toolkit includes seamless browser automation to navigate the web and extract data, file management for document creation and editing, web crawling and extended search capabilities, command-line execution for system tasks, website deployment, and integration with various APIs and services. These capabilities work together harmoniously, allowing CheatCode to solve your complex problems and automate workflows through simple conversations!
-
-[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./license)
-[![Discord Follow](https://dcbadge.limes.pink/api/server/s3y5bUKUEF?style=flat)](https://discord.gg/s3y5bUKUEF)
-[![Twitter Follow](https://img.shields.io/twitter/follow/trycheatcode)](https://x.com/trycheatcode)
-[![GitHub Repo stars](https://img.shields.io/github/stars/cheatcode-ai/cheatcode)](https://github.com/cheatcode-ai/cheatcode)
-[![Issues](https://img.shields.io/github/issues/cheatcode-ai/cheatcode)](https://github.com/cheatcode-ai/cheatcode/labels/bug)
-
-<!-- Keep these links. Translations will automatically update with the README. -->
-<!-- Omitted external language links that referenced another product -->
-
-</div>
-
-## Table of Contents
-
-- [Cheatcode AI — Coding Agent for Apps and Websites](#cheatcode-ai--coding-agent-for-apps-and-websites)
-  - [Table of Contents](#table-of-contents-1)
-  - [Project Architecture](#project-architecture)
-    - [Backend API](#backend-api)
-    - [Frontend](#frontend)
-    - [Agent Docker](#agent-docker)
-    - [Supabase Database](#supabase-database)
-  - [Self-Hosting](#self-hosting-1)
-    - [Quick Start](#quick-start)
-    - [Manual Setup](#manual-setup)
-  - [Contributing](#contributing-1)
-    - [Technologies](#technologies)
-
-## Project Architecture
-
-![Architecture Diagram](docs/images/diagram.png)
-
-CheatCode consists of four main components:
-
-### Backend API
-
-Python/FastAPI service that handles REST endpoints, thread management, and LLM integration with Anthropic, and others via LiteLLM.
-
-### Frontend
-
-Next.js/React application providing a responsive UI with chat interface, dashboard, etc.
-
-### Agent Docker
-
-Isolated execution environment for every agent - with browser automation, code interpreter, file system access, tool integration, and security features.
-
-### Supabase Database
-
-Handles data persistence with authentication, user management, conversation history, file storage, agent state, analytics, and real-time subscriptions.
-
-
-## Self-Hosting
-
-Cheatcode AI can be self-hosted on your own infrastructure. See the self-hosting section above.
-
-The setup process includes:
-
-- Setting up a Supabase project for database and authentication
-- Configuring Redis for caching and session management
-- Setting up Daytona for secure agent execution
-- Integrating with LLM providers (Anthropic, OpenAI, OpenRouter, etc.)
-- Configuring web search and scraping capabilities (Tavily, Firecrawl)
-- Setting up QStash for background job processing and workflows
-- Configuring webhook handling for automated tasks
-- Optional integrations (RapidAPI, Smithery for custom agents)
-
-### Quick Start
-
-1. **Clone the repository**:
-
-```bash
-git clone https://github.com/cheatcode-ai/cheatcode.git
-cd cheatcode
-```
-
-2. Start or stop containers with Docker Compose:
-
-```bash
-docker compose up --build -d
-# docker compose down
-```
-
-### Manual Setup
-
-Detailed self-hosting steps are documented in this README under the Self-hosting section.
-
-For detailed instructions, troubleshooting tips, and advanced configuration options, see the self-hosting and troubleshooting sections above.
-
-## Contributing
-
-Contributions, issues, and feature requests are welcome. Open a pull request with a clear description and scope, or file an issue with reproduction steps.
-
-
-### Technologies
-
-- [Daytona](https://daytona.io/) - Secure agent execution environment
-- [Supabase](https://supabase.com/) - Database and authentication
-- [OpenAI](https://openai.com/) - LLM provider
-- [Anthropic](https://www.anthropic.com/) - LLM provider
-- [Tavily](https://tavily.com/) - Search capabilities
-- [Firecrawl](https://firecrawl.dev/) - Web scraping capabilities
-- [RapidAPI](https://rapidapi.com/) - API services
-- [Smithery](https://smithery.ai/) - Custom agent development
-

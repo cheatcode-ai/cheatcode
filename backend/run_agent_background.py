@@ -29,6 +29,10 @@ broker_kwargs = {
     "url": redis_url,
     "namespace": "dramatiq",
     "middleware": [dramatiq.middleware.AsyncIO()],
+    # Reduce heartbeat frequency to minimize Redis noise
+    "heartbeat_timeout": 60000,  # 60 seconds instead of default 15
+    # Reduce queue polling frequency 
+    "requeue_interval": 10000,   # 10 seconds instead of default 5
 }
 
 redis_broker = RedisBroker(**broker_kwargs)
