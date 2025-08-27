@@ -14,6 +14,9 @@ ENV UV_LINK_MODE=copy
 RUN --mount=type=cache,target=/root/.cache/uv uv lock
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --quiet
 
+# Fix ownership of the entire /app directory including .venv
+RUN chown -R app:app /app
+
 # Copy application code with correct ownership
 COPY --chown=app:app . .
 
