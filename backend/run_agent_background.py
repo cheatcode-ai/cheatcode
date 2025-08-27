@@ -18,7 +18,7 @@ from dramatiq.brokers.redis import RedisBroker
 import os
 from utils.retry import retry
 from services.langfuse import langfuse, safe_trace
-from utils.concurrency_monitor import get_monitor, start_monitoring_task
+from utils.concurrency_monitor import get_monitor, start_monitoring_task, start_stale_lock_cleanup_task
 from utils.health_check import get_health_checker, start_health_monitoring
 
 # Redis Configuration for Dramatiq
@@ -58,6 +58,10 @@ async def initialize():
     monitor = get_monitor(instance_id)
     # Start background monitoring tasks
     asyncio.create_task(start_monitoring_task(instance_id))
+    
+    # Start stale lock cleanup task
+    redis_client = await redis.get_client()
+    asyncio.create_task(start_stale_lock_cleanup_task(redis_client, interval=60, max_lock_age=300))
     
     # Initialize health monitoring
     health_checker = get_health_checker(instance_id)

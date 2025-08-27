@@ -298,13 +298,21 @@ async def monitored_lock_release(
     monitor = get_monitor('unknown')  # Will be set properly by the caller
     
     try:
-        # Lua script for atomic release with ownership check
+        # Enhanced Lua script for atomic release with prefix-based ownership check
+        # This handles cases where lock_value might be a prefix (like "instance_id:")
         release_script = """
-        if redis.call('GET', KEYS[1]) == ARGV[1] then
-            return redis.call('DEL', KEYS[1])
-        else
-            return 0
+        local current_value = redis.call('GET', KEYS[1])
+        if current_value then
+            -- Check for exact match first
+            if current_value == ARGV[1] then
+                return redis.call('DEL', KEYS[1])
+            end
+            -- Check if current value starts with our prefix (for partial matches)
+            if string.len(ARGV[1]) > 0 and string.find(current_value, ARGV[1]) == 1 then
+                return redis.call('DEL', KEYS[1])
+            end
         end
+        return 0
         """
         
         result = await redis_client.eval(release_script, 1, lock_key, lock_value)
@@ -313,7 +321,9 @@ async def monitored_lock_release(
             await monitor.record_lock_release(lock_key, operation, metadata)
             return True
         else:
-            logger.warning(f"Attempted to release lock {lock_key} but not owned by this process")
+            # Get current value for better debugging
+            current_value = await redis_client.get(lock_key)
+            logger.warning(f"Attempted to release lock {lock_key} but not owned by this process. Current: {current_value}, Expected: {lock_value}")
             return False
             
     except Exception as e:
@@ -335,3 +345,87 @@ async def start_monitoring_task(instance_id: str, interval: int = 300):
         except Exception as e:
             logger.error(f"Error in concurrency monitoring task: {e}")
             await asyncio.sleep(60)  # Wait before retrying
+
+async def cleanup_stale_locks(redis_client, max_lock_age: int = 300):
+    """Clean up stale locks that weren't properly released."""
+    try:
+        # Scan for agent_run_lock patterns
+        cursor = 0
+        stale_locks_cleaned = 0
+        
+        while True:
+            cursor, keys = await redis_client.scan(cursor=cursor, match="agent_run_lock:*", count=100)
+            
+            if keys:
+                # Use pipeline for efficient batch operations
+                pipe = redis_client.pipeline()
+                for key in keys:
+                    # Get lock value to extract timestamp
+                    pipe.get(key)
+                
+                values = await pipe.execute()
+                
+                # Check each lock for staleness
+                current_time = int(time.time())
+                stale_keys = []
+                
+                for i, value in enumerate(values):
+                    if value:
+                        try:
+                            # Lock value format: instance_id:timestamp
+                            parts = value.split(':')
+                            if len(parts) >= 2:
+                                lock_timestamp = int(parts[1])
+                                age = current_time - lock_timestamp
+                                
+                                if age > max_lock_age:
+                                    stale_keys.append((keys[i], age))
+                        except (ValueError, IndexError):
+                            # Invalid lock format, consider it stale
+                            stale_keys.append((keys[i], max_lock_age + 1))
+                
+                # Delete stale locks
+                if stale_keys:
+                    delete_pipe = redis_client.pipeline()
+                    for key, age in stale_keys:
+                        delete_pipe.delete(key)
+                        logger.warning(f"Cleaning up stale lock: {key} (age: {age}s)")
+                    
+                    await delete_pipe.execute()
+                    stale_locks_cleaned += len(stale_keys)
+            
+            if cursor == 0:  # Scan complete
+                break
+        
+        if stale_locks_cleaned > 0:
+            logger.info(f"Cleaned up {stale_locks_cleaned} stale locks")
+        
+        return stale_locks_cleaned
+        
+    except Exception as e:
+        logger.error(f"Error during stale lock cleanup: {e}")
+        return 0
+
+async def start_stale_lock_cleanup_task(redis_client, interval: int = 60, max_lock_age: int = 300):
+    """Start background task to periodically clean up stale locks."""
+    logger.info(f"Starting stale lock cleanup task (interval: {interval}s, max_age: {max_lock_age}s)")
+    
+    # Run immediate cleanup on startup to clear existing stale locks
+    try:
+        logger.info("Running immediate stale lock cleanup on startup...")
+        cleaned = await cleanup_stale_locks(redis_client, max_lock_age)
+        if cleaned > 0:
+            logger.info(f"Startup cleanup: removed {cleaned} stale locks")
+    except Exception as e:
+        logger.error(f"Error during startup stale lock cleanup: {e}")
+    
+    while True:
+        try:
+            await asyncio.sleep(interval)
+            await cleanup_stale_locks(redis_client, max_lock_age)
+        except asyncio.CancelledError:
+            logger.info("Stale lock cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in stale lock cleanup task: {e}")
+            await asyncio.sleep(30)  # Shorter wait for cleanup task
