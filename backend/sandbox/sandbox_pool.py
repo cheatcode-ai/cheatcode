@@ -17,7 +17,6 @@ class SandboxMetrics:
     created_at: datetime
     last_used: datetime
     total_requests: int = 0
-    dev_server_info: Optional[dict] = None  # Track dev server session info
     avg_response_time: float = 0.0
     memory_usage: float = 0.0
     cpu_usage: float = 0.0
@@ -284,9 +283,6 @@ class SandboxPool:
             
             logger.info(f"Created new {app_type} sandbox {sandbox.id} for user {user_id}")
             
-            # Auto-start dev server for the newly created sandbox
-            asyncio.create_task(self._auto_start_dev_server(sandbox, app_type, user_id))
-            
             return sandbox
     
     async def _create_sandbox(self, project_id: str, app_type: str = 'web') -> AsyncSandbox:
@@ -307,86 +303,6 @@ class SandboxPool:
         
         return sandbox
     
-    async def _auto_start_dev_server(self, sandbox: AsyncSandbox, app_type: str, user_id: str):
-        """Auto-start the development server for a newly created sandbox."""
-        try:
-            # Wait a bit for the sandbox to fully initialize
-            await asyncio.sleep(5)
-            
-            logger.info(f"Auto-starting {app_type} dev server for sandbox {sandbox.id} (user: {user_id})")
-            
-            # Import here to avoid circular imports
-            from daytona_sdk import SessionExecuteRequest
-            
-            # Select the appropriate command and working directory
-            if app_type == 'mobile':
-                command = "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 2 --tunnel"
-                cwd = "/workspace/cheatcode-mobile"
-            else:
-                command = "cd /workspace/cheatcode-app && pnpm run dev"
-                cwd = "/workspace/cheatcode-app"
-            
-            # Create a session specifically for the dev server
-            session_name = f"dev_server_{app_type}_auto"
-            
-            try:
-                # Check if dev server is already running (in case of concurrent requests)
-                port = 8081 if app_type == 'mobile' else 3000
-                check_result = await sandbox.process.exec(
-                    f"curl -s http://localhost:{port} -o /dev/null -w '%{{http_code}}' --connect-timeout 2 || echo '000'",
-                    timeout=5
-                )
-                
-                if check_result.result.strip() != '000':
-                    logger.info(f"Dev server already running on port {port} for sandbox {sandbox.id}, skipping auto-start")
-                    return
-                
-                # Create session and start dev server
-                session = await sandbox.process.create_session(session_name)
-                
-                req = SessionExecuteRequest(
-                    command=command,
-                    var_async=True,  # Non-blocking
-                    cwd=cwd
-                )
-                
-                response = await sandbox.process.execute_session_command(
-                    session_id=session.id,
-                    req=req
-                )
-                
-                logger.info(f"Successfully started {app_type} dev server for sandbox {sandbox.id} (session: {session.id}, command: {response.cmd_id})")
-                
-                # Store dev server session info in sandbox metadata (if needed)
-                self._track_dev_server_session(sandbox.id, app_type, session.id, response.cmd_id)
-                
-            except Exception as session_error:
-                logger.warning(f"Failed to start dev server session for {app_type} sandbox {sandbox.id}: {session_error}")
-                
-                # Fallback: try direct command execution
-                try:
-                    await sandbox.process.exec(command, cwd=cwd, timeout=5)  # Short timeout for fire-and-forget
-                    logger.info(f"Started {app_type} dev server via direct execution for sandbox {sandbox.id}")
-                except Exception as exec_error:
-                    logger.error(f"Failed to start {app_type} dev server for sandbox {sandbox.id}: {exec_error}")
-                    
-        except Exception as e:
-            logger.error(f"Error in auto-start dev server for {app_type} sandbox {sandbox.id}: {e}")
-    
-    def _track_dev_server_session(self, sandbox_id: str, app_type: str, session_id: str, command_id: str):
-        """Track dev server session information for monitoring and cleanup."""
-        try:
-            # Store dev server info in sandbox metrics for later reference
-            if sandbox_id in self.sandbox_metrics:
-                self.sandbox_metrics[sandbox_id].dev_server_info = {
-                    'app_type': app_type,
-                    'session_id': session_id,
-                    'command_id': command_id,
-                    'started_at': datetime.now()
-                }
-                logger.debug(f"Tracked dev server session info for sandbox {sandbox_id}")
-        except Exception as e:
-            logger.warning(f"Failed to track dev server session info: {e}")
     
     async def _wait_for_sandbox_ready(self, sandbox: AsyncSandbox, timeout: int = 60):
         """Wait for sandbox to be in running state."""
