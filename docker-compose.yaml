@@ -42,7 +42,7 @@ services:
     build:
       context: ./backend
       dockerfile: Dockerfile
-    command: uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
+    command: uv run dramatiq --skip-logging --processes 2 --threads 4 run_agent_background
     env_file:
       - ./backend/.env
     volumes:

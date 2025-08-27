@@ -4,22 +4,22 @@ import { CircleDotDashed } from 'lucide-react';
 import { AnimatedShinyText } from '@/components/ui/animated-shiny-text';
 
 const items = [
-    { id: 1, content: "Initializing neural pathways..." },
-    { id: 2, content: "Analyzing query complexity..." },
-    { id: 3, content: "Assembling cognitive framework..." },
-    { id: 4, content: "Orchestrating thought processes..." },
-    { id: 5, content: "Synthesizing contextual understanding..." },
-    { id: 6, content: "Calibrating response parameters..." },
-    { id: 7, content: "Engaging reasoning algorithms..." },
-    { id: 8, content: "Processing semantic structures..." },
-    { id: 9, content: "Formulating strategic approach..." },
-    { id: 10, content: "Optimizing solution pathways..." },
-    { id: 11, content: "Harmonizing data streams..." },
-    { id: 12, content: "Architecting intelligent response..." },
-    { id: 13, content: "Fine-tuning cognitive models..." },
-    { id: 14, content: "Weaving narrative threads..." },
-    { id: 15, content: "Crystallizing insights..." },
-    { id: 16, content: "Preparing comprehensive analysis..." }
+    { id: 1, content: "Initializing AI with questionable confidence..." },
+    { id: 2, content: "Parsing your request (third attempt)..." },
+    { id: 3, content: "Loading knowledge base... mostly Wikipedia..." },
+    { id: 4, content: "Activating reasoning engine (results may vary)..." },
+    { id: 5, content: "Building context map with shaky hands..." },
+    { id: 6, content: "Configuring response model to sound smart..." },
+    { id: 7, content: "Running inference pipeline on hopes and dreams..." },
+    { id: 8, content: "Analyzing code patterns I pretend to understand..." },
+    { id: 9, content: "Planning solution architecture (fingers crossed)..." },
+    { id: 10, content: "Optimizing for 'it works on my machine'..." },
+    { id: 11, content: "Synchronizing data flows and my anxiety..." },
+    { id: 12, content: "Compiling intelligent output (emphasis on trying)..." },
+    { id: 13, content: "Refining predictions with educated guesses..." },
+    { id: 14, content: "Structuring response to hide my confusion..." },
+    { id: 15, content: "Validating logic with rubber duck debugging..." },
+    { id: 16, content: "Finalizing recommendations (please work)..." }
   ];
 
 export const AgentLoader = () => {
