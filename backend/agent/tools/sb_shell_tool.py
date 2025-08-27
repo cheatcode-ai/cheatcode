@@ -32,7 +32,7 @@ class SandboxShellTool(SandboxToolsBase):
             dev_session_name = "expo_dev"
         else:
             # React/Next.js examples with pnpm (preferred package manager)
-            dev_command_example = "pnpm run dev"
+            dev_command_example = "npm run dev"
             install_command_example = "pnpm install axios"
             build_command_example = "pnpm run build"
             test_command_example = "pnpm test"

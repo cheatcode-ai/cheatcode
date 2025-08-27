@@ -81,7 +81,7 @@ class SandboxExposeTool(SandboxToolsBase):
                     await asyncio.sleep(2)  # Give server time to start
                     health_check = await self.sandbox.process.exec("curl -s http://localhost:3000 -o /dev/null -w '%{http_code}' || echo '000'", timeout=10)
                     if health_check.result.strip() == '000':
-                        return self.fail_response(f"Development server on port {port} is not responding yet. Please wait for 'pnpm run dev' to complete startup, then try exposing the port again.")
+                        return self.fail_response(f"Development server on port {port} is not responding yet. Please wait for 'npm run dev' to complete startup, then try exposing the port again.")
                 except Exception:
                     # If health check fails, proceed anyway
                     pass

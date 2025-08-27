@@ -58,7 +58,7 @@ export const useDevServer = ({
         body: JSON.stringify({
           command: appType === 'mobile' 
             ? "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 2 --tunnel"
-            : "cd /workspace/cheatcode-app && pnpm run dev",
+            : "cd /workspace/cheatcode-app && npm run dev",
           session_name: `dev_server_${appType}`, // Fixed: Use app-specific session names
           blocking: false,
           cwd: appType === 'mobile' ? "/workspace/cheatcode-mobile" : "/workspace/cheatcode-app"

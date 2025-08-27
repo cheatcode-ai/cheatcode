@@ -426,7 +426,7 @@ export default function UpdatedComponent() {{
         try:
             # Dynamic port and commands based on app_type
             port = 8081 if self.app_type == 'mobile' else 3000
-            dev_command = "npx expo start" if self.app_type == 'mobile' else "pnpm dev"
+            dev_command = "npx expo start" if self.app_type == 'mobile' else "npm run dev"
             app_type_name = "Expo React Native" if self.app_type == 'mobile' else "React/Next.js"
             
             if 'package.json' in file_path or (self.app_type == 'mobile' and any(x in file_path for x in ['app.json', 'expo.json'])):
