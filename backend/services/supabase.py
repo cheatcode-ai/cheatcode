@@ -11,18 +11,20 @@ import httpx
 from contextlib import asynccontextmanager
 
 class DBConnection:
-    """Singleton database connection manager using Supabase."""
+    """Thread-safe singleton database connection manager using Supabase."""
     
     _instance: Optional['DBConnection'] = None
     _initialized: bool = False
     _client: Optional[AsyncClient] = None
     _keepalive_task: Optional[asyncio.Task] = None
     _initialization_lock: Optional[asyncio.Lock] = None
+    _creation_lock = asyncio.Lock()  # Class-level lock for instance creation
 
     def __new__(cls):
+        # Note: This is not fully thread-safe for the singleton pattern
+        # The actual thread safety is handled in the initialize method
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            # Lock will be created lazily when needed (in async context)
         return cls._instance
 
     def __init__(self):
@@ -30,13 +32,20 @@ class DBConnection:
         pass
 
     async def initialize(self):
-        """Initialize the database connection."""
-        # Create lock if it doesn't exist (lazy initialization)
+        """Thread-safe database connection initialization."""
+        # Double-checked locking pattern for performance
+        if self.__class__._initialized:
+            return
+            
+        # Create initialization lock atomically if it doesn't exist
         if self.__class__._initialization_lock is None:
-            self.__class__._initialization_lock = asyncio.Lock()
+            async with self.__class__._creation_lock:
+                if self.__class__._initialization_lock is None:
+                    self.__class__._initialization_lock = asyncio.Lock()
         
         # Use lock to prevent concurrent initialization
         async with self.__class__._initialization_lock:
+            # Double-check after acquiring lock
             if self.__class__._initialized:
                 return
                     
@@ -50,19 +59,38 @@ class DBConnection:
                     raise RuntimeError("SUPABASE_URL and a key (SERVICE_ROLE_KEY or ANON_KEY) environment variables must be set.")
 
                 logger.debug("Initializing Supabase connection")
-                self.__class__._client = await create_async_client(supabase_url, supabase_key)
+                new_client = await create_async_client(supabase_url, supabase_key)
+                
+                # Test the connection before marking as initialized
+                try:
+                    # Simple connectivity test
+                    await new_client.auth.get_session()
+                except Exception as test_error:
+                    logger.debug(f"Connection test failed (expected for service role): {test_error}")
+                    # For service role keys, auth check might fail - that's normal
+                    pass
+                
+                # Only set these after successful initialization
+                self.__class__._client = new_client
                 self.__class__._initialized = True
+                
                 key_type = "SERVICE_ROLE_KEY" if config.SUPABASE_SERVICE_ROLE_KEY else "ANON_KEY"
                 logger.debug(f"Database connection initialized with Supabase using {key_type}")
 
                 # Start a background keep-alive task to prevent idle disconnects
                 if self.__class__._keepalive_task is None or self.__class__._keepalive_task.done():
                     self.__class__._keepalive_task = asyncio.create_task(self._keepalive_loop())
+                    
             except Exception as e:
                 logger.error(f"Database initialization error: {e}")
-                # Reset state on error
+                # Reset state on error - be very careful with cleanup order
+                if self.__class__._client:
+                    try:
+                        await self.__class__._client.close()
+                    except Exception as cleanup_error:
+                        logger.warning(f"Error during client cleanup: {cleanup_error}")
+                    self.__class__._client = None
                 self.__class__._initialized = False
-                self.__class__._client = None
                 raise RuntimeError(f"Failed to initialize database connection: {str(e)}")
 
     @classmethod
@@ -85,13 +113,16 @@ class DBConnection:
             logger.info("Database disconnected successfully")
 
     async def get_client(self) -> AsyncClient:
-        """Get the Supabase client instance."""
-        if not self.__class__._initialized:
+        """Get the Supabase client instance with automatic initialization."""
+        if not self.__class__._initialized or self.__class__._client is None:
             logger.debug("Supabase client not initialized, initializing now")
             await self.initialize()
+            
+        # Double-check after initialization
         if not self.__class__._client:
             logger.error("Database client is None after initialization")
-            raise RuntimeError("Database not initialized")
+            raise RuntimeError("Database initialization failed - client is None")
+            
         return self.__class__._client
 
     @property

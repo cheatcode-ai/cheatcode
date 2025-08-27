@@ -2,7 +2,8 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
+import asyncio, timedelta
 from collections import defaultdict
 import uuid
 
@@ -16,6 +17,7 @@ class SandboxMetrics:
     created_at: datetime
     last_used: datetime
     total_requests: int = 0
+    dev_server_info: Optional[dict] = None  # Track dev server session info
     avg_response_time: float = 0.0
     memory_usage: float = 0.0
     cpu_usage: float = 0.0
@@ -85,30 +87,98 @@ class SandboxPool:
         """
         Get or create a sandbox for a specific user and project.
         Reuses existing sandbox if available, otherwise allocates from warm pool.
+        Thread-safe implementation with proper locking.
         """
-        async with self.scaling_lock:
-            # Check if user already has a sandbox
+        # Use distributed Redis lock for cross-instance safety with monitoring
+        from services import redis
+        from utils.concurrency_monitor import get_monitor, monitored_lock
+        
+        lock_key = f"sandbox_allocation_lock:{user_id}"
+        lock_value = f"{id(self)}:{asyncio.current_task().get_name() if asyncio.current_task() else 'unknown'}"
+        
+        # Try to acquire distributed lock with monitoring
+        client = await redis.get_client()
+        lock_acquired = await monitored_lock(
+            lock_key, 
+            "sandbox_allocation", 
+            client, 
+            lock_value, 
+            timeout=30,
+            metadata={"user_id": user_id, "app_type": app_type, "project_id": project_id}
+        )
+        
+        if not lock_acquired:
+            # Wait briefly and retry once
+            await asyncio.sleep(0.1)
+            lock_acquired = await monitored_lock(
+                lock_key, 
+                "sandbox_allocation_retry", 
+                client, 
+                lock_value, 
+                timeout=30,
+                metadata={"user_id": user_id, "app_type": app_type, "retry": True}
+            )
+            if not lock_acquired:
+                raise Exception(f"Failed to acquire sandbox allocation lock for user {user_id}")
+        
+        try:
+            # Double-check pattern: verify user doesn't have sandbox after acquiring lock
             if user_id in self.user_sandboxes:
                 sandbox_id = self.user_sandboxes[user_id]
                 if sandbox_id in self.active_sandboxes:
                     sandbox = self.active_sandboxes[sandbox_id]
-                    await self._update_metrics(sandbox_id, "reuse")
-                    return sandbox
+                    # Verify sandbox is still valid
+                    try:
+                        if sandbox.state and hasattr(sandbox, 'state'):
+                            await self._update_metrics(sandbox_id, "reuse")
+                            return sandbox
+                    except Exception as e:
+                        logger.warning(f"Sandbox {sandbox_id} appears invalid, will allocate new one: {e}")
+                        # Clean up invalid sandbox reference
+                        if sandbox_id in self.active_sandboxes:
+                            del self.active_sandboxes[sandbox_id]
+                        if user_id in self.user_sandboxes:
+                            del self.user_sandboxes[user_id]
+                        if sandbox_id in self.sandbox_users:
+                            del self.sandbox_users[sandbox_id]
             
             # Get sandbox from warm pool or create new one
             sandbox = await self._allocate_sandbox(user_id, project_id, app_type)
             
-            # Track user assignment
-            self.user_sandboxes[user_id] = sandbox.id
-            self.sandbox_users[sandbox.id] = user_id
+            # Atomic assignment - only assign if not already assigned
+            if user_id not in self.user_sandboxes:
+                self.user_sandboxes[user_id] = sandbox.id
+                self.sandbox_users[sandbox.id] = user_id
+            else:
+                # Another thread assigned during allocation, clean up this sandbox
+                logger.warning(f"User {user_id} was assigned sandbox during allocation, cleaning up duplicate")
+                await self._terminate_sandbox(sandbox)
+                # Return the already assigned sandbox
+                existing_sandbox_id = self.user_sandboxes[user_id]
+                if existing_sandbox_id in self.active_sandboxes:
+                    return self.active_sandboxes[existing_sandbox_id]
             
             # Update metrics
             await self._update_metrics(sandbox.id, "allocate")
             
-            # Check if we need to scale up
-            await self._check_scaling()
+            # Check if we need to scale up (in background to avoid blocking)
+            asyncio.create_task(self._check_scaling())
             
             return sandbox
+            
+        finally:
+            # Always release the distributed lock with monitoring
+            try:
+                from utils.concurrency_monitor import monitored_lock_release
+                await monitored_lock_release(
+                    lock_key,
+                    "sandbox_allocation",
+                    client,
+                    lock_value,
+                    metadata={"user_id": user_id, "app_type": app_type}
+                )
+            except Exception as e:
+                logger.warning(f"Failed to release sandbox allocation lock for {user_id}: {e}")
     
     async def release_sandbox(self, user_id: str, keep_warm: bool = True):
         """
@@ -213,6 +283,10 @@ class SandboxPool:
             )
             
             logger.info(f"Created new {app_type} sandbox {sandbox.id} for user {user_id}")
+            
+            # Auto-start dev server for the newly created sandbox
+            asyncio.create_task(self._auto_start_dev_server(sandbox, app_type, user_id))
+            
             return sandbox
     
     async def _create_sandbox(self, project_id: str, app_type: str = 'web') -> AsyncSandbox:
@@ -232,6 +306,87 @@ class SandboxPool:
         await self._wait_for_sandbox_ready(sandbox)
         
         return sandbox
+    
+    async def _auto_start_dev_server(self, sandbox: AsyncSandbox, app_type: str, user_id: str):
+        """Auto-start the development server for a newly created sandbox."""
+        try:
+            # Wait a bit for the sandbox to fully initialize
+            await asyncio.sleep(5)
+            
+            logger.info(f"Auto-starting {app_type} dev server for sandbox {sandbox.id} (user: {user_id})")
+            
+            # Import here to avoid circular imports
+            from daytona_sdk import SessionExecuteRequest
+            
+            # Select the appropriate command and working directory
+            if app_type == 'mobile':
+                command = "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 2 --tunnel"
+                cwd = "/workspace/cheatcode-mobile"
+            else:
+                command = "cd /workspace/cheatcode-app && pnpm run dev"
+                cwd = "/workspace/cheatcode-app"
+            
+            # Create a session specifically for the dev server
+            session_name = f"dev_server_{app_type}_auto"
+            
+            try:
+                # Check if dev server is already running (in case of concurrent requests)
+                port = 8081 if app_type == 'mobile' else 3000
+                check_result = await sandbox.process.exec(
+                    f"curl -s http://localhost:{port} -o /dev/null -w '%{{http_code}}' --connect-timeout 2 || echo '000'",
+                    timeout=5
+                )
+                
+                if check_result.result.strip() != '000':
+                    logger.info(f"Dev server already running on port {port} for sandbox {sandbox.id}, skipping auto-start")
+                    return
+                
+                # Create session and start dev server
+                session = await sandbox.process.create_session(session_name)
+                
+                req = SessionExecuteRequest(
+                    command=command,
+                    var_async=True,  # Non-blocking
+                    cwd=cwd
+                )
+                
+                response = await sandbox.process.execute_session_command(
+                    session_id=session.id,
+                    req=req
+                )
+                
+                logger.info(f"Successfully started {app_type} dev server for sandbox {sandbox.id} (session: {session.id}, command: {response.cmd_id})")
+                
+                # Store dev server session info in sandbox metadata (if needed)
+                self._track_dev_server_session(sandbox.id, app_type, session.id, response.cmd_id)
+                
+            except Exception as session_error:
+                logger.warning(f"Failed to start dev server session for {app_type} sandbox {sandbox.id}: {session_error}")
+                
+                # Fallback: try direct command execution
+                try:
+                    await sandbox.process.exec(command, cwd=cwd, timeout=5)  # Short timeout for fire-and-forget
+                    logger.info(f"Started {app_type} dev server via direct execution for sandbox {sandbox.id}")
+                except Exception as exec_error:
+                    logger.error(f"Failed to start {app_type} dev server for sandbox {sandbox.id}: {exec_error}")
+                    
+        except Exception as e:
+            logger.error(f"Error in auto-start dev server for {app_type} sandbox {sandbox.id}: {e}")
+    
+    def _track_dev_server_session(self, sandbox_id: str, app_type: str, session_id: str, command_id: str):
+        """Track dev server session information for monitoring and cleanup."""
+        try:
+            # Store dev server info in sandbox metrics for later reference
+            if sandbox_id in self.sandbox_metrics:
+                self.sandbox_metrics[sandbox_id].dev_server_info = {
+                    'app_type': app_type,
+                    'session_id': session_id,
+                    'command_id': command_id,
+                    'started_at': datetime.now()
+                }
+                logger.debug(f"Tracked dev server session info for sandbox {sandbox_id}")
+        except Exception as e:
+            logger.warning(f"Failed to track dev server session info: {e}")
     
     async def _wait_for_sandbox_ready(self, sandbox: AsyncSandbox, timeout: int = 60):
         """Wait for sandbox to be in running state."""

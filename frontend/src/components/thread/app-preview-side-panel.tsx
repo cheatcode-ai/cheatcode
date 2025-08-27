@@ -48,9 +48,9 @@ export function AppPreviewSidePanel({
 
   const devServer = useDevServer({
     sandboxId: project?.sandbox?.id,
-    isPreviewTabActive: activeMainTab === 'preview',
     appType: project?.app_type || 'web',
-    previewUrl: previewUrl.previewUrl
+    previewUrl: previewUrl.previewUrl,
+    autoStart: true // Dev server will auto-start when sandbox is available
   });
 
   const fileExplorer = useFileExplorer({

@@ -149,24 +149,39 @@ class ThreadManager:
         try:
             # result = await client.rpc('get_llm_formatted_messages', {'p_thread_id': thread_id}).execute()
             
-            # Fetch messages in batches of 1000 to avoid overloading the database
+            # Fetch messages in batches with proper ordering guarantees
             all_messages = []
             batch_size = 1000
             offset = 0
+            last_created_at = None
             
+            # Use cursor-based pagination for consistent ordering
             while True:
-                result = await client.table('messages').select('message_id, content').eq('thread_id', thread_id).eq('is_llm_message', True).order('created_at').range(offset, offset + batch_size - 1).execute()
+                query = client.table('messages').select('message_id, content, created_at').eq('thread_id', thread_id).eq('is_llm_message', True)
+                
+                if last_created_at:
+                    # Use created_at cursor for consistent pagination
+                    query = query.gt('created_at', last_created_at)
+                    
+                query = query.order('created_at').limit(batch_size)
+                result = await query.execute()
                 
                 if not result.data or len(result.data) == 0:
                     break
                     
-                all_messages.extend(result.data)
+                batch_messages = result.data
+                all_messages.extend(batch_messages)
+                
+                # Update cursor for next iteration
+                if batch_messages:
+                    last_created_at = batch_messages[-1]['created_at']
                 
                 # If we got fewer than batch_size records, we've reached the end
-                if len(result.data) < batch_size:
+                if len(batch_messages) < batch_size:
                     break
-                    
-                offset += batch_size
+            
+            # Final sort to ensure absolute ordering (in case of identical timestamps)
+            all_messages.sort(key=lambda x: (x['created_at'], x['message_id']))
             
             # Use all_messages instead of result.data in the rest of the method
             result_data = all_messages
@@ -175,21 +190,51 @@ class ThreadManager:
             if not result_data:
                 return []
 
-            # Return properly parsed JSON objects
+            # Return properly parsed JSON objects with order preservation
             messages = []
-            for item in result_data:
-                if isinstance(item['content'], str):
-                    try:
-                        parsed_item = json.loads(item['content'])
-                        parsed_item['message_id'] = item['message_id']
-                        messages.append(parsed_item)
-                    except json.JSONDecodeError:
-                        logger.error(f"Failed to parse message: {item['content']}")
-                else:
-                    content = item['content']
-                    content['message_id'] = item['message_id']
-                    messages.append(content)
+            message_order = {}  # Track original order by message_id
+            
+            for index, item in enumerate(result_data):
+                try:
+                    if isinstance(item['content'], str):
+                        try:
+                            parsed_item = json.loads(item['content'])
+                            parsed_item['message_id'] = item['message_id']
+                            parsed_item['_order'] = index  # Add order tracking
+                            messages.append(parsed_item)
+                            message_order[item['message_id']] = index
+                        except json.JSONDecodeError as e:
+                            logger.error(f"Failed to parse message {item.get('message_id', 'unknown')}: {item['content']}. Error: {e}")
+                            # Create a placeholder for unparseable messages to maintain order
+                            placeholder = {
+                                'role': 'system',
+                                'content': '[Message parsing failed]',
+                                'message_id': item['message_id'],
+                                '_order': index,
+                                '_parse_error': True
+                            }
+                            messages.append(placeholder)
+                            message_order[item['message_id']] = index
+                    else:
+                        content = item['content'].copy() if isinstance(item['content'], dict) else item['content']
+                        if isinstance(content, dict):
+                            content['message_id'] = item['message_id']
+                            content['_order'] = index
+                        messages.append(content)
+                        message_order[item['message_id']] = index
+                except Exception as e:
+                    logger.error(f"Error processing message {item.get('message_id', 'unknown')}: {e}")
+                    # Continue processing other messages
+            
+            # Final verification of message order
+            messages.sort(key=lambda x: x.get('_order', 0))
+            
+            # Remove order tracking field before returning
+            for msg in messages:
+                if isinstance(msg, dict) and '_order' in msg:
+                    del msg['_order']
 
+            logger.debug(f"Retrieved {len(messages)} messages for thread {thread_id} in proper order")
             return messages
 
         except Exception as e:

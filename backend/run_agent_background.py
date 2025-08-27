@@ -17,6 +17,8 @@ from dramatiq.brokers.redis import RedisBroker
 import os
 from utils.retry import retry
 from services.langfuse import langfuse, safe_trace
+from utils.concurrency_monitor import get_monitor, start_monitoring_task
+from utils.health_check import get_health_checker, start_health_monitoring
 
 # Redis Configuration for Dramatiq
 # Use Upstash Redis URL for Dramatiq broker
@@ -51,8 +53,17 @@ async def initialize():
     await retry(lambda: redis.initialize_async())
     await db.initialize()
 
+    # Initialize concurrency monitoring
+    monitor = get_monitor(instance_id)
+    # Start background monitoring tasks
+    asyncio.create_task(start_monitoring_task(instance_id))
+    
+    # Initialize health monitoring
+    health_checker = get_health_checker(instance_id)
+    asyncio.create_task(start_health_monitoring(instance_id))
+    
     _initialized = True
-    logger.info(f"Initialized agent API with instance ID: {instance_id}")
+    logger.info(f"Initialized agent API with instance ID: {instance_id} with concurrency monitoring")
 
 @dramatiq.actor
 async def check_health(key: str):
@@ -93,24 +104,69 @@ async def run_agent_background(
         logger.critical(f"Failed to initialize Redis connection: {e}")
         raise e
 
-    # Idempotency check: prevent duplicate runs
+    # Idempotency check: prevent duplicate runs with atomic lock acquisition
     run_lock_key = f"agent_run_lock:{agent_run_id}"
+    lock_value = f"{instance_id}:{int(time.time())}"
     
-    # Try to acquire a lock for this agent run
-    lock_acquired = await redis.set(run_lock_key, instance_id, nx=True, ex=redis.REDIS_KEY_TTL)
+    # Atomic lock acquisition with monitoring
+    from utils.concurrency_monitor import monitored_lock
+    client = await redis.get_client()
+    lock_acquired = await monitored_lock(
+        run_lock_key,
+        "agent_run_execution",
+        client,
+        lock_value,
+        timeout=redis.REDIS_KEY_TTL,
+        metadata={
+            "agent_run_id": agent_run_id,
+            "thread_id": thread_id,
+            "model_name": model_name,
+            "app_type": app_type
+        }
+    )
     
     if not lock_acquired:
-        # Check if the run is already being handled by another instance
-        existing_instance = await redis.get(run_lock_key)
-        if existing_instance:
-            logger.info(f"Agent run {agent_run_id} is already being processed by instance {existing_instance}. Skipping duplicate execution.")
-            return
-        else:
-            # Lock exists but no value, try to acquire again
-            lock_acquired = await redis.set(run_lock_key, instance_id, nx=True, ex=redis.REDIS_KEY_TTL)
-            if not lock_acquired:
-                logger.info(f"Agent run {agent_run_id} is already being processed by another instance. Skipping duplicate execution.")
+        # Check if lock is stale (older than TTL/2) and try to reclaim
+        existing_value = await redis.get(run_lock_key)
+        if existing_value:
+            try:
+                existing_instance, existing_timestamp = existing_value.split(':', 1)
+                existing_time = int(existing_timestamp)
+                current_time = int(time.time())
+                
+                # If lock is more than half TTL old, it might be stale
+                if current_time - existing_time > (redis.REDIS_KEY_TTL // 2):
+                    logger.warning(f"Detected potentially stale lock for {agent_run_id} from instance {existing_instance}")
+                    # Try to reclaim with conditional update
+                    reclaim_script = """
+                    if redis.call('GET', KEYS[1]) == ARGV[1] then
+                        return redis.call('SET', KEYS[1], ARGV[2], 'EX', ARGV[3])
+                    else
+                        return nil
+                    end
+                    """
+                    client = await redis.get_client()
+                    result = await client.eval(reclaim_script, 1, run_lock_key, existing_value, lock_value, redis.REDIS_KEY_TTL)
+                    if result:
+                        logger.info(f"Successfully reclaimed stale lock for {agent_run_id}")
+                        lock_acquired = True
+                    else:
+                        logger.info(f"Failed to reclaim lock for {agent_run_id}, another instance updated it")
+                        return
+                else:
+                    logger.info(f"Agent run {agent_run_id} is being processed by instance {existing_instance}. Skipping duplicate execution.")
+                    return
+            except (ValueError, AttributeError) as e:
+                logger.warning(f"Invalid lock value format for {agent_run_id}: {existing_value}. Error: {e}")
                 return
+        else:
+            # No existing value but lock failed, another process is faster
+            logger.info(f"Agent run {agent_run_id} lock acquisition failed, another instance is processing.")
+            return
+    
+    if not lock_acquired:
+        logger.info(f"Failed to acquire lock for agent run {agent_run_id}, skipping execution.")
+        return
 
     sentry.sentry.set_tag("thread_id", thread_id)
 
@@ -323,45 +379,98 @@ async def run_agent_background(
             logger.warning(f"Failed to update task status to failed for {agent_run_id}: {e}")
 
     finally:
-        # Cleanup stop checker task
-        if stop_checker and not stop_checker.done():
-            stop_checker.cancel()
-            try: await stop_checker
-            except asyncio.CancelledError: pass
-            except Exception as e: logger.warning(f"Error during stop_checker cancellation: {e}")
-
-        # Close pubsub connection
-        if pubsub:
-            try:
-                await pubsub.unsubscribe()
-                await pubsub.close()
-                logger.debug(f"Closed pubsub connection for {agent_run_id}")
-            except Exception as e:
-                logger.warning(f"Error closing pubsub for {agent_run_id}: {str(e)}")
-
-        # Set TTL on the response list in Redis
-        await _cleanup_redis_response_list(agent_run_id)
-
-        # Remove the instance-specific active run key
-        await _cleanup_redis_instance_key(agent_run_id)
-
-        # Clean up the run lock
-        await _cleanup_redis_run_lock(agent_run_id)
+        # Robust cleanup with error isolation
+        cleanup_errors = []
         
-        # Flush Langfuse data asynchronously
+        # 1. Cleanup stop checker task
+        try:
+            if stop_checker and not stop_checker.done():
+                stop_checker.cancel()
+                try:
+                    await asyncio.wait_for(stop_checker, timeout=5.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                except Exception as e:
+                    cleanup_errors.append(f"stop_checker cleanup: {e}")
+        except Exception as e:
+            cleanup_errors.append(f"stop_checker handling: {e}")
+
+        # 2. Close pubsub connection with retry
+        if pubsub:
+            for attempt in range(3):  # Retry up to 3 times
+                try:
+                    await asyncio.wait_for(pubsub.unsubscribe(), timeout=5.0)
+                    await asyncio.wait_for(pubsub.close(), timeout=5.0)
+                    logger.debug(f"Closed pubsub connection for {agent_run_id}")
+                    break
+                except asyncio.TimeoutError:
+                    if attempt == 2:
+                        cleanup_errors.append(f"pubsub cleanup timeout after {attempt + 1} attempts")
+                    else:
+                        await asyncio.sleep(1.0)  # Wait before retry
+                except Exception as e:
+                    if attempt == 2:
+                        cleanup_errors.append(f"pubsub cleanup: {e}")
+                    else:
+                        await asyncio.sleep(1.0)  # Wait before retry
+
+        # 3. Parallel cleanup of Redis resources with individual error handling
+        cleanup_tasks = []
+        
+        # Create cleanup tasks
+        cleanup_tasks.append(asyncio.create_task(
+            _robust_cleanup_redis_response_list(agent_run_id), name=f"cleanup_responses_{agent_run_id}"))
+        cleanup_tasks.append(asyncio.create_task(
+            _robust_cleanup_redis_instance_key(agent_run_id), name=f"cleanup_instance_{agent_run_id}"))
+        cleanup_tasks.append(asyncio.create_task(
+            _robust_cleanup_redis_run_lock(agent_run_id), name=f"cleanup_lock_{agent_run_id}"))
+        
+        # Wait for cleanup tasks with timeout
+        try:
+            results = await asyncio.wait_for(asyncio.gather(*cleanup_tasks, return_exceptions=True), timeout=30.0)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    cleanup_errors.append(f"Redis cleanup task {i}: {result}")
+        except asyncio.TimeoutError:
+            cleanup_errors.append("Redis cleanup operations timed out")
+            # Cancel remaining tasks
+            for task in cleanup_tasks:
+                if not task.done():
+                    task.cancel()
+        
+        # 4. Flush Langfuse data with timeout
         try:
             if langfuse:
-                asyncio.create_task(asyncio.to_thread(lambda: langfuse.flush()))
-                logger.debug("Langfuse data flush initiated")
-        except Exception as flush_error:
-            logger.warning(f"Error flushing Langfuse data in agent run background: {str(flush_error)}")
-
-        # Wait for all pending redis operations to complete, with timeout
-        try:
-            await asyncio.wait_for(asyncio.gather(*pending_redis_operations), timeout=30.0)
+                # Use asyncio.to_thread with timeout for thread safety
+                await asyncio.wait_for(
+                    asyncio.to_thread(lambda: langfuse.flush()), 
+                    timeout=10.0
+                )
+                logger.debug("Langfuse data flush completed")
         except asyncio.TimeoutError:
-            logger.warning(f"Timeout waiting for pending Redis operations for {agent_run_id}")
+            cleanup_errors.append("Langfuse flush timeout")
+        except Exception as flush_error:
+            cleanup_errors.append(f"Langfuse flush error: {flush_error}")
 
+        # 5. Wait for all pending Redis operations to complete, with timeout
+        if pending_redis_operations:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(*pending_redis_operations, return_exceptions=True), 
+                    timeout=30.0
+                )
+                logger.debug(f"Completed {len(pending_redis_operations)} pending Redis operations")
+            except asyncio.TimeoutError:
+                cleanup_errors.append(f"Timeout waiting for {len(pending_redis_operations)} pending Redis operations")
+            except Exception as e:
+                cleanup_errors.append(f"Error completing pending Redis operations: {e}")
+
+        # Log cleanup status
+        if cleanup_errors:
+            logger.warning(f"Agent run {agent_run_id} cleanup completed with {len(cleanup_errors)} errors: {'; '.join(cleanup_errors)}")
+        else:
+            logger.info(f"Agent run {agent_run_id} cleanup completed successfully")
+            
         logger.info(f"Agent run background task fully completed for: {agent_run_id} (Instance: {instance_id}) with final status: {final_status}")
 
 async def _cleanup_redis_instance_key(agent_run_id: str):
@@ -377,15 +486,53 @@ async def _cleanup_redis_instance_key(agent_run_id: str):
     except Exception as e:
         logger.warning(f"Failed to clean up Redis key {key}: {str(e)}")
 
+async def _robust_cleanup_redis_instance_key(agent_run_id: str):
+    """Robust cleanup with retry logic for Redis instance key."""
+    for attempt in range(3):
+        try:
+            await _cleanup_redis_instance_key(agent_run_id)
+            return
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Failed to cleanup instance key after 3 attempts: {e}")
+                raise
+            await asyncio.sleep(1.0)
+
 async def _cleanup_redis_run_lock(agent_run_id: str):
-    """Clean up the run lock Redis key for an agent run."""
+    """Clean up the run lock Redis key for an agent run with ownership verification."""
     run_lock_key = f"agent_run_lock:{agent_run_id}"
+    expected_value = f"{instance_id}:"
     logger.debug(f"Cleaning up Redis run lock key: {run_lock_key}")
     try:
-        await redis.delete(run_lock_key)
-        logger.debug(f"Successfully cleaned up Redis run lock key: {run_lock_key}")
+        # Only delete if we own the lock
+        cleanup_script = """
+        local current_value = redis.call('GET', KEYS[1])
+        if current_value and string.find(current_value, ARGV[1]) == 1 then
+            return redis.call('DEL', KEYS[1])
+        else
+            return 0
+        end
+        """
+        client = await redis.get_client()
+        result = await client.eval(cleanup_script, 1, run_lock_key, expected_value)
+        if result:
+            logger.debug(f"Successfully cleaned up Redis run lock key: {run_lock_key}")
+        else:
+            logger.debug(f"Lock {run_lock_key} not owned by this instance, skipping cleanup")
     except Exception as e:
         logger.warning(f"Failed to clean up Redis run lock key {run_lock_key}: {str(e)}")
+
+async def _robust_cleanup_redis_run_lock(agent_run_id: str):
+    """Robust cleanup with retry logic for Redis run lock."""
+    for attempt in range(3):
+        try:
+            await _cleanup_redis_run_lock(agent_run_id)
+            return
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Failed to cleanup run lock after 3 attempts: {e}")
+                raise
+            await asyncio.sleep(1.0)
 
 # TTL for Redis response lists (24 hours)
 REDIS_RESPONSE_LIST_TTL = 3600 * 24
@@ -398,6 +545,18 @@ async def _cleanup_redis_response_list(agent_run_id: str):
         logger.debug(f"Set TTL ({REDIS_RESPONSE_LIST_TTL}s) on response list: {response_list_key}")
     except Exception as e:
         logger.warning(f"Failed to set TTL on response list {response_list_key}: {str(e)}")
+
+async def _robust_cleanup_redis_response_list(agent_run_id: str):
+    """Robust cleanup with retry logic for Redis response list."""
+    for attempt in range(3):
+        try:
+            await _cleanup_redis_response_list(agent_run_id)
+            return
+        except Exception as e:
+            if attempt == 2:
+                logger.error(f"Failed to cleanup response list after 3 attempts: {e}")
+                raise
+            await asyncio.sleep(1.0)
 
 async def _update_task_status(agent_run_id: str, status: str, data: Optional[dict] = None):
     """Write task status to Redis for retrieval via API."""

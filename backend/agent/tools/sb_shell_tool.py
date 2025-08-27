@@ -245,26 +245,95 @@ class SandboxShellTool(SandboxToolsBase):
         return schemas
 
     async def _ensure_session(self, session_name: str = "default") -> str:
-        """Ensure a session exists and return its ID."""
+        """Ensure a session exists and return its ID with atomic creation for dev servers."""
         if session_name not in self._sessions:
-            session_id = str(uuid4())
-            try:
-                await self._ensure_sandbox()  # Ensure sandbox is initialized
-                await self.sandbox.process.create_session(session_id)
-                self._sessions[session_name] = session_id
-            except Exception as e:
-                raise RuntimeError(f"Failed to create session: {str(e)}")
+            # Special handling for dev server sessions to prevent duplicates
+            if session_name.startswith('dev_server_'):
+                from services import redis
+                session_lock_key = f"session_create:{self.sandbox.id}:{session_name}"
+                session_lock_value = f"{time.time()}:{asyncio.current_task().get_name() if asyncio.current_task() else 'unknown'}"
+                
+                # Try to acquire session creation lock
+                session_lock_acquired = await redis.set(session_lock_key, session_lock_value, nx=True, ex=30)
+                
+                if not session_lock_acquired:
+                    # Wait briefly for other creation to complete, then check if session exists
+                    await asyncio.sleep(0.5)
+                    if session_name in self._sessions:
+                        return self._sessions[session_name]
+                
+                try:
+                    # Double-check if session was created by another process
+                    if session_name in self._sessions:
+                        return self._sessions[session_name]
+                        
+                    # Create new session with unique ID
+                    session_id = str(uuid4())
+                    await self._ensure_sandbox()
+                    await self.sandbox.process.create_session(session_id)
+                    self._sessions[session_name] = session_id
+                    logger.debug(f"Created new dev server session: {session_name} -> {session_id}")
+                    
+                finally:
+                    # Release session creation lock
+                    if session_lock_acquired:
+                        try:
+                            await redis.delete(session_lock_key)
+                        except Exception:
+                            pass
+            else:
+                # Regular session creation for non-dev commands
+                session_id = str(uuid4())
+                try:
+                    await self._ensure_sandbox()
+                    await self.sandbox.process.create_session(session_id)
+                    self._sessions[session_name] = session_id
+                except Exception as e:
+                    raise RuntimeError(f"Failed to create session: {str(e)}")
+                    
         return self._sessions[session_name]
 
     async def _cleanup_session(self, session_name: str):
-        """Clean up a session if it exists."""
+        """Clean up a session if it exists with enhanced process cleanup."""
         if session_name in self._sessions:
             try:
-                await self._ensure_sandbox()  # Ensure sandbox is initialized
+                await self._ensure_sandbox()
+                
+                # For dev server sessions, try to gracefully stop processes first
+                if session_name.startswith('dev_server_'):
+                    try:
+                        port = 8081 if self.app_type == 'mobile' else 3000
+                        
+                        # Send SIGTERM to processes using the port
+                        await self.sandbox.process.exec(
+                            f"lsof -ti:{port} | head -5 | xargs -r kill -TERM 2>/dev/null || true",
+                            timeout=5
+                        )
+                        
+                        # Wait a moment for graceful shutdown
+                        await asyncio.sleep(2)
+                        
+                        # Force kill any remaining processes
+                        await self.sandbox.process.exec(
+                            f"lsof -ti:{port} | head -5 | xargs -r kill -9 2>/dev/null || true",
+                            timeout=5
+                        )
+                        
+                        logger.debug(f"Cleaned up dev server processes on port {port}")
+                        
+                    except Exception as process_cleanup_error:
+                        logger.warning(f"Error during dev server process cleanup: {process_cleanup_error}")
+                
+                # Delete the session
                 await self.sandbox.process.delete_session(self._sessions[session_name])
                 del self._sessions[session_name]
+                logger.debug(f"Cleaned up session: {session_name}")
+                
             except Exception as e:
-                print(f"Warning: Failed to cleanup session {session_name}: {str(e)}")
+                logger.warning(f"Failed to cleanup session {session_name}: {str(e)}")
+                # Remove from tracking even if cleanup failed
+                if session_name in self._sessions:
+                    del self._sessions[session_name]
 
 
     async def execute_command(
@@ -279,27 +348,63 @@ class SandboxShellTool(SandboxToolsBase):
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
             
-            # Smart dev server detection - avoid redundant startup
+            # Thread-safe dev server detection with distributed locking
             if self._is_dev_server_command(command):
-                existing_status = await self._check_dev_server_status()
-                if existing_status == 'running':
-                    return self.success_response({
-                        "output": "Development server is already running in existing session. No need to start a new one.\nPreview loads automatically in the preview panel.",
-                        "exit_code": 0,
-                        "cwd": self.workspace_path,
-                        "completed": True,
-                        "success": True,
-                        "skipped_redundant_startup": True
-                    })
-                elif existing_status == 'session_exists':
-                    return self.success_response({
-                        "output": "Development server session already exists. Check session status or use preview panel to view content.",
-                        "exit_code": 0,
-                        "cwd": self.workspace_path,
-                        "completed": True,
-                        "success": True,
-                        "skipped_redundant_startup": True
-                    })
+                dev_server_lock_key = f"dev_server_start:{self.sandbox.id}:{self.app_type}"
+                lock_value = f"{time.time()}:{asyncio.current_task().get_name() if asyncio.current_task() else 'unknown'}"
+                
+                # Import Redis here to avoid circular imports
+                from services import redis
+                
+                # Try to acquire distributed lock for dev server startup
+                lock_acquired = await redis.set(dev_server_lock_key, lock_value, nx=True, ex=60)
+                
+                if not lock_acquired:
+                    # Another instance is starting or server is running, check status
+                    existing_status = await self._check_dev_server_status()
+                    if existing_status == 'running':
+                        return self.success_response({
+                            "output": "Development server is already running in existing session. No need to start a new one.\nPreview loads automatically in the preview panel.",
+                            "exit_code": 0,
+                            "cwd": self.workspace_path,
+                            "completed": True,
+                            "success": True,
+                            "skipped_redundant_startup": True
+                        })
+                    else:
+                        return self.success_response({
+                            "output": "Another dev server startup is in progress. Please wait and check session status.",
+                            "exit_code": 0,
+                            "cwd": self.workspace_path,
+                            "completed": True,
+                            "success": True,
+                            "skipped_concurrent_startup": True
+                        })
+                
+                try:
+                    # Double-check after acquiring lock
+                    existing_status = await self._check_dev_server_status()
+                    if existing_status == 'running':
+                        return self.success_response({
+                            "output": "Development server is already running. No need to start a new one.\nPreview loads automatically in the preview panel.",
+                            "exit_code": 0,
+                            "cwd": self.workspace_path,
+                            "completed": True,
+                            "success": True,
+                            "skipped_redundant_startup": True
+                        })
+                    
+                    # Continue to server startup (lock cleanup in finally block below)
+                    
+                except Exception as dev_check_error:
+                    logger.error(f"Error during dev server status check: {dev_check_error}")
+                    # Release lock and continue with normal execution
+                    try:
+                        current_lock = await redis.get(dev_server_lock_key)
+                        if current_lock == lock_value:
+                            await redis.delete(dev_server_lock_key)
+                    except Exception:
+                        pass
             
             # Set up working directory
             cwd = self.workspace_path
@@ -327,11 +432,15 @@ class SandboxShellTool(SandboxToolsBase):
                 except Exception as e:
                     return self.fail_response(f"Error executing blocking command: {str(e)}")
             else:
-                # For non-blocking execution, use session-based approach
+                # For non-blocking execution, use session-based approach with collision protection
                 if not session_name:
-                    session_name = f"session_{str(uuid4())[:8]}"
+                    # Use predictable session name for dev servers to prevent duplicates
+                    if self._is_dev_server_command(command):
+                        session_name = f"dev_server_{self.app_type}"
+                    else:
+                        session_name = f"session_{str(uuid4())[:8]}"
                 
-                # Ensure session exists
+                # Ensure session exists (with atomic creation for dev servers)
                 session_id = await self._ensure_session(session_name)
                 
                 # Execute command in session (non-blocking)
@@ -347,7 +456,8 @@ class SandboxShellTool(SandboxToolsBase):
                     req=req
                 )
                 
-                return self.success_response({
+                # For dev server commands, add cleanup and lock release
+                result = self.success_response({
                     "session_name": session_name,
                     "session_id": session_id,
                     "command_id": response.cmd_id,
@@ -355,6 +465,21 @@ class SandboxShellTool(SandboxToolsBase):
                     "message": f"Command started in session '{session_name}'. Use check_command_output to view results.",
                     "completed": False
                 })
+                
+                # Release dev server lock if this was a dev server command
+                if self._is_dev_server_command(command):
+                    try:
+                        dev_server_lock_key = f"dev_server_start:{self.sandbox.id}:{self.app_type}"
+                        lock_value = f"{time.time()}:{asyncio.current_task().get_name() if asyncio.current_task() else 'unknown'}"
+                        current_lock = await redis.get(dev_server_lock_key)
+                        # Only delete if we still own a lock (value format might have changed)
+                        if current_lock and any(part in current_lock for part in [str(time.time())[:8], asyncio.current_task().get_name() if asyncio.current_task() else 'unknown']):
+                            await redis.delete(dev_server_lock_key)
+                            logger.debug(f"Released dev server lock after successful startup")
+                    except Exception as cleanup_error:
+                        logger.warning(f"Failed to release dev server lock after startup: {cleanup_error}")
+                
+                return result
                 
         except Exception as e:
             return self.fail_response(f"Error executing command: {str(e)}")
@@ -490,17 +615,22 @@ class SandboxShellTool(SandboxToolsBase):
             'pnpm dev',
             'expo start',
             'npx expo start',
-            'yarn start'
+            'npx expo start --port',  # Include port-specific expo commands
+            'expo start --port',
+            'yarn start',
+            'react-native start',
+            'metro start'  # Metro bundler for React Native
         ]
         return any(pattern in command_lower for pattern in dev_server_patterns)
     
     async def _check_dev_server_status(self) -> str:
         """Check if a dev server is already running. Returns: 'running', 'session_exists', or 'not_running'"""
         try:
-            # First check if dev_server session exists
-            if 'dev_server' in self._sessions:
+            # Check if dev_server session exists (updated to match new naming)
+            dev_session_name = f'dev_server_{self.app_type}'
+            if dev_session_name in self._sessions:
                 # Check if the session is still active and has running processes
-                session_id = self._sessions['dev_server']
+                session_id = self._sessions[dev_session_name]
                 try:
                     session = await self.sandbox.process.get_session(session_id)
                     if session.commands:
@@ -518,7 +648,7 @@ class SandboxShellTool(SandboxToolsBase):
                 except Exception:
                     return 'session_exists'  # Session exists but can't check status
             
-            # No dev_server session, check if appropriate port is responding anyway
+            # No dev_server session found, check if appropriate port is responding anyway
             try:
                 port = 8081 if self.app_type == 'mobile' else 3000
                 port_check = await self.sandbox.process.exec(
@@ -536,6 +666,22 @@ class SandboxShellTool(SandboxToolsBase):
             return 'not_running'
 
     async def cleanup(self):
-        """Clean up all sessions."""
+        """Clean up all sessions with improved error handling."""
+        cleanup_tasks = []
+        
         for session_name in list(self._sessions.keys()):
-            await self._cleanup_session(session_name)
+            task = asyncio.create_task(self._cleanup_session(session_name))
+            cleanup_tasks.append(task)
+        
+        if cleanup_tasks:
+            try:
+                # Wait for all cleanup tasks with timeout
+                await asyncio.wait_for(
+                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
+                    timeout=30
+                )
+                logger.debug(f"Cleaned up {len(cleanup_tasks)} sessions")
+            except asyncio.TimeoutError:
+                logger.warning(f"Session cleanup timed out, some sessions may not be properly terminated")
+            except Exception as e:
+                logger.error(f"Error during session cleanup: {e}")
