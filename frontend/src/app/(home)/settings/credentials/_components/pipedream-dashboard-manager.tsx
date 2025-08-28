@@ -19,21 +19,13 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
-import { Zap, Settings, ExternalLink, Store, Server, AlertTriangle, Trash2, Globe, Shield, Loader2 } from 'lucide-react';
+
+import { Settings, ExternalLink, Store, Server, AlertTriangle, Trash2, Globe, Shield, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClerkBackendApi } from '@/lib/api-client';
 import { useAuth } from '@clerk/nextjs';
 import { settingsKeys } from '@/hooks/react-query/settings/keys';
-import { useRefetchControl } from '@/hooks/use-refetch-control';
-import { useRouter } from 'next/navigation';
 import { PipedreamRegistry } from '@/components/integrations/pipedream/pipedream-registry';
 // CustomMCPDialog import removed - using inline content in tabs instead
 import { cn } from '@/lib/utils';
@@ -46,7 +38,6 @@ interface PipedreamDashboardManagerProps {
 function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashboardManagerProps) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const router = useRouter();
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<PipedreamProfile | null>(null);
@@ -345,13 +336,12 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   return (
     <div className="space-y-6">
       {/* Header with buttons */}
-      <div className="relative overflow-hidden rounded-2xl border bg-gradient-to-br from-card via-card to-muted/20 p-8 shadow-sm">
-        <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:20px_20px]" />
+      <div className="relative overflow-hidden rounded-2xl border bg-card p-8 shadow-sm">
         <div className="relative">
           <div className="flex items-start justify-between gap-6">
             <div className="flex items-start space-x-5">
                              <div className="relative">
-                 <div className="p-3 bg-gradient-to-br from-primary/20 to-primary/10 rounded-xl border border-primary/20 shadow-sm">
+                 <div className="p-3 bg-primary/10 rounded-xl border border-primary/20 shadow-sm">
                    <Settings className="h-6 w-6 text-primary" />
                  </div>
                </div>
@@ -387,7 +377,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             {/* Tab interface for all states */}
             <div className="flex justify-center mt-6">
               <div
-                className="relative inline-flex h-10 items-center rounded-full p-0.5 bg-zinc-800/70 ring-1 ring-white/10 backdrop-blur-md shadow-inner overflow-hidden"
+                className="relative inline-flex h-10 items-center rounded-full p-0.5 bg-muted ring-1 ring-border shadow-inner overflow-hidden"
                 role="tablist"
                 aria-label="Select integration type"
               >
@@ -459,8 +449,8 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
       <div className="w-full">
         {/* Connected Integrations Tab */}
         {activeTab === 'connected' && profiles.length > 0 && (
-          <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm bg-gradient-to-br from-card to-muted/10">
-            <div className="px-6 py-5 border-b border-border/50 bg-gradient-to-r from-muted/40 to-muted/20 backdrop-blur-sm">
+          <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
+            <div className="px-6 py-5 border-b border-border bg-muted">
               <h4 className="text-base font-semibold text-foreground flex items-center gap-2">
                 <div className="w-2 h-2 bg-primary rounded-full" />
                 Connected Integrations
@@ -468,7 +458,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             </div>
             <div className="p-3 space-y-1">
               {profiles.map((profile: PipedreamProfile) => (
-                <div key={profile.profile_id} className="p-4 hover:bg-muted/30 rounded-xl transition-all duration-200 border border-transparent hover:border-border/50">
+                <div key={profile.profile_id} className="p-4 hover:bg-muted rounded-xl transition-all duration-200 border border-border hover:border-primary/20">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
@@ -505,7 +495,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
                         size="sm"
                         onClick={() => handleDeleteClick(profile)}
                         disabled={deleteProfile.isPending}
-                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/20"
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
@@ -524,7 +514,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
 
         {/* Browse Apps Tab */}
         {activeTab === 'browse-apps' && (
-          <div className="border border-border/50 rounded-xl p-4 bg-background/50">
+          <div className="border border-border rounded-xl p-4 bg-card">
             <PipedreamRegistry
               onProfileSelected={handleProfileSelected}
               onToolsSelected={handleToolsSelected}
@@ -534,10 +524,10 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
         
         {/* Custom MCP Tab */}
         {activeTab === 'custom-mcp' && (
-          <div className="border border-border/50 rounded-xl p-6 bg-background/50">
+          <div className="border border-border rounded-xl p-6 bg-card">
             <div className="space-y-6">
               {/* Header */}
-              <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
+              <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
                 <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
                   <Globe className="h-6 w-6 text-primary" />
                 </div>
@@ -671,8 +661,8 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
 
         {/* Empty state for Connected tab when no profiles */}
         {activeTab === 'connected' && profiles.length === 0 && (
-          <div className="text-center py-12 border border-border/50 rounded-xl bg-background/50">
-            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-muted/40 to-muted/20 rounded-2xl flex items-center justify-center mb-4 border border-border/30">
+          <div className="text-center py-12 border border-border rounded-xl bg-card">
+            <div className="mx-auto w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mb-4 border border-border">
               <Settings className="h-8 w-8 text-muted-foreground" />
             </div>
             <h4 className="text-lg font-semibold text-foreground mb-2">
@@ -718,7 +708,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             <AlertDialogAction 
               onClick={handleDeleteConfirm}
               disabled={deleteProfile.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/80"
             >
               {deleteProfile.isPending ? 'Removing...' : 'Remove Integration'}
             </AlertDialogAction>
