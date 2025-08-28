@@ -50,7 +50,8 @@ export function AppPreviewSidePanel({
     sandboxId: project?.sandbox?.id,
     appType: project?.app_type || 'web',
     previewUrl: previewUrl.previewUrl,
-    autoStart: true // Dev server will auto-start when sandbox is available
+    autoStart: true, // Dev server will auto-start when sandbox is available
+    onPreviewUrlRetry: previewUrl.retryPreviewUrl // Coordinate preview URL retries with dev server status
   });
 
   const fileExplorer = useFileExplorer({

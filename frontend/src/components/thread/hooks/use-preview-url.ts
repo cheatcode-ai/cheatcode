@@ -16,47 +16,76 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
   const [currentView, setCurrentView] = useState<ViewMode>('desktop');
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
   const [authToken, setAuthToken] = useState<string | null>(null);
+  const [retryCount, setRetryCount] = useState(0);
   
   const { getToken } = useAuth();
 
-  // Fetch the actual Daytona preview URL from backend
-  useEffect(() => {
-    const fetchPreviewUrl = async () => {
-      if (!sandboxId) return;
-      
-      try {
-        const token = await getToken();
-        setAuthToken(token);
-        
-        const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/preview-url`, {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          if (data.preview_url) {
-            setCurrentUrl(data.preview_url);
-          } else {
-            console.log('Preview not available:', data.status);
-            setHasError(true);
-          }
-        } else {
-          console.error('Failed to fetch preview URL:', response.status);
-          setHasError(true);
-        }
-      } catch (error) {
-        console.error('Error fetching preview URL:', error);
-        setHasError(true);
-      } finally {
-        setIsLoading(false);
-      }
-    };
+  // Fetch the actual Daytona preview URL from backend with retry logic
+  const fetchPreviewUrl = useCallback(async (currentRetryCount = 0) => {
+    if (!sandboxId) return;
     
-    fetchPreviewUrl();
+    const maxRetries = 5;
+    const baseDelay = 2000; // 2 seconds
+    
+    try {
+      const token = await getToken();
+      setAuthToken(token);
+      
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/preview-url`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        const data = await response.json();
+        if (data.preview_url) {
+          setCurrentUrl(data.preview_url);
+          setHasError(false);
+          setRetryCount(0);
+          setIsLoading(false);
+          return;
+        } else {
+          console.log('Preview not available:', data.status);
+          // Don't set error immediately, might need more time
+        }
+      } else {
+        console.error('Failed to fetch preview URL:', response.status);
+      }
+      
+      // If we reach here, the request didn't get a preview URL
+      throw new Error('Preview URL not ready');
+      
+    } catch (error) {
+      console.error(`Error fetching preview URL (attempt ${currentRetryCount + 1}):`, error);
+      
+      if (currentRetryCount < maxRetries) {
+        const delay = baseDelay * Math.pow(2, currentRetryCount); // 2s, 4s, 8s, 16s, 32s
+        setRetryCount(currentRetryCount + 1);
+        
+        setTimeout(() => {
+          fetchPreviewUrl(currentRetryCount + 1);
+        }, delay);
+      } else {
+        setHasError(true);
+        setIsLoading(false);
+        console.error('Max retries reached for preview URL fetch');
+      }
+    }
   }, [sandboxId, getToken]);
+
+  // Manual retry function
+  const retryPreviewUrl = useCallback(() => {
+    setIsLoading(true);
+    setHasError(false);
+    setRetryCount(0);
+    fetchPreviewUrl(0);
+  }, [fetchPreviewUrl]);
+
+  useEffect(() => {
+    fetchPreviewUrl();
+  }, [fetchPreviewUrl]);
 
   // Use the currentUrl as the preview URL (actual Daytona URL)
   const previewUrl = currentUrl;
@@ -148,12 +177,14 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
     refreshKey,
     currentView,
     viewportDimensions,
+    retryCount,
     handleUrlSubmit,
     handleIframeLoad,
     handleIframeError,
     handleRefresh,
     openInNewTab,
     cycleView,
-    setIframeRef
+    setIframeRef,
+    retryPreviewUrl
   };
 }; 

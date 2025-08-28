@@ -9,6 +9,7 @@ interface UseDevServerProps {
   appType?: 'web' | 'mobile';
   previewUrl?: string;
   autoStart?: boolean; // New prop to control auto-start behavior
+  onPreviewUrlRetry?: () => void; // Callback to retry preview URL fetch
 }
 
 export const useDevServer = ({ 
@@ -16,7 +17,8 @@ export const useDevServer = ({
   isPreviewTabActive = false, 
   appType = 'web', 
   previewUrl,
-  autoStart = true 
+  autoStart = true,
+  onPreviewUrlRetry
 }: UseDevServerProps) => {
   const [status, setStatus] = useState<DevServerStatus>('stopped');
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,77 @@ export const useDevServer = ({
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const autoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
+  const checkStatus = useCallback(async (previewUrl?: string) => {
+    if (!sandboxId || statusCheckInProgress.current) return;
+    
+    statusCheckInProgress.current = true;
+    
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Authentication required');
+        setStatus('stopped');
+        statusCheckInProgress.current = false;
+        return;
+      }
 
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          command: appType === 'mobile' 
+            ? "curl -s -o /dev/null -w \"%{http_code}\" http://localhost:8081 2>/dev/null || echo '000'"
+            : "curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000 2>/dev/null || echo '000'",
+          blocking: true,
+          timeout: 10
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        const httpCode = result.output?.trim();
+        
+        // Debug logging for mobile projects
+        if (appType === 'mobile') {
+          console.log('[MOBILE DEV SERVER] Process check:', {
+            httpCode,
+            success: result.success,
+            output: result.output
+          });
+        }
+        
+        if (httpCode && httpCode !== '000' && result.success) {
+          setStatus('running');
+          setError(null);
+          setIsStarting(false);
+          
+          // If dev server is running but no preview URL, trigger retry
+          if (!previewUrl && onPreviewUrlRetry) {
+            console.log('[DEV SERVER] Dev server running but no preview URL, triggering retry');
+            onPreviewUrlRetry();
+          }
+        } else {
+          if (status !== 'starting') {
+            setStatus('stopped');
+          }
+        }
+      } else {
+        if (status !== 'starting') {
+          setStatus('stopped');
+        }
+      }
+    } catch (error) {
+      console.error('Failed to check dev server status:', error);
+      if (status !== 'starting') {
+        setStatus('stopped');
+      }
+    } finally {
+      statusCheckInProgress.current = false;
+    }
+  }, [sandboxId, getToken, appType, status, previewUrl, onPreviewUrlRetry]);
 
   const start = useCallback(async () => {
     if (!sandboxId || startInProgress.current) return;
@@ -138,76 +210,7 @@ export const useDevServer = ({
     }
   }, [sandboxId, getToken, checkStatus, previewUrl, appType]);
 
-  const checkStatus = useCallback(async (previewUrl?: string) => {
-    if (!sandboxId || statusCheckInProgress.current) return;
-    
-    statusCheckInProgress.current = true;
-    
-    try {
-      const token = await getToken();
-      if (!token) {
-        statusCheckInProgress.current = false;
-        return;
-      }
 
-      // For mobile projects, always check the expo process instead of URL
-      // The preview URL might be accessible even when expo isn't running
-      if (appType === 'mobile') {
-        console.log('[MOBILE DEV SERVER] Checking expo process status for mobile app');
-        // Fall through to command execution to check expo process
-      }
-
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          command: appType === 'mobile' 
-            ? "pgrep -f 'expo start' > /dev/null && echo '200' || echo '000'"
-            : "curl -s http://localhost:3000 -o /dev/null -w '%{http_code}' --connect-timeout 3 || echo '000'",
-          blocking: true,
-          timeout: 10
-        })
-      });
-
-      if (response.ok) {
-        const result = await response.json();
-        const httpCode = result.output?.trim();
-        
-        // Debug logging for mobile projects
-        if (appType === 'mobile') {
-          console.log('[MOBILE DEV SERVER] Process check:', {
-            httpCode,
-            success: result.success,
-            output: result.output
-          });
-        }
-        
-        if (httpCode && httpCode !== '000' && result.success) {
-          setStatus('running');
-          setError(null);
-          setIsStarting(false);
-        } else {
-          if (status !== 'starting') {
-            setStatus('stopped');
-          }
-        }
-      } else {
-        if (status !== 'starting') {
-          setStatus('stopped');
-        }
-      }
-    } catch (error) {
-      console.error('Failed to check dev server status:', error);
-      if (status !== 'starting') {
-        setStatus('stopped');
-      }
-    } finally {
-      statusCheckInProgress.current = false;
-    }
-  }, [sandboxId, getToken, appType, status]);
 
   // Auto-start dev server immediately when sandbox is available (not tied to preview tab)
   useEffect(() => {
@@ -247,7 +250,7 @@ export const useDevServer = ({
       // Set up new polling interval
       pollingIntervalRef.current = setInterval(() => {
         checkStatus(previewUrl);
-      }, 15000); // Check every 15 seconds (reduced from 30s for better UX)
+      }, 3000); // Check every 3 seconds for better responsiveness
       
       return () => {
         if (pollingIntervalRef.current) {
