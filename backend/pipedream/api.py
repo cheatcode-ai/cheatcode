@@ -361,30 +361,41 @@ async def get_pipedream_apps(
     logger.info(f"Fetching Pipedream apps registry, page: {page}")
     
     try:
-        import httpx
+        from pipedream.client import get_pipedream_client
         
-        async with httpx.AsyncClient() as client:
-            url = f"https://mcp.pipedream.com/api/apps"
-            params = {"page": page}
-            
-            if search:
-                params["search"] = search
-            if category:
-                params["category"] = category
-                
-            response = await client.get(url, params=params, timeout=30.0)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            logger.info(f"Successfully fetched {len(data.get('data', []))} apps from Pipedream registry")
-            return {
-                "success": True,
-                "apps": data.get("data", []),
-                "page_info": data.get("page_info", {}),
-                "total_count": data.get("page_info", {}).get("total_count", 0)
-            }
-            
+        # Use the authenticated Pipedream client
+        client = get_pipedream_client()
+        access_token = await client._obtain_access_token()
+        
+        # Use the proper Pipedream API endpoint with authentication
+        url = f"{client.base_url}/apps"
+        headers = {
+            "Authorization": f"Bearer {access_token}",
+            "Content-Type": "application/json"
+        }
+        
+        params = {}
+        if search:
+            params["q"] = search  # Pipedream API uses 'q' for search
+        if page > 1:
+            # Pipedream API uses cursor-based pagination, not page numbers
+            # For now, we'll just return the first page
+            logger.warning(f"Page {page} requested, but Pipedream API uses cursor-based pagination. Returning first page.")
+        
+        session = await client._get_session()
+        response = await session.get(url, headers=headers, params=params)
+        response.raise_for_status()
+        
+        data = response.json()
+        
+        logger.info(f"Successfully fetched {len(data.get('data', []))} apps from Pipedream registry")
+        return {
+            "success": True,
+            "apps": data.get("data", []),
+            "page_info": data.get("page_info", {}),
+            "total_count": data.get("page_info", {}).get("total_count", 0)
+        }
+        
     except Exception as e:
         logger.error(f"Failed to fetch Pipedream apps: {str(e)}")
         raise HTTPException(
