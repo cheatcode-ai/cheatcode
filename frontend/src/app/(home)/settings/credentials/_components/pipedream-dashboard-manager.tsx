@@ -27,6 +27,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClerkBackendApi } from '@/lib/api-client';
 import { useAuth } from '@clerk/nextjs';
 import { settingsKeys } from '@/hooks/react-query/settings/keys';
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 import { useRouter } from 'next/navigation';
 import { PipedreamRegistry } from '@/components/integrations/pipedream/pipedream-registry';
 import { CustomMCPDialog } from './custom-mcp-dialog';
@@ -59,9 +60,10 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   const [profileToDelete, setProfileToDelete] = useState<PipedreamProfile | null>(null);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showCustomMCPDialog, setShowCustomMCPDialog] = useState(false);
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
   // Get Pipedream profiles from hydrated cache
-  // 🚀 OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
+  // OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
   const { data: profiles = [], isLoading, error } = useQuery({
     queryKey: settingsKeys.integrations.pipedream.profiles(),
     queryFn: async () => {
@@ -76,6 +78,10 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
     enabled: true,
     staleTime: 5 * 60 * 1000, // 5 minutes - matches server prefetch
     retry: 2, // Allow retries for fallback scenario
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 
   // Auto-enable tools mutation

@@ -1,5 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { createClient } from '@/lib/supabase/client';
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 
 const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
@@ -71,6 +72,7 @@ interface PopularServersResponse {
 
 export const useMCPServers = (query?: string, page: number = 1, pageSize: number = 20) => {
   const supabase = createClient();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
   return useQuery({
     queryKey: ['mcp-servers', query, page, pageSize],
@@ -100,11 +102,16 @@ export const useMCPServers = (query?: string, page: number = 1, pageSize: number
       return response.json();
     },
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 export const useMCPServerDetails = (qualifiedName: string, enabled: boolean = true) => {
   const supabase = createClient();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
   return useQuery({
     queryKey: ['mcp-server-details', qualifiedName],
@@ -129,11 +136,16 @@ export const useMCPServerDetails = (qualifiedName: string, enabled: boolean = tr
     },
     enabled: enabled && !!qualifiedName,
     staleTime: 10 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 export const usePopularMCPServers = (page: number = 1, pageSize: number = 50) => {
   const supabase = createClient();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
   return useQuery({
     queryKey: ['mcp-servers-popular', page, pageSize],
@@ -162,5 +174,9 @@ export const usePopularMCPServers = (page: number = 1, pageSize: number = 50) =>
       return response.json();
     },
     staleTime: 30 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 }; 

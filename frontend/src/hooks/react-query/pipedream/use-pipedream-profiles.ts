@@ -7,38 +7,54 @@ import type {
   UpdateProfileRequest,
 } from '@/types/pipedream-profiles';
 import { toast } from 'sonner';
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 
 export const usePipedreamProfiles = (params?: { app_slug?: string; is_active?: boolean }) => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.profiles.list(params),
     queryFn: () => pipedreamApi.getProfiles(params),
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 // Hook to get a single profile
 export const usePipedreamProfile = (profileId: string, enabled = true) => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.profiles.detail(profileId),
     queryFn: () => pipedreamApi.getProfile(profileId),
     enabled: enabled && !!profileId,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 // Hook to get profile connections
 export const usePipedreamProfileConnections = (profileId: string, enabled = true) => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.profiles.connections(profileId),
     queryFn: () => pipedreamApi.getProfileConnections(profileId),
     enabled: enabled && !!profileId,
     staleTime: 5 * 60 * 1000,
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 

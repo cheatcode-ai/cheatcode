@@ -11,6 +11,7 @@ import {
   type PipedreamToolsResponse,
 } from './utils';
 import { pipedreamKeys } from './keys';
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 
 export const useCreateConnectionToken = () => {
   const queryClient = useQueryClient();
@@ -33,41 +34,61 @@ export const useCreateConnectionToken = () => {
 
 export const usePipedreamConnections = () => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.connections(),
     queryFn: () => pipedreamApi.getConnections(),
     staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 export const usePipedreamHealthCheck = () => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.health(),
     queryFn: () => pipedreamApi.getHealthCheck(),
     staleTime: 60 * 1000, // 1 minute
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 export const usePipedreamApps = (page = 1, search?: string, category?: string) => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.apps(page, search, category),
     queryFn: () => pipedreamApi.getApps(page, search, category),
     staleTime: 10 * 60 * 1000, // 10 minutes
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
 export const usePipedreamAvailableTools = (forceRefresh = false) => {
   const pipedreamApi = usePipedreamApi();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return useQuery({
     queryKey: pipedreamKeys.availableTools(),
     queryFn: () => pipedreamApi.getAvailableTools(forceRefresh),
     staleTime: 30 * 60 * 1000, // 30 minutes
+    refetchOnWindowFocus: !disableWindowFocus,
+    refetchOnMount: !disableMount,
+    refetchOnReconnect: !disableReconnect,
+    refetchInterval: disableInterval ? false : undefined,
   });
 };
 
