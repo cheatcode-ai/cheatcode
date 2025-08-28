@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, memo } from 'react';
+import React, { useState, memo, useEffect } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -125,6 +125,13 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   });
 
   console.log('Pipedream profiles:', profiles);
+
+  // Auto-switch to connected tab when profiles are loaded
+  useEffect(() => {
+    if (profiles.length > 0 && activeTab === 'browse-apps') {
+      setActiveTab('connected');
+    }
+  }, [profiles.length, activeTab]);
 
   // Auto-enable tools for profiles that don't have any tools on component load
   React.useEffect(() => {
@@ -353,227 +360,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
     );
   }
 
-  if (profiles.length === 0) {
-    return (
-      <div className="relative py-8 px-6 bg-gradient-to-br from-card/50 via-card to-muted/20 rounded-2xl border border-border/30 shadow-lg">
-        {/* Subtle background pattern */}
-        <div className="absolute inset-0 opacity-20 rounded-2xl">
-          <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:24px_24px]" />
-        </div>
-        
-        <div className="relative">
-          {/* Header */}
-          <div className="text-center mb-8">
-            <div className="mx-auto w-20 h-20 bg-gradient-to-br from-primary/15 to-primary/5 rounded-2xl flex items-center justify-center mb-6 border border-primary/20 shadow-sm">
-              <Zap className="h-10 w-10 text-primary" />
-            </div>
-            <h4 className="text-lg font-semibold text-foreground mb-3">
-              No integrations configured
-            </h4>
-            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto leading-relaxed">
-              Connect your apps below to make them available for dashboard chats. All tools will be automatically enabled when you connect.
-            </p>
-          </div>
-
-          {/* Custom Tab Selector - iOS/Android style */}
-          <div className="flex justify-center mb-6">
-            <div
-              className="relative inline-flex h-10 items-center rounded-full p-0.5 bg-zinc-800/70 ring-1 ring-white/10 backdrop-blur-md shadow-inner overflow-hidden"
-              role="tablist"
-              aria-label="Select integration type"
-            >
-              {/* Browse Apps Button */}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setActiveTab('browse-apps')}
-                role="tab"
-                aria-selected={activeTab === 'browse-apps'}
-                className={cn(
-                  'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
-                  activeTab === 'browse-apps'
-                    ? 'bg-zinc-900 text-white'
-                    : 'text-gray-400 hover:text-white'
-                )}
-              >
-                <Store className="h-4 w-4" />
-                Browse Apps
-              </Button>
-
-              {/* Custom MCP Button */}
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                onClick={() => setActiveTab('custom-mcp')}
-                role="tab"
-                aria-selected={activeTab === 'custom-mcp'}
-                className={cn(
-                  'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
-                  activeTab === 'custom-mcp'
-                    ? 'bg-zinc-900 text-white'
-                    : 'text-gray-400 hover:text-white'
-                )}
-              >
-                <Server className="h-4 w-4" />
-                Custom MCP
-              </Button>
-            </div>
-          </div>
-
-          {/* Tab Content */}
-          <div className="w-full">
-            {activeTab === 'browse-apps' && (
-              <div className="border border-border/50 rounded-xl p-4 bg-background/50">
-                <PipedreamRegistry
-                  onProfileSelected={handleProfileSelected}
-                  onToolsSelected={handleToolsSelected}
-                />
-              </div>
-            )}
-            
-            {activeTab === 'custom-mcp' && (
-              <div className="border border-border/50 rounded-xl p-6 bg-background/50">
-                <div className="space-y-6">
-                  {/* Header */}
-                  <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
-                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
-                      <Globe className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <h3 className="font-medium">Custom MCP Server</h3>
-                      <p className="text-sm text-muted-foreground">Configure your own MCP server connection</p>
-                    </div>
-                  </div>
-
-                  {/* Form */}
-                  <div className="space-y-4">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label htmlFor="custom_profile_name">Profile Name *</Label>
-                        <Input
-                          id="custom_profile_name"
-                          value={customMCPFormData.profile_name}
-                          onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, profile_name: e.target.value }))}
-                          placeholder="Enter a profile name (e.g., 'My Custom Server')"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="custom_display_name">Display Name *</Label>
-                        <Input
-                          id="custom_display_name"
-                          value={customMCPFormData.display_name}
-                          onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, display_name: e.target.value }))}
-                          placeholder="Enter a display name for this server"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label htmlFor="server_type">Server Type *</Label>
-                      <Select value={customServerType} onValueChange={(value: 'sse' | 'http' | 'json') => setCustomServerType(value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select server type" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="sse">SSE (Server-Sent Events)</SelectItem>
-                          <SelectItem value="http">HTTP</SelectItem>
-                          <SelectItem value="json">JSON/stdio</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <p className="text-xs text-muted-foreground">
-                        Choose the connection type for your MCP server
-                      </p>
-                    </div>
-
-                    {customServerType === 'json' ? (
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <Label htmlFor="server_command">Command *</Label>
-                          <Input
-                            id="server_command"
-                            value={customMCPFormData.config.command || ''}
-                            onChange={(e) => handleCustomMCPConfigChange('command', e.target.value)}
-                            placeholder="Enter the command to start your MCP server (e.g., 'node server.js')"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            The command to execute your MCP server
-                          </p>
-                        </div>
-                        <div className="space-y-2">
-                          <Label htmlFor="server_args">Arguments (optional)</Label>
-                          <Input
-                            id="server_args"
-                            value={customMCPFormData.config.args || ''}
-                            onChange={(e) => handleCustomMCPConfigChange('args', e.target.value)}
-                            placeholder="Enter command arguments (comma-separated)"
-                          />
-                          <p className="text-xs text-muted-foreground">
-                            Additional arguments for the command (separated by commas)
-                          </p>
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-2">
-                        <Label htmlFor="server_url">Server URL *</Label>
-                        <Input
-                          id="server_url"
-                          type="url"
-                          value={customMCPFormData.config.url || ''}
-                          onChange={(e) => handleCustomMCPConfigChange('url', e.target.value)}
-                          placeholder={`Enter your ${customServerType.toUpperCase()} server URL`}
-                        />
-                        <p className="text-xs text-muted-foreground">
-                          The URL to your custom MCP server endpoint
-                        </p>
-                      </div>
-                    )}
-
-                    <Alert>
-                      <Globe className="h-4 w-4" />
-                      <AlertDescription>
-                        This will create a custom MCP server profile that you can use in your agents. 
-                        Make sure your server is accessible and properly configured.
-                      </AlertDescription>
-                    </Alert>
-
-                    <Alert>
-                      <Shield className="h-4 w-4" />
-                      <AlertDescription>
-                        Your server configuration will be encrypted and stored securely. You can create multiple profiles for different custom servers.
-                      </AlertDescription>
-                    </Alert>
-
-                    {/* Action buttons */}
-                    <div className="flex items-center justify-between pt-4 border-t">
-                      <Button variant="outline" onClick={resetCustomMCPForm}>
-                        Reset Form
-                      </Button>
-                      <Button 
-                        onClick={handleSaveCustomMCP}
-                        disabled={!isCustomMCPFormValid() || isCreatingCustomMCP}
-                      >
-                        {isCreatingCustomMCP ? (
-                          <>
-                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                            Creating...
-                          </>
-                        ) : (
-                          'Create Connection'
-                        )}
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
+  // Always show tab interface
   return (
     <div className="space-y-6">
       {/* Header with buttons */}
@@ -616,72 +403,323 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
                 )}
               </div>
             </div>
-            {/* Add integration buttons removed - tabs are used in empty state instead */}
+            {/* Tab interface for all states */}
+            <div className="flex justify-center mt-6">
+              <div
+                className="relative inline-flex h-10 items-center rounded-full p-0.5 bg-zinc-800/70 ring-1 ring-white/10 backdrop-blur-md shadow-inner overflow-hidden"
+                role="tablist"
+                aria-label="Select integration type"
+              >
+                {/* Connected Integrations Button - only show if profiles exist */}
+                {profiles.length > 0 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setActiveTab('connected')}
+                    role="tab"
+                    aria-selected={activeTab === 'connected'}
+                    className={cn(
+                      'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
+                      activeTab === 'connected'
+                        ? 'bg-zinc-900 text-white'
+                        : 'text-gray-400 hover:text-white'
+                    )}
+                  >
+                    <Settings className="h-4 w-4" />
+                    Connected ({profiles.length})
+                  </Button>
+                )}
+
+                {/* Browse Apps Button */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setActiveTab('browse-apps')}
+                  role="tab"
+                  aria-selected={activeTab === 'browse-apps'}
+                  className={cn(
+                    'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
+                    activeTab === 'browse-apps'
+                      ? 'bg-zinc-900 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  )}
+                >
+                  <Store className="h-4 w-4" />
+                  Browse Apps
+                </Button>
+
+                {/* Custom MCP Button */}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setActiveTab('custom-mcp')}
+                  role="tab"
+                  aria-selected={activeTab === 'custom-mcp'}
+                  className={cn(
+                    'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
+                    activeTab === 'custom-mcp'
+                      ? 'bg-zinc-900 text-white'
+                      : 'text-gray-400 hover:text-white'
+                  )}
+                >
+                  <Server className="h-4 w-4" />
+                  Custom MCP
+                </Button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Configured integrations */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm bg-gradient-to-br from-card to-muted/10">
-        <div className="px-6 py-5 border-b border-border/50 bg-gradient-to-r from-muted/40 to-muted/20 backdrop-blur-sm">
-          <h4 className="text-base font-semibold text-foreground flex items-center gap-2">
-            <div className="w-2 h-2 bg-primary rounded-full" />
-            Available Integrations
-          </h4>
-        </div>
-        <div className="p-3 space-y-1">
-          {profiles.map((profile: PipedreamProfile) => (
-            <div key={profile.profile_id} className="p-4 hover:bg-muted/30 rounded-xl transition-all duration-200 border border-transparent hover:border-border/50">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3 flex-1 min-w-0">
-                  <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                    profile.is_default_for_dashboard 
-                      ? 'bg-green-400 shadow-[0_0_6px_theme(colors.green.400),0_0_12px_theme(colors.green.400/0.8),0_0_18px_theme(colors.green.400/0.6)]' 
-                      : 'bg-gray-400 shadow-[0_0_4px_theme(colors.gray.400),0_0_8px_theme(colors.gray.400/0.6),0_0_12px_theme(colors.gray.400/0.4)]'
-                  }`} />
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 mb-1">
-                      <div className="font-medium text-sm truncate">{profile.display_name}</div>
-                    </div>
-                    <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                      <span>{profile.enabled_tools?.length || 0} tools {profile.enabled_tools?.length === 0 ? 'available' : 'enabled'}</span>
-                      {!profile.is_connected && (
-                        <div className="flex items-center gap-1">
-                          <AlertTriangle className="h-3 w-3 text-amber-600" />
-                          <span className="text-amber-600">Not connected</span>
+      {/* Tab Content */}
+      <div className="w-full">
+        {/* Connected Integrations Tab */}
+        {activeTab === 'connected' && profiles.length > 0 && (
+          <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm bg-gradient-to-br from-card to-muted/10">
+            <div className="px-6 py-5 border-b border-border/50 bg-gradient-to-r from-muted/40 to-muted/20 backdrop-blur-sm">
+              <h4 className="text-base font-semibold text-foreground flex items-center gap-2">
+                <div className="w-2 h-2 bg-primary rounded-full" />
+                Connected Integrations
+              </h4>
+            </div>
+            <div className="p-3 space-y-1">
+              {profiles.map((profile: PipedreamProfile) => (
+                <div key={profile.profile_id} className="p-4 hover:bg-muted/30 rounded-xl transition-all duration-200 border border-transparent hover:border-border/50">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                        profile.is_default_for_dashboard 
+                          ? 'bg-green-400 shadow-[0_0_6px_theme(colors.green.400),0_0_12px_theme(colors.green.400/0.8),0_0_18px_theme(colors.green.400/0.6)]' 
+                          : 'bg-gray-400 shadow-[0_0_4px_theme(colors.gray.400),0_0_8px_theme(colors.gray.400/0.6),0_0_12px_theme(colors.gray.400/0.4)]'
+                      }`} />
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className="font-medium text-sm truncate">{profile.display_name}</div>
                         </div>
-                      )}
-                      {profile.is_connected && (!profile.enabled_tools || profile.enabled_tools.length === 0) && (
-                        <button
-                          onClick={() => handleFixTools(profile.profile_id)}
-                          className="text-xs text-blue-600 hover:text-blue-800 font-medium"
-                        >
-                          Auto-enable tools
-                        </button>
-                      )}
+                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                          <span>{profile.enabled_tools?.length || 0} tools {profile.enabled_tools?.length === 0 ? 'available' : 'enabled'}</span>
+                          {!profile.is_connected && (
+                            <div className="flex items-center gap-1">
+                              <AlertTriangle className="h-3 w-3 text-amber-600" />
+                              <span className="text-amber-600">Not connected</span>
+                            </div>
+                          )}
+                          {profile.is_connected && (!profile.enabled_tools || profile.enabled_tools.length === 0) && (
+                            <button
+                              onClick={() => handleFixTools(profile.profile_id)}
+                              className="text-xs text-blue-600 hover:text-blue-800 font-medium"
+                            >
+                              Auto-enable tools
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleDeleteClick(profile)}
+                        disabled={deleteProfile.isPending}
+                        className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                      <Switch
+                        checked={profile.is_default_for_dashboard}
+                        onCheckedChange={() => handleToggle(profile.profile_id, profile.is_default_for_dashboard)}
+                        disabled={isUpdating === profile.profile_id || !profile.is_active || !profile.is_connected}
+                      />
                     </div>
                   </div>
                 </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => handleDeleteClick(profile)}
-                    disabled={deleteProfile.isPending}
-                    className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                  >
-                    <Trash2 className="h-4 w-4" />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Browse Apps Tab */}
+        {activeTab === 'browse-apps' && (
+          <div className="border border-border/50 rounded-xl p-4 bg-background/50">
+            <PipedreamRegistry
+              onProfileSelected={handleProfileSelected}
+              onToolsSelected={handleToolsSelected}
+            />
+          </div>
+        )}
+        
+        {/* Custom MCP Tab */}
+        {activeTab === 'custom-mcp' && (
+          <div className="border border-border/50 rounded-xl p-6 bg-background/50">
+            <div className="space-y-6">
+              {/* Header */}
+              <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
+                <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
+                  <Globe className="h-6 w-6 text-primary" />
+                </div>
+                <div>
+                  <h3 className="font-medium">Custom MCP Server</h3>
+                  <p className="text-sm text-muted-foreground">Configure your own MCP server connection</p>
+                </div>
+              </div>
+
+              {/* Form */}
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="custom_profile_name">Profile Name *</Label>
+                    <Input
+                      id="custom_profile_name"
+                      value={customMCPFormData.profile_name}
+                      onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, profile_name: e.target.value }))}
+                      placeholder="Enter a profile name (e.g., 'My Custom Server')"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="custom_display_name">Display Name *</Label>
+                    <Input
+                      id="custom_display_name"
+                      value={customMCPFormData.display_name}
+                      onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, display_name: e.target.value }))}
+                      placeholder="Enter a display name for this server"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="server_type">Server Type *</Label>
+                  <Select value={customServerType} onValueChange={(value: 'sse' | 'http' | 'json') => setCustomServerType(value)}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select server type" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="sse">SSE (Server-Sent Events)</SelectItem>
+                      <SelectItem value="http">HTTP</SelectItem>
+                      <SelectItem value="json">JSON/stdio</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    Choose the connection type for your MCP server
+                  </p>
+                </div>
+
+                {customServerType === 'json' ? (
+                  <div className="space-y-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="server_command">Command *</Label>
+                      <Input
+                        id="server_command"
+                        value={customMCPFormData.config.command || ''}
+                        onChange={(e) => handleCustomMCPConfigChange('command', e.target.value)}
+                        placeholder="Enter the command to start your MCP server (e.g., 'node server.js')"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        The command to execute your MCP server
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="server_args">Arguments (optional)</Label>
+                      <Input
+                        id="server_args"
+                        value={customMCPFormData.config.args || ''}
+                        onChange={(e) => handleCustomMCPConfigChange('args', e.target.value)}
+                        placeholder="Enter command arguments (comma-separated)"
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        Additional arguments for the command (separated by commas)
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    <Label htmlFor="server_url">Server URL *</Label>
+                    <Input
+                      id="server_url"
+                      type="url"
+                      value={customMCPFormData.config.url || ''}
+                      onChange={(e) => handleCustomMCPConfigChange('url', e.target.value)}
+                      placeholder={`Enter your ${customServerType.toUpperCase()} server URL`}
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      The URL to your custom MCP server endpoint
+                    </p>
+                  </div>
+                )}
+
+                <Alert>
+                  <Globe className="h-4 w-4" />
+                  <AlertDescription>
+                    This will create a custom MCP server profile that you can use in your agents. 
+                    Make sure your server is accessible and properly configured.
+                  </AlertDescription>
+                </Alert>
+
+                <Alert>
+                  <Shield className="h-4 w-4" />
+                  <AlertDescription>
+                    Your server configuration will be encrypted and stored securely. You can create multiple profiles for different custom servers.
+                  </AlertDescription>
+                </Alert>
+
+                {/* Action buttons */}
+                <div className="flex items-center justify-between pt-4 border-t">
+                  <Button variant="outline" onClick={resetCustomMCPForm}>
+                    Reset Form
                   </Button>
-                  <Switch
-                    checked={profile.is_default_for_dashboard}
-                    onCheckedChange={() => handleToggle(profile.profile_id, profile.is_default_for_dashboard)}
-                    disabled={isUpdating === profile.profile_id || !profile.is_active || !profile.is_connected}
-                  />
+                  <Button 
+                    onClick={handleSaveCustomMCP}
+                    disabled={!isCustomMCPFormValid() || isCreatingCustomMCP}
+                  >
+                    {isCreatingCustomMCP ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Creating...
+                      </>
+                    ) : (
+                      'Create Connection'
+                    )}
+                  </Button>
                 </div>
               </div>
             </div>
-          ))}
-        </div>
+          </div>
+        )}
+
+        {/* Empty state for Connected tab when no profiles */}
+        {activeTab === 'connected' && profiles.length === 0 && (
+          <div className="text-center py-12 border border-border/50 rounded-xl bg-background/50">
+            <div className="mx-auto w-16 h-16 bg-gradient-to-br from-muted/40 to-muted/20 rounded-2xl flex items-center justify-center mb-4 border border-border/30">
+              <Settings className="h-8 w-8 text-muted-foreground" />
+            </div>
+            <h4 className="text-lg font-semibold text-foreground mb-2">
+              No integrations connected
+            </h4>
+            <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
+              Use the "Browse Apps" or "Custom MCP" tabs to add your first integration.
+            </p>
+            <div className="flex gap-2 justify-center">
+              <Button 
+                variant="outline" 
+                onClick={() => setActiveTab('browse-apps')}
+                className="flex items-center gap-2"
+              >
+                <Store className="h-4 w-4" />
+                Browse Apps
+              </Button>
+              <Button 
+                variant="outline" 
+                onClick={() => setActiveTab('custom-mcp')}
+                className="flex items-center gap-2"
+              >
+                <Server className="h-4 w-4" />
+                Custom MCP
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Delete confirmation dialog */}
