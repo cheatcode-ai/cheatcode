@@ -3,6 +3,9 @@ import AccountBillingStatus from '@/components/billing/account-billing-status';
 
 const returnUrl = process.env.NEXT_PUBLIC_URL as string;
 
+// Force dynamic rendering - this page uses auth() which requires headers()
+export const dynamic = 'force-dynamic';
+
 export default async function PersonalAccountBillingPage() {
   // Use cached function - eliminates duplicate auth/DB calls across tabs
   const { account, error } = await getPersonalAccount();

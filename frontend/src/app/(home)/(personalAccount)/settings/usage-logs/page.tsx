@@ -1,6 +1,9 @@
 import { getPersonalAccount } from '@/lib/supabase/cached-server';
 import UsageLogs from '@/components/billing/usage-logs';
 
+// Force dynamic rendering - this page uses auth() which requires headers()
+export const dynamic = 'force-dynamic';
+
 export default async function UsageLogsPage() {
   // Use cached function - eliminates duplicate auth/DB calls across tabs
   const { account, error } = await getPersonalAccount();

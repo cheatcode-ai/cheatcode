@@ -1,6 +1,9 @@
 import { Zap } from 'lucide-react';
 import { CredentialsPageClient } from './_components/credentials-page-client';
 
+// Force dynamic rendering for consistency with other settings pages
+export const dynamic = 'force-dynamic';
+
 export default function AppProfilesPage() {
   // Removed custom_agents feature flag check - integrations are needed for coding system
   

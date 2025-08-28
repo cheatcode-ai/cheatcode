@@ -8,6 +8,9 @@ import { ModalProviders } from '@/providers/modal-providers';
 import { HydrationBoundary, QueryClient, dehydrate } from '@tanstack/react-query';
 import { settingsKeys } from '@/hooks/react-query/settings/keys';
 
+// Force dynamic rendering - this layout uses auth() which requires headers()
+export const dynamic = 'force-dynamic';
+
 export default async function PersonalAccountSettingsLayout({
   children,
 }: {
