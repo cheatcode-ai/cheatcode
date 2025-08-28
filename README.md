@@ -604,11 +604,14 @@ This project follows a code of conduct to ensure a welcoming environment for all
 
 ### Security
 
-If you discover a security vulnerability, please report it responsibly by emailing security@cheatcode.ai instead of creating a public issue.
+If you discover a security vulnerability, please report it responsibly by emailing founders@trycheatcode.com instead of creating a public issue.
 
 ## License
 
-Copyright 2024 Cheatcode AI
+Copyright 2025 Cheatcode AI
+
+Portions of this software are derived from [Suna by Kortix AI](https://github.com/kortix-ai/suna), 
+which is licensed under the Apache License 2.0. See `NOTICE` file for details.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at:
 
