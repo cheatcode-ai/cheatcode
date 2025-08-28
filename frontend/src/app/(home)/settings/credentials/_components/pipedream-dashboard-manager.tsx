@@ -4,7 +4,11 @@ import React, { useState, memo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+// Tabs component removed - using custom iOS/Android style selector
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,7 +26,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Zap, Settings, ExternalLink, Store, Server, AlertTriangle, Trash2 } from 'lucide-react';
+import { Zap, Settings, ExternalLink, Store, Server, AlertTriangle, Trash2, Globe, Shield, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { createClerkBackendApi } from '@/lib/api-client';
@@ -32,6 +36,7 @@ import { useRefetchControl } from '@/hooks/use-refetch-control';
 import { useRouter } from 'next/navigation';
 import { PipedreamRegistry } from '@/components/integrations/pipedream/pipedream-registry';
 // CustomMCPDialog import removed - using inline content in tabs instead
+import { cn } from '@/lib/utils';
 
 interface PipedreamProfile {
   profile_id: string;
@@ -60,6 +65,21 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<PipedreamProfile | null>(null);
   const [activeTab, setActiveTab] = useState('browse-apps');
+  
+  // Custom MCP form state
+  const [customServerType, setCustomServerType] = useState<'sse' | 'http' | 'json'>('sse');
+  const [customMCPFormData, setCustomMCPFormData] = useState<{
+    profile_name: string;
+    display_name: string;
+    config: Record<string, string>;
+    is_default: boolean;
+  }>({
+    profile_name: '',
+    display_name: '',
+    config: {},
+    is_default: false
+  });
+  const [isCreatingCustomMCP, setIsCreatingCustomMCP] = useState(false);
   // Refetch control disabled for better responsiveness
   // const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
@@ -215,17 +235,56 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
     }
   };
 
-  const handleSaveCustomMCP = async (config: any) => {
+  // Custom MCP form helpers
+  const handleCustomMCPConfigChange = (key: string, value: string) => {
+    setCustomMCPFormData(prev => ({
+      ...prev,
+      config: {
+        ...prev.config,
+        [key]: value
+      }
+    }));
+  };
+
+  const isCustomMCPFormValid = () => {
+    if (!customMCPFormData.profile_name.trim() || !customMCPFormData.display_name.trim()) {
+      return false;
+    }
+    
+    if (customServerType === 'json') {
+      return !!customMCPFormData.config.command;
+    } else {
+      return !!customMCPFormData.config.url;
+    }
+  };
+
+  const resetCustomMCPForm = () => {
+    setCustomServerType('sse');
+    setCustomMCPFormData({
+      profile_name: '',
+      display_name: '',
+      config: {},
+      is_default: false
+    });
+  };
+
+  const handleSaveCustomMCP = async () => {
+    if (!isCustomMCPFormValid()) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
+    setIsCreatingCustomMCP(true);
     try {
       const api = createClerkBackendApi(getToken);
       
       // Create custom MCP profile
       const profileData = {
-        mcp_qualified_name: `custom_${config.type}_${Date.now()}`,
-        profile_name: config.name,
-        display_name: config.name,
-        config: config.config,
-        enabled_tools: config.enabledTools,
+        mcp_qualified_name: `custom_${customServerType}_${customMCPFormData.display_name.toLowerCase().replace(/\s+/g, '_')}`,
+        profile_name: customMCPFormData.profile_name,
+        display_name: customMCPFormData.display_name,
+        config: customMCPFormData.config,
+        enabled_tools: [], // Will be populated later
         is_default_for_dashboard: true // Enable for dashboard by default
       };
       
@@ -237,10 +296,13 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
       });
       
       toast.success('Custom MCP connection created successfully');
+      resetCustomMCPForm();
       // Custom MCP will be added and the component will re-render showing the profiles list
     } catch (error: any) {
       console.error('Error creating custom MCP:', error);
       toast.error(error.message || 'Failed to create custom MCP connection');
+    } finally {
+      setIsCreatingCustomMCP(false);
     }
   };
 
@@ -313,59 +375,200 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             </p>
           </div>
 
-          {/* Tabs */}
-          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-            <TabsList className="grid w-full grid-cols-2 mb-6">
-              <TabsTrigger value="browse-apps" className="flex items-center gap-2">
+          {/* Custom Tab Selector - iOS/Android style */}
+          <div className="flex justify-center mb-6">
+            <div
+              className="relative inline-flex h-10 items-center rounded-full p-0.5 bg-zinc-800/70 ring-1 ring-white/10 backdrop-blur-md shadow-inner overflow-hidden"
+              role="tablist"
+              aria-label="Select integration type"
+            >
+              {/* Browse Apps Button */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveTab('browse-apps')}
+                role="tab"
+                aria-selected={activeTab === 'browse-apps'}
+                className={cn(
+                  'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
+                  activeTab === 'browse-apps'
+                    ? 'bg-zinc-900 text-white'
+                    : 'text-gray-400 hover:text-white'
+                )}
+              >
                 <Store className="h-4 w-4" />
                 Browse Apps
-              </TabsTrigger>
-              <TabsTrigger value="custom-mcp" className="flex items-center gap-2">
+              </Button>
+
+              {/* Custom MCP Button */}
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setActiveTab('custom-mcp')}
+                role="tab"
+                aria-selected={activeTab === 'custom-mcp'}
+                className={cn(
+                  'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
+                  activeTab === 'custom-mcp'
+                    ? 'bg-zinc-900 text-white'
+                    : 'text-gray-400 hover:text-white'
+                )}
+              >
                 <Server className="h-4 w-4" />
                 Custom MCP
-              </TabsTrigger>
-            </TabsList>
-            
-            <TabsContent value="browse-apps" className="mt-0">
+              </Button>
+            </div>
+          </div>
+
+          {/* Tab Content */}
+          <div className="w-full">
+            {activeTab === 'browse-apps' && (
               <div className="border border-border/50 rounded-xl p-4 bg-background/50">
                 <PipedreamRegistry
                   onProfileSelected={handleProfileSelected}
                   onToolsSelected={handleToolsSelected}
                 />
               </div>
-            </TabsContent>
+            )}
             
-            <TabsContent value="custom-mcp" className="mt-0">
+            {activeTab === 'custom-mcp' && (
               <div className="border border-border/50 rounded-xl p-6 bg-background/50">
                 <div className="space-y-6">
-                  <div>
-                    <h3 className="text-lg font-semibold mb-2">Custom MCP Connection</h3>
-                    <p className="text-sm text-muted-foreground mb-4">
-                      Connect to a custom MCP server for specialized integrations.
-                    </p>
-                  </div>
-                  
-                  <div className="text-center py-8">
-                    <div className="mx-auto w-16 h-16 bg-muted rounded-xl flex items-center justify-center mb-4">
-                      <Server className="h-8 w-8 text-muted-foreground" />
+                  {/* Header */}
+                  <div className="flex items-center gap-3 p-4 bg-muted/50 rounded-lg">
+                    <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
+                      <Globe className="h-6 w-6 text-primary" />
                     </div>
-                    <p className="text-sm text-muted-foreground">
-                      Custom MCP dialog content will be implemented here.
-                    </p>
-                    <Button 
-                      className="mt-4" 
-                      onClick={() => {
-                        console.log('[DEBUG] Custom MCP form would be shown');
-                        toast.info('Custom MCP integration coming soon!');
-                      }}
-                    >
-                      Add Custom MCP
-                    </Button>
+                    <div>
+                      <h3 className="font-medium">Custom MCP Server</h3>
+                      <p className="text-sm text-muted-foreground">Configure your own MCP server connection</p>
+                    </div>
+                  </div>
+
+                  {/* Form */}
+                  <div className="space-y-4">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="custom_profile_name">Profile Name *</Label>
+                        <Input
+                          id="custom_profile_name"
+                          value={customMCPFormData.profile_name}
+                          onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, profile_name: e.target.value }))}
+                          placeholder="Enter a profile name (e.g., 'My Custom Server')"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="custom_display_name">Display Name *</Label>
+                        <Input
+                          id="custom_display_name"
+                          value={customMCPFormData.display_name}
+                          onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, display_name: e.target.value }))}
+                          placeholder="Enter a display name for this server"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label htmlFor="server_type">Server Type *</Label>
+                      <Select value={customServerType} onValueChange={(value: 'sse' | 'http' | 'json') => setCustomServerType(value)}>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select server type" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="sse">SSE (Server-Sent Events)</SelectItem>
+                          <SelectItem value="http">HTTP</SelectItem>
+                          <SelectItem value="json">JSON/stdio</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground">
+                        Choose the connection type for your MCP server
+                      </p>
+                    </div>
+
+                    {customServerType === 'json' ? (
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="server_command">Command *</Label>
+                          <Input
+                            id="server_command"
+                            value={customMCPFormData.config.command || ''}
+                            onChange={(e) => handleCustomMCPConfigChange('command', e.target.value)}
+                            placeholder="Enter the command to start your MCP server (e.g., 'node server.js')"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            The command to execute your MCP server
+                          </p>
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="server_args">Arguments (optional)</Label>
+                          <Input
+                            id="server_args"
+                            value={customMCPFormData.config.args || ''}
+                            onChange={(e) => handleCustomMCPConfigChange('args', e.target.value)}
+                            placeholder="Enter command arguments (comma-separated)"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Additional arguments for the command (separated by commas)
+                          </p>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <Label htmlFor="server_url">Server URL *</Label>
+                        <Input
+                          id="server_url"
+                          type="url"
+                          value={customMCPFormData.config.url || ''}
+                          onChange={(e) => handleCustomMCPConfigChange('url', e.target.value)}
+                          placeholder={`Enter your ${customServerType.toUpperCase()} server URL`}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          The URL to your custom MCP server endpoint
+                        </p>
+                      </div>
+                    )}
+
+                    <Alert>
+                      <Globe className="h-4 w-4" />
+                      <AlertDescription>
+                        This will create a custom MCP server profile that you can use in your agents. 
+                        Make sure your server is accessible and properly configured.
+                      </AlertDescription>
+                    </Alert>
+
+                    <Alert>
+                      <Shield className="h-4 w-4" />
+                      <AlertDescription>
+                        Your server configuration will be encrypted and stored securely. You can create multiple profiles for different custom servers.
+                      </AlertDescription>
+                    </Alert>
+
+                    {/* Action buttons */}
+                    <div className="flex items-center justify-between pt-4 border-t">
+                      <Button variant="outline" onClick={resetCustomMCPForm}>
+                        Reset Form
+                      </Button>
+                      <Button 
+                        onClick={handleSaveCustomMCP}
+                        disabled={!isCustomMCPFormValid() || isCreatingCustomMCP}
+                      >
+                        {isCreatingCustomMCP ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                            Creating...
+                          </>
+                        ) : (
+                          'Create Connection'
+                        )}
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
-            </TabsContent>
-          </Tabs>
+            )}
+          </div>
         </div>
       </div>
     );
