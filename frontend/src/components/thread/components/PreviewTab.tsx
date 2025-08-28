@@ -105,7 +105,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
           </div>
         )}
 
-        {devServerStatus === 'running' && previewUrl && (
+        {previewUrl && (
           <iframe
             ref={iframeRef}
             key={`${currentView}-${refreshKey}`}

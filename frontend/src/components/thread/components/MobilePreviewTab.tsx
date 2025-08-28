@@ -57,7 +57,7 @@ export const MobilePreviewTab: React.FC<MobilePreviewTabProps> = ({
       );
     }
 
-    if (devServerStatus === 'running' && previewUrl) {
+    if (previewUrl) {
       return (
         <iframe
           ref={iframeRef}

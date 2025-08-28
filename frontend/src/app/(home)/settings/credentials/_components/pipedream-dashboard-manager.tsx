@@ -530,42 +530,38 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
       </AlertDialog>
 
       {/* Integrations Dialog */}
-      {showIntegrations && (
-        <Dialog 
-          open={showIntegrations} 
-          onOpenChange={(open) => {
-            console.log('[DEBUG] Integrations Dialog onOpenChange:', open);
-            setShowIntegrations(open);
-          }}
-        >
-          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-            <DialogHeader>
-              <DialogTitle>Browse Integrations</DialogTitle>
-              <DialogDescription>
-                Browse and connect apps to make them available for dashboard chats
-              </DialogDescription>
-            </DialogHeader>
-            <div className="overflow-auto flex-1">
-              <PipedreamRegistry
-                onProfileSelected={handleProfileSelected}
-                onToolsSelected={handleToolsSelected}
-              />
-            </div>
-          </DialogContent>
-        </Dialog>
-      )}
+      <Dialog 
+        open={showIntegrations} 
+        onOpenChange={(open) => {
+          console.log('[DEBUG] Integrations Dialog onOpenChange:', open);
+          setShowIntegrations(open);
+        }}
+      >
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Browse Integrations</DialogTitle>
+            <DialogDescription>
+              Browse and connect apps to make them available for dashboard chats
+            </DialogDescription>
+          </DialogHeader>
+          <div className="overflow-auto flex-1">
+            <PipedreamRegistry
+              onProfileSelected={handleProfileSelected}
+              onToolsSelected={handleToolsSelected}
+            />
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Custom MCP Dialog */}
-      {showCustomMCPDialog && (
-        <CustomMCPDialog
-          open={showCustomMCPDialog}
-          onOpenChange={(open) => {
-            console.log('[DEBUG] Custom MCP Dialog onOpenChange:', open);
-            setShowCustomMCPDialog(open);
-          }}
-          onSave={handleSaveCustomMCP}
-        />
-      )}
+      <CustomMCPDialog
+        open={showCustomMCPDialog}
+        onOpenChange={(open) => {
+          console.log('[DEBUG] Custom MCP Dialog onOpenChange:', open);
+          setShowCustomMCPDialog(open);
+        }}
+        onSave={handleSaveCustomMCP}
+      />
     </div>
   );
 }
