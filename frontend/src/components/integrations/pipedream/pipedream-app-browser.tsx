@@ -59,13 +59,13 @@ export const PipedreamAppBrowser: React.FC<PipedreamAppBrowserProps> = ({
       app.id.toLowerCase().includes(searchQuery.toLowerCase());
     
     const matchesCategory = !selectedCategory || 
-      app.category === selectedCategory;
+      app.categories.includes(selectedCategory);
     
     return matchesSearch && matchesCategory;
   });
 
   const categories = Array.from(
-    new Set(apps.map(app => app.category).filter(Boolean))
+    new Set(apps.flatMap(app => app.categories).filter(Boolean))
   ).sort();
 
   return (
@@ -150,9 +150,9 @@ export const PipedreamAppBrowser: React.FC<PipedreamAppBrowserProps> = ({
                     }}
                   >
                     <div className="flex items-center gap-3 w-full">
-                      {app.logo_url ? (
+                      {app.img_src ? (
                         <img
-                          src={app.logo_url}
+                          src={app.img_src}
                           alt={app.name}
                           className="w-8 h-8 rounded"
                           onError={(e) => {
