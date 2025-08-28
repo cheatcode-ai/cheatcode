@@ -4,6 +4,7 @@ import React, { useState, memo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -30,7 +31,7 @@ import { settingsKeys } from '@/hooks/react-query/settings/keys';
 import { useRefetchControl } from '@/hooks/use-refetch-control';
 import { useRouter } from 'next/navigation';
 import { PipedreamRegistry } from '@/components/integrations/pipedream/pipedream-registry';
-import { CustomMCPDialog } from './custom-mcp-dialog';
+// CustomMCPDialog import removed - using inline content in tabs instead
 
 interface PipedreamProfile {
   profile_id: string;
@@ -58,8 +59,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   const [isUpdating, setIsUpdating] = useState<string | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<PipedreamProfile | null>(null);
-  const [showIntegrations, setShowIntegrations] = useState(false);
-  const [showCustomMCPDialog, setShowCustomMCPDialog] = useState(false);
+  const [activeTab, setActiveTab] = useState('browse-apps');
   // Refetch control disabled for better responsiveness
   // const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
@@ -105,20 +105,6 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   });
 
   console.log('Pipedream profiles:', profiles);
-  console.log('[DEBUG] Dialog states:', { showIntegrations, showCustomMCPDialog });
-  
-  // Debug DOM elements
-  React.useEffect(() => {
-    if (showIntegrations || showCustomMCPDialog) {
-      setTimeout(() => {
-        const dialogElements = document.querySelectorAll('[role="dialog"]');
-        const overlayElements = document.querySelectorAll('[data-radix-popper-content-wrapper]');
-        console.log('[DEBUG] Dialog elements in DOM:', dialogElements.length);
-        console.log('[DEBUG] Overlay elements in DOM:', overlayElements.length);
-        console.log('[DEBUG] Body overflow:', document.body.style.overflow);
-      }, 100);
-    }
-  }, [showIntegrations, showCustomMCPDialog]);
 
   // Auto-enable tools for profiles that don't have any tools on component load
   React.useEffect(() => {
@@ -211,7 +197,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
     // Handle tools selection - could update the profile's enabled tools
     console.log('Tools selected:', { profileId, selectedTools, appName, appSlug });
     toast.success(`Selected ${selectedTools.length} tools from ${appName}`);
-    setShowIntegrations(false);
+    // Integration will be added and the component will re-render showing the profiles list
   };
 
   const handleFixTools = async (profileId: string) => {
@@ -251,7 +237,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
       });
       
       toast.success('Custom MCP connection created successfully');
-      setShowCustomMCPDialog(false);
+      // Custom MCP will be added and the component will re-render showing the profiles list
     } catch (error: any) {
       console.error('Error creating custom MCP:', error);
       toast.error(error.message || 'Failed to create custom MCP connection');
@@ -307,61 +293,79 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
 
   if (profiles.length === 0) {
     return (
-      <div className="relative text-center py-20 px-8 bg-gradient-to-br from-card/50 via-card to-muted/20 rounded-2xl border border-border/30 shadow-lg">
+      <div className="relative py-8 px-6 bg-gradient-to-br from-card/50 via-card to-muted/20 rounded-2xl border border-border/30 shadow-lg">
         {/* Subtle background pattern */}
         <div className="absolute inset-0 opacity-20 rounded-2xl">
           <div className="absolute inset-0 bg-grid-white/[0.02] bg-[size:24px_24px]" />
         </div>
         
         <div className="relative">
-          {/* Clean icon */}
-          <div className="mx-auto w-20 h-20 bg-gradient-to-br from-primary/15 to-primary/5 rounded-2xl flex items-center justify-center mb-6 border border-primary/20 shadow-sm">
-            <Zap className="h-10 w-10 text-primary" />
+          {/* Header */}
+          <div className="text-center mb-8">
+            <div className="mx-auto w-20 h-20 bg-gradient-to-br from-primary/15 to-primary/5 rounded-2xl flex items-center justify-center mb-6 border border-primary/20 shadow-sm">
+              <Zap className="h-10 w-10 text-primary" />
+            </div>
+            <h4 className="text-lg font-semibold text-foreground mb-3">
+              No integrations configured
+            </h4>
+            <p className="text-sm text-muted-foreground mb-6 max-w-md mx-auto leading-relaxed">
+              Connect your apps below to make them available for dashboard chats. All tools will be automatically enabled when you connect.
+            </p>
           </div>
-          
-          {/* Original content */}
-          <h4 className="text-lg font-semibold text-foreground mb-3">
-            No integrations configured
-          </h4>
-          <p className="text-sm text-muted-foreground mb-8 max-w-md mx-auto leading-relaxed">
-            Connect your apps below to make them available for dashboard chats. All tools will be automatically enabled when you connect.
-          </p>
-          
-          {/* Cleaner buttons */}
-          <div className="flex gap-3 justify-center">
-            <Button 
-              onClick={() => {
-                console.log('[DEBUG] Browse Apps button clicked!');
-                console.log('[DEBUG] Current state before:', { showIntegrations, showCustomMCPDialog });
-                setShowCustomMCPDialog(false); // Close other dialog first
-                setTimeout(() => {
-                  console.log('[DEBUG] Setting showIntegrations to true');
-                  setShowIntegrations(true);
-                }, 50);
-              }} 
-              variant="default"
-              size="lg"
-              className="shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-              type="button"
-            >
-              <Store className="h-4 w-4 mr-2" />
-              Browse Apps
-            </Button>
-            <Button 
-              onClick={() => {
-                console.log('[DEBUG] Custom MCP button clicked!');
-                setShowIntegrations(false); // Close other dialog first
-                setShowCustomMCPDialog(true);
-              }} 
-              variant="outline"
-              size="lg"
-              className="shadow-sm hover:shadow-md transition-shadow cursor-pointer"
-              type="button"
-            >
-              <Server className="h-4 w-4 mr-2" />
-              Custom MCP
-            </Button>
-          </div>
+
+          {/* Tabs */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-2 mb-6">
+              <TabsTrigger value="browse-apps" className="flex items-center gap-2">
+                <Store className="h-4 w-4" />
+                Browse Apps
+              </TabsTrigger>
+              <TabsTrigger value="custom-mcp" className="flex items-center gap-2">
+                <Server className="h-4 w-4" />
+                Custom MCP
+              </TabsTrigger>
+            </TabsList>
+            
+            <TabsContent value="browse-apps" className="mt-0">
+              <div className="border border-border/50 rounded-xl p-4 bg-background/50">
+                <PipedreamRegistry
+                  onProfileSelected={handleProfileSelected}
+                  onToolsSelected={handleToolsSelected}
+                />
+              </div>
+            </TabsContent>
+            
+            <TabsContent value="custom-mcp" className="mt-0">
+              <div className="border border-border/50 rounded-xl p-6 bg-background/50">
+                <div className="space-y-6">
+                  <div>
+                    <h3 className="text-lg font-semibold mb-2">Custom MCP Connection</h3>
+                    <p className="text-sm text-muted-foreground mb-4">
+                      Connect to a custom MCP server for specialized integrations.
+                    </p>
+                  </div>
+                  
+                  <div className="text-center py-8">
+                    <div className="mx-auto w-16 h-16 bg-muted rounded-xl flex items-center justify-center mb-4">
+                      <Server className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                    <p className="text-sm text-muted-foreground">
+                      Custom MCP dialog content will be implemented here.
+                    </p>
+                    <Button 
+                      className="mt-4" 
+                      onClick={() => {
+                        console.log('[DEBUG] Custom MCP form would be shown');
+                        toast.info('Custom MCP integration coming soon!');
+                      }}
+                    >
+                      Add Custom MCP
+                    </Button>
+                  </div>
+                </div>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </div>
     );
@@ -409,36 +413,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
                 )}
               </div>
             </div>
-            <div className="flex gap-3 flex-shrink-0">
-              <Button
-                size="default"
-                variant="outline"
-                onClick={() => {
-                  console.log('[DEBUG] Header Browse Apps button clicked!');
-                  setShowCustomMCPDialog(false); // Close other dialog first
-                  setShowIntegrations(true);
-                }}
-                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
-                type="button"
-              >
-                <Store className="h-4 w-4 mr-2" />
-                Browse Apps
-              </Button>
-              <Button
-                size="default"
-                variant="outline"
-                onClick={() => {
-                  console.log('[DEBUG] Header Custom MCP button clicked!');
-                  setShowIntegrations(false); // Close other dialog first
-                  setShowCustomMCPDialog(true);
-                }}
-                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
-                type="button"
-              >
-                <Server className="h-4 w-4 mr-2" />
-                Custom MCP
-              </Button>
-            </div>
+            {/* Add integration buttons removed - tabs are used in empty state instead */}
           </div>
         </div>
       </div>
@@ -529,39 +504,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
         </AlertDialogContent>
       </AlertDialog>
 
-      {/* Integrations Dialog */}
-      <Dialog 
-        open={showIntegrations} 
-        onOpenChange={(open) => {
-          console.log('[DEBUG] Integrations Dialog onOpenChange:', open);
-          setShowIntegrations(open);
-        }}
-      >
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Browse Integrations</DialogTitle>
-            <DialogDescription>
-              Browse and connect apps to make them available for dashboard chats
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-auto flex-1">
-            <PipedreamRegistry
-              onProfileSelected={handleProfileSelected}
-              onToolsSelected={handleToolsSelected}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
-
-      {/* Custom MCP Dialog */}
-      <CustomMCPDialog
-        open={showCustomMCPDialog}
-        onOpenChange={(open) => {
-          console.log('[DEBUG] Custom MCP Dialog onOpenChange:', open);
-          setShowCustomMCPDialog(open);
-        }}
-        onSave={handleSaveCustomMCP}
-      />
+      {/* Dialogs removed - using tabs in empty state instead */}
     </div>
   );
 }
