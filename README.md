@@ -6,7 +6,7 @@ An open-source, production-ready AI coding agent for apps and websites.
 
 Build, run, and ship full-stack applications with an agent that codes, executes, deploys, and integrates with your stack.
 
-[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE)
+[![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE-Apache-2.0)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)](#backend)
 [![Frontend](https://img.shields.io/badge/Frontend-Next.js_15-000000)](#frontend)
 [![DB](https://img.shields.io/badge/DB-Supabase-3FCF8E)](#database)
@@ -321,7 +321,8 @@ deployment-cheatcode/
 │   └── package.json             # Node.js dependencies
 ├── docker-compose.yaml          # Multi-service Docker orchestration
 ├── README.md                    # This file
-└── LICENSE                      # Apache 2.0 license
+├── LICENSE-Apache-2.0           # Apache 2.0 license
+└── NOTICE                       # Attribution notices for third-party components
 ```
 
 ## API Documentation
