@@ -166,30 +166,37 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
     const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
     return (
-      <Card className="group transition-all duration-200 hover:shadow-md border-border/30 hover:border-border bg-card/50 hover:bg-card">
-        <CardContent className="p-5">
+      <Card className="group transition-all duration-200 hover:shadow-lg border border-border hover:border-primary/20 bg-card hover:bg-card/95 h-full">
+        <CardContent className="p-5 h-full">
           <div className="flex flex-col h-full">
             {/* App Icon and Name */}
-            <div className="flex items-start gap-3 mb-3">
+            <div className="flex items-start gap-3 mb-4">
               <div className="flex-shrink-0">
                 <AppIcon app={app} />
               </div>
               <div className="flex-1 min-w-0">
-                <h3 className="font-semibold text-base text-foreground truncate">{app.name}</h3>
+                <h3 className="font-semibold text-base text-foreground truncate leading-tight">{app.name}</h3>
+                {app.categories.length > 0 && (
+                  <p className="text-xs text-muted-foreground mt-1 truncate">
+                    {app.categories[0]}
+                  </p>
+                )}
               </div>
             </div>
 
             {/* Description */}
-            <p className="text-sm text-muted-foreground line-clamp-3 mb-3 flex-1">
+            <p className="text-sm text-muted-foreground line-clamp-2 mb-4 flex-1 leading-relaxed">
               {app.description}
             </p>
 
-            {/* Authentication Type */}
-            <div className="mb-4">
-              <Badge variant="secondary" className="text-xs">
-                {app.auth_type === 'oauth' ? 'OAuth' : 'API Key'}
-              </Badge>
-            </div>
+            {/* Featured Badge */}
+            {app.featured_weight > 100000 && (
+              <div className="mb-4">
+                <Badge variant="default" className="text-xs bg-primary/10 text-primary border-primary/20">
+                  Featured
+                </Badge>
+              </div>
+            )}
 
             {/* Connection Status */}
             <div className="mt-auto">
@@ -247,8 +254,8 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
 
   return (
     <div className="h-full max-h-[80vh]">
-      <div className="flex flex-col overflow-hidden h-full">
-        <div className="p-6 border-b border-border bg-background">
+      <div className="flex flex-col h-full max-h-[calc(100vh-200px)]">
+        <div className="p-6 border-b border-border bg-card">
           <div className="mb-6">
             <h2 className="text-xl font-semibold mb-2">Browse Apps</h2>
             <p className="text-sm text-muted-foreground">
@@ -263,12 +270,12 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
                 placeholder="Search apps..."
                 value={search}
                 onChange={(e) => handleSearch(e.target.value)}
-                className="pl-10 h-11 bg-muted/30 border-0 focus:bg-background transition-colors"
+                className="pl-10 h-11 bg-background border border-border focus:border-primary transition-colors"
               />
             </div>
           </form>
         </div>
-        <div className="flex-1 overflow-auto p-6">
+        <div className="flex-1 overflow-y-auto p-6 bg-background">
           {isLoading && (
             <div className="flex items-center justify-center py-12">
               <div className="flex items-center gap-2">
@@ -280,24 +287,55 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
 
           {!isLoading && appsData?.apps && appsData.apps.length > 0 && (
             <>
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {appsData.apps.map((app: PipedreamApp) => (
-                  <AppCard key={app.id} app={app} />
-                ))}
-              </div>
+              {/* Featured Apps Section - only show on first page with no search */}
+              {page === 1 && !search && (
+                <>
+                  <div className="mb-8">
+                    <div className="flex items-center gap-2 mb-4">
+                      <h3 className="text-lg font-semibold text-foreground">Featured Apps</h3>
+                      <Badge variant="outline" className="text-xs">Popular</Badge>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 max-w-full">
+                      {appsData.apps.filter(app => app.featured_weight > 100000).slice(0, 8).map((app: PipedreamApp) => (
+                        <AppCard key={`featured-${app.id}`} app={app} />
+                      ))}
+                    </div>
+                  </div>
+                  
+                  {/* All Apps Section */}
+                  <div className="mb-6">
+                    <h3 className="text-lg font-semibold text-foreground mb-4">All Apps</h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 max-w-full">
+                      {appsData.apps.map((app: PipedreamApp) => (
+                        <AppCard key={app.id} app={app} />
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+              
+              {/* Regular view for search results or subsequent pages */}
+              {(page > 1 || search) && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4 max-w-full">
+                  {appsData.apps.map((app: PipedreamApp) => (
+                    <AppCard key={app.id} app={app} />
+                  ))}
+                </div>
+              )}
 
               {appsData.page_info && appsData.page_info.end_cursor && (
-                <div className="flex justify-center pt-4">
+                <div className="flex justify-center pt-8">
                   <Button
                     onClick={() => setPage(page + 1)}
                     disabled={isLoading}
-                    variant="outline"
-                    size="sm"
+                    variant="default"
+                    size="lg"
+                    className="px-8 py-2 bg-primary hover:bg-primary/90 text-primary-foreground"
                   >
                     {isLoading ? (
                       <>
-                        <Loader2 className="h-3 w-3 animate-spin mr-2" />
-                        Loading...
+                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                        Loading more apps...
                       </>
                     ) : (
                       'Load More Apps'
@@ -309,22 +347,42 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
           )}
 
           {!isLoading && appsData?.apps && appsData.apps.length === 0 && (
-            <div className="text-center py-8">
-              <div className="text-3xl mb-3">🔍</div>
-              <h3 className="text-base font-medium mb-2">No apps found</h3>
-              <p className="text-sm text-muted-foreground mb-3">
-                Try adjusting your search criteria
-              </p>
-              <Button
-                onClick={() => {
-                  setSearch('');
-                  setPage(1);
-                }}
-                variant="outline"
-                size="sm"
-              >
-                Clear Search
-              </Button>
+            <div className="text-center py-12 bg-card border border-border rounded-lg mx-4">
+              <div className="max-w-md mx-auto">
+                <Search className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
+                <h3 className="text-lg font-semibold mb-2">No apps found</h3>
+                <p className="text-muted-foreground mb-6">
+                  No apps match your search criteria. Try adjusting your search terms.
+                </p>
+                <Button
+                  onClick={() => {
+                    setSearch('');
+                    setPage(1);
+                  }}
+                  variant="default"
+                  className="px-6"
+                >
+                  <Search className="h-4 w-4 mr-2" />
+                  View All Apps
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {!isLoading && error && (
+            <div className="text-center py-12 bg-card border border-destructive/20 rounded-lg mx-4">
+              <div className="max-w-md mx-auto">
+                <div className="h-12 w-12 bg-destructive/10 rounded-full flex items-center justify-center mx-auto mb-4">
+                  <span className="text-destructive text-xl">⚠</span>
+                </div>
+                <h3 className="text-lg font-semibold mb-2 text-destructive">Failed to load apps</h3>
+                <p className="text-muted-foreground mb-6">
+                  There was an error loading the apps. Please try again.
+                </p>
+                <Button variant="default" onClick={() => refetch()} className="px-6">
+                  Try Again
+                </Button>
+              </div>
             </div>
           )}
         </div>
