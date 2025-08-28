@@ -253,6 +253,9 @@ redis_data
 
 .setup_env.json
 
+# MCP configuration (contains sensitive credentials)
+.mcp.json
+
 backend/.test_token_compression.py
 backend/test_token_compression_data.py
 
