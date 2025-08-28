@@ -106,6 +106,19 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
 
   console.log('Pipedream profiles:', profiles);
   console.log('[DEBUG] Dialog states:', { showIntegrations, showCustomMCPDialog });
+  
+  // Debug DOM elements
+  React.useEffect(() => {
+    if (showIntegrations || showCustomMCPDialog) {
+      setTimeout(() => {
+        const dialogElements = document.querySelectorAll('[role="dialog"]');
+        const overlayElements = document.querySelectorAll('[data-radix-popper-content-wrapper]');
+        console.log('[DEBUG] Dialog elements in DOM:', dialogElements.length);
+        console.log('[DEBUG] Overlay elements in DOM:', overlayElements.length);
+        console.log('[DEBUG] Body overflow:', document.body.style.overflow);
+      }, 100);
+    }
+  }, [showIntegrations, showCustomMCPDialog]);
 
   // Auto-enable tools for profiles that don't have any tools on component load
   React.useEffect(() => {
@@ -319,7 +332,12 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             <Button 
               onClick={() => {
                 console.log('[DEBUG] Browse Apps button clicked!');
-                setShowIntegrations(true);
+                console.log('[DEBUG] Current state before:', { showIntegrations, showCustomMCPDialog });
+                setShowCustomMCPDialog(false); // Close other dialog first
+                setTimeout(() => {
+                  console.log('[DEBUG] Setting showIntegrations to true');
+                  setShowIntegrations(true);
+                }, 50);
               }} 
               variant="default"
               size="lg"
@@ -332,6 +350,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
             <Button 
               onClick={() => {
                 console.log('[DEBUG] Custom MCP button clicked!');
+                setShowIntegrations(false); // Close other dialog first
                 setShowCustomMCPDialog(true);
               }} 
               variant="outline"
@@ -396,6 +415,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
                 variant="outline"
                 onClick={() => {
                   console.log('[DEBUG] Header Browse Apps button clicked!');
+                  setShowCustomMCPDialog(false); // Close other dialog first
                   setShowIntegrations(true);
                 }}
                 className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
@@ -409,6 +429,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
                 variant="outline"
                 onClick={() => {
                   console.log('[DEBUG] Header Custom MCP button clicked!');
+                  setShowIntegrations(false); // Close other dialog first
                   setShowCustomMCPDialog(true);
                 }}
                 className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
@@ -509,29 +530,42 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
       </AlertDialog>
 
       {/* Integrations Dialog */}
-      <Dialog open={showIntegrations} onOpenChange={setShowIntegrations}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
-          <DialogHeader>
-            <DialogTitle>Browse Integrations</DialogTitle>
-            <DialogDescription>
-              Browse and connect apps to make them available for dashboard chats
-            </DialogDescription>
-          </DialogHeader>
-          <div className="overflow-auto flex-1">
-            <PipedreamRegistry
-              onProfileSelected={handleProfileSelected}
-              onToolsSelected={handleToolsSelected}
-            />
-          </div>
-        </DialogContent>
-      </Dialog>
+      {showIntegrations && (
+        <Dialog 
+          open={showIntegrations} 
+          onOpenChange={(open) => {
+            console.log('[DEBUG] Integrations Dialog onOpenChange:', open);
+            setShowIntegrations(open);
+          }}
+        >
+          <DialogContent className="max-w-4xl max-h-[80vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <DialogTitle>Browse Integrations</DialogTitle>
+              <DialogDescription>
+                Browse and connect apps to make them available for dashboard chats
+              </DialogDescription>
+            </DialogHeader>
+            <div className="overflow-auto flex-1">
+              <PipedreamRegistry
+                onProfileSelected={handleProfileSelected}
+                onToolsSelected={handleToolsSelected}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Custom MCP Dialog */}
-      <CustomMCPDialog
-        open={showCustomMCPDialog}
-        onOpenChange={setShowCustomMCPDialog}
-        onSave={handleSaveCustomMCP}
-      />
+      {showCustomMCPDialog && (
+        <CustomMCPDialog
+          open={showCustomMCPDialog}
+          onOpenChange={(open) => {
+            console.log('[DEBUG] Custom MCP Dialog onOpenChange:', open);
+            setShowCustomMCPDialog(open);
+          }}
+          onSave={handleSaveCustomMCP}
+        />
+      )}
     </div>
   );
 }

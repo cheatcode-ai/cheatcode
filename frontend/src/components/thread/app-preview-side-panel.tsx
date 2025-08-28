@@ -78,12 +78,25 @@ export function AppPreviewSidePanel({
     }
   }, [project?.app_type, previewUrl.previewUrl, devServer.status, agentStatus, activeMainTab]);
 
-  // Show loading screen only when agent is building OR no preview URL available
+  // Show loading screen when agent is actively building OR no preview URL available
+  // But prioritize showing preview if URL exists and agent isn't actively modifying code
   const shouldShowLoadingScreen = (
     !previewUrl.previewUrl || 
     agentStatus === 'running' || 
     agentStatus === 'connecting'
   ) && (activeMainTab === 'preview' || !previewUrl.previewUrl);
+
+  // Debug logging for loading screen decisions
+  React.useEffect(() => {
+    console.log('[PREVIEW DEBUG] Loading screen decision:', {
+      shouldShowLoadingScreen,
+      previewUrl: !!previewUrl.previewUrl,
+      agentStatus,
+      devServerStatus: devServer.status,
+      activeMainTab,
+      previewUrlValue: previewUrl.previewUrl?.substring(0, 50) + '...'
+    });
+  }, [shouldShowLoadingScreen, previewUrl.previewUrl, agentStatus, devServer.status, activeMainTab]);
 
   // Switch to preview tab when loading starts if user is on code tab
   useEffect(() => {
