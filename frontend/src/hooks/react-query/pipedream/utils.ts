@@ -103,25 +103,28 @@ export interface MCPConnectionResponse {
 export interface PipedreamApp {
   id: string;
   name: string;
+  name_slug: string;
   description: string;
-  logo_url?: string;
-  category?: string;
-  oauth_app_id?: string;
-  auth_type?: string;
-  is_verified?: boolean;
-  tags?: string[];
+  categories: string[];
+  featured_weight: number;
+  auth_type: string;
+  img_src?: string; // Official Pipedream app icon URL
+  custom_fields_json: string;
+  connect?: {
+    proxy_enabled: boolean;
+    allowed_domains: string[];
+    base_proxy_target_url: string;
+  };
 }
 
 export interface PipedreamAppResponse {
   success: boolean;
   apps: PipedreamApp[];
   page_info: {
-    page: number;
-    per_page: number;
     total_count: number;
-    total_pages: number;
-    has_next_page: boolean;
-    has_prev_page: boolean;
+    count: number;
+    start_cursor?: string;
+    end_cursor?: string;
   };
   total_count: number;
 }

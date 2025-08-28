@@ -360,6 +360,29 @@ async def get_pipedream_apps(
 ):
     logger.info(f"Fetching Pipedream apps registry, page: {page}")
     
+    # Curated list of featured apps (shown first) - verified through discovery script
+    # Ordered by popularity (featured_weight) and category diversity
+    FEATURED_APPS = [
+        # Top productivity & collaboration (1M+ weight)
+        "notion", "google_sheets", "google_drive", "google_calendar", 
+        "supabase", "slack", "microsoft_teams",
+        
+        # Development & databases (100K+ weight)  
+        "github", "aws", "stripe", "salesforce_rest_api", "hubspot",
+        "woocommerce", "mongodb", "mysql", "postgresql",
+        
+        # Communication & marketing (10K+ weight)
+        "gmail", "telegram_bot_api", "sendgrid", "klaviyo", "zendesk",
+        "zoom", "twilio", "discord", "mailchimp",
+        
+        # Forms, productivity & file storage
+        "airtable_oauth", "typeform", "google_forms", "dropbox", 
+        "trello", "asana", "jira", "todoist", "clickup",
+        
+        # E-commerce & design
+        "shopify_developer_app", "figma", "linkedin", "google_analytics"
+    ]
+    
     try:
         from pipedream.client import get_pipedream_client
         
@@ -387,11 +410,38 @@ async def get_pipedream_apps(
         response.raise_for_status()
         
         data = response.json()
+        apps = data.get("data", [])
         
-        logger.info(f"Successfully fetched {len(data.get('data', []))} apps from Pipedream registry")
+        # Apply curation logic (only if no search query to preserve search results)
+        if not search:
+            # Separate featured and non-featured apps
+            featured_apps = []
+            other_apps = []
+            featured_slugs = set(FEATURED_APPS)
+            
+            for app in apps:
+                app_slug = app.get("name_slug", "").lower()
+                if app_slug in featured_slugs:
+                    featured_apps.append(app)
+                else:
+                    other_apps.append(app)
+            
+            # Sort featured apps by the order in FEATURED_APPS list
+            featured_apps.sort(key=lambda app: FEATURED_APPS.index(app.get("name_slug", "").lower()) 
+                             if app.get("name_slug", "").lower() in FEATURED_APPS else len(FEATURED_APPS))
+            
+            # Combine: featured first, then others
+            curated_apps = featured_apps + other_apps
+            
+            logger.info(f"Applied curation: {len(featured_apps)} featured apps, {len(other_apps)} other apps")
+        else:
+            curated_apps = apps
+            logger.info(f"Search query provided, skipping curation")
+        
+        logger.info(f"Successfully fetched {len(curated_apps)} apps from Pipedream registry")
         return {
             "success": True,
-            "apps": data.get("data", []),
+            "apps": curated_apps,
             "page_info": data.get("page_info", {}),
             "total_count": data.get("page_info", {}).get("total_count", 0)
         }

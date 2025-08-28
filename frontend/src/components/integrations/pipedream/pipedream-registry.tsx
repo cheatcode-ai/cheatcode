@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Search, Loader2, ExternalLink, Zap, Filter, Grid, List, User, CheckCircle2, Plus } from 'lucide-react';
+import { Search, Loader2, ExternalLink, Zap, User, CheckCircle2, Plus } from 'lucide-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { usePipedreamApps } from '@/hooks/react-query/pipedream/use-pipedream';
 import { usePipedreamProfiles } from '@/hooks/react-query/pipedream/use-pipedream-profiles';
@@ -13,20 +13,9 @@ import { CredentialProfileManager } from './credential-profile-manager';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 import type { PipedreamProfile } from '@/types/pipedream-profiles';
+import type { PipedreamApp } from '@/hooks/react-query/pipedream/utils';
 import { useQueryClient } from '@tanstack/react-query';
 import { pipedreamKeys } from '@/hooks/react-query/pipedream/keys';
-
-interface PipedreamApp {
-  id: string;
-  name: string;
-  name_slug: string;
-  app_hid: string;
-  description: string;
-  categories: string[];
-  featured_weight: number;
-  api_docs_url: string | null;
-  status: number;
-}
 
 interface PipedreamRegistryProps {
   onProfileSelected?: (profile: PipedreamProfile) => void;
@@ -38,9 +27,9 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
   onToolsSelected
 }) => {
   const [search, setSearch] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [selectedCategory] = useState<string>(''); // Category filtering removed - always show all apps
   const [page, setPage] = useState(1);
-  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  // Removed viewMode - using consistent grid layout
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [selectedProfile, setSelectedProfile] = useState<PipedreamProfile | null>(null);
   const [showProfileManager, setShowProfileManager] = useState(false);
@@ -50,16 +39,9 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
   const { data: appsData, isLoading, error, refetch } = usePipedreamApps(page, search, selectedCategory);
   const { data: profiles } = usePipedreamProfiles();
   
-  const { data: allAppsData } = usePipedreamApps(1, '', '');
+  // Removed allAppsData query - no longer needed without category filtering
 
-  const categories = useMemo(() => {
-    const dataToUse = allAppsData?.apps || appsData?.apps || [];
-    const categorySet = new Set<string>();
-    dataToUse.forEach((app: PipedreamApp) => {
-      app.categories.forEach(cat => categorySet.add(cat));
-    });
-    return Array.from(categorySet).sort();
-  }, [allAppsData?.apps, appsData?.apps]);
+  // Categories removed - always show all apps without filtering
 
   const handleSearch = (value: string) => {
     setSearch(value);
@@ -71,10 +53,7 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
     refetch();
   };
 
-  const handleCategorySelect = (category: string) => {
-    setSelectedCategory(category === selectedCategory ? '' : category);
-    setPage(1);
-  };
+  // Category selection removed - always show all apps
 
   const handleProfileSelect = async (profileId: string | null, app: PipedreamApp) => {
     if (!profileId) return;
@@ -113,6 +92,13 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
   };
 
   const getAppLogoUrl = (app: PipedreamApp) => {
+    // According to Pipedream API docs, all apps should have img_src
+    // But we'll be defensive in case some don't
+    if (app.img_src && app.img_src.trim()) {
+      return app.img_src;
+    }
+    
+    // Fallback to Clearbit logo service if img_src is missing
     const logoSlug = app.name_slug.toLowerCase();
     return `https://logo.clearbit.com/${logoSlug}.com`;
   };
@@ -121,68 +107,97 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
     return profiles?.filter(p => p.app_slug === appSlug && p.is_active) || [];
   };
 
+  const AppIcon: React.FC<{ app: PipedreamApp }> = ({ app }) => {
+    const [imageError, setImageError] = useState(false);
+    const [fallbackError, setFallbackError] = useState(false);
+
+    const handleImageError = () => {
+      setImageError(true);
+    };
+
+    const handleFallbackError = () => {
+      setFallbackError(true);
+    };
+
+    // If both official and fallback images failed, show letter
+    if (imageError && fallbackError) {
+      return (
+        <div className='h-12 w-12 rounded-lg flex items-center justify-center bg-primary/20 border border-border/50'>
+          <span className="text-primary font-semibold text-lg">
+            {app.name.charAt(0).toUpperCase()}
+          </span>
+        </div>
+      );
+    }
+
+    // If official image failed, try Clearbit fallback
+    if (imageError) {
+      const logoSlug = app.name_slug.toLowerCase();
+      const clearbitUrl = `https://logo.clearbit.com/${logoSlug}.com`;
+      
+      return (
+        <div className='h-12 w-12 rounded-lg flex items-center justify-center overflow-hidden bg-background shadow-sm border border-border/50'>
+          <img
+            src={clearbitUrl}
+            alt={`${app.name} logo`}
+            className="w-8 h-8 object-contain"
+            onError={handleFallbackError}
+          />
+        </div>
+      );
+    }
+
+    // Try official image first
+    return (
+      <div className='h-12 w-12 rounded-lg flex items-center justify-center overflow-hidden bg-background shadow-sm border border-border/50'>
+        <img
+          src={getAppLogoUrl(app)}
+          alt={`${app.name} logo`}
+          className="w-8 h-8 object-contain"
+          onError={handleImageError}
+        />
+      </div>
+    );
+  };
+
   const AppCard: React.FC<{ app: PipedreamApp }> = ({ app }) => {
     const appProfiles = getAppProfiles(app.name_slug);
     const connectedProfiles = appProfiles.filter(p => p.is_connected);
     const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
 
     return (
-      <Card className="group transition-all duration-200 border-border/50 hover:border-border">
-        <CardContent>
-          <div className="flex flex-col items-start gap-2.5">
-            <div className="flex-shrink-0">
-              <div className='h-8 w-8 rounded-md flex items-center justify-center overflow-hidden'>
-                <img
-                  src={getAppLogoUrl(app)}
-                  alt={`${app.name} logo`}
-                  className="w-full h-full object-contain"
-                  onError={(e) => {
-                    const target = e.target as HTMLImageElement;
-                    target.style.display = 'none';
-                    const parent = target.parentElement;
-                    if (parent && !parent.querySelector('.fallback-logo')) {
-                      const fallback = document.createElement('div');
-                      fallback.className = 'fallback-logo w-6 h-6 rounded bg-primary/20 flex items-center justify-center text-primary font-semibold text-xs';
-                      fallback.textContent = app.name.charAt(0).toUpperCase();
-                      parent.appendChild(fallback);
-                    }
-                  }}
-                />
+      <Card className="group transition-all duration-200 hover:shadow-md border-border/30 hover:border-border bg-card/50 hover:bg-card">
+        <CardContent className="p-5">
+          <div className="flex flex-col h-full">
+            {/* App Icon and Name */}
+            <div className="flex items-start gap-3 mb-3">
+              <div className="flex-shrink-0">
+                <AppIcon app={app} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h3 className="font-semibold text-base text-foreground truncate">{app.name}</h3>
               </div>
             </div>
-            <div className="flex-1 min-w-0 w-full">
-              <div className="flex items-start justify-between mb-1.5">
-                <h3 className="font-medium text-sm truncate pr-2">{app.name}</h3>
-              </div>
-              <p className="text-xs text-muted-foreground line-clamp-2 mb-2">
-                {app.description}
-              </p>
 
-              {app.categories.length > 0 && (
-                <div className="flex flex-wrap gap-1 mb-2">
-                  {app.categories.slice(0, 2).map((category) => (
-                    <Badge 
-                      key={category} 
-                      variant="outline" 
-                      className="text-xs px-1.5 py-0.5 bg-muted/50 hover:bg-muted cursor-pointer h-5"
-                      onClick={() => handleCategorySelect(category)}
-                    >
-                      {category}
-                    </Badge>
-                  ))}
-                  {app.categories.length > 2 && (
-                    <Badge variant="outline" className="text-xs px-1.5 py-0.5 bg-muted/50 h-5">
-                      +{app.categories.length - 2}
-                    </Badge>
-                  )}
-                </div>
-              )}
+            {/* Description */}
+            <p className="text-sm text-muted-foreground line-clamp-3 mb-3 flex-1">
+              {app.description}
+            </p>
 
+            {/* Authentication Type */}
+            <div className="mb-4">
+              <Badge variant="secondary" className="text-xs">
+                {app.auth_type === 'oauth' ? 'OAuth' : 'API Key'}
+              </Badge>
+            </div>
+
+            {/* Connection Status */}
+            <div className="mt-auto">
               {connectedProfiles.length > 0 ? (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                    <User className="h-3 w-3" />
-                    <span>{connectedProfiles.length} profile{connectedProfiles.length !== 1 ? 's' : ''} connected</span>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <CheckCircle2 className="h-4 w-4 text-green-500" />
+                    <span className="text-sm text-green-600 font-medium">Connected</span>
                   </div>
                   <CredentialProfileSelector
                     appSlug={app.name_slug}
@@ -197,17 +212,17 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
                   />
                 </div>
               ) : (
-                <div className="space-y-2">
-                  <div className="text-xs text-muted-foreground">
-                    No profiles connected for this app
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="h-2 w-2 rounded-full bg-muted-foreground/50" />
+                    <span className="text-sm text-muted-foreground">Not connected</span>
                   </div>
                   <Button
-                    size="sm"
                     variant="outline"
                     onClick={() => handleCreateProfile(app)}
-                    className="h-7 text-xs w-full"
+                    className="w-full h-9 text-sm font-medium"
                   >
-                    <Plus className="h-3 w-3" />
+                    <Plus className="h-4 w-4 mr-2" />
                     Add Profile
                   </Button>
                 </div>
@@ -231,84 +246,31 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
   }
 
   return (
-    <div className="flex h-full max-h-[80vh]">
-      <div className="w-56 border-r border-border bg-muted/20 flex flex-col">
-        <div className="p-3 border-b border-border">
-          <div className="space-y-0.5">
-            <button
-              onClick={() => handleCategorySelect('')}
-              className={cn(
-                "w-full text-left px-2 py-1.5 rounded-lg text-sm transition-colors",
-                selectedCategory === '' 
-                  ? "bg-muted-foreground/20 text-muted-foreground" 
-                  : "hover:bg-muted"
-              )}
-            >
-              All Apps
-              {(allAppsData?.total_count || appsData?.total_count) && (
-                <span className="ml-1 opacity-70">
-                  ({(allAppsData?.total_count || appsData?.total_count)?.toLocaleString()})
-                </span>
-              )}
-            </button>
-            {categories.map((category) => {
-              const categoryCount = (allAppsData?.apps || appsData?.apps || []).filter((app: PipedreamApp) => 
-                app.categories.includes(category)
-              ).length;
-              return (
-                <button
-                  key={category}
-                  onClick={() => handleCategorySelect(category)}
-                  className={cn(
-                    "w-full text-left px-2 py-1.5 rounded-lg text-sm transition-colors",
-                    selectedCategory === category 
-                      ? "bg-muted-foreground/20 text-muted-foreground"
-                      : "hover:bg-muted"
-                  )}
-                >
-                  {category}
-                  <span className="ml-1 opacity-70">
-                    ({categoryCount})
-                  </span>
-                </button>
-              );
-            })}
+    <div className="h-full max-h-[80vh]">
+      <div className="flex flex-col overflow-hidden h-full">
+        <div className="p-6 border-b border-border bg-background">
+          <div className="mb-6">
+            <h2 className="text-xl font-semibold mb-2">Browse Apps</h2>
+            <p className="text-sm text-muted-foreground">
+              Connect your favorite apps with your agent
+            </p>
           </div>
-        </div>
-      </div>
-      <div className="flex-1 flex flex-col overflow-hidden">
-        <div className="p-4 border-b border-border bg-background">
-          <div className="flex items-center justify-between mb-3">
-            <div>
-              <h2 className="text-lg font-semibold">Integrations</h2>
-              <p className="text-xs text-muted-foreground">
-                Select from your connected credential profiles to add tools
-              </p>
+          
+          <form onSubmit={handleSearchSubmit} className="max-w-md">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
+              <Input
+                placeholder="Search apps..."
+                value={search}
+                onChange={(e) => handleSearch(e.target.value)}
+                className="pl-10 h-11 bg-muted/30 border-0 focus:bg-background transition-colors"
+              />
             </div>
-          </div>
-          <form onSubmit={handleSearchSubmit} className="relative">
-            <Search className="absolute left-2.5 top-1/2 transform -translate-y-1/2 h-3 w-3 text-muted-foreground" />
-            <Input
-              placeholder="Search apps... (e.g., Gmail, Slack, Notion)"
-              value={search}
-              onChange={(e) => handleSearch(e.target.value)}
-              className="pl-8 h-8 text-sm"
-            />
-            {search && (
-              <Button 
-                type="submit" 
-                size="sm" 
-                variant="ghost" 
-                className="absolute right-1 top-1/2 transform -translate-y-1/2 h-6 px-2"
-              >
-                Search
-              </Button>
-            )}
           </form>
         </div>
-        <div className="flex-1 overflow-auto p-4">
+        <div className="flex-1 overflow-auto p-6">
           {isLoading && (
-            <div className="flex items-center justify-center py-8">
+            <div className="flex items-center justify-center py-12">
               <div className="flex items-center gap-2">
                 <Loader2 className="h-5 w-5 animate-spin" />
                 <span className="text-sm">Loading apps...</span>
@@ -318,18 +280,13 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
 
           {!isLoading && appsData?.apps && appsData.apps.length > 0 && (
             <>
-              <div className={cn(
-                "gap-3",
-                viewMode === 'grid' 
-                  ? "grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3" 
-                  : "space-y-2"
-              )}>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {appsData.apps.map((app: PipedreamApp) => (
                   <AppCard key={app.id} app={app} />
                 ))}
               </div>
 
-              {appsData.page_info && appsData.page_info.has_next_page && (
+              {appsData.page_info && appsData.page_info.end_cursor && (
                 <div className="flex justify-center pt-4">
                   <Button
                     onClick={() => setPage(page + 1)}
@@ -356,21 +313,17 @@ export const PipedreamRegistry: React.FC<PipedreamRegistryProps> = ({
               <div className="text-3xl mb-3">🔍</div>
               <h3 className="text-base font-medium mb-2">No apps found</h3>
               <p className="text-sm text-muted-foreground mb-3">
-                {selectedCategory 
-                  ? `No apps found in "${selectedCategory}" category` 
-                  : "Try adjusting your search criteria"
-                }
+                Try adjusting your search criteria
               </p>
               <Button
                 onClick={() => {
                   setSearch('');
-                  setSelectedCategory('');
                   setPage(1);
                 }}
                 variant="outline"
                 size="sm"
               >
-                Clear Filters
+                Clear Search
               </Button>
             </div>
           )}

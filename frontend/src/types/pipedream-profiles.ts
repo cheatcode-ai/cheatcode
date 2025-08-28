@@ -4,16 +4,17 @@ export interface PipedreamProfile {
   mcp_qualified_name: string;
   profile_name: string;
   display_name: string;
-  encrypted_config: string;
-  config_hash: string;
+  encrypted_config?: string; // Optional for compatibility
+  config_hash?: string; // Optional for compatibility
   is_active: boolean;
   is_default: boolean;
-  created_at: string;
-  updated_at: string;
+  is_default_for_dashboard?: boolean; // Optional field used in dashboard manager
+  created_at?: string; // Optional for compatibility
+  updated_at?: string; // Optional for compatibility
   last_used_at?: string;
   app_slug: string;
   app_name: string;
-  external_user_id: string;
+  external_user_id?: string; // Optional for compatibility
   is_connected: boolean;
   enabled_tools: string[];
 }

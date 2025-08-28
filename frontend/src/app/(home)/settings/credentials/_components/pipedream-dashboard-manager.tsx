@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, memo, useEffect } from 'react';
+import React, { useState, memo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -37,21 +37,7 @@ import { useRouter } from 'next/navigation';
 import { PipedreamRegistry } from '@/components/integrations/pipedream/pipedream-registry';
 // CustomMCPDialog import removed - using inline content in tabs instead
 import { cn } from '@/lib/utils';
-
-interface PipedreamProfile {
-  profile_id: string;
-  account_id: string;
-  mcp_qualified_name: string;
-  profile_name: string;
-  display_name: string;
-  is_active: boolean;
-  is_default: boolean;
-  is_default_for_dashboard: boolean;
-  enabled_tools: string[];
-  app_slug: string;
-  app_name: string;
-  is_connected: boolean;
-}
+import type { PipedreamProfile } from '@/types/pipedream-profiles';
 
 interface PipedreamDashboardManagerProps {
   compact?: boolean;
@@ -126,12 +112,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
 
   console.log('Pipedream profiles:', profiles);
 
-  // Auto-switch to connected tab when profiles are loaded
-  useEffect(() => {
-    if (profiles.length > 0 && activeTab === 'browse-apps') {
-      setActiveTab('connected');
-    }
-  }, [profiles.length, activeTab]);
+  // Keep Browse Apps as default tab - removed auto-switching behavior
 
   // Auto-enable tools for profiles that don't have any tools on component load
   React.useEffect(() => {
