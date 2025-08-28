@@ -1,4 +1,4 @@
-name: Build, push and deploy
+name: Build, push and deploy CheatCode AI
 
 on:
   push:
@@ -53,6 +53,17 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Build and push Frontend image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          file: ./frontend/Dockerfile
+          push: true
+          platforms: linux/amd64
+          tags: ghcr.io/${{ github.repository }}/frontend:${{ steps.get_tag_name.outputs.branch }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
       - name: Deploy to staging
         if: steps.get_tag_name.outputs.environment == 'staging'
         uses: appleboy/ssh-action@v1
@@ -61,7 +72,7 @@ jobs:
           username: ${{ secrets.STAGING_USERNAME }}
           key: ${{ secrets.STAGING_KEY }}
           script: |
-            cd /home/suna/backend
+            cd /home/cheatcode/deployment-cheatcode
             git pull
             docker compose build
             docker compose up -d
@@ -74,6 +85,6 @@ jobs:
           username: ${{ secrets.PROD_USERNAME }}
           key: ${{ secrets.PROD_KEY }}
           script: |
-            cd /mnt/gluster-shared/data/infra/suna
+            cd /mnt/gluster-shared/data/infra/cheatcode-ai
             set -a; source .env; set +a
-            docker stack deploy -c docker-compose.yml suna
+            docker stack deploy -c docker-compose.yml cheatcode-ai

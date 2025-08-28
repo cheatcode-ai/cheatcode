@@ -90,7 +90,7 @@ async def run_agent(
         logger.info(f"Using custom tool configuration from agent")
     
     # Register tools based on configuration
-    # If no agent config (enabled_tools is None), register ALL tools for full Suna capabilities
+    # If no agent config (enabled_tools is None), register ALL tools for full capabilities
     # If agent config exists, only register explicitly enabled tools
     if is_agent_builder:
         logger.info("Agent builder mode - registering basic file tool for read-only access")
@@ -99,8 +99,8 @@ async def run_agent(
         thread_manager.add_tool(SandboxFilesTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
 
     if enabled_tools is None:
-        # No agent specified - register ALL tools for full Suna experience
-        logger.info("No agent specified - registering all tools for full Suna capabilities")
+        # No agent specified - register ALL tools for full experience
+        logger.info("No agent specified - registering all tools for full capabilities")
         thread_manager.add_tool(SandboxShellTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
         thread_manager.add_tool(SandboxFilesTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
         # Deploy tool removed

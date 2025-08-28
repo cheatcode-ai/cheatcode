@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, memo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -50,7 +50,7 @@ interface PipedreamDashboardManagerProps {
   compact?: boolean;
 }
 
-export function PipedreamDashboardManager({ compact = false }: PipedreamDashboardManagerProps) {
+function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashboardManagerProps) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const router = useRouter();
@@ -510,4 +510,6 @@ export function PipedreamDashboardManager({ compact = false }: PipedreamDashboar
       />
     </div>
   );
-} 
+}
+
+export const PipedreamDashboardManager = memo(PipedreamDashboardManagerComponent); 

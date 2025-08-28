@@ -18,7 +18,7 @@ import { useAuth } from '@clerk/nextjs';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { PlanDetails } from '@/lib/api';
-import { LocalizedPrice } from '@iamjr15/react-currency-localizer';
+import { LocalizedPrice } from 'react-currency-localizer';
 
 type FREQUENCY = 'monthly' | 'yearly';
 

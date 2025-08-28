@@ -122,7 +122,7 @@ async def list_mcp_servers(
         async with httpx.AsyncClient() as client:
             headers = {
                 "Accept": "application/json",
-                "User-Agent": "Suna-MCP-Integration/1.0"
+                "User-Agent": "CheatCode-AI-MCP-Integration/1.0"
             }
             
             # Add API key if available
@@ -187,7 +187,7 @@ async def get_mcp_server_details(
         async with httpx.AsyncClient() as client:
             headers = {
                 "Accept": "application/json",
-                "User-Agent": "Suna-MCP-Integration/1.0"
+                "User-Agent": "CheatCode-AI-MCP-Integration/1.0"
             }
             
             # Add API key if available
@@ -253,13 +253,13 @@ async def get_popular_mcp_servers(
     - page: Page number (default: 1)
     - pageSize: Number of items per page (default: 200, max: 500)
     """
-    logger.info(f"Fetching  popular MCP servers for user {user_id}")
+    logger.info(f"Fetching popular MCP servers for user {user_id}")
     
     try:
         async with httpx.AsyncClient() as client:
             headers = {
                 "Accept": "application/json",
-                "User-Agent": "Suna-MCP-Integration/1.0"
+                "User-Agent": "CheatCode-AI-MCP-Integration/1.0"
             }
             
             # Add API key if available
@@ -488,7 +488,7 @@ async def get_popular_mcp_servers(
             )
             
     except Exception as e:
-        logger.error(f"Error fetching  popular MCP servers: {str(e)}")
+        logger.error(f"Error fetching popular MCP servers: {str(e)}")
         return PopularServersResponse(
             success=False,
             servers=[],

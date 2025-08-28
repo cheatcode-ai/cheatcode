@@ -1,10 +1,11 @@
 'use client';
 
+import React, { memo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { PipedreamDashboardManager } from './pipedream-dashboard-manager';
 import { useRouter } from 'next/navigation';
 
-export function CredentialsPageClient() {
+function CredentialsPageClientComponent() {
   const router = useRouter();
 
   return (
@@ -15,3 +16,5 @@ export function CredentialsPageClient() {
     </Card>
   );
 }
+
+export const CredentialsPageClient = memo(CredentialsPageClientComponent);

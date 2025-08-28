@@ -5,7 +5,7 @@ import { useState, createContext } from 'react';
 import { ReactQueryProvider } from '@/providers/react-query-provider';
 import { ClerkProvider } from '@clerk/nextjs';
 import { AuthTokenProvider } from '@/contexts/AuthTokenContext';
-import { CurrencyConverterProvider } from '@iamjr15/react-currency-localizer';
+import { CurrencyConverterProvider } from 'react-currency-localizer';
 
 export interface ParsedTag {
   tagName: string;

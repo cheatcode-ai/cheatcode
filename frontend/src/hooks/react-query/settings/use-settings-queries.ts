@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptimizedAuth } from '@/contexts/AuthTokenContext';
 import { settingsKeys, settingsQueryOptions } from './keys';
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 
 // Types for OpenRouter API responses
 export interface OpenRouterKeyStatus {
@@ -270,7 +271,7 @@ export function useDeleteOpenRouterKey() {
 
 /**
  * Hook to get personal account data on the client side
- * 🚀 OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
+ * OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
  * 
  * Architecture:
  * 1. Server layout calls getPersonalAccount() and prefetches into QueryClient

@@ -3,9 +3,11 @@ import { threadKeys } from "./keys";
 import { checkBillingStatus, BillingStatusResponse } from "@/lib/api";
 import { Query } from "@tanstack/react-query";
 import { useAuth } from '@clerk/nextjs';
+import { useRefetchControl } from "@/hooks/use-refetch-control";
 
 export const useBillingStatusQuery = (enabled = true) => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
   
   return createQueryHook(
     threadKeys.billingStatus,
@@ -34,10 +36,10 @@ export const useBillingStatusQuery = (enabled = true) => {
       },
       staleTime: 1000 * 30, // 30 seconds instead of 5 minutes
       gcTime: 1000 * 60 * 5, // 5 minutes instead of 10
-      refetchOnWindowFocus: true, // Refetch when user comes back to window
-      refetchOnMount: true, // Refetch when component mounts
-      refetchOnReconnect: true, // Refetch on network reconnection
-      refetchInterval: (query: Query<BillingStatusResponse, Error>) => {
+      refetchOnWindowFocus: !disableWindowFocus, // Controlled by context
+      refetchOnMount: !disableMount, // Controlled by context
+      refetchOnReconnect: !disableReconnect, // Controlled by context
+      refetchInterval: disableInterval ? false : (query: Query<BillingStatusResponse, Error>) => {
         // More frequent polling when approaching/at limit
         if (query.state.data && !query.state.data.can_run) {
           return 1000 * 30; // 30 seconds when at limit

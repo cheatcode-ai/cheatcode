@@ -147,6 +147,21 @@ export const settingsQueryOptions = {
     refetchOnMount: false,
     refetchOnReconnect: true,
   },
+
+  // Context-aware options that respect RefetchControlContext
+  contextAware: (refetchControl?: {
+    disableWindowFocus?: boolean;
+    disableMount?: boolean;
+    disableReconnect?: boolean;
+    disableInterval?: boolean;
+  }) => ({
+    staleTime: 30 * 1000,
+    gcTime: 2 * 60 * 1000,
+    refetchOnWindowFocus: !refetchControl?.disableWindowFocus,
+    refetchOnMount: !refetchControl?.disableMount,
+    refetchOnReconnect: !refetchControl?.disableReconnect,
+    refetchInterval: refetchControl?.disableInterval ? false : 60 * 1000,
+  }),
 } as const;
 
 /**

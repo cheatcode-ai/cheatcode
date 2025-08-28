@@ -2,10 +2,18 @@ import { useAuth } from '@clerk/nextjs';
 import { createBrowserClient } from '@supabase/ssr';
 import { useMemo } from 'react';
 
+// Create a singleton client instance to prevent multiple instances
+let globalSupabaseClient: ReturnType<typeof createBrowserClient> | null = null;
+
 export const useClerkSupabaseClient = () => {
   const { getToken } = useAuth();
 
   const supabaseClient = useMemo(() => {
+    // Return existing global client if available
+    if (globalSupabaseClient) {
+      return globalSupabaseClient;
+    }
+
     let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
 
@@ -15,7 +23,7 @@ export const useClerkSupabaseClient = () => {
       supabaseUrl = `http://${supabaseUrl}`;
     }
 
-    return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    globalSupabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
       auth: {
         // Disable Supabase's built-in auth for third-party auth
         persistSession: false,
@@ -41,7 +49,9 @@ export const useClerkSupabaseClient = () => {
         },
       },
     });
-  }, [getToken]);
+
+    return globalSupabaseClient;
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps -- Using singleton pattern to prevent multiple Supabase clients
 
   return supabaseClient;
 }; 
