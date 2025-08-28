@@ -64,31 +64,11 @@ export function SettingsMenuBar({ initialActiveItem = 'Account' }: SettingsMenuB
     }
   };
 
-  // Prefetch routes on hover for better performance
+  // Prefetching DISABLED for better button responsiveness
   const handleItemHover = (label: string) => {
-    const item = menuItems.find(item => item.label === label);
-    if (item && item.href !== pathname) {
-      // Prefetch the route data
-      router.prefetch(item.href);
-      console.log(`[PREFETCH] Prefetching route: ${item.href}`);
-    }
+    // No prefetching to avoid conflicts
+    console.log(`[SETTINGS] Hover on ${label} - prefetching disabled`);
   };
-
-  // Prefetch all routes on mount for instant navigation
-  useEffect(() => {
-    const prefetchAllRoutes = () => {
-      menuItems.forEach(item => {
-        if (item.href !== pathname) {
-          router.prefetch(item.href);
-          console.log(`[PREFETCH] Background prefetching: ${item.href}`);
-        }
-      });
-    };
-
-    // Prefetch after a short delay to avoid blocking initial render
-    const timer = setTimeout(prefetchAllRoutes, 1000);
-    return () => clearTimeout(timer);
-  }, [pathname, router, menuItems]);
 
   return (
     <MenuBar

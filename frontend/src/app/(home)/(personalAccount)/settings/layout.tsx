@@ -17,49 +17,18 @@ export default async function PersonalAccountSettingsLayout({
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // These options match our global settings
-        staleTime: 5 * 60 * 1000,
-        gcTime: 30 * 60 * 1000,
+        // CACHING DISABLED FOR BETTER RESPONSIVENESS
+        staleTime: 0,
+        gcTime: 0,
+        refetchOnWindowFocus: false,
+        refetchOnMount: true,
+        refetchOnReconnect: false,
       },
     },
   });
 
-  // Prefetch all settings data and hydrate the client cache
-  // This eliminates the need for client-side API calls across all tabs
-  // Each prefetch is independent - failures don't break the entire layout
-  
-  const prefetchResults = await Promise.allSettled([
-    // 1. Personal account data (billing, usage-logs) - critical
-    queryClient.prefetchQuery({
-      queryKey: settingsKeys.account.personal(),
-      queryFn: getPersonalAccount,
-      staleTime: 5 * 60 * 1000,
-    }),
-    
-    // 2. BYOK OpenRouter key status - optional
-    queryClient.prefetchQuery({
-      queryKey: settingsKeys.byok.openrouter.status(),
-      queryFn: getOpenRouterKeyStatus,
-      staleTime: 2 * 60 * 1000,
-    }),
-    
-    // 3. Pipedream integration profiles - optional
-    queryClient.prefetchQuery({
-      queryKey: settingsKeys.integrations.pipedream.profiles(),
-      queryFn: getPipedreamProfiles,
-      staleTime: 5 * 60 * 1000,
-    }),
-  ]);
-
-  // Log prefetch results for debugging
-  const [accountResult, byokResult, integrationsResult] = prefetchResults;
-  console.log(`[Settings] Prefetch results:`, {
-    account: accountResult.status,
-    byok: byokResult.status,
-    integrations: integrationsResult.status,
-  });
-
-  console.log('[Settings] Server-side prefetch completed - client cache hydrated');
+  // SERVER-SIDE PREFETCHING DISABLED FOR BUTTON RESPONSIVENESS
+  console.log('[Settings] Server-side prefetching DISABLED - using client-side only');
   
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

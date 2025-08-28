@@ -101,7 +101,7 @@ export const useDevServer = ({
     } finally {
       statusCheckInProgress.current = false;
     }
-  }, [sandboxId, getToken, appType, status, previewUrl, onPreviewUrlRetry]);
+  }, [sandboxId, getToken, appType, status, onPreviewUrlRetry]);
 
   const start = useCallback(async () => {
     if (!sandboxId || startInProgress.current) return;

@@ -78,12 +78,11 @@ export function AppPreviewSidePanel({
     }
   }, [project?.app_type, previewUrl.previewUrl, devServer.status, agentStatus, activeMainTab]);
 
-  // Show loading screen when agent is building, no preview URL yet, or dev server not running
+  // Show loading screen only when agent is building OR no preview URL available
   const shouldShowLoadingScreen = (
     !previewUrl.previewUrl || 
     agentStatus === 'running' || 
-    agentStatus === 'connecting' ||
-    devServer.status !== 'running'
+    agentStatus === 'connecting'
   ) && (activeMainTab === 'preview' || !previewUrl.previewUrl);
 
   // Switch to preview tab when loading starts if user is on code tab

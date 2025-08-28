@@ -60,28 +60,29 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   const [profileToDelete, setProfileToDelete] = useState<PipedreamProfile | null>(null);
   const [showIntegrations, setShowIntegrations] = useState(false);
   const [showCustomMCPDialog, setShowCustomMCPDialog] = useState(false);
-  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
+  // Refetch control disabled for better responsiveness
+  // const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
 
-  // Get Pipedream profiles from hydrated cache
-  // OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
+  // Get Pipedream profiles - CACHING DISABLED FOR RESPONSIVENESS
   const { data: profiles = [], isLoading, error } = useQuery({
     queryKey: settingsKeys.integrations.pipedream.profiles(),
     queryFn: async () => {
-      console.log('[INTEGRATIONS] 🚨 FALLBACK: Server prefetch failed, using client-side API call');
+      console.log('[INTEGRATIONS] Fetching profiles with no cache');
       
       const apiClient = createClerkBackendApi(getToken);
       const response = await apiClient.get('/pipedream/profiles');
       
-      console.log('[INTEGRATIONS] ✅ Fallback API call succeeded');
+      console.log('[INTEGRATIONS] ✅ Direct API call succeeded');
       return response.data || [];
     },
     enabled: true,
-    staleTime: 5 * 60 * 1000, // 5 minutes - matches server prefetch
-    retry: 2, // Allow retries for fallback scenario
-    refetchOnWindowFocus: !disableWindowFocus,
-    refetchOnMount: !disableMount,
-    refetchOnReconnect: !disableReconnect,
-    refetchInterval: disableInterval ? false : undefined,
+    staleTime: 0, // No caching
+    gcTime: 0, // No garbage collection time
+    retry: 1, // Minimal retries
+    refetchOnWindowFocus: false, // Disable all auto-refetching
+    refetchOnMount: true, // Always fetch fresh on mount
+    refetchOnReconnect: false,
+    refetchInterval: false,
   });
 
   // Auto-enable tools mutation
@@ -104,6 +105,7 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
   });
 
   console.log('Pipedream profiles:', profiles);
+  console.log('[DEBUG] Dialog states:', { showIntegrations, showCustomMCPDialog });
 
   // Auto-enable tools for profiles that don't have any tools on component load
   React.useEffect(() => {
@@ -315,19 +317,27 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
           {/* Cleaner buttons */}
           <div className="flex gap-3 justify-center">
             <Button 
-              onClick={() => setShowIntegrations(true)} 
+              onClick={() => {
+                console.log('[DEBUG] Browse Apps button clicked!');
+                setShowIntegrations(true);
+              }} 
               variant="default"
               size="lg"
-              className="shadow-sm hover:shadow-md transition-shadow"
+              className="shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              type="button"
             >
               <Store className="h-4 w-4 mr-2" />
               Browse Apps
             </Button>
             <Button 
-              onClick={() => setShowCustomMCPDialog(true)} 
+              onClick={() => {
+                console.log('[DEBUG] Custom MCP button clicked!');
+                setShowCustomMCPDialog(true);
+              }} 
               variant="outline"
               size="lg"
-              className="shadow-sm hover:shadow-md transition-shadow"
+              className="shadow-sm hover:shadow-md transition-shadow cursor-pointer"
+              type="button"
             >
               <Server className="h-4 w-4 mr-2" />
               Custom MCP
@@ -384,8 +394,12 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
               <Button
                 size="default"
                 variant="outline"
-                onClick={() => setShowIntegrations(true)}
-                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm"
+                onClick={() => {
+                  console.log('[DEBUG] Header Browse Apps button clicked!');
+                  setShowIntegrations(true);
+                }}
+                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
+                type="button"
               >
                 <Store className="h-4 w-4 mr-2" />
                 Browse Apps
@@ -393,8 +407,12 @@ function PipedreamDashboardManagerComponent({ compact = false }: PipedreamDashbo
               <Button
                 size="default"
                 variant="outline"
-                onClick={() => setShowCustomMCPDialog(true)}
-                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm"
+                onClick={() => {
+                  console.log('[DEBUG] Header Custom MCP button clicked!');
+                  setShowCustomMCPDialog(true);
+                }}
+                className="h-10 px-4 bg-background/50 backdrop-blur-sm border-border/50 hover:bg-background/80 hover:border-primary/30 transition-all duration-300 shadow-sm cursor-pointer"
+                type="button"
               >
                 <Server className="h-4 w-4 mr-2" />
                 Custom MCP
