@@ -1,0 +1,21 @@
+Cheatcode AI
+Copyright 2025 Cheatcode AI
+
+This product includes software developed by Kortix AI (https://github.com/kortix-ai/suna).
+
+================================================================================
+
+This software contains code derived from:
+
+Suna by Kortix AI
+Copyright 2025 Kortix AI
+Licensed under the Apache License, Version 2.0
+Source: https://github.com/kortix-ai/suna
+
+Portions of the backend infrastructure, agent management systems, and API design
+are adapted from the Suna project. Modifications have been made to integrate with
+Cheatcode AI's specific requirements and architecture.
+
+================================================================================
+
+For the full text of the Apache License, Version 2.0, see LICENSE-Apache-2.0
