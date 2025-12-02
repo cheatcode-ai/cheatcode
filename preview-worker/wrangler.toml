@@ -1,0 +1,11 @@
+name = "cheatcode-preview-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+# Custom domain will be configured after deployment
+# routes = [
+#   { pattern = "preview.trycheatcode.com/*", zone_name = "trycheatcode.com" }
+# ]
+
+[observability]
+enabled = true

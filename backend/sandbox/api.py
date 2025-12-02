@@ -1,4 +1,5 @@
 import os
+import re
 import urllib.parse
 from typing import Optional
 import time
@@ -14,6 +15,9 @@ from sandbox.sandbox import get_or_start_sandbox, get_sandbox, delete_sandbox
 from utils.logger import logger
 from utils.auth_utils import get_optional_user_id
 from services.supabase import DBConnection
+
+# Preview proxy URL - removes Daytona warning page
+PREVIEW_PROXY_URL = os.environ.get('PREVIEW_PROXY_URL', 'https://preview.trycheatcode.com')
 
 # Initialize shared resources
 router = APIRouter(tags=["sandbox"])
@@ -1039,10 +1043,22 @@ async def get_sandbox_preview_url(
         # Get the Daytona preview link for the appropriate port
         try:
             preview_info = await sandbox.get_preview_link(port)
-            url = preview_info.url if hasattr(preview_info, 'url') else str(preview_info)
-            
+            daytona_url = preview_info.url if hasattr(preview_info, 'url') else str(preview_info)
+
+            # Transform Daytona URL to use our proxy (removes warning page)
+            # Original: https://3000-abc123-def456.proxy.daytona.works/
+            # Proxied:  https://preview-proxy.../3000-abc123-def456/
+            proxy_url = daytona_url
+            if PREVIEW_PROXY_URL:
+                match = re.match(r'https?://(\d+-[a-f0-9-]+)\.proxy\.daytona\.works(/.*)?', daytona_url, re.IGNORECASE)
+                if match:
+                    port_sandbox = match.group(1)  # e.g., "3000-abc123-def456"
+                    path = match.group(2) or '/'
+                    proxy_url = f"{PREVIEW_PROXY_URL}/{port_sandbox}{path}"
+                    logger.info(f"Transformed preview URL: {daytona_url} -> {proxy_url}")
+
             return {
-                "preview_url": url,
+                "preview_url": proxy_url,
                 "status": "available"
             }
             
