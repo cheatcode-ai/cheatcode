@@ -1178,7 +1178,6 @@ async def initiate_agent_with_files(
               project_id,
               snapshot=snapshot_name,
               account_id=account_id,
-              enable_cache_volumes=True  # Enable npm/pnpm cache volumes for faster installs
           )
           sandbox_id = sandbox.id
           logger.info(f"Created new sandbox {sandbox_id} for project {project_id} with snapshot {snapshot_name}")

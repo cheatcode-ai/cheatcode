@@ -6,7 +6,6 @@ from daytona import (
     SessionExecuteRequest,
     Resources,
     SandboxState,
-    VolumeMount,
 )
 import asyncio
 from typing import Optional, Dict, Any, List
@@ -246,19 +245,17 @@ async def create_sandbox_from_snapshot(
     custom_labels: Optional[Dict[str, str]] = None,
     auto_stop_interval: int = 15,
     auto_archive_interval: int = 24 * 60,
-    enable_cache_volumes: bool = False,
 ) -> AsyncSandbox:
     """Create a new sandbox from a snapshot optimized for development.
 
     Args:
         project_id: Project identifier for tracking
         snapshot: Snapshot name to create sandbox from
-        account_id: User account ID for resource tracking and volume management
+        account_id: User account ID for resource tracking
         resource_tier: Resource tier ('light', 'standard', 'heavy')
         custom_labels: Additional labels to apply to sandbox
         auto_stop_interval: Minutes of inactivity before auto-stop (0 to disable)
         auto_archive_interval: Minutes after stop before auto-archive
-        enable_cache_volumes: If True and account_id provided, attach npm/pnpm cache volumes
 
     Returns:
         AsyncSandbox instance
@@ -297,35 +294,11 @@ async def create_sandbox_from_snapshot(
     resources = RESOURCE_TIERS.get(resource_tier, RESOURCE_TIERS["standard"])
     logger.debug(f"Using resource tier '{resource_tier}': cpu={resources.cpu}, memory={resources.memory}GB, disk={resources.disk}GB")
 
-    # Optionally attach cache volumes for npm/pnpm package caching
-    volume_mounts: Optional[List[VolumeMount]] = None
-    if enable_cache_volumes and account_id:
-        try:
-            from sandbox.volumes import volume_manager
-
-            logger.info(f"Setting up cache volumes for account {account_id}")
-            cache_mounts = await volume_manager.get_cache_volume_mounts(account_id)
-
-            if cache_mounts:
-                volume_mounts = [
-                    VolumeMount(
-                        volume_id=mount["volumeId"],
-                        mount_path=mount["mountPath"]
-                    )
-                    for mount in cache_mounts
-                ]
-                logger.info(f"Attaching {len(volume_mounts)} cache volumes to sandbox")
-        except Exception as vol_error:
-            # Volume attachment is optional optimization - don't fail sandbox creation
-            logger.warning(f"Failed to set up cache volumes (continuing without): {vol_error}")
-            volume_mounts = None
-
     params = CreateSandboxFromSnapshotParams(
         snapshot=snapshot,
         public=True,
         labels=labels,
         resources=resources,
-        volumes=volume_mounts,
         env_vars={
             # Development environment variables
             "NODE_ENV": "development",
