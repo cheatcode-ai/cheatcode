@@ -271,3 +271,4 @@ another app - backend/
 another app - frontend/
 .vercel
 .env*.local
+.env.vercel.*
