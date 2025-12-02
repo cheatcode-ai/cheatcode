@@ -162,7 +162,7 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
   };
 
   // Fetch MCP credential profiles
-  const { data: mcpProfilesData = [] } = useQuery({
+  const { data: mcpProfilesData = [], isLoading: isMcpLoading } = useQuery({
     queryKey: ['mcp-credential-profiles'],
     queryFn: async () => {
       const apiClient = createClerkBackendApi(getToken);
