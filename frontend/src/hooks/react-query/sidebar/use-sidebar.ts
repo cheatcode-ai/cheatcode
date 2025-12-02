@@ -84,7 +84,7 @@ export const useDeleteThread = () => {
       return { previousThreads };
     },
     // Rollback on error
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousThreads?: Thread[] } | undefined) => {
       if (context?.previousThreads) {
         queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
       }
@@ -150,7 +150,7 @@ export const useDeleteMultipleThreads = () => {
 
       return { previousThreads };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousThreads?: Thread[] } | undefined) => {
       if (context?.previousThreads) {
         queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
       }

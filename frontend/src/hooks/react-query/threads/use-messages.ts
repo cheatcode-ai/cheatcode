@@ -67,7 +67,7 @@ export const useAddUserMessageMutation = () => {
       return { previousMessages, threadId };
     },
     // Rollback on error
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousMessages?: Message[]; threadId?: string } | undefined) => {
       if (context?.previousMessages && context?.threadId) {
         queryClient.setQueryData(
           threadKeys.messages(context.threadId),

@@ -97,7 +97,7 @@ export const useToggleThreadPublicStatus = () => {
 
       return { previousThread, threadId };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousThread?: Thread; threadId?: string } | undefined) => {
       if (context?.previousThread && context?.threadId) {
         queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
       }
@@ -139,7 +139,7 @@ export const useUpdateThreadMutation = () => {
 
       return { previousThread, threadId };
     },
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousThread?: Thread; threadId?: string } | undefined) => {
       if (context?.previousThread && context?.threadId) {
         queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
       }

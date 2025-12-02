@@ -87,7 +87,7 @@ export const useUpdateProject = () => {
       return { previousProjects, previousProject, projectId };
     },
     // Rollback on error
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousProjects?: Project[]; previousProject?: Project; projectId?: string } | undefined) => {
       if (context?.previousProjects) {
         queryClient.setQueryData(projectKeys.lists(), context.previousProjects);
       }
@@ -142,7 +142,7 @@ export const useDeleteProject = () => {
       return { previousProjects };
     },
     // Rollback on error
-    onError: (_error, _variables, context) => {
+    onError: (_error, _variables, context: { previousProjects?: Project[] } | undefined) => {
       if (context?.previousProjects) {
         queryClient.setQueryData(projectKeys.lists(), context.previousProjects);
       }
