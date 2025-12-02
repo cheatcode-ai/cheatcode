@@ -1,0 +1,12 @@
+name = "cheatcode-api-proxy"
+main = "src/index.ts"
+compatibility_date = "2024-01-01"
+
+workers_dev = true
+
+routes = [
+  { pattern = "api.trycheatcode.com/*", zone_name = "trycheatcode.com" }
+]
+
+[observability]
+enabled = true
