@@ -1,0 +1,56 @@
+name: Deploy Cloudflare Workers
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'api-worker/**'
+      - 'preview-worker/**'
+      - '.github/workflows/cloudflare-workers.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy-api-worker:
+    runs-on: ubuntu-latest
+    name: Deploy API Worker
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.modified, 'api-worker/') || contains(github.event.head_commit.added, 'api-worker/') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./api-worker
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: ./api-worker
+
+  deploy-preview-worker:
+    runs-on: ubuntu-latest
+    name: Deploy Preview Worker
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.modified, 'preview-worker/') || contains(github.event.head_commit.added, 'preview-worker/') }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: ./preview-worker
+        run: npm ci
+
+      - name: Deploy to Cloudflare Workers
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          workingDirectory: ./preview-worker
