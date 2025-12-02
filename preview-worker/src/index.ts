@@ -30,6 +30,21 @@ function parseSandboxInfo(pathname: string): { portSandbox: string; remainingPat
   };
 }
 
+/**
+ * Extract sandbox info from Referer header
+ * Used for static assets like CSS/JS that use absolute paths
+ */
+function parseSandboxFromReferer(referer: string | null): string | null {
+  if (!referer) return null;
+  try {
+    const url = new URL(referer);
+    const match = url.pathname.match(/^\/(\d+-[a-f0-9-]+)/i);
+    return match ? match[1] : null;
+  } catch {
+    return null;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -45,16 +60,30 @@ export default {
     }
 
     // Parse the sandbox info from the path
-    const info = parseSandboxInfo(url.pathname);
+    let info = parseSandboxInfo(url.pathname);
+
+    // If path doesn't have sandbox prefix, try to get it from Referer header
+    // This handles CSS/JS/images that use absolute paths like /_next/static/...
     if (!info) {
-      return new Response(JSON.stringify({
-        error: 'Invalid URL format',
-        message: 'Expected format: /{port}-{sandboxId}/path',
-        example: '/3000-abc123-def456-789/index.html'
-      }), {
-        status: 400,
-        headers: { 'Content-Type': 'application/json' }
-      });
+      const referer = request.headers.get('referer');
+      const sandboxFromReferer = parseSandboxFromReferer(referer);
+
+      if (sandboxFromReferer) {
+        // Use the sandbox from referer and the full path as remaining path
+        info = {
+          portSandbox: sandboxFromReferer,
+          remainingPath: url.pathname
+        };
+      } else {
+        return new Response(JSON.stringify({
+          error: 'Invalid URL format',
+          message: 'Expected format: /{port}-{sandboxId}/path',
+          example: '/3000-abc123-def456-789/index.html'
+        }), {
+          status: 400,
+          headers: { 'Content-Type': 'application/json' }
+        });
+      }
     }
 
     // Build the target URL
