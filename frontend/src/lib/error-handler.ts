@@ -126,6 +126,11 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
     return;
   }
 
+  // Skip toast notifications on server-side (e.g., in server actions)
+  if (typeof window === 'undefined') {
+    return;
+  }
+
   // Special-case: route billing errors to modal instead of toast when possible
   if (typeof window !== 'undefined') {
     try {

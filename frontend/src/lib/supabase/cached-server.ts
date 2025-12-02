@@ -6,9 +6,8 @@ import { createClientWithToken } from '@/lib/supabase/server';
 // Cached types for better type safety
 export interface PersonalAccount {
   id: string;
-  name: string;
-  personal_account: boolean;
-  primary_owner_user_id: string;
+  name: string | null;
+  email: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -80,11 +79,9 @@ export const getPersonalAccount = cache(async (): Promise<PersonalAccountResult>
     console.log('[CACHED_SERVER] Fetching personal account for user:', userId);
 
     const { data: accounts, error } = await supabaseClient
-      .schema('basejump')
-      .from('accounts')
-      .select('id, name, personal_account, primary_owner_user_id, created_at, updated_at')
+      .from('users')
+      .select('id, name, email, created_at, updated_at')
       .eq('id', userId)
-      .eq('personal_account', true)
       .single();
 
     if (error) {

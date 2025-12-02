@@ -119,9 +119,9 @@ class APIKeyResolver:
         try:
             db = DBConnection()
             async with db.get_async_client() as client:
-                result = await client.schema('basejump').table('billing_customers')\
+                result = await client.table('users')\
                     .select('plan_id')\
-                    .eq('account_id', account_id)\
+                    .eq('id', account_id)\
                     .execute()
                 
                 if result.data:

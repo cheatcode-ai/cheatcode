@@ -337,12 +337,12 @@ async def set_default_credential_profile(
         logger.error(f"Error setting default profile {profile_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to set default profile: {str(e)}")
 
-@router.delete("/credential-profiles/{profile_id}")
+@router.delete("/credential-profiles/{profile_id}", operation_id="delete_mcp_credential_profile")
 async def delete_credential_profile(
     profile_id: str,
     user_id: str = Depends(get_current_user_id_from_jwt)
 ):
-    """Delete (deactivate) a credential profile"""
+    """Delete (deactivate) an MCP credential profile"""
     logger.info(f"Deleting credential profile {profile_id} for user {user_id}")
     
     try:

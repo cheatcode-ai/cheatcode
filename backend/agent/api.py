@@ -25,7 +25,6 @@ from utils.constants import MODEL_NAME_ALIASES
 import run_agent_background
 from services import redis
 
-from .config_helper import extract_agent_config, build_unified_config, extract_tools_for_agent_run, get_mcp_configs
 from .utils import check_for_active_project_agent_run
 
 # Initialize shared resources
@@ -35,6 +34,59 @@ instance_id = None # Global instance ID for this backend instance
 
 # TTL for Redis response lists (24 hours)
 REDIS_RESPONSE_LIST_TTL = 3600 * 24
+
+# Response batching configuration for SSE streaming
+# Batching reduces network overhead by combining multiple small messages
+SSE_BATCH_SIZE = 10  # Max responses per batch
+SSE_BATCH_TIMEOUT_MS = 50  # Max time to wait for batch (ms)
+
+
+def format_sse_batch(responses: list) -> str:
+    """
+    Format multiple responses into a single SSE batch message.
+
+    Uses a custom 'batch' event type that clients can parse to extract
+    individual responses. Falls back to single response format for
+    backward compatibility when batch size is 1.
+
+    Args:
+        responses: List of response dictionaries to batch
+
+    Returns:
+        SSE-formatted string with batched responses
+    """
+    if not responses:
+        return ""
+
+    if len(responses) == 1:
+        # Single response - use standard format for backward compatibility
+        return f"data: {json.dumps(responses[0])}\n\n"
+
+    # Multiple responses - batch them together
+    # Client should handle 'batch' wrapper and extract 'items' array
+    batch_payload = {
+        "type": "batch",
+        "count": len(responses),
+        "items": responses
+    }
+    return f"data: {json.dumps(batch_payload)}\n\n"
+
+
+def chunk_responses(responses: list, chunk_size: int = SSE_BATCH_SIZE) -> list:
+    """
+    Split responses into chunks for batched streaming.
+
+    Args:
+        responses: List of responses to chunk
+        chunk_size: Maximum items per chunk
+
+    Returns:
+        List of response chunks
+    """
+    if not responses:
+        return []
+    return [responses[i:i + chunk_size] for i in range(0, len(responses), chunk_size)]
+
 
 def is_image_file(file: UploadFile) -> bool:
     """Check if the uploaded file is an image based on MIME type and filename"""
@@ -58,7 +110,7 @@ def is_image_file(file: UploadFile) -> bool:
 
 async def get_account_id_from_clerk_user(client, user_id: str) -> str:
     """Get the account ID for a Clerk user"""
-    account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
+    account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
     if not account_result.data:
         raise HTTPException(status_code=400, detail="User account not found")
     return account_result.data
@@ -75,40 +127,10 @@ class InitiateAgentResponse(BaseModel):
     thread_id: str
     agent_run_id: Optional[str] = None
 
-# Removed unused AgentCreateRequest and AgentUpdateRequest - were only used by deleted custom agent endpoints
-
-class AgentResponse(BaseModel):
-    agent_id: str
-    account_id: str
-    name: str
-    description: Optional[str] = None
-    system_prompt: str
-    configured_mcps: List[Dict[str, Any]]
-    custom_mcps: List[Dict[str, Any]]
-    agentpress_tools: Dict[str, Any]
-    is_default: bool
-    avatar: Optional[str] = None
-    avatar_color: Optional[str] = None
-    created_at: str
-    updated_at: Optional[str] = None
-    is_public: Optional[bool] = False
-
-    download_count: Optional[int] = 0
-    tags: Optional[List[str]] = []
-    current_version_id: Optional[str] = None
-    version_count: Optional[int] = 1
-
-class PaginationInfo(BaseModel):
-    page: int
-    limit: int
-    total: int
-    pages: int
-
-class AgentsResponse(BaseModel):
-    agents: List[AgentResponse]
-    pagination: PaginationInfo
-
-# Removed ThreadAgentResponse model - no longer needed for hardcoded agent display
+# Removed unused agent-related models:
+# - AgentCreateRequest, AgentUpdateRequest - deleted custom agent endpoints
+# - AgentResponse, PaginationInfo, AgentsResponse - agents table dropped
+# - ThreadAgentResponse - hardcoded agent display
 
 def initialize(
     _db: DBConnection,
@@ -211,19 +233,33 @@ async def start_agent(
     client = await db.client
 
     await verify_thread_access(client, thread_id, user_id)
-    thread_result = await client.table('threads').select('project_id', 'account_id', 'agent_id', 'metadata').eq('thread_id', thread_id).execute()
+
+    # Batch initial queries for better performance
+    thread_result = await client.table('threads').select('project_id', 'user_id', 'metadata').eq('thread_id', thread_id).execute()
     if not thread_result.data:
         raise HTTPException(status_code=404, detail="Thread not found")
     thread_data = thread_result.data[0]
     project_id = thread_data.get('project_id')
-    account_id = thread_data.get('account_id')
+    account_id = thread_data.get('user_id')
     
-    # Check token quota before starting agent
+    # Batch queries: token status, MCP credentials, and project data in parallel
     try:
         from services.token_billing import get_user_token_status
         from utils.constants import TOKENS_PER_CONVERSATION_ESTIMATE, get_credits_from_tokens
-        
-        token_status = await get_user_token_status(client, account_id)
+
+        # Run queries in parallel for better performance
+        token_status_task = asyncio.create_task(get_user_token_status(client, account_id))
+        cred_profiles_task = asyncio.create_task(
+            client.table('user_mcp_credential_profiles').select(
+                'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
+            ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
+        ) if project_id else None
+        project_task = asyncio.create_task(
+            client.table('projects').select('*').eq('project_id', project_id).execute()
+        ) if project_id else None
+
+        # Await token status first (needed for quota check)
+        token_status = await token_status_task
         
         # Check if user has enough tokens for a conversation
         if token_status['plan'] != 'byok' and token_status['tokens_remaining'] < TOKENS_PER_CONVERSATION_ESTIMATE:
@@ -250,26 +286,16 @@ async def start_agent(
         logger.error(f"Error checking token quota for account {account_id}: {str(e)}")
         # Don't block execution for quota check errors in case of system issues
     
-    thread_agent_id = thread_data.get('agent_id')
     thread_metadata = thread_data.get('metadata', {})
 
     structlog.contextvars.bind_contextvars(
         project_id=project_id,
         account_id=account_id,
-        thread_agent_id=thread_agent_id,
         thread_metadata=thread_metadata,
     )
-    
-    # Check if this is an agent builder thread
-    is_agent_builder = thread_metadata.get('is_agent_builder', False)
-    target_agent_id = thread_metadata.get('target_agent_id')
-    
-    if is_agent_builder:
-        logger.info(f"Thread {thread_id} is in agent builder mode, target_agent_id: {target_agent_id}")
-    
+
     # This is now a coding-only system - always use coding agent configuration
     agent_config = {
-        'agent_id': None,
         'name': 'Coding Agent',
         'description': 'Specialized agent for webapp development with 100+ UI components',
         'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
@@ -281,74 +307,67 @@ async def start_agent(
     logger.info(f"Using coding agent configuration with all development tools enabled")
 
     # Load and merge dashboard MCP preferences for dashboard chats
-    if not is_agent_builder:
-        logger.info(f"Loading dashboard MCP preferences for account {account_id}")
-        try:
-            # Get user's MCP credential profiles that are set as default for dashboard
-            cred_profiles_result = await client.table('user_mcp_credential_profiles').select(
-                'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
-            ).eq('account_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
-            
-            if cred_profiles_result.data:
-                dashboard_configured_mcps = []
-                
-                for profile in cred_profiles_result.data:
-                    # Decrypt and parse the configuration
-                    try:
-                        decrypted_config = await asyncio.to_thread(
-                            decrypt_data, profile['encrypted_config']
-                        )
-                        config_data = json.loads(decrypted_config)
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
-                        config_data = {}
+    logger.info(f"Loading dashboard MCP preferences for account {account_id}")
+    try:
+        # Use pre-fetched credential profiles from parallel query above
+        cred_profiles_result = await cred_profiles_task if cred_profiles_task else await client.table('user_mcp_credential_profiles').select(
+            'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
+        ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
 
-                    # Remove provider prefix (e.g., "pipedream:") for the server key used in tool names
-                    clean_server_name = profile['mcp_qualified_name']
-                    if ':' in clean_server_name:
-                        clean_server_name = clean_server_name.split(':', 1)[1]
+        logger.info(f"[MCP DEBUG] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}")
 
-                    # Add each credential profile as a configured MCP
-                    mcp_config = {
-                        'name': clean_server_name,
-                        'qualifiedName': clean_server_name,
-                        'provider': 'pipedream',
-                        'config': config_data,
-                        'enabledTools': [],  # Enable all tools by default
-                        'instructions': f"Use {profile['display_name']} integration",
-                        'isCustom': False
-                    }
-                    dashboard_configured_mcps.append(mcp_config)
-                
-                if agent_config:
-                    # Merge dashboard MCPs with existing agent configuration
-                    logger.info(f"Merging {len(dashboard_configured_mcps)} dashboard MCPs with existing agent config")
-                    existing_mcps = agent_config.get('configured_mcps', [])
-                    # Add dashboard MCPs that aren't already configured
-                    existing_qualified_names = {mcp.get('qualifiedName') for mcp in existing_mcps}
-                    for dashboard_mcp in dashboard_configured_mcps:
-                        if dashboard_mcp['qualifiedName'] not in existing_qualified_names:
-                            existing_mcps.append(dashboard_mcp)
-                    agent_config['configured_mcps'] = existing_mcps
-                else:
-                    # Create a virtual agent config for dashboard MCP preferences
-                    agent_config = {
-                        'agent_id': None,
-                        'name': 'Dashboard Agent',
-                        'description': 'Agent with user-configured dashboard MCPs',
-                        'system_prompt': '',  # Will use default system prompt
-                        'configured_mcps': dashboard_configured_mcps,
-                        'custom_mcps': [],  # No custom MCPs for now
-                        # agentpress_tools omitted so full default toolset is registered
-                        'account_id': account_id
-                    }
-                    logger.info(f"Created dashboard agent config with {len(dashboard_configured_mcps)} MCPs")
-            else:
-                logger.info(f"No dashboard MCP credentials found for account {account_id}")
-                
-        except Exception as e:
-            logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
-            # Continue without MCPs if loading fails
+        if cred_profiles_result.data:
+            dashboard_configured_mcps = []
+
+            for profile in cred_profiles_result.data:
+                logger.info(f"[MCP DEBUG] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}, display_name: {profile['display_name']}")
+
+                # Decrypt and parse the configuration
+                try:
+                    decrypted_config = await asyncio.to_thread(
+                        decrypt_data, profile['encrypted_config']
+                    )
+                    config_data = json.loads(decrypted_config)
+                    logger.info(f"[MCP DEBUG] Decrypted config keys for {profile['profile_id']}: {list(config_data.keys())}")
+                    logger.info(f"[MCP DEBUG] connected_account_id present: {'connected_account_id' in config_data}")
+                except Exception as e:
+                    logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
+                    config_data = {}
+
+                # Remove provider prefix (e.g., "composio:") for the server key used in tool names
+                clean_server_name = profile['mcp_qualified_name']
+                if ':' in clean_server_name:
+                    clean_server_name = clean_server_name.split(':', 1)[1]
+
+                # Add each credential profile as a configured MCP
+                mcp_config = {
+                    'name': clean_server_name,
+                    'qualifiedName': clean_server_name,
+                    'provider': 'composio',
+                    'config': config_data,
+                    'enabledTools': [],  # Enable all tools by default
+                    'instructions': f"Use {profile['display_name']} integration",
+                    'isCustom': False
+                }
+                logger.info(f"[MCP DEBUG] Created MCP config for {clean_server_name}: name={mcp_config['name']}, isCustom={mcp_config['isCustom']}")
+                dashboard_configured_mcps.append(mcp_config)
+
+            # Merge dashboard MCPs with existing agent configuration
+            logger.info(f"[MCP DEBUG] Merging {len(dashboard_configured_mcps)} dashboard MCPs with existing agent config")
+            existing_mcps = agent_config.get('configured_mcps', [])
+            # Add dashboard MCPs that aren't already configured
+            existing_qualified_names = {mcp.get('qualifiedName') for mcp in existing_mcps}
+            for dashboard_mcp in dashboard_configured_mcps:
+                if dashboard_mcp['qualifiedName'] not in existing_qualified_names:
+                    existing_mcps.append(dashboard_mcp)
+            agent_config['configured_mcps'] = existing_mcps
+            logger.info(f"[MCP DEBUG] Final agent_config['configured_mcps'] has {len(existing_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in existing_mcps]}")
+        else:
+            logger.info(f"No dashboard MCP credentials found for account {account_id}")
+
+    except Exception as e:
+        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
+        # Continue without MCPs if loading fails
 
     can_use, model_message, allowed_models = await can_use_model(client, account_id, model_name)
     if not can_use:
@@ -364,8 +383,8 @@ async def start_agent(
         await run_agent_background.stop_agent_run(active_run_id)
 
     try:
-        # Get project data to find sandbox ID
-        project_result = await client.table('projects').select('*').eq('project_id', project_id).execute()
+        # Use pre-fetched project data from parallel query above
+        project_result = await project_task if project_task else await client.table('projects').select('*').eq('project_id', project_id).execute()
         if not project_result.data:
             raise HTTPException(status_code=404, detail="Project not found")
         
@@ -384,8 +403,6 @@ async def start_agent(
     agent_run = await client.table('agent_runs').insert({
         "thread_id": thread_id, "status": "running",
         "started_at": datetime.now(timezone.utc).isoformat(),
-        "agent_id": agent_config.get('agent_id') if agent_config else None,
-        "agent_version_id": agent_config.get('current_version_id') if agent_config else None,
         "metadata": {
             "model_name": model_name,
             "enable_thinking": body.enable_thinking,
@@ -422,8 +439,6 @@ async def start_agent(
             stream=body.stream,
             enable_context_manager=body.enable_context_manager,
             agent_config=agent_config,
-            is_agent_builder=is_agent_builder,
-            target_agent_id=target_agent_id,
             request_id=request_id,
             app_type=body.app_type
         )
@@ -472,14 +487,18 @@ async def stream_agent_run(
         initial_yield_complete = False
 
         try:
-            # 1. Fetch and yield initial responses from Redis list
+            # 1. Fetch and yield initial responses from Redis list (with batching)
             initial_responses_json = await redis.lrange(response_list_key, 0, -1)
             initial_responses = []
             if initial_responses_json:
                 initial_responses = [json.loads(r) for r in initial_responses_json]
-                logger.debug(f"Sending {len(initial_responses)} initial responses for {agent_run_id}")
-                for response in initial_responses:
-                    yield f"data: {json.dumps(response)}\n\n"
+                logger.debug(f"Sending {len(initial_responses)} initial responses for {agent_run_id} (batched)")
+
+                # Batch initial responses for efficiency
+                batches = chunk_responses(initial_responses, SSE_BATCH_SIZE)
+                for batch in batches:
+                    yield format_sse_batch(batch)
+
                 last_processed_index = len(initial_responses) - 1
             initial_yield_complete = True
 
@@ -668,14 +687,25 @@ async def stream_agent_run(
                         if new_responses_json:
                             new_responses = [json.loads(r) for r in new_responses_json]
                             num_new = len(new_responses)
-                            for response in new_responses:
-                                yield f"data: {json.dumps(response)}\n\n"
-                                # Check if this response signals completion
+
+                            # Check for completion signals in responses
+                            completion_index = -1
+                            for idx, response in enumerate(new_responses):
                                 if response.get('type') == 'status' and response.get('status') in ['completed', 'failed', 'stopped']:
                                     logger.info(f"Detected run completion via status message in stream: {response.get('status')}")
+                                    completion_index = idx
                                     terminate_stream = True
-                                    break # Stop processing further new responses
-                            last_processed_index += num_new
+                                    break
+
+                            # If completion found, only batch up to and including it
+                            responses_to_send = new_responses[:completion_index + 1] if completion_index >= 0 else new_responses
+
+                            # Batch and yield responses for efficiency
+                            batches = chunk_responses(responses_to_send, SSE_BATCH_SIZE)
+                            for batch in batches:
+                                yield format_sse_batch(batch)
+
+                            last_processed_index += len(responses_to_send)
                         if terminate_stream: break
 
                     elif queue_item["type"] == "control":
@@ -976,8 +1006,6 @@ async def initiate_agent_with_files(
     stream: Optional[bool] = Form(True),
     enable_context_manager: Optional[bool] = Form(True),
     files: List[UploadFile] = File(default=[]),
-    is_agent_builder: Optional[bool] = Form(False),
-    target_agent_id: Optional[str] = Form(None),
     app_type: Optional[str] = Form('web'),
     user_id: str = Depends(get_current_user_id_from_jwt)
 ):
@@ -1007,13 +1035,11 @@ async def initiate_agent_with_files(
     # Update model_name to use the resolved version
     model_name = resolved_model
 
-    logger.info(f"Starting new agent in agent builder mode: {is_agent_builder}, target_agent_id: {target_agent_id}")
-
     logger.info(f"[\033[91mDEBUG\033[0m] Initiating new coding agent with prompt and {len(files)} files (Instance: {instance_id}), model: {model_name}, enable_thinking: {enable_thinking}")
     client = await db.client
     
     # Get the account ID for this Clerk user
-    account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
+    account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
     if not account_result.data:
         raise HTTPException(status_code=400, detail="User account not found")
     account_id = account_result.data
@@ -1052,7 +1078,6 @@ async def initiate_agent_with_files(
     
     # This is now a coding-only system - always use coding agent configuration
     agent_config = {
-        'agent_id': None,
         'name': 'Coding Agent',
         'description': 'Specialized agent for webapp development with 100+ UI components',
         'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
@@ -1062,56 +1087,62 @@ async def initiate_agent_with_files(
         'account_id': account_id
     }
     logger.info(f"Using coding agent configuration with all development tools enabled")
-    
-    # Load and merge dashboard MCP preferences for dashboard chats
-    if not is_agent_builder:
-        logger.info(f"Loading dashboard MCP preferences for account {account_id}")
-        try:
-            # Get user's MCP credential profiles that are set as default for dashboard
-            cred_profiles_result = await client.table('user_mcp_credential_profiles').select(
-                'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
-            ).eq('account_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
-            
-            if cred_profiles_result.data:
-                dashboard_configured_mcps = []
-                
-                for profile in cred_profiles_result.data:
-                    # Decrypt and parse the configuration
-                    try:
-                        decrypted_config = await asyncio.to_thread(
-                            decrypt_data, profile['encrypted_config']
-                        )
-                        config_data = json.loads(decrypted_config)
-                    except Exception as e:
-                        logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
-                        config_data = {}
 
-                    # Remove provider prefix (e.g., "pipedream:") for the server key used in tool names
-                    clean_server_name = profile['mcp_qualified_name']
-                    if ':' in clean_server_name:
-                        clean_server_name = clean_server_name.split(':', 1)[1]
+    # Load and merge dashboard MCP preferences
+    logger.info(f"Loading dashboard MCP preferences for account {account_id}")
+    try:
+        # Get user's MCP credential profiles that are set as default for dashboard
+        cred_profiles_result = await client.table('user_mcp_credential_profiles').select(
+            'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
+        ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
 
-                    # Add each credential profile as a configured MCP
-                    mcp_config = {
-                        'name': clean_server_name,
-                        'qualifiedName': clean_server_name,
-                        'provider': 'pipedream',
-                        'config': config_data,
-                        'enabledTools': [],  # Enable all tools by default
-                        'instructions': f"Use {profile['display_name']} integration",
-                        'isCustom': False
-                    }
-                    dashboard_configured_mcps.append(mcp_config)
-                
-                # Merge dashboard MCPs with coding agent configuration
-                logger.info(f"Merging {len(dashboard_configured_mcps)} dashboard MCPs with coding agent config")
-                agent_config['configured_mcps'] = dashboard_configured_mcps
-                logger.info(f"Updated coding agent config with {len(dashboard_configured_mcps)} MCPs")
-            else:
-                logger.info(f"No dashboard MCP credentials found for account {account_id}")
-        except Exception as e:
-            logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
-            # Continue without MCPs if there's an error
+        logger.info(f"[MCP DEBUG initiate] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}")
+
+        if cred_profiles_result.data:
+            dashboard_configured_mcps = []
+
+            for profile in cred_profiles_result.data:
+                logger.info(f"[MCP DEBUG initiate] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}")
+
+                # Decrypt and parse the configuration
+                try:
+                    decrypted_config = await asyncio.to_thread(
+                        decrypt_data, profile['encrypted_config']
+                    )
+                    config_data = json.loads(decrypted_config)
+                    logger.info(f"[MCP DEBUG initiate] Decrypted config keys: {list(config_data.keys())}")
+                    logger.info(f"[MCP DEBUG initiate] connected_account_id present: {'connected_account_id' in config_data}")
+                except Exception as e:
+                    logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
+                    config_data = {}
+
+                # Remove provider prefix (e.g., "composio:") for the server key used in tool names
+                clean_server_name = profile['mcp_qualified_name']
+                if ':' in clean_server_name:
+                    clean_server_name = clean_server_name.split(':', 1)[1]
+
+                # Add each credential profile as a configured MCP
+                mcp_config = {
+                    'name': clean_server_name,
+                    'qualifiedName': clean_server_name,
+                    'provider': 'composio',
+                    'config': config_data,
+                    'enabledTools': [],  # Enable all tools by default
+                    'instructions': f"Use {profile['display_name']} integration",
+                    'isCustom': False
+                }
+                logger.info(f"[MCP DEBUG initiate] Created MCP config for {clean_server_name}")
+                dashboard_configured_mcps.append(mcp_config)
+
+            # Merge dashboard MCPs with coding agent configuration
+            logger.info(f"[MCP DEBUG initiate] Merging {len(dashboard_configured_mcps)} dashboard MCPs with coding agent config")
+            agent_config['configured_mcps'] = dashboard_configured_mcps
+            logger.info(f"[MCP DEBUG initiate] Final agent_config['configured_mcps'] has {len(dashboard_configured_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in dashboard_configured_mcps]}")
+        else:
+            logger.info(f"No dashboard MCP credentials found for account {account_id}")
+    except Exception as e:
+        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
+        # Continue without MCPs if there's an error
     
     can_use, model_message, allowed_models = await can_use_model(client, account_id, model_name)
     if not can_use:
@@ -1125,7 +1156,7 @@ async def initiate_agent_with_files(
         # 1. Create Project
         placeholder_name = f"{prompt[:30]}..." if len(prompt) > 30 else prompt
         project = await client.table('projects').insert({
-            "project_id": str(uuid.uuid4()), "account_id": account_id, "name": placeholder_name,
+            "project_id": str(uuid.uuid4()), "user_id": account_id, "name": placeholder_name,
             "created_at": datetime.now(timezone.utc).isoformat(),
             "app_type": app_type  # Store app_type in project for later retrieval
         }).execute()
@@ -1143,7 +1174,12 @@ async def initiate_agent_with_files(
               snapshot_name = config.SANDBOX_SNAPSHOT_NAME
               logger.info(f"Using web snapshot for app_type: {app_type}")
           
-          sandbox = await create_sandbox_from_snapshot(project_id, snapshot=snapshot_name)
+          sandbox = await create_sandbox_from_snapshot(
+              project_id,
+              snapshot=snapshot_name,
+              account_id=account_id,
+              enable_cache_volumes=True  # Enable npm/pnpm cache volumes for faster installs
+          )
           sandbox_id = sandbox.id
           logger.info(f"Created new sandbox {sandbox_id} for project {project_id} with snapshot {snapshot_name}")
           
@@ -1189,9 +1225,9 @@ async def initiate_agent_with_files(
 
         # 3. Create Thread
         thread_data = {
-            "thread_id": str(uuid.uuid4()), 
-            "project_id": project_id, 
-            "account_id": account_id,
+            "thread_id": str(uuid.uuid4()),
+            "project_id": project_id,
+            "user_id": account_id,
             "created_at": datetime.now(timezone.utc).isoformat()
         }
 
@@ -1200,26 +1236,7 @@ async def initiate_agent_with_files(
             project_id=project_id,
             account_id=account_id,
         )
-        
-        # Don't store agent_id in thread since threads are now agent-agnostic
-        # The agent selection will be handled per message/agent run
-        if agent_config:
-            logger.info(f"Using agent {agent_config['agent_id']} for this conversation (thread remains agent-agnostic)")
-            structlog.contextvars.bind_contextvars(
-                agent_id=agent_config['agent_id'],
-            )
-        
-        # Store agent builder metadata if this is an agent builder session
-        if is_agent_builder:
-            thread_data["metadata"] = {
-                "is_agent_builder": True,
-                "target_agent_id": target_agent_id
-            }
-            logger.info(f"Storing agent builder metadata in thread: target_agent_id={target_agent_id}")
-            structlog.contextvars.bind_contextvars(
-                target_agent_id=target_agent_id,
-            )
-        
+
         thread = await client.table('threads').insert(thread_data).execute()
         thread_id = thread.data[0]['thread_id']
         logger.info(f"Created new thread: {thread_id}")
@@ -1265,14 +1282,14 @@ async def initiate_agent_with_files(
 
                     if upload_successful:
                         try:
+                            # Optimize: Direct file existence check instead of listing entire directory
                             await asyncio.sleep(0.2)
-                            parent_dir = os.path.dirname(target_path)
-                            files_in_dir = await sandbox.fs.list_files(parent_dir)
-                            file_names_in_dir = [f.name for f in files_in_dir]
-                            if safe_filename in file_names_in_dir:
+                            try:
+                                await sandbox.fs.stat(target_path)
                                 logger.info(f"Successfully uploaded and verified file {safe_filename} to sandbox path {target_path}")
                                 return target_path, None
-                            else:
+                            except Exception as stat_error:
+                                # File doesn't exist or stat failed
                                 logger.error(f"Verification failed for {safe_filename}: File not found in {parent_dir} after upload attempt.")
                                 return None, safe_filename
                         except Exception as verify_error:
@@ -1327,8 +1344,6 @@ async def initiate_agent_with_files(
         agent_run = await client.table('agent_runs').insert({
             "thread_id": thread_id, "status": "running",
             "started_at": datetime.now(timezone.utc).isoformat(),
-            "agent_id": agent_config.get('agent_id') if agent_config else None,
-            "agent_version_id": agent_config.get('current_version_id') if agent_config else None,
             "metadata": {
                 "model_name": model_name,
                 "enable_thinking": enable_thinking,
@@ -1365,8 +1380,6 @@ async def initiate_agent_with_files(
                 stream=stream,
                 enable_context_manager=enable_context_manager,
                 agent_config=agent_config,
-                is_agent_builder=is_agent_builder,
-                target_agent_id=target_agent_id,
                 request_id=request_id,
                 app_type=app_type
             )

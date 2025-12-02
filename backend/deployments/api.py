@@ -7,13 +7,82 @@ from utils.logger import logger
 from utils.config import config
 
 from sandbox.sandbox import get_or_start_sandbox
+from daytona import AsyncSandbox
 import httpx
 from services.billing import get_user_subscription
+
+
+async def _git_has_commits(sandbox: AsyncSandbox, workdir: str) -> bool:
+    """Check if git repository has any commits using native SDK status."""
+    try:
+        status = await sandbox.git.status(workdir)
+        # If we can get status with a current_branch, repo has commits
+        return status.current_branch is not None
+    except Exception:
+        # Status fails if no commits exist
+        return False
+
+
+async def _git_has_changes(sandbox: AsyncSandbox, workdir: str) -> bool:
+    """Check if there are uncommitted changes using native SDK status."""
+    try:
+        status = await sandbox.git.status(workdir)
+        # Check if there are any file changes
+        return bool(status.file_status and len(status.file_status) > 0)
+    except Exception as e:
+        logger.warning(f"Failed to check git status: {e}")
+        return False
+
+
+async def _git_stage_and_commit(
+    sandbox: AsyncSandbox,
+    workdir: str,
+    message: str,
+    author: str = "cheatcode",
+    email: str = "deploy@cheatcode"
+) -> bool:
+    """Stage all files and commit using native SDK methods."""
+    try:
+        # Stage all files
+        await sandbox.git.add(workdir, ["."])
+
+        # Commit changes
+        commit_response = await sandbox.git.commit(
+            path=workdir,
+            message=message,
+            author=author,
+            email=email
+        )
+        logger.info(f"Created commit: {commit_response.sha if hasattr(commit_response, 'sha') else 'success'}")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to stage and commit: {e}")
+        return False
+
+
+async def _git_push_with_auth(
+    sandbox: AsyncSandbox,
+    workdir: str,
+    username: str,
+    password: str
+) -> bool:
+    """Push changes to remote using native SDK method."""
+    try:
+        await sandbox.git.push(
+            path=workdir,
+            username=username,
+            password=password
+        )
+        logger.info("Push completed successfully")
+        return True
+    except Exception as e:
+        logger.error(f"Failed to push: {e}")
+        return False
 
 router = APIRouter(tags=["deployments"])
 db = DBConnection()
 async def _get_account_id(client, user_id: str) -> str:
-    res = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
+    res = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="User account not found")
     return res.data
@@ -40,7 +109,7 @@ async def _count_deployed_projects_for_account(client, account_id: str) -> int:
         return res.data or 0
     except Exception:
         # Fallback to original method with optimized SELECT (only fetch sandbox column)
-        res = await client.table('projects').select('sandbox').eq('account_id', account_id).execute()
+        res = await client.table('projects').select('sandbox').eq('user_id', account_id).execute()
         count = 0
         for p in res.data or []:
             sandbox_info = p.get('sandbox') or {}
@@ -62,8 +131,8 @@ async def get_validated_project(
     account_id = await _get_account_id(client, user_id)
     
     result = await client.table('projects').select(
-        'project_id, name, account_id, sandbox, has_freestyle_deployment'
-    ).eq('project_id', project_id).eq('account_id', account_id).single().execute()
+        'project_id, name, user_id, sandbox, has_freestyle_deployment'
+    ).eq('project_id', project_id).eq('user_id', account_id).single().execute()
     
     if not result.data:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
@@ -77,7 +146,7 @@ async def get_validated_project_with_quota_check(
     """FastAPI dependency to fetch project and perform quota checks."""
     project = await get_validated_project(project_id, user_id)
     client = await db.client
-    account_id = project['account_id']
+    account_id = project['user_id']
     
     # Check quota if this is the first deployment for this project
     if not await _project_already_deployed(project):
@@ -183,7 +252,7 @@ async def ensure_freestyle_repo(
         raise HTTPException(status_code=500, detail="Freestyle API key not configured")
 
     project_id = project['project_id']
-    account_id = project['account_id']
+    account_id = project['user_id']
     client = await db.client
     sandbox_info = project.get('sandbox') or {}
     freestyle = (sandbox_info.get('freestyle') or {}) if isinstance(sandbox_info, dict) else {}
@@ -219,7 +288,7 @@ async def ensure_freestyle_repo(
             'auto_deploy_on_push': True,
         }
 
-        result = await client.table('projects').update({ 'sandbox': updated_sandbox }).eq('project_id', project_id).eq('account_id', account_id).execute()
+        result = await client.table('projects').update({ 'sandbox': updated_sandbox }).eq('project_id', project_id).eq('user_id', account_id).execute()
         
         if not result.data:
             raise Exception("Failed to update project with repository metadata")
@@ -263,6 +332,7 @@ async def deploy_from_git(
     project, account_id, user_id = project_data
     project_id = project['project_id']
     client = await db.client
+    # Note: account_id is already extracted from project['user_id'] by get_validated_project_with_quota_check
 
     sandbox_info = project.get('sandbox') or {}
     sandbox_id = (sandbox_info or {}).get('id') if isinstance(sandbox_info, dict) else None
@@ -315,14 +385,9 @@ async def deploy_from_git(
         identity, token = await _ensure_git_identity_and_token(repo_id, project.get('name', f"project-{project_id}"))
         safe_url = f"https://x-access-token:{token}@git.freestyle.sh/{repo_id}"
 
-        # Check if git is initialized and has commits
-        try:
-            head_check = await sandbox.process.exec(f"git -C {workdir} rev-parse HEAD", timeout=10)
-            has_commits = head_check.exit_code == 0
-            logger.info(f"Git repository status - has_commits: {has_commits}")
-        except Exception as e:
-            logger.warning(f"Git HEAD check failed: {e}")
-            has_commits = False
+        # Check if git is initialized and has commits using native SDK
+        has_commits = await _git_has_commits(sandbox, workdir)
+        logger.info(f"Git repository status - has_commits: {has_commits}")
 
         if not has_commits:
             logger.info("Initializing Git repository and pushing initial commit")
@@ -345,24 +410,37 @@ async def deploy_from_git(
                     logger.error(f"Failed to configure Git remote: {set_url_result.result}")
                     raise Exception("Failed to configure Git remote")
 
-            # Stage all files
-            add_result = await sandbox.process.exec(f"git -C {workdir} add .", timeout=30)
-            if add_result.exit_code != 0:
-                logger.error(f"Git add failed: {add_result.result}")
+            # Stage all files using native SDK
+            try:
+                await sandbox.git.add(workdir, ["."])
+                logger.info("Files staged successfully")
+            except Exception as add_error:
+                logger.error(f"Git add failed: {add_error}")
                 raise Exception("Failed to add files to Git")
 
-            # Verify staging
-            status_result = await sandbox.process.exec(f"git -C {workdir} status --porcelain", timeout=10)
-            staged_files = status_result.result.strip()
-            logger.info(f"Staged files: {staged_files}")
-            if not staged_files:
-                logger.error("No files staged for commit - workspace may be empty")
-                raise Exception("No files to commit - workspace appears to be empty")
+            # Verify staging using native SDK status
+            try:
+                status = await sandbox.git.status(workdir)
+                has_staged = bool(status.file_status and len(status.file_status) > 0)
+                logger.info(f"Staged files count: {len(status.file_status) if status.file_status else 0}")
+                if not has_staged:
+                    logger.error("No files staged for commit - workspace may be empty")
+                    raise Exception("No files to commit - workspace appears to be empty")
+            except Exception as status_error:
+                # If status fails but add succeeded, continue with commit
+                logger.warning(f"Could not verify staging status: {status_error}")
 
-            # Commit and push
-            commit_result = await sandbox.process.exec(f"git -C {workdir} commit -m 'Initial commit for deployment'", timeout=30)
-            if commit_result.exit_code != 0:
-                logger.error(f"Git commit failed: {commit_result.result}")
+            # Commit using native SDK
+            try:
+                commit_response = await sandbox.git.commit(
+                    path=workdir,
+                    message="Initial commit for deployment",
+                    author="cheatcode",
+                    email="deploy@cheatcode"
+                )
+                logger.info(f"Created initial commit: {commit_response.sha if hasattr(commit_response, 'sha') else 'success'}")
+            except Exception as commit_error:
+                logger.error(f"Git commit failed: {commit_error}")
                 raise Exception("Failed to create initial commit")
 
             try:
@@ -380,7 +458,7 @@ async def deploy_from_git(
                     updated_sandbox = sandbox_info if isinstance(sandbox_info, dict) else {}
                     if 'freestyle' in updated_sandbox:
                         del updated_sandbox['freestyle']
-                    await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('account_id', account_id).execute()
+                    await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('user_id', account_id).execute()
                     logger.info(f"Cleared Freestyle repo metadata for project {project_id} after push failure")
                 except Exception as meta_err:
                     logger.warning(f"Failed to clear Freestyle metadata after push failure: {meta_err}")
@@ -405,12 +483,18 @@ async def deploy_from_git(
                 logger.error(f"Error ensuring local 'main' branch: {ensure_main_err}")
                 raise
 
-            # Commit and push any changes
-            status = await sandbox.process.exec(f"bash -lc 'cd {workdir} && git status --porcelain'", timeout=20)
-            has_changes = bool(status.result.strip())
+            # Commit and push any changes using native SDK
+            has_changes = await _git_has_changes(sandbox, workdir)
             if has_changes:
-                await sandbox.process.exec(f"git -C {workdir} add .", timeout=30)
-                await sandbox.process.exec(f"git -C {workdir} commit -m 'Update: automated deployment'", timeout=30)
+                # Stage and commit using native SDK
+                commit_success = await _git_stage_and_commit(
+                    sandbox, workdir,
+                    message="Update: automated deployment",
+                    author="cheatcode",
+                    email="deploy@cheatcode"
+                )
+                if not commit_success:
+                    raise Exception("Failed to stage and commit changes")
                 try:
                     push_result = await sandbox.process.exec(f"git -C {workdir} push origin main --force", timeout=180)
                     if push_result.exit_code == 0:
@@ -424,7 +508,7 @@ async def deploy_from_git(
                         updated_sandbox = sandbox_info if isinstance(sandbox_info, dict) else {}
                         if 'freestyle' in updated_sandbox:
                             del updated_sandbox['freestyle']
-                        await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('account_id', account_id).execute()
+                        await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('user_id', account_id).execute()
                         logger.info(f"Cleared Freestyle repo metadata for project {project_id} after push failure")
                     except Exception as meta_err:
                         logger.warning(f"Failed to clear Freestyle metadata after push failure: {meta_err}")
@@ -446,7 +530,7 @@ async def deploy_from_git(
                         updated_sandbox = sandbox_info if isinstance(sandbox_info, dict) else {}
                         if 'freestyle' in updated_sandbox:
                             del updated_sandbox['freestyle']
-                        await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('account_id', account_id).execute()
+                        await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('user_id', account_id).execute()
                         logger.info(f"Cleared Freestyle repo metadata for project {project_id} after push failure")
                     except Exception as meta_err:
                         logger.warning(f"Failed to clear Freestyle metadata after push failure: {meta_err}")
@@ -676,7 +760,7 @@ Original validation error: {str(api_error)}"""
             logger.info(f"Attempting to update project {project_id} with deployment metadata")
             logger.debug(f"Updated sandbox data: {updated_sandbox}")
             
-            result = await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('account_id', account_id).execute()
+            result = await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('user_id', account_id).execute()
             
             update_succeeded = bool(result.data)
             
@@ -701,11 +785,11 @@ Original validation error: {str(api_error)}"""
                     logger.error(f"Alternative update method also failed: {str(alt_error)}")
             
             if not update_succeeded:
-                # Check if the project exists with different account_id
-                check_result = await client.table('projects').select('project_id, account_id').eq('project_id', project_id).execute()
+                # Check if the project exists with different user_id
+                check_result = await client.table('projects').select('project_id, user_id').eq('project_id', project_id).execute()
                 if check_result.data:
-                    actual_account_id = check_result.data[0].get('account_id')
-                    logger.error(f"Account ID mismatch - expected: {account_id}, actual: {actual_account_id}")
+                    actual_user_id = check_result.data[0].get('user_id')
+                    logger.error(f"User ID mismatch - expected: {account_id}, actual: {actual_user_id}")
                 else:
                     logger.error(f"Project {project_id} not found in database")
                 
@@ -751,7 +835,7 @@ async def update_deployment(
         raise HTTPException(status_code=500, detail="Freestyle API key not configured")
 
     project_id = project['project_id']
-    account_id = project['account_id']
+    account_id = project['user_id']
     client = await db.client
     sandbox_info = project.get('sandbox') or {}
     sandbox_id = (sandbox_info or {}).get('id') if isinstance(sandbox_info, dict) else None
@@ -773,27 +857,33 @@ async def update_deployment(
 
     # Updates don't count against quota - only initial deployments do
 
-    # Add/commit/push if changes - using process.exec for consistency
+    # Add/commit/push if changes - using native SDK methods where possible
     has_changes = False
     try:
-        # Check git status using process.exec (consistent with deploy_from_git)
-        status = await sandbox.process.exec(f"bash -lc 'cd {workdir} && git status --porcelain'", timeout=20)
-        has_changes = bool(status.result.strip())
+        # Check git status using native SDK
+        has_changes = await _git_has_changes(sandbox, workdir)
         logger.info(f"Update deployment - changes detected: {has_changes}")
 
         if has_changes:
             if not repo_id:
                 raise HTTPException(status_code=500, detail="Missing repository ID for Freestyle repo")
             identity, token = await _ensure_git_identity_and_token(repo_id, project.get('name', f"project-{project_id}"))
-            
-            # Add/commit/push using process.exec (consistent approach)
-            await sandbox.process.exec(f"git -C {workdir} add .", timeout=30)
-            await sandbox.process.exec(f"git -C {workdir} commit -m 'Update: automated deployment'", timeout=30)
-            
-            # Set remote URL with credentials and push
+
+            # Stage and commit using native SDK
+            commit_success = await _git_stage_and_commit(
+                sandbox, workdir,
+                message="Update: automated deployment",
+                author="cheatcode",
+                email="deploy@cheatcode"
+            )
+            if not commit_success:
+                raise Exception("Failed to stage and commit changes")
+
+            # Set remote URL with credentials (no native SDK equivalent for remote management)
             safe_url = f"https://x-access-token:{token}@git.freestyle.sh/{repo_id}"
             await sandbox.process.exec(f"git -C {workdir} remote set-url origin {safe_url}", timeout=20)
-            
+
+            # Push using shell command (native SDK doesn't support branch specification)
             push_result = await sandbox.process.exec(f"git -C {workdir} push origin {branch}", timeout=180)
             if push_result.exit_code == 0:
                 logger.info("Update committed and pushed successfully")
@@ -837,7 +927,7 @@ async def update_deployment(
                 updated_sandbox = sandbox_info if isinstance(sandbox_info, dict) else {}
                 updated_sandbox['freestyle'] = updated_freestyle
                 
-                result = await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('account_id', account_id).execute()
+                result = await client.table('projects').update({'sandbox': updated_sandbox}).eq('project_id', project_id).eq('user_id', account_id).execute()
                 if not result.data:
                     logger.critical(
                         f"CRITICAL: Failed to persist updated deployment metadata for project {project_id} "

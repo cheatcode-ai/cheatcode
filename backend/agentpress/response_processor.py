@@ -86,16 +86,14 @@ class ProcessorConfig:
 class ResponseProcessor:
     """Processes LLM responses, extracting and executing tool calls."""
     
-    def __init__(self, tool_registry: ToolRegistry, add_message_callback: Callable, trace: Optional[StatefulTraceClient] = None, is_agent_builder: bool = False, target_agent_id: Optional[str] = None, agent_config: Optional[dict] = None):
+    def __init__(self, tool_registry: ToolRegistry, add_message_callback: Callable, trace: Optional[StatefulTraceClient] = None, agent_config: Optional[dict] = None):
         """Initialize the ResponseProcessor.
-        
+
         Args:
             tool_registry: Registry of available tools
             add_message_callback: Callback function to add messages to the thread.
                 MUST return the full saved message object (dict) or None.
             trace: Optional trace client for logging
-            is_agent_builder: Whether this is an agent builder session
-            target_agent_id: ID of the agent being built (if in agent builder mode)
             agent_config: Optional agent configuration with version information
         """
         self.tool_registry = tool_registry
@@ -103,8 +101,6 @@ class ResponseProcessor:
         self.trace = trace or safe_trace(name="anonymous:response_processor")
         # Initialize the XML parser with backwards compatibility
         self.xml_parser = XMLToolParser(strict_mode=False)
-        self.is_agent_builder = is_agent_builder
-        self.target_agent_id = target_agent_id
         self.agent_config = agent_config
 
     def _safe_str(self, obj) -> str:
@@ -131,22 +127,13 @@ class ResponseProcessor:
         is_llm_message: bool = False,
         metadata: Optional[Dict[str, Any]] = None
     ):
-        """Helper to add a message with agent version information if available."""
-        agent_id = None
-        agent_version_id = None
-        
-        if self.agent_config:
-            agent_id = self.agent_config.get('agent_id')
-            agent_version_id = self.agent_config.get('current_version_id')
-            
+        """Helper to add a message to the thread."""
         return await self.add_message(
             thread_id=thread_id,
             type=type,
             content=content,
             is_llm_message=is_llm_message,
-            metadata=metadata,
-            agent_id=agent_id,
-            agent_version_id=agent_version_id
+            metadata=metadata
         )
 
     async def process_streaming_response(
@@ -428,7 +415,8 @@ class ResponseProcessor:
             if (
                 streaming_metadata["usage"]["total_tokens"] == 0
             ):
-                logger.info("🔥 No usage data from provider, counting with litellm.token_counter")
+                # This is expected for some providers during streaming - use debug level
+                logger.debug("No usage data from provider, counting with litellm.token_counter")
                 
                 try:
                     # prompt side
@@ -464,13 +452,13 @@ class ResponseProcessor:
                     
                     total_tokens = streaming_metadata["usage"]["total_tokens"]
                     
-                    # Get account_id from thread_id
+                    # Get user_id (account) from thread_id
                     db = DBConnection()
                     async with db.get_async_client() as client:
-                        thread_result = await client.table('threads').select('account_id').eq('thread_id', thread_id).execute()
+                        thread_result = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
                         if thread_result.data and len(thread_result.data) > 0:
-                            account_id = thread_result.data[0]['account_id']
-                            
+                            account_id = thread_result.data[0]['user_id']
+
                             # Consume tokens for this conversation
                             await consume_tokens(
                                 client=client,
@@ -479,10 +467,10 @@ class ResponseProcessor:
                                 model=llm_model,
                                 thread_id=thread_id
                             )
-                            
+
                             logger.info(f"💰 Consumed {total_tokens} tokens for account {account_id} using model {llm_model}")
                         else:
-                            logger.warning(f"Could not find account_id for thread_id {thread_id}")
+                            logger.warning(f"Could not find user_id for thread_id {thread_id}")
                             
                 except Exception as token_error:
                     logger.error(f"Error consuming tokens: {str(token_error)}")
@@ -906,18 +894,35 @@ class ResponseProcessor:
             raise # Use bare 'raise' to preserve the original exception with its traceback
 
         finally:
+            # Clean up any pending tool execution tasks to prevent RuntimeError
+            if 'pending_tool_executions' in locals() and pending_tool_executions:
+                for execution in pending_tool_executions:
+                    task = execution.get("task")
+                    if task and not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                        except Exception as cancel_error:
+                            logger.debug(f"Error cancelling pending task: {str(cancel_error)}")
+
             # Update continuous state for auto-continue
             continuous_state['accumulated_content'] = accumulated_content
             continuous_state['sequence'] = __sequence
-            
+
             # Save and Yield the final thread_run_end status
+            # Use try/except with GeneratorExit to handle premature closure
             try:
                 end_content = {"status_type": "thread_run_end"}
                 end_msg_obj = await self.add_message(
-                    thread_id=thread_id, type="status", content=end_content, 
+                    thread_id=thread_id, type="status", content=end_content,
                     is_llm_message=False, metadata={"thread_run_id": thread_run_id if 'thread_run_id' in locals() else None}
                 )
                 if end_msg_obj: yield format_for_yield(end_msg_obj)
+            except GeneratorExit:
+                # Generator is being closed, don't try to yield
+                logger.debug("Generator closed during finally block, skipping final yield")
             except Exception as final_e:
                 logger.error(f"Error in finally block: {str(final_e)}", exc_info=True)
                 self.trace.event(name="error_in_finally_block", level="ERROR", status_message=(f"Error in finally block: {str(final_e)}"))
@@ -1191,13 +1196,13 @@ class ResponseProcessor:
                                 from services.token_billing import consume_tokens
                                 from services.supabase import DBConnection
                                 
-                                # Get account_id from thread_id
+                                # Get user_id (account) from thread_id
                                 db = DBConnection()
                                 async with db.get_async_client() as client:
-                                    thread_result = await client.table('threads').select('account_id').eq('thread_id', thread_id).execute()
+                                    thread_result = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
                                     if thread_result.data and len(thread_result.data) > 0:
-                                        account_id = thread_result.data[0]['account_id']
-                                        
+                                        account_id = thread_result.data[0]['user_id']
+
                                         # Consume tokens for this conversation
                                         await consume_tokens(
                                             client=client,
@@ -1206,10 +1211,10 @@ class ResponseProcessor:
                                             model=llm_model,
                                             thread_id=thread_id
                                         )
-                                        
+
                                         logger.info(f"💰 Consumed {usage_data['total']} tokens for account {account_id} using model {llm_model} (non-streaming)")
                                     else:
-                                        logger.warning(f"Could not find account_id for thread_id {thread_id}")
+                                        logger.warning(f"Could not find user_id for thread_id {thread_id}")
                                         
                             except Exception as token_error:
                                 logger.error(f"Error consuming tokens (non-streaming): {str(token_error)}")
@@ -1977,35 +1982,9 @@ class ResponseProcessor:
         
         # if xml_tag_name:
         #     status = "completed successfully" if structured_result_v1["tool_execution"]["result"]["success"] else "failed"
-        #     summary = f"Tool '{xml_tag_name}' {status}. Output: {summary_output}"
-        # else:
-        #     status = "completed successfully" if structured_result_v1["tool_execution"]["result"]["success"] else "failed"
-        #     summary = f"Function '{function_name}' {status}. Output: {summary_output}"
-        
-        # if self.is_agent_builder:
-        #     return summary
-        # if function_name in STRUCTURED_OUTPUT_TOOLS:
-        #     return structured_result_v1
-        # else:
-        #     return summary
-
         summary_output = result.output if hasattr(result, 'output') else str(result)
         success_status = structured_result_v1["tool_execution"]["result"]["success"]
-        
-        # # Create a more comprehensive summary for the LLM
-        # if xml_tag_name:
-        #     status = "completed successfully" if structured_result_v1["tool_execution"]["result"]["success"] else "failed"
-        #     summary = f"Tool '{xml_tag_name}' {status}. Output: {summary_output}"
-        # else:
-        #     status = "completed successfully" if structured_result_v1["tool_execution"]["result"]["success"] else "failed"
-        #     summary = f"Function '{function_name}' {status}. Output: {summary_output}"
-        
-        # if self.is_agent_builder:
-        #     return summary
-        # elif function_name == "get_data_provider_endpoints":
-        #     logger.info(f"Returning sumnary for data provider call: {summary}")
-        #     return summary
-            
+
         return structured_result_v1
 
     def _create_tool_context(self, tool_call: Dict[str, Any], tool_index: int, assistant_message_id: Optional[str] = None, parsing_details: Optional[Dict[str, Any]] = None) -> ToolExecutionContext:

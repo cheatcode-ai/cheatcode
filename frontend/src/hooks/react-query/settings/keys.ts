@@ -6,7 +6,7 @@
  * - ['settings'] - Root scope for all settings
  * - ['settings', 'account'] - Account-related data
  * - ['settings', 'byok'] - Bring Your Own Key data
- * - ['settings', 'integrations'] - Integration/Pipedream data
+ * - ['settings', 'integrations'] - Integration/Composio data
  * - ['settings', 'preferences'] - User preferences
  */
 
@@ -48,18 +48,18 @@ export const settingsKeys = {
     },
   },
 
-  // Integrations/Pipedream related keys
+  // Integrations/Composio related keys
   integrations: {
     all: [SETTINGS_SCOPE, 'integrations'] as const,
-    pipedream: {
-      all: [SETTINGS_SCOPE, 'integrations', 'pipedream'] as const,
-      profiles: () => [SETTINGS_SCOPE, 'integrations', 'pipedream', 'profiles'] as const,
-      profile: (profileId: string) => 
-        [SETTINGS_SCOPE, 'integrations', 'pipedream', 'profile', profileId] as const,
-      apps: () => [SETTINGS_SCOPE, 'integrations', 'pipedream', 'apps'] as const,
-      registry: () => [SETTINGS_SCOPE, 'integrations', 'pipedream', 'registry'] as const,
-      credentials: (appSlug?: string) => 
-        [SETTINGS_SCOPE, 'integrations', 'pipedream', 'credentials', { appSlug }] as const,
+    composio: {
+      all: [SETTINGS_SCOPE, 'integrations', 'composio'] as const,
+      profiles: () => [SETTINGS_SCOPE, 'integrations', 'composio', 'profiles'] as const,
+      profile: (profileId: string) =>
+        [SETTINGS_SCOPE, 'integrations', 'composio', 'profile', profileId] as const,
+      apps: () => [SETTINGS_SCOPE, 'integrations', 'composio', 'apps'] as const,
+      registry: () => [SETTINGS_SCOPE, 'integrations', 'composio', 'registry'] as const,
+      credentials: (appSlug?: string) =>
+        [SETTINGS_SCOPE, 'integrations', 'composio', 'credentials', { appSlug }] as const,
     },
     mcp: {
       all: [SETTINGS_SCOPE, 'integrations', 'mcp'] as const,

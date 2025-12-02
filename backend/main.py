@@ -22,15 +22,13 @@ from agent import api as agent_api
 
 from sandbox import api as sandbox_api
 from services import billing as billing_api
-# Removed conflicting dodopayments_billing import - using token-based system only
-from api.webhooks import dodopayments as dodo_webhooks_api
+from api.webhooks import polar as polar_webhooks_api
 
 from utils.config import config
-from services import transcription as transcription_api
 import sys
 from services import email_api
-# Triggers system removed
-from pipedream import api as pipedream_api
+from composio_integration import api as composio_api
+from composio_integration import secure_mcp_api as composio_secure_mcp_api
 
 
 load_dotenv()
@@ -74,11 +72,10 @@ async def lifespan(app: FastAPI):
         # Start background tasks
         # asyncio.create_task(agent_api.restore_running_agent_runs())
         
-        # Triggers system removed
-        
-        # Initialize pipedream API
-        pipedream_api.initialize(db)
-        
+        # Initialize Composio API
+        composio_api.initialize(db)
+        composio_secure_mcp_api.initialize(db)
+
         yield
         
         # Clean up agent resources
@@ -102,6 +99,24 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+def _sanitize_query_params(query_params) -> str:
+    """Sanitize query parameters to mask sensitive values like tokens."""
+    SENSITIVE_PARAMS = {'token', 'access_token', 'api_key', 'key', 'secret', 'password', 'auth'}
+
+    sanitized = {}
+    for key, value in query_params.items():
+        if key.lower() in SENSITIVE_PARAMS or 'token' in key.lower() or 'key' in key.lower():
+            # Mask the value, showing only first 4 and last 4 chars if long enough
+            if len(value) > 12:
+                sanitized[key] = f"{value[:4]}...{value[-4:]}"
+            else:
+                sanitized[key] = "***MASKED***"
+        else:
+            sanitized[key] = value
+
+    return str(sanitized) if sanitized else ""
+
+
 @app.middleware("http")
 async def log_requests_middleware(request: Request, call_next):
     structlog.contextvars.clear_contextvars()
@@ -111,18 +126,19 @@ async def log_requests_middleware(request: Request, call_next):
     client_ip = request.client.host if request.client else "unknown"
     method = request.method
     path = request.url.path
-    query_params = str(request.query_params)
+    # Sanitize query params to avoid logging sensitive data like auth tokens
+    query_params_sanitized = _sanitize_query_params(request.query_params)
 
     structlog.contextvars.bind_contextvars(
         request_id=request_id,
         client_ip=client_ip,
         method=method,
         path=path,
-        query_params=query_params
+        query_params=query_params_sanitized
     )
 
     # Log the incoming request
-    logger.info(f"Request started: {method} {path} from {client_ip} | Query: {query_params}")
+    logger.info(f"Request started: {method} {path} from {client_ip} | Query: {query_params_sanitized}")
     
     try:
         response = await call_next(request)
@@ -138,23 +154,26 @@ async def log_requests_middleware(request: Request, call_next):
 allowed_origins = ["https://www.trycheatcode.com", "https://trycheatcode.com"]
 allow_origin_regex = None
 
-# Add staging-specific origins
+# Add local-specific origins
 if config.ENV_MODE == EnvMode.LOCAL:
     allowed_origins.append("http://localhost:3000")
-
-# Add staging-specific origins
-if config.ENV_MODE == EnvMode.STAGING:
-    allowed_origins.append("https://staging.trycheatcode.com")
-    allowed_origins.append("http://localhost:3000")
-    allow_origin_regex = r"https://cheatcode-.*-prjcts\.vercel\.app"
+    allowed_origins.append("http://localhost:3001")
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=allowed_origins,
     allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "Authorization", "X-Project-Id"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Project-Id",
+        "X-API-Key",
+        "X-Refresh-Token",
+        "X-MCP-URL",
+        "X-MCP-Type"
+    ],
 )
 
 # Create a main API router
@@ -164,8 +183,7 @@ api_router = APIRouter()
 api_router.include_router(agent_api.router)
 api_router.include_router(sandbox_api.router)
 api_router.include_router(billing_api.router)
-# Removed dodo_billing_api.router - using consolidated billing API only
-api_router.include_router(dodo_webhooks_api.router)
+api_router.include_router(polar_webhooks_api.router)
 
 
 # Conditionally include feature flags API
@@ -179,15 +197,13 @@ from mcp_service import secure_api as secure_mcp_api
 api_router.include_router(mcp_api.router)
 api_router.include_router(secure_mcp_api.router, prefix="/secure-mcp")
 
-api_router.include_router(transcription_api.router)
 api_router.include_router(email_api.router)
 
 
 
-# Triggers routers removed
-
-from pipedream import api as pipedream_api
-api_router.include_router(pipedream_api.router)
+# Composio integration API
+api_router.include_router(composio_api.router)
+api_router.include_router(composio_secure_mcp_api.router)
 
 # User preferences API temporarily disabled due to import issues
 

@@ -20,8 +20,6 @@ services:
     networks:
       - app-network
     environment:
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
       - REDIS_URL=${REDIS_URL}
       - LOG_LEVEL=INFO
     logging:
@@ -56,8 +54,6 @@ services:
     networks:
       - app-network
     environment:
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
       - REDIS_URL=${REDIS_URL}
       - LOG_LEVEL=INFO
     logging:

@@ -214,11 +214,11 @@ async def ensure_clerk_user_account(clerk_user_id: str):
         
         supabase: Client = create_client(supabase_url, supabase_key)
         
-        # Check if account already exists
-        existing = supabase.schema('basejump').table('accounts').select('id').eq('id', clerk_user_id).execute()
-        
+        # Check if user already exists
+        existing = supabase.table('users').select('id').eq('id', clerk_user_id).execute()
+
         if existing.data:
-            logger.info(f"Account already exists for Clerk user {clerk_user_id}")
+            logger.info(f"User already exists for Clerk user {clerk_user_id}")
             return
         
         # Fetch real user data from Clerk API
@@ -240,18 +240,17 @@ async def ensure_clerk_user_account(clerk_user_id: str):
             full_name = "User"
             user_email = None
         
-        # Create account mapping with real or fallback data
+        # Create user record with real or fallback data using get_or_create_user RPC
         result = supabase.rpc(
-            'create_clerk_user_account',
+            'get_or_create_user',
             {
                 'p_clerk_user_id': clerk_user_id,
-                'p_user_name': full_name,
-                'p_user_email': user_email
+                'p_email': user_email
             }
         ).execute()
-        
+
         if result.data:
-            logger.info(f"Created account mapping for Clerk user {clerk_user_id} with name='{full_name}', email='{user_email}'")
+            logger.info(f"Created/verified user for Clerk user {clerk_user_id} with email='{user_email}'")
         else:
             logger.warning(f"Failed to create account mapping for Clerk user {clerk_user_id}")
             
@@ -351,23 +350,23 @@ async def get_account_id_from_thread(client, thread_id: str) -> str:
         HTTPException: If the thread is not found or if there's an error
     """
     try:
-        response = await client.table('threads').select('account_id').eq('thread_id', thread_id).execute()
-        
+        response = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
+
         if not response.data or len(response.data) == 0:
             raise HTTPException(
                 status_code=404,
                 detail="Thread not found"
             )
-        
-        account_id = response.data[0].get('account_id')
-        
-        if not account_id:
+
+        user_id = response.data[0].get('user_id')
+
+        if not user_id:
             raise HTTPException(
                 status_code=500,
-                detail="Thread has no associated account"
+                detail="Thread has no associated user"
             )
-        
-        return account_id
+
+        return user_id
     
     except Exception as e:
         error_msg = str(e)
@@ -417,16 +416,16 @@ async def verify_thread_access(client, thread_id: str, user_id: str):
                     return True
             
         # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
+        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
         if not account_result.data:
             structlog.get_logger().warning(f"No account mapping found for Clerk user {user_id}")
             raise HTTPException(status_code=403, detail="User account not found")
         
         user_account_id = account_result.data
-        thread_account_id = thread_data.get('account_id')
-        
-        # Check if the user's account matches the thread's account
-        if thread_account_id and user_account_id == thread_account_id:
+        thread_user_id = thread_data.get('user_id')
+
+        # Check if the user's account matches the thread's user
+        if thread_user_id and user_account_id == thread_user_id:
             return True
             
         raise HTTPException(status_code=403, detail="Not authorized to access this thread")

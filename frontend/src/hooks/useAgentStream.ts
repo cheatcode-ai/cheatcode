@@ -13,6 +13,9 @@ import {
   ParsedMetadata,
 } from '@/components/thread/types';
 import { safeJsonParse } from '@/components/thread/utils';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('AgentStream');
 
 interface ApiMessageType {
   message_id?: string;
@@ -23,12 +26,6 @@ interface ApiMessageType {
   metadata?: string;
   created_at?: string;
   updated_at?: string;
-  agent_id?: string;
-  agents?: {
-    name: string;
-    avatar?: string;
-    avatar_color?: string;
-  };
 }
 
 // Define the structure returned by the hook
@@ -68,8 +65,6 @@ const mapApiMessagesToUnified = (
       metadata: msg.metadata || '{}',
       created_at: msg.created_at || new Date().toISOString(),
       updated_at: msg.updated_at || new Date().toISOString(),
-      agent_id: (msg as any).agent_id,
-      agents: (msg as any).agents,
     }));
 };
 
@@ -173,8 +168,8 @@ export function useAgentStream(
       const currentThreadId = threadIdRef.current;
       const currentSetMessages = setMessagesRef.current;
 
-      console.log(
-        `[useAgentStream] Finalizing stream for ${runId} on thread ${currentThreadId} with status: ${finalStatus}`,
+      logger.debug(
+        `Finalizing stream for ${runId} on thread ${currentThreadId} with status: ${finalStatus}`,
       );
 
       // Close EventSource connection
@@ -204,22 +199,22 @@ export function useAgentStream(
         'agent_not_running',
       ];
       if (currentThreadId && terminalStatuses.includes(finalStatus)) {
-        console.log(
-          `[useAgentStream] Scheduling message refetch for thread ${currentThreadId} after finalization with status ${finalStatus}.`,
+        logger.debug(
+          `Scheduling message refetch for thread ${currentThreadId} after finalization with status ${finalStatus}.`,
         );
         
         // Add a delay to allow database writes to complete before refetching
         setTimeout(() => {
           if (!isMountedRef.current) return;
           
-          console.log(
-            `[useAgentStream] Refetching messages for thread ${currentThreadId} after completion delay.`,
+          logger.debug(
+            `Refetching messages for thread ${currentThreadId} after completion delay.`,
           );
           getMessages(currentThreadId)
             .then((messagesData: ApiMessageType[]) => {
               if (isMountedRef.current && messagesData) {
-                console.log(
-                  `[useAgentStream] Refetched ${messagesData.length} messages for thread ${currentThreadId}.`,
+                logger.debug(
+                  `Refetched ${messagesData.length} messages for thread ${currentThreadId}.`,
                 );
                               const unifiedMessages = mapApiMessagesToUnified(
                 messagesData,
@@ -232,8 +227,8 @@ export function useAgentStream(
                 const existingIds = new Set(prevMessages.map(m => m.message_id));
                 const newMessages = unifiedMessages.filter(m => !existingIds.has(m.message_id));
                 
-                console.log(
-                  `[useAgentStream] Merging ${newMessages.length} new messages with ${prevMessages.length} existing messages`,
+                logger.debug(
+                  `Merging ${newMessages.length} new messages with ${prevMessages.length} existing messages`,
                 );
                 
                 return [...prevMessages, ...newMessages];
@@ -241,8 +236,8 @@ export function useAgentStream(
               }
             })
             .catch((err) => {
-              console.error(
-                `[useAgentStream] Error refetching messages for thread ${currentThreadId} after finalization:`,
+              logger.error(
+                `Error refetching messages for thread ${currentThreadId} after finalization:`,
                 err,
               );
               toast.error(`Failed to refresh messages: ${err.message}`);
@@ -262,8 +257,8 @@ export function useAgentStream(
           getToken().then(clerkToken => {
             if (clerkToken) {
               getAgentStatus(runId, clerkToken).catch((err) => {
-                console.log(
-                  `[useAgentStream] Post-finalization status check for ${runId} failed (this might be expected if not found): ${err.message}`,
+                logger.debug(
+                  `Post-finalization status check for ${runId} failed (this might be expected if not found): ${err.message}`,
                 );
               });
             }
@@ -288,8 +283,8 @@ export function useAgentStream(
         processedData ===
         '{"type": "status", "status": "completed", "message": "Agent run completed successfully"}'
       ) {
-        console.log(
-          '[useAgentStream] Received final completion status message',
+        logger.debug(
+          'Received final completion status message',
         );
         finalizeStream('completed', currentRunIdRef.current);
         return;
@@ -298,8 +293,8 @@ export function useAgentStream(
         processedData.includes('Run data not available for streaming') ||
         processedData.includes('Stream ended with status: completed')
       ) {
-        console.log(
-          `[useAgentStream] Detected final completion message: "${processedData}", finalizing.`,
+        logger.debug(
+          `Detected final completion message: "${processedData}", finalizing.`,
         );
         finalizeStream('completed', currentRunIdRef.current);
         return;
@@ -309,36 +304,46 @@ export function useAgentStream(
       try {
         const jsonData = JSON.parse(processedData);
 
+        // Handle batched responses for efficiency
+        if (jsonData.type === 'batch' && Array.isArray(jsonData.items)) {
+          logger.debug(`Processing batch of ${jsonData.items.length} messages`);
+          // Process each item in the batch recursively
+          for (const item of jsonData.items) {
+            handleStreamMessage(JSON.stringify(item));
+          }
+          return;
+        }
+
         if (jsonData.status === 'error') {
-          console.error('[useAgentStream] Received error status message:', jsonData);
+          logger.error('Received error status message:', jsonData);
           const errorMessage = jsonData.message || 'Unknown error occurred';
           setError(errorMessage);
           toast.error(errorMessage, { duration: 15000 });
           callbacks.onError?.(errorMessage);
           return;
         }
-        
+
         // Handle control messages
         if (jsonData.type === 'control') {
           if (jsonData.action === 'stop') {
-            console.log('[useAgentStream] Received stop control message');
+            logger.debug('Received stop control message');
             finalizeStream('stopped', currentRunIdRef.current);
             return;
           }
         }
-        
+
         // Filter out system messages that shouldn't appear in chat
         if (jsonData.type === 'warning') {
-          console.warn('[useAgentStream] Stream warning:', jsonData.message);
+          logger.warn('Stream warning:', jsonData.message);
           return; // Don't display warnings in chat
         }
-        
+
         if (jsonData.type === 'heartbeat' || jsonData.type === 'ping') {
           return; // Don't display heartbeat messages in chat
         }
-        
+
         if (jsonData.type === 'status' && jsonData.status === 'completed') {
-          console.log('[useAgentStream] Received completion status, finalizing stream');
+          logger.debug('Received completion status, finalizing stream');
           finalizeStream('completed', currentRunIdRef.current);
           return;
         }
@@ -349,8 +354,8 @@ export function useAgentStream(
       // --- Process JSON messages ---
       const message = safeJsonParse(processedData, null) as UnifiedMessage | null;
       if (!message) {
-        console.warn(
-          '[useAgentStream] Failed to parse streamed message:',
+        logger.warn(
+          'Failed to parse streamed message:',
           processedData,
         );
         return;
@@ -360,7 +365,7 @@ export function useAgentStream(
       
       // Only process actual chat message types
       if (message.type && !['assistant', 'user', 'tool', 'system'].includes(message.type)) {
-        console.debug(`[useAgentStream] Filtered out message type '${message.type}':`, message);
+        logger.debug(`Filtered out message type '${message.type}':`, message);
         return;
       }
 
@@ -422,7 +427,7 @@ export function useAgentStream(
                 callbacks.onMessage(message);
               }
             } else if (hasValidContent && isLikelyCode) {
-              console.debug('[useAgentStream] Filtered out code-heavy message:', contentStr.substring(0, 100) + '...');
+              logger.debug('Filtered out code-heavy message:', contentStr.substring(0, 100) + '...');
             } else {
               // Treat as streaming chunk if no valid content but has some content
               if (parsedContent.content && !isLikelyCode) {
@@ -457,7 +462,7 @@ export function useAgentStream(
             if (isStructuredTool && !isRawContent) {
               callbacks.onMessage(message);
             } else {
-              console.debug('[useAgentStream] Filtered out raw tool content:', parsedContent);
+              logger.debug('Filtered out raw tool content:', parsedContent);
             }
           }
           break;
@@ -479,12 +484,12 @@ export function useAgentStream(
               });
               break;
             case 'thread_run_end':
-              console.log('[useAgentStream] Received thread run end status');
+              logger.debug('Received thread run end status');
               finalizeStream('completed', currentRunIdRef.current);
               break;
             default:
               // Other status messages - log but don't add to chat
-              console.log('[useAgentStream] Received status message:', parsedContent);
+              logger.debug('Received status message:', parsedContent);
               break;
           }
           break;
@@ -494,7 +499,7 @@ export function useAgentStream(
           if (message.message_id) {
             callbacks.onMessage(message);
           } else {
-            console.debug('[useAgentStream] Skipping message without ID:', message.type);
+            logger.debug('Skipping message without ID:', message.type);
           }
           break;
       }
@@ -507,7 +512,7 @@ export function useAgentStream(
     (error: Error | string) => {
       if (!isMountedRef.current) return;
 
-      console.error('[useAgentStream] Stream error:', error);
+      logger.error('Stream error:', error);
       const errorMessage = error instanceof Error ? error.message : error;
       setError(errorMessage);
       toast.error(errorMessage, { duration: 15000 });
@@ -520,12 +525,12 @@ export function useAgentStream(
   const handleStreamClose = useCallback(
     () => {
       if (!isMountedRef.current) return;
-      
-      console.log('[useAgentStream] Stream connection closed');
-      
+
+      logger.debug('Stream connection closed');
+
       const runId = currentRunIdRef.current;
       if (!runId) {
-        console.warn('[useAgentStream] Stream closed but no active agentRunId.');
+        logger.warn('Stream closed but no active agentRunId.');
         if (status === 'streaming' || status === 'connecting') {
           finalizeStream('completed');
         }
@@ -551,19 +556,19 @@ export function useAgentStream(
 
       // Get authentication token
       if (!getToken) {
-        console.error('[useAgentStream] No getToken function provided');
+        logger.error('No getToken function provided');
         finalizeStream('error', runId);
         return;
       }
 
       const clerkToken = await getToken();
       if (!clerkToken) {
-        console.error('[useAgentStream] No authentication token available');
+        logger.error('No authentication token available');
         finalizeStream('error', runId);
         return;
       }
 
-      console.log(`[useAgentStream] Starting EventSource stream for ${runId}`);
+      logger.debug(`Starting EventSource stream for ${runId}`);
 
       try {
         // Use the streamAgent function from the API
@@ -574,10 +579,10 @@ export function useAgentStream(
         }, clerkToken);
 
         streamCleanupRef.current = cleanup;
-        console.log(`[useAgentStream] EventSource stream established for ${runId}`);
+        logger.debug(`EventSource stream established for ${runId}`);
 
       } catch (error) {
-        console.error('[useAgentStream] Failed to create EventSource stream:', error);
+        logger.error('Failed to create EventSource stream:', error);
         const errorMessage = error instanceof Error ? error.message : 'Failed to connect';
         setError(errorMessage);
         finalizeStream('error', runId);
@@ -589,8 +594,8 @@ export function useAgentStream(
   const startStreaming = useCallback(
     async (runId: string) => {
       if (!isMountedRef.current) return;
-      console.log(
-        `[useAgentStream] Received request to start streaming for ${runId}`,
+      logger.debug(
+        `Received request to start streaming for ${runId}`,
       );
 
       // Clean up any previous connection
@@ -617,8 +622,8 @@ export function useAgentStream(
         if (!isMountedRef.current) return;
 
         if (agentStatus.status !== 'running') {
-          console.warn(
-            `[useAgentStream] Agent run ${runId} is not in running state (status: ${agentStatus.status}). Cannot start stream.`,
+          logger.warn(
+            `Agent run ${runId} is not in running state (status: ${agentStatus.status}). Cannot start stream.`,
           );
           setError(`Agent run is not running (status: ${agentStatus.status})`);
           finalizeStream(
@@ -634,8 +639,8 @@ export function useAgentStream(
         if (!isMountedRef.current) return;
 
         const errorMessage = err instanceof Error ? err.message : String(err);
-        console.error(
-          `[useAgentStream] Error initiating stream for ${runId}: ${errorMessage}`,
+        logger.error(
+          `Error initiating stream for ${runId}: ${errorMessage}`,
         );
         setError(errorMessage);
 
@@ -654,8 +659,8 @@ export function useAgentStream(
     if (!isMountedRef.current || !agentRunId) return;
 
     const runIdToStop = agentRunId;
-    console.log(
-      `[useAgentStream] Stopping stream for agent run ${runIdToStop}`,
+    logger.debug(
+      `Stopping stream for agent run ${runIdToStop}`,
     );
 
     // Immediately update status and clean up stream
@@ -666,8 +671,8 @@ export function useAgentStream(
       toast.success('Agent stopped.');
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : String(err);
-      console.error(
-        `[useAgentStream] Error sending stop request for ${runIdToStop}: ${errorMessage}`,
+      logger.error(
+        `Error sending stop request for ${runIdToStop}: ${errorMessage}`,
       );
       toast.error(`Failed to stop agent: ${errorMessage}`);
     }

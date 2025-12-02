@@ -83,13 +83,13 @@ class OpenRouterKeyManager:
                 
                 # Upsert the key (replace if exists)
                 result = await client.table('user_openrouter_keys').upsert({
-                    'account_id': account_id,
+                    'user_id': account_id,
                     'encrypted_api_key': encoded_key,
                     'key_hash': key_hash,
                     'display_name': display_name,
                     'is_active': True,
                     'updated_at': datetime.now(timezone.utc).isoformat()
-                }, on_conflict='account_id').execute()
+                }, on_conflict='user_id').execute()
                 
                 if not result.data:
                     raise Exception("Failed to store OpenRouter API key")
@@ -118,7 +118,7 @@ class OpenRouterKeyManager:
             async with db.get_async_client() as client:
                 result = await client.table('user_openrouter_keys')\
                     .select('encrypted_api_key')\
-                    .eq('account_id', account_id)\
+                    .eq('user_id', account_id)\
                     .eq('is_active', True)\
                     .execute()
                 
@@ -151,8 +151,8 @@ class OpenRouterKeyManager:
             db = DBConnection()
             async with db.get_async_client() as client:
                 result = await client.table('user_openrouter_keys')\
-                    .select('key_id, account_id, display_name, is_active, last_used_at, created_at, updated_at')\
-                    .eq('account_id', account_id)\
+                    .select('key_id, user_id, display_name, is_active, last_used_at, created_at, updated_at')\
+                    .eq('user_id', account_id)\
                     .execute()
                 
                 if not result.data:
@@ -161,7 +161,7 @@ class OpenRouterKeyManager:
                 data = result.data[0]
                 return OpenRouterKeyInfo(
                     key_id=data['key_id'],
-                    account_id=data['account_id'],
+                    account_id=data['user_id'],
                     display_name=data['display_name'],
                     is_active=data['is_active'],
                     last_used_at=datetime.fromisoformat(data['last_used_at']) if data['last_used_at'] else None,
@@ -189,7 +189,7 @@ class OpenRouterKeyManager:
             async with db.get_async_client() as client:
                 result = await client.table('user_openrouter_keys')\
                     .delete()\
-                    .eq('account_id', account_id)\
+                    .eq('user_id', account_id)\
                     .execute()
                 
                 logger.info(f"Deleted OpenRouter API key for user {account_id}")
@@ -212,7 +212,7 @@ class OpenRouterKeyManager:
             async with db.get_async_client() as client:
                 await client.table('user_openrouter_keys')\
                     .update({'last_used_at': datetime.now(timezone.utc).isoformat()})\
-                    .eq('account_id', account_id)\
+                    .eq('user_id', account_id)\
                     .eq('is_active', True)\
                     .execute()
                 
@@ -236,7 +236,7 @@ class OpenRouterKeyManager:
             async with db.get_async_client() as client:
                 result = await client.table('user_openrouter_keys')\
                     .update({'is_active': is_active, 'updated_at': datetime.now(timezone.utc).isoformat()})\
-                    .eq('account_id', account_id)\
+                    .eq('user_id', account_id)\
                     .execute()
                 
                 if result.data:

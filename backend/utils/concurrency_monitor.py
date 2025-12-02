@@ -153,11 +153,48 @@ class ConcurrencyMonitor:
         
         logger.warning(f"Lock acquisition failed: {lock_key} for {operation} - {reason}")
     
+    async def cleanup_stale_in_memory_locks(self, redis_client, max_age: int = 300) -> int:
+        """
+        Clean up in-memory lock tracking for locks that no longer exist in Redis.
+        This handles cases where locks were released but record_lock_release was never called.
+        """
+        if not self.active_locks:
+            return 0
+
+        cleaned = 0
+        now = time.time()
+        locks_to_remove = []
+
+        for lock_key, acquisition_time in list(self.active_locks.items()):
+            age = now - acquisition_time
+
+            # Only check locks older than max_age
+            if age > max_age:
+                try:
+                    # Check if lock still exists in Redis
+                    exists = await redis_client.exists(lock_key)
+                    if not exists:
+                        locks_to_remove.append(lock_key)
+                        logger.info(f"Removing stale in-memory lock tracking: {lock_key} (age: {age:.0f}s, no longer in Redis)")
+                except Exception as e:
+                    logger.warning(f"Error checking Redis for lock {lock_key}: {e}")
+
+        # Remove stale entries
+        for lock_key in locks_to_remove:
+            if lock_key in self.active_locks:
+                del self.active_locks[lock_key]
+                cleaned += 1
+
+        if cleaned > 0:
+            logger.info(f"Cleaned up {cleaned} stale in-memory lock entries")
+
+        return cleaned
+
     async def detect_potential_deadlocks(self) -> List[Dict]:
         """Detect potential deadlock situations."""
         deadlocks = []
         now = time.time()
-        
+
         # Look for locks held longer than 60 seconds
         for lock_key, acquisition_time in self.active_locks.items():
             if now - acquisition_time > 60:
@@ -372,12 +409,15 @@ async def cleanup_stale_locks(redis_client, max_lock_age: int = 300):
                 for i, value in enumerate(values):
                     if value:
                         try:
+                            # Decode bytes to string if needed
+                            if isinstance(value, bytes):
+                                value = value.decode('utf-8')
                             # Lock value format: instance_id:timestamp
                             parts = value.split(':')
                             if len(parts) >= 2:
                                 lock_timestamp = int(parts[1])
                                 age = current_time - lock_timestamp
-                                
+
                                 if age > max_lock_age:
                                     stale_keys.append((keys[i], age))
                         except (ValueError, IndexError):
@@ -407,22 +447,33 @@ async def cleanup_stale_locks(redis_client, max_lock_age: int = 300):
         return 0
 
 async def start_stale_lock_cleanup_task(redis_client, interval: int = 60, max_lock_age: int = 300):
-    """Start background task to periodically clean up stale locks."""
+    """Start background task to periodically clean up stale locks (both Redis and in-memory)."""
     logger.info(f"Starting stale lock cleanup task (interval: {interval}s, max_age: {max_lock_age}s)")
-    
+
     # Run immediate cleanup on startup to clear existing stale locks
     try:
         logger.info("Running immediate stale lock cleanup on startup...")
-        cleaned = await cleanup_stale_locks(redis_client, max_lock_age)
-        if cleaned > 0:
-            logger.info(f"Startup cleanup: removed {cleaned} stale locks")
+        redis_cleaned = await cleanup_stale_locks(redis_client, max_lock_age)
+        if redis_cleaned > 0:
+            logger.info(f"Startup cleanup: removed {redis_cleaned} stale Redis locks")
+
+        # Also clean up in-memory tracking
+        monitor = get_monitor('single')  # Use same instance ID as run_agent_background
+        memory_cleaned = await monitor.cleanup_stale_in_memory_locks(redis_client, max_lock_age)
+        if memory_cleaned > 0:
+            logger.info(f"Startup cleanup: removed {memory_cleaned} stale in-memory lock entries")
     except Exception as e:
         logger.error(f"Error during startup stale lock cleanup: {e}")
-    
+
     while True:
         try:
             await asyncio.sleep(interval)
+            # Clean up both Redis and in-memory stale locks
             await cleanup_stale_locks(redis_client, max_lock_age)
+
+            # Clean up stale in-memory tracking entries
+            monitor = get_monitor('single')
+            await monitor.cleanup_stale_in_memory_locks(redis_client, max_lock_age)
         except asyncio.CancelledError:
             logger.info("Stale lock cleanup task cancelled")
             break

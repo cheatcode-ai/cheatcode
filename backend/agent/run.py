@@ -16,6 +16,7 @@ from agentpress.thread_manager import ThreadManager
 from agentpress.response_processor import ProcessorConfig
 from agent.tools.sb_shell_tool import SandboxShellTool
 from agent.tools.sb_files_tool import SandboxFilesTool
+from agent.tools.sb_lsp_tool import SandboxLSPTool
 from agent.tools.expand_msg_tool import ExpandMessageTool
 from agent.coding_agent_prompt import get_coding_agent_prompt
 from agent.mobile_agent_prompt import get_mobile_agent_prompt
@@ -48,10 +49,8 @@ async def run_agent(
     enable_thinking: Optional[bool] = False,
     reasoning_effort: Optional[str] = 'low',
     enable_context_manager: bool = True,
-    agent_config: Optional[dict] = None,    
+    agent_config: Optional[dict] = None,
     trace: Optional[StatefulTraceClient] = None,
-    is_agent_builder: Optional[bool] = False,
-    target_agent_id: Optional[str] = None,
     app_type: Optional[str] = 'web'
 ):
     """Run the development agent with specified configuration."""
@@ -61,7 +60,7 @@ async def run_agent(
 
     if not trace:
         trace = safe_trace(name="run_agent", session_id=thread_id, metadata={"project_id": project_id})
-    thread_manager = ThreadManager(trace=trace, is_agent_builder=is_agent_builder or False, target_agent_id=target_agent_id, agent_config=agent_config)
+    thread_manager = ThreadManager(trace=trace, agent_config=agent_config)
 
     client = await thread_manager.db.client
 
@@ -92,12 +91,6 @@ async def run_agent(
     # Register tools based on configuration
     # If no agent config (enabled_tools is None), register ALL tools for full capabilities
     # If agent config exists, only register explicitly enabled tools
-    if is_agent_builder:
-        logger.info("Agent builder mode - registering basic file tool for read-only access")
-        
-        # Provide file read/list capability during agent building
-        thread_manager.add_tool(SandboxFilesTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
-
     if enabled_tools is None:
         # No agent specified - register ALL tools for full experience
         logger.info("No agent specified - registering all tools for full capabilities")
@@ -111,7 +104,10 @@ async def run_agent(
         thread_manager.add_tool(SandboxVisionTool, project_id=project_id, thread_id=thread_id, thread_manager=thread_manager, app_type=app_type)
         # Register unified Smart Template tool
         # thread_manager.add_tool(SmartTemplateTool, project_id=project_id, thread_manager=thread_manager)  # Disabled for testing manual component discovery
-        
+
+        # Register LSP tool for intelligent code completions and navigation
+        thread_manager.add_tool(SandboxLSPTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
+
         # Register component search tool for embedding-based component discovery
         thread_manager.add_tool(ComponentSearchTool, thread_manager=thread_manager, app_type=app_type)
         # Register completion tool for task termination
@@ -143,9 +139,10 @@ async def run_agent(
         if enabled_tools.get('sb_vision_tool', {}).get('enabled', False):
             thread_manager.add_tool(SandboxVisionTool, project_id=project_id, thread_id=thread_id, thread_manager=thread_manager, app_type=app_type)
 
-        
+        # Register LSP tool for code intelligence (disabled by default - advanced feature)
+        if enabled_tools.get('sb_lsp_tool', {}).get('enabled', False):
+            thread_manager.add_tool(SandboxLSPTool, project_id=project_id, thread_manager=thread_manager, app_type=app_type)
 
-        
         # Register component search tool if enabled in agent config (default: enabled for coding workflows)
         if enabled_tools.get('component_search_tool', {}).get('enabled', True):
             thread_manager.add_tool(ComponentSearchTool, thread_manager=thread_manager, app_type=app_type)
@@ -157,12 +154,18 @@ async def run_agent(
 
     # Register MCP tool wrapper if agent has configured MCPs or custom MCPs
     mcp_wrapper_instance = None
+    logger.info(f"[MCP DEBUG run.py] Checking agent_config for MCPs...")
     if agent_config:
+        logger.info(f"[MCP DEBUG run.py] agent_config keys: {list(agent_config.keys())}")
+        logger.info(f"[MCP DEBUG run.py] configured_mcps count: {len(agent_config.get('configured_mcps', []))}")
+        logger.info(f"[MCP DEBUG run.py] custom_mcps count: {len(agent_config.get('custom_mcps', []))}")
+
         # Merge configured_mcps and custom_mcps
         all_mcps = []
-        
+
         # Add standard configured MCPs
         if agent_config.get('configured_mcps'):
+            logger.info(f"[MCP DEBUG run.py] Adding {len(agent_config['configured_mcps'])} configured MCPs: {[mcp.get('qualifiedName') for mcp in agent_config['configured_mcps']]}")
             all_mcps.extend(agent_config['configured_mcps'])
         
         # Add custom MCPs
@@ -171,18 +174,19 @@ async def run_agent(
                 # Transform custom MCP to standard format
                 custom_type = custom_mcp.get('customType', custom_mcp.get('type', 'sse'))
                 
-                # For Pipedream MCPs, ensure we have the user ID and proper config
-                if custom_type == 'pipedream':
+                # For Composio MCPs, ensure we have the user ID and proper config
+                if custom_type == 'composio':
                     # Get user ID from thread
                     if 'config' not in custom_mcp:
                         custom_mcp['config'] = {}
-                    
+
                     if not custom_mcp['config'].get('external_user_id'):
-                        thread_result = await client.table('threads').select('account_id').eq('thread_id', thread_id).execute()
+                        thread_result = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
                         if thread_result.data:
-                            custom_mcp['config']['external_user_id'] = thread_result.data[0]['account_id']
-                    if 'headers' in custom_mcp['config'] and 'x-pd-app-slug' in custom_mcp['config']['headers']:
-                        custom_mcp['config']['app_slug'] = custom_mcp['config']['headers']['x-pd-app-slug']
+                            custom_mcp['config']['external_user_id'] = thread_result.data[0]['user_id']
+                    # Extract app_slug from qualified_name if present
+                    if not custom_mcp['config'].get('app_slug') and custom_mcp.get('qualifiedName'):
+                        custom_mcp['config']['app_slug'] = custom_mcp['qualifiedName']
                 
                 mcp_config = {
                     'name': custom_mcp['name'],
@@ -195,8 +199,9 @@ async def run_agent(
                 }
                 all_mcps.append(mcp_config)
         
+        logger.info(f"[MCP DEBUG run.py] Total all_mcps count after merging: {len(all_mcps)}")
         if all_mcps:
-            logger.info(f"Registering MCP tool wrapper for {len(all_mcps)} MCP servers (including {len(agent_config.get('custom_mcps', []))} custom)")
+            logger.info(f"[MCP DEBUG run.py] Registering MCP tool wrapper for {len(all_mcps)} MCP servers (including {len(agent_config.get('custom_mcps', []))} custom)")
             thread_manager.add_tool(MCPToolWrapper, mcp_configs=all_mcps)
             
             for tool_name, tool_info in thread_manager.tool_registry.tools.items():
@@ -271,7 +276,8 @@ async def run_agent(
                     }
                     logger.info(f"Retrieved mobile preview URL (port 8081) for agent")
                 except Exception as mobile_preview_error:
-                    logger.warning(f"Could not get mobile preview link (port 8081): {str(mobile_preview_error)}")
+                    # Expected if Expo dev server not running yet - use debug level
+                    logger.debug(f"Could not get mobile preview link (port 8081) - expected if Expo not started: {str(mobile_preview_error)}")
                     preview_response = {"preview_url": None, "status": "preview_not_available"}
             else:
                 # For web apps, use the existing function (port 3000)
@@ -290,7 +296,8 @@ async def run_agent(
                 logger.info(f"Preview URL not available, status: {dev_server_status}")
                 
         except Exception as e:
-            logger.warning(f"Could not get live preview URL for agent: {str(e)}")
+            # This is expected when dev server isn't running yet - use debug level
+            logger.debug(f"Could not get live preview URL for agent (expected if dev server not ready): {str(e)}")
             # Use fallback URL
     
     logger.info(f"Using preview URL for agent: {preview_url} (status: {dev_server_status})")

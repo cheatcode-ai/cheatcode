@@ -165,13 +165,11 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
     };
 
     const handleTranscription = (transcribedText: string) => {
-      const currentValue = isControlled ? controlledValue : uncontrolledValue;
-      const newValue = currentValue ? `${currentValue} ${transcribedText}` : transcribedText;
-
+      // Replace the value entirely - VoiceRecorder handles preserving base text
       if (isControlled) {
-        controlledOnChange(newValue);
+        controlledOnChange(transcribedText);
       } else {
-        setUncontrolledValue(newValue);
+        setUncontrolledValue(transcribedText);
       }
     };
 

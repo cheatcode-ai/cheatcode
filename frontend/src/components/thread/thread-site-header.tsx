@@ -145,21 +145,26 @@ export function SiteHeader() {
   });
 
   // Fetch MCP credential profiles
-  const { data: mcpProfiles = [], isLoading: isMcpLoading } = useQuery({
+  const { data: mcpProfilesData = [] } = useQuery({
     queryKey: ['mcp-credential-profiles'],
     queryFn: async () => {
       const apiClient = createClerkBackendApi(getToken);
-      const response = await apiClient.get('/pipedream/profiles');
-      return response.data || [];
+      const response = await apiClient.get('/composio/profiles');
+      // API returns { success: true, profiles: [...], count: X }
+      const profiles = response.data?.profiles;
+      return Array.isArray(profiles) ? profiles : [];
     },
     enabled: true,
   });
+
+  // Ensure mcpProfiles is always an array
+  const mcpProfiles = Array.isArray(mcpProfilesData) ? mcpProfilesData : [];
 
   // Update integration toggle mutation
   const updateIntegrationMutation = useMutation({
     mutationFn: async ({ profileId, isDefault }: { profileId: string; isDefault: boolean }) => {
       const apiClient = createClerkBackendApi(getToken);
-      await apiClient.put(`/pipedream/profiles/${profileId}`, {
+      await apiClient.put(`/composio/profiles/${profileId}`, {
         is_default_for_dashboard: isDefault
       });
       return { profileId, isDefault };

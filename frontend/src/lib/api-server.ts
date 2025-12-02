@@ -88,7 +88,7 @@ export const getProject = async (projectId: string): Promise<Project> => {
       id: data.project_id,
       name: data.name || '',
       description: data.description || '',
-      account_id: data.account_id,
+      account_id: data.user_id,  // Database column is user_id, map to account_id for API
       is_public: data.is_public || false,
       created_at: data.created_at,
       sandbox: data.sandbox || {

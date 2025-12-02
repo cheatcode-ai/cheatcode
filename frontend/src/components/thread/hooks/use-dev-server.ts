@@ -12,10 +12,10 @@ interface UseDevServerProps {
   onPreviewUrlRetry?: () => void; // Callback to retry preview URL fetch
 }
 
-export const useDevServer = ({ 
-  sandboxId, 
-  isPreviewTabActive = false, 
-  appType = 'web', 
+export const useDevServer = ({
+  sandboxId,
+  isPreviewTabActive = false,
+  appType = 'web',
   previewUrl,
   autoStart = true,
   onPreviewUrlRetry
@@ -24,12 +24,15 @@ export const useDevServer = ({
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
   const { getToken } = useAuth();
-  
+
   // Use refs to prevent duplicate operations
   const statusCheckInProgress = useRef(false);
   const startInProgress = useRef(false);
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const autoStartTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
+  const useSSE = useRef(true); // Feature flag for SSE vs polling
+  const hasAutoStarted = useRef(false); // Prevent repeated auto-starts
 
   const checkStatus = useCallback(async (previewUrl?: string) => {
     if (!sandboxId || statusCheckInProgress.current) return;
@@ -77,31 +80,35 @@ export const useDevServer = ({
           setStatus('running');
           setError(null);
           setIsStarting(false);
-          
+
           // If dev server is running but no preview URL, trigger retry
           if (!previewUrl && onPreviewUrlRetry) {
             console.log('[DEV SERVER] Dev server running but no preview URL, triggering retry');
             onPreviewUrlRetry();
           }
         } else {
-          if (status !== 'starting') {
+          // Only set to 'stopped' if we're not currently starting AND haven't already auto-started
+          // This prevents resetting the UI during startup
+          if (status !== 'starting' && !isStarting && !hasAutoStarted.current) {
             setStatus('stopped');
           }
         }
       } else {
-        if (status !== 'starting') {
+        // Only set to 'stopped' if we're not currently starting
+        if (status !== 'starting' && !isStarting && !hasAutoStarted.current) {
           setStatus('stopped');
         }
       }
     } catch (error) {
       console.error('Failed to check dev server status:', error);
-      if (status !== 'starting') {
+      // Only set to 'stopped' if we're not currently starting
+      if (status !== 'starting' && !isStarting && !hasAutoStarted.current) {
         setStatus('stopped');
       }
     } finally {
       statusCheckInProgress.current = false;
     }
-  }, [sandboxId, getToken, appType, status, onPreviewUrlRetry]);
+  }, [sandboxId, getToken, appType, status, isStarting, onPreviewUrlRetry]);
 
   const start = useCallback(async () => {
     if (!sandboxId || startInProgress.current) return;
@@ -212,22 +219,30 @@ export const useDevServer = ({
 
 
 
-  // Auto-start dev server immediately when sandbox is available (not tied to preview tab)
+  // Auto-start dev server ONCE when sandbox is available (not tied to preview tab)
+  // Uses hasAutoStarted ref to prevent repeated auto-starts from status polling
   useEffect(() => {
-    if (sandboxId && autoStart && status === 'stopped' && !isStarting) {
+    // Only auto-start if:
+    // - We have a sandboxId
+    // - autoStart is enabled
+    // - Status is 'stopped'
+    // - Not currently starting
+    // - Haven't already auto-started (prevents restart loop)
+    if (sandboxId && autoStart && status === 'stopped' && !isStarting && !hasAutoStarted.current) {
       // Clear any existing timeout
       if (autoStartTimeoutRef.current) {
         clearTimeout(autoStartTimeoutRef.current);
       }
-      
+
       // Start dev server after a brief delay to ensure sandbox is fully ready
       autoStartTimeoutRef.current = setTimeout(() => {
-        if (status === 'stopped' && !isStarting) {
+        if (status === 'stopped' && !isStarting && !hasAutoStarted.current) {
           console.log(`[${appType.toUpperCase()} DEV SERVER] Auto-starting dev server for sandbox ${sandboxId}`);
+          hasAutoStarted.current = true; // Mark as auto-started to prevent repeat
           start();
         }
       }, 3000); // 3 second delay for sandbox initialization
-      
+
       return () => {
         if (autoStartTimeoutRef.current) {
           clearTimeout(autoStartTimeoutRef.current);
@@ -236,31 +251,164 @@ export const useDevServer = ({
     }
   }, [sandboxId, autoStart, status, isStarting, start, appType]);
   
-  // Set up polling for status checks (only one interval per hook instance)
-  useEffect(() => {
-    if (sandboxId) {
-      // Initial status check
-      checkStatus(previewUrl);
-      
-      // Clear any existing polling interval
-      if (pollingIntervalRef.current) {
-        clearInterval(pollingIntervalRef.current);
+  // Connect to SSE stream for real-time dev server status updates
+  // Falls back to polling if SSE is not available or fails
+  const connectSSE = useCallback(async () => {
+    if (!sandboxId || !useSSE.current) return;
+
+    // Close existing connection
+    if (eventSourceRef.current) {
+      eventSourceRef.current.close();
+      eventSourceRef.current = null;
+    }
+
+    try {
+      const token = await getToken();
+      if (!token) {
+        console.log('[DEV SERVER] No auth token, falling back to polling');
+        useSSE.current = false;
+        return;
       }
-      
-      // Set up new polling interval
-      pollingIntervalRef.current = setInterval(() => {
-        checkStatus(previewUrl);
-      }, 3000); // Check every 3 seconds for better responsiveness
-      
-      return () => {
-        if (pollingIntervalRef.current) {
-          clearInterval(pollingIntervalRef.current);
-          pollingIntervalRef.current = null;
+
+      const sessionName = `dev_server_${appType}`;
+      const sseUrl = `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/dev-server/stream?session_name=${sessionName}&app_type=${appType}`;
+
+      console.log('[DEV SERVER] Connecting to SSE stream:', sseUrl);
+
+      // Note: EventSource doesn't support custom headers, so we use fetch with streaming
+      const response = await fetch(sseUrl, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'text/event-stream',
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`SSE connection failed: ${response.status}`);
+      }
+
+      const reader = response.body?.getReader();
+      if (!reader) {
+        throw new Error('No response body');
+      }
+
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      const processStream = async () => {
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            // Process complete SSE events (data: {...}\n\n)
+            const events = buffer.split('\n\n');
+            buffer = events.pop() || ''; // Keep incomplete event in buffer
+
+            for (const event of events) {
+              if (event.startsWith('data: ')) {
+                try {
+                  const data = JSON.parse(event.slice(6));
+
+                  if (data.type === 'status') {
+                    console.log('[DEV SERVER SSE] Status update:', data.status);
+                    if (data.status === 'running') {
+                      setStatus('running');
+                      setError(null);
+                      setIsStarting(false);
+                    } else if (data.status === 'stopped') {
+                      // Only set to 'stopped' if we haven't already auto-started
+                      // This prevents restart loops when SSE reports 'stopped' during startup
+                      if (!hasAutoStarted.current) {
+                        setStatus('stopped');
+                        setIsStarting(false);
+                      }
+                    } else if (data.status === 'starting' || data.status === 'checking') {
+                      setStatus('starting');
+                    }
+                  } else if (data.type === 'preview_url' && data.url) {
+                    console.log('[DEV SERVER SSE] Preview URL received:', data.url);
+                    if (!previewUrl && onPreviewUrlRetry) {
+                      onPreviewUrlRetry();
+                    }
+                  } else if (data.type === 'error') {
+                    // Log backend errors but don't alarm users with transient issues
+                    console.warn('[DEV SERVER SSE] Backend error:', data.message);
+                    // Only set error for user-actionable issues, not SDK internals
+                    if (data.message && !data.message.includes('object has no attribute')) {
+                      setError(data.message);
+                    }
+                    // Fall back to polling on backend errors
+                    useSSE.current = false;
+                  } else if (data.type === 'done') {
+                    console.log('[DEV SERVER SSE] Stream completed');
+                  } else if (data.type === 'heartbeat') {
+                    // Heartbeat received - connection is healthy
+                  }
+                } catch (parseError) {
+                  console.warn('[DEV SERVER SSE] Failed to parse event:', event);
+                }
+              }
+            }
+          }
+        } catch (streamError) {
+          console.error('[DEV SERVER SSE] Stream error:', streamError);
         }
       };
+
+      processStream();
+
+    } catch (error) {
+      console.error('[DEV SERVER] SSE connection failed, falling back to polling:', error);
+      useSSE.current = false;
     }
-  }, [sandboxId, checkStatus, previewUrl]);
-  
+  }, [sandboxId, appType, getToken, previewUrl, onPreviewUrlRetry]);
+
+  // Use SSE when starting, fall back to minimal polling when running
+  useEffect(() => {
+    if (!sandboxId) return;
+
+    // Initial status check
+    checkStatus(previewUrl);
+
+    // Connect SSE when dev server is starting
+    if (status === 'starting' && useSSE.current) {
+      connectSSE();
+    }
+
+    // Clear any existing polling interval
+    if (pollingIntervalRef.current) {
+      clearInterval(pollingIntervalRef.current);
+      pollingIntervalRef.current = null;
+    }
+
+    // Only use polling as fallback or for health checks when running
+    // SSE handles real-time status during startup
+    if (!useSSE.current || status === 'running') {
+      // Minimal polling when running (just health check every 60s)
+      // Or fallback polling if SSE failed
+      const interval = status === 'running' ? 60000 : (useSSE.current ? 10000 : 5000);
+
+      pollingIntervalRef.current = setInterval(() => {
+        checkStatus(previewUrl);
+      }, interval);
+    }
+
+    return () => {
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = null;
+      }
+    };
+  }, [sandboxId, checkStatus, previewUrl, status, connectSSE]);
+
+  // Reset hasAutoStarted when sandboxId changes (new project)
+  useEffect(() => {
+    hasAutoStarted.current = false;
+  }, [sandboxId]);
+
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -269,6 +417,9 @@ export const useDevServer = ({
       }
       if (autoStartTimeoutRef.current) {
         clearTimeout(autoStartTimeoutRef.current);
+      }
+      if (eventSourceRef.current) {
+        eventSourceRef.current.close();
       }
     };
   }, []);

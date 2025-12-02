@@ -1,159 +1,144 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { Mic, Square, Loader2 } from 'lucide-react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { Mic, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { useTranscription } from '@/hooks/react-query/transcription/use-transcription';
 
 interface VoiceRecorderProps {
     onTranscription: (text: string) => void;
+    currentValue?: string;  // Current input value to preserve
     disabled?: boolean;
 }
 
-const MAX_RECORDING_TIME = 15 * 60 * 1000; // 15 minutes in milliseconds
+// Extend Window interface for webkit prefix
+declare global {
+    interface Window {
+        webkitSpeechRecognition: typeof SpeechRecognition;
+    }
+}
 
 export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     onTranscription,
+    currentValue = '',
     disabled = false,
 }) => {
-    const [state, setState] = useState<'idle' | 'recording' | 'processing'>('idle');
-    const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-    const chunksRef = useRef<Blob[]>([]);
-    const streamRef = useRef<MediaStream | null>(null);
-    const recordingStartTimeRef = useRef<number | null>(null);
-    const maxTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+    const [isListening, setIsListening] = useState(false);
+    const [isSupported, setIsSupported] = useState(true);
+    const recognitionRef = useRef<SpeechRecognition | null>(null);
+    const onTranscriptionRef = useRef(onTranscription);
+    const baseTextRef = useRef<string>('');  // Text before recording started
 
-    const transcriptionMutation = useTranscription();
-
-    // Auto-stop recording after 15 minutes
+    // Keep the callback ref updated
     useEffect(() => {
-        if (state === 'recording') {
-            recordingStartTimeRef.current = Date.now();
-            maxTimeoutRef.current = setTimeout(() => {
-                console.log('Auto-stopping recording after 15 minutes');
-                stopRecording();
-            }, MAX_RECORDING_TIME);
-        } else {
-            recordingStartTimeRef.current = null;
-            if (maxTimeoutRef.current) {
-                clearTimeout(maxTimeoutRef.current);
-                maxTimeoutRef.current = null;
-            }
+        onTranscriptionRef.current = onTranscription;
+    }, [onTranscription]);
+
+    useEffect(() => {
+        // Check for Web Speech API support
+        const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+        if (!SpeechRecognition) {
+            setIsSupported(false);
+            return;
         }
+
+        const recognition = new SpeechRecognition();
+        recognition.continuous = true;
+        recognition.interimResults = true;
+        recognition.lang = 'en-US';
+
+        recognition.onresult = (event: SpeechRecognitionEvent) => {
+            let finalTranscript = '';
+            let interimTranscript = '';
+
+            // Rebuild full transcript from ALL results each time
+            for (let i = 0; i < event.results.length; i++) {
+                const transcript = event.results[i][0].transcript;
+                if (event.results[i].isFinal) {
+                    finalTranscript += transcript;
+                } else {
+                    interimTranscript += transcript;
+                }
+            }
+
+            // Combine base text (pre-existing) + new transcript
+            const speechText = (finalTranscript + interimTranscript).trim();
+            const baseText = baseTextRef.current;
+            const fullText = baseText
+                ? (speechText ? `${baseText} ${speechText}` : baseText)
+                : speechText;
+
+            onTranscriptionRef.current(fullText);
+        };
+
+        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+            if (event.error !== 'aborted' && event.error !== 'no-speech') {
+                console.error('Speech recognition error:', event.error);
+            }
+            setIsListening(false);
+        };
+
+        recognition.onend = () => {
+            setIsListening(false);
+        };
+
+        recognitionRef.current = recognition;
 
         return () => {
-            if (maxTimeoutRef.current) {
-                clearTimeout(maxTimeoutRef.current);
+            if (recognitionRef.current) {
+                try {
+                    recognitionRef.current.abort();
+                } catch {
+                    // Ignore abort errors on cleanup
+                }
             }
         };
-    }, [state]);
+    }, []);
 
-    const startRecording = async () => {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-            streamRef.current = stream;
-
-            const options = { mimeType: 'audio/webm' };
-            const mediaRecorder = new MediaRecorder(stream, options);
-            mediaRecorderRef.current = mediaRecorder;
-            chunksRef.current = [];
-
-            mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    chunksRef.current.push(event.data);
+    const startListening = useCallback(() => {
+        if (recognitionRef.current && !isListening) {
+            // Save current input value as base text
+            baseTextRef.current = currentValue.trim();
+            try {
+                recognitionRef.current.start();
+                setIsListening(true);
+            } catch (error) {
+                if (error instanceof Error && !error.message.includes('already started')) {
+                    console.error('Error starting speech recognition:', error);
                 }
-            };
-
-            mediaRecorder.onstop = async () => {
-                if (chunksRef.current.length === 0) {
-                    // Recording was cancelled
-                    cleanupStream();
-                    setState('idle');
-                    return;
-                }
-
-                setState('processing');
-                const audioBlob = new Blob(chunksRef.current, { type: 'audio/webm' });
-                const audioFile = new File([audioBlob], 'recording.webm', { type: 'audio/webm' });
-
-                transcriptionMutation.mutate(audioFile, {
-                    onSuccess: (data) => {
-                        onTranscription(data.text);
-                        setState('idle');
-                    },
-                    onError: (error) => {
-                        console.error('Transcription failed:', error);
-                        setState('idle');
-                    },
-                });
-
-                cleanupStream();
-            };
-
-            mediaRecorder.start();
-            setState('recording');
-        } catch (error) {
-            console.error('Error starting recording:', error);
-            setState('idle');
+            }
         }
-    };
+    }, [isListening, currentValue]);
 
-    const stopRecording = () => {
-        if (mediaRecorderRef.current && state === 'recording') {
-            mediaRecorderRef.current.stop();
+    const stopListening = useCallback(() => {
+        if (recognitionRef.current && isListening) {
+            try {
+                recognitionRef.current.stop();
+            } catch {
+                // Ignore stop errors
+            }
         }
-    };
-
-    const cancelRecording = () => {
-        if (mediaRecorderRef.current && state === 'recording') {
-            chunksRef.current = []; // Clear chunks to signal cancellation
-            mediaRecorderRef.current.stop();
-            cleanupStream();
-            setState('idle');
-        }
-    };
-
-    const cleanupStream = () => {
-        if (streamRef.current) {
-            streamRef.current.getTracks().forEach(track => track.stop());
-            streamRef.current = null;
-        }
-    };
+    }, [isListening]);
 
     const handleClick = () => {
-        if (state === 'idle') {
-            startRecording();
-        } else if (state === 'recording') {
-            stopRecording();
+        if (isListening) {
+            stopListening();
+        } else {
+            startListening();
         }
     };
 
-    const handleRightClick = (e: React.MouseEvent) => {
-        e.preventDefault();
-        if (state === 'recording') {
-            cancelRecording();
-        }
-    };
-
-    const getButtonClass = () => {
-        switch (state) {
-            case 'recording':
-                return 'text-red-500 hover:bg-red-600';
-            case 'processing':
-                return 'hover:bg-gray-100';
-            default:
-                return 'hover:bg-gray-100';
-        }
-    };
-
-    const getIcon = () => {
-        switch (state) {
-            case 'recording':
-                return <Square className="h-4 w-4" />;
-            case 'processing':
-                return <Loader2 className="h-4 w-4 animate-spin" />;
-            default:
-                return <Mic className="h-4 w-4" />;
-        }
-    };
+    if (!isSupported) {
+        return (
+            <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled
+                className="h-8 w-8 p-0 opacity-50"
+                title="Speech recognition not supported in this browser"
+            >
+                <Mic className="h-4 w-4" />
+            </Button>
+        );
+    }
 
     return (
         <Button
@@ -161,12 +146,13 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             variant="ghost"
             size="sm"
             onClick={handleClick}
-            onContextMenu={handleRightClick}
-            disabled={disabled || state === 'processing'}
-            className={`h-8 w-8 p-0 transition-colors ${getButtonClass()}`}
-            title={state === 'recording' ? 'Click to stop' : 'Click to start recording'}
+            disabled={disabled}
+            className={`h-8 w-8 p-0 transition-colors ${
+                isListening ? 'text-red-500 hover:bg-red-100' : 'hover:bg-gray-100'
+            }`}
+            title={isListening ? 'Click to stop' : 'Click to start voice input'}
         >
-            {getIcon()}
+            {isListening ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
         </Button>
     );
-}; 
+};

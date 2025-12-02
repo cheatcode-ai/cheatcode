@@ -12,8 +12,8 @@ import { CheckCircleIcon, StarIcon, Zap, ArrowRight } from 'lucide-react';
 import { motion, Transition, Easing } from 'framer-motion';
 import { usePlansQuery } from '@/hooks/react-query/billing/use-plans';
 import { useBilling } from '@/contexts/BillingContext';
-import { createDodoCheckoutSession, InsufficientCreditsError } from '@/lib/api';
-import { useDodoCheckout } from '@/hooks/use-dodo-checkout';
+import { createPolarCheckoutSession, InsufficientCreditsError } from '@/lib/api';
+import { usePolarCheckout } from '@/hooks/use-polar-checkout';
 import { useAuth } from '@clerk/nextjs';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
@@ -69,8 +69,8 @@ export function BillingPricingSection({
 	const { planName } = useBilling();
 	const plansQuery = usePlansQuery();
 	
-	// Initialize DodoPayments checkout
-	const { openCheckout, isLoading: checkoutLoading } = useDodoCheckout({
+	// Initialize Polar checkout
+	const { openCheckout, isLoading: checkoutLoading } = usePolarCheckout({
 		onError: (error) => {
 			console.error('Checkout error:', error);
 			toast.error(`Payment failed: ${error}`);
@@ -86,8 +86,8 @@ export function BillingPricingSection({
 
 		try {
 			setUpgradingPlan(planId);
-			
-			// This will redirect to DodoPayments checkout page
+
+			// This will redirect to Polar checkout page
 			await openCheckout({
 				planId,
 				successUrl: `${window.location.origin}/dashboard?upgrade=success`,
@@ -431,8 +431,8 @@ export function BillingPricingCard({
                     plan.highlighted && 'bg-muted/10',
                 )}
             >
-                {plan.features.map((feature, index) => (
-                    <div key={index} className="flex items-center gap-2">
+                {plan.features.map((feature) => (
+                    <div key={feature.text} className="flex items-center gap-2">
                         <CheckCircleIcon className="text-foreground h-4 w-4 flex-shrink-0" />
                         <TooltipProvider>
                             <Tooltip delayDuration={0}>

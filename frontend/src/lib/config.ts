@@ -1,7 +1,6 @@
 // Environment mode types
 export enum EnvMode {
   LOCAL = 'local',
-  STAGING = 'staging',
   PRODUCTION = 'production',
 }
 
@@ -103,71 +102,6 @@ const PROD_TIERS: SubscriptionTiers = {
   },
 } as const;
 
-// Staging tier IDs
-const STAGING_TIERS: SubscriptionTiers = {
-  FREE: {
-    priceId: 'price_1RIGvuG6l1KZGqIrw14abxeL',
-    name: 'Free',
-  },
-  TIER_2_20: {
-    priceId: 'price_1RIGvuG6l1KZGqIrCRu0E4Gi',
-    name: '2h/$20',
-  },
-  TIER_6_50: {
-    priceId: 'price_1RIGvuG6l1KZGqIrvjlz5p5V',
-    name: '6h/$50',
-  },
-  TIER_12_100: {
-    priceId: 'price_1RIGvuG6l1KZGqIrT6UfgblC',
-    name: '12h/$100',
-  },
-  TIER_25_200: {
-    priceId: 'price_1RIGvuG6l1KZGqIrOVLKlOMj',
-    name: '25h/$200',
-  },
-  TIER_50_400: {
-    priceId: 'price_1RIKNgG6l1KZGqIrvsat5PW7',
-    name: '50h/$400',
-  },
-  TIER_125_800: {
-    priceId: 'price_1RIKNrG6l1KZGqIrjKT0yGvI',
-    name: '125h/$800',
-  },
-  TIER_200_1000: {
-    priceId: 'price_1RIKQ2G6l1KZGqIrum9n8SI7',
-    name: '200h/$1000',
-  },
-  // Yearly plans with 15% discount (12x monthly price with 15% off)
-  TIER_2_20_YEARLY: {
-    priceId: 'price_1ReGogG6l1KZGqIrEyBTmtPk',
-    name: '2h/$204/year',
-  },
-  TIER_6_50_YEARLY: {
-    priceId: 'price_1ReGoJG6l1KZGqIr0DJWtoOc',
-    name: '6h/$510/year',
-  },
-  TIER_12_100_YEARLY: {
-    priceId: 'price_1ReGnZG6l1KZGqIr0ThLEl5S',
-    name: '12h/$1020/year',
-  },
-  TIER_25_200_YEARLY: {
-    priceId: 'price_1ReGmzG6l1KZGqIre31mqoEJ',
-    name: '25h/$2040/year',
-  },
-  TIER_50_400_YEARLY: {
-    priceId: 'price_1ReGmgG6l1KZGqIrn5nBc7e5',
-    name: '50h/$4080/year',
-  },
-  TIER_125_800_YEARLY: {
-    priceId: 'price_1ReGmMG6l1KZGqIrvE2ycrAX',
-    name: '125h/$8160/year',
-  },
-  TIER_200_1000_YEARLY: {
-    priceId: 'price_1ReGlXG6l1KZGqIrlgurP5GU',
-    name: '200h/$10200/year',
-  },
-} as const;
-
 // Determine the environment mode from environment variables
 const getEnvironmentMode = (): EnvMode => {
   // Get the environment mode from the environment variable, if set
@@ -178,9 +112,6 @@ const getEnvironmentMode = (): EnvMode => {
     if (envMode === EnvMode.LOCAL) {
       console.log('Using explicitly set LOCAL environment mode');
       return EnvMode.LOCAL;
-    } else if (envMode === EnvMode.STAGING) {
-      console.log('Using explicitly set STAGING environment mode');
-      return EnvMode.STAGING;
     } else if (envMode === EnvMode.PRODUCTION) {
       console.log('Using explicitly set PRODUCTION environment mode');
       return EnvMode.PRODUCTION;
@@ -204,8 +135,7 @@ const currentEnvMode = getEnvironmentMode();
 export const config: Config = {
   ENV_MODE: currentEnvMode,
   IS_LOCAL: currentEnvMode === EnvMode.LOCAL,
-  SUBSCRIPTION_TIERS:
-    currentEnvMode === EnvMode.STAGING ? STAGING_TIERS : PROD_TIERS,
+  SUBSCRIPTION_TIERS: PROD_TIERS,
 };
 
 // Helper function to check if we're in local mode (for component conditionals)

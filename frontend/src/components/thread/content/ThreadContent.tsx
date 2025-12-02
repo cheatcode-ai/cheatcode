@@ -355,15 +355,10 @@ export const ThreadContent: React.FC = () => {
                                         const canAddToExistingGroup = currentGroup &&
                                             currentGroup.type === 'assistant_group' &&
                                             (() => {
-                                                // For assistant messages, check if agent matches
+                                                // For assistant messages, always allow adding to current group
+                                                // (Previously compared agent_id, but agents table was removed)
                                                 if (messageType === 'assistant') {
-                                                    const lastAssistantMsg = currentGroup.messages.findLast(m => m.type === 'assistant');
-                                                    if (!lastAssistantMsg) return true; // No assistant message yet, can add
-
-                                                    // Compare agent info - both null/undefined should be treated as same (default agent)
-                                                    const currentAgentId = message.agent_id;
-                                                    const lastAgentId = lastAssistantMsg.agent_id;
-                                                    return currentAgentId === lastAgentId;
+                                                    return true;
                                                 }
                                                 // For tool messages, always add to current group
                                                 return true;
@@ -532,34 +527,10 @@ export const ThreadContent: React.FC = () => {
                                                 <div className="flex flex-col gap-2">
                                                     <div className="flex items-center">
                                                         <div className="rounded-md flex items-center justify-center">
-                                                            {(() => {
-                                                                const firstAssistantWithAgent = group.messages.find(msg =>
-                                                                    msg.type === 'assistant' && (msg.agents?.avatar || msg.agents?.avatar_color)
-                                                                );
-                                                                if (firstAssistantWithAgent?.agents?.avatar) {
-                                                                    const avatar = firstAssistantWithAgent.agents.avatar;
-                                                                    const color = firstAssistantWithAgent.agents.avatar_color;
-                                                                    return (
-                                                                        <div
-                                                                            className="h-4 w-5 flex items-center justify-center rounded text-xs"
-                                                                        >
-                                                                            <span className="text-lg">{avatar}</span>
-                                                                        </div>
-                                                                    );
-                                                                }
-                                                                return <CheatcodeLogo size={16} />;
-                                                            })()}
+                                                            <CheatcodeLogo size={16} />
                                                         </div>
                                                         <p className='ml-2 text-sm text-muted-foreground'>
-                                                            {(() => {
-                                                                const firstAssistantWithAgent = group.messages.find(msg =>
-                                                                    msg.type === 'assistant' && msg.agents?.name
-                                                                );
-                                                                if (firstAssistantWithAgent?.agents?.name) {
-                                                                    return firstAssistantWithAgent.agents.name;
-                                                                }
-                                                                return 'cheatcode';
-                                                            })()}
+                                                            cheatcode
                                                         </p>
                                                     </div>
 

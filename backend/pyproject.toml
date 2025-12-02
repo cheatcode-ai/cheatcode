@@ -26,12 +26,10 @@ dependencies = [
   "redis>=5.2.0",
   "upstash-redis>=1.4.0",
   "aiohttp>=3.8.0",
-  "supabase==2.15.0",
+  "supabase>=2.24.0",
   "pyjwt==2.10.1",
   "certifi==2024.2.2",
-  "daytona-sdk==0.21.0",
-  "daytona-api-client==0.21.0",
-  "daytona-api-client-async==0.21.0",
+  "daytona>=0.116.0",
   "boto3==1.37.3",
   "openai==1.90.0",
   "nest-asyncio==1.6.0",
@@ -51,9 +49,10 @@ dependencies = [
   "numpy>=1.24.0",
   "dramatiq==1.18.0",
   "langfuse==2.60.5",
-  "dodopayments==1.44.0",
+  "polar-sdk>=0.23.0",
   "clerk-backend-api==3.1.11",
   "freestyle>=0.0.1",
+  "composio>=0.7.0",
 ]
 
 [project.urls]

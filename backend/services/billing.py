@@ -28,7 +28,7 @@ from services.token_billing import (
     get_token_usage_history,
     InsufficientTokensError
 )
-from services.dodopayments import create_dodo_checkout_session
+from services.polar_service import create_polar_checkout_session
 
 # Initialize router
 router = APIRouter(prefix="/billing", tags=["billing"])
@@ -110,16 +110,17 @@ class PlanListResponse(BaseModel):
 async def get_user_subscription(user_id: str) -> Optional[Dict]:
     """Get user subscription information from database."""
     try:
+        from services import redis as redis_service
+
         db = DBConnection()
         async with db.get_async_client() as client:
-            # Get account_id from Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
-            if not account_result.data:
+            # Get account_id from Clerk user (with Redis caching for performance)
+            account_id = await redis_service.get_account_id_cached(client, user_id)
+            if not account_id:
                 return None
-    
-            account_id = account_result.data
+
             return await get_user_token_status(client, account_id)
-        
+
     except Exception as e:
         logger.error(f"Error fetching user subscription: {str(e)}")
         return None
@@ -142,7 +143,7 @@ async def get_billing_status(
             # Get account_id for the user
             db = DBConnection()
             async with db.get_async_client() as client:
-                account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+                account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
                 if not account_result.data:
                     raise HTTPException(status_code=404, detail="User account not found")
                 account_id = account_result.data
@@ -224,7 +225,7 @@ async def get_usage_history(
         db = DBConnection()
         async with db.get_async_client() as client:
             # Get account_id from Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
                 
@@ -269,7 +270,7 @@ async def create_checkout_session(
     http_request: Request,
     current_user_id: str = Depends(get_current_user_id_from_jwt)
 ):
-    """Create DodoPayments checkout session for plan upgrade."""
+    """Create Polar checkout session for plan upgrade."""
     try:
         plan_config = get_plan_by_id(request.plan_id)
         if not plan_config:
@@ -284,29 +285,25 @@ async def create_checkout_session(
                 plan_details=plan_config
             )
             
-        # For paid plans, create DodoPayments checkout session
+        # For paid plans, create Polar checkout session
         try:
-            # Removed conflicting dodopayments_billing import - using token-based system only
             
             db = DBConnection()
             async with db.get_async_client() as client:
                 # Get account_id from Clerk user
-                account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+                account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
                 if not account_result.data:
                     raise HTTPException(status_code=404, detail="User account not found")
                     
                 account_id = account_result.data
                 
-                # Get user info for customer creation - email from billing_customers, name from accounts
-                user_result = await client.schema('basejump').table('accounts').select('*').eq('id', account_id).execute()
+                # Get user info for customer creation from users table
+                user_result = await client.table('users').select('*').eq('id', account_id).execute()
                 if not user_result.data:
-                    raise HTTPException(status_code=404, detail="Account not found")
-                    
+                    raise HTTPException(status_code=404, detail="User not found")
+
                 user_data = user_result.data[0]
-                
-                # Get email from billing_customers table (should be populated during signup)
-                billing_result = await client.schema('basejump').table('billing_customers').select('email').eq('account_id', account_id).execute()
-                user_email = billing_result.data[0]['email'] if billing_result.data and billing_result.data[0]['email'] else None
+                user_email = user_data.get('email')
                 
                 # Email should already be populated during signup
                 if not user_email or 'placeholder' in user_email or 'missing_email' in user_email:
@@ -357,7 +354,7 @@ async def create_checkout_session(
                         detail="Your account needs a valid email address to proceed with checkout. Please update your profile."
                     )
                 
-                checkout_url = await create_dodo_checkout_session(
+                checkout_url = await create_polar_checkout_session(
                     plan_id=request.plan_id,
                     account_id=account_id,
                     user_email=user_email,
@@ -377,11 +374,11 @@ async def create_checkout_session(
         except Exception as e:
             logger.error(f"Error creating checkout session: {str(e)}")
             error_message = str(e)
-            
-            # Handle specific error types from the DodoPayments SDK
+
+            # Handle specific error types from the Polar SDK
             if "Payment processing is currently unavailable" in error_message:
                 raise HTTPException(status_code=503, detail=error_message)
-            elif "Invalid plan_id" in error_message:
+            elif "Invalid plan_id" in error_message or "Unknown plan" in error_message:
                 raise HTTPException(status_code=400, detail=error_message)
             else:
                 raise HTTPException(status_code=500, detail="Failed to create checkout session. Please try again.")
@@ -404,7 +401,7 @@ async def upgrade_plan(
         db = DBConnection()
         async with db.get_async_client() as client:
             # Get account_id from Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
                 
@@ -412,17 +409,20 @@ async def upgrade_plan(
             
             # Update user's plan and quota
             new_quota_reset = datetime.now(timezone.utc) + timedelta(days=30)
-            
-            await client.schema('basejump').table('billing_customers').update({
+
+            await client.table('users').update({
                 'plan_id': request.new_plan_id,
                 'token_quota_total': plan_config['token_quota'],
                 'token_quota_remaining': plan_config['token_quota'],
                 'quota_resets_at': new_quota_reset.isoformat(),
                 'billing_updated_at': datetime.now(timezone.utc).isoformat()
-            }).eq('account_id', account_id).execute()
+            }).eq('id', account_id).execute()
             
             logger.info(f"✅ Upgraded account {account_id} to {request.new_plan_id} plan")
-            
+
+            # Invalidate billing cache after plan upgrade
+            await invalidate_billing_cache(account_id)
+
             return {
                 "success": True,
                 "message": f"Successfully upgraded to {plan_config['name']} plan",
@@ -439,13 +439,12 @@ async def handle_payment_success(
     request: Dict,
     background_tasks=None
 ):
-    """Handle successful payment webhook from DodoPayments."""
+    """Handle successful payment webhook (legacy endpoint)."""
     try:
-        # This will be called by DodoPayments webhook handler
-        # Implementation depends on webhook payload structure
+        # Note: Primary webhook handling is in api/webhooks/polar.py
         logger.info("Payment success webhook received")
         return {"status": "ok"}
-        
+
     except Exception as e:
         logger.error(f"Error handling payment success: {str(e)}")
         raise HTTPException(status_code=500, detail="Error processing payment success")
@@ -491,8 +490,8 @@ async def get_quota_status(
         db = DBConnection()
         async with db.get_async_client() as client:
             # Get quota status for all users
-            result = await client.schema('basejump').table('billing_customers').select(
-                'account_id, plan_id, token_quota_total, token_quota_remaining, quota_resets_at'
+            result = await client.table('users').select(
+                'id, plan_id, token_quota_total, token_quota_remaining, quota_resets_at'
             ).execute()
             
             if result.data:
@@ -528,31 +527,90 @@ async def get_quota_status(
         raise HTTPException(status_code=500, detail=f"Error retrieving quota status: {str(e)}")
 
 # Legacy compatibility functions (for existing code)
+# Billing status cache TTL in seconds (30 seconds for quick updates while reducing DB load)
+BILLING_STATUS_CACHE_TTL = 30
+
 async def can_use_model(client: Client, user_id: str, model_name: str):
-    """Check if user can use a specific model based on their subscription."""
+    """Check if user can use a specific model based on their subscription.
+
+    Uses Redis caching with short TTL to reduce database load while maintaining
+    reasonable accuracy for billing status checks.
+    """
+    import json
+    from services import redis as redis_service
+
     try:
         # Get account_id from Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': user_id}).execute()
+        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
         if not account_result.data:
             return False, "User account not found", {}
-            
+
         account_id = account_result.data
+        cache_key = f"billing_status:{account_id}"
+
+        # Try to get from cache first
+        try:
+            cached_status = await redis_service.get_value(cache_key)
+            if cached_status:
+                token_status = json.loads(cached_status)
+                logger.debug(f"Cache HIT for billing status: {account_id}")
+
+                # Check cached token status
+                min_tokens_needed = 1000
+
+                if token_status.get('plan') == 'byok':
+                    return True, "BYOK plan - model access allowed", token_status
+
+                if token_status.get('tokens_remaining', 0) < min_tokens_needed:
+                    return False, f"Insufficient credits. You have {token_status.get('credits_remaining', 0)} credits remaining. Please upgrade your plan.", token_status
+
+                return True, "Model access allowed", token_status
+        except Exception as cache_error:
+            logger.debug(f"Cache miss or error for {account_id}: {str(cache_error)}")
+
+        # Cache miss - fetch from database
         token_status = await get_user_token_status(client, account_id)
-        
+
+        # Cache the result
+        try:
+            await redis_service.set_value(
+                cache_key,
+                json.dumps(token_status),
+                ttl=BILLING_STATUS_CACHE_TTL
+            )
+            logger.debug(f"Cached billing status for {account_id}")
+        except Exception as cache_set_error:
+            logger.warning(f"Failed to cache billing status: {str(cache_set_error)}")
+
         # Check if user has sufficient tokens for a conversation
         min_tokens_needed = 1000  # Minimum tokens needed for model usage
-        
+
         if token_status['plan'] == 'byok':
             return True, "BYOK plan - model access allowed", token_status
-            
+
         if token_status['tokens_remaining'] < min_tokens_needed:
             return False, f"Insufficient credits. You have {token_status['credits_remaining']} credits remaining. Please upgrade your plan.", token_status
-            
+
         return True, "Model access allowed", token_status
-        
+
     except Exception as e:
         logger.error(f"Error checking model access: {str(e)}")
         return False, f"Error checking model access: {str(e)}", {}
+
+
+async def invalidate_billing_cache(account_id: str):
+    """Invalidate the billing status cache for an account.
+
+    Call this after token consumption or plan changes to ensure fresh data.
+    """
+    from services import redis as redis_service
+
+    try:
+        cache_key = f"billing_status:{account_id}"
+        await redis_service.delete_key(cache_key)
+        logger.debug(f"Invalidated billing cache for {account_id}")
+    except Exception as e:
+        logger.warning(f"Failed to invalidate billing cache: {str(e)}")
 
 async def check_billing_status(client: Client, user_id: str):
     """Check if user can run agents based on their subscription and usage."""
@@ -696,7 +754,7 @@ async def store_openrouter_key(
         # Get account_id for the user
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
             account_id = account_result.data
@@ -739,7 +797,7 @@ async def get_openrouter_key_status(
         # Get account_id for the user
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
             account_id = account_result.data
@@ -785,7 +843,7 @@ async def delete_openrouter_key(
         # Get account_id for the user
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
             account_id = account_result.data
@@ -819,7 +877,7 @@ async def test_openrouter_key(
         # Get account_id for the user
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'clerk_user_id': current_user_id}).execute()
+            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
             if not account_result.data:
                 raise HTTPException(status_code=404, detail="User account not found")
             account_id = account_result.data

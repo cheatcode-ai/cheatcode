@@ -208,9 +208,9 @@ export function AttachmentGroup({
                             "grid-cols-1 sm:grid-cols-2",
                     className
                 )}>
-                    {sortedFilesWithMeta.map((item, index) => (
+                    {sortedFilesWithMeta.map((item) => (
                         <div
-                            key={index}
+                            key={item.path}
                             className={item.wrapperClassName}
                             style={item.wrapperStyle}
                         >
@@ -278,8 +278,8 @@ export function AttachmentGroup({
             // For inline layout with pre-computed data
             return (
                 <div className={cn("flex flex-wrap gap-3", className)}>
-                    {visibleFilesWithMeta.map((item, index) => (
-                        <div key={index} className={cn("relative group h-[54px]", item.wrapperClassName)}>
+                    {visibleFilesWithMeta.map((item) => (
+                        <div key={item.path} className={cn("relative group h-[54px]", item.wrapperClassName)}>
                             <FileAttachment
                                 filepath={item.path}
                                 onClick={handleFileClick}

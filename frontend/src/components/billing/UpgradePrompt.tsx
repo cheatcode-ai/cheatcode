@@ -3,8 +3,8 @@
 import React, { useState } from 'react';
 import { useBilling } from '@/contexts/BillingContext';
 import { usePlansQuery } from '@/hooks/react-query/billing/use-plans';
-import { createDodoCheckoutSession, InsufficientCreditsError } from '@/lib/api';
-import { useDodoCheckout } from '@/hooks/use-dodo-checkout';
+import { createPolarCheckoutSession, InsufficientCreditsError } from '@/lib/api';
+import { usePolarCheckout } from '@/hooks/use-polar-checkout';
 import { useAuth } from '@clerk/nextjs';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -26,8 +26,8 @@ export function UpgradePrompt({ trigger, autoOpen = false, onClose }: UpgradePro
   const { creditsRemaining, planName, isUpgradeRequired } = useBilling();
   const plansQuery = usePlansQuery();
   
-  // Initialize DodoPayments overlay checkout
-  const { openCheckout, isLoading: checkoutLoading } = useDodoCheckout({
+  // Initialize Polar checkout
+  const { openCheckout, isLoading: checkoutLoading } = usePolarCheckout({
     onSuccess: () => {
       toast.success('Payment successful! Your plan has been upgraded.');
       setIsOpen(false);

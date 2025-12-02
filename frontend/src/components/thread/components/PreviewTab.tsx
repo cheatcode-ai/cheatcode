@@ -94,7 +94,9 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         "relative bg-white dark:bg-zinc-900 rounded-lg border shadow-lg overflow-hidden",
         currentView === 'desktop' ? "w-full h-full" : "flex-shrink-0"
       )} style={currentView !== 'desktop' ? viewportDimensions : undefined}>
-        {(isLoading || devServerStatus === 'starting') && (
+        {/* Only show loading overlay if we don't have a preview URL yet */}
+        {/* Once we have a preview URL, show the iframe even if status is 'starting' */}
+        {!previewUrl && (isLoading || devServerStatus === 'starting') && (
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-zinc-900 z-10">
             <div className="flex flex-col items-center space-y-2">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />

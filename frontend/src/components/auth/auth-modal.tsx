@@ -1,4 +1,4 @@
-import { Dialog, DialogContent } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog';
 import { SignIn, SignUp } from '@clerk/nextjs';
 import { useModal } from '@/hooks/use-modal-store';
 import { dark } from '@clerk/themes';
@@ -6,7 +6,7 @@ import { X } from 'lucide-react';
 
 export function AuthModal() {
   const { isOpen, type, onClose } = useModal();
-  
+
   const isSignInModalOpen = isOpen && type === 'signIn';
   const isSignUpModalOpen = isOpen && type === 'signUp';
   const isAuthModalOpen = isSignInModalOpen || isSignUpModalOpen;
@@ -14,6 +14,9 @@ export function AuthModal() {
   return (
     <Dialog open={isAuthModalOpen} onOpenChange={onClose}>
        <DialogContent className="p-0 border-0 max-w-md !bg-[unset] [&>button]:hidden">
+         <DialogTitle className="sr-only">
+           {isSignInModalOpen ? 'Sign In' : 'Sign Up'}
+         </DialogTitle>
          <div className="relative">
            {/* Custom close button */}
            <button
@@ -23,9 +26,9 @@ export function AuthModal() {
            >
              <X className="h-5 w-5" />
            </button>
-           
+
            {isSignInModalOpen && (
-             <SignIn 
+             <SignIn
                routing="hash"
                appearance={{
                  baseTheme: dark,
@@ -37,7 +40,7 @@ export function AuthModal() {
              />
            )}
            {isSignUpModalOpen && (
-             <SignUp 
+             <SignUp
                routing="hash"
                appearance={{
                  baseTheme: dark,

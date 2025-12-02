@@ -1,62 +1,54 @@
-import React, { ReactNode, useCallback, useMemo, useEffect, useRef } from 'react';
+import React, { ReactNode, useCallback, useMemo, memo } from 'react';
 import { Tree, File, Folder, type TreeViewElement } from '@/components/magicui/file-tree';
 import { FileTreeItem } from '../types/app-preview';
 
-// Custom Tree component that intercepts directory clicks
-interface CustomTreeProps {
-  initialSelectedId?: string;
-  initialExpandedItems?: string[];
-  className?: string;
-  onDirectoryToggle: (directoryPath: string) => void;
+/**
+ * Memoized File Node Component
+ * Prevents unnecessary re-renders of individual file items
+ */
+const MemoizedFile = memo(({
+  id,
+  name,
+  onSelect,
+}: {
+  id: string;
+  name: string;
+  onSelect: (id: string) => void;
+}) => (
+  <File
+    key={id}
+    value={id}
+    handleSelect={onSelect}
+  >
+    {name}
+  </File>
+));
+MemoizedFile.displayName = 'MemoizedFile';
+
+/**
+ * Memoized Folder Node Component
+ * Prevents unnecessary re-renders of folder items
+ */
+const MemoizedFolder = memo(({
+  id,
+  name,
+  isLoading,
+  children,
+}: {
+  id: string;
+  name: string;
+  isLoading: boolean;
   children: ReactNode;
-}
-
-const CustomTree: React.FC<CustomTreeProps> = ({ 
-  initialSelectedId, 
-  initialExpandedItems, 
-  className, 
-  onDirectoryToggle, 
-  children 
-}) => {
-  const treeRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handleClick = (event: MouseEvent) => {
-      const target = event.target as HTMLElement;
-      
-      // Find the closest button element (which is the directory toggle)
-      const button = target.closest('button[data-state]');
-      if (button) {
-        const accordionItem = button.closest('[data-radix-accordion-item]');
-        if (accordionItem) {
-          const value = accordionItem.getAttribute('data-value');
-          if (value) {
-            // This is a directory being toggled
-            onDirectoryToggle(value);
-          }
-        }
-      }
-    };
-
-    const treeElement = treeRef.current;
-    if (treeElement) {
-      treeElement.addEventListener('click', handleClick);
-      return () => treeElement.removeEventListener('click', handleClick);
-    }
-  }, [onDirectoryToggle]);
-
-  return (
-    <div ref={treeRef}>
-      <Tree 
-        initialSelectedId={initialSelectedId}
-        initialExpandedItems={initialExpandedItems}
-        className={className}
-      >
-        {children}
-      </Tree>
-    </div>
-  );
-};
+}) => (
+  <Folder
+    key={id}
+    element={isLoading ? `${name} (loading...)` : name}
+    value={id}
+  >
+    {children}
+  </Folder>
+));
+MemoizedFolder.displayName = 'MemoizedFolder';
 
 interface FileTreeProps {
   files: FileTreeItem[];
@@ -69,10 +61,19 @@ interface FileTreeProps {
   appType?: string;
 }
 
-export const FileTree: React.FC<FileTreeProps> = ({ 
-  files, 
-  selectedFile, 
-  onFileSelect, 
+/**
+ * Optimized FileTree Component
+ *
+ * Key optimizations:
+ * 1. Memoized tree element conversion (only recalculates when files change)
+ * 2. Memoized node rendering with stable callbacks
+ * 3. Efficient expanded path calculation
+ * 4. No unnecessary re-renders from parent state changes
+ */
+export const FileTree: React.FC<FileTreeProps> = memo(({
+  files,
+  selectedFile,
+  onFileSelect,
   onDirectoryToggle,
   expandedDirectories,
   loadingDirectories = new Set(),
@@ -81,93 +82,95 @@ export const FileTree: React.FC<FileTreeProps> = ({
 }) => {
   const workspacePath = `/workspace/${appType === 'mobile' ? 'cheatcode-mobile' : 'cheatcode-app'}`;
 
-  // Handle file selection
+  // Stable file select handler - doesn't change on re-render
   const handleFileSelect = useCallback((filePath: string) => {
     const relativePath = filePath.replace(`${workspacePath}/`, '');
     onFileSelect(relativePath);
   }, [onFileSelect, workspacePath]);
 
-  // Handle directory toggle from file tree
+  // Stable directory toggle handler
   const handleTreeDirectoryToggle = useCallback((directoryPath: string) => {
     const relativePath = directoryPath.replace(`${workspacePath}/`, '');
     onDirectoryToggle(relativePath);
   }, [onDirectoryToggle, workspacePath]);
 
-  // Convert files to TreeViewElement format recursively
-  const convertToTreeViewElements = useCallback((files: FileTreeItem[]): TreeViewElement[] => {
-    return files.map((item) => {
-      const fullPath = `${workspacePath}/${item.path}`;
-      
-      if (item.type === 'directory') {
-        return {
-          id: fullPath,
-          name: item.name,
-          children: item.children ? convertToTreeViewElements(item.children) : [],
-        };
-      } else {
-        return {
-          id: fullPath,
-          name: item.name,
-          isSelectable: true,
-        };
-      }
-    });
-  }, [workspacePath]);
-
+  // Convert files to TreeViewElement format - memoized
   const treeViewElements = useMemo(() => {
-    return convertToTreeViewElements(files);
-  }, [files, convertToTreeViewElements]);
+    const convertToTreeViewElements = (items: FileTreeItem[]): TreeViewElement[] => {
+      return items.map((item) => {
+        const fullPath = `${workspacePath}/${item.path}`;
 
-  // Get expanded paths based on expandedDirectories state  
+        if (item.type === 'directory') {
+          return {
+            id: fullPath,
+            name: item.name,
+            children: item.children ? convertToTreeViewElements(item.children) : [],
+          };
+        } else {
+          return {
+            id: fullPath,
+            name: item.name,
+            isSelectable: true,
+          };
+        }
+      });
+    };
+
+    return convertToTreeViewElements(files);
+  }, [files, workspacePath]);
+
+  // Calculate expanded paths - memoized with stable dependency
   const allExpandedPaths = useMemo(() => {
-    const paths: string[] = [];
-    
-    // Always include the root workspace path
-    paths.push(workspacePath);
-    
-    // Convert relative paths to full paths for expanded directories
+    const paths: string[] = [workspacePath]; // Always include root
+
     expandedDirectories.forEach(relativePath => {
-      if (relativePath) { // Skip empty string
-        const fullPath = `${workspacePath}/${relativePath}`;
-        paths.push(fullPath);
+      if (relativePath) {
+        paths.push(`${workspacePath}/${relativePath}`);
       }
     });
-    
+
     return paths;
   }, [workspacePath, expandedDirectories]);
 
+  // Render tree nodes - using memo components
   const renderTreeNodes = useCallback((elements: TreeViewElement[]): ReactNode => {
     return elements.map((element) => {
       if (element.children !== undefined) {
-        // This is a directory
+        // Directory node
         const relativePath = element.id.replace(`${workspacePath}/`, '');
-        const isLoading = loadingDirectories.has(relativePath);
-        
-        return (
-          <Folder 
-            key={element.id} 
-            element={isLoading ? `${element.name} (loading...)` : element.name}
-            value={element.id}
+        const isNodeLoading = loadingDirectories.has(relativePath);
 
+        return (
+          <MemoizedFolder
+            key={element.id}
+            id={element.id}
+            name={element.name}
+            isLoading={isNodeLoading}
           >
             {element.children.length > 0 ? renderTreeNodes(element.children) : null}
-          </Folder>
+          </MemoizedFolder>
         );
       } else {
-        // This is a file
+        // File node
         return (
-          <File 
+          <MemoizedFile
             key={element.id}
-            value={element.id} 
-            handleSelect={handleFileSelect}
-          >
-            {element.name}
-          </File>
+            id={element.id}
+            name={element.name}
+            onSelect={handleFileSelect}
+          />
         );
       }
     });
   }, [handleFileSelect, workspacePath, loadingDirectories]);
 
+  // Memoize rendered nodes
+  const renderedNodes = useMemo(
+    () => renderTreeNodes(treeViewElements),
+    [renderTreeNodes, treeViewElements]
+  );
+
+  // Loading state
   if (isLoading) {
     return (
       <div className="w-64 border-r border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-col">
@@ -177,14 +180,18 @@ export const FileTree: React.FC<FileTreeProps> = ({
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-sm text-zinc-500 dark:text-zinc-400">
-            Loading project files...
+          <div className="flex flex-col items-center space-y-2">
+            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
+            <div className="text-sm text-zinc-500 dark:text-zinc-400">
+              Loading project files...
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  // Empty state
   if (files.length === 0) {
     return (
       <div className="w-64 border-r border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-col">
@@ -210,20 +217,21 @@ export const FileTree: React.FC<FileTreeProps> = ({
           Explorer
         </div>
       </div>
-      
-      {/* File Tree with Custom Scrollbar */}
+
+      {/* File Tree */}
       <div className="flex-1 overflow-hidden">
         <div className="h-full overflow-y-auto px-2 py-2 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-600 scrollbar-track-transparent hover:scrollbar-thumb-zinc-400 dark:hover:scrollbar-thumb-zinc-500 scrollbar-thumb-rounded-full">
-          <CustomTree 
-            initialSelectedId={selectedFile}
+          <Tree
+            initialSelectedId={selectedFile ? `${workspacePath}/${selectedFile}` : undefined}
             initialExpandedItems={allExpandedPaths}
             className="w-full"
-            onDirectoryToggle={handleTreeDirectoryToggle}
           >
-            {renderTreeNodes(treeViewElements)}
-          </CustomTree>
+            {renderedNodes}
+          </Tree>
         </div>
       </div>
     </div>
   );
-}; 
+});
+
+FileTree.displayName = 'FileTree';

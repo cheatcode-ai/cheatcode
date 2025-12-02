@@ -48,8 +48,6 @@ async def run_agent_run_stream(
     stream: bool,
     enable_context_manager: bool,
     agent_config: Optional[dict] = None,
-    is_agent_builder: Optional[bool] = False,
-    target_agent_id: Optional[str] = None,
     request_id: Optional[str] = None,
 ) -> AsyncGenerator[Dict[Any, Any], None]:
     """Run the agent in the background and yield responses as they come."""
@@ -81,8 +79,6 @@ async def run_agent_run_stream(
             "stream": stream,
             "enable_context_manager": enable_context_manager,
             "agent_config": agent_config,
-            "is_agent_builder": is_agent_builder,
-            "target_agent_id": target_agent_id,
         }
     )
     logger.info(
@@ -149,8 +145,6 @@ async def run_agent_run_stream(
             enable_context_manager=enable_context_manager,
             agent_config=agent_config,
             trace=trace,
-            is_agent_builder=is_agent_builder,
-            target_agent_id=target_agent_id,
         )
 
         final_status = "running"

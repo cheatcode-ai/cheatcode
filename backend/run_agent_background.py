@@ -45,6 +45,28 @@ _initialized = False
 db = DBConnection()
 instance_id = "single"
 
+async def start_redis_cleanup_task(interval_seconds: int = 3600):
+    """
+    Background task to periodically clean up Redis keys.
+
+    Runs orphaned key cleanup at the specified interval.
+    """
+    logger.info(f"Starting Redis cleanup task (interval: {interval_seconds}s)")
+    while True:
+        try:
+            await asyncio.sleep(interval_seconds)
+            logger.debug("Running periodic Redis cleanup...")
+            result = await redis.cleanup_orphaned_agent_keys()
+            if result.get("cleaned_keys", 0) > 0:
+                logger.info(f"Redis cleanup completed: {result}")
+        except asyncio.CancelledError:
+            logger.info("Redis cleanup task cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in Redis cleanup task: {str(e)}")
+            await asyncio.sleep(60)  # Brief delay on error before retry
+
+
 async def initialize():
     """Initialize the agent API with resources from the main API."""
     global db, instance_id, _initialized
@@ -58,22 +80,28 @@ async def initialize():
     monitor = get_monitor(instance_id)
     # Start background monitoring tasks
     asyncio.create_task(start_monitoring_task(instance_id))
-    
+
     # Start stale lock cleanup task
     redis_client = await redis.get_client()
     asyncio.create_task(start_stale_lock_cleanup_task(redis_client, interval=60, max_lock_age=300))
-    
+
+    # Start Redis response pruning/cleanup task (runs every hour)
+    asyncio.create_task(start_redis_cleanup_task(interval_seconds=3600))
+
     # Initialize health monitoring
     health_checker = get_health_checker(instance_id)
     asyncio.create_task(start_health_monitoring(instance_id))
-    
+
     _initialized = True
     logger.info(f"Initialized agent API with instance ID: {instance_id} with concurrency monitoring")
 
 @dramatiq.actor
 async def check_health(key: str):
-    """Run the agent in the background using Redis for state."""
+    """Health check for dramatiq workers."""
     structlog.contextvars.clear_contextvars()
+    # Ensure Redis is initialized before health check
+    if not redis._initialized:
+        await retry(lambda: redis.initialize_async())
     await redis.set(key, "healthy", ex=redis.REDIS_KEY_TTL)
 
 
@@ -90,8 +118,6 @@ async def run_agent_background(
     stream: bool,
     enable_context_manager: bool,
     agent_config: Optional[dict] = None,
-    is_agent_builder: Optional[bool] = False,
-    target_agent_id: Optional[str] = None,
     request_id: Optional[str] = None,
     app_type: Optional[str] = 'web',
 ):
@@ -183,13 +209,15 @@ async def run_agent_background(
         "stream": stream,
         "enable_context_manager": enable_context_manager,
         "agent_config": agent_config,
-        "is_agent_builder": is_agent_builder,
-        "target_agent_id": target_agent_id,
     })
     logger.info(f"🚀 Using model: {model_name} (thinking: {enable_thinking}, reasoning_effort: {reasoning_effort})")
     logger.info(f"📱 App type: {app_type}")
     if agent_config:
         logger.info(f"Using custom agent: {agent_config.get('name', 'Unknown')}")
+        logger.info(f"[MCP DEBUG worker] agent_config keys: {list(agent_config.keys())}")
+        logger.info(f"[MCP DEBUG worker] configured_mcps count: {len(agent_config.get('configured_mcps', []))}")
+        if agent_config.get('configured_mcps'):
+            logger.info(f"[MCP DEBUG worker] configured_mcps: {[mcp.get('qualifiedName') for mcp in agent_config.get('configured_mcps', [])]}")
 
     client = await db.client
     start_time = datetime.now(timezone.utc)
@@ -270,8 +298,6 @@ async def run_agent_background(
             enable_context_manager=enable_context_manager,
             agent_config=agent_config,
             trace=trace,
-            is_agent_builder=is_agent_builder,
-            target_agent_id=target_agent_id,
             app_type=app_type
         )
 
@@ -279,6 +305,9 @@ async def run_agent_background(
         error_message = None
 
         pending_redis_operations = []
+
+        # Pruning check interval (prune after every N responses to prevent memory bloat)
+        PRUNE_CHECK_INTERVAL = 1000
 
         async for response in agent_gen:
             if stop_signal_received:
@@ -292,6 +321,12 @@ async def run_agent_background(
             pending_redis_operations.append(asyncio.create_task(redis.rpush(response_list_key, response_json)))
             pending_redis_operations.append(asyncio.create_task(redis.publish(response_channel, "new")))
             total_responses += 1
+
+            # Periodic pruning to prevent memory bloat during long sessions
+            if total_responses % PRUNE_CHECK_INTERVAL == 0:
+                pruned = await redis.prune_response_list(response_list_key)
+                if pruned > 0:
+                    logger.debug(f"Pruned {pruned} old responses from {response_list_key}")
 
             # Check for agent-signaled completion or error
             if response.get('type') == 'status':

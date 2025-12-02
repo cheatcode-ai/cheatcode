@@ -12,20 +12,20 @@ export async function getProject(projectId: string, clerkToken?: string) {
   
   const { data, error } = await supabase
     .from('projects')
-    .select('project_id, name, description, account_id, sandbox, is_public, app_type, created_at, updated_at')
+    .select('project_id, name, description, user_id, sandbox, is_public, app_type, created_at, updated_at')
     .eq('project_id', projectId)
     .single()
-  
+
   if (error) {
     console.error('Error fetching project:', error)
     throw error
   }
-  
+
   return {
     project_id: data.project_id,
     name: data.name,
     description: data.description,
-    account_id: data.account_id,
+    account_id: data.user_id,  // Database column is user_id, map to account_id for API
     sandbox: data.sandbox || {},
     is_public: data.is_public,
     app_type: data.app_type,
@@ -42,18 +42,18 @@ export async function getThread(threadId: string, clerkToken?: string) {
   
   const { data, error } = await supabase
     .from('threads')
-    .select('thread_id, account_id, project_id, is_public, metadata, created_at, updated_at')
+    .select('thread_id, user_id, project_id, is_public, metadata, created_at, updated_at')
     .eq('thread_id', threadId)
     .single()
-  
+
   if (error) {
     console.error('Error fetching thread:', error)
     throw error
   }
-  
+
   return {
     thread_id: data.thread_id,
-    account_id: data.account_id,
+    account_id: data.user_id,  // Database column is user_id, map to account_id for API
     project_id: data.project_id,
     is_public: data.is_public,
     metadata: data.metadata,
@@ -107,41 +107,25 @@ export async function createClerkAccount(clerkUserId: string, name: string, cler
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
-  // First, try to create the account
-  const { data: accountData, error: accountError } = await supabase
-    .from('basejump.accounts')
+
+  // Create the user in the users table
+  const { data: userData, error: userError } = await supabase
+    .from('users')
     .insert({
       id: clerkUserId,
-      primary_owner_user_id: clerkUserId,
       name: name,
-      personal_account: true,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString()
     })
     .select()
     .single()
-  
-  if (accountError) {
-    console.error('Error creating account:', accountError)
-    throw accountError
-  }
-  
-  // Then, add the user to the account_user table
-  const { error: userError } = await supabase
-    .from('basejump.account_user')
-    .insert({
-      user_id: clerkUserId,
-      account_id: clerkUserId,
-      account_role: 'owner'
-    })
-  
+
   if (userError) {
-    console.error('Error adding user to account:', userError)
+    console.error('Error creating user:', userError)
     throw userError
   }
-  
-  return accountData
+
+  return userData
 }
 
 export async function getOrCreateClerkAccount(clerkUserId: string, name: string, clerkToken?: string) {
@@ -149,19 +133,19 @@ export async function getOrCreateClerkAccount(clerkUserId: string, name: string,
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
-  // First, try to get existing account
-  const { data: existingAccount, error: fetchError } = await supabase
-    .from('basejump.accounts')
-    .select('id, name, personal_account, created_at, updated_at')
+
+  // First, try to get existing user
+  const { data: existingUser, error: fetchError } = await supabase
+    .from('users')
+    .select('id, name, email, created_at, updated_at')
     .eq('id', clerkUserId)
     .single()
-  
-  if (existingAccount && !fetchError) {
-    return existingAccount
+
+  if (existingUser && !fetchError) {
+    return existingUser
   }
-  
-  // If account doesn't exist, create it
+
+  // If user doesn't exist, create it
   return createClerkAccount(clerkUserId, name, clerkToken)
 }
 
@@ -173,20 +157,20 @@ export async function getPublicProjects(clerkToken?: string) {
   
   const { data, error } = await supabase
     .from('projects')
-    .select('project_id, name, description, account_id, sandbox, is_public, app_type, created_at, updated_at')
+    .select('project_id, name, description, user_id, sandbox, is_public, app_type, created_at, updated_at')
     .eq('is_public', true)
     .order('created_at', { ascending: false })
-  
+
   if (error) {
     console.error('Error fetching public projects:', error)
     throw error
   }
-  
+
   return data?.map(project => ({
     project_id: project.project_id,
     name: project.name,
     description: project.description,
-    account_id: project.account_id,
+    account_id: project.user_id,  // Database column is user_id, map to account_id for API
     sandbox: project.sandbox || {},
     is_public: project.is_public,
     app_type: project.app_type,
@@ -213,19 +197,19 @@ export async function updateProject(projectId: string, data: Partial<Project>, c
     .from('projects')
     .update(updateData)
     .eq('project_id', projectId)
-    .select('project_id, name, description, account_id, sandbox, is_public, app_type, created_at, updated_at')
+    .select('project_id, name, description, user_id, sandbox, is_public, app_type, created_at, updated_at')
     .single()
-  
+
   if (error) {
     console.error('Error updating project:', error)
     throw error
   }
-  
+
   return {
     project_id: result.project_id,
     name: result.name,
     description: result.description,
-    account_id: result.account_id,
+    account_id: result.user_id,  // Database column is user_id, map to account_id for API
     sandbox: result.sandbox || {},
     is_public: result.is_public,
     app_type: result.app_type,
@@ -244,17 +228,17 @@ export async function toggleThreadPublicStatus(threadId: string, isPublic: boole
     .from('threads')
     .update({ is_public: isPublic })
     .eq('thread_id', threadId)
-    .select('thread_id, account_id, project_id, is_public, created_at, updated_at')
+    .select('thread_id, user_id, project_id, is_public, created_at, updated_at')
     .single()
-  
+
   if (error) {
     console.error('Error toggling thread public status:', error)
     throw error
   }
-  
+
   return {
     thread_id: data.thread_id,
-    account_id: data.account_id,
+    account_id: data.user_id,  // Database column is user_id, map to account_id for API
     project_id: data.project_id,
     is_public: data.is_public,
     created_at: data.created_at,
@@ -277,17 +261,17 @@ export async function updateThread(threadId: string, data: Partial<Thread>, cler
     .from('threads')
     .update(updateData)
     .eq('thread_id', threadId)
-    .select('thread_id, account_id, project_id, is_public, created_at, updated_at')
+    .select('thread_id, user_id, project_id, is_public, created_at, updated_at')
     .single()
-  
+
   if (error) {
     console.error('Error updating thread:', error)
     throw error
   }
-  
+
   return {
     thread_id: result.thread_id,
-    account_id: result.account_id,
+    account_id: result.user_id,  // Database column is user_id, map to account_id for API
     project_id: result.project_id,
     is_public: result.is_public,
     created_at: result.created_at,
@@ -300,40 +284,51 @@ export async function updateThreadName(threadId: string, name: string, clerkToke
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
+
   // Get current metadata and update with the name
   const { data: currentThread, error: fetchError } = await supabase
     .from('threads')
     .select('metadata')
     .eq('thread_id', threadId)
     .single()
-  
+
+  // Handle case where thread doesn't exist or isn't accessible
   if (fetchError) {
+    // PGRST116 means no rows returned - thread may not exist yet or RLS blocks access
+    if (fetchError.code === 'PGRST116') {
+      console.warn(`Thread ${threadId} not found or not accessible, skipping name update`)
+      return null
+    }
     console.error('Error fetching current thread metadata:', fetchError)
     throw fetchError
   }
-  
+
   const currentMetadata = currentThread?.metadata || {}
   const updatedMetadata = {
     ...currentMetadata,
     name: name
   }
-  
+
   const { data: result, error } = await supabase
     .from('threads')
     .update({ metadata: updatedMetadata })
     .eq('thread_id', threadId)
-    .select('thread_id, account_id, project_id, is_public, metadata, created_at, updated_at')
+    .select('thread_id, user_id, project_id, is_public, metadata, created_at, updated_at')
     .single()
-  
+
   if (error) {
+    // Also handle case where update finds no rows
+    if (error.code === 'PGRST116') {
+      console.warn(`Thread ${threadId} not found during update, skipping`)
+      return null
+    }
     console.error('Error updating thread name:', error)
     throw error
   }
-  
+
   return {
     thread_id: result.thread_id,
-    account_id: result.account_id,
+    account_id: result.user_id,  // Database column is user_id, map to account_id for API
     project_id: result.project_id,
     is_public: result.is_public,
     metadata: result.metadata,
@@ -377,17 +372,17 @@ export async function getAllThreads(clerkToken?: string) {
   
   const { data, error } = await supabase
     .from('threads')
-    .select('thread_id, account_id, project_id, is_public, metadata, created_at, updated_at')
+    .select('thread_id, user_id, project_id, is_public, metadata, created_at, updated_at')
     .order('updated_at', { ascending: false })
-  
+
   if (error) {
     console.error('Error fetching all threads:', error)
     throw error
   }
-  
+
   return (data || []).map(thread => ({
     thread_id: thread.thread_id,
-    account_id: thread.account_id,
+    account_id: thread.user_id,  // Database column is user_id, map to account_id for API
     project_id: thread.project_id,
     is_public: thread.is_public,
     metadata: thread.metadata,
@@ -401,32 +396,25 @@ export async function getThreadsForAccount(accountId: string, clerkToken?: strin
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
-  // Only fetch threads that belong to this account and are not agent builder threads
+
   const { data, error } = await supabase
     .from('threads')
-    .select('thread_id, account_id, project_id, is_public, metadata, created_at, updated_at')
-    .eq('account_id', accountId)
+    .select('thread_id, user_id, project_id, is_public, metadata, created_at, updated_at')
+    .eq('user_id', accountId)  // Database column is user_id, not account_id
     .order('updated_at', { ascending: false })
-  
+
   if (error) {
     console.error('Error fetching threads for account:', error)
     throw error
   }
-  
-  return (data || [])
-    .filter(thread => {
-      // Filter out agent builder threads
-      const metadata = thread.metadata || {}
-      return !metadata.is_agent_builder
-    })
-    .map(thread => ({
-      thread_id: thread.thread_id,
-      account_id: thread.account_id,
-      project_id: thread.project_id,
-      is_public: thread.is_public,
-      metadata: thread.metadata,
-      created_at: thread.created_at,
-      updated_at: thread.updated_at
-    }))
+
+  return (data || []).map(thread => ({
+    thread_id: thread.thread_id,
+    account_id: thread.user_id,  // Database column is user_id, map to account_id for API
+    project_id: thread.project_id,
+    is_public: thread.is_public,
+    metadata: thread.metadata,
+    created_at: thread.created_at,
+    updated_at: thread.updated_at
+  }))
 }

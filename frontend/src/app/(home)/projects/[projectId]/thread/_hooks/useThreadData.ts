@@ -188,8 +188,6 @@ export function useThreadData(threadId: string, projectId: string): UseThreadDat
             metadata: msg.metadata || '{}',
             created_at: msg.created_at || new Date().toISOString(),
             updated_at: msg.updated_at || new Date().toISOString(),
-            agent_id: (msg as any).agent_id,
-            agents: (msg as any).agents,
           }));
 
         // Use callback form to check current state and prevent unnecessary updates

@@ -46,14 +46,8 @@ class MCPToolWrapper(Tool):
             try:
                 logger.info(f"Attempting to connect to MCP server: {config['qualifiedName']}")
 
-                provider_type = config.get('provider', 'smithery')
-                external_user_id = None
-
-                # For Pipedream-based MCPs we must forward the external_user_id so that
-                # authentication headers can be generated correctly inside
-                # MCPProviderFactory -> PipedreamProvider.
-                if provider_type == 'pipedream':
-                    external_user_id = config.get('config', {}).get('external_user_id')
+                # All MCP connections use Composio
+                external_user_id = config.get('config', {}).get('external_user_id')
 
                 await self.mcp_manager.connect_server(config, external_user_id)
                 logger.info(f"Successfully connected to MCP server: {config['qualifiedName']}")

@@ -70,8 +70,8 @@ graph TD
     Mail["Mailtrap / SMTP"]
     Sentry["Sentry"]
     Langfuse["Langfuse"]
-    Dodo["DodoPayments"]
-    MCP["Pipedream MCP"]
+    Polar["Polar.sh"]
+    MCP["Composio MCP"]
   end
 
   FE -->|"REST + Clerk JWT"| API
@@ -81,7 +81,7 @@ graph TD
   Redis --> Worker
   API -->|"Sandbox mgmt"| DAY
   API -->|"MCP credentials/tools"| MCP
-  API -->|"Billing webhooks"| Dodo
+  API -->|"Billing webhooks"| Polar
   API -->|"Tracing"| Langfuse
   API -->|"Errors"| Sentry
   API -->|"Search"| Tav
@@ -371,7 +371,7 @@ All backend endpoints are prefixed with `/api`.
 - `POST /billing/upgrade-plan` - Upgrade subscription plan
 
 #### MCP & Integrations
-- `/pipedream/*` - Pipedream integration endpoints
+- `/composio/*` - Composio integration endpoints
 - `/secure-mcp/*` - Secure MCP endpoints
 
 ## Self-Hosting
@@ -432,7 +432,7 @@ The application consists of four main services:
 - **Database**: Supabase (PostgreSQL) with Basejump extensions
 - **Sandboxing**: Daytona SDK for cloud development environments
 - **Observability**: Sentry, Langfuse 2.60.5, Structlog 25.4.0
-- **Payments**: DodoPayments 1.44.0
+- **Payments**: Polar SDK 0.23.0
 - **External APIs**: Tavily (search), Firecrawl (web scraping)
 
 ### Infrastructure & DevOps

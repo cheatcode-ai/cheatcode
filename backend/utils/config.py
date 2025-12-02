@@ -25,7 +25,6 @@ logger = logging.getLogger(__name__)
 class EnvMode(Enum):
     """Environment mode enumeration."""
     LOCAL = "local"
-    STAGING = "staging"
     PRODUCTION = "production"
 
 class Configuration:
@@ -44,17 +43,11 @@ class Configuration:
     # LLM API keys
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
-    GROQ_API_KEY: Optional[str] = None
     MORPH_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_API_BASE: Optional[str] = "https://openrouter.ai/api/v1"
     OR_SITE_URL: Optional[str] = "https://trycheatcode.com"
-    OR_APP_NAME: Optional[str] = "Cheatcode AI"    
-    
-    # AWS Bedrock credentials
-    AWS_ACCESS_KEY_ID: Optional[str] = None
-    AWS_SECRET_ACCESS_KEY: Optional[str] = None
-    AWS_REGION_NAME: Optional[str] = None
+    OR_APP_NAME: Optional[str] = "Cheatcode AI"
     
     # Model configuration
     # Primary model: openrouter/anthropic/claude-sonnet-4 (Claude Sonnet 4 - state-of-the-art with 72.7% SWE-bench)
@@ -76,7 +69,6 @@ class Configuration:
     
     # Search and other API keys
     TAVILY_API_KEY: str
-    CLOUDFLARE_API_TOKEN: Optional[str] = None
     FIRECRAWL_API_KEY: str
     FIRECRAWL_URL: Optional[str] = "https://api.firecrawl.dev"
     
@@ -90,9 +82,13 @@ class Configuration:
     # Clerk configuration
     CLERK_SECRET_KEY: Optional[str] = None
     
-    # DodoPayments configuration
-    DODO_PAYMENTS_API_KEY: Optional[str] = None
-    DODO_PAYMENTS_WEBHOOK_SECRET: Optional[str] = None
+    # Polar.sh configuration
+    POLAR_ACCESS_TOKEN: Optional[str] = None
+    POLAR_WEBHOOK_SECRET: Optional[str] = None
+    POLAR_ORGANIZATION_ID: Optional[str] = None
+    POLAR_PRODUCT_ID_PRO: Optional[str] = None
+    POLAR_PRODUCT_ID_PREMIUM: Optional[str] = None
+    POLAR_PRODUCT_ID_BYOK: Optional[str] = None
     
 
     
@@ -107,9 +103,6 @@ class Configuration:
     LANGFUSE_SECRET_KEY: Optional[str] = None
     LANGFUSE_HOST: str = "https://cloud.langfuse.com"
 
-    # Admin API key for server-side operations
-    ADMIN_API_KEY: Optional[str] = None
-    
     # Feature flag system control
     FEATURE_FLAGS_ENABLED: bool = False
     

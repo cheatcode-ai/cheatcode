@@ -2,6 +2,9 @@
 
 import React, { createContext, useContext, useCallback, useRef } from 'react';
 import { useAuth, useUser } from '@clerk/nextjs';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('AuthToken');
 
 interface AuthTokenContextType {
   getCachedToken: () => Promise<string | null>;
@@ -37,7 +40,7 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
     try {
       // Check if user is properly authenticated
       if (!isLoaded || !isSignedIn) {
-        console.log('[AUTH_TOKEN] User not authenticated');
+        logger.debug('User not authenticated');
         return null;
       }
 
@@ -47,27 +50,27 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
       // Check if we have a valid cached token
       if (cached) {
         const timeUntilExpiry = cached.expiresAt - now;
-        
+
         // If token is still valid and not close to expiring, return it
         if (timeUntilExpiry > TOKEN_REFRESH_THRESHOLD) {
-          console.log('[AUTH_TOKEN] Returning cached token (expires in', Math.round(timeUntilExpiry / 1000), 'seconds)');
+          logger.debug('Returning cached token (expires in', Math.round(timeUntilExpiry / 1000), 'seconds)');
           return cached.token;
         }
-        
+
         // Token is close to expiring, log it
         if (timeUntilExpiry > 0) {
-          console.log('[AUTH_TOKEN] Token expires soon, fetching fresh token');
+          logger.debug('Token expires soon, fetching fresh token');
         } else {
-          console.log('[AUTH_TOKEN] Token expired, fetching fresh token');
+          logger.debug('Token expired, fetching fresh token');
         }
       }
 
       // Fetch fresh token
-      console.log('[AUTH_TOKEN] Fetching fresh token from Clerk');
+      logger.debug('Fetching fresh token from Clerk');
       const freshToken = await getToken();
-      
+
       if (!freshToken) {
-        console.log('[AUTH_TOKEN] Failed to get fresh token');
+        logger.debug('Failed to get fresh token');
         tokenCacheRef.current = null;
         return null;
       }
@@ -79,10 +82,10 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
         expiresAt: now + TOKEN_CACHE_DURATION,
       };
 
-      console.log('[AUTH_TOKEN] Successfully cached fresh token');
+      logger.debug('Successfully cached fresh token');
       return freshToken;
     } catch (error) {
-      console.error('[AUTH_TOKEN] Error getting token:', error);
+      logger.error('Error getting token:', error);
       tokenCacheRef.current = null;
       return null;
     }
@@ -93,7 +96,7 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
    * Useful for logout scenarios or when token becomes invalid
    */
   const invalidateTokenCache = useCallback(() => {
-    console.log('[AUTH_TOKEN] Manually invalidating token cache');
+    logger.debug('Manually invalidating token cache');
     tokenCacheRef.current = null;
   }, []);
 

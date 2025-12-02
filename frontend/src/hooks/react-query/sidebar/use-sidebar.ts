@@ -3,10 +3,10 @@
 import { createMutationHook } from "@/hooks/use-query";
 import { getProjects, getThreads, Project, Thread } from "@/lib/api";
 import { createQueryHook } from '@/hooks/use-query';
-import { threadKeys } from "./keys";
-import { projectKeys } from "./keys";
+import { threadKeys, projectKeys } from "./keys";
 import { deleteThread } from "../threads/utils";
 import { useAuth } from '@clerk/nextjs';
+import { useQueryClient } from '@tanstack/react-query';
 
 export const useProjects = () => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
@@ -52,7 +52,8 @@ interface DeleteThreadVariables {
 
 export const useDeleteThread = () => {
   const { getToken } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   return createMutationHook(
     async ({ threadId, sandboxId }: DeleteThreadVariables) => {
       const token = await getToken();
@@ -62,7 +63,37 @@ export const useDeleteThread = () => {
       onSuccess: () => {
       },
     }
-  )();
+  )({
+    // Optimistic update: immediately remove thread from UI
+    onMutate: async ({ threadId }) => {
+      // Cancel any outgoing refetches to avoid overwriting optimistic update
+      await queryClient.cancelQueries({ queryKey: threadKeys.lists() });
+
+      // Snapshot the previous value
+      const previousThreads = queryClient.getQueryData<Thread[]>(threadKeys.lists());
+
+      // Optimistically update to remove the thread
+      if (previousThreads) {
+        queryClient.setQueryData<Thread[]>(
+          threadKeys.lists(),
+          previousThreads.filter(thread => thread.thread_id !== threadId)
+        );
+      }
+
+      // Return context with snapshot for rollback
+      return { previousThreads };
+    },
+    // Rollback on error
+    onError: (_error, _variables, context) => {
+      if (context?.previousThreads) {
+        queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
+      }
+    },
+    // Always refetch after error or success to ensure consistency
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: threadKeys.lists() });
+    },
+  });
 };
 
 interface DeleteMultipleThreadsVariables {
@@ -73,7 +104,8 @@ interface DeleteMultipleThreadsVariables {
 
 export const useDeleteMultipleThreads = () => {
   const { getToken } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   return createMutationHook(
     async ({ threadIds, threadSandboxMap, onProgress }: DeleteMultipleThreadsVariables) => {
       const token = await getToken();
@@ -91,7 +123,7 @@ export const useDeleteMultipleThreads = () => {
           }
         })
       );
-      
+
       return {
         successful: results.filter(r => r.success).map(r => r.threadId),
         failed: results.filter(r => !r.success).map(r => r.threadId),
@@ -101,7 +133,32 @@ export const useDeleteMultipleThreads = () => {
       onSuccess: () => {
       },
     }
-  )();
+  )({
+    // Optimistic update: immediately remove all threads from UI
+    onMutate: async ({ threadIds }) => {
+      await queryClient.cancelQueries({ queryKey: threadKeys.lists() });
+
+      const previousThreads = queryClient.getQueryData<Thread[]>(threadKeys.lists());
+
+      if (previousThreads) {
+        const threadIdsSet = new Set(threadIds);
+        queryClient.setQueryData<Thread[]>(
+          threadKeys.lists(),
+          previousThreads.filter(thread => !threadIdsSet.has(thread.thread_id))
+        );
+      }
+
+      return { previousThreads };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousThreads) {
+        queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
+      }
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: threadKeys.lists() });
+    },
+  });
 };
 
 export type ThreadWithProject = {

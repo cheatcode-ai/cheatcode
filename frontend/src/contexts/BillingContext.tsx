@@ -5,6 +5,9 @@ import { useBillingStatusQuery } from '@/hooks/react-query/threads/use-billing-s
 import { BillingStatusResponse } from '@/lib/api';
 import { isLocalMode } from '@/lib/config';
 import { useAuth } from '@clerk/nextjs';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('Billing');
 
 interface BillingContextType {
   billingStatus: BillingStatusResponse | null;
@@ -50,7 +53,7 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
 
     // Don't check billing status if user isn't authenticated
     if (!isLoaded || !isSignedIn) {
-      console.log('User not authenticated, skipping billing check');
+      logger.debug('User not authenticated, skipping billing check');
       return false;
     }
 
@@ -71,7 +74,7 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
       lastCheckRef.current = now;
       return !billingStatusQuery.data?.can_run;
     } catch (err) {
-      console.error('Error checking billing status:', err);
+      logger.error('Error checking billing status:', err);
       return false;
     } finally {
       checkInProgressRef.current = false;
@@ -150,11 +153,11 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
           });
         }
       } catch (error) {
-        console.error('Error fetching BYOK status:', error);
-        setByokStatus({ 
-          configured: false, 
-          valid: false, 
-          error: 'Failed to check BYOK status' 
+        logger.error('Error fetching BYOK status:', error);
+        setByokStatus({
+          configured: false,
+          valid: false,
+          error: 'Failed to check BYOK status'
         });
       }
     };

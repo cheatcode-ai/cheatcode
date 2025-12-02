@@ -47,30 +47,36 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
           setIsLoading(false);
           return;
         } else {
-          console.log('Preview not available:', data.status);
-          // Don't set error immediately, might need more time
+          // Status like 'dev_server_not_running', 'preview_not_available' - expected during startup
+          if (currentRetryCount === 0) {
+            console.log('[Preview URL] Waiting for dev server...', data.status);
+          }
         }
+      } else if (response.status >= 500) {
+        // Server error - might be transient, will retry
+        console.warn(`[Preview URL] Server error (${response.status}) - will retry`);
       } else {
-        console.error('Failed to fetch preview URL:', response.status);
+        // Client error (4xx) - log but continue retrying
+        console.warn(`[Preview URL] Request failed: ${response.status}`);
       }
-      
-      // If we reach here, the request didn't get a preview URL
+
+      // If we reach here, the request didn't get a preview URL - trigger retry
       throw new Error('Preview URL not ready');
       
     } catch (error) {
-      console.error(`Error fetching preview URL (attempt ${currentRetryCount + 1}):`, error);
-      
+      // Use warn instead of error for expected retry scenarios
       if (currentRetryCount < maxRetries) {
+        console.log(`[Preview URL] Retry ${currentRetryCount + 1}/${maxRetries} - waiting for dev server...`);
         const delay = baseDelay * Math.pow(2, currentRetryCount); // 2s, 4s, 8s, 16s, 32s
         setRetryCount(currentRetryCount + 1);
-        
+
         setTimeout(() => {
           fetchPreviewUrl(currentRetryCount + 1);
         }, delay);
       } else {
         setHasError(true);
         setIsLoading(false);
-        console.error('Max retries reached for preview URL fetch');
+        console.warn('[Preview URL] Max retries reached - dev server may not be running');
       }
     }
   }, [sandboxId, getToken]);

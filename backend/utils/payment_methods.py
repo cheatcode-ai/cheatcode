@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Set
 from enum import Enum
 
 class PaymentMethodType(Enum):
-    """Available payment method types in DodoPayments"""
+    """Available payment method types for checkout"""
     CREDIT = "credit"
     DEBIT = "debit"
     APPLE_PAY = "apple_pay"
@@ -39,15 +39,11 @@ class RegionCode(Enum):
     DEFAULT = "DEFAULT"
 
 # Payment methods not available for subscriptions
-# NOTE: Multiple payment methods are enabled for subscriptions despite official DodoPayments 
-# documentation stating they're not supported. These are custom overrides - use at your own risk.
+# NOTE: Some payment methods may not support recurring billing
 SUBSCRIPTION_EXCLUDED_METHODS: Set[str] = {
     PaymentMethodType.AMAZON_PAY.value,
     PaymentMethodType.CASH_APP.value,
-    # PaymentMethodType.AFTERPAY.value,     # ENABLED: Custom override for US subscriptions
-    # PaymentMethodType.KLARNA.value,       # ENABLED: Custom override for US subscriptions
-    # PaymentMethodType.UPI_COLLECT.value,  # ENABLED: Custom override for India subscriptions
-    PaymentMethodType.RUPAY.value,           # NOT SUPPORTED: RuPay is not actually supported by DodoPayments API
+    PaymentMethodType.RUPAY.value,
     PaymentMethodType.BANCONTACT.value,
     PaymentMethodType.EPS.value,
     PaymentMethodType.IDEAL.value,
@@ -61,7 +57,6 @@ REGION_PAYMENT_METHODS: Dict[str, List[str]] = {
         PaymentMethodType.CREDIT.value,
         PaymentMethodType.DEBIT.value,
         PaymentMethodType.UPI_COLLECT.value,
-        # PaymentMethodType.RUPAY.value,  # REMOVED: Not actually supported by DodoPayments API
     ],
     
     # United States - cards + digital wallets + BNPL
@@ -157,7 +152,7 @@ def get_payment_methods_by_region(
         exclude_methods: Additional methods to exclude
         
     Returns:
-        List of payment method strings compatible with DodoPayments API
+        List of payment method strings for checkout
     """
     # Normalize country code
     country_code = country_code.upper() if country_code else RegionCode.DEFAULT.value

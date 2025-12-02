@@ -269,3 +269,5 @@ another app - frontend/
 another app - backend/
 another app - backend/
 another app - frontend/
+.vercel
+.env*.local

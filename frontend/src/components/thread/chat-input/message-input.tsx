@@ -231,6 +231,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
 
             {isLoggedIn && <VoiceRecorder
               onTranscription={onTranscription}
+              currentValue={value}
               disabled={loading || (disabled && !isAgentRunning)}
             />}
 

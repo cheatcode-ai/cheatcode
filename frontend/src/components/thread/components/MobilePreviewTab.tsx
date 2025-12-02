@@ -44,19 +44,7 @@ export const MobilePreviewTab: React.FC<MobilePreviewTabProps> = ({
   }, [setIframeRef]);
 
   const renderMockupContent = () => {
-    if (isLoading || devServerStatus === 'starting') {
-      return (
-        <div className="flex items-center justify-center h-full bg-gray-50">
-          <div className="flex flex-col items-center space-y-2">
-            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-            <span className="text-sm text-gray-500">
-              {devServerStatus === 'starting' ? 'Starting development server...' : 'Loading preview...'}
-            </span>
-          </div>
-        </div>
-      );
-    }
-
+    // Prioritize showing preview if URL is available, even if status is 'starting'
     if (previewUrl) {
       return (
         <iframe
@@ -68,6 +56,20 @@ export const MobilePreviewTab: React.FC<MobilePreviewTabProps> = ({
           onError={onIframeError}
           sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
         />
+      );
+    }
+
+    // Only show loading if we don't have a preview URL yet
+    if (isLoading || devServerStatus === 'starting') {
+      return (
+        <div className="flex items-center justify-center h-full bg-gray-50">
+          <div className="flex flex-col items-center space-y-2">
+            <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
+            <span className="text-sm text-gray-500">
+              {devServerStatus === 'starting' ? 'Starting development server...' : 'Loading preview...'}
+            </span>
+          </div>
+        </div>
       );
     }
 

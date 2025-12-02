@@ -123,7 +123,7 @@ class CredentialManager:
         
         Args:
             account_id: User's account ID
-            mcp_qualified_name: MCP server qualified name (e.g., "exa", "@smithery-ai/github")
+            mcp_qualified_name: MCP server qualified name (e.g., "github", "slack", "notion")
             display_name: Human-readable name for the MCP
             config: Configuration dictionary with API keys and settings
             
@@ -143,14 +143,14 @@ class CredentialManager:
             logger.debug(f"Encoded config length: {len(encoded_config)}, content preview: {encoded_config[:50]}...")
             
             result = await client.table('user_mcp_credentials').upsert({
-                'account_id': account_id,
+                'user_id': account_id,
                 'mcp_qualified_name': mcp_qualified_name,
                 'display_name': display_name,
                 'encrypted_config': encoded_config,
                 'config_hash': config_hash,
                 'is_active': True,
                 'updated_at': datetime.now(timezone.utc).isoformat()
-            }, on_conflict='account_id,mcp_qualified_name').execute()
+            }, on_conflict='user_id,mcp_qualified_name').execute()
             
             if not result.data:
                 raise ValueError("Failed to store credential")
@@ -179,7 +179,7 @@ class CredentialManager:
             client = await db.client
             
             result = await client.table('user_mcp_credentials').select('*')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('mcp_qualified_name', mcp_qualified_name)\
                 .eq('is_active', True)\
                 .execute()
@@ -218,7 +218,7 @@ class CredentialManager:
             
             return MCPCredential(
                 credential_id=cred_data['credential_id'],
-                account_id=cred_data['account_id'],
+                account_id=cred_data['user_id'],
                 mcp_qualified_name=cred_data['mcp_qualified_name'],
                 display_name=cred_data['display_name'],
                 config=config,
@@ -238,7 +238,7 @@ class CredentialManager:
             client = await db.client
             
             result = await client.table('user_mcp_credentials').select('*')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('is_active', True)\
                 .order('created_at', desc=True)\
                 .execute()
@@ -266,7 +266,7 @@ class CredentialManager:
                     
                     credentials.append(MCPCredential(
                         credential_id=cred_data['credential_id'],
-                        account_id=cred_data['account_id'],
+                        account_id=cred_data['user_id'],
                         mcp_qualified_name=cred_data['mcp_qualified_name'],
                         display_name=cred_data['display_name'],
                         config=config,
@@ -294,7 +294,7 @@ class CredentialManager:
             
             # First check if the credential exists
             check_result = await client.table('user_mcp_credentials').select('credential_id, is_active')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('mcp_qualified_name', mcp_qualified_name)\
                 .execute()
             
@@ -305,7 +305,7 @@ class CredentialManager:
             
             result = await client.table('user_mcp_credentials')\
                 .update({'is_active': False})\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('mcp_qualified_name', mcp_qualified_name)\
                 .execute()
             
@@ -403,7 +403,7 @@ class CredentialManager:
                     is_default = True
             
             result = await client.table('user_mcp_credential_profiles').upsert({
-                'account_id': account_id,
+                'user_id': account_id,
                 'mcp_qualified_name': mcp_qualified_name,
                 'profile_name': profile_name,
                 'display_name': display_name,
@@ -412,7 +412,7 @@ class CredentialManager:
                 'is_active': True,
                 'is_default': is_default,
                 'updated_at': datetime.now(timezone.utc).isoformat()
-            }, on_conflict='account_id,mcp_qualified_name,profile_name').execute()
+            }, on_conflict='user_id,mcp_qualified_name,profile_name').execute()
             
             if not result.data:
                 raise ValueError("Failed to store credential profile")
@@ -445,7 +445,7 @@ class CredentialManager:
             client = await db.client
             
             result = await client.table('user_mcp_credential_profiles').select('*')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('mcp_qualified_name', mcp_qualified_name)\
                 .eq('is_active', True)\
                 .order('is_default', desc=True)\
@@ -469,7 +469,7 @@ class CredentialManager:
                     
                     profiles.append(MCPCredentialProfile(
                         profile_id=profile_data['profile_id'],
-                        account_id=profile_data['account_id'],
+                        account_id=profile_data['user_id'],
                         mcp_qualified_name=profile_data['mcp_qualified_name'],
                         profile_name=profile_data['profile_name'],
                         display_name=profile_data['display_name'],
@@ -509,7 +509,7 @@ class CredentialManager:
             client = await db.client
             
             result = await client.table('user_mcp_credential_profiles').select('*')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('profile_id', profile_id)\
                 .eq('is_active', True)\
                 .execute()
@@ -539,7 +539,7 @@ class CredentialManager:
             
             return MCPCredentialProfile(
                 profile_id=profile_data['profile_id'],
-                account_id=profile_data['account_id'],
+                account_id=profile_data['user_id'],
                 mcp_qualified_name=profile_data['mcp_qualified_name'],
                 profile_name=profile_data['profile_name'],
                 display_name=profile_data['display_name'],
@@ -603,7 +603,7 @@ class CredentialManager:
             result = await client.table('user_mcp_credential_profiles')\
                 .update({'is_default': True})\
                 .eq('profile_id', profile_id)\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .execute()
             
             return len(result.data) > 0
@@ -642,7 +642,7 @@ class CredentialManager:
             result = await client.table('user_mcp_credential_profiles')\
                 .update({'is_active': False})\
                 .eq('profile_id', profile_id)\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .execute()
             
             return len(result.data) > 0
@@ -657,7 +657,7 @@ class CredentialManager:
             client = await db.client
             
             result = await client.table('user_mcp_credential_profiles').select('*')\
-                .eq('account_id', account_id)\
+                .eq('user_id', account_id)\
                 .eq('is_active', True)\
                 .order('mcp_qualified_name')\
                 .order('is_default', desc=True)\
@@ -680,7 +680,7 @@ class CredentialManager:
                     
                     profiles.append(MCPCredentialProfile(
                         profile_id=profile_data['profile_id'],
-                        account_id=profile_data['account_id'],
+                        account_id=profile_data['user_id'],
                         mcp_qualified_name=profile_data['mcp_qualified_name'],
                         profile_name=profile_data['profile_name'],
                         display_name=profile_data['display_name'],

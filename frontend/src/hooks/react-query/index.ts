@@ -24,4 +24,4 @@ export * from './usage/use-health';
 
 // Triggers removed
 
-export * from './pipedream'; 
+export * from './composio'; 

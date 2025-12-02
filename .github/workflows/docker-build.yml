@@ -1,90 +1,102 @@
-name: Build, push and deploy CheatCode AI
+name: Build and Deploy to Cloud Run
 
 on:
   push:
     branches:
-      - main
-      - PRODUCTION
+      - master
+    paths:
+      - 'backend/**'
+      - '.github/workflows/docker-build.yml'
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+env:
+  PROJECT_ID: cheatcode-prod
+  REGION: asia-south1
+  REGISTRY: asia-south1-docker.pkg.dev
+  REPOSITORY: cheatcode
 
 jobs:
-  build-and-push:
+  build-and-deploy:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Get tag name
-        shell: bash
-        run: |
-          if [[ "${GITHUB_REF#refs/heads/}" == "main" ]]; then
-            echo "branch=latest" >> $GITHUB_OUTPUT
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          elif [[ "${GITHUB_REF#refs/heads/}" == "PRODUCTION" ]]; then
-            echo "branch=prod" >> $GITHUB_OUTPUT
-            echo "environment=prod" >> $GITHUB_OUTPUT
-          else
-            echo "branch=${GITHUB_HEAD_REF:-${GITHUB_REF#refs/heads/}}" >> $GITHUB_OUTPUT
-            echo "environment=staging" >> $GITHUB_OUTPUT
-          fi
-        id: get_tag_name
+      - name: authenticate to google cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
 
-      - name: Set up Docker Buildx
+      - name: set up cloud sdk
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: configure docker for artifact registry
+        run: gcloud auth configure-docker ${{ env.REGISTRY }} --quiet
+
+      - name: set up docker buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push Backend image
+      - name: build and push api image
         uses: docker/build-push-action@v5
         with:
           context: ./backend
           file: ./backend/Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository }}/backend:${{ steps.get_tag_name.outputs.branch }}
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Build and push Frontend image
+      - name: build and push worker image
         uses: docker/build-push-action@v5
         with:
-          context: ./frontend
-          file: ./frontend/Dockerfile
+          context: ./backend
+          file: ./backend/Dockerfile.worker
           push: true
           platforms: linux/amd64
-          tags: ghcr.io/${{ github.repository }}/frontend:${{ steps.get_tag_name.outputs.branch }}
+          tags: ${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/worker:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
-      - name: Deploy to staging
-        if: steps.get_tag_name.outputs.environment == 'staging'
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.STAGING_HOST }}
-          username: ${{ secrets.STAGING_USERNAME }}
-          key: ${{ secrets.STAGING_KEY }}
-          script: |
-            cd /home/cheatcode/deployment-cheatcode
-            git pull
-            docker compose build
-            docker compose up -d
+      - name: deploy api to cloud run
+        run: |
+          gcloud run deploy cheatcode-api \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:latest \
+            --platform=managed \
+            --allow-unauthenticated \
+            --cpu=1 \
+            --memory=2Gi \
+            --timeout=3500 \
+            --min-instances=0 \
+            --max-instances=5 \
+            --cpu-throttling \
+            --vpc-connector=cheatcode-connector \
+            --vpc-egress=private-ranges-only \
+            --service-account=cheatcode-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-secrets="REDIS_URL=REDIS_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_DOMAIN=CLERK_DOMAIN:latest,POLAR_ACCESS_TOKEN=POLAR_ACCESS_TOKEN:latest,POLAR_ORGANIZATION_ID=POLAR_ORGANIZATION_ID:latest,POLAR_PRODUCT_ID_PRO=POLAR_PRODUCT_ID_PRO:latest,POLAR_PRODUCT_ID_PREMIUM=POLAR_PRODUCT_ID_PREMIUM:latest,POLAR_PRODUCT_ID_BYOK=POLAR_PRODUCT_ID_BYOK:latest,DAYTONA_API_KEY=DAYTONA_API_KEY:latest,DAYTONA_SERVER_URL=DAYTONA_SERVER_URL:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,FIRECRAWL_API_KEY=FIRECRAWL_API_KEY:latest,LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest,MCP_CREDENTIAL_ENCRYPTION_KEY=MCP_CREDENTIAL_ENCRYPTION_KEY:latest,COMPOSIO_API_KEY=COMPOSIO_API_KEY:latest,FREESTYLE_API_KEY=FREESTYLE_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,MORPH_API_KEY=MORPH_API_KEY:latest" \
+            --set-env-vars="ENV_MODE=production,LOG_LEVEL=INFO,LANGFUSE_HOST=https://us.cloud.langfuse.com,MODEL_TO_USE=openrouter/anthropic/claude-sonnet-4,FIRECRAWL_URL=https://api.firecrawl.dev,DAYTONA_TARGET=us"
 
-      - name: Deploy to prod
-        if: steps.get_tag_name.outputs.environment == 'prod'
-        uses: appleboy/ssh-action@v1
-        with:
-          host: ${{ secrets.PROD_HOST }}
-          username: ${{ secrets.PROD_USERNAME }}
-          key: ${{ secrets.PROD_KEY }}
-          script: |
-            cd /mnt/gluster-shared/data/infra/cheatcode-ai
-            set -a; source .env; set +a
-            docker stack deploy -c docker-compose.yml cheatcode-ai
+      - name: deploy worker to cloud run
+        run: |
+          gcloud run deploy cheatcode-worker \
+            --project=${{ env.PROJECT_ID }} \
+            --region=${{ env.REGION }} \
+            --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/worker:latest \
+            --platform=managed \
+            --no-allow-unauthenticated \
+            --cpu=1 \
+            --memory=2Gi \
+            --timeout=3500 \
+            --min-instances=1 \
+            --max-instances=3 \
+            --no-cpu-throttling \
+            --vpc-connector=cheatcode-connector \
+            --vpc-egress=private-ranges-only \
+            --service-account=cheatcode-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
+            --set-secrets="REDIS_URL=REDIS_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_DOMAIN=CLERK_DOMAIN:latest,POLAR_ACCESS_TOKEN=POLAR_ACCESS_TOKEN:latest,POLAR_ORGANIZATION_ID=POLAR_ORGANIZATION_ID:latest,POLAR_PRODUCT_ID_PRO=POLAR_PRODUCT_ID_PRO:latest,POLAR_PRODUCT_ID_PREMIUM=POLAR_PRODUCT_ID_PREMIUM:latest,POLAR_PRODUCT_ID_BYOK=POLAR_PRODUCT_ID_BYOK:latest,DAYTONA_API_KEY=DAYTONA_API_KEY:latest,DAYTONA_SERVER_URL=DAYTONA_SERVER_URL:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,FIRECRAWL_API_KEY=FIRECRAWL_API_KEY:latest,LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest,MCP_CREDENTIAL_ENCRYPTION_KEY=MCP_CREDENTIAL_ENCRYPTION_KEY:latest,COMPOSIO_API_KEY=COMPOSIO_API_KEY:latest,FREESTYLE_API_KEY=FREESTYLE_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,MORPH_API_KEY=MORPH_API_KEY:latest" \
+            --set-env-vars="ENV_MODE=production,LOG_LEVEL=INFO,LANGFUSE_HOST=https://us.cloud.langfuse.com,MODEL_TO_USE=openrouter/anthropic/claude-sonnet-4,FIRECRAWL_URL=https://api.firecrawl.dev,DAYTONA_TARGET=us"

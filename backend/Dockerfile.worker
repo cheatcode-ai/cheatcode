@@ -1,0 +1,25 @@
+FROM ghcr.io/astral-sh/uv:python3.11-alpine
+
+ENV ENV_MODE=production
+WORKDIR /app
+
+RUN apk add --no-cache curl git
+
+RUN addgroup -g 1001 app && adduser -D -G app -u 1001 app
+
+COPY pyproject.toml ./
+ENV UV_LINK_MODE=copy
+RUN --mount=type=cache,target=/root/.cache/uv uv lock
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --quiet
+
+RUN chown -R app:app /app
+COPY --chown=app:app . .
+
+# make entrypoint script executable
+RUN chmod +x worker_entrypoint.sh
+
+USER app
+ENV PYTHONPATH=/app
+
+# run worker with health check server
+CMD ["./worker_entrypoint.sh"]

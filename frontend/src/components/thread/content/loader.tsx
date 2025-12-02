@@ -47,7 +47,7 @@ export const AgentLoader = () => {
                 style={{ position: "absolute" }}
                 className='ml-7'
             >
-                <AnimatedShinyText>{items[index].content}</AnimatedShinyText>
+                <AnimatedShinyText className="text-sm">{items[index].content}</AnimatedShinyText>
             </motion.div>
             </AnimatePresence>
         </div>

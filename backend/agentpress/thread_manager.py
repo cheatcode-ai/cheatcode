@@ -41,22 +41,18 @@ class ThreadManager:
     XML-based tool execution patterns.
     """
 
-    def __init__(self, trace: Optional[StatefulTraceClient] = None, is_agent_builder: bool = False, target_agent_id: Optional[str] = None, agent_config: Optional[dict] = None):
+    def __init__(self, trace: Optional[StatefulTraceClient] = None, agent_config: Optional[dict] = None):
         """Initialize ThreadManager.
 
         Args:
             trace: Optional trace client for logging
-            is_agent_builder: Whether this is an agent builder session
-            target_agent_id: ID of the agent being built (if in agent builder mode)
             agent_config: Optional agent configuration with version information
         """
         self.db = DBConnection()
         self.tool_registry = ToolRegistry()
         self.trace = trace
-        self.is_agent_builder = is_agent_builder
-        self.target_agent_id = target_agent_id
         self.agent_config = agent_config
-        
+
         # Performance optimization: Cache system key (plan caching now centralized in APIKeyResolver)
         self._system_openrouter_key = config.OPENROUTER_API_KEY
         if not self.trace:
@@ -65,8 +61,6 @@ class ThreadManager:
             tool_registry=self.tool_registry,
             add_message_callback=self.add_message,
             trace=self.trace,
-            is_agent_builder=self.is_agent_builder,
-            target_agent_id=self.target_agent_id,
             agent_config=self.agent_config
         )
         self.context_manager = ContextManager()
@@ -81,9 +75,7 @@ class ThreadManager:
         type: str,
         content: Union[Dict[str, Any], List[Any], str],
         is_llm_message: bool = False,
-        metadata: Optional[Dict[str, Any]] = None,
-        agent_id: Optional[str] = None,
-        agent_version_id: Optional[str] = None
+        metadata: Optional[Dict[str, Any]] = None
     ):
         """Add a message to the thread in the database.
 
@@ -96,10 +88,8 @@ class ThreadManager:
                             Defaults to False (user message).
             metadata: Optional dictionary for additional message metadata.
                       Defaults to None, stored as an empty JSONB object if None.
-            agent_id: Optional ID of the agent associated with this message.
-            agent_version_id: Optional ID of the specific agent version used.
         """
-        logger.debug(f"Adding message of type '{type}' to thread {thread_id} (agent: {agent_id}, version: {agent_version_id})")
+        logger.debug(f"Adding message of type '{type}' to thread {thread_id}")
         client = await self.db.client
 
         # Prepare data for insertion
@@ -110,12 +100,6 @@ class ThreadManager:
             'is_llm_message': is_llm_message,
             'metadata': metadata or {},
         }
-        
-        # Add agent information if provided
-        if agent_id:
-            data_to_insert['agent_id'] = agent_id
-        if agent_version_id:
-            data_to_insert['agent_version_id'] = agent_version_id
 
         try:
             # Insert the message and get the inserted row data including the id
@@ -668,18 +652,18 @@ Here are the XML tools available with examples:
     # NOTE: Plan caching has been moved to APIKeyResolver.get_user_plan_cached() for centralized management
     
     async def _get_account_id_from_thread(self, thread_id: str) -> str:
-        """Get account_id for a thread"""
+        """Get user_id (account) for a thread"""
         try:
             from services.supabase import DBConnection
             db = DBConnection()
             async with db.get_async_client() as client:
-                result = await client.table('threads').select('account_id').eq('thread_id', thread_id).execute()
+                result = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
                 if result.data:
-                    return result.data[0]['account_id']
+                    return result.data[0]['user_id']
                 else:
                     raise Exception(f"Thread {thread_id} not found")
         except Exception as e:
-            logger.error(f"Error getting account_id for thread {thread_id}: {str(e)}")
+            logger.error(f"Error getting user_id for thread {thread_id}: {str(e)}")
             raise
     
     async def _handle_llm_api_error(self, error: Exception, account_id: str, key_source: str) -> None:

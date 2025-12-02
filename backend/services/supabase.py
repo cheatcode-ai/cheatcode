@@ -107,7 +107,7 @@ class DBConnection:
         
         if cls._client:
             logger.info("Disconnecting from Supabase database")
-            await cls._client.close()
+            # Supabase AsyncClient doesn't require explicit close - httpx clients are managed internally
             cls._initialized = False
             cls._client = None
             logger.info("Database disconnected successfully")
@@ -140,7 +140,7 @@ class DBConnection:
             # No cleanup needed for Supabase client - it's managed by the singleton
             pass
 
-    async def _keepalive_loop(self, interval_seconds: int = 300):  # 5 minutes instead of 30 seconds
+    async def _keepalive_loop(self, interval_seconds: int = 1800):  # 30 minutes (optimized from 5 minutes)
         """Periodically perform a lightweight query to keep the HTTP/2 channel warm.
 
         If the ping fails (e.g., because Supabase closed the idle connection), we

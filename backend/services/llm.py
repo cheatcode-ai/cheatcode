@@ -27,6 +27,7 @@ litellm.modify_params=True
 MAX_RETRIES = 2
 RATE_LIMIT_DELAY = 30
 RETRY_DELAY = 0.1
+LLM_CALL_TIMEOUT = 120  # 2 minute timeout for LLM API calls
 
 class LLMError(Exception):
     """Base exception for LLM-related errors."""
@@ -51,20 +52,6 @@ def setup_api_keys() -> None:
         os.environ['OPENROUTER_API_BASE'] = config.OPENROUTER_API_BASE
         logger.debug(f"Set OPENROUTER_API_BASE to {config.OPENROUTER_API_BASE}")
 
-    # Set up AWS Bedrock credentials
-    aws_access_key = config.AWS_ACCESS_KEY_ID
-    aws_secret_key = config.AWS_SECRET_ACCESS_KEY
-    aws_region = config.AWS_REGION_NAME
-
-    if aws_access_key and aws_secret_key and aws_region:
-        logger.debug(f"AWS credentials set for Bedrock in region: {aws_region}")
-        # Configure LiteLLM to use AWS credentials
-        os.environ['AWS_ACCESS_KEY_ID'] = aws_access_key
-        os.environ['AWS_SECRET_ACCESS_KEY'] = aws_secret_key
-        os.environ['AWS_REGION_NAME'] = aws_region
-    else:
-        logger.debug("AWS Bedrock credentials not configured; skipping setup")
-
 def should_use_direct_gemini(model_name: str) -> bool:
     """Determine if we should use direct Gemini API instead of LiteLLM."""
     # DISABLED: Always use LiteLLM/OpenRouter for Gemini models
@@ -77,10 +64,22 @@ def should_use_direct_gemini(model_name: str) -> bool:
     # ]
 
 async def handle_error(error: Exception, attempt: int, max_attempts: int) -> None:
-    """Handle API errors with appropriate delays and logging."""
-    delay = RATE_LIMIT_DELAY if isinstance(error, litellm.exceptions.RateLimitError) else RETRY_DELAY
+    """Handle API errors with exponential backoff and jitter."""
+    import random
+
+    if isinstance(error, litellm.exceptions.RateLimitError):
+        # For rate limits, use longer exponential backoff
+        base_delay = 5.0
+        max_delay = 60.0
+        delay = min(base_delay * (2 ** attempt), max_delay) + random.uniform(0, 2)
+    else:
+        # For other errors, use shorter exponential backoff
+        base_delay = RETRY_DELAY
+        max_delay = 5.0
+        delay = min(base_delay * (2 ** attempt), max_delay) + random.uniform(0, 0.5)
+
     logger.warning(f"Error on attempt {attempt + 1}/{max_attempts}: {str(error)}")
-    logger.debug(f"Waiting {delay} seconds before retry...")
+    logger.debug(f"Waiting {delay:.2f} seconds before retry (exponential backoff)...")
     await asyncio.sleep(delay)
 
 def prepare_params(
@@ -296,10 +295,19 @@ async def make_llm_api_call(
             logger.debug(f"Attempt {attempt + 1}/{MAX_RETRIES}")
             # logger.debug(f"API request parameters: {json.dumps(params, indent=2)}")
 
-            response = await litellm.acompletion(**params)
+            # Add timeout to prevent indefinite hangs
+            response = await asyncio.wait_for(
+                litellm.acompletion(**params),
+                timeout=LLM_CALL_TIMEOUT
+            )
             logger.debug(f"Successfully received API response from {model_name}")
             # logger.debug(f"Response: {response}")
             return response
+
+        except asyncio.TimeoutError as e:
+            last_error = e
+            logger.warning(f"LLM API call timed out after {LLM_CALL_TIMEOUT}s on attempt {attempt + 1}/{MAX_RETRIES}")
+            await handle_error(e, attempt, MAX_RETRIES)
 
         except (litellm.exceptions.RateLimitError, OpenAIError, json.JSONDecodeError) as e:
             last_error = e

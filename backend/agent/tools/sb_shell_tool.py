@@ -4,6 +4,7 @@ from uuid import uuid4
 from agentpress.tool import ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
 from sandbox.tool_base import SandboxToolsBase
 from agentpress.thread_manager import ThreadManager
+from utils.logger import logger
 
 class SandboxShellTool(SandboxToolsBase):
     """Tool for executing tasks in a Daytona sandbox using the Daytona SDK process APIs. 
@@ -239,7 +240,57 @@ class SandboxShellTool(SandboxToolsBase):
                 )
             )
         ]
-        
+
+        # run_code schema - Direct code execution using Daytona SDK's code_run
+        code_example = 'print("Hello World!")' if self.app_type == 'mobile' else 'console.log("Hello World!");'
+        code_language = "Python" if self.app_type == 'mobile' else "TypeScript/JavaScript"
+
+        schemas["run_code"] = [
+            ToolSchema(
+                schema_type=SchemaType.OPENAPI,
+                schema={
+                    "type": "function",
+                    "function": {
+                        "name": "run_code",
+                        "description": f"Execute {code_language} code directly in the sandbox without writing to a file. Uses the Daytona SDK's native code execution which provides structured output including stdout, stderr, and any generated artifacts (like matplotlib charts for Python). This is ideal for quick code snippets, calculations, or testing logic.",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {
+                                "code": {
+                                    "type": "string",
+                                    "description": f"The {code_language} code to execute directly. The code will be run in an isolated environment within the sandbox."
+                                },
+                                "timeout": {
+                                    "type": "integer",
+                                    "description": "Optional timeout in seconds for code execution. Defaults to 30 seconds.",
+                                    "default": 30
+                                }
+                            },
+                            "required": ["code"]
+                        }
+                    }
+                }
+            ),
+            ToolSchema(
+                schema_type=SchemaType.XML,
+                schema={},
+                xml_schema=XMLTagSchema(
+                    tag_name="run-code",
+                    mappings=[
+                        XMLNodeMapping(param_name="code", node_type="content", path="."),
+                        XMLNodeMapping(param_name="timeout", node_type="attribute", path=".", required=False)
+                    ],
+                    example=f'''
+        <function_calls>
+        <invoke name="run_code">
+        <parameter name="code">{code_example}</parameter>
+        </invoke>
+        </function_calls>
+        '''
+                )
+            )
+        ]
+
         return schemas
 
     async def _ensure_session(self, session_name: str = "default") -> str:
@@ -323,7 +374,7 @@ class SandboxShellTool(SandboxToolsBase):
                 session_id = await self._ensure_session(session_name)
                 
                 # Execute command in session (non-blocking)
-                from daytona_sdk import SessionExecuteRequest
+                from daytona import SessionExecuteRequest
                 req = SessionExecuteRequest(
                     command=command,
                     var_async=True,  # Non-blocking
@@ -432,13 +483,13 @@ class SandboxShellTool(SandboxToolsBase):
         try:
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
-            
+
             if not self._sessions:
                 return self.success_response({
                     "message": "No active sessions found.",
                     "sessions": []
                 })
-            
+
             # Get detailed session information
             sessions_info = []
             for session_name, session_id in self._sessions.items():
@@ -456,14 +507,96 @@ class SandboxShellTool(SandboxToolsBase):
                         "id": session_id,
                         "error": f"Failed to get session info: {str(e)}"
                     })
-            
+
             return self.success_response({
                 "message": f"Found {len(sessions_info)} active sessions.",
                 "sessions": sessions_info
             })
-                
+
         except Exception as e:
             return self.fail_response(f"Error listing commands: {str(e)}")
+
+    async def run_code(
+        self,
+        code: str,
+        timeout: int = 30
+    ) -> ToolResult:
+        """Execute code directly in the sandbox using Daytona SDK's native code_run method.
+
+        This provides structured output including stdout, stderr, and any generated
+        artifacts (like matplotlib charts for Python).
+
+        Args:
+            code: The code to execute directly
+            timeout: Optional timeout in seconds (default: 30)
+
+        Returns:
+            ToolResult with execution results including output and any artifacts
+        """
+        try:
+            # Ensure sandbox is initialized
+            await self._ensure_sandbox()
+
+            logger.info(f"Running code directly in sandbox (timeout: {timeout}s)")
+
+            # Use Daytona SDK's native code_run method
+            response = await self.sandbox.process.code_run(
+                code=code,
+                timeout=timeout
+            )
+
+            # Build result structure
+            result = {
+                "exit_code": response.exit_code,
+                "success": response.exit_code == 0,
+            }
+
+            # Extract output from result or artifacts
+            if hasattr(response, 'result') and response.result:
+                result["output"] = response.result
+
+            # Handle artifacts if present (stdout, stderr, charts, etc.)
+            if hasattr(response, 'artifacts') and response.artifacts:
+                artifacts = response.artifacts
+
+                # Extract stdout
+                if hasattr(artifacts, 'stdout') and artifacts.stdout:
+                    result["stdout"] = artifacts.stdout
+                    if "output" not in result:
+                        result["output"] = artifacts.stdout
+
+                # Extract stderr
+                if hasattr(artifacts, 'stderr') and artifacts.stderr:
+                    result["stderr"] = artifacts.stderr
+
+                # Extract charts (for matplotlib, etc.)
+                if hasattr(artifacts, 'charts') and artifacts.charts:
+                    result["charts"] = []
+                    for chart in artifacts.charts:
+                        chart_info = {
+                            "type": str(chart.type) if hasattr(chart, 'type') else "unknown",
+                            "title": getattr(chart, 'title', None),
+                        }
+                        # Include PNG data if available (base64 encoded)
+                        if hasattr(chart, 'png') and chart.png:
+                            chart_info["png_base64"] = chart.png
+                        result["charts"].append(chart_info)
+
+                    result["charts_count"] = len(result["charts"])
+
+            # Log execution result
+            if result["success"]:
+                logger.info(f"Code execution completed successfully")
+            else:
+                logger.warning(f"Code execution failed with exit code: {response.exit_code}")
+
+            return self.success_response(result)
+
+        except asyncio.TimeoutError:
+            return self.fail_response(f"Code execution timed out after {timeout} seconds")
+        except Exception as e:
+            logger.error(f"Error executing code: {str(e)}")
+            return self.fail_response(f"Error executing code: {str(e)}")
 
 
     async def cleanup(self):

@@ -44,7 +44,6 @@ export const useStartAgentMutation = () => {
         enable_thinking?: boolean;
         reasoning_effort?: string;
         stream?: boolean;
-        agent_id?: string;
         app_type?: 'web' | 'mobile';
       };
     }) => {

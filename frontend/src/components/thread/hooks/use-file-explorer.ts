@@ -1,284 +1,192 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useFileContentQuery, fileQueryKeys } from '@/hooks/react-query/files';
 import { useAuth } from '@clerk/nextjs';
-import { listSandboxFiles, listProjectFiles, getProjectFileContent, FileInfo } from '@/lib/api';
-import { FileTreeItem } from '../types/app-preview';
-import { processDirectoryFiles, findFirstSelectableFile, formatFileContent, isExcludedDirectory } from '../utils/file-utils';
+import { getSandboxFileTree, getSandboxFileContent } from '@/lib/api';
+import { FileTreeNode, FileTreeResponse } from '@/lib/api/types';
 
 interface UseFileExplorerProps {
-  sandboxId?: string; // Keep for fallback compatibility
-  projectId?: string; // New primary way to access files via Git
+  sandboxId?: string;
+  projectId?: string; // Keep for fallback compatibility
   isCodeTabActive: boolean;
   appType?: 'web' | 'mobile';
 }
 
-// Recursive function to fetch entire directory tree
-const fetchCompleteDirectoryTree = async (
-  sandboxId: string,
-  rootPath: string,
-  getToken: () => Promise<string | null>,
-  workspacePath: string
-): Promise<FileTreeItem[]> => {
-  const token = await getToken();
-  if (!token) throw new Error('No authentication token');
+/**
+ * Flattens a nested tree structure for efficient rendering with virtualization.
+ * Each node includes its depth level for indentation.
+ */
+interface FlattenedNode extends FileTreeNode {
+  level: number;
+  isExpanded?: boolean;
+  hasChildren: boolean;
+}
 
-  const fetchDirectoryContents = async (dirPath: string): Promise<FileTreeItem[]> => {
-    try {
-      console.log(`[FILE TREE] Fetching directory: ${dirPath}`);
-      const files = await listSandboxFiles(sandboxId, dirPath, token);
-      
-      const items: FileTreeItem[] = [];
-      
-      for (const file of files) {
-        // Skip excluded directories EARLY - don't even process them
-        if (file.is_dir && isExcludedDirectory(file.name)) {
-          console.log(`[FILE TREE] Skipping excluded directory: ${file.name}`);
-          continue;
-        }
-        
-        // Skip unimportant files (but allow all non-excluded directories through)
-        if (!file.is_dir) {
-          const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
-          const importantExtensions = ['tsx', 'ts', 'js', 'jsx', 'css', 'json', 'md', 'html', 'txt', 'yml', 'yaml', 'toml'];
-          const importantFiles = ['package.json', 'next.config.ts', 'tailwind.config.ts', 'README.md', 'Dockerfile', '.gitignore'];
-          
-          const isImportant = importantFiles.includes(file.name) || 
-                            importantExtensions.includes(fileExtension);
-          
-          if (!isImportant) continue;
-        }
-
-        const relativePath = file.path.replace(`${workspacePath}/`, '').replace(workspacePath, '') || file.name;
-        
-        const item: FileTreeItem = {
-          name: file.name,
-          type: file.is_dir ? ('directory' as const) : ('file' as const),
-          path: relativePath,
-          fullPath: file.path,
-        };
-
-        // Only recurse into directories that we want to show (already filtered above)
-        if (file.is_dir) {
-          try {
-            console.log(`[FILE TREE] Recursively fetching directory: ${file.path}`);
-            item.children = await fetchDirectoryContents(file.path);
-          } catch (error) {
-            console.warn(`Failed to fetch contents of directory ${file.path}:`, error);
-            item.children = []; // Empty children for directories we can't access
-          }
-        }
-
-        items.push(item);
-      }
-
-      // Sort items: directories first, then files, alphabetically within each group
-      return items.sort((a, b) => {
-        if (a.type === 'directory' && b.type === 'file') return -1;
-        if (a.type === 'file' && b.type === 'directory') return 1;
-        return a.name.localeCompare(b.name);
-      });
-      
-    } catch (error) {
-      console.error(`Error fetching directory ${dirPath}:`, error);
-      return [];
-    }
-  };
-
-  return fetchDirectoryContents(rootPath);
-};
-
-export const useFileExplorer = ({ sandboxId, projectId, isCodeTabActive, appType = 'web' }: UseFileExplorerProps) => {
+/**
+ * Optimized File Explorer Hook
+ *
+ * Key optimizations:
+ * 1. Uses single API call (/files/tree) instead of N+1 recursive calls
+ * 2. Server-side filtering eliminates wasted bandwidth
+ * 3. Pre-built tree structure from backend
+ * 4. Smart file content prefetching for adjacent files
+ * 5. Efficient React Query caching
+ */
+export const useFileExplorer = ({
+  sandboxId,
+  projectId,
+  isCodeTabActive,
+  appType = 'web'
+}: UseFileExplorerProps) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileTree, setFileTree] = useState<FileTreeItem[]>([]);
-  const [loadingDirectories, setLoadingDirectories] = useState<Set<string>>(new Set());
   const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
-  // Prefer sandboxId over projectId for Daytona SDK-based file access
-  const useSandboxFiles = !!sandboxId;
-  const sourceId = sandboxId || projectId;
-
   // Determine workspace path based on app type
   const workspacePath = appType === 'mobile' ? '/workspace/cheatcode-mobile' : '/workspace/cheatcode-app';
 
-  // Clear file tree when sourceId or appType changes
-  useEffect(() => {
-    if (sourceId) {
-      // Clear all state for new source
-      setFileTree([]);
-      setExpandedDirectories(new Set());
-      setLoadingDirectories(new Set());
-      setSelectedFile(null);
-      
-      // Invalidate cached queries only on source/app type change
-      queryClient.invalidateQueries({ queryKey: ['complete-file-tree', sourceId] });
-      queryClient.invalidateQueries({ queryKey: ['file-content', sourceId] });
-    }
-  }, [sourceId, appType, queryClient]);
+  // Main file tree query - single optimized API call
+  const {
+    data: fileTreeData,
+    isLoading: isLoadingFileTree,
+    error: fileTreeError,
+    refetch: refetchFileTree,
+  } = useQuery({
+    queryKey: ['file-tree-optimized', sandboxId, appType],
+    queryFn: async (): Promise<FileTreeResponse> => {
+      if (!sandboxId) throw new Error('No sandbox ID');
 
-  // Load directory contents function for lazy loading
-  const loadDirectory = useCallback(async (path: string) => {
-    if (!sourceId) return;
-
-    // Mark directory as loading
-    setLoadingDirectories(prev => new Set(prev).add(path));
-
-    try {
       const token = await getToken();
       if (!token) throw new Error('No authentication token');
 
-      let files: FileInfo[] = [];
-      
-      if (useSandboxFiles && sandboxId) {
-        // Use Daytona sandbox API for files (primary)
-        console.log('[FILE EXPLORER] Loading directory via Daytona sandbox API:', path);
-        files = await listSandboxFiles(sandboxId, path, token);
-      } else if (projectId) {
-        // Fallback to Git-based API for project files
-        console.log('[FILE EXPLORER] Loading directory via Git API:', path);
-        files = await listProjectFiles(projectId, path, token);
-      } else {
-        throw new Error('No valid source for files');
-      }
+      console.log('[FILE EXPLORER] Fetching complete file tree via optimized endpoint');
+      const startTime = performance.now();
 
-      // Convert files to FileTreeItem format, filtering out excluded items
-      const processedFiles: FileTreeItem[] = files
-        .filter(file => {
-          // Skip excluded directories
-          if (file.is_dir && isExcludedDirectory(file.name)) {
-            return false;
-          }
-          
-          // For files, only include important ones
-          if (!file.is_dir) {
-            const fileExtension = file.name.split('.').pop()?.toLowerCase() || '';
-            const importantExtensions = ['tsx', 'ts', 'js', 'jsx', 'css', 'json', 'md', 'html', 'txt', 'yml', 'yaml', 'toml'];
-            const importantFiles = ['package.json', 'next.config.ts', 'tailwind.config.ts', 'README.md', 'Dockerfile', '.gitignore'];
-            
-            const isImportant = importantFiles.includes(file.name) || 
-                              importantExtensions.includes(fileExtension);
-            return isImportant;
-          }
-          
-          return true; // Include all non-excluded directories
-        })
-        .map(file => ({
-          name: file.name,
-          type: file.is_dir ? 'directory' as const : 'file' as const,
-          path: file.path,
-          fullPath: file.path,
-          children: file.is_dir ? [] : undefined, // Empty array for directories, undefined for files
-        }));
+      const result = await getSandboxFileTree(sandboxId, workspacePath, token);
 
-      // Update the file tree state
-      if (path === '') {
-        // Root directory - replace entire tree
-        setFileTree(processedFiles);
-      } else {
-        // Subdirectory - find and update the correct node
-        setFileTree(prevTree => {
-          const updateTreeNode = (nodes: FileTreeItem[]): FileTreeItem[] => {
-            return nodes.map(node => {
-              if (node.type === 'directory' && node.path === path) {
-                // Found the target directory - update its children
-                return { ...node, children: processedFiles };
-              } else if (node.type === 'directory' && node.children && path.startsWith(node.path + '/')) {
-                // This directory is in the path to the target - recurse
-                return { ...node, children: updateTreeNode(node.children) };
-              }
-              return node;
-            });
-          };
-          return updateTreeNode(prevTree);
-        });
-      }
+      const endTime = performance.now();
+      console.log(`[FILE EXPLORER] Tree loaded: ${result.totalFiles} files in ${Math.round(endTime - startTime)}ms`);
 
-      console.log(`[FILE EXPLORER] Loaded ${processedFiles.length} items for path: ${path}`);
-    } catch (error) {
-      console.error(`[FILE EXPLORER] Failed to load directory ${path}:`, error);
-    } finally {
-      // Remove from loading state
-      setLoadingDirectories(prev => {
-        const newSet = new Set(prev);
-        newSet.delete(path);
-        return newSet;
-      });
-    }
-  }, [sourceId, useSandboxFiles, projectId, sandboxId, getToken]);
-
-  // React Query for complete file tree (cached)
-  const {
-    data: cachedFileTree,
-    isLoading: isLoadingFileTree,
-    error: fileTreeError
-  } = useQuery({
-    queryKey: ['complete-file-tree', sourceId, useSandboxFiles ? 'sandbox' : 'git', appType],
-    queryFn: async () => {
-      if (!sourceId) return [];
-
-      if (useSandboxFiles && sandboxId) {
-        // Use recursive Daytona SDK approach for complete file tree
-        console.log('[FILE EXPLORER] Loading complete directory tree via Daytona SDK');
-        const completeTree = await fetchCompleteDirectoryTree(
-          sandboxId,
-          workspacePath,
-          getToken,
-          workspacePath
-        );
-        console.log(`[FILE EXPLORER] Loaded complete tree with ${completeTree.length} root items`);
-        return completeTree;
-      } else if (projectId) {
-        // Fallback to Git-based lazy loading for projects without sandbox
-        console.log('[FILE EXPLORER] Fallback to Git-based file access - no caching');
-        return [];
-      }
-      return [];
+      return result;
     },
-    enabled: isCodeTabActive && !!sourceId && useSandboxFiles && !!sandboxId,
-    staleTime: 5 * 60 * 1000, // Cache file tree for 5 minutes
-    gcTime: 10 * 60 * 1000, // Keep in cache for 10 minutes after unused
+    enabled: isCodeTabActive && !!sandboxId,
+    staleTime: 30 * 1000, // Cache for 30 seconds
+    gcTime: 60 * 1000, // Keep in garbage collection for 1 minute
+    refetchOnWindowFocus: true,
+    retry: 2,
   });
 
-  // Update local file tree state when cached data changes
-  useEffect(() => {
-    if (cachedFileTree && cachedFileTree.length > 0) {
-      setFileTree(cachedFileTree);
-    }
-  }, [cachedFileTree]);
+  // Extract tree from response
+  const fileTree = fileTreeData?.tree ?? [];
 
-  // Initial load for Git-based projects (non-cached)
-  useEffect(() => {
-    const loadGitFiles = async () => {
-      if (!isCodeTabActive || !sourceId || !projectId || useSandboxFiles) return;
-      if (fileTree.length > 0) return;
+  // File content query
+  const {
+    data: fileContent,
+    isLoading: isLoadingContent,
+    error: contentError,
+  } = useQuery({
+    queryKey: ['file-content-optimized', sandboxId, selectedFile, appType],
+    queryFn: async () => {
+      if (!selectedFile || !sandboxId) return null;
 
-      console.log('[FILE EXPLORER] Initial load for Git-based project');
-      loadDirectory('');
+      const token = await getToken();
+      if (!token) throw new Error('No authentication token');
+
+      // Construct full path for API call
+      const fullPath = `${workspacePath}/${selectedFile}`;
+      console.log('[FILE EXPLORER] Loading file content:', fullPath);
+
+      const content = await getSandboxFileContent(sandboxId, fullPath, token);
+      return typeof content === 'string' ? content : '[Binary file]';
+    },
+    enabled: !!selectedFile && !!sandboxId,
+    staleTime: 2 * 60 * 1000, // Cache content for 2 minutes
+    gcTime: 5 * 60 * 1000,
+  });
+
+  // Prefetch adjacent files for faster navigation
+  const prefetchAdjacentFiles = useCallback(async (currentFile: string) => {
+    if (!sandboxId || !fileTree.length) return;
+
+    const token = await getToken();
+    if (!token) return;
+
+    // Find siblings of the current file
+    const findSiblings = (nodes: FileTreeNode[], targetPath: string): FileTreeNode[] => {
+      for (const node of nodes) {
+        if (node.type === 'directory' && node.children) {
+          // Check if target is in this directory
+          const childPaths = node.children.map(c => c.path);
+          if (childPaths.includes(targetPath)) {
+            // Return sibling files (not directories)
+            return node.children.filter(c => c.type === 'file' && c.path !== targetPath);
+          }
+          // Recurse into subdirectories
+          const found = findSiblings(node.children, targetPath);
+          if (found.length) return found;
+        }
+      }
+      // Check root level
+      const rootFiles = nodes.filter(n => n.type === 'file');
+      if (rootFiles.some(f => f.path === targetPath)) {
+        return rootFiles.filter(f => f.path !== targetPath);
+      }
+      return [];
     };
 
-    loadGitFiles();
-  }, [isCodeTabActive, sourceId, projectId, useSandboxFiles, fileTree.length, loadDirectory]);
+    const siblings = findSiblings(fileTree, currentFile);
 
-  // Handle directory toggle (expand/collapse) - purely UI since all files are pre-loaded
+    // Prefetch up to 3 sibling files
+    const filesToPrefetch = siblings.slice(0, 3);
+
+    for (const file of filesToPrefetch) {
+      queryClient.prefetchQuery({
+        queryKey: ['file-content-optimized', sandboxId, file.path, appType],
+        queryFn: async () => {
+          const fullPath = `${workspacePath}/${file.path}`;
+          const content = await getSandboxFileContent(sandboxId, fullPath, token);
+          return typeof content === 'string' ? content : '[Binary file]';
+        },
+        staleTime: 2 * 60 * 1000,
+      });
+    }
+  }, [sandboxId, fileTree, workspacePath, getToken, queryClient, appType]);
+
+  // Handle file selection with prefetching
+  const handleFileSelect = useCallback((filePath: string) => {
+    setSelectedFile(filePath);
+    // Prefetch adjacent files in the background
+    prefetchAdjacentFiles(filePath);
+  }, [prefetchAdjacentFiles]);
+
+  // Handle directory toggle (expand/collapse)
   const handleDirectoryToggle = useCallback((directoryPath: string) => {
-    console.log('[FILE EXPLORER] Directory toggle:', directoryPath);
-    
     setExpandedDirectories(prev => {
       const newSet = new Set(prev);
       if (newSet.has(directoryPath)) {
-        // Collapsing - remove from expanded set
         newSet.delete(directoryPath);
       } else {
-        // Expanding - add to expanded set (all data already loaded recursively)
         newSet.add(directoryPath);
       }
       return newSet;
     });
   }, []);
 
-  // Auto-select first file when switching to code tab
+  // Find first selectable file for auto-selection
+  const findFirstSelectableFile = useCallback((nodes: FileTreeNode[]): string | null => {
+    for (const node of nodes) {
+      if (node.type === 'file') {
+        return node.path;
+      }
+      if (node.type === 'directory' && node.children) {
+        const found = findFirstSelectableFile(node.children);
+        if (found) return found;
+      }
+    }
+    return null;
+  }, []);
+
+  // Auto-select first file when tree loads
   useEffect(() => {
     if (isCodeTabActive && fileTree.length > 0 && !selectedFile) {
       const firstFile = findFirstSelectableFile(fileTree);
@@ -286,108 +194,77 @@ export const useFileExplorer = ({ sandboxId, projectId, isCodeTabActive, appType
         setSelectedFile(firstFile);
       }
     }
-  }, [isCodeTabActive, fileTree, selectedFile]);
+  }, [isCodeTabActive, fileTree, selectedFile, findFirstSelectableFile]);
 
-  // Loading state - true if file tree is loading or any directory is loading
-  const isLoadingFiles = isLoadingFileTree || 
-                         (fileTree.length === 0 && isCodeTabActive && !!sourceId) || 
-                         loadingDirectories.size > 0;
-  const filesError = fileTreeError; // Use the React Query error
-
-  // React Query for file content (only load when file is selected)
-  const {
-    data: fileContentData,
-    isLoading: isLoadingContent,
-    error: contentError
-  } = useQuery({
-    queryKey: ['file-content', sourceId, useSandboxFiles ? 'sandbox' : 'git', selectedFile, appType],
-    queryFn: async () => {
-      if (!selectedFile || !sourceId) return null;
-      
-      if (useSandboxFiles && sandboxId) {
-        // Use Daytona sandbox API for file content (primary)
-        // Construct full path for API call
-        const fullPath = `${workspacePath}/${selectedFile}`;
-        console.log('[FILE EXPLORER] Using Daytona sandbox API for file content:', fullPath);
-        const { getSandboxFileContent } = await import('@/lib/api');
-        const token = await getToken();
-        if (!token) throw new Error('No authentication token');
-        const content = await getSandboxFileContent(sandboxId, fullPath, token);
-        return typeof content === 'string' ? content : '[Binary file]';
-      } else if (projectId) {
-        // Fallback to Git-based API for file content
-        console.log('[FILE EXPLORER] Using Git API for file content:', selectedFile);
-        const token = await getToken();
-        if (!token) throw new Error('No authentication token');
-        
-        const content = await getProjectFileContent(projectId, selectedFile, token);
-        console.log('[FILE EXPLORER] Git API returned content length:', content?.length || 0);
-        return content;
-      } else {
-        throw new Error('No valid source for file content');
-      }
-    },
-    enabled: !!selectedFile && !!sourceId,
-    staleTime: 2 * 60 * 1000, // Cache file content for 2 minutes
-    gcTime: 5 * 60 * 1000, // Keep in cache for 5 minutes after unused
-  });
-
-  // Log warning for 404 errors (likely cache issue)
+  // Reset state when sandbox changes
   useEffect(() => {
-    if (contentError && selectedFile) {
-      if (contentError.message?.includes('404') || contentError.message?.includes('Not Found')) {
-        console.warn('File not found - possible cache issue. Try refreshing the page.', selectedFile);
-      }
+    if (sandboxId) {
+      setSelectedFile(null);
+      setExpandedDirectories(new Set());
     }
-  }, [contentError, selectedFile]);
+  }, [sandboxId, appType]);
 
-  // Format content for display
-  const displayContent = formatFileContent(fileContentData);
-
-  // Handle file selection
-  const handleFileSelect = useCallback((filePath: string) => {
-    // Store just the relative path for the selected file
-    setSelectedFile(filePath);
-  }, []);
-
-  // Force refresh function for cache issues and file changes
+  // Force refresh function
   const forceRefresh = useCallback(() => {
-    console.log('[FILE EXPLORER] Force refreshing cache and file tree');
-    // Clear all cached content for this source
-    queryClient.removeQueries({ queryKey: ['file-content', sourceId] });
-    queryClient.removeQueries({ queryKey: ['complete-file-tree', sourceId] });
-    
-    // Reset local state
-    setFileTree([]);
-    setExpandedDirectories(new Set());
-    setLoadingDirectories(new Set());
+    console.log('[FILE EXPLORER] Force refreshing file tree and content');
+    queryClient.invalidateQueries({ queryKey: ['file-tree-optimized', sandboxId] });
+    queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
     setSelectedFile(null);
-    
-    // Trigger reload of root directory
-    if (isCodeTabActive && sourceId) {
-      loadDirectory('');
-    }
-  }, [queryClient, isCodeTabActive, sourceId, loadDirectory]);
+    setExpandedDirectories(new Set());
+  }, [queryClient, sandboxId]);
 
-  // Invalidate just file content cache (for when files are modified by agents)
+  // Invalidate just file content (for when files are modified by agents)
   const invalidateFileContent = useCallback(() => {
     console.log('[FILE EXPLORER] Invalidating file content cache');
-    queryClient.invalidateQueries({ queryKey: ['file-content', sourceId] });
-  }, [queryClient, sourceId]);
+    queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
+  }, [queryClient, sandboxId]);
+
+  // Convert FileTreeNode[] to the format expected by existing components
+  // This maintains backward compatibility with the existing FileTree component
+  const processedFiles = useMemo(() => {
+    const convertNode = (node: FileTreeNode): any => ({
+      name: node.name,
+      type: node.type,
+      path: node.path,
+      fullPath: node.fullPath,
+      children: node.children?.map(convertNode),
+    });
+    return fileTree.map(convertNode);
+  }, [fileTree]);
+
+  // Format content for display
+  const displayContent = useMemo(() => {
+    if (!fileContent) return '';
+    if (typeof fileContent === 'string') return fileContent;
+    if (typeof fileContent === 'object') return JSON.stringify(fileContent, null, 2);
+    return '[Binary file - cannot display]';
+  }, [fileContent]);
 
   return {
+    // File selection
     selectedFile,
-    processedFiles: fileTree,
-    displayContent,
-    isLoadingFiles,
-    isLoadingContent,
-    filesError,
-    contentError,
     handleFileSelect,
-    handleDirectoryToggle,
+
+    // File tree
+    processedFiles,
+    isLoadingFiles: isLoadingFileTree,
+    filesError: fileTreeError,
+
+    // File content
+    displayContent,
+    isLoadingContent,
+    contentError,
+
+    // Directory expansion
     expandedDirectories,
+    handleDirectoryToggle,
+
+    // Utilities
     forceRefresh,
     invalidateFileContent,
-    loadingDirectories
+    loadingDirectories: new Set<string>(), // No longer needed with single API call
+
+    // Debug info
+    totalFiles: fileTreeData?.totalFiles ?? 0,
   };
-}; 
+};

@@ -1,6 +1,6 @@
 import React from 'react';
 import { getPersonalAccount } from '@/lib/supabase/cached-server';
-import { getOpenRouterKeyStatus, getPipedreamProfiles } from '@/lib/supabase/settings-server';
+import { getOpenRouterKeyStatus, getComposioProfiles } from '@/lib/supabase/settings-server';
 import { SettingsMenuBar } from '@/components/settings/SettingsMenuBar';
 import { SettingsErrorBoundary } from '@/components/settings/SettingsErrorBoundary';
 import { ModalProviders } from '@/providers/modal-providers';
@@ -16,22 +16,20 @@ export default async function PersonalAccountSettingsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  // Create a new QueryClient for this request
+  // Create a new QueryClient for this request with optimized settings
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: {
-        // CACHING DISABLED FOR BETTER RESPONSIVENESS
-        staleTime: 0,
-        gcTime: 0,
+        // Settings data can be cached for 2 minutes for better performance
+        // while still being responsive to changes
+        staleTime: 2 * 60 * 1000,
+        gcTime: 10 * 60 * 1000,
         refetchOnWindowFocus: false,
         refetchOnMount: true,
         refetchOnReconnect: false,
       },
     },
   });
-
-  // SERVER-SIDE PREFETCHING DISABLED FOR BUTTON RESPONSIVENESS
-  console.log('[Settings] Server-side prefetching DISABLED - using client-side only');
   
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>

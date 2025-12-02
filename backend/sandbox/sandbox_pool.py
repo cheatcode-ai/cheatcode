@@ -2,12 +2,11 @@ import asyncio
 import time
 from typing import Dict, List, Optional, Set
 from dataclasses import dataclass, field
-from datetime import datetime
-import asyncio, timedelta
+from datetime import datetime, timedelta
 from collections import defaultdict
 import uuid
 
-from daytona_sdk import AsyncSandbox, SandboxState
+from daytona import AsyncSandbox, SandboxState
 from utils.logger import logger
 from utils.config import config
 
@@ -305,14 +304,17 @@ class SandboxPool:
     
     
     async def _wait_for_sandbox_ready(self, sandbox: AsyncSandbox, timeout: int = 60):
-        """Wait for sandbox to be in running state."""
-        start_time = time.time()
-        while time.time() - start_time < timeout:
+        """Wait for sandbox to be in running state using built-in SDK method."""
+        try:
+            # Use Daytona SDK's built-in wait method - more efficient than manual polling
+            await sandbox.wait_for_sandbox_start(timeout=timeout)
+            logger.debug(f"Sandbox {sandbox.id} is now in RUNNING state")
+        except Exception as e:
+            # Fallback: check current state manually
             if sandbox.state == SandboxState.RUNNING:
+                logger.debug(f"Sandbox {sandbox.id} already running")
                 return
-            await asyncio.sleep(1)
-        
-        raise TimeoutError(f"Sandbox {sandbox.id} failed to start within {timeout} seconds")
+            raise TimeoutError(f"Sandbox {sandbox.id} failed to start within {timeout} seconds: {e}")
     
     async def _ensure_warm_sandboxes(self):
         """Ensure we have minimum number of warm sandboxes for both app types."""

@@ -4,6 +4,9 @@ import { threadKeys } from "./keys";
 import { Thread, updateThread, toggleThreadPublicStatus, deleteThread, updateThreadName } from "./utils";
 import { getThreads, getThread } from "@/lib/api";
 import { useAuth } from '@clerk/nextjs';
+import { createLogger } from '@/lib/logger';
+
+const logger = createLogger('threads');
 
 // Helper function to detect network errors vs real API errors
 function isNetworkError(error: any): boolean {
@@ -18,26 +21,26 @@ function isNetworkError(error: any): boolean {
 
 export const useThreadQuery = (threadId: string) => {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth();
-  
-  console.log('[DEBUG] useThreadQuery - Auth State:', {
+
+  logger.debug('useThreadQuery - Auth State:', {
     isLoaded,
     isSignedIn,
     userId,
     threadId
   });
-  
+
   return createQueryHook(
     threadKeys.details(threadId),
     async () => {
-      console.log('[DEBUG] useThreadQuery - Fetching thread...');
+      logger.debug('useThreadQuery - Fetching thread...');
       try {
         const token = await getToken();
-        console.log('[DEBUG] useThreadQuery - Got token:', !!token);
+        logger.debug('useThreadQuery - Got token:', !!token);
         const result = await getThread(threadId, token || undefined);
-        console.log('[DEBUG] useThreadQuery - Success');
+        logger.debug('useThreadQuery - Success');
         return result;
       } catch (error) {
-        console.error('[DEBUG] useThreadQuery - Error:', error);
+        logger.error('useThreadQuery - Error:', error);
         throw error;
       }
     },
@@ -47,7 +50,7 @@ export const useThreadQuery = (threadId: string) => {
       staleTime: 10 * 60 * 1000, // 10 minutes
       gcTime: 60 * 60 * 1000, // 1 hour
       retry: (failureCount, error) => {
-        console.log('[DEBUG] useThreadQuery - Retry attempt:', failureCount, error);
+        logger.debug('useThreadQuery - Retry attempt:', failureCount, error);
         // Allow more retries for network errors
         if (isNetworkError(error)) {
           return failureCount < 5;
@@ -65,7 +68,8 @@ export const useThreadQuery = (threadId: string) => {
 
 export const useToggleThreadPublicStatus = () => {
   const { getToken } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   return createMutationHook(
     async ({
       threadId,
@@ -77,12 +81,37 @@ export const useToggleThreadPublicStatus = () => {
       const token = await getToken();
       return toggleThreadPublicStatus(threadId, isPublic, token || undefined);
     }
-  )();
+  )({
+    // Optimistic update for toggling public status
+    onMutate: async ({ threadId, isPublic }) => {
+      await queryClient.cancelQueries({ queryKey: threadKeys.details(threadId) });
+
+      const previousThread = queryClient.getQueryData<Thread>(threadKeys.details(threadId));
+
+      if (previousThread) {
+        queryClient.setQueryData<Thread>(
+          threadKeys.details(threadId),
+          { ...previousThread, is_public: isPublic }
+        );
+      }
+
+      return { previousThread, threadId };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousThread && context?.threadId) {
+        queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: threadKeys.details(variables.threadId) });
+    },
+  });
 };
 
 export const useUpdateThreadMutation = () => {
   const { getToken } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   return createMutationHook(
     async ({
       threadId,
@@ -94,18 +123,56 @@ export const useUpdateThreadMutation = () => {
       const token = await getToken();
       return updateThread(threadId, data, token || undefined);
     }
-  )();
+  )({
+    // Optimistic update for thread data
+    onMutate: async ({ threadId, data }) => {
+      await queryClient.cancelQueries({ queryKey: threadKeys.details(threadId) });
+
+      const previousThread = queryClient.getQueryData<Thread>(threadKeys.details(threadId));
+
+      if (previousThread) {
+        queryClient.setQueryData<Thread>(
+          threadKeys.details(threadId),
+          { ...previousThread, ...data }
+        );
+      }
+
+      return { previousThread, threadId };
+    },
+    onError: (_error, _variables, context) => {
+      if (context?.previousThread && context?.threadId) {
+        queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
+      queryClient.invalidateQueries({ queryKey: threadKeys.details(variables.threadId) });
+    },
+  });
 };
 
 export const useDeleteThreadMutation = () => {
   const { getToken } = useAuth();
-  
+  const queryClient = useQueryClient();
+
   return createMutationHook(
     async ({ threadId }: { threadId: string }) => {
       const token = await getToken();
       return deleteThread(threadId, undefined, token || undefined);
     }
-  )();
+  )({
+    // Optimistic update: immediately remove thread from lists
+    onMutate: async ({ threadId }) => {
+      await queryClient.cancelQueries({ queryKey: ['threads'] });
+
+      // We don't have direct access to the threads list type here
+      // So we'll just invalidate on settlement
+      return { threadId };
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ['threads'] });
+      queryClient.invalidateQueries({ queryKey: ['allThreads'] });
+    },
+  });
 };
 
 export const useUpdateThreadNameMutation = () => {
@@ -117,14 +184,35 @@ export const useUpdateThreadNameMutation = () => {
       const token = await getToken();
       return updateThreadName(threadId, name, token || undefined);
     },
-    onSuccess: (data, variables) => {
-      // Invalidate and refetch thread queries
+    // Optimistic update: immediately show new name
+    onMutate: async ({ threadId, name }) => {
+      await queryClient.cancelQueries({ queryKey: ['thread', threadId] });
+      await queryClient.cancelQueries({ queryKey: ['threads'] });
+
+      const previousThread = queryClient.getQueryData<Thread>(['thread', threadId]);
+
+      if (previousThread) {
+        queryClient.setQueryData<Thread>(
+          ['thread', threadId],
+          {
+            ...previousThread,
+            metadata: { ...previousThread.metadata, name }
+          }
+        );
+      }
+
+      return { previousThread, threadId };
+    },
+    onError: (error, _variables, context) => {
+      logger.error('Failed to update thread name:', error);
+      if (context?.previousThread && context?.threadId) {
+        queryClient.setQueryData(['thread', context.threadId], context.previousThread);
+      }
+    },
+    onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: ['thread', variables.threadId] });
       queryClient.invalidateQueries({ queryKey: ['threads'] });
       queryClient.invalidateQueries({ queryKey: ['allThreads'] });
-    },
-    onError: (error) => {
-      console.error('Failed to update thread name:', error);
     },
   });
 };
@@ -132,33 +220,33 @@ export const useUpdateThreadNameMutation = () => {
 
 export const useThreadsForProject = (projectId: string) => {
   const { getToken, isLoaded, isSignedIn, userId } = useAuth();
-  
-  console.log('[DEBUG] useThreadsForProject - Auth State:', {
+
+  logger.debug('useThreadsForProject - Auth State:', {
     isLoaded,
     isSignedIn,
     userId,
     projectId
   });
-  
+
   return createQueryHook(
     threadKeys.byProject(projectId),
     async () => {
-      console.log('[DEBUG] useThreadsForProject - Fetching threads...');
+      logger.debug('useThreadsForProject - Fetching threads...');
       try {
         const token = await getToken();
-        console.log('[DEBUG] useThreadsForProject - Got token:', !!token);
+        logger.debug('useThreadsForProject - Got token:', !!token);
         const result = await getThreads(projectId, token || undefined);
-        console.log('[DEBUG] useThreadsForProject - Success');
+        logger.debug('useThreadsForProject - Success');
         return result;
       } catch (error) {
-        console.error('[DEBUG] useThreadsForProject - Error:', error);
+        logger.error('useThreadsForProject - Error:', error);
         throw error;
       }
     },
     {
       enabled: !!projectId && isLoaded,
       retry: (failureCount, error) => {
-        console.log('[DEBUG] useThreadsForProject - Retry attempt:', failureCount, error);
+        logger.debug('useThreadsForProject - Retry attempt:', failureCount, error);
         return failureCount < 2;
       },
     }

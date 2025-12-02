@@ -41,7 +41,8 @@ export function SidebarLeft({
 
   // Handle click outside to close sidebar
   const sidebarRef = React.useRef<HTMLDivElement>(null);
-  
+
+  // Consolidated event handlers - single useEffect for better performance
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (state === 'expanded' && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
@@ -49,19 +50,6 @@ export function SidebarLeft({
       }
     };
 
-    if (state === 'expanded') {
-      document.addEventListener('mousedown', handleClickOutside);
-    }
-
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [state, setOpen]);
-
-
-
-  // Handle CMD+B keyboard shortcut
-  React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'b' && (event.metaKey || event.ctrlKey)) {
         event.preventDefault();
@@ -69,8 +57,16 @@ export function SidebarLeft({
       }
     };
 
+    // Only add click listener when expanded
+    if (state === 'expanded') {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      window.removeEventListener('keydown', handleKeyDown);
+    };
   }, [state, setOpen]);
 
   return (

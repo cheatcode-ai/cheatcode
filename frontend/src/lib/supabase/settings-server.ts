@@ -1,6 +1,10 @@
 import 'server-only';
 import { cache } from 'react';
 import { getCachedAuth } from './cached-server';
+import type { ComposioProfile } from '@/types/composio-profiles';
+
+// Re-export ComposioProfile type for consumers
+export type { ComposioProfile };
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
@@ -12,22 +16,6 @@ export interface OpenRouterKeyStatus {
   last_used_at?: string;
   created_at?: string;
   error?: string;
-}
-
-// Types for Pipedream profiles  
-export interface PipedreamProfile {
-  profile_id: string;
-  account_id: string;
-  mcp_qualified_name: string;
-  profile_name: string;
-  display_name: string;
-  is_active: boolean;
-  is_default: boolean;
-  is_default_for_dashboard: boolean;
-  enabled_tools: string[];
-  app_slug: string;
-  app_name: string;
-  is_connected: boolean;
 }
 
 /**
@@ -88,25 +76,25 @@ export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatu
 });
 
 /**
- * Server-side cached function to fetch Pipedream profiles
+ * Server-side cached function to fetch Composio profiles
  * Uses cached auth and makes authenticated backend call
  */
-export const getPipedreamProfiles = cache(async (): Promise<PipedreamProfile[]> => {
-  console.log('[SERVER] Fetching Pipedream profiles');
-  
+export const getComposioProfiles = cache(async (): Promise<ComposioProfile[]> => {
+  console.log('[SERVER] Fetching Composio profiles');
+
   try {
     const authResult = await getCachedAuth();
     if (!authResult) {
-      console.log('[SERVER] No auth available for Pipedream profiles');
+      console.log('[SERVER] No auth available for Composio profiles');
       return [];
     }
 
     const { userId, token } = authResult;
-    
+
     // Make authenticated call to backend API
-    const url = new URL('/api/pipedream/profiles', BACKEND_URL);
+    const url = new URL('/api/composio/profiles', BACKEND_URL);
     // Note: user_id is extracted from JWT token by the backend, no need to pass as param
-    
+
     const response = await fetch(url.toString(), {
       method: 'GET',
       headers: {
@@ -116,19 +104,20 @@ export const getPipedreamProfiles = cache(async (): Promise<PipedreamProfile[]> 
     });
 
     if (!response.ok) {
-      console.log(`[SERVER] Pipedream profiles fetch failed: ${response.status}`);
+      console.log(`[SERVER] Composio profiles fetch failed: ${response.status}`);
       // Return empty array instead of throwing
       return [];
     }
 
     const responseData = await response.json();
-    const profiles = responseData.data || responseData || [];
-    
-    console.log(`[SERVER] Pipedream profiles fetched successfully: ${profiles.length} profiles`);
+    // Backend returns { success: true, profiles: [...], count: number }
+    const profiles = responseData.profiles || [];
+
+    console.log(`[SERVER] Composio profiles fetched successfully: ${profiles.length} profiles`);
     return profiles;
 
   } catch (error) {
-    console.error('[SERVER] Error fetching Pipedream profiles:', error);
+    console.error('[SERVER] Error fetching Composio profiles:', error);
     // Return empty array instead of throwing
     return [];
   }

@@ -43,8 +43,8 @@ class MCPToolExecutor:
         tool_info = self.custom_tools[tool_name]
         custom_type = tool_info['custom_type']
         
-        if custom_type == 'pipedream':
-            return await self._execute_pipedream_tool(tool_name, arguments, tool_info)
+        if custom_type == 'composio':
+            return await self._execute_composio_tool(tool_name, arguments, tool_info)
         elif custom_type == 'sse':
             return await self._execute_sse_tool(tool_name, arguments, tool_info)
         elif custom_type == 'http':
@@ -54,50 +54,113 @@ class MCPToolExecutor:
         else:
             return self._create_error_result(f"Unsupported custom MCP type: {custom_type}")
     
-    async def _execute_pipedream_tool(self, tool_name: str, arguments: Dict[str, Any], tool_info: Dict[str, Any]) -> ToolResult:
+    async def _execute_composio_tool(self, tool_name: str, arguments: Dict[str, Any], tool_info: Dict[str, Any]) -> ToolResult:
+        """Execute a tool via Composio MCP server."""
+        import os
+        import httpx
+
         custom_config = tool_info['custom_config']
         original_tool_name = tool_info['original_name']
-        
+
+        app_slug = custom_config.get('app_slug') or custom_config.get('qualified_name')
+        api_key = custom_config.get('api_key') or os.getenv('COMPOSIO_API_KEY')
+
+        if not api_key:
+            return self._create_error_result("No Composio API key available")
+
+        if not app_slug:
+            return self._create_error_result("No app_slug available for Composio tool")
+
+        connected_account_id = custom_config.get('connected_account_id')
         external_user_id = await self._resolve_external_user_id(custom_config)
-        if not external_user_id:
-            return self._create_error_result("No external_user_id available")
-        
-        app_slug = custom_config.get('app_slug')
-        oauth_app_id = custom_config.get('oauth_app_id')
-        
+
         try:
-            from pipedream.client import get_pipedream_client
-            
-            client = get_pipedream_client()
-            access_token = await client._obtain_access_token()
-            await client._ensure_rate_limit_token()
-            
+            # Use stored MCP URL from initialization, or fetch it via API
+            mcp_url = custom_config.get('mcp_url')
+
+            if not mcp_url:
+                # Fetch MCP URL via Composio REST API
+                COMPOSIO_API_BASE = "https://backend.composio.dev/api/v3"
+                api_headers = {
+                    "x-api-key": api_key,
+                    "Content-Type": "application/json"
+                }
+
+                async with httpx.AsyncClient(timeout=30.0) as client:
+                    response = await client.get(
+                        f"{COMPOSIO_API_BASE}/mcp/servers",
+                        headers=api_headers
+                    )
+
+                    if response.status_code == 200:
+                        data = response.json()
+                        servers = data.get('items', [])
+
+                        for server in servers:
+                            if app_slug.lower() in [t.lower() for t in server.get('toolkits', [])]:
+                                mcp_url = server.get('mcp_url')
+                                if mcp_url:
+                                    logger.info(f"Found MCP server URL for {app_slug}")
+                                    break
+
+                if not mcp_url:
+                    return self._create_error_result(f"No MCP server URL found for {app_slug}")
+
+            # Add query params for proper authentication
+            mcp_url = self._add_mcp_query_params(mcp_url, external_user_id)
+
+            # Use x-api-key header (not Authorization: Bearer)
             headers = {
-                "Authorization": f"Bearer {access_token}",
-                "x-pd-project-id": client.config.project_id,
-                "x-pd-environment": client.config.environment,
-                "x-pd-external-user-id": external_user_id,
-                "x-pd-app-slug": app_slug,
+                "x-api-key": api_key,
+                "Content-Type": "application/json",
             }
-            
-            if client.rate_limit_token:
-                headers["x-pd-rate-limit"] = client.rate_limit_token
-            
-            if oauth_app_id:
-                headers["x-pd-oauth-app-id"] = oauth_app_id
-            
-            url = "https://remote.mcp.pipedream.net"
-            
-            async with asyncio.timeout(30):
-                async with streamablehttp_client(url, headers=headers) as (read_stream, write_stream, _):
-                    async with ClientSession(read_stream, write_stream) as session:
-                        await session.initialize()
-                        result = await session.call_tool(original_tool_name, arguments)
-                        return self._create_success_result(self._extract_content(result))
-                        
+
+            if connected_account_id:
+                headers["x-composio-connected-account-id"] = connected_account_id
+
+            if external_user_id:
+                headers["x-composio-entity-id"] = external_user_id
+
+            try:
+                async with asyncio.timeout(60):  # 60 second timeout for tool execution
+                    async with streamablehttp_client(mcp_url, headers=headers) as (read_stream, write_stream, _):
+                        async with ClientSession(read_stream, write_stream) as session:
+                            await session.initialize()
+                            result = await session.call_tool(original_tool_name, arguments)
+                            return self._create_success_result(self._extract_content(result))
+            except asyncio.TimeoutError:
+                logger.error(f"Composio tool execution timed out after 60 seconds for {original_tool_name}")
+                return self._create_error_result(f"Tool execution timed out after 60 seconds")
+            except ExceptionGroup as eg:
+                logger.error(f"Composio tool execution failed with ExceptionGroup for {original_tool_name}:")
+                for i, exc in enumerate(eg.exceptions):
+                    logger.error(f"  Sub-exception {i+1}: {type(exc).__name__}: {exc}")
+                raise eg.exceptions[0] if eg.exceptions else eg
+
         except Exception as e:
-            logger.error(f"Error executing Pipedream MCP tool: {str(e)}")
-            return self._create_error_result(f"Error executing Pipedream tool: {str(e)}")
+            error_msg = str(e)
+            if hasattr(e, 'exceptions'):
+                error_msg = f"{error_msg} (sub-exceptions: {[str(exc) for exc in e.exceptions]})"
+            logger.error(f"Error executing Composio MCP tool: {error_msg}")
+            return self._create_error_result(f"Error executing Composio tool: {error_msg}")
+
+    def _add_mcp_query_params(self, mcp_url: str, external_user_id: str = None) -> str:
+        """Add query parameters to MCP URL for proper Composio authentication."""
+        from urllib.parse import urlparse, urlencode, parse_qs, urlunparse
+
+        parsed = urlparse(mcp_url)
+        query_params = parse_qs(parsed.query)
+
+        # Add user_id if provided and not already in URL
+        if external_user_id and 'user_id' not in query_params:
+            query_params['user_id'] = [external_user_id]
+
+        # Add include_composio_helper_actions for better tool discovery
+        if 'include_composio_helper_actions' not in query_params:
+            query_params['include_composio_helper_actions'] = ['true']
+
+        new_query = urlencode(query_params, doseq=True)
+        return urlunparse((parsed.scheme, parsed.netloc, parsed.path, parsed.params, new_query, parsed.fragment))
     
     async def _execute_sse_tool(self, tool_name: str, arguments: Dict[str, Any], tool_info: Dict[str, Any]) -> ToolResult:
         custom_config = tool_info['custom_config']

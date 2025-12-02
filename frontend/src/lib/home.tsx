@@ -34,7 +34,7 @@ export interface PricingTier {
   hidden?: boolean;
   buttonColor?: string;
 
-  planId?: string; // For DodoPayments integration
+  planId?: string; // For Polar checkout integration
 }
 
 export const siteConfig = {

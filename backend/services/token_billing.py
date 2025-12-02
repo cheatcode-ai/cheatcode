@@ -36,17 +36,17 @@ async def consume_tokens(
     """
     try:
         # Get user billing info first
-        billing_result = await client.schema('basejump').table('billing_customers') \
-            .select('account_id, plan_id, token_quota_remaining, token_quota_total') \
-            .eq('account_id', account_id) \
+        billing_result = await client.table('users') \
+            .select('id, plan_id, token_quota_remaining, token_quota_total') \
+            .eq('id', account_id) \
             .execute()
         
         if not billing_result.data:
             # Create billing record for new user
             await _create_billing_record(client, account_id)
-            billing_result = await client.schema('basejump').table('billing_customers') \
-                .select('account_id, plan_id, token_quota_remaining, token_quota_total') \
-                .eq('account_id', account_id) \
+            billing_result = await client.table('users') \
+                .select('id, plan_id, token_quota_remaining, token_quota_total') \
+                .eq('id', account_id) \
                 .execute()
         
         user_billing = billing_result.data[0]
@@ -87,7 +87,7 @@ async def consume_tokens(
             # Log usage for BYOK users without deducting tokens
             await client.table('token_usage_log') \
                 .insert({
-                    'account_id': account_id,
+                    'user_id': account_id,
                     'thread_id': thread_id,
                     'message_id': message_id,
                     'model': model,
@@ -134,9 +134,9 @@ async def _consume_tokens_fallback(
     """
     try:
         # Get current state
-        billing_result = await client.schema('basejump').table('billing_customers') \
-            .select('account_id, plan_id, token_quota_remaining, token_quota_total') \
-            .eq('account_id', account_id) \
+        billing_result = await client.table('users') \
+            .select('id, plan_id, token_quota_remaining, token_quota_total') \
+            .eq('id', account_id) \
             .execute()
             
         if not billing_result.data:
@@ -159,48 +159,80 @@ async def _consume_tokens_fallback(
                 'p_prompt_tokens': tokens_used // 2,
                 'p_completion_tokens': tokens_used // 2,
                 'p_estimated_cost': 0  # cost calculated later
-            })
+            }).execute()
             
             # Extract the result data from the RPC response
-            # Supabase RPC returns: {'consume_tokens_atomic': {'success': true, ...}}
+            # Supabase RPC with jsonb return type returns the JSON directly as update_result.data
+            # It does NOT nest it under the function name like {'consume_tokens_atomic': {...}}
             logger.debug(f"RPC response data: {update_result.data}")
             logger.debug(f"RPC response type: {type(update_result.data)}")
-            
-            if update_result.data and 'consume_tokens_atomic' in update_result.data:
-                rpc_result = update_result.data['consume_tokens_atomic']
-                
-                if rpc_result and rpc_result.get('success') is True:
-                    new_remaining = rpc_result['tokens_remaining']
-                else:
-                    # Function returned failure (e.g., insufficient tokens)
+
+            rpc_result = None
+            if update_result.data:
+                # Handle both possible response formats:
+                # 1. Direct JSON object: {'success': true, 'tokens_remaining': 1000, ...}
+                # 2. Nested format (older Supabase versions): {'consume_tokens_atomic': {...}}
+                if isinstance(update_result.data, dict):
+                    if 'consume_tokens_atomic' in update_result.data:
+                        # Nested format
+                        rpc_result = update_result.data['consume_tokens_atomic']
+                    elif 'success' in update_result.data:
+                        # Direct format - this is the expected format for jsonb returns
+                        rpc_result = update_result.data
+                    else:
+                        # Unknown dict format, try to use it directly
+                        rpc_result = update_result.data
+                elif isinstance(update_result.data, list) and len(update_result.data) > 0:
+                    # Sometimes RPC returns as a list with single element
+                    rpc_result = update_result.data[0]
+
+            if rpc_result and rpc_result.get('success') is True:
+                new_remaining = rpc_result.get('tokens_remaining', 0)
+                logger.info(f"RPC consume_tokens_atomic succeeded. Tokens remaining: {new_remaining}")
+            elif rpc_result and rpc_result.get('success') is False:
+                # Function returned explicit failure (e.g., insufficient tokens, user not found)
+                error_type = rpc_result.get('error', 'unknown_error')
+                error_message = rpc_result.get('message', 'Token consumption failed')
+                tokens_remaining = rpc_result.get('tokens_remaining', 0)
+
+                if error_type == 'insufficient_tokens':
                     raise InsufficientTokensError(
-                        rpc_result.get('message', 'Insufficient tokens'),
-                        rpc_result.get('tokens_remaining', 0),
-                        get_credits_from_tokens(rpc_result.get('tokens_remaining', 0))
+                        error_message,
+                        tokens_remaining,
+                        get_credits_from_tokens(tokens_remaining)
                     )
+                elif error_type == 'user_not_found':
+                    logger.warning(f"User {account_id} not found in billing_customers, will create record")
+                    raise Exception(f"User billing record not found: {error_message}")
+                else:
+                    raise Exception(f"Token consumption failed: {error_message}")
             else:
-                # Unexpected response format
+                # Unexpected response format or None result
                 logger.error(f"Unexpected RPC response format: {update_result.data}")
                 raise Exception("Failed to consume tokens: unexpected response format")
                 
-        except Exception:
+        except InsufficientTokensError:
+            # Re-raise insufficient tokens error - don't fall back
+            raise
+        except Exception as rpc_error:
             # Fallback: Use UPDATE with constraint - still atomic but less elegant
             # This approach is still race-condition safe due to PostgreSQL's MVCC
-            update_result = await client.schema('basejump').table('billing_customers') \
+            logger.warning(f"RPC consume_tokens_atomic failed, using fallback: {str(rpc_error)}")
+            update_result = await client.table('users') \
                 .update({
                     'token_quota_remaining': current_remaining - tokens_used,
                     'billing_updated_at': datetime.now().isoformat()
                 }) \
-                .eq('account_id', account_id) \
+                .eq('id', account_id) \
                 .gte('token_quota_remaining', tokens_used) \
                 .execute()
                 
             # Check if update succeeded
             if not update_result.data or len(update_result.data) == 0:
                 # Update failed - insufficient tokens
-                fresh_result = await client.schema('basejump').table('billing_customers') \
+                fresh_result = await client.table('users') \
                     .select('token_quota_remaining') \
-                    .eq('account_id', account_id) \
+                    .eq('id', account_id) \
                     .execute()
                 fresh_remaining = fresh_result.data[0]['token_quota_remaining'] if fresh_result.data else 0
                 remaining_credits = get_credits_from_tokens(fresh_remaining)
@@ -221,9 +253,9 @@ async def _consume_tokens_fallback(
         )
         
         # Log the token usage
-        await client.table('public.token_usage_log') \
+        await client.table('token_usage_log') \
             .insert({
-                'account_id': account_id,
+                'user_id': account_id,
                 'thread_id': thread_id,
                 'message_id': message_id,
                 'model': model,
@@ -238,7 +270,14 @@ async def _consume_tokens_fallback(
         remaining_credits = get_credits_from_tokens(new_remaining)
         
         logger.info(f"Consumed {tokens_used} tokens for user {account_id}. Remaining: {new_remaining} tokens ({remaining_credits} credits)")
-        
+
+        # Invalidate billing cache after successful token consumption
+        try:
+            from services.billing import invalidate_billing_cache
+            await invalidate_billing_cache(account_id)
+        except Exception as cache_error:
+            logger.debug(f"Failed to invalidate billing cache: {str(cache_error)}")
+
         return {
             'success': True,
             'tokens_consumed': tokens_used,
@@ -262,17 +301,17 @@ async def get_user_token_status(client: Client, account_id: str) -> Dict:
     """
     try:
         # Get user billing info
-        billing_result = await client.schema('basejump').table('billing_customers') \
+        billing_result = await client.table('users') \
             .select('*') \
-            .eq('account_id', account_id) \
+            .eq('id', account_id) \
             .execute()
-        
+
         if not billing_result.data:
             # Create billing record for new user
             await _create_billing_record(client, account_id)
-            billing_result = await client.schema('basejump').table('billing_customers') \
+            billing_result = await client.table('users') \
                 .select('*') \
-                .eq('account_id', account_id) \
+                .eq('id', account_id) \
                 .execute()
         
         user_billing = billing_result.data[0]
@@ -313,9 +352,9 @@ async def get_user_token_status(client: Client, account_id: str) -> Dict:
 async def reset_user_quota(client: Client, account_id: str) -> bool:
     """Reset user's quota to their plan's full amount."""
     try:
-        billing_result = await client.schema('basejump').table('billing_customers') \
+        billing_result = await client.table('users') \
             .select('plan_id') \
-            .eq('account_id', account_id) \
+            .eq('id', account_id) \
             .execute()
         
         if not billing_result.data:
@@ -329,13 +368,13 @@ async def reset_user_quota(client: Client, account_id: str) -> bool:
             return False
         
         # Reset quota and extend reset date
-        await client.schema('basejump').table('billing_customers') \
+        await client.table('users') \
             .update({
                 'token_quota_remaining': plan['token_quota'],
                 'quota_resets_at': (datetime.now() + timedelta(days=30)).isoformat(),
                 'billing_updated_at': datetime.now().isoformat()
             }) \
-            .eq('account_id', account_id) \
+            .eq('id', account_id) \
             .execute()
         
         logger.info(f"Reset quota for user {account_id} to {plan['token_quota']} tokens")
@@ -353,15 +392,15 @@ async def upgrade_user_plan(client: Client, account_id: str, new_plan_id: str) -
             raise ValueError(f"Invalid plan_id: {new_plan_id}")
         
         # Update user's plan and reset quota
-        await client.schema('basejump').table('billing_customers') \
+        await client.table('users') \
             .update({
                 'plan_id': new_plan_id,
                 'token_quota_total': plan['token_quota'],
-                'token_quota_remaining': plan['token_quota'], 
+                'token_quota_remaining': plan['token_quota'],
                 'quota_resets_at': (datetime.now() + timedelta(days=30)).isoformat(),
                 'billing_updated_at': datetime.now().isoformat()
             }) \
-            .eq('account_id', account_id) \
+            .eq('id', account_id) \
             .execute()
         
         logger.info(f"Upgraded user {account_id} to {new_plan_id} plan")
@@ -373,31 +412,30 @@ async def upgrade_user_plan(client: Client, account_id: str, new_plan_id: str) -
         raise
 
 async def _create_billing_record(client: Client, account_id: str) -> None:
-    """Create a new billing record for a user with free plan.
-    
-    NOTE: This should not normally be called since billing records are created during signup.
+    """Create a new user record with free plan.
+
+    NOTE: This should not normally be called since user records are created during signup.
     This is a fallback for edge cases.
     """
     try:
-        # Check if billing record already exists (it should from signup)
-        existing = await client.schema('basejump').table('billing_customers').select('*').eq('account_id', account_id).execute()
-        
+        # Check if user record already exists (it should from signup)
+        existing = await client.table('users').select('*').eq('id', account_id).execute()
+
         if existing.data:
-            logger.info(f"Billing record already exists for user {account_id}")
+            logger.info(f"User record already exists for user {account_id}")
             return
-        
-        logger.warning(f"Creating fallback billing record for user {account_id} - this should have been created during signup")
-        
+
+        logger.warning(f"Creating fallback user record for user {account_id} - this should have been created during signup")
+
         free_plan = get_plan_by_id('free')
-        
-        # Fallback: create billing record without email (will need manual fixing)
-        await client.schema('basejump').table('billing_customers') \
+
+        # Fallback: create user record without email (will need manual fixing)
+        await client.table('users') \
             .insert({
-                'account_id': account_id,
                 'id': account_id,
                 'email': f'missing_email_{account_id}@placeholder.com',  # Will need manual update
-                'active': True,
-                'provider': 'dodopayments',
+                'billing_active': True,
+                'provider': 'polar',
                 'plan_id': 'free',
                 'token_quota_total': free_plan['token_quota'],
                 'token_quota_remaining': free_plan['token_quota'],
@@ -405,8 +443,8 @@ async def _create_billing_record(client: Client, account_id: str) -> None:
                 'billing_updated_at': datetime.now().isoformat()
             }) \
             .execute()
-        
-        logger.warning(f"Created fallback billing record for user {account_id} - email needs to be updated manually")
+
+        logger.warning(f"Created fallback user record for user {account_id} - email needs to be updated manually")
         
     except Exception as e:
         logger.error(f"Error creating billing record for user {account_id}: {str(e)}")
@@ -431,7 +469,7 @@ async def get_token_usage_history(client: Client, account_id: str, days: int = 3
         try:
             result = await client.table('token_usage_log') \
                 .select('*, threads(project_id)') \
-                .eq('account_id', account_id) \
+                .eq('user_id', account_id) \
                 .gte('created_at', start_date.isoformat()) \
                 .lte('created_at', end_date.isoformat()) \
                 .order('created_at', desc=True) \
@@ -441,7 +479,7 @@ async def get_token_usage_history(client: Client, account_id: str, days: int = 3
             logger.warning(f"JOIN with threads table failed, falling back to basic query: {str(join_error)}")
             result = await client.table('token_usage_log') \
                 .select('*') \
-                .eq('account_id', account_id) \
+                .eq('user_id', account_id) \
                 .gte('created_at', start_date.isoformat()) \
                 .lte('created_at', end_date.isoformat()) \
                 .order('created_at', desc=True) \

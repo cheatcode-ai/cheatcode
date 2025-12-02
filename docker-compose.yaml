@@ -1,6 +1,5 @@
 services:
   api:
-    image: ghcr.io/cheatcode-ai/backend:latest
     platform: linux/amd64
     build:
       context: ./backend
@@ -8,7 +7,7 @@ services:
     ports:
       - "8000:8000"
     env_file:
-      - ./backend/.env
+      - ./backend/.env.local
     volumes:
       - ./backend:/app
       - /app/.venv
@@ -20,9 +19,8 @@ services:
     networks:
       - app-network
     environment:
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
-      - REDIS_URL=${REDIS_URL}
+      - ENV_MODE=local
+      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
     logging:
       driver: "json-file"
@@ -37,14 +35,13 @@ services:
       start_period: 40s
 
   worker:
-    image: ghcr.io/cheatcode-ai/backend:latest
     platform: linux/amd64
     build:
       context: ./backend
       dockerfile: Dockerfile
     command: uv run dramatiq --skip-logging --processes 2 --threads 4 run_agent_background
     env_file:
-      - ./backend/.env
+      - ./backend/.env.local
     volumes:
       - ./backend:/app
       - /app/.venv
@@ -56,9 +53,8 @@ services:
     networks:
       - app-network
     environment:
-      - UPSTASH_REDIS_REST_URL=${UPSTASH_REDIS_REST_URL}
-      - UPSTASH_REDIS_REST_TOKEN=${UPSTASH_REDIS_REST_TOKEN}
-      - REDIS_URL=${REDIS_URL}
+      - ENV_MODE=local
+      - REDIS_URL=redis://redis:6379
       - LOG_LEVEL=INFO
     logging:
       driver: "json-file"
@@ -74,7 +70,7 @@ services:
   redis:
     image: redis:8-alpine
     ports:
-      - "127.0.0.1:6379:6379"
+      - "127.0.0.1:6380:6379"
     volumes:
       - redis_data:/data
       - ./backend/services/docker/redis.conf:/usr/local/etc/redis/redis.conf:ro
@@ -99,13 +95,18 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      target: development
     ports:
-      - "3000:3000"
+      - "3001:3000"
     volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
       - ./frontend/.env.local:/app/.env.local:ro
     environment:
-      - NODE_ENV=production
-    command: ["npm", "run", "start"]
+      - NODE_ENV=development
+      - NEXT_PUBLIC_ENV_MODE=local
+    command: ["npm", "run", "dev"]
     depends_on:
       - api
     networks:
