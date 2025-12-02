@@ -38,7 +38,6 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
       const result = await createProfile.mutateAsync({
         toolkit_slug: toolkit.slug,
         profile_name: profileName.trim(),
-        auth_config: {},
       });
 
       // If there's a redirect URL, the OAuth popup will be opened by the hook
