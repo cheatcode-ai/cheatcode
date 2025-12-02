@@ -69,8 +69,8 @@ jobs:
             --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:latest \
             --platform=managed \
             --allow-unauthenticated \
-            --cpu=1 \
-            --memory=2Gi \
+            --cpu=2 \
+            --memory=4Gi \
             --timeout=3500 \
             --min-instances=0 \
             --max-instances=5 \
