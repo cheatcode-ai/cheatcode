@@ -688,73 +688,75 @@ export default function UpdatedComponent() {{
         except Exception as e:
             return self.fail_response(f"Error reading file: {str(e)}")
 
-    async def _call_morph_api(self, file_content: str, code_edit: str, instructions: str, file_path: str) -> Tuple[Optional[str], Optional[str]]:
+    async def _call_relace_api(self, file_content: str, code_edit: str, instructions: str, file_path: str) -> Tuple[Optional[str], Optional[str]]:
         """
-        Call Morph API to apply edits to file content.
+        Call Relace API to apply edits to file content.
         Returns a tuple (new_content, error_message).
         On success, error_message is None.
         On failure, new_content is None.
         """
+        import httpx
+
         try:
-            morph_api_key = getattr(config, 'MORPH_API_KEY', None) or os.getenv('MORPH_API_KEY')
-            openrouter_key = getattr(config, 'OPENROUTER_API_KEY', None) or os.getenv('OPENROUTER_API_KEY')
-            
-            messages = [{
-                "role": "user", 
-                "content": f"<instruction>{instructions}</instruction>\n<code>{file_content}</code>\n<update>{code_edit}</update>"
-            }]
+            relace_api_key = getattr(config, 'RELACE_API_KEY', None) or os.getenv('RELACE_API_KEY')
 
-            response = None
-            if morph_api_key:
-                logger.debug("Using direct Morph API for file editing.")
-                client = openai.AsyncOpenAI(
-                    api_key=morph_api_key,
-                    base_url="https://api.morphllm.com/v1"
-                )
-                response = await client.chat.completions.create(
-                    model="morph-v3-large",
-                    messages=messages,
-                    temperature=0.0,
-                    timeout=30.0
-                )
-            elif openrouter_key:
-                logger.debug("Morph API key not set, falling back to OpenRouter for file editing via litellm.")
-                response = await litellm.acompletion(
-                    model="openrouter/morph/morph-v3-large",
-                    messages=messages,
-                    api_key=openrouter_key,
-                    api_base="https://openrouter.ai/api/v1",
-                    temperature=0.0,
-                    timeout=30.0
-                )
-            else:
-                error_msg = "No Morph or OpenRouter API key found, cannot perform AI edit."
-                logger.warning(error_msg)
-                return None, error_msg
-            
-            if response and response.choices and len(response.choices) > 0:
-                content = response.choices[0].message.content.strip()
+            if not relace_api_key:
+                return None, "RELACE_API_KEY not configured"
 
-                # Extract code block if wrapped in markdown
-                if content.startswith("```") and content.endswith("```"):
-                    lines = content.split('\n')
-                    if len(lines) > 2:
-                        content = '\n'.join(lines[1:-1])
-                
-                return content, None
-            else:
-                error_msg = f"Invalid response from Morph/OpenRouter API: {response}"
-                logger.error(error_msg)
-                return None, error_msg
-                
+            # Use Direct REST API (more explicit response format)
+            url = "https://instantapply.endpoint.relace.run/v1/code/apply"
+
+            headers = {
+                "Authorization": f"Bearer {relace_api_key}",
+                "Content-Type": "application/json"
+            }
+
+            payload = {
+                "initial_code": file_content,
+                "edit_snippet": code_edit,
+                "instruction": instructions,
+                "model": "auto",  # Routes to relace-apply-3
+                "stream": False,
+                "relace_metadata": {
+                    "file_path": file_path,
+                    "source": "cheatcode-agent"
+                }
+            }
+
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(url, headers=headers, json=payload)
+
+                if response.status_code == 200:
+                    result = response.json()
+                    merged_code = result.get("mergedCode")
+                    usage = result.get("usage", {})
+
+                    logger.info(f"Relace API success - tokens: {usage.get('total_tokens', 'N/A')}")
+
+                    if merged_code:
+                        return merged_code, None
+                    else:
+                        return None, "Relace API returned empty mergedCode"
+
+                elif response.status_code == 429:
+                    return None, "Rate limit exceeded. Please wait and retry."
+
+                elif response.status_code == 413:
+                    return None, f"File too large for Relace API (max 50MB). File: {file_path}"
+
+                elif response.status_code in [401, 403]:
+                    return None, "Invalid or missing Relace API key"
+
+                else:
+                    error_body = response.text
+                    return None, f"Relace API error ({response.status_code}): {error_body[:500]}"
+
+        except httpx.TimeoutException:
+            return None, f"Relace API timeout after 60s for file: {file_path}"
+
         except Exception as e:
-            error_message = f"AI model call for file edit failed. Exception: {str(e)}"
-            # Try to get more details from the exception if it's an API error
-            if hasattr(e, 'response') and hasattr(e.response, 'text'):
-                error_message += f"\n\nAPI Response Body:\n{e.response.text}"
-            elif hasattr(e, 'body'): # litellm sometimes puts it in body
-                error_message += f"\n\nAPI Response Body:\n{e.body}"
-            logger.error(f"Error calling Morph/OpenRouter API: {error_message}", exc_info=True)
+            error_message = f"Relace API call failed: {str(e)}"
+            logger.error(error_message, exc_info=True)
             return None, error_message
 
     async def edit_file(self, target_file: str, instructions: str, code_edit: str) -> ToolResult:
@@ -771,9 +773,9 @@ export default function UpdatedComponent() {{
             # Read current content
             original_content = (await self.sandbox.fs.download_file(full_path)).decode()
             
-            # Try Morph AI editing first
-            logger.info(f"Attempting AI-powered edit for file '{target_file}' with instructions: {instructions[:100]}...")
-            new_content, error_message = await self._call_morph_api(original_content, code_edit, instructions, target_file)
+            # Use Relace fast-apply for intelligent code editing
+            logger.info(f"Attempting Relace fast-apply edit for file '{target_file}' with instructions: {instructions[:100]}...")
+            new_content, error_message = await self._call_relace_api(original_content, code_edit, instructions, target_file)
 
             if error_message:
                 return self.fail_response(f"AI editing failed: {error_message}")

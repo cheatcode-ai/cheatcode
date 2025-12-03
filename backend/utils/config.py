@@ -44,6 +44,7 @@ class Configuration:
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
     MORPH_API_KEY: Optional[str] = None
+    RELACE_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_API_BASE: Optional[str] = "https://openrouter.ai/api/v1"
     OR_SITE_URL: Optional[str] = "https://trycheatcode.com"
