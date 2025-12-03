@@ -17,12 +17,10 @@ import {
   DialogTitle,
   DialogDescription,
 } from '@/components/ui/dialog';
-import { useComposioToolkits, useCreateComposioProfile } from '@/hooks/react-query/composio';
+import { useComposioToolkits } from '@/hooks/react-query/composio';
 import { useComposioProfiles } from '@/hooks/react-query/composio/use-composio-profiles';
-import { ComposioToolSelector } from './composio-tool-selector';
 import { ComposioConnectButton } from './composio-connect-button';
 import { toast } from 'sonner';
-import { cn } from '@/lib/utils';
 import type { ComposioProfile, ComposioToolkit } from '@/types/composio-profiles';
 import { useQueryClient } from '@tanstack/react-query';
 import { composioKeys } from '@/hooks/react-query/composio/keys';
@@ -43,8 +41,6 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
 }) => {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [showToolSelector, setShowToolSelector] = useState(false);
-  const [selectedProfile, setSelectedProfile] = useState<ComposioProfile | null>(null);
   const [showConnectDialog, setShowConnectDialog] = useState(false);
   const [selectedToolkit, setSelectedToolkit] = useState<ComposioToolkit | null>(null);
 
@@ -79,22 +75,20 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
     const profile = profiles?.find((p) => p.profile_id === profileId);
     if (!profile) return;
 
-    setSelectedProfile(profile);
-    setShowToolSelector(true);
+    // Skip tool selection - use all tools from the MCP server directly
+    // The MCP server exposes all available tools automatically
     onProfileSelected?.(profile);
-  };
 
-  const handleToolsSelected = (selectedTools: string[]) => {
-    if (selectedProfile && onToolsSelected) {
+    if (onToolsSelected) {
+      // Pass empty array for tools - the MCP server will provide all tools
+      // enabled_tools being empty means "use all available tools"
       onToolsSelected(
-        selectedProfile.profile_id,
-        selectedTools,
-        selectedProfile.display_name || selectedProfile.profile_name,
-        selectedProfile.toolkit_slug
+        profile.profile_id,
+        profile.enabled_tools || [], // Use profile's enabled tools or all if empty
+        profile.display_name || profile.profile_name,
+        profile.toolkit_slug
       );
-      setShowToolSelector(false);
-      setSelectedProfile(null);
-      toast.success(`Added ${selectedTools.length} tools from ${selectedProfile.profile_name}!`);
+      toast.success(`Added ${toolkit.name} integration!`);
     }
   };
 
@@ -305,20 +299,6 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
           )}
         </div>
       </div>
-
-      {/* Tool Selector Dialog */}
-      <Dialog open={showToolSelector} onOpenChange={setShowToolSelector}>
-        <DialogContent className="max-w-3xl">
-          <DialogHeader>
-            <DialogTitle>Select Tools for {selectedProfile?.profile_name}</DialogTitle>
-          </DialogHeader>
-          <ComposioToolSelector
-            toolkitSlug={selectedProfile?.toolkit_slug || ''}
-            profile={selectedProfile}
-            onToolsSelected={handleToolsSelected}
-          />
-        </DialogContent>
-      </Dialog>
 
       {/* Connect Dialog */}
       <Dialog open={showConnectDialog} onOpenChange={setShowConnectDialog}>

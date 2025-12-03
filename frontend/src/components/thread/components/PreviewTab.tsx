@@ -18,6 +18,7 @@ interface PreviewTabProps {
   agentStatus: string;
   appType?: string;
   selectedPlatform?: 'ios' | 'android';
+  expoUrl?: string | null;
   onUrlSubmit: (e: React.FormEvent) => void;
   onIframeLoad: () => void;
   onIframeError: () => void;
@@ -25,6 +26,7 @@ interface PreviewTabProps {
   onOpenInNewTab: () => void;
   onCycleView: () => void;
   setIframeRef?: (ref: HTMLIFrameElement | null) => void;
+  onRefreshExpoUrl?: () => void;
 }
 
 export const PreviewTab: React.FC<PreviewTabProps> = ({
@@ -41,13 +43,15 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   agentStatus,
   appType,
   selectedPlatform = 'ios',
+  expoUrl,
   onUrlSubmit,
   onIframeLoad,
   onIframeError,
   onRefresh,
   onOpenInNewTab,
   onCycleView,
-  setIframeRef
+  setIframeRef,
+  onRefreshExpoUrl
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -74,6 +78,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         devServerStatus={devServerStatus}
         agentStatus={agentStatus}
         selectedPlatform={selectedPlatform}
+        expoUrl={expoUrl}
         onUrlSubmit={onUrlSubmit}
         onIframeLoad={onIframeLoad}
         onIframeError={onIframeError}
@@ -81,6 +86,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         onOpenInNewTab={onOpenInNewTab}
         onCycleView={onCycleView}
         setIframeRef={setIframeRef}
+        onRefreshExpoUrl={onRefreshExpoUrl}
       />
     );
   }

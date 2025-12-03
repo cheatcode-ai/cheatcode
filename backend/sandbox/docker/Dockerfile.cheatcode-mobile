@@ -1,88 +1,97 @@
+# ================================================================== #
+#        Cheatcode Mobile App Sandbox - Expo/React Native            #
+#        Optimized for AI Agent Coding                               #
+# ================================================================== #
+
 FROM node:20-alpine AS build
 
-# ---------- Expo React Native Mobile App Development Environment ----------
-# This Dockerfile creates a sandbox for building mobile apps with Expo Router
-# Template: cheatcode-mobile (React Native + NativeWind + Expo Router)
+# ---------- Build arguments ----------
+ARG PNPM_VERSION=9.15.0
+ARG TEMPLATE_REPO="https://github.com/iamjr15/cheatcode-mobile.git"
+ARG TEMPLATE_REF="master"
 
-# ---------- Build arguments & environment ----------
-ARG PNPM_VERSION=9.2.0
+# ---------- Environment ----------
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV PNPM_STORE_PATH="/pnpm/store/v3"
 
-# ---------- Build dependencies ----------
-RUN apk add --no-cache git curl
-
-# ---------- Corepack / pnpm ----------
-RUN corepack enable \
+# ---------- Install build dependencies & setup pnpm ----------
+RUN apk add --no-cache git curl bash \
+    && corepack enable \
     && corepack prepare "pnpm@$PNPM_VERSION" --activate
 
 # ---------- Workdir ----------
 WORKDIR /workspace/cheatcode-mobile
 
-# ---------- Fetch cheatcode-mobile template & install deps ----------
-ARG TEMPLATE_REPO="https://github.com/iamjr15/cheatcode-mobile.git"
-ARG TEMPLATE_REF="master"
-
-# Clone only the template (shallow) and install dependencies
+# ---------- Clone template and install dependencies ----------
 RUN git clone --depth 1 --branch "$TEMPLATE_REF" "$TEMPLATE_REPO" . \
-    && rm -rf .git \
     && pnpm install \
-    && npm install -g @expo/cli @expo/ngrok@^4.1.0 \
-    && npx --yes expo install --fix \
     && pnpm store prune \
     && rm -rf /root/.npm /root/.cache
 
-# ---------- Supabase CLI (static binary) ----------
-RUN curl -fsSL https://github.com/supabase/cli/releases/latest/download/supabase_linux_amd64.tar.gz \
-    | tar -xz -C /usr/local/bin/ supabase
+# ---------- Install Expo CLI and global tools ----------
+RUN npm install -g @expo/cli expo-doctor eas-cli typescript@5
 
 # ================================================================== #
-#                     Runtime (slim)  Stage                          #
+#                     Runtime Stage                                   #
 # ================================================================== #
 FROM node:20-alpine AS runtime
 
-# ---------- Minimal runtime utilities ----------
-RUN apk add --no-cache git bash \
-    && echo 'install_if !documentation' >> /etc/apk/world
+# ---------- Labels for image tracking ----------
+LABEL org.opencontainers.image.title="Cheatcode Mobile Sandbox"
+LABEL org.opencontainers.image.description="Expo/React Native development environment for AI agent coding"
+LABEL org.opencontainers.image.version="2.0.0"
 
-# ---------- Environment variables for pnpm ----------
+# ---------- Build arguments ----------
+ARG PNPM_VERSION=9.15.0
+
+# ---------- Environment variables ----------
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 ENV PNPM_STORE_PATH="/pnpm/store/v3"
+ENV NODE_ENV="development"
+ENV EXPO_NO_TELEMETRY=1
+ENV CI=1
 
-# ---------- Enable corepack in runtime stage ----------
-RUN corepack enable
+# ---------- Install runtime dependencies & setup pnpm ----------
+RUN apk add --no-cache git bash curl \
+    && corepack enable \
+    && corepack prepare "pnpm@$PNPM_VERSION" --activate
 
 # ---------- Workdir & PATH ----------
 WORKDIR /workspace/cheatcode-mobile
 ENV PATH="/workspace/cheatcode-mobile/node_modules/.bin:$PNPM_HOME:$PATH"
 
-# ---------- Copy ready-to-run app ----------
+# ---------- Copy application and pnpm store from build stage ----------
 COPY --from=build /workspace/cheatcode-mobile /workspace/cheatcode-mobile
-COPY --from=build /usr/local/bin/supabase /usr/local/bin/supabase
 COPY --from=build /pnpm /pnpm
+COPY --from=build /usr/local/lib/node_modules /usr/local/lib/node_modules
+COPY --from=build /usr/local/bin /usr/local/bin
 
-# ---------- Copy corepack and pnpm setup from build stage ----------
-# Copy the corepack binary and its configuration
-COPY --from=build /usr/local/bin/corepack /usr/local/bin/corepack
-
-# Copy pnpm setup from build stage (optional files)
-RUN mkdir -p /usr/local/lib/node_modules
-
-# ---------- Prepare pnpm in runtime (fallback) ----------
-ARG PNPM_VERSION=9.2.0
-RUN corepack prepare "pnpm@$PNPM_VERSION" --activate || echo "pnpm already prepared"
-
-# ---------- Fix pnpm store location ----------
-# Ensure pnpm store directory exists and is properly configured
+# ---------- Configure pnpm store ----------
 RUN mkdir -p /pnpm/store/v3 \
     && pnpm config set store-dir /pnpm/store/v3 \
     && pnpm config set package-import-method copy
 
-# ---------- Exposed dev ports ----------
-# 8081: Expo Metro bundler, 19000: Expo DevTools, 19001: Expo tunnel
-EXPOSE 8081 19000 19001
+# ---------- Initialize git for agent version control ----------
+RUN git config --global user.email "agent@cheatcode.dev" \
+    && git config --global user.name "Cheatcode Agent" \
+    && git config --global init.defaultBranch main \
+    && rm -rf .git \
+    && git init \
+    && git add -A \
+    && git commit -m "Initial template state"
 
-# ---------- Default command ----------
-ENTRYPOINT ["sleep", "infinity"] 
+# ---------- Exposed dev ports ----------
+# 8081: Metro bundler
+# 19000: Expo DevTools
+# 19001: Expo tunnel
+# 19002: Expo web
+EXPOSE 8081 19000 19001 19002
+
+# ---------- Health check ----------
+HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
+    CMD node -e "console.log('healthy')" || exit 1
+
+# ---------- Default command (keeps container running) ----------
+ENTRYPOINT ["sleep", "infinity"]

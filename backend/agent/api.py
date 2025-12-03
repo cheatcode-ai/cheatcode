@@ -181,7 +181,6 @@ async def cleanup():
 
 
 
-
 async def get_agent_run_with_access_check(client, agent_run_id: str, user_id: str):
     agent_run = await client.table('agent_runs').select('*').eq('run_id', agent_run_id).execute()
     if not agent_run.data:

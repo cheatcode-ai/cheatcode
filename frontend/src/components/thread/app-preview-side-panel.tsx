@@ -387,6 +387,7 @@ export function AppPreviewSidePanel({
                 agentStatus={agentStatus}
                 appType={project?.app_type}
                 selectedPlatform={selectedPlatform}
+                expoUrl={devServer.expoUrl}
                 onUrlSubmit={previewUrl.handleUrlSubmit}
                 onIframeLoad={previewUrl.handleIframeLoad}
                 onIframeError={previewUrl.handleIframeError}
@@ -394,6 +395,7 @@ export function AppPreviewSidePanel({
                 onOpenInNewTab={previewUrl.openInNewTab}
                 onCycleView={previewUrl.cycleView}
                 setIframeRef={previewUrl.setIframeRef}
+                onRefreshExpoUrl={devServer.fetchExpoUrl}
               />
             )}
           </TabsContent>

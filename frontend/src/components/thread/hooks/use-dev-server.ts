@@ -17,12 +17,13 @@ export const useDevServer = ({
   isPreviewTabActive = false,
   appType = 'web',
   previewUrl,
-  autoStart = true,
+  autoStart = true, // Frontend handles auto-starting dev server for faster response
   onPreviewUrlRetry
 }: UseDevServerProps) => {
   const [status, setStatus] = useState<DevServerStatus>('stopped');
   const [error, setError] = useState<string | null>(null);
   const [isStarting, setIsStarting] = useState(false);
+  const [expoUrl, setExpoUrl] = useState<string | null>(null); // Expo tunnel URL for QR code
   const { getToken } = useAuth();
 
   // Use refs to prevent duplicate operations
@@ -33,6 +34,7 @@ export const useDevServer = ({
   const eventSourceRef = useRef<EventSource | null>(null);
   const useSSE = useRef(true); // Feature flag for SSE vs polling
   const hasAutoStarted = useRef(false); // Prevent repeated auto-starts
+  const lastSandboxId = useRef<string | undefined>(undefined); // Track sandbox changes
 
   const checkStatus = useCallback(async (previewUrl?: string) => {
     if (!sandboxId || statusCheckInProgress.current) return;
@@ -111,22 +113,34 @@ export const useDevServer = ({
   }, [sandboxId, getToken, appType, status, isStarting, onPreviewUrlRetry]);
 
   const start = useCallback(async () => {
-    if (!sandboxId || startInProgress.current) return;
-    
+    console.log(`[${appType.toUpperCase()} DEV SERVER] start() called`, { sandboxId, startInProgress: startInProgress.current });
+
+    if (!sandboxId || startInProgress.current) {
+      console.log(`[${appType.toUpperCase()} DEV SERVER] start() aborted:`, { sandboxId: !!sandboxId, startInProgress: startInProgress.current });
+      return;
+    }
+
     startInProgress.current = true;
-    
+
     try {
       setStatus('starting');
       setIsStarting(true);
       setError(null);
-      
+
       const token = await getToken();
       if (!token) {
+        console.log(`[${appType.toUpperCase()} DEV SERVER] No auth token`);
         setError('Authentication required');
         setStatus('stopped');
         setIsStarting(false);
         return;
       }
+
+      const command = appType === 'mobile'
+        ? "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 4 --tunnel"
+        : "cd /workspace/cheatcode-app && pnpm dev";
+
+      console.log(`[${appType.toUpperCase()} DEV SERVER] Sending start command:`, command);
 
       const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
         method: 'POST',
@@ -135,9 +149,7 @@ export const useDevServer = ({
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          command: appType === 'mobile' 
-            ? "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 2 --tunnel"
-            : "cd /workspace/cheatcode-app && npm run dev",
+          command,
           session_name: `dev_server_${appType}`, // Fixed: Use app-specific session names
           blocking: false,
           cwd: appType === 'mobile' ? "/workspace/cheatcode-mobile" : "/workspace/cheatcode-app"
@@ -165,23 +177,25 @@ export const useDevServer = ({
                 if (appType === 'mobile') {
                   console.log('[MOBILE SESSION] Session status:', sessionStatus);
                   sessionStatus.commands?.forEach((cmd: any, index: number) => {
-                    if (cmd.logs) {
-                      console.log(`[MOBILE SESSION] Command ${index} logs:`, cmd.logs.substring(0, 200));
+                    const logs = typeof cmd.logs === 'string' ? cmd.logs : '';
+                    if (logs) {
+                      console.log(`[MOBILE SESSION] Command ${index} logs:`, logs.substring(0, 200));
                     }
                   });
                 }
-                
+
                 const hasStartupLogs = sessionStatus.commands?.some((cmd: any) => {
+                  const logs = typeof cmd.logs === 'string' ? cmd.logs : '';
                   if (appType === 'mobile') {
-                    return cmd.logs?.includes('Metro waiting on') || 
-                           cmd.logs?.includes('Tunnel ready') || 
-                           cmd.logs?.includes('Your app is ready') ||
-                           cmd.logs?.includes('ready') || 
-                           cmd.logs?.includes('Metro') || 
-                           cmd.logs?.includes('8081') || 
-                           cmd.logs?.includes('Expo');
+                    return logs.includes('Metro waiting on') ||
+                           logs.includes('Tunnel ready') ||
+                           logs.includes('Your app is ready') ||
+                           logs.includes('ready') ||
+                           logs.includes('Metro') ||
+                           logs.includes('8081') ||
+                           logs.includes('Expo');
                   } else {
-                    return cmd.logs?.includes('ready') || cmd.logs?.includes('Local:') || cmd.logs?.includes('3000');
+                    return logs.includes('ready') || logs.includes('Local:') || logs.includes('3000');
                   }
                 });
                 
@@ -220,36 +234,29 @@ export const useDevServer = ({
 
 
   // Auto-start dev server ONCE when sandbox is available (not tied to preview tab)
-  // Uses hasAutoStarted ref to prevent repeated auto-starts from status polling
+  // This effect MUST run before status check to prevent race conditions
   useEffect(() => {
-    // Only auto-start if:
-    // - We have a sandboxId
-    // - autoStart is enabled
-    // - Status is 'stopped'
-    // - Not currently starting
-    // - Haven't already auto-started (prevents restart loop)
-    if (sandboxId && autoStart && status === 'stopped' && !isStarting && !hasAutoStarted.current) {
-      // Clear any existing timeout
-      if (autoStartTimeoutRef.current) {
-        clearTimeout(autoStartTimeoutRef.current);
-      }
+    // Reset hasAutoStarted when sandboxId changes (inline to avoid race condition)
+    if (sandboxId && sandboxId !== lastSandboxId.current) {
+      console.log(`[${appType.toUpperCase()} DEV SERVER] Sandbox changed from ${lastSandboxId.current} to ${sandboxId}, resetting auto-start flag`);
+      lastSandboxId.current = sandboxId;
+      hasAutoStarted.current = false;
 
-      // Start dev server after a brief delay to ensure sandbox is fully ready
-      autoStartTimeoutRef.current = setTimeout(() => {
-        if (status === 'stopped' && !isStarting && !hasAutoStarted.current) {
-          console.log(`[${appType.toUpperCase()} DEV SERVER] Auto-starting dev server for sandbox ${sandboxId}`);
-          hasAutoStarted.current = true; // Mark as auto-started to prevent repeat
+      // Immediately trigger auto-start for new sandbox (don't wait for status check)
+      if (autoStart && !startInProgress.current) {
+        console.log(`[${appType.toUpperCase()} DEV SERVER] Immediate auto-start for new sandbox ${sandboxId}`);
+        hasAutoStarted.current = true;
+
+        // Call start() directly - no timeout needed since sandbox should be ready
+        // Using queueMicrotask to ensure state updates have settled
+        queueMicrotask(() => {
+          console.log(`[${appType.toUpperCase()} DEV SERVER] Executing auto-start for sandbox ${sandboxId}`);
           start();
-        }
-      }, 3000); // 3 second delay for sandbox initialization
-
-      return () => {
-        if (autoStartTimeoutRef.current) {
-          clearTimeout(autoStartTimeoutRef.current);
-        }
-      };
+        });
+      }
     }
-  }, [sandboxId, autoStart, status, isStarting, start, appType]);
+    // NOTE: No cleanup - we don't want React re-renders to cancel the auto-start
+  }, [sandboxId, autoStart, start, appType]);
   
   // Connect to SSE stream for real-time dev server status updates
   // Falls back to polling if SSE is not available or fails
@@ -333,6 +340,9 @@ export const useDevServer = ({
                     if (!previewUrl && onPreviewUrlRetry) {
                       onPreviewUrlRetry();
                     }
+                  } else if (data.type === 'expo_url' && data.url) {
+                    console.log('[DEV SERVER SSE] Expo URL received:', data.url);
+                    setExpoUrl(data.url);
                   } else if (data.type === 'error') {
                     // Log backend errors but don't alarm users with transient issues
                     console.warn('[DEV SERVER SSE] Backend error:', data.message);
@@ -367,11 +377,23 @@ export const useDevServer = ({
   }, [sandboxId, appType, getToken, previewUrl, onPreviewUrlRetry]);
 
   // Use SSE when starting, fall back to minimal polling when running
+  // NOTE: Don't run initial checkStatus immediately - let auto-start run first
   useEffect(() => {
     if (!sandboxId) return;
 
-    // Initial status check
-    checkStatus(previewUrl);
+    // Don't run status check if auto-start is pending (within first 2 seconds)
+    // This prevents race condition where checkStatus sets status='running' before auto-start fires
+    if (hasAutoStarted.current || isStarting) {
+      // Auto-start in progress, skip immediate check but still set up polling
+      console.log(`[${appType.toUpperCase()} DEV SERVER] Skipping initial status check, auto-start in progress`);
+    } else {
+      // Delayed initial status check (after auto-start would have triggered)
+      setTimeout(() => {
+        if (!hasAutoStarted.current && !isStarting) {
+          checkStatus(previewUrl);
+        }
+      }, 2000);
+    }
 
     // Connect SSE when dev server is starting
     if (status === 'starting' && useSSE.current) {
@@ -402,12 +424,7 @@ export const useDevServer = ({
         pollingIntervalRef.current = null;
       }
     };
-  }, [sandboxId, checkStatus, previewUrl, status, connectSSE]);
-
-  // Reset hasAutoStarted when sandboxId changes (new project)
-  useEffect(() => {
-    hasAutoStarted.current = false;
-  }, [sandboxId]);
+  }, [sandboxId, checkStatus, previewUrl, status, connectSSE, isStarting, appType]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -424,6 +441,101 @@ export const useDevServer = ({
     };
   }, []);
 
+  // Track expo URL fetch attempts for retry logic
+  const expoUrlFetchAttemptsRef = useRef(0);
+  const expoUrlPollingRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Fetch Expo URL from backend (fallback for when SSE doesn't provide it)
+  // Includes retry logic since tunnel takes time to establish
+  const fetchExpoUrl = useCallback(async (retryCount = 0): Promise<boolean> => {
+    if (!sandboxId || appType !== 'mobile') return false;
+
+    try {
+      const token = await getToken();
+      if (!token) return false;
+
+      console.log(`[DEV SERVER] Fetching Expo URL (attempt ${retryCount + 1})`);
+
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/expo-url`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        console.log('[DEV SERVER] Expo URL response:', data);
+        if (data.expo_url) {
+          console.log('[DEV SERVER] Fetched Expo URL:', data.expo_url);
+          setExpoUrl(data.expo_url);
+          // Stop polling when URL is found
+          if (expoUrlPollingRef.current) {
+            clearInterval(expoUrlPollingRef.current);
+            expoUrlPollingRef.current = null;
+          }
+          return true;
+        } else {
+          console.log('[DEV SERVER] Expo URL not ready yet, status:', data.status);
+        }
+      }
+    } catch (error) {
+      console.warn('[DEV SERVER] Failed to fetch Expo URL:', error);
+    }
+    return false;
+  }, [sandboxId, appType, getToken]);
+
+  // Start polling for Expo URL with retry logic
+  const startExpoUrlPolling = useCallback(() => {
+    // Don't start if already polling or already have URL
+    if (expoUrlPollingRef.current || expoUrl) return;
+
+    console.log('[DEV SERVER] Starting Expo URL polling');
+    expoUrlFetchAttemptsRef.current = 0;
+
+    // Poll every 3 seconds for up to 60 seconds (20 attempts)
+    expoUrlPollingRef.current = setInterval(async () => {
+      expoUrlFetchAttemptsRef.current += 1;
+      console.log(`[DEV SERVER] Expo URL poll attempt ${expoUrlFetchAttemptsRef.current}`);
+
+      const found = await fetchExpoUrl(expoUrlFetchAttemptsRef.current);
+
+      // Stop after 20 attempts or if found
+      if (found || expoUrlFetchAttemptsRef.current >= 20) {
+        if (expoUrlPollingRef.current) {
+          clearInterval(expoUrlPollingRef.current);
+          expoUrlPollingRef.current = null;
+        }
+        if (!found) {
+          console.log('[DEV SERVER] Gave up polling for Expo URL after 20 attempts');
+        }
+      }
+    }, 3000);
+  }, [fetchExpoUrl, expoUrl]);
+
+  // Start polling for Expo URL when dev server is running OR when preview URL is available
+  // This ensures we fetch the expo URL even if status detection is delayed
+  useEffect(() => {
+    if (appType === 'mobile' && !expoUrl && (status === 'running' || previewUrl)) {
+      // Delay a bit to give the tunnel time to establish, then start polling
+      const timeout = setTimeout(() => {
+        console.log('[DEV SERVER] Starting Expo URL polling for mobile project, status:', status, 'previewUrl:', !!previewUrl);
+        startExpoUrlPolling();
+      }, previewUrl ? 1000 : 3000); // Shorter delay if preview already available
+      return () => clearTimeout(timeout);
+    }
+  }, [status, appType, expoUrl, startExpoUrlPolling, previewUrl]);
+
+  // Cleanup expo URL polling on unmount
+  useEffect(() => {
+    return () => {
+      if (expoUrlPollingRef.current) {
+        clearInterval(expoUrlPollingRef.current);
+        expoUrlPollingRef.current = null;
+      }
+    };
+  }, []);
+
   return {
     status,
     error,
@@ -432,6 +544,9 @@ export const useDevServer = ({
     checkStatus: () => checkStatus(previewUrl),
     // Additional utilities for better dev server management
     isRunning: status === 'running',
-    canStart: status === 'stopped' && !isStarting
+    canStart: status === 'stopped' && !isStarting,
+    // Expo URL for QR code (mobile only)
+    expoUrl,
+    fetchExpoUrl
   };
 }; 

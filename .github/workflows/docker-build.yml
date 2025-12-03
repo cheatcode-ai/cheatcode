@@ -69,13 +69,15 @@ jobs:
             --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:latest \
             --platform=managed \
             --allow-unauthenticated \
-            --cpu=2 \
-            --memory=4Gi \
+            --cpu=1 \
+            --memory=2Gi \
             --timeout=3500 \
             --min-instances=0 \
-            --max-instances=5 \
+            --max-instances=10 \
             --cpu-throttling \
-            --vpc-connector=cheatcode-connector \
+            --cpu-boost \
+            --network=default \
+            --subnet=default \
             --vpc-egress=private-ranges-only \
             --service-account=cheatcode-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-secrets="REDIS_URL=REDIS_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_DOMAIN=CLERK_DOMAIN:latest,POLAR_ACCESS_TOKEN=POLAR_ACCESS_TOKEN:latest,POLAR_ORGANIZATION_ID=POLAR_ORGANIZATION_ID:latest,POLAR_PRODUCT_ID_PRO=POLAR_PRODUCT_ID_PRO:latest,POLAR_PRODUCT_ID_PREMIUM=POLAR_PRODUCT_ID_PREMIUM:latest,POLAR_PRODUCT_ID_BYOK=POLAR_PRODUCT_ID_BYOK:latest,DAYTONA_API_KEY=DAYTONA_API_KEY:latest,DAYTONA_SERVER_URL=DAYTONA_SERVER_URL:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,FIRECRAWL_API_KEY=FIRECRAWL_API_KEY:latest,LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest,MCP_CREDENTIAL_ENCRYPTION_KEY=MCP_CREDENTIAL_ENCRYPTION_KEY:latest,COMPOSIO_API_KEY=COMPOSIO_API_KEY:latest,FREESTYLE_API_KEY=FREESTYLE_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,MORPH_API_KEY=MORPH_API_KEY:latest" \
@@ -95,7 +97,9 @@ jobs:
             --min-instances=1 \
             --max-instances=3 \
             --no-cpu-throttling \
-            --vpc-connector=cheatcode-connector \
+            --cpu-boost \
+            --network=default \
+            --subnet=default \
             --vpc-egress=private-ranges-only \
             --service-account=cheatcode-api@${{ env.PROJECT_ID }}.iam.gserviceaccount.com \
             --set-secrets="REDIS_URL=REDIS_URL:latest,ANTHROPIC_API_KEY=ANTHROPIC_API_KEY:latest,OPENAI_API_KEY=OPENAI_API_KEY:latest,OPENROUTER_API_KEY=OPENROUTER_API_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_ANON_KEY=SUPABASE_ANON_KEY:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,CLERK_SECRET_KEY=CLERK_SECRET_KEY:latest,CLERK_DOMAIN=CLERK_DOMAIN:latest,POLAR_ACCESS_TOKEN=POLAR_ACCESS_TOKEN:latest,POLAR_ORGANIZATION_ID=POLAR_ORGANIZATION_ID:latest,POLAR_PRODUCT_ID_PRO=POLAR_PRODUCT_ID_PRO:latest,POLAR_PRODUCT_ID_PREMIUM=POLAR_PRODUCT_ID_PREMIUM:latest,POLAR_PRODUCT_ID_BYOK=POLAR_PRODUCT_ID_BYOK:latest,DAYTONA_API_KEY=DAYTONA_API_KEY:latest,DAYTONA_SERVER_URL=DAYTONA_SERVER_URL:latest,TAVILY_API_KEY=TAVILY_API_KEY:latest,FIRECRAWL_API_KEY=FIRECRAWL_API_KEY:latest,LANGFUSE_PUBLIC_KEY=LANGFUSE_PUBLIC_KEY:latest,LANGFUSE_SECRET_KEY=LANGFUSE_SECRET_KEY:latest,MCP_CREDENTIAL_ENCRYPTION_KEY=MCP_CREDENTIAL_ENCRYPTION_KEY:latest,COMPOSIO_API_KEY=COMPOSIO_API_KEY:latest,FREESTYLE_API_KEY=FREESTYLE_API_KEY:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest,MORPH_API_KEY=MORPH_API_KEY:latest" \

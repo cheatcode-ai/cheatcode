@@ -15,6 +15,7 @@ from sandbox.sandbox import get_or_start_sandbox, get_sandbox, delete_sandbox
 from utils.logger import logger
 from utils.auth_utils import get_optional_user_id
 from services.supabase import DBConnection
+from utils.qr_extractor import extract_expo_url
 
 # Preview proxy URL - removes Daytona warning page
 PREVIEW_PROXY_URL = os.environ.get('PREVIEW_PROXY_URL', 'https://preview.trycheatcode.com')
@@ -1095,6 +1096,146 @@ async def get_sandbox_preview_url(
 # Complex proxy endpoint removed - replaced with simple preview URL endpoint above
 
 
+@router.get("/sandboxes/{sandbox_id}/expo-url")
+async def get_expo_url(
+    sandbox_id: str,
+    user_id: str = Depends(get_optional_user_id)
+):
+    """
+    Get the Expo URL for a mobile sandbox using Daytona's deterministic preview links.
+
+    This endpoint uses Daytona's get_preview_link() API to generate a deterministic
+    exp:// URL that Expo Go can use to connect to the Metro bundler. This approach
+    is more reliable than parsing terminal logs for tunnel URLs.
+
+    The URL format is: exp://{port}-{sandbox_id}.{daytona_domain}
+    """
+    if not db:
+        raise HTTPException(status_code=500, detail="Database not initialized")
+
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Authentication required")
+
+    client = await db.client
+
+    # Verify the user has access to this sandbox
+    await verify_sandbox_access(client, sandbox_id, user_id)
+
+    try:
+        # Verify this is a mobile project
+        project_result = await client.table('projects').select('app_type').filter('sandbox->>id', 'eq', sandbox_id).execute()
+        if not project_result.data:
+            raise HTTPException(status_code=404, detail="Project not found for sandbox")
+
+        app_type = project_result.data[0].get('app_type', 'web')
+
+        if app_type != 'mobile':
+            return {
+                "expo_url": None,
+                "status": "not_mobile_project",
+                "message": "This endpoint is only available for mobile projects"
+            }
+
+        # Get sandbox (don't start if stopped - just check current state)
+        sandbox = await get_sandbox_by_id_safely(client, sandbox_id, start_if_stopped=False)
+
+        if not sandbox:
+            return {
+                "expo_url": None,
+                "status": "sandbox_not_running"
+            }
+
+        # DETERMINISTIC APPROACH: Use Daytona's get_preview_link API
+        # This returns a URL based on sandbox ID - no log parsing needed!
+        # Metro bundler runs on port 8081 for Expo apps
+        METRO_PORT = 8081
+
+        try:
+            # Get the deterministic preview link from Daytona
+            preview_info = await sandbox.get_preview_link(METRO_PORT)
+            daytona_url = preview_info.url if hasattr(preview_info, 'url') else str(preview_info)
+
+            logger.info(f"[EXPO URL] Got Daytona preview URL for port {METRO_PORT}: {daytona_url}")
+
+            if daytona_url:
+                # Convert HTTPS URL to exp:// URL for Expo Go
+                # Daytona URL format: https://8081-{sandbox_id}.{domain}
+                # Expo Go URL format: exp://8081-{sandbox_id}.{domain}
+                if daytona_url.startswith('https://'):
+                    expo_url = daytona_url.replace('https://', 'exp://', 1)
+                elif daytona_url.startswith('http://'):
+                    expo_url = daytona_url.replace('http://', 'exp://', 1)
+                else:
+                    expo_url = f"exp://{daytona_url}"
+
+                # Remove any trailing slashes
+                expo_url = expo_url.rstrip('/')
+
+                logger.info(f"[EXPO URL] Deterministic Expo URL for sandbox {sandbox_id}: {expo_url}")
+
+                return {
+                    "expo_url": expo_url,
+                    "daytona_url": daytona_url,  # Include original URL for debugging
+                    "status": "available",
+                    "method": "daytona_preview_link"  # Indicate which method was used
+                }
+
+        except Exception as preview_error:
+            logger.warning(f"[EXPO URL] Failed to get Daytona preview link: {preview_error}")
+            # Fall through to legacy log parsing method
+
+        # FALLBACK: Try legacy log parsing if Daytona preview link fails
+        # This handles cases where the Expo tunnel might have a different URL
+        logger.info(f"[EXPO URL] Falling back to log parsing method for sandbox {sandbox_id}")
+
+        try:
+            # Try to extract exp.direct URL from tmux session (Expo's tunnel format)
+            extract_cmd = """
+            # Check for exp.direct URL in Metro output (Expo's tunnel domain)
+            if command -v tmux &> /dev/null && tmux has-session -t dev_server_mobile 2>/dev/null; then
+                TMUX_OUTPUT=$(tmux capture-pane -t dev_server_mobile -p -S -200 2>/dev/null)
+                # Look for exp.direct URL pattern
+                EXP_URL=$(echo "$TMUX_OUTPUT" | grep -oE 'exp://[a-zA-Z0-9-]+\.exp\.direct' | tail -1)
+                if [ -n "$EXP_URL" ]; then
+                    echo "$EXP_URL"
+                    exit 0
+                fi
+                # Also check for exp.direct with port suffix
+                EXP_URL=$(echo "$TMUX_OUTPUT" | grep -oE 'exp://[a-zA-Z0-9-]+-[0-9]+\.exp\.direct' | tail -1)
+                if [ -n "$EXP_URL" ]; then
+                    echo "$EXP_URL"
+                    exit 0
+                fi
+            fi
+            echo ""
+            """
+
+            result = await sandbox.process.exec(extract_cmd, timeout=10)
+
+            if result and hasattr(result, 'result') and result.result:
+                output = result.result.strip()
+                if output and output.startswith('exp://'):
+                    logger.info(f"[EXPO URL] Found Expo tunnel URL from logs: {output}")
+                    return {
+                        "expo_url": output,
+                        "status": "available",
+                        "method": "log_parsing"
+                    }
+
+        except Exception as log_error:
+            logger.warning(f"[EXPO URL] Log parsing fallback failed: {log_error}")
+
+        return {
+            "expo_url": None,
+            "status": "not_ready",
+            "message": "Expo URL not yet available. The dev server may still be starting."
+        }
+
+    except Exception as e:
+        logger.error(f"Error getting Expo URL for sandbox {sandbox_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error getting Expo URL: {str(e)}")
+
+
 @router.get("/sandboxes/{sandbox_id}/dev-server/stream")
 async def stream_dev_server_status(
     sandbox_id: str,
@@ -1158,10 +1299,11 @@ async def stream_dev_server_status(
                 # Stream logs using Daytona's async log streaming
                 server_ready = False
                 log_buffer = []
+                expo_url_found = None  # Track if we've found an Expo URL
 
                 async def on_log_chunk(chunk: str):
                     """Callback for real-time log chunks."""
-                    nonlocal server_ready, log_buffer
+                    nonlocal server_ready, log_buffer, expo_url_found
                     log_buffer.append(chunk)
 
                     # Check if any ready pattern is in the logs
@@ -1170,6 +1312,13 @@ async def stream_dev_server_status(
                         if pattern.lower() in combined_logs.lower():
                             server_ready = True
                             break
+
+                    # For mobile apps, also try to extract the Expo URL from logs
+                    if app_type == 'mobile' and expo_url_found is None:
+                        extracted_url = extract_expo_url(combined_logs)
+                        if extracted_url:
+                            expo_url_found = extracted_url
+                            logger.info(f"Extracted Expo URL from logs: {extracted_url}")
 
                 # Start streaming logs asynchronously
                 try:
@@ -1204,6 +1353,11 @@ async def stream_dev_server_status(
                                 yield f"data: {json.dumps({'type': 'preview_url', 'url': url})}\n\n"
                             except Exception:
                                 pass
+
+                            # For mobile apps, emit the Expo URL for QR code generation
+                            if app_type == 'mobile' and expo_url_found:
+                                yield f"data: {json.dumps({'type': 'expo_url', 'url': expo_url_found})}\n\n"
+                                logger.info(f"Emitted Expo URL via SSE: {expo_url_found}")
 
                             break
 

@@ -15,101 +15,130 @@ export const startAgent = async (
   },
   clerkToken?: string,
 ): Promise<{ agent_run_id: string }> => {
-  try {
-    if (!clerkToken) {
-      throw new Error('Authentication required. Please sign in to continue.');
-    }
+  const maxRetries = 3;
+  const baseDelay = 1000; // 1 second
 
-    if (!API_URL) {
-      throw new Error(
-        'Backend URL is not configured. Set NEXT_PUBLIC_BACKEND_URL in your environment.',
-      );
-    }
-
-    const defaultOptions = {
-      enable_thinking: false,
-      reasoning_effort: 'low',
-      stream: true,
-      app_type: 'web' as const,
-    } as const;
-
-    const finalOptions = { ...defaultOptions, ...options };
-
-    const body: any = {
-      enable_thinking: finalOptions.enable_thinking,
-      reasoning_effort: finalOptions.reasoning_effort,
-      stream: finalOptions.stream,
-      app_type: finalOptions.app_type,
-    };
-
-    if (finalOptions.model_name) {
-      body.model_name = finalOptions.model_name;
-    }
-
-    const response = await fetch(`${API_URL}/thread/${threadId}/agent/start`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${clerkToken}`,
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!response.ok) {
-      if (response.status === 402) {
-        try {
-          const errorData = await response.json();
-          console.error(`[API] Billing error starting agent (402):`, errorData);
-          const detail = errorData?.detail || { message: 'Payment Required' };
-          if (typeof detail.message !== 'string') {
-            detail.message = 'Payment Required';
-          }
-          throw new BillingError(response.status, detail);
-        } catch (parseError) {
-          console.error('[API] Could not parse 402 error response body:', parseError);
-          throw new BillingError(
-            response.status,
-            { message: 'Payment Required' },
-            `Error starting agent: ${response.statusText} (402)`,
-          );
-        }
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      if (!clerkToken) {
+        throw new Error('Authentication required. Please sign in to continue.');
       }
 
-      const errorText = await response
-        .text()
-        .catch(() => 'No error details available');
-      console.error(
-        `[API] Error starting agent: ${response.status} ${response.statusText}`,
-        errorText,
-      );
-      throw new Error(
-        `Error starting agent: ${response.statusText} (${response.status})`,
-      );
-    }
+      if (!API_URL) {
+        throw new Error(
+          'Backend URL is not configured. Set NEXT_PUBLIC_BACKEND_URL in your environment.',
+        );
+      }
 
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    if (error instanceof BillingError) {
+      const defaultOptions = {
+        enable_thinking: false,
+        reasoning_effort: 'low',
+        stream: true,
+        app_type: 'web' as const,
+      } as const;
+
+      const finalOptions = { ...defaultOptions, ...options };
+
+      const body: any = {
+        enable_thinking: finalOptions.enable_thinking,
+        reasoning_effort: finalOptions.reasoning_effort,
+        stream: finalOptions.stream,
+        app_type: finalOptions.app_type,
+      };
+
+      if (finalOptions.model_name) {
+        body.model_name = finalOptions.model_name;
+      }
+
+      const response = await fetch(`${API_URL}/thread/${threadId}/agent/start`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${clerkToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+
+      if (!response.ok) {
+        if (response.status === 402) {
+          try {
+            const errorData = await response.json();
+            console.error(`[API] Billing error starting agent (402):`, errorData);
+            const detail = errorData?.detail || { message: 'Payment Required' };
+            if (typeof detail.message !== 'string') {
+              detail.message = 'Payment Required';
+            }
+            throw new BillingError(response.status, detail);
+          } catch (parseError) {
+            if (parseError instanceof BillingError) throw parseError;
+            console.error('[API] Could not parse 402 error response body:', parseError);
+            throw new BillingError(
+              response.status,
+              { message: 'Payment Required' },
+              `Error starting agent: ${response.statusText} (402)`,
+            );
+          }
+        }
+
+        const errorText = await response
+          .text()
+          .catch(() => 'No error details available');
+
+        // Check for transient sandbox lock errors - retry silently
+        const isSandboxLockError = response.status === 500 &&
+          errorText.includes('Cannot acquire lock for sandbox');
+
+        if (isSandboxLockError && attempt < maxRetries) {
+          const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
+          console.log(`[API] Sandbox lock error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+          continue; // Retry
+        }
+
+        console.error(
+          `[API] Error starting agent: ${response.status} ${response.statusText}`,
+          errorText,
+        );
+        throw new Error(
+          `Error starting agent: ${response.statusText} (${response.status})`,
+        );
+      }
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      if (error instanceof BillingError) {
+        throw error;
+      }
+
+      // Don't log or handle transient errors during retry attempts
+      if (attempt < maxRetries && error instanceof Error &&
+          error.message.includes('500')) {
+        const delay = baseDelay * Math.pow(2, attempt);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
+      console.error('[API] Failed to start agent:', error);
+
+      if (
+        error instanceof TypeError &&
+        error.message.includes('Failed to fetch')
+      ) {
+        const networkError = new Error(
+          `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
+        );
+        handleApiError(networkError, { operation: 'start agent', resource: 'AI assistant' });
+        throw networkError;
+      }
+
+      handleApiError(error, { operation: 'start agent', resource: 'AI assistant' });
       throw error;
     }
-
-    console.error('[API] Failed to start agent:', error);
-
-    if (
-      error instanceof TypeError &&
-      error.message.includes('Failed to fetch')
-    ) {
-      const networkError = new Error(
-        `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
-      );
-      handleApiError(networkError, { operation: 'start agent', resource: 'AI assistant' });
-      throw networkError;
-    }
-
-    handleApiError(error, { operation: 'start agent', resource: 'AI assistant' });
-    throw error;
   }
+
+  // This shouldn't be reached, but TypeScript needs it
+  throw new Error('Failed to start agent after retries');
 };
 
 export const stopAgent = async (agentRunId: string, clerkToken?: string): Promise<void> => {
