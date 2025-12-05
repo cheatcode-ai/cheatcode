@@ -3,7 +3,6 @@ Polar.sh SDK integration service for subscription management.
 """
 
 from typing import Dict, Optional
-from polar_sdk import Polar
 
 from utils.config import config
 from utils.logger import logger
@@ -18,6 +17,8 @@ class PolarService:
     def __init__(self):
         self.access_token = config.POLAR_ACCESS_TOKEN
         self.organization_id = config.POLAR_ORGANIZATION_ID
+        self._client = None
+        self._client_initialized = False
 
         # Build product mapping from config
         self.PRODUCT_MAPPING = {
@@ -26,12 +27,22 @@ class PolarService:
             'byok': config.POLAR_PRODUCT_ID_BYOK
         }
 
+    @property
+    def client(self):
+        """Lazy initialize the Polar client."""
+        if self._client_initialized:
+            return self._client
+
         if not self.access_token:
             logger.warning("POLAR_ACCESS_TOKEN not configured - payment processing will be unavailable")
-            self.client = None
+            self._client = None
         else:
-            self.client = Polar(access_token=self.access_token)
+            from polar_sdk import Polar  # Lazy load - only needed when payments are used
+            self._client = Polar(access_token=self.access_token)
             logger.info("Polar SDK initialized successfully")
+
+        self._client_initialized = True
+        return self._client
 
     def is_configured(self) -> bool:
         """Check if Polar is properly configured."""

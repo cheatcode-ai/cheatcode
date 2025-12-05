@@ -7,8 +7,6 @@ from utils.logger import logger
 from utils.config import config
 import json
 import re
-import litellm
-import openai
 
 class SandboxFilesTool(SandboxToolsBase):
     """Tool for executing file system operations in a Daytona sandbox. All operations are performed relative to the workspace directory."""

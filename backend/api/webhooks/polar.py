@@ -6,8 +6,6 @@ from fastapi import APIRouter, Request, HTTPException
 from datetime import datetime, timedelta
 from typing import Dict, Any
 
-from polar_sdk.webhooks import validate_event, WebhookVerificationError
-
 from services.supabase import DBConnection
 from services.billing import invalidate_billing_cache
 from utils.logger import logger
@@ -237,6 +235,9 @@ async def handle_subscription_active(data: Dict[str, Any]):
 async def handle_polar_webhook(request: Request):
     """Handle Polar webhook events."""
     try:
+        # Lazy load - only needed when webhook is called
+        from polar_sdk.webhooks import validate_event, WebhookVerificationError
+
         # Get raw payload
         payload = await request.body()
 

@@ -1,14 +1,10 @@
 import json
-import numpy as np
 from typing import List, Dict, Any, Optional
 from agentpress.tool import Tool, ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
 from agentpress.thread_manager import ThreadManager
 from services.supabase import DBConnection
 from utils.logger import logger
 from utils.config import config
-# Google Generative AI (Gemini) SDK
-from google import genai
-from google.genai import types
 
 class ComponentSearchTool(Tool):
     """Tool for searching components using embedding-based semantic search.
@@ -22,19 +18,29 @@ class ComponentSearchTool(Tool):
         self.thread_manager = thread_manager
         self.db = DBConnection()
         self.app_type = app_type
+        self._client = None
+        self._client_initialized = False
         logger.info(f"🔍 ComponentSearchTool initialized with app_type: {app_type}")
 
-        # Initialize Gemini API client using centralized config
+    def _get_client(self):
+        """Lazy initialize the Gemini API client."""
+        if self._client_initialized:
+            return self._client
+
+        from google import genai  # Lazy load - only needed when search is used
+
         api_key = config.GOOGLE_API_KEY
         try:
             if api_key:
-                self.client = genai.Client(api_key=api_key)
+                self._client = genai.Client(api_key=api_key)
             else:
                 logger.debug("GOOGLE_API_KEY not set – skipping Gemini client init")
-                self.client = None
-        except Exception as api_err:  # pragma: no cover
+                self._client = None
+        except Exception as api_err:
             logger.warning(f"Failed to initialize Google GenAI client: {api_err}")
-            self.client = None
+            self._client = None
+        self._client_initialized = True
+        return self._client
 
     def get_schemas(self) -> Dict[str, List[ToolSchema]]:
         """Override base class to provide dynamic schemas based on app_type."""
@@ -174,12 +180,16 @@ class ComponentSearchTool(Tool):
     async def _generate_embedding(self, text: str) -> List[float]:
         """Generate embedding for the given text using Gemini."""
         try:
-            if not self.client:
+            from google.genai import types  # Lazy load - only needed for embedding
+            import numpy as np  # Lazy load - only needed for normalization
+
+            client = self._get_client()
+            if not client:
                 logger.error("Gemini client not initialized")
                 return []
-            
+
             # Use the latest Gemini embedding API
-            response = self.client.models.embed_content(
+            response = client.models.embed_content(
                 model='gemini-embedding-001',
                 contents=text,
                 config=types.EmbedContentConfig(
@@ -187,22 +197,22 @@ class ComponentSearchTool(Tool):
                     output_dimensionality=1536
                 )
             )
-            
+
             if response and response.embeddings:
                 # Get the first (and only) embedding from the response
                 embedding_obj = response.embeddings[0]
                 embedding_values = embedding_obj.values
-                
+
                 # Normalize the embedding for 1536 dimensions (as per documentation)
                 # The 3072 dimension embedding is auto-normalized, but smaller ones need manual normalization
                 embedding_array = np.array(embedding_values)
                 normalized_embedding = embedding_array / np.linalg.norm(embedding_array)
-                
+
                 return normalized_embedding.tolist()
             else:
                 logger.error("No embeddings returned from Gemini API")
                 return []
-                
+
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
             return []

@@ -3,7 +3,6 @@ import base64
 import mimetypes
 from typing import Optional, Tuple, Dict, List
 from io import BytesIO
-from PIL import Image
 from urllib.parse import urlparse
 from agentpress.tool import ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
 from sandbox.tool_base import SandboxToolsBase
@@ -115,16 +114,18 @@ class SandboxVisionTool(SandboxToolsBase):
 
     def compress_image(self, image_bytes: bytes, mime_type: str, file_path: str) -> Tuple[bytes, str]:
         """Compress an image to reduce its size while maintaining reasonable quality.
-        
+
         Args:
             image_bytes: Original image bytes
             mime_type: MIME type of the image
             file_path: Path to the image file (for logging)
-            
+
         Returns:
             Tuple of (compressed_bytes, new_mime_type)
         """
         try:
+            from PIL import Image  # Lazy load - only needed when processing images
+
             # Open image from bytes
             img = Image.open(BytesIO(image_bytes))
             

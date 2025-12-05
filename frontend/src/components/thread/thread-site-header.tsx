@@ -445,7 +445,7 @@ export function SiteHeader() {
                       <div className="p-4 space-y-3">
                         <h4 className="text-sm font-semibold text-white">Deploy your site</h4>
                         <p className="text-sm text-muted-foreground">
-                            Your app will be deployed to a .style.dev domain based on your project name.
+                            Your app will be deployed and you&apos;ll receive a live URL.
                           </p>
                         
                         {/* Progress bar during deployment */}
