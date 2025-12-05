@@ -69,12 +69,12 @@ jobs:
             --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/api:latest \
             --platform=managed \
             --allow-unauthenticated \
-            --cpu=1 \
-            --memory=2Gi \
+            --cpu=2 \
+            --memory=4Gi \
             --timeout=3500 \
             --min-instances=0 \
             --max-instances=10 \
-            --cpu-throttling \
+            --no-cpu-throttling \
             --cpu-boost \
             --network=default \
             --subnet=default \
@@ -91,8 +91,8 @@ jobs:
             --image=${{ env.REGISTRY }}/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/worker:latest \
             --platform=managed \
             --no-allow-unauthenticated \
-            --cpu=1 \
-            --memory=2Gi \
+            --cpu=2 \
+            --memory=4Gi \
             --timeout=3500 \
             --min-instances=1 \
             --max-instances=3 \
