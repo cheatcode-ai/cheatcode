@@ -1,7 +1,7 @@
 import os
 import json
 import asyncio
-from typing import Optional
+from typing import Optional, Any
 
 # MessageTool removed - not used in React/Next.js/Expo specialized agent
 # from agent.tools.message_tool import MessageTool
@@ -10,7 +10,6 @@ from typing import Optional
 from agent.tools.web_search_tool import SandboxWebSearchTool
 from dotenv import load_dotenv
 from utils.config import config
-from flags.flags import is_enabled
 
 from agentpress.thread_manager import ThreadManager
 from agentpress.response_processor import ProcessorConfig
@@ -26,8 +25,7 @@ from utils.logger import logger
 from utils.auth_utils import get_account_id_from_thread
 from services.billing import check_billing_status
 from agent.tools.sb_vision_tool import SandboxVisionTool
-from services.langfuse import langfuse, safe_trace
-from langfuse.client import StatefulTraceClient
+from services.langfuse import langfuse, safe_trace, log_event
 # Unused prompt import removed for React/Next.js/Expo specialization  
 # from agent.gemini_prompt import get_gemini_system_prompt
 from agent.tools.mcp_tool_wrapper import MCPToolWrapper
@@ -35,6 +33,7 @@ from agentpress.tool import SchemaType
 
 from agent.tools.component_search_tool import ComponentSearchTool
 from agent.tools.completion_tool import CompletionTool
+from utils.models import get_max_tokens_for_model
 
 load_dotenv()
 
@@ -50,7 +49,7 @@ async def run_agent(
     reasoning_effort: Optional[str] = 'low',
     enable_context_manager: bool = True,
     agent_config: Optional[dict] = None,
-    trace: Optional[StatefulTraceClient] = None,
+    trace: Optional[Any] = None,
     app_type: Optional[str] = 'web'
 ):
     """Run the development agent with specified configuration."""
@@ -158,50 +157,13 @@ async def run_agent(
     if agent_config:
         logger.info(f"[MCP DEBUG run.py] agent_config keys: {list(agent_config.keys())}")
         logger.info(f"[MCP DEBUG run.py] configured_mcps count: {len(agent_config.get('configured_mcps', []))}")
-        logger.info(f"[MCP DEBUG run.py] custom_mcps count: {len(agent_config.get('custom_mcps', []))}")
 
-        # Merge configured_mcps and custom_mcps
-        all_mcps = []
+        # Get configured MCPs (via Composio)
+        all_mcps = agent_config.get('configured_mcps', [])
 
-        # Add standard configured MCPs
-        if agent_config.get('configured_mcps'):
-            logger.info(f"[MCP DEBUG run.py] Adding {len(agent_config['configured_mcps'])} configured MCPs: {[mcp.get('qualifiedName') for mcp in agent_config['configured_mcps']]}")
-            all_mcps.extend(agent_config['configured_mcps'])
-        
-        # Add custom MCPs
-        if agent_config.get('custom_mcps'):
-            for custom_mcp in agent_config['custom_mcps']:
-                # Transform custom MCP to standard format
-                custom_type = custom_mcp.get('customType', custom_mcp.get('type', 'sse'))
-                
-                # For Composio MCPs, ensure we have the user ID and proper config
-                if custom_type == 'composio':
-                    # Get user ID from thread
-                    if 'config' not in custom_mcp:
-                        custom_mcp['config'] = {}
-
-                    if not custom_mcp['config'].get('external_user_id'):
-                        thread_result = await client.table('threads').select('user_id').eq('thread_id', thread_id).execute()
-                        if thread_result.data:
-                            custom_mcp['config']['external_user_id'] = thread_result.data[0]['user_id']
-                    # Extract app_slug from qualified_name if present
-                    if not custom_mcp['config'].get('app_slug') and custom_mcp.get('qualifiedName'):
-                        custom_mcp['config']['app_slug'] = custom_mcp['qualifiedName']
-                
-                mcp_config = {
-                    'name': custom_mcp['name'],
-                    'qualifiedName': f"custom_{custom_type}_{custom_mcp['name'].replace(' ', '_').lower()}",
-                    'config': custom_mcp['config'],
-                    'enabledTools': custom_mcp.get('enabledTools', []),
-                    'instructions': custom_mcp.get('instructions', ''),
-                    'isCustom': True,
-                    'customType': custom_type
-                }
-                all_mcps.append(mcp_config)
-        
-        logger.info(f"[MCP DEBUG run.py] Total all_mcps count after merging: {len(all_mcps)}")
         if all_mcps:
-            logger.info(f"[MCP DEBUG run.py] Registering MCP tool wrapper for {len(all_mcps)} MCP servers (including {len(agent_config.get('custom_mcps', []))} custom)")
+            logger.info(f"[MCP DEBUG run.py] Adding {len(all_mcps)} configured MCPs: {[mcp.get('qualifiedName') for mcp in all_mcps]}")
+            logger.info(f"[MCP DEBUG run.py] Registering MCP tool wrapper for {len(all_mcps)} MCP servers")
             thread_manager.add_tool(MCPToolWrapper, mcp_configs=all_mcps)
             
             for tool_name, tool_info in thread_manager.tool_registry.tools.items():
@@ -350,7 +312,7 @@ async def run_agent(
 
 
 
-    if agent_config and (agent_config.get('configured_mcps') or agent_config.get('custom_mcps')) and mcp_wrapper_instance and mcp_wrapper_instance._initialized:
+    if agent_config and agent_config.get('configured_mcps') and mcp_wrapper_instance and mcp_wrapper_instance._initialized:
         mcp_info = "\n\n--- MCP Tools Available ---\n"
         mcp_info += "You have access to external MCP (Model Context Protocol) server tools.\n"
         mcp_info += "MCP tools can be called directly using their native function names in the standard function calling format:\n"
@@ -435,7 +397,7 @@ async def run_agent(
         if not can_run:
             error_msg = f"Billing limit reached: {message}"
             if trace:
-                trace.event(name="billing_limit_reached", level="ERROR", status_message=f"{error_msg}")
+                log_event(trace,name="billing_limit_reached", level="ERROR", status_message=f"{error_msg}")
             # Yield a special message to indicate billing limit reached
             yield {
                 "type": "status",
@@ -450,7 +412,7 @@ async def run_agent(
             if message_type == 'assistant':
                 logger.info(f"Last message was from assistant, stopping execution")
                 if trace:
-                    trace.event(name="last_message_from_assistant", level="DEFAULT", status_message="Last message was from assistant, stopping execution")
+                    log_event(trace,name="last_message_from_assistant", level="DEFAULT", status_message="Last message was from assistant, stopping execution")
                 continue_execution = False
                 break
 
@@ -485,7 +447,7 @@ async def run_agent(
             except Exception as e:
                 logger.error(f"Error parsing image context: {e}")
                 if trace:
-                    trace.event(name="error_parsing_image_context", level="ERROR", status_message=f"{e}")
+                    log_event(trace,name="error_parsing_image_context", level="ERROR", status_message=f"{e}")
 
         # If we have any content, construct the temporary_message
         if temp_message_content_list:
@@ -493,34 +455,10 @@ async def run_agent(
             # logger.debug(f"Constructed temporary message with {len(temp_message_content_list)} content blocks.")
         # ---- End Temporary Message Handling ----
 
-        # Set max_tokens based on model (Updated 2025 limits)
-        max_tokens = None
-        if "sonnet-4" in model_name.lower():
-            # Claude Sonnet 4 has 64,000 max output tokens
-            max_tokens = 64000
-        elif "3.7-sonnet" in model_name.lower() or "sonnet-3.7" in model_name.lower():
-            # Claude 3.7 Sonnet has up to 128,000 max output tokens (beta)
-            max_tokens = 128000
-        elif "sonnet" in model_name.lower():
-            # Claude 3.5 Sonnet and other Sonnet models - conservative estimate
-            max_tokens = 32000
-        elif "gpt-4o" in model_name.lower():
-            # GPT-4o has higher limits than original GPT-4
-            max_tokens = 32000
-        elif "gpt-4.1" in model_name.lower():
-            # GPT-4.1 has up to 32,768 max output tokens
-            max_tokens = 32768
-        elif "gpt-4" in model_name.lower():
-            # GPT-4 - much higher than original 4k limit
-            max_tokens = 16000
-        elif "gemini-2.5-pro" in model_name.lower():
-            # Gemini 2.5 Pro has 65,535 max output tokens
-            max_tokens = 65535
-        else:
-            # Fallback for unrecognized models - conservative estimate
-            max_tokens = 8192
+        # Get max_tokens from single source of truth (utils/models.py)
+        max_tokens = get_max_tokens_for_model(model_name)
             
-        generation = trace.generation(name="thread_manager.run_thread") if trace else None
+        generation = trace.start_generation(name="thread_manager.run_thread") if trace else None
         try:
             # Make the LLM call and process the response
             response = await thread_manager.run_thread(
@@ -552,7 +490,7 @@ async def run_agent(
             if isinstance(response, dict) and "status" in response and response["status"] == "error":
                 logger.error(f"Error response from run_thread: {response.get('message', 'Unknown error')}")
                 if trace:
-                    trace.event(name="error_response_from_run_thread", level="ERROR", status_message=f"{response.get('message', 'Unknown error')}")
+                    log_event(trace,name="error_response_from_run_thread", level="ERROR", status_message=f"{response.get('message', 'Unknown error')}")
                 yield response
                 break
 
@@ -571,7 +509,7 @@ async def run_agent(
                         if isinstance(chunk, dict) and chunk.get('type') == 'status' and chunk.get('status') == 'error':
                             logger.error(f"Error chunk detected: {chunk.get('message', 'Unknown error')}")
                             if trace:
-                                trace.event(name="error_chunk_detected", level="ERROR", status_message=f"{chunk.get('message', 'Unknown error')}")
+                                log_event(trace,name="error_chunk_detected", level="ERROR", status_message=f"{chunk.get('message', 'Unknown error')}")
                             error_detected = True
                             yield chunk  # Forward the error chunk
                             continue     # Continue processing other chunks but don't break yet
@@ -588,7 +526,7 @@ async def run_agent(
                                     agent_should_terminate = True
                                     logger.info("Agent termination signal detected in status message")
                                     if trace:
-                                        trace.event(name="agent_termination_signal_detected", level="DEFAULT", status_message="Agent termination signal detected in status message")
+                                        log_event(trace,name="agent_termination_signal_detected", level="DEFAULT", status_message="Agent termination signal detected in status message")
                                     
                                     # Extract the tool name from the status content if available
                                     content = chunk.get('content', {})
@@ -634,17 +572,17 @@ async def run_agent(
                                        last_tool_call = xml_tool
                                        logger.info(f"Agent used XML tool: {xml_tool}")
                                        if trace:
-                                           trace.event(name="agent_used_xml_tool", level="DEFAULT", status_message=f"Agent used XML tool: {xml_tool}")
+                                           log_event(trace,name="agent_used_xml_tool", level="DEFAULT", status_message=f"Agent used XML tool: {xml_tool}")
                             
                             except json.JSONDecodeError:
                                 # Handle cases where content might not be valid JSON
                                 logger.warning(f"Warning: Could not parse assistant content JSON: {chunk.get('content')}")
                                 if trace:
-                                    trace.event(name="warning_could_not_parse_assistant_content_json", level="WARNING", status_message=f"Warning: Could not parse assistant content JSON: {chunk.get('content')}")
+                                    log_event(trace,name="warning_could_not_parse_assistant_content_json", level="WARNING", status_message=f"Warning: Could not parse assistant content JSON: {chunk.get('content')}")
                             except Exception as e:
                                 logger.error(f"Error processing assistant chunk: {e}")
                                 if trace:
-                                    trace.event(name="error_processing_assistant_chunk", level="ERROR", status_message=f"Error processing assistant chunk: {e}")
+                                    log_event(trace,name="error_processing_assistant_chunk", level="ERROR", status_message=f"Error processing assistant chunk: {e}")
 
                         yield chunk
                 else:
@@ -656,7 +594,7 @@ async def run_agent(
                 if error_detected:
                     logger.info(f"Stopping due to error detected in response")
                     if trace:
-                        trace.event(name="stopping_due_to_error_detected_in_response", level="DEFAULT", status_message="Stopping due to error detected in response")
+                        log_event(trace,name="stopping_due_to_error_detected_in_response", level="DEFAULT", status_message="Stopping due to error detected in response")
                     if generation:
                         generation.end(output=full_response, status_message="error_detected", level="ERROR")
                     break
@@ -664,7 +602,7 @@ async def run_agent(
                 if agent_should_terminate:
                     logger.info(f"Agent decided to stop based on agent_should_terminate flag")
                     if trace:
-                        trace.event(name="agent_decided_to_stop", level="DEFAULT", status_message="Agent decided to stop based on agent_should_terminate flag")
+                        log_event(trace,name="agent_decided_to_stop", level="DEFAULT", status_message="Agent decided to stop based on agent_should_terminate flag")
                     if generation:
                         generation.end(output=full_response, status_message="agent_stopped")
                     continue_execution = False
@@ -674,7 +612,7 @@ async def run_agent(
                 error_msg = f"Error during response streaming: {str(e)}"
                 logger.error(f"Error: {error_msg}")
                 if trace:
-                    trace.event(name="error_during_response_streaming", level="ERROR", status_message=f"Error during response streaming: {str(e)}")
+                    log_event(trace,name="error_during_response_streaming", level="ERROR", status_message=f"Error during response streaming: {str(e)}")
                 if generation:
                     generation.end(output=full_response, status_message=error_msg, level="ERROR")
                 yield {
@@ -690,7 +628,7 @@ async def run_agent(
             error_msg = f"Error running thread: {str(e)}"
             logger.error(f"Error: {error_msg}")
             if trace:
-                trace.event(name="error_running_thread", level="ERROR", status_message=f"Error running thread: {str(e)}")
+                log_event(trace,name="error_running_thread", level="ERROR", status_message=f"Error running thread: {str(e)}")
             yield {
                 "type": "status",
                 "status": "error",

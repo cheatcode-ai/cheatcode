@@ -8,7 +8,8 @@ from supabase import Client
 from decimal import Decimal
 
 from utils.logger import logger
-from utils.constants import PLANS, get_plan_by_id, get_credits_from_tokens, calculate_token_cost
+from utils.constants import PLANS, get_plan_by_id, get_credits_from_tokens
+from utils.models import calculate_token_cost
 
 class InsufficientTokensError(Exception):
     """Raised when user doesn't have enough tokens for an operation."""
@@ -347,68 +348,6 @@ async def get_user_token_status(client: Client, account_id: str) -> Dict:
         
     except Exception as e:
         logger.error(f"Error getting token status for user {account_id}: {str(e)}")
-        raise
-
-async def reset_user_quota(client: Client, account_id: str) -> bool:
-    """Reset user's quota to their plan's full amount."""
-    try:
-        billing_result = await client.table('users') \
-            .select('plan_id') \
-            .eq('id', account_id) \
-            .execute()
-        
-        if not billing_result.data:
-            return False
-            
-        plan_id = billing_result.data[0]['plan_id']
-        plan = get_plan_by_id(plan_id)
-        
-        if not plan:
-            logger.error(f"Invalid plan_id {plan_id} for user {account_id}")
-            return False
-        
-        # Reset quota and extend reset date
-        await client.table('users') \
-            .update({
-                'token_quota_remaining': plan['token_quota'],
-                'quota_resets_at': (datetime.now() + timedelta(days=30)).isoformat(),
-                'billing_updated_at': datetime.now().isoformat()
-            }) \
-            .eq('id', account_id) \
-            .execute()
-        
-        logger.info(f"Reset quota for user {account_id} to {plan['token_quota']} tokens")
-        return True
-        
-    except Exception as e:
-        logger.error(f"Error resetting quota for user {account_id}: {str(e)}")
-        return False
-
-async def upgrade_user_plan(client: Client, account_id: str, new_plan_id: str) -> Dict:
-    """Upgrade user to new plan and reset quota."""
-    try:
-        plan = get_plan_by_id(new_plan_id)
-        if not plan:
-            raise ValueError(f"Invalid plan_id: {new_plan_id}")
-        
-        # Update user's plan and reset quota
-        await client.table('users') \
-            .update({
-                'plan_id': new_plan_id,
-                'token_quota_total': plan['token_quota'],
-                'token_quota_remaining': plan['token_quota'],
-                'quota_resets_at': (datetime.now() + timedelta(days=30)).isoformat(),
-                'billing_updated_at': datetime.now().isoformat()
-            }) \
-            .eq('id', account_id) \
-            .execute()
-        
-        logger.info(f"Upgraded user {account_id} to {new_plan_id} plan")
-        
-        return await get_user_token_status(client, account_id)
-        
-    except Exception as e:
-        logger.error(f"Error upgrading user {account_id} to plan {new_plan_id}: {str(e)}")
         raise
 
 async def _create_billing_record(client: Client, account_id: str) -> None:

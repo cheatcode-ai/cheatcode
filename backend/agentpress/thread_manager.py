@@ -25,7 +25,6 @@ from agentpress.response_processor import (
 )
 from services.supabase import DBConnection
 from utils.logger import logger
-from langfuse.client import StatefulGenerationClient, StatefulTraceClient
 from services.langfuse import langfuse, safe_trace
 import datetime
 from litellm.utils import token_counter
@@ -41,7 +40,7 @@ class ThreadManager:
     XML-based tool execution patterns.
     """
 
-    def __init__(self, trace: Optional[StatefulTraceClient] = None, agent_config: Optional[dict] = None):
+    def __init__(self, trace: Optional[Any] = None, agent_config: Optional[dict] = None):
         """Initialize ThreadManager.
 
         Args:
@@ -242,7 +241,7 @@ class ThreadManager:
         enable_thinking: Optional[bool] = False,
         reasoning_effort: Optional[str] = 'low',
         enable_context_manager: bool = True,
-        generation: Optional[StatefulGenerationClient] = None,
+        generation: Optional[Any] = None,
     ) -> Union[Dict[str, Any], AsyncGenerator]:
         """Run a conversation thread with LLM integration and tool execution.
 

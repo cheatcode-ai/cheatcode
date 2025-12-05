@@ -1,10 +1,9 @@
-import os
-from dotenv import load_dotenv
 import asyncio
 import redis.asyncio as redis_py
 from utils.logger import logger
 from typing import List, Any, Optional
 from utils.retry import retry
+from utils.config import config
 
 # Simple Redis setup using redis-py for all operations with connection pooling
 redis_client: redis_py.Redis | None = None
@@ -30,11 +29,8 @@ async def initialize_async():
         if _initialized:
             return
 
-        # Load environment variables if not already loaded
-        load_dotenv()
-
-        # Get Redis configuration
-        redis_url = os.getenv("REDIS_URL")
+        # Get Redis configuration from centralized config
+        redis_url = config.REDIS_URL
         
         if not redis_url:
             raise ValueError("REDIS_URL environment variable is required")
@@ -318,10 +314,6 @@ async def create_pubsub():
     return client.pubsub()
 
 
-# For backward compatibility
-get_redis_client = get_client
-
-
 # =============================================================================
 # Account ID Caching - Performance Optimization
 # =============================================================================
@@ -357,14 +349,13 @@ async def get_account_id_cached(client, user_id: str) -> Optional[str]:
     except Exception as cache_error:
         logger.debug(f"Cache miss or error for account_id {user_id}: {str(cache_error)}")
 
-    # Cache miss - fetch from database
+    # Cache miss - fetch from database using centralized helper
     try:
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-        if not account_result.data:
+        from utils.auth_utils import get_account_id_for_clerk_user
+        account_id = await get_account_id_for_clerk_user(client, user_id)
+        if not account_id:
             logger.debug(f"No account_id found for user {user_id}")
             return None
-
-        account_id = account_result.data
 
         # Cache the result
         try:

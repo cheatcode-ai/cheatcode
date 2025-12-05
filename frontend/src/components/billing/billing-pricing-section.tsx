@@ -9,7 +9,7 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { CheckCircleIcon, StarIcon, Zap, ArrowRight } from 'lucide-react';
-import { motion, Transition, Easing } from 'framer-motion';
+import { motion, Transition, Easing } from 'motion/react';
 import { usePlansQuery } from '@/hooks/react-query/billing/use-plans';
 import { useBilling } from '@/contexts/BillingContext';
 import { createPolarCheckoutSession, InsufficientCreditsError } from '@/lib/api';

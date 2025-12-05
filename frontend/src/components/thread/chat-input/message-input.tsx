@@ -7,7 +7,7 @@ import { UploadedFile } from './chat-input';
 import { FileUploadHandler } from './file-upload-handler';
 import { VoiceRecorder } from './voice-recorder';
 import { ExpandableTabs } from '@/components/ui/expandable-tabs';
-
+import { ModelSelector } from '@/components/model-selector';
 
 import { BillingModal } from '@/components/billing/billing-modal';
 
@@ -39,6 +39,8 @@ interface MessageInputProps {
   disableAnimation?: boolean;
   appType?: 'web' | 'mobile';
   onAppTypeChange?: (appType: 'web' | 'mobile') => void;
+  selectedModel?: string;
+  onModelChange?: (modelId: string) => void;
 }
 
 export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
@@ -71,6 +73,8 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       disableAnimation = false,
       appType = 'web',
       onAppTypeChange,
+      selectedModel,
+      onModelChange,
     },
     ref,
   ) => {
@@ -228,6 +232,15 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
               onOpenChange={setBillingModalOpen}
               returnUrl={typeof window !== 'undefined' ? window.location.href : '/'}
             />
+
+            {/* Model selector - on the right side near microphone */}
+            {onModelChange && (
+              <ModelSelector
+                value={selectedModel || ''}
+                onChange={onModelChange}
+                disabled={loading || isAgentRunning}
+              />
+            )}
 
             {isLoggedIn && <VoiceRecorder
               onTranscription={onTranscription}

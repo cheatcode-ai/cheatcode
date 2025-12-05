@@ -1,12 +1,103 @@
 import sentry
 from fastapi import HTTPException, Request, Header
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, Tuple
 import jwt
 from jwt.exceptions import PyJWTError
 from utils.logger import structlog
 from utils.config import config
 from supabase import create_client, Client
 from clerk_backend_api import Clerk
+
+# Module-level logger for consistent logging
+logger = structlog.get_logger()
+
+
+# =============================================================================
+# Account ID Helper Functions - Single Source of Truth
+# =============================================================================
+
+async def get_account_id_for_clerk_user(client, clerk_user_id: str) -> Optional[str]:
+    """
+    Get the internal account ID for a Clerk user ID.
+
+    This is the SINGLE SOURCE OF TRUTH for account ID retrieval.
+    All code that needs to convert a Clerk user ID to an internal account ID
+    should use this function.
+
+    Args:
+        client: The Supabase client (async)
+        clerk_user_id: The Clerk user ID (e.g., "user_2abc123...")
+
+    Returns:
+        The internal account ID if found, None otherwise
+
+    Example:
+        account_id = await get_account_id_for_clerk_user(client, user_id)
+        if not account_id:
+            raise user_account_not_found_error()
+    """
+    try:
+        result = await client.rpc(
+            'get_account_id_for_clerk_user',
+            {'p_clerk_user_id': clerk_user_id}
+        ).execute()
+
+        if result.data:
+            return result.data
+        return None
+    except Exception as e:
+        logger.error(
+            f"Error getting account ID for Clerk user {clerk_user_id}: {str(e)}",
+            extra={"clerk_user_id": clerk_user_id, "error": str(e)}
+        )
+        return None
+
+
+async def get_account_id_or_raise(client, clerk_user_id: str, error_code: int = 400) -> str:
+    """
+    Get the internal account ID for a Clerk user ID, raising an error if not found.
+
+    This is a convenience wrapper around get_account_id_for_clerk_user that
+    raises an HTTPException if the account is not found.
+
+    Args:
+        client: The Supabase client (async)
+        clerk_user_id: The Clerk user ID
+        error_code: HTTP status code to use if account not found (default 400)
+
+    Returns:
+        The internal account ID
+
+    Raises:
+        HTTPException: If the account is not found
+    """
+    account_id = await get_account_id_for_clerk_user(client, clerk_user_id)
+
+    if not account_id:
+        logger.warning(f"No account mapping found for Clerk user {clerk_user_id}")
+        if error_code == 403:
+            raise HTTPException(status_code=403, detail="User account not found")
+        else:
+            raise HTTPException(status_code=400, detail="User account not found")
+
+    return account_id
+
+
+async def get_account_id_optional(client, clerk_user_id: str) -> Tuple[Optional[str], bool]:
+    """
+    Get the internal account ID, returning a tuple indicating success.
+
+    Useful when you want to handle missing accounts gracefully without exceptions.
+
+    Args:
+        client: The Supabase client (async)
+        clerk_user_id: The Clerk user ID
+
+    Returns:
+        Tuple of (account_id, found) - account_id is None if not found
+    """
+    account_id = await get_account_id_for_clerk_user(client, clerk_user_id)
+    return (account_id, account_id is not None)
 
 # This function extracts the user ID from Supabase JWT
 async def get_current_user_id_from_jwt(request: Request) -> str:
@@ -62,7 +153,7 @@ async def get_current_user_id_from_jwt(request: Request) -> str:
             await ensure_clerk_user_account(user_id)
         except Exception as e:
             # Log the error but don't block authentication
-            structlog.get_logger().warning(
+            logger.warning(
                 f"Failed to ensure account mapping for user {user_id}: {str(e)}",
                 extra={"user_id": user_id, "error": str(e)}
             )
@@ -84,7 +175,7 @@ async def get_current_user_id_from_jwt(request: Request) -> str:
         raise
     except Exception as e:
         # Catch any other unexpected errors
-        structlog.get_logger().error(
+        logger.error(
             f"Unexpected error during authentication: {str(e)}",
             extra={"error_type": type(e).__name__, "error_details": str(e)}
         )
@@ -154,7 +245,7 @@ async def get_user_id_from_stream_auth(request: Request, token: Optional[str] = 
             await ensure_clerk_user_account(user_id)
         except Exception as e:
             # Log the error but don't block authentication
-            structlog.get_logger().warning(
+            logger.warning(
                 f"Failed to ensure account mapping for user {user_id}: {str(e)}",
                 extra={"user_id": user_id, "error": str(e)}
             )
@@ -176,7 +267,7 @@ async def get_user_id_from_stream_auth(request: Request, token: Optional[str] = 
         raise
     except Exception as e:
         # Catch any other unexpected errors
-        structlog.get_logger().error(
+        logger.error(
             f"Unexpected error during SSE authentication: {str(e)}",
             extra={"error_type": type(e).__name__, "error_details": str(e)}
         )
@@ -192,12 +283,10 @@ async def ensure_clerk_user_account(clerk_user_id: str):
     """
     Ensure that a Clerk user has an account mapping in the database.
     This function fetches real user data from Clerk API and creates the account with complete information.
-    
+
     Args:
         clerk_user_id: The Clerk user ID
     """
-    logger = structlog.get_logger()
-    
     try:
         # Validate input
         if not clerk_user_id:
@@ -269,18 +358,16 @@ async def ensure_clerk_user_account(clerk_user_id: str):
 async def get_clerk_user_data(clerk_user_id: str) -> Dict[str, Any]:
     """
     Fetch user data from Clerk API using the Python SDK.
-    
+
     Args:
         clerk_user_id: The Clerk user ID
-        
+
     Returns:
         Dict containing user data: {"first_name": "John", "last_name": "Doe", "email": "john@example.com"}
-        
+
     Raises:
         Exception: If unable to fetch user data from Clerk API
     """
-    logger = structlog.get_logger()
-    
     try:
         if not config.CLERK_SECRET_KEY:
             logger.error("CLERK_SECRET_KEY not configured")
@@ -415,13 +502,11 @@ async def verify_thread_access(client, thread_id: str, user_id: str):
                 if project_result.data[0].get('is_public'):
                     return True
             
-        # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-        if not account_result.data:
-            structlog.get_logger().warning(f"No account mapping found for Clerk user {user_id}")
+        # Get the account ID for this Clerk user using centralized helper
+        user_account_id = await get_account_id_for_clerk_user(client, user_id)
+        if not user_account_id:
+            logger.warning(f"No account mapping found for Clerk user {user_id}")
             raise HTTPException(status_code=403, detail="User account not found")
-        
-        user_account_id = account_result.data
         thread_user_id = thread_data.get('user_id')
 
         # Check if the user's account matches the thread's user
@@ -530,6 +615,5 @@ def get_email_from_jwt_request(request: Request) -> Optional[str]:
         return payload.get('email')
         
     except Exception as e:
-        logger = structlog.get_logger()
         logger.error(f"Error getting email from JWT: {str(e)}")
         return None

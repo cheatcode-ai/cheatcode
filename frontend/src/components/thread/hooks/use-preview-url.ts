@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useAuth } from '@clerk/nextjs';
 import { ViewMode } from '../types/app-preview';
 import { getViewportDimensions } from '../utils/file-utils';
+import { API_URL } from '@/lib/api/config';
 
 interface UsePreviewUrlProps {
   sandboxId?: string;
@@ -31,7 +32,7 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
       const token = await getToken();
       setAuthToken(token);
       
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/preview-url`, {
+      const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/preview-url`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

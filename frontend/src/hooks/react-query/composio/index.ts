@@ -53,3 +53,12 @@ export {
   useCompositoDashboardMCPUrls,
   useUpdateCompositoDashboardDefault,
 } from './use-composio-profiles';
+
+// MCP Profile hooks (for navbar/header)
+export {
+  useMCPProfiles,
+  useIntegrationToggle,
+  useMCPProfilesWithToggle,
+  mcpProfileKeys,
+  type MCPCredentialProfile,
+} from './use-mcp-profiles';

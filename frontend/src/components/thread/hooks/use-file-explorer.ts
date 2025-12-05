@@ -6,7 +6,6 @@ import { FileTreeNode, FileTreeResponse } from '@/lib/api/types';
 
 interface UseFileExplorerProps {
   sandboxId?: string;
-  projectId?: string; // Keep for fallback compatibility
   isCodeTabActive: boolean;
   appType?: 'web' | 'mobile';
 }
@@ -33,7 +32,6 @@ interface FlattenedNode extends FileTreeNode {
  */
 export const useFileExplorer = ({
   sandboxId,
-  projectId,
   isCodeTabActive,
   appType = 'web'
 }: UseFileExplorerProps) => {
@@ -219,8 +217,7 @@ export const useFileExplorer = ({
     queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
   }, [queryClient, sandboxId]);
 
-  // Convert FileTreeNode[] to the format expected by existing components
-  // This maintains backward compatibility with the existing FileTree component
+  // Convert FileTreeNode[] to the format expected by the FileTree component
   const processedFiles = useMemo(() => {
     const convertNode = (node: FileTreeNode): any => ({
       name: node.name,

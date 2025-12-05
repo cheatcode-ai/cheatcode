@@ -11,7 +11,6 @@ from utils.config import config, EnvMode
 import asyncio
 from utils.logger import logger, structlog
 import time
-from collections import OrderedDict
 from typing import Dict, Any
 import os
 
@@ -39,10 +38,6 @@ if sys.platform == "win32":
 # Initialize managers
 db = DBConnection()
 instance_id = "single"
-
-# Rate limiter state
-ip_tracker = OrderedDict()
-MAX_CONCURRENT_IPS = 25
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -190,12 +185,6 @@ api_router.include_router(polar_webhooks_api.router)
 if config.FEATURE_FLAGS_ENABLED:
     from flags import api as feature_flags_api
     api_router.include_router(feature_flags_api.router)
-
-from mcp_service import api as mcp_api
-from mcp_service import secure_api as secure_mcp_api
-
-api_router.include_router(mcp_api.router)
-api_router.include_router(secure_mcp_api.router, prefix="/secure-mcp")
 
 api_router.include_router(email_api.router)
 

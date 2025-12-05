@@ -5,7 +5,6 @@ from utils.files_utils import should_exclude_file, clean_path
 from agentpress.thread_manager import ThreadManager
 from utils.logger import logger
 from utils.config import config
-import os
 import json
 import re
 import litellm
@@ -698,7 +697,7 @@ export default function UpdatedComponent() {{
         import httpx
 
         try:
-            relace_api_key = getattr(config, 'RELACE_API_KEY', None) or os.getenv('RELACE_API_KEY')
+            relace_api_key = config.RELACE_API_KEY
 
             if not relace_api_key:
                 return None, "RELACE_API_KEY not configured"

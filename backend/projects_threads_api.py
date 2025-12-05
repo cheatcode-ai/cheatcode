@@ -2,8 +2,13 @@ from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel
 from typing import List, Optional, Dict, Any
 from services.supabase import DBConnection
-from utils.auth_utils import get_current_user_id_from_jwt, get_optional_user_id
-from utils.logger import structlog
+from utils.auth_utils import (
+    get_current_user_id_from_jwt,
+    get_optional_user_id,
+    get_account_id_for_clerk_user,
+    get_account_id_or_raise,
+)
+from utils.logger import logger
 
 router = APIRouter(tags=["projects", "threads"])
 
@@ -46,13 +51,11 @@ async def get_projects(
     try:
         client = await db.client
 
-        # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-        if not account_result.data:
-            structlog.get_logger().warning(f"No account mapping found for Clerk user {current_user_id}")
+        # Get the account ID for this Clerk user using centralized helper
+        account_id = await get_account_id_for_clerk_user(client, current_user_id)
+        if not account_id:
+            logger.warning(f"No account mapping found for Clerk user {current_user_id}")
             return []
-
-        account_id = account_result.data
 
         # Query projects for this account with pagination and ordering
         result = await client.table('projects')\
@@ -76,13 +79,13 @@ async def get_projects(
                 app_type=project_data.get('app_type', 'web')
             ))
         
-        structlog.get_logger().info(f"Retrieved {len(projects)} projects for user {current_user_id}")
+        logger.info(f"Retrieved {len(projects)} projects for user {current_user_id}")
         return projects
         
     except HTTPException:
         raise
     except Exception as e:
-        structlog.get_logger().error(f"Error fetching projects for user {current_user_id}: {str(e)}")
+        logger.error(f"Error fetching projects for user {current_user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch projects")
 
 # ---------------------------------------------------------------------------
@@ -117,11 +120,7 @@ async def get_project(
                 raise HTTPException(status_code=403, detail="Authentication required to access this project")
 
             # Verify the authenticated user belongs to the same account as the project
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=403, detail="User account not found")
-
-            user_account_id = account_result.data
+            user_account_id = await get_account_id_or_raise(client, current_user_id, error_code=403)
             if user_account_id != project_data.get('user_id'):
                 raise HTTPException(status_code=403, detail="Not authorized to access this project")
 
@@ -137,14 +136,14 @@ async def get_project(
             app_type=project_data.get('app_type', 'web')
         )
 
-        structlog.get_logger().info(f"Retrieved project {project_id} for user {current_user_id}")
+        logger.info(f"Retrieved project {project_id} for user {current_user_id}")
         return project
 
     except HTTPException:
         # Re-raise expected HTTP errors
         raise
     except Exception as e:
-        structlog.get_logger().error(f"Error fetching project {project_id}: {str(e)}")
+        logger.error(f"Error fetching project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch project")
 
 @router.get("/threads", response_model=List[Thread])
@@ -161,13 +160,11 @@ async def get_threads(
     try:
         client = await db.client
 
-        # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-        if not account_result.data:
-            structlog.get_logger().warning(f"No account mapping found for Clerk user {current_user_id}")
+        # Get the account ID for this Clerk user using centralized helper
+        account_id = await get_account_id_for_clerk_user(client, current_user_id)
+        if not account_id:
+            logger.warning(f"No account mapping found for Clerk user {current_user_id}")
             return []
-
-        account_id = account_result.data
 
         # Build query with server-side filtering for agent builder threads
         # and pagination for performance
@@ -195,13 +192,13 @@ async def get_threads(
                 metadata=metadata
             ))
 
-        structlog.get_logger().info(f"Retrieved {len(threads)} threads for user {current_user_id}")
+        logger.info(f"Retrieved {len(threads)} threads for user {current_user_id}")
         return threads
 
     except HTTPException:
         raise
     except Exception as e:
-        structlog.get_logger().error(f"Error fetching threads for user {current_user_id}: {str(e)}")
+        logger.error(f"Error fetching threads for user {current_user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to fetch threads")
 
 @router.post("/projects", response_model=Project)
@@ -212,14 +209,10 @@ async def create_project(
     """Create a new project for the authenticated user"""
     try:
         client = await db.client
-        
-        # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-        if not account_result.data:
-            raise HTTPException(status_code=400, detail="User account not found")
-        
-        account_id = account_result.data
-        
+
+        # Get the account ID for this Clerk user using centralized helper
+        account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Create the project
         result = await client.table('projects').insert({
             'name': project_data.name,
@@ -243,13 +236,13 @@ async def create_project(
             is_public=project_data.get('is_public', False)
         )
         
-        structlog.get_logger().info(f"Created project {project.id} for user {current_user_id}")
+        logger.info(f"Created project {project.id} for user {current_user_id}")
         return project
         
     except HTTPException:
         raise
     except Exception as e:
-        structlog.get_logger().error(f"Error creating project for user {current_user_id}: {str(e)}")
+        logger.error(f"Error creating project for user {current_user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create project")
 
 @router.post("/threads", response_model=Thread)
@@ -260,14 +253,10 @@ async def create_thread(
     """Create a new thread for the authenticated user"""
     try:
         client = await db.client
-        
-        # Get the account ID for this Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-        if not account_result.data:
-            raise HTTPException(status_code=400, detail="User account not found")
-        
-        account_id = account_result.data
-        
+
+        # Get the account ID for this Clerk user using centralized helper
+        account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Create the thread
         result = await client.table('threads').insert({
             'project_id': thread_data.project_id,
@@ -289,11 +278,11 @@ async def create_thread(
             metadata=thread_data.get('metadata', {})
         )
         
-        structlog.get_logger().info(f"Created thread {thread.thread_id} for user {current_user_id}")
+        logger.info(f"Created thread {thread.thread_id} for user {current_user_id}")
         return thread
         
     except HTTPException:
         raise
     except Exception as e:
-        structlog.get_logger().error(f"Error creating thread for user {current_user_id}: {str(e)}")
+        logger.error(f"Error creating thread for user {current_user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to create thread") 

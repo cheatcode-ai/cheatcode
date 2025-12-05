@@ -1,4 +1,3 @@
-import os
 import json
 import numpy as np
 from typing import List, Dict, Any, Optional
@@ -6,13 +5,14 @@ from agentpress.tool import Tool, ToolResult, ToolSchema, SchemaType, XMLTagSche
 from agentpress.thread_manager import ThreadManager
 from services.supabase import DBConnection
 from utils.logger import logger
+from utils.config import config
 # Google Generative AI (Gemini) SDK
 from google import genai
 from google.genai import types
 
 class ComponentSearchTool(Tool):
     """Tool for searching components using embedding-based semantic search.
-    
+
     This tool searches the component index using vector embeddings to find
     the most relevant components for a given user request or description.
     """
@@ -23,10 +23,9 @@ class ComponentSearchTool(Tool):
         self.db = DBConnection()
         self.app_type = app_type
         logger.info(f"🔍 ComponentSearchTool initialized with app_type: {app_type}")
-        
-        # Initialize Gemini API client using the new google.genai Client
-        # Strictly use GOOGLE_API_KEY; do not fallback to other envs or defaults
-        api_key = os.getenv('GOOGLE_API_KEY')
+
+        # Initialize Gemini API client using centralized config
+        api_key = config.GOOGLE_API_KEY
         try:
             if api_key:
                 self.client = genai.Client(api_key=api_key)

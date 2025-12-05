@@ -117,22 +117,16 @@ async def create_polar_checkout_session(
     plan_id: str,
     account_id: str,
     user_email: str,
-    user_name: str = "",
     success_url: Optional[str] = None,
-    cancel_url: Optional[str] = None,
-    allowed_payment_methods: Optional[list] = None  # Not used by Polar, kept for compatibility
 ) -> str:
     """
-    Create Polar checkout session - compatibility function for billing.py.
+    Create Polar checkout session.
 
     Args:
         plan_id: The plan to subscribe to ('pro', 'premium', 'byok')
         account_id: The user's account ID
         user_email: The user's email address
-        user_name: The user's name (not used by Polar)
         success_url: URL to redirect after successful payment
-        cancel_url: URL to redirect after cancelled payment (not used by Polar)
-        allowed_payment_methods: Not used by Polar, kept for API compatibility
 
     Returns:
         The checkout URL to redirect the user to

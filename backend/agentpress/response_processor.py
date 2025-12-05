@@ -12,6 +12,8 @@ import json
 import re
 import uuid
 import asyncio
+import time
+from collections import deque
 from datetime import datetime, timezone
 from typing import List, Dict, Any, Optional, AsyncGenerator, Tuple, Union, Callable, Literal
 from dataclasses import dataclass
@@ -19,13 +21,122 @@ from utils.logger import logger
 from agentpress.tool import ToolResult
 from agentpress.tool_registry import ToolRegistry
 from agentpress.xml_tool_parser import XMLToolParser
-from langfuse.client import StatefulTraceClient, StatefulGenerationClient
-from services.langfuse import langfuse, safe_trace
+from services.langfuse import langfuse, safe_trace, log_event
 from agentpress.utils.json_helpers import (
-    ensure_dict, ensure_list, safe_json_parse, 
+    ensure_dict, ensure_list, safe_json_parse,
     to_json_string, format_for_yield
 )
 from litellm.utils import token_counter
+from utils.models import calculate_token_cost
+
+# ============================================================================
+# Streaming Batching Configuration
+# ============================================================================
+SSE_BATCH_SIZE = 25           # Batch up to 25 chunks before emitting
+SSE_BATCH_TIMEOUT_MS = 75     # Or emit after 75ms, whichever comes first
+
+# ============================================================================
+# Tool Execution Concurrency Configuration
+# ============================================================================
+MAX_CONCURRENT_TOOLS = 5      # Maximum concurrent tool executions
+
+
+class ChunkBatcher:
+    """
+    Batches streaming chunks to reduce network overhead.
+
+    Instead of yielding every tiny chunk immediately, this batcher collects
+    chunks and emits them in batches based on:
+    - Batch size threshold (SSE_BATCH_SIZE)
+    - Time threshold (SSE_BATCH_TIMEOUT_MS)
+    - Priority messages (tool calls, status, errors) always emit immediately
+    """
+
+    def __init__(self, batch_size: int = SSE_BATCH_SIZE, timeout_ms: int = SSE_BATCH_TIMEOUT_MS):
+        self.buffer: deque = deque()
+        self.batch_size = batch_size
+        self.timeout_ms = timeout_ms
+        self.last_emit_time = time.monotonic()
+
+    def add(self, chunk: dict) -> list[dict] | None:
+        """
+        Add chunk to buffer. Returns batch if ready to emit, None otherwise.
+
+        Priority messages (tool_call, status, error) trigger immediate emission.
+        """
+        self.buffer.append(chunk)
+
+        now = time.monotonic()
+        time_since_last_ms = (now - self.last_emit_time) * 1000
+
+        # Check if we should emit
+        chunk_type = chunk.get("type", "")
+        is_priority = chunk_type in ["status", "tool"] or "error" in str(chunk.get("content", "")).lower()
+
+        should_emit = (
+            len(self.buffer) >= self.batch_size or
+            time_since_last_ms >= self.timeout_ms or
+            is_priority  # Priority messages trigger immediate flush
+        )
+
+        if should_emit:
+            return self._flush()
+        return None
+
+    def _flush(self) -> list[dict]:
+        """Flush all buffered chunks."""
+        batch = list(self.buffer)
+        self.buffer.clear()
+        self.last_emit_time = time.monotonic()
+        return batch
+
+    def flush_remaining(self) -> list[dict] | None:
+        """Flush any remaining chunks in buffer."""
+        if self.buffer:
+            return self._flush()
+        return None
+
+
+class BoundedTaskGroup:
+    """
+    Execute async tasks with bounded concurrency.
+
+    Prevents resource exhaustion by limiting the number of concurrent
+    tool executions. Uses a semaphore to enforce the limit.
+    """
+
+    def __init__(self, max_concurrent: int = MAX_CONCURRENT_TOOLS):
+        self.semaphore = asyncio.Semaphore(max_concurrent)
+        self.tasks: list[asyncio.Task] = []
+        self.max_concurrent = max_concurrent
+
+    async def spawn(self, coro, timeout: float = 60.0):
+        """
+        Spawn a task with bounded concurrency and optional timeout.
+
+        Args:
+            coro: The coroutine to execute
+            timeout: Maximum time in seconds for the task (default 60s)
+        """
+        async def bounded_coro():
+            async with self.semaphore:
+                try:
+                    return await asyncio.wait_for(coro, timeout=timeout)
+                except asyncio.TimeoutError:
+                    raise asyncio.TimeoutError(f"Task timed out after {timeout}s")
+
+        task = asyncio.create_task(bounded_coro())
+        self.tasks.append(task)
+        return task
+
+    async def gather(self, return_exceptions: bool = True) -> list:
+        """Gather all spawned tasks."""
+        if not self.tasks:
+            return []
+        return await asyncio.gather(*self.tasks, return_exceptions=return_exceptions)
+
+    def __len__(self):
+        return len(self.tasks)
 
 # Type alias for XML result adding strategy
 XmlAddingStrategy = Literal["user_message", "assistant_message", "inline_edit"]
@@ -86,7 +197,7 @@ class ProcessorConfig:
 class ResponseProcessor:
     """Processes LLM responses, extracting and executing tool calls."""
     
-    def __init__(self, tool_registry: ToolRegistry, add_message_callback: Callable, trace: Optional[StatefulTraceClient] = None, agent_config: Optional[dict] = None):
+    def __init__(self, tool_registry: ToolRegistry, add_message_callback: Callable, trace: Optional[Any] = None, agent_config: Optional[dict] = None):
         """Initialize the ResponseProcessor.
 
         Args:
@@ -143,7 +254,7 @@ class ResponseProcessor:
         prompt_messages: List[Dict[str, Any]],
         llm_model: str,
         config: ProcessorConfig = ProcessorConfig(),
-        generation: Optional[StatefulGenerationClient] = None,
+        generation: Optional[Any] = None,
         can_auto_continue: bool = False,
         auto_continue_count: int = 0,
         continuous_state: Optional[Dict[str, Any]] = None,
@@ -167,7 +278,7 @@ class ResponseProcessor:
         # Create a generation if not provided
         if not generation:
             try:
-                generation = self.trace.generation(name="streaming_llm_call", model=llm_model)
+                generation = self.trace.start_generation(name="streaming_llm_call", model=llm_model)
                 logger.debug("Created Langfuse generation for streaming response")
             except Exception as e:
                 logger.warning(f"Failed to create Langfuse generation: {str(e)}")
@@ -303,7 +414,7 @@ class ResponseProcessor:
                             __sequence += 1
                         else:
                             logger.info("XML tool call limit reached - not yielding more content chunks")
-                            self.trace.event(name="xml_tool_call_limit_reached", level="DEFAULT", status_message=(f"XML tool call limit reached - not yielding more content chunks"))
+                            log_event(self.trace,name="xml_tool_call_limit_reached", level="DEFAULT", status_message=(f"XML tool call limit reached - not yielding more content chunks"))
 
                         # --- Process XML Tool Calls (if enabled and limit not reached) ---
                         if config.xml_tool_calling and not (config.max_xml_tool_calls > 0 and xml_tool_call_count >= config.max_xml_tool_calls):
@@ -326,7 +437,13 @@ class ResponseProcessor:
                                         if started_msg_obj: yield format_for_yield(started_msg_obj)
                                         yielded_tool_indices.add(tool_index) # Mark status as yielded
 
-                                        execution_task = asyncio.create_task(self._execute_tool(tool_call))
+                                        execution_task = asyncio.create_task(
+                                            self._execute_tool(
+                                                tool_call,
+                                                tool_index=tool_index,
+                                                execution_context="streaming_xml"
+                                            )
+                                        )
                                         pending_tool_executions.append({
                                             "task": execution_task, "tool_call": tool_call,
                                             "tool_index": tool_index, "context": context
@@ -396,7 +513,13 @@ class ResponseProcessor:
                                 if started_msg_obj: yield format_for_yield(started_msg_obj)
                                 yielded_tool_indices.add(tool_index) # Mark status as yielded
 
-                                execution_task = asyncio.create_task(self._execute_tool(tool_call_data))
+                                execution_task = asyncio.create_task(
+                                    self._execute_tool(
+                                        tool_call_data,
+                                        tool_index=tool_index,
+                                        execution_context="streaming_native"
+                                    )
+                                )
                                 pending_tool_executions.append({
                                     "task": execution_task, "tool_call": tool_call_data,
                                     "tool_index": tool_index, "context": context
@@ -405,7 +528,7 @@ class ResponseProcessor:
 
                 if finish_reason == "xml_tool_limit_reached":
                     logger.info("Stopping stream processing after loop due to XML tool call limit")
-                    self.trace.event(name="stopping_stream_processing_after_loop_due_to_xml_tool_call_limit", level="DEFAULT", status_message=(f"Stopping stream processing after loop due to XML tool call limit"))
+                    log_event(self.trace,name="stopping_stream_processing_after_loop_due_to_xml_tool_call_limit", level="DEFAULT", status_message=(f"Stopping stream processing after loop due to XML tool call limit"))
                     break
 
             # print() # Add a final newline after the streaming loop finishes
@@ -439,10 +562,10 @@ class ResponseProcessor:
                         f"🔥 Estimated tokens – prompt: {prompt_tokens}, "
                         f"completion: {completion_tokens}, total: {prompt_tokens + completion_tokens}"
                     )
-                    self.trace.event(name="usage_calculated_with_litellm_token_counter", level="DEFAULT", status_message=(f"Usage calculated with litellm.token_counter"))
+                    log_event(self.trace,name="usage_calculated_with_litellm_token_counter", level="DEFAULT", status_message=(f"Usage calculated with litellm.token_counter"))
                 except Exception as e:
                     logger.warning(f"Failed to calculate usage: {str(e)}")
-                    self.trace.event(name="failed_to_calculate_usage", level="WARNING", status_message=(f"Failed to calculate usage: {str(e)}"))
+                    log_event(self.trace,name="failed_to_calculate_usage", level="WARNING", status_message=(f"Failed to calculate usage: {str(e)}"))
 
             # 🔥 CONSUME TOKENS IMMEDIATELY AFTER USAGE IS KNOWN
             if streaming_metadata.get("usage", {}).get("total_tokens", 0) > 0:
@@ -475,14 +598,14 @@ class ResponseProcessor:
                 except Exception as token_error:
                     logger.error(f"Error consuming tokens: {str(token_error)}")
                     # Don't raise - billing errors shouldn't stop the conversation
-                    self.trace.event(name="error_consuming_tokens", level="WARNING", status_message=f"Error consuming tokens: {str(token_error)}")
+                    log_event(self.trace,name="error_consuming_tokens", level="WARNING", status_message=f"Error consuming tokens: {str(token_error)}")
 
 
             # Wait for pending tool executions from streaming phase
             tool_results_buffer = [] # Stores (tool_call, result, tool_index, context)
             if pending_tool_executions:
                 logger.info(f"Waiting for {len(pending_tool_executions)} pending streamed tool executions")
-                self.trace.event(name="waiting_for_pending_streamed_tool_executions", level="DEFAULT", status_message=(f"Waiting for {len(pending_tool_executions)} pending streamed tool executions"))
+                log_event(self.trace,name="waiting_for_pending_streamed_tool_executions", level="DEFAULT", status_message=(f"Waiting for {len(pending_tool_executions)} pending streamed tool executions"))
                 # ... (asyncio.wait logic) ...
                 pending_tasks = [execution["task"] for execution in pending_tool_executions]
                 done, _ = await asyncio.wait(pending_tasks)
@@ -504,7 +627,7 @@ class ResponseProcessor:
 
                             else:  # Should not happen with asyncio.wait
                                 logger.warning(f"Task for tool index {str(tool_idx)} not done after wait.")
-                                self.trace.event(
+                                log_event(self.trace,
                                     name="task_for_tool_index_not_done_after_wait",
                                     level="WARNING",
                                     status_message=(
@@ -517,7 +640,7 @@ class ResponseProcessor:
                             logger.error(
                                 f"Error getting result for pending tool execution {str(tool_idx)}: {error_str}"
                             )
-                            self.trace.event(
+                            log_event(self.trace,
                                 name="error_getting_result_for_pending_tool_execution",
                                 level="ERROR",
                                 status_message=(
@@ -543,7 +666,7 @@ class ResponseProcessor:
                             # Check if this is a terminating tool
                             if tool_name in ['ask', 'complete']:
                                 logger.info(f"Terminating tool '{tool_name}' completed during streaming. Setting termination flag.")
-                                self.trace.event(name="terminating_tool_completed_during_streaming", level="DEFAULT", status_message=(f"Terminating tool '{tool_name}' completed during streaming. Setting termination flag."))
+                                log_event(self.trace,name="terminating_tool_completed_during_streaming", level="DEFAULT", status_message=(f"Terminating tool '{tool_name}' completed during streaming. Setting termination flag."))
                                 agent_should_terminate = True
                                 
                             # Save and Yield tool completed/failed status
@@ -556,7 +679,7 @@ class ResponseProcessor:
                         # Safely convert exception to string, handling cases where it might contain lists
                         error_str = self._safe_str(e)
                         logger.error(f"Error getting result/yielding status for pending tool execution {str(tool_idx)}: {error_str}")
-                        self.trace.event(name="error_getting_result_yielding_status_for_pending_tool_execution", level="ERROR", status_message=(f"Error getting result/yielding status for pending tool execution {str(tool_idx)}: {error_str}"))
+                        log_event(self.trace,name="error_getting_result_yielding_status_for_pending_tool_execution", level="ERROR", status_message=(f"Error getting result/yielding status for pending tool execution {str(tool_idx)}: {error_str}"))
                         context.error = e
                         # Save and Yield tool error status
                         error_msg_obj = await self._yield_and_save_tool_error(context, thread_id, thread_run_id)
@@ -573,7 +696,7 @@ class ResponseProcessor:
                 )
                 if finish_msg_obj: yield format_for_yield(finish_msg_obj)
                 logger.info(f"Stream finished with reason: xml_tool_limit_reached after {xml_tool_call_count} XML tool calls")
-                self.trace.event(name="stream_finished_with_reason_xml_tool_limit_reached_after_xml_tool_calls", level="DEFAULT", status_message=(f"Stream finished with reason: xml_tool_limit_reached after {xml_tool_call_count} XML tool calls"))
+                log_event(self.trace,name="stream_finished_with_reason_xml_tool_limit_reached_after_xml_tool_calls", level="DEFAULT", status_message=(f"Stream finished with reason: xml_tool_limit_reached after {xml_tool_call_count} XML tool calls"))
 
             # --- SAVE and YIELD Final Assistant Message ---
             if accumulated_content:
@@ -617,7 +740,7 @@ class ResponseProcessor:
                     yield format_for_yield(yield_message)
                 else:
                     logger.error(f"Failed to save final assistant message for thread {thread_id}")
-                    self.trace.event(name="failed_to_save_final_assistant_message_for_thread", level="ERROR", status_message=(f"Failed to save final assistant message for thread {thread_id}"))
+                    log_event(self.trace,name="failed_to_save_final_assistant_message_for_thread", level="ERROR", status_message=(f"Failed to save final assistant message for thread {thread_id}"))
                     # Save and yield an error status
                     err_content = {"role": "system", "status_type": "error", "message": "Failed to save final assistant message"}
                     err_msg_obj = await self.add_message(
@@ -684,7 +807,7 @@ class ResponseProcessor:
                 # Populate from buffer if executed on stream
                 if config.execute_on_stream and tool_results_buffer:
                     logger.info(f"Processing {len(tool_results_buffer)} buffered tool results")
-                    self.trace.event(name="processing_buffered_tool_results", level="DEFAULT", status_message=(f"Processing {len(tool_results_buffer)} buffered tool results"))
+                    log_event(self.trace,name="processing_buffered_tool_results", level="DEFAULT", status_message=(f"Processing {len(tool_results_buffer)} buffered tool results"))
                     for tool_call, result, tool_idx, context in tool_results_buffer:
                         if last_assistant_message_object: context.assistant_message_id = last_assistant_message_object['message_id']
                         tool_results_map[tool_idx] = (tool_call, result, context)
@@ -692,7 +815,7 @@ class ResponseProcessor:
                 # Or execute now if not streamed
                 elif final_tool_calls_to_process and not config.execute_on_stream:
                     logger.info(f"Executing {len(final_tool_calls_to_process)} tools ({config.tool_execution_strategy}) after stream")
-                    self.trace.event(name="executing_tools_after_stream", level="DEFAULT", status_message=(f"Executing {len(final_tool_calls_to_process)} tools ({config.tool_execution_strategy}) after stream"))
+                    log_event(self.trace,name="executing_tools_after_stream", level="DEFAULT", status_message=(f"Executing {len(final_tool_calls_to_process)} tools ({config.tool_execution_strategy}) after stream"))
                     results_list = await self._execute_tools(final_tool_calls_to_process, config.tool_execution_strategy)
                     current_tool_idx = 0
                     for tc, res in results_list:
@@ -708,13 +831,13 @@ class ResponseProcessor:
                            tool_results_map[current_tool_idx] = (tc, res, context)
                        else:
                            logger.warning(f"Could not map result for tool index {current_tool_idx}")
-                           self.trace.event(name="could_not_map_result_for_tool_index", level="WARNING", status_message=(f"Could not map result for tool index {current_tool_idx}"))
+                           log_event(self.trace,name="could_not_map_result_for_tool_index", level="WARNING", status_message=(f"Could not map result for tool index {current_tool_idx}"))
                        current_tool_idx += 1
 
                 # Save and Yield each result message
                 if tool_results_map:
                     logger.info(f"Saving and yielding {len(tool_results_map)} final tool result messages")
-                    self.trace.event(name="saving_and_yielding_final_tool_result_messages", level="DEFAULT", status_message=(f"Saving and yielding {len(tool_results_map)} final tool result messages"))
+                    log_event(self.trace,name="saving_and_yielding_final_tool_result_messages", level="DEFAULT", status_message=(f"Saving and yielding {len(tool_results_map)} final tool result messages"))
                     for tool_idx in sorted(tool_results_map.keys()):
                         tool_call, result, context = tool_results_map[tool_idx]
                         context.result = result
@@ -748,7 +871,7 @@ class ResponseProcessor:
                             yield format_for_yield(saved_tool_result_object)
                         else:
                             logger.error(f"Failed to save tool result for index {str(tool_idx)}, not yielding result message.")
-                            self.trace.event(name="failed_to_save_tool_result_for_index", level="ERROR", status_message=(f"Failed to save tool result for index {str(tool_idx)}, not yielding result message."))
+                            log_event(self.trace,name="failed_to_save_tool_result_for_index", level="ERROR", status_message=(f"Failed to save tool result for index {str(tool_idx)}, not yielding result message."))
                             # Optionally yield error status for saving failure?
 
             # --- Final Finish Status ---
@@ -763,7 +886,7 @@ class ResponseProcessor:
             # Check if agent should terminate after processing pending tools
             if agent_should_terminate:
                 logger.info("Agent termination requested after executing ask/complete tool. Stopping further processing.")
-                self.trace.event(name="agent_termination_requested", level="DEFAULT", status_message="Agent termination requested after executing ask/complete tool. Stopping further processing.")
+                log_event(self.trace,name="agent_termination_requested", level="DEFAULT", status_message="Agent termination requested after executing ask/complete tool. Stopping further processing.")
                 
                 # Set finish reason to indicate termination
                 finish_reason = "agent_terminated"
@@ -823,7 +946,7 @@ class ResponseProcessor:
                         logger.info("Assistant response end saved for stream (before termination)")
                     except Exception as e:
                         logger.error(f"Error saving assistant response end for stream (before termination): {str(e)}")
-                        self.trace.event(name="error_saving_assistant_response_end_for_stream_before_termination", level="ERROR", status_message=(f"Error saving assistant response end for stream (before termination): {str(e)}"))
+                        log_event(self.trace,name="error_saving_assistant_response_end_for_stream_before_termination", level="ERROR", status_message=(f"Error saving assistant response end for stream (before termination): {str(e)}"))
                 
                 # Skip all remaining processing and go to finally block
                 return
@@ -875,11 +998,11 @@ class ResponseProcessor:
                     logger.info("Assistant response end saved for stream")
                 except Exception as e:
                     logger.error(f"Error saving assistant response end for stream: {str(e)}")
-                    self.trace.event(name="error_saving_assistant_response_end_for_stream", level="ERROR", status_message=(f"Error saving assistant response end for stream: {str(e)}"))
+                    log_event(self.trace,name="error_saving_assistant_response_end_for_stream", level="ERROR", status_message=(f"Error saving assistant response end for stream: {str(e)}"))
 
         except Exception as e:
             logger.error(f"Error processing stream: {str(e)}", exc_info=True)
-            self.trace.event(name="error_processing_stream", level="ERROR", status_message=(f"Error processing stream: {str(e)}"))
+            log_event(self.trace,name="error_processing_stream", level="ERROR", status_message=(f"Error processing stream: {str(e)}"))
             # Save and yield error status message
             err_content = {"role": "system", "status_type": "error", "message": str(e)}
             err_msg_obj = await self.add_message(
@@ -890,7 +1013,7 @@ class ResponseProcessor:
             
             # Re-raise the same exception (not a new one) to ensure proper error propagation
             logger.critical(f"Re-raising error to stop further processing: {str(e)}")
-            self.trace.event(name="re_raising_error_to_stop_further_processing", level="ERROR", status_message=(f"Re-raising error to stop further processing: {str(e)}"))
+            log_event(self.trace,name="re_raising_error_to_stop_further_processing", level="ERROR", status_message=(f"Re-raising error to stop further processing: {str(e)}"))
             raise # Use bare 'raise' to preserve the original exception with its traceback
 
         finally:
@@ -925,7 +1048,7 @@ class ResponseProcessor:
                 logger.debug("Generator closed during finally block, skipping final yield")
             except Exception as final_e:
                 logger.error(f"Error in finally block: {str(final_e)}", exc_info=True)
-                self.trace.event(name="error_in_finally_block", level="ERROR", status_message=(f"Error in finally block: {str(final_e)}"))
+                log_event(self.trace,name="error_in_finally_block", level="ERROR", status_message=(f"Error in finally block: {str(final_e)}"))
             
             # Complete the Langfuse generation with final response data
             if generation:
@@ -941,19 +1064,25 @@ class ResponseProcessor:
                     if 'complete_native_tool_calls' in locals() and complete_native_tool_calls:
                         final_response["tool_calls"] = complete_native_tool_calls
                     
-                    # Complete the generation with usage data
+                    # Complete the generation with usage data and cost
+                    prompt_tokens = streaming_metadata["usage"]["prompt_tokens"] if 'streaming_metadata' in locals() else 0
+                    completion_tokens = streaming_metadata["usage"]["completion_tokens"] if 'streaming_metadata' in locals() else 0
+                    total_tokens = streaming_metadata["usage"]["total_tokens"] if 'streaming_metadata' in locals() else 0
+                    estimated_cost = calculate_token_cost(prompt_tokens, completion_tokens, llm_model)
+
                     generation.end(
                         output=final_response,
                         usage={
-                            "input": streaming_metadata["usage"]["prompt_tokens"] if 'streaming_metadata' in locals() else 0,
-                            "output": streaming_metadata["usage"]["completion_tokens"] if 'streaming_metadata' in locals() else 0,
-                            "total": streaming_metadata["usage"]["total_tokens"] if 'streaming_metadata' in locals() else 0
+                            "input": prompt_tokens,
+                            "output": completion_tokens,
+                            "total": total_tokens,
+                            "total_cost": estimated_cost  # Explicit cost for accurate Langfuse tracking
                         }
                     )
-                    logger.debug("Langfuse generation completed successfully")
+                    logger.debug(f"Langfuse generation completed - tokens: {total_tokens}, cost: ${estimated_cost:.6f}")
                 except Exception as gen_error:
                     logger.error(f"Error completing Langfuse generation: {str(gen_error)}", exc_info=True)
-                    self.trace.event(name="error_completing_langfuse_generation", level="ERROR", status_message=f"Error completing Langfuse generation: {str(gen_error)}")
+                    log_event(self.trace,name="error_completing_langfuse_generation", level="ERROR", status_message=f"Error completing Langfuse generation: {str(gen_error)}")
             
             # Token consumption has been moved to happen immediately after usage calculation
 
@@ -964,7 +1093,7 @@ class ResponseProcessor:
         prompt_messages: List[Dict[str, Any]],
         llm_model: str,
         config: ProcessorConfig = ProcessorConfig(),
-        generation: Optional[StatefulGenerationClient] = None,
+        generation: Optional[Any] = None,
         can_auto_continue: bool = False,
         auto_continue_count: int = 0,
         continuous_state: Optional[Dict[str, Any]] = None,
@@ -985,7 +1114,7 @@ class ResponseProcessor:
         # Create a generation if not provided
         if not generation:
             try:
-                generation = self.trace.generation(name="non_streaming_llm_call", model=llm_model)
+                generation = self.trace.start_generation(name="non_streaming_llm_call", model=llm_model)
                 logger.debug("Created Langfuse generation for non-streaming response")
             except Exception as e:
                 logger.warning(f"Failed to create Langfuse generation: {str(e)}")
@@ -1014,7 +1143,7 @@ class ResponseProcessor:
                  if hasattr(llm_response.choices[0], 'finish_reason'):
                      finish_reason = llm_response.choices[0].finish_reason
                      logger.info(f"Non-streaming finish_reason: {finish_reason}")
-                     self.trace.event(name="non_streaming_finish_reason", level="DEFAULT", status_message=(f"Non-streaming finish_reason: {finish_reason}"))
+                     log_event(self.trace,name="non_streaming_finish_reason", level="DEFAULT", status_message=(f"Non-streaming finish_reason: {finish_reason}"))
                  response_message = llm_response.choices[0].message if hasattr(llm_response.choices[0], 'message') else None
                  if response_message:
                      if hasattr(response_message, 'content') and response_message.content:
@@ -1062,7 +1191,7 @@ class ResponseProcessor:
                  yield assistant_message_object
             else:
                  logger.error(f"Failed to save non-streaming assistant message for thread {thread_id}")
-                 self.trace.event(name="failed_to_save_non_streaming_assistant_message_for_thread", level="ERROR", status_message=(f"Failed to save non-streaming assistant message for thread {thread_id}"))
+                 log_event(self.trace,name="failed_to_save_non_streaming_assistant_message_for_thread", level="ERROR", status_message=(f"Failed to save non-streaming assistant message for thread {thread_id}"))
                  err_content = {"role": "system", "status_type": "error", "message": "Failed to save assistant message"}
                  err_msg_obj = await self.add_message(
                      thread_id=thread_id, type="status", content=err_content, 
@@ -1074,7 +1203,7 @@ class ResponseProcessor:
             tool_calls_to_execute = [item['tool_call'] for item in all_tool_data]
             if config.execute_tools and tool_calls_to_execute:
                 logger.info(f"Executing {len(tool_calls_to_execute)} tools with strategy: {config.tool_execution_strategy}")
-                self.trace.event(name="executing_tools_with_strategy", level="DEFAULT", status_message=(f"Executing {len(tool_calls_to_execute)} tools with strategy: {config.tool_execution_strategy}"))
+                log_event(self.trace,name="executing_tools_with_strategy", level="DEFAULT", status_message=(f"Executing {len(tool_calls_to_execute)} tools with strategy: {config.tool_execution_strategy}"))
                 tool_results = await self._execute_tools(tool_calls_to_execute, config.tool_execution_strategy)
 
                 for i, (returned_tool_call, result) in enumerate(tool_results):
@@ -1112,7 +1241,7 @@ class ResponseProcessor:
                         yield format_for_yield(saved_tool_result_object)
                     else:
                          logger.error(f"Failed to save tool result for index {tool_index}")
-                         self.trace.event(name="failed_to_save_tool_result_for_index", level="ERROR", status_message=(f"Failed to save tool result for index {tool_index}"))
+                         log_event(self.trace,name="failed_to_save_tool_result_for_index", level="ERROR", status_message=(f"Failed to save tool result for index {tool_index}"))
 
                     tool_index += 1
 
@@ -1139,11 +1268,11 @@ class ResponseProcessor:
                     logger.info("Assistant response end saved for non-stream")
                 except Exception as e:
                     logger.error(f"Error saving assistant response end for non-stream: {str(e)}")
-                    self.trace.event(name="error_saving_assistant_response_end_for_non_stream", level="ERROR", status_message=(f"Error saving assistant response end for non-stream: {str(e)}"))
+                    log_event(self.trace,name="error_saving_assistant_response_end_for_non_stream", level="ERROR", status_message=(f"Error saving assistant response end for non-stream: {str(e)}"))
 
         except Exception as e:
              logger.error(f"Error processing non-streaming response: {str(e)}", exc_info=True)
-             self.trace.event(name="error_processing_non_streaming_response", level="ERROR", status_message=(f"Error processing non-streaming response: {str(e)}"))
+             log_event(self.trace,name="error_processing_non_streaming_response", level="ERROR", status_message=(f"Error processing non-streaming response: {str(e)}"))
              # Save and yield error status
              err_content = {"role": "system", "status_type": "error", "message": str(e)}
              err_msg_obj = await self.add_message(
@@ -1154,7 +1283,7 @@ class ResponseProcessor:
              
              # Re-raise the same exception (not a new one) to ensure proper error propagation
              logger.critical(f"Re-raising error to stop further processing: {str(e)}")
-             self.trace.event(name="re_raising_error_to_stop_further_processing", level="CRITICAL", status_message=(f"Re-raising error to stop further processing: {str(e)}"))
+             log_event(self.trace,name="re_raising_error_to_stop_further_processing", level="CRITICAL", status_message=(f"Re-raising error to stop further processing: {str(e)}"))
              raise # Use bare 'raise' to preserve the original exception with its traceback
 
         finally:
@@ -1184,10 +1313,15 @@ class ResponseProcessor:
                     
                     if hasattr(llm_response, 'usage'):
                         usage = llm_response.usage
+                        prompt_tokens = getattr(usage, 'prompt_tokens', 0)
+                        completion_tokens = getattr(usage, 'completion_tokens', 0)
+                        total_tokens = getattr(usage, 'total_tokens', 0)
+                        estimated_cost = calculate_token_cost(prompt_tokens, completion_tokens, llm_model)
                         usage_data = {
-                            "input": getattr(usage, 'prompt_tokens', 0),
-                            "output": getattr(usage, 'completion_tokens', 0),
-                            "total": getattr(usage, 'total_tokens', 0)
+                            "input": prompt_tokens,
+                            "output": completion_tokens,
+                            "total": total_tokens,
+                            "total_cost": estimated_cost  # Explicit cost for accurate Langfuse tracking
                         }
                         
                         # 🔥 CONSUME TOKENS IMMEDIATELY FOR NON-STREAMING
@@ -1230,15 +1364,16 @@ class ResponseProcessor:
                     if response_tool_calls:
                         final_response["tool_calls"] = response_tool_calls
                     
-                    # Complete the generation
+                    # Complete the generation with cost tracking
                     generation.end(
                         output=final_response,
                         usage=usage_data
                     )
-                    logger.debug("Langfuse generation completed successfully for non-streaming response")
+                    cost_str = f"${usage_data.get('total_cost', 0):.6f}" if 'total_cost' in usage_data else "N/A"
+                    logger.debug(f"Langfuse generation completed - tokens: {usage_data.get('total', 0)}, cost: {cost_str}")
                 except Exception as gen_error:
                     logger.error(f"Error completing Langfuse generation: {str(gen_error)}", exc_info=True)
-                    self.trace.event(name="error_completing_langfuse_generation_non_stream", level="ERROR", status_message=f"Error completing Langfuse generation: {str(gen_error)}")
+                    log_event(self.trace,name="error_completing_langfuse_generation_non_stream", level="ERROR", status_message=f"Error completing Langfuse generation: {str(gen_error)}")
 
     # XML parsing methods
     def _extract_tag_content(self, xml_chunk: str, tag_name: str) -> Tuple[Optional[str], Optional[str]]:
@@ -1285,7 +1420,7 @@ class ResponseProcessor:
             
         except Exception as e:
             logger.error(f"Error extracting tag content: {e}")
-            self.trace.event(name="error_extracting_tag_content", level="ERROR", status_message=(f"Error extracting tag content: {e}"))
+            log_event(self.trace,name="error_extracting_tag_content", level="ERROR", status_message=(f"Error extracting tag content: {e}"))
             return None, xml_chunk
 
     def _extract_attribute(self, opening_tag: str, attr_name: str) -> Optional[str]:
@@ -1312,7 +1447,7 @@ class ResponseProcessor:
             
         except Exception as e:
             logger.error(f"Error extracting attribute: {e}")
-            self.trace.event(name="error_extracting_attribute", level="ERROR", status_message=(f"Error extracting attribute: {e}"))
+            log_event(self.trace,name="error_extracting_attribute", level="ERROR", status_message=(f"Error extracting attribute: {e}"))
             return None
 
     def _extract_xml_chunks(self, content: str) -> List[str]:
@@ -1403,7 +1538,7 @@ class ResponseProcessor:
         except Exception as e:
             logger.error(f"Error extracting XML chunks: {e}")
             logger.error(f"Content was: {content}")
-            self.trace.event(name="error_extracting_xml_chunks", level="ERROR", status_message=(f"Error extracting XML chunks: {e}"), metadata={"content": content})
+            log_event(self.trace,name="error_extracting_xml_chunks", level="ERROR", status_message=(f"Error extracting XML chunks: {e}"), metadata={"content": content})
         
         return chunks
 
@@ -1447,13 +1582,13 @@ class ResponseProcessor:
             tag_match = re.match(r'<([^\s>]+)', xml_chunk)
             if not tag_match:
                 logger.error(f"No tag found in XML chunk: {xml_chunk}")
-                self.trace.event(name="no_tag_found_in_xml_chunk", level="ERROR", status_message=(f"No tag found in XML chunk: {xml_chunk}"))
+                log_event(self.trace,name="no_tag_found_in_xml_chunk", level="ERROR", status_message=(f"No tag found in XML chunk: {xml_chunk}"))
                 return None
             
             # This is the XML tag as it appears in the text (e.g., "create-file")
             xml_tag_name = tag_match.group(1)
             logger.info(f"Found XML tag: {xml_tag_name}")
-            self.trace.event(name="found_xml_tag", level="DEFAULT", status_message=(f"Found XML tag: {xml_tag_name}"))
+            log_event(self.trace,name="found_xml_tag", level="DEFAULT", status_message=(f"Found XML tag: {xml_tag_name}"))
             
             # Handle wrapper <function_calls> by extracting first <invoke> ... </invoke>
             if xml_tag_name == "function_calls":
@@ -1466,14 +1601,14 @@ class ResponseProcessor:
                     return self._parse_xml_tool_call(inner_chunk)
                 else:
                     logger.warning("<function_calls> wrapper found but no <invoke> block detected")
-                    self.trace.event(name="function_calls_no_invoke", level="WARNING", status_message="function_calls wrapper without invoke")
+                    log_event(self.trace,name="function_calls_no_invoke", level="WARNING", status_message="function_calls wrapper without invoke")
                     return None
 
             # Get tool info and schema from registry
             tool_info = self.tool_registry.get_xml_tool(xml_tag_name)
             if not tool_info or not tool_info['schema'].xml_schema:
                 logger.error(f"No tool or schema found for tag: {xml_tag_name}")
-                self.trace.event(name="no_tool_or_schema_found_for_tag", level="ERROR", status_message=(f"No tool or schema found for tag: {xml_tag_name}"))
+                log_event(self.trace,name="no_tool_or_schema_found_for_tag", level="ERROR", status_message=(f"No tool or schema found for tag: {xml_tag_name}"))
                 return None
             
             # This is the actual function name to call (e.g., "create_file")
@@ -1533,7 +1668,7 @@ class ResponseProcessor:
                 
                 except Exception as e:
                     logger.error(f"Error processing mapping {mapping}: {e}")
-                    self.trace.event(name="error_processing_mapping", level="ERROR", status_message=(f"Error processing mapping {mapping}: {e}"))
+                    log_event(self.trace,name="error_processing_mapping", level="ERROR", status_message=(f"Error processing mapping {mapping}: {e}"))
                     continue
 
             # Create tool call with clear separation between function_name and xml_tag_name
@@ -1549,7 +1684,7 @@ class ResponseProcessor:
         except Exception as e:
             logger.error(f"Error parsing XML chunk: {e}")
             logger.error(f"XML chunk was: {xml_chunk}")
-            self.trace.event(name="error_parsing_xml_chunk", level="ERROR", status_message=(f"Error parsing XML chunk: {e}"), metadata={"xml_chunk": xml_chunk})
+            log_event(self.trace,name="error_parsing_xml_chunk", level="ERROR", status_message=(f"Error parsing XML chunk: {e}"), metadata={"xml_chunk": xml_chunk})
             return None
 
     def _parse_xml_tool_calls(self, content: str) -> List[Dict[str, Any]]:
@@ -1574,77 +1709,225 @@ class ResponseProcessor:
                     
         except Exception as e:
             logger.error(f"Error parsing XML tool calls: {e}", exc_info=True)
-            self.trace.event(name="error_parsing_xml_tool_calls", level="ERROR", status_message=(f"Error parsing XML tool calls: {e}"), metadata={"content": content})
+            log_event(self.trace,name="error_parsing_xml_tool_calls", level="ERROR", status_message=(f"Error parsing XML tool calls: {e}"), metadata={"content": content})
         
         return parsed_data
 
     # Tool execution methods
-    async def _execute_tool(self, tool_call: Dict[str, Any]) -> ToolResult:
-        """Execute a single tool call and return the result."""
-        span = self.trace.span(name=f"execute_tool.{tool_call['function_name']}", input=tool_call["arguments"])            
-        try:
-            function_name = tool_call["function_name"]
-            arguments = tool_call["arguments"]
+    async def _execute_tool(self, tool_call: Dict[str, Any], max_retries: int = 2, tool_index: int = 0, execution_context: str = "default") -> ToolResult:
+        """Execute a single tool call with retry logic.
 
-            logger.info(f"Executing tool: {function_name} with arguments: {arguments}")
-            self.trace.event(name="executing_tool", level="DEFAULT", status_message=(f"Executing tool: {function_name} with arguments: {arguments}"))
-            
-            if isinstance(arguments, str):
-                try:
-                    arguments = safe_json_parse(arguments)
-                except json.JSONDecodeError:
-                    arguments = {"text": arguments}
-            
-            # Get available functions from tool registry
-            available_functions = self.tool_registry.get_available_functions()
-            
-            # Look up the function by name
-            tool_fn = available_functions.get(function_name)
-            if not tool_fn:
-                logger.error(f"Tool function '{function_name}' not found in registry")
-                span.end(status_message="tool_not_found", level="ERROR")
-                return ToolResult(success=False, output=f"Tool function '{function_name}' not found")
-            
-            logger.debug(f"Found tool function for '{function_name}', executing...")
-            result = await tool_fn(**arguments)
-            logger.info(f"Tool execution complete: {function_name} -> {result}")
-            span.end(status_message="tool_executed", output=result)
-            return result
-        except Exception as e:
-            error_str = self._safe_str(e)
-            logger.error(f"Error executing tool {tool_call['function_name']}: {error_str}", exc_info=True)
-            span.end(status_message="tool_execution_error", output=f"Error executing tool: {error_str}", level="ERROR")
-            return ToolResult(success=False, output=f"Error executing tool: {error_str}")
+        Args:
+            tool_call: The tool call to execute
+            max_retries: Maximum retry attempts for transient failures (default 2)
+            tool_index: Index of the tool in the execution batch (for tracing)
+            execution_context: Context string (e.g., "streaming", "parallel", "sequential")
+
+        Returns:
+            ToolResult with success status and output
+        """
+        function_name = tool_call.get("function_name", "unknown")
+        start_time = time.time()
+
+        # Create enhanced span with rich metadata
+        span = self.trace.start_span(
+            name=f"tool.{function_name}",
+            input=tool_call.get("arguments"),
+            metadata={
+                "tool_name": function_name,
+                "tool_index": tool_index,
+                "execution_context": execution_context,
+                "max_retries": max_retries,
+                "tool_call_id": tool_call.get("id", "unknown"),
+                "is_xml_tool": tool_call.get("is_xml_tool", False),
+            }
+        )
+
+        # Errors that should trigger retries (transient/recoverable)
+        retryable_errors = (
+            ConnectionError,
+            TimeoutError,
+            asyncio.TimeoutError,
+            OSError,  # Network-related errors
+        )
+
+        last_error = None
+        for attempt in range(max_retries + 1):
+            try:
+                arguments = tool_call["arguments"]
+
+                if attempt == 0:
+                    logger.info(f"Executing tool: {function_name} with arguments: {arguments}")
+                    log_event(self.trace,name="executing_tool", level="DEFAULT", status_message=(f"Executing tool: {function_name} with arguments: {arguments}"))
+                else:
+                    logger.info(f"Retrying tool {function_name} (attempt {attempt + 1}/{max_retries + 1})")
+                    log_event(self.trace,name="retrying_tool", level="DEFAULT", status_message=f"Retry {attempt + 1}/{max_retries + 1} for {function_name}")
+
+                if isinstance(arguments, str):
+                    try:
+                        arguments = safe_json_parse(arguments)
+                    except json.JSONDecodeError:
+                        arguments = {"text": arguments}
+
+                # Get available functions from tool registry
+                available_functions = self.tool_registry.get_available_functions()
+
+                # Look up the function by name
+                tool_fn = available_functions.get(function_name)
+                if not tool_fn:
+                    logger.error(f"Tool function '{function_name}' not found in registry")
+                    duration_ms = (time.time() - start_time) * 1000
+                    span.end(
+                        status_message="tool_not_found",
+                        level="ERROR",
+                        metadata={"duration_ms": duration_ms, "error_type": "not_found"}
+                    )
+                    return ToolResult(success=False, output=f"Tool function '{function_name}' not found")
+
+                logger.debug(f"Found tool function for '{function_name}', executing...")
+                result = await tool_fn(**arguments)
+                duration_ms = (time.time() - start_time) * 1000
+                logger.info(f"Tool execution complete: {function_name} -> {result} (took {duration_ms:.1f}ms)")
+                span.end(
+                    status_message="success",
+                    output=result,
+                    metadata={
+                        "duration_ms": duration_ms,
+                        "success": result.success if hasattr(result, 'success') else True,
+                        "attempts": attempt + 1
+                    }
+                )
+                return result
+
+            except retryable_errors as e:
+                last_error = e
+                error_str = self._safe_str(e)
+
+                if attempt < max_retries:
+                    # Exponential backoff: 0.5s, 1s, 2s...
+                    delay = 0.5 * (2 ** attempt)
+                    logger.warning(f"Retryable error in tool {function_name}: {error_str}. Retrying in {delay}s...")
+                    log_event(self.trace,
+                        name="tool_retry_scheduled",
+                        level="DEFAULT",
+                        status_message=f"Retry scheduled for {function_name} after {delay}s due to: {error_str}",
+                        metadata={"attempt": attempt + 1, "delay_s": delay, "error_type": type(e).__name__}
+                    )
+                    await asyncio.sleep(delay)
+                else:
+                    duration_ms = (time.time() - start_time) * 1000
+                    logger.error(f"Tool {function_name} failed after {max_retries + 1} attempts: {error_str}")
+                    span.end(
+                        status_message="retries_exhausted",
+                        output=f"Failed after retries: {error_str}",
+                        level="ERROR",
+                        metadata={
+                            "duration_ms": duration_ms,
+                            "error_type": type(e).__name__,
+                            "total_attempts": max_retries + 1
+                        }
+                    )
+                    return ToolResult(success=False, output=f"Tool failed after {max_retries + 1} attempts: {error_str}")
+
+            except Exception as e:
+                # Non-retryable errors fail immediately
+                duration_ms = (time.time() - start_time) * 1000
+                error_str = self._safe_str(e)
+                logger.error(f"Error executing tool {function_name}: {error_str}", exc_info=True)
+                span.end(
+                    status_message="execution_error",
+                    output=f"Error executing tool: {error_str}",
+                    level="ERROR",
+                    metadata={
+                        "duration_ms": duration_ms,
+                        "error_type": type(e).__name__,
+                        "attempt": attempt + 1
+                    }
+                )
+                return ToolResult(success=False, output=f"Error executing tool: {error_str}")
+
+        # Should not reach here, but handle gracefully
+        duration_ms = (time.time() - start_time) * 1000
+        error_str = self._safe_str(last_error) if last_error else "Unknown error"
+        span.end(
+            status_message="exhausted",
+            output=f"Retries exhausted: {error_str}",
+            level="ERROR",
+            metadata={"duration_ms": duration_ms}
+        )
+        return ToolResult(success=False, output=f"Tool execution failed: {error_str}")
 
     async def _execute_tools(
-        self, 
-        tool_calls: List[Dict[str, Any]], 
+        self,
+        tool_calls: List[Dict[str, Any]],
         execution_strategy: ToolExecutionStrategy = "sequential"
     ) -> List[Tuple[Dict[str, Any], ToolResult]]:
         """Execute tool calls with the specified strategy.
-        
+
         This is the main entry point for tool execution. It dispatches to the appropriate
         execution method based on the provided strategy.
-        
+
         Args:
             tool_calls: List of tool calls to execute
             execution_strategy: Strategy for executing tools:
                 - "sequential": Execute tools one after another, waiting for each to complete
-                - "parallel": Execute all tools simultaneously for better performance 
-                
+                - "parallel": Execute all tools simultaneously for better performance
+
         Returns:
             List of tuples containing the original tool call and its result
         """
+        start_time = time.time()
+        tool_names = [t.get("function_name", "unknown") for t in tool_calls]
+
+        # Create top-level span for entire tool execution batch
+        batch_span = self.trace.start_span(
+            name="tool_batch_execution",
+            input={"tool_count": len(tool_calls), "tools": tool_names},
+            metadata={
+                "execution_strategy": execution_strategy,
+                "tool_count": len(tool_calls),
+                "tool_names": tool_names,
+                "max_concurrent": MAX_CONCURRENT_TOOLS if execution_strategy == "parallel" else 1
+            }
+        )
+
         logger.info(f"Executing {len(tool_calls)} tools with strategy: {execution_strategy}")
-        self.trace.event(name="executing_tools_with_strategy", level="DEFAULT", status_message=(f"Executing {len(tool_calls)} tools with strategy: {execution_strategy}"))
-            
-        if execution_strategy == "sequential":
-            return await self._execute_tools_sequentially(tool_calls)
-        elif execution_strategy == "parallel":
-            return await self._execute_tools_in_parallel(tool_calls)
-        else:
-            logger.warning(f"Unknown execution strategy: {execution_strategy}, falling back to sequential")
-            return await self._execute_tools_sequentially(tool_calls)
+        log_event(self.trace,name="executing_tools_with_strategy", level="DEFAULT", status_message=(f"Executing {len(tool_calls)} tools with strategy: {execution_strategy}"))
+
+        try:
+            if execution_strategy == "sequential":
+                results = await self._execute_tools_sequentially(tool_calls)
+            elif execution_strategy == "parallel":
+                results = await self._execute_tools_in_parallel(tool_calls)
+            else:
+                logger.warning(f"Unknown execution strategy: {execution_strategy}, falling back to sequential")
+                results = await self._execute_tools_sequentially(tool_calls)
+
+            duration_ms = (time.time() - start_time) * 1000
+            successful = sum(1 for _, r in results if r.success)
+            failed = len(results) - successful
+
+            batch_span.end(
+                status_message="success" if failed == 0 else "partial_success" if successful > 0 else "failed",
+                output={"successful": successful, "failed": failed, "total": len(results)},
+                metadata={
+                    "duration_ms": duration_ms,
+                    "successful_count": successful,
+                    "failed_count": failed,
+                    "avg_tool_time_ms": duration_ms / len(results) if results else 0
+                }
+            )
+            return results
+
+        except Exception as e:
+            duration_ms = (time.time() - start_time) * 1000
+            batch_span.end(
+                status_message="error",
+                output=f"Batch execution failed: {str(e)}",
+                level="ERROR",
+                metadata={"duration_ms": duration_ms, "error_type": type(e).__name__}
+            )
+            raise
 
     async def _execute_tools_sequentially(self, tool_calls: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], ToolResult]]:
         """Execute tool calls sequentially and return results.
@@ -1664,33 +1947,37 @@ class ResponseProcessor:
         try:
             tool_names = [t.get('function_name', 'unknown') for t in tool_calls]
             logger.info(f"Executing {len(tool_calls)} tools sequentially: {tool_names}")
-            self.trace.event(name="executing_tools_sequentially", level="DEFAULT", status_message=(f"Executing {len(tool_calls)} tools sequentially: {tool_names}"))
+            log_event(self.trace,name="executing_tools_sequentially", level="DEFAULT", status_message=(f"Executing {len(tool_calls)} tools sequentially: {tool_names}"))
             
             results = []
             for index, tool_call in enumerate(tool_calls):
                 tool_name = tool_call.get('function_name', 'unknown')
                 logger.debug(f"Executing tool {index+1}/{len(tool_calls)}: {tool_name}")
-                
+
                 try:
-                    result = await self._execute_tool(tool_call)
+                    result = await self._execute_tool(
+                        tool_call,
+                        tool_index=index,
+                        execution_context="sequential"
+                    )
                     results.append((tool_call, result))
                     logger.debug(f"Completed tool {tool_name} with success={result.success}")
                     
                     # Check if this is a terminating tool (ask or complete)
                     if tool_name in ['ask', 'complete']:
                         logger.info(f"Terminating tool '{tool_name}' executed. Stopping further tool execution.")
-                        self.trace.event(name="terminating_tool_executed", level="DEFAULT", status_message=(f"Terminating tool '{tool_name}' executed. Stopping further tool execution."))
+                        log_event(self.trace,name="terminating_tool_executed", level="DEFAULT", status_message=(f"Terminating tool '{tool_name}' executed. Stopping further tool execution."))
                         break  # Stop executing remaining tools
                         
                 except Exception as e:
                     error_str = self._safe_str(e)
                     logger.error(f"Error executing tool {tool_name}: {error_str}")
-                    self.trace.event(name="error_executing_tool", level="ERROR", status_message=(f"Error executing tool {tool_name}: {error_str}"))
+                    log_event(self.trace,name="error_executing_tool", level="ERROR", status_message=(f"Error executing tool {tool_name}: {error_str}"))
                     error_result = ToolResult(success=False, output=f"Error executing tool: {error_str}")
                     results.append((tool_call, error_result))
             
             logger.info(f"Sequential execution completed for {len(results)} tools (out of {len(tool_calls)} total)")
-            self.trace.event(name="sequential_execution_completed", level="DEFAULT", status_message=(f"Sequential execution completed for {len(results)} tools (out of {len(tool_calls)} total)"))
+            log_event(self.trace,name="sequential_execution_completed", level="DEFAULT", status_message=(f"Sequential execution completed for {len(results)} tools (out of {len(tool_calls)} total)"))
             return results
             
         except Exception as e:
@@ -1708,53 +1995,94 @@ class ResponseProcessor:
             return completed_results + error_results
 
     async def _execute_tools_in_parallel(self, tool_calls: List[Dict[str, Any]]) -> List[Tuple[Dict[str, Any], ToolResult]]:
-        """Execute tool calls in parallel and return results.
-        
-        This method executes all tool calls simultaneously using asyncio.gather, which
-        can significantly improve performance when executing multiple independent tools.
-        
+        """Execute tool calls in parallel with bounded concurrency.
+
+        This method executes tool calls using BoundedTaskGroup, which limits
+        concurrent executions to MAX_CONCURRENT_TOOLS (default 5) to prevent
+        resource exhaustion. Each tool has a 60-second timeout.
+
         Args:
             tool_calls: List of tool calls to execute
-            
+
         Returns:
             List of tuples containing the original tool call and its result
         """
         if not tool_calls:
             return []
-            
+
         try:
             tool_names = [t.get('function_name', 'unknown') for t in tool_calls]
-            logger.info(f"Executing {len(tool_calls)} tools in parallel: {tool_names}")
-            self.trace.event(name="executing_tools_in_parallel", level="DEFAULT", status_message=(f"Executing {len(tool_calls)} tools in parallel: {tool_names}"))
-            
-            # Create tasks for all tool calls
-            tasks = [self._execute_tool(tool_call) for tool_call in tool_calls]
-            
+            logger.info(f"Executing {len(tool_calls)} tools in parallel (max {MAX_CONCURRENT_TOOLS} concurrent): {tool_names}")
+            log_event(self.trace,
+                name="executing_tools_in_parallel",
+                level="DEFAULT",
+                status_message=f"Executing {len(tool_calls)} tools in parallel (max {MAX_CONCURRENT_TOOLS} concurrent): {tool_names}"
+            )
+
+            # Use BoundedTaskGroup for concurrency limiting
+            task_group = BoundedTaskGroup(max_concurrent=MAX_CONCURRENT_TOOLS)
+
+            # Spawn tasks with timeout and enhanced context
+            for index, tool_call in enumerate(tool_calls):
+                await task_group.spawn(
+                    self._execute_tool(
+                        tool_call,
+                        tool_index=index,
+                        execution_context=f"parallel_{MAX_CONCURRENT_TOOLS}x"
+                    ),
+                    timeout=60.0  # 60 second timeout per tool
+                )
+
             # Execute all tasks concurrently with error handling
-            results = await asyncio.gather(*tasks, return_exceptions=True)
-            
+            results = await task_group.gather(return_exceptions=True)
+
             # Process results and handle any exceptions
             processed_results = []
             for i, (tool_call, result) in enumerate(zip(tool_calls, results)):
                 if isinstance(result, Exception):
-                    logger.error(f"Error executing tool {tool_call.get('function_name', 'unknown')}: {str(result)}")
-                    self.trace.event(name="error_executing_tool", level="ERROR", status_message=(f"Error executing tool {tool_call.get('function_name', 'unknown')}: {str(result)}"))
-                    # Create error result
-                    error_result = ToolResult(success=False, output=f"Error executing tool: {str(result)}")
+                    error_str = self._safe_str(result)
+                    tool_name = tool_call.get('function_name', 'unknown')
+
+                    # Differentiate timeout errors for better logging
+                    if isinstance(result, asyncio.TimeoutError):
+                        logger.error(f"Tool {tool_name} timed out after 60s")
+                        log_event(self.trace,
+                            name="tool_timeout",
+                            level="ERROR",
+                            status_message=f"Tool {tool_name} timed out after 60s"
+                        )
+                        error_result = ToolResult(success=False, output=f"Tool timed out after 60 seconds")
+                    else:
+                        logger.error(f"Error executing tool {tool_name}: {error_str}")
+                        log_event(self.trace,
+                            name="error_executing_tool",
+                            level="ERROR",
+                            status_message=f"Error executing tool {tool_name}: {error_str}"
+                        )
+                        error_result = ToolResult(success=False, output=f"Error executing tool: {error_str}")
+
                     processed_results.append((tool_call, error_result))
                 else:
                     processed_results.append((tool_call, result))
-            
+
             logger.info(f"Parallel execution completed for {len(tool_calls)} tools")
-            self.trace.event(name="parallel_execution_completed", level="DEFAULT", status_message=(f"Parallel execution completed for {len(tool_calls)} tools"))
+            log_event(self.trace,
+                name="parallel_execution_completed",
+                level="DEFAULT",
+                status_message=f"Parallel execution completed for {len(tool_calls)} tools"
+            )
             return processed_results
-        
+
         except Exception as e:
             error_str = self._safe_str(e)
             logger.error(f"Error in parallel tool execution: {error_str}", exc_info=True)
-            self.trace.event(name="error_in_parallel_tool_execution", level="ERROR", status_message=(f"Error in parallel tool execution: {error_str}"))
+            log_event(self.trace,
+                name="error_in_parallel_tool_execution",
+                level="ERROR",
+                status_message=f"Error in parallel tool execution: {error_str}"
+            )
             # Return error results for all tools if the gather itself fails
-            return [(tool_call, ToolResult(success=False, output=f"Execution error: {error_str}")) 
+            return [(tool_call, ToolResult(success=False, output=f"Execution error: {error_str}"))
                     for tool_call in tool_calls]
 
     async def _add_tool_result(
@@ -1790,13 +2118,13 @@ class ResponseProcessor:
             if assistant_message_id:
                 metadata["assistant_message_id"] = assistant_message_id
                 logger.info(f"Linking tool result to assistant message: {assistant_message_id}")
-                self.trace.event(name="linking_tool_result_to_assistant_message", level="DEFAULT", status_message=(f"Linking tool result to assistant message: {assistant_message_id}"))
+                log_event(self.trace,name="linking_tool_result_to_assistant_message", level="DEFAULT", status_message=(f"Linking tool result to assistant message: {assistant_message_id}"))
             
             # --- Add parsing details to metadata if available ---
             if parsing_details:
                 metadata["parsing_details"] = parsing_details
                 logger.info("Adding parsing_details to tool result metadata")
-                self.trace.event(name="adding_parsing_details_to_tool_result_metadata", level="DEFAULT", status_message=(f"Adding parsing_details to tool result metadata"), metadata={"parsing_details": parsing_details})
+                log_event(self.trace,name="adding_parsing_details_to_tool_result_metadata", level="DEFAULT", status_message=(f"Adding parsing_details to tool result metadata"), metadata={"parsing_details": parsing_details})
             # ---
             
             # Check if this is a native function call (has id field)
@@ -1820,7 +2148,7 @@ class ResponseProcessor:
                     content = str(result)
                 
                 logger.info(f"Formatted tool result content: {content[:100]}...")
-                self.trace.event(name="formatted_tool_result_content", level="DEFAULT", status_message=(f"Formatted tool result content: {content[:100]}..."))
+                log_event(self.trace,name="formatted_tool_result_content", level="DEFAULT", status_message=(f"Formatted tool result content: {content[:100]}..."))
                 
                 # Create the tool response message with proper format
                 tool_message = {
@@ -1831,7 +2159,7 @@ class ResponseProcessor:
                 }
                 
                 logger.info(f"Adding native tool result for tool_call_id={tool_call['id']} with role=tool")
-                self.trace.event(name="adding_native_tool_result_for_tool_call_id", level="DEFAULT", status_message=(f"Adding native tool result for tool_call_id={tool_call['id']} with role=tool"))
+                log_event(self.trace,name="adding_native_tool_result_for_tool_call_id", level="DEFAULT", status_message=(f"Adding native tool result for tool_call_id={tool_call['id']} with role=tool"))
                 
                 # Add as a tool message to the conversation history
                 # This makes the result visible to the LLM in the next turn
@@ -1887,7 +2215,7 @@ class ResponseProcessor:
         except Exception as e:
             error_str = self._safe_str(e)
             logger.error(f"Error adding tool result: {error_str}", exc_info=True)
-            self.trace.event(name="error_adding_tool_result", level="ERROR", status_message=(f"Error adding tool result: {error_str}"), metadata={"tool_call": tool_call, "result": result, "strategy": strategy, "assistant_message_id": assistant_message_id, "parsing_details": parsing_details})
+            log_event(self.trace,name="error_adding_tool_result", level="ERROR", status_message=(f"Error adding tool result: {error_str}"), metadata={"tool_call": tool_call, "result": result, "strategy": strategy, "assistant_message_id": assistant_message_id, "parsing_details": parsing_details})
             # Fallback to a simple message
             try:
                 fallback_message = {
@@ -1904,7 +2232,7 @@ class ResponseProcessor:
                 return message_obj # Return the full message object
             except Exception as e2:
                 logger.error(f"Failed even with fallback message: {str(e2)}", exc_info=True)
-                self.trace.event(name="failed_even_with_fallback_message", level="ERROR", status_message=(f"Failed even with fallback message: {str(e2)}"), metadata={"tool_call": tool_call, "result": result, "strategy": strategy, "assistant_message_id": assistant_message_id, "parsing_details": parsing_details})
+                log_event(self.trace,name="failed_even_with_fallback_message", level="ERROR", status_message=(f"Failed even with fallback message: {str(e2)}"), metadata={"tool_call": tool_call, "result": result, "strategy": strategy, "assistant_message_id": assistant_message_id, "parsing_details": parsing_details})
                 return None # Return None on error
 
     def _create_structured_tool_result(self, tool_call: Dict[str, Any], result: ToolResult, parsing_details: Optional[Dict[str, Any]] = None, for_llm: bool = False):
@@ -2047,7 +2375,7 @@ class ResponseProcessor:
         if context.function_name in ['ask', 'complete']:
             metadata["agent_should_terminate"] = "true"
             logger.info(f"Marking tool status for '{context.function_name}' with termination signal.")
-            self.trace.event(name="marking_tool_status_for_termination", level="DEFAULT", status_message=(f"Marking tool status for '{context.function_name}' with termination signal."))
+            log_event(self.trace,name="marking_tool_status_for_termination", level="DEFAULT", status_message=(f"Marking tool status for '{context.function_name}' with termination signal."))
         # <<< END ADDED >>>
 
         saved_message_obj = await self.add_message(

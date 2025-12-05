@@ -3,6 +3,7 @@
  *
  * This proxy removes the Daytona preview warning by adding the
  * X-Daytona-Skip-Preview-Warning header to all requests.
+ * Supports both HTTP and WebSocket connections (for HMR).
  *
  * URL format: https://preview.trycheatcode.com/{port}-{sandboxId}/path
  * Proxies to: https://{port}-{sandboxId}.proxy.daytona.works/path
@@ -45,6 +46,49 @@ function parseSandboxFromReferer(referer: string | null): string | null {
   }
 }
 
+/**
+ * Check if request is a WebSocket upgrade request
+ */
+function isWebSocketRequest(request: Request): boolean {
+  const upgradeHeader = request.headers.get('Upgrade');
+  return upgradeHeader?.toLowerCase() === 'websocket';
+}
+
+/**
+ * Handle WebSocket proxy connection
+ */
+async function handleWebSocket(request: Request, targetUrl: string): Promise<Response> {
+  // Create headers for the upstream WebSocket connection
+  const headers = new Headers(request.headers);
+  headers.set('X-Daytona-Skip-Preview-Warning', 'true');
+  headers.set('X-Daytona-Disable-CORS', 'true');
+  headers.delete('host');
+
+  // Convert https to wss for WebSocket URL
+  const wsTargetUrl = targetUrl.replace('https://', 'wss://').replace('http://', 'ws://');
+
+  try {
+    // Fetch with WebSocket upgrade - Cloudflare handles the upgrade automatically
+    const response = await fetch(wsTargetUrl, {
+      method: request.method,
+      headers: headers,
+    });
+
+    // Return the response as-is (Cloudflare handles WebSocket upgrade)
+    return response;
+  } catch (error) {
+    console.error('WebSocket proxy error:', error);
+    return new Response(JSON.stringify({
+      error: 'WebSocket Proxy Error',
+      message: 'Failed to establish WebSocket connection',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }), {
+      status: 502,
+      headers: { 'Content-Type': 'application/json' }
+    });
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -53,7 +97,8 @@ export default {
     if (url.pathname === '/health') {
       return new Response(JSON.stringify({
         status: 'healthy',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
+        features: ['http-proxy', 'websocket-proxy']
       }), {
         headers: { 'Content-Type': 'application/json' }
       });
@@ -88,6 +133,11 @@ export default {
 
     // Build the target URL
     const targetUrl = `https://${info.portSandbox}.${DAYTONA_PROXY_DOMAIN}${info.remainingPath}${url.search}`;
+
+    // Handle WebSocket upgrade requests (for HMR, live reload, etc.)
+    if (isWebSocketRequest(request)) {
+      return handleWebSocket(request, targetUrl);
+    }
 
     // Clone the request headers and add our magic headers
     const headers = new Headers(request.headers);

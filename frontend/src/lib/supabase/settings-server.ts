@@ -2,11 +2,10 @@ import 'server-only';
 import { cache } from 'react';
 import { getCachedAuth } from './cached-server';
 import type { ComposioProfile } from '@/types/composio-profiles';
+import { BACKEND_URL } from '@/lib/api/server-config';
 
 // Re-export ComposioProfile type for consumers
 export type { ComposioProfile };
-
-const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8000';
 
 // Types for OpenRouter key status
 export interface OpenRouterKeyStatus {

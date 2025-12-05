@@ -3,9 +3,7 @@ export {
   useFileContentQuery,
   useDirectoryQuery,
   useFilePreloader,
-  useCachedFile,
   fileQueryKeys,
-  FileCache,
 } from './use-file-queries';
 
 // Specialized content hooks
@@ -19,8 +17,7 @@ export {
   useFileCreate,
 } from './use-file-mutations';
 
-// Utility functions for compatibility
+// Utility functions
 export {
-  getCachedFile,
   fetchFileContent,
 } from './use-file-queries'; 

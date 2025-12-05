@@ -5,47 +5,26 @@ import { NavMenu } from '@/components/home/nav-menu';
 
 import { siteConfig } from '@/lib/home';
 import { cn } from '@/lib/utils';
-import { Link as LinkIcon, Menu, X, Github, User, Settings, LogOut, ChevronUp, Zap, Loader2, Info, ChevronDown, ExternalLink, Barcode } from 'lucide-react';
+import { Menu, X, User, Settings, LogOut, Zap, Loader2 } from 'lucide-react';
 import type { SVGProps } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
-import { useUser, useClerk, useAuth } from '@clerk/nextjs';
+import { useUser, useAuth } from '@clerk/nextjs';
 import { buttonVariants, Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { createClerkBackendApi } from '@/lib/api-client';
-import { toast } from 'sonner';
-import { HoverBorderGradient } from '@/components/ui/hover-border-gradient';
 import { useModal } from '@/hooks/use-modal-store';
-import { useBilling } from '@/contexts/BillingContext';
 
-interface MCPCredentialProfile {
-  profile_id: string;
-  mcp_qualified_name: string;
-  display_name: string;
-  is_default_for_dashboard: boolean;
-  is_active: boolean;
-}
+// Consolidated components and utilities
+import { IntegrationsDropdown } from '@/components/integrations/integrations-dropdown';
+import { ProfileDropdown } from '@/components/user/profile-popover';
+import { useSignOut } from '@/hooks/use-sign-out';
+import { getUserInitials } from '@/lib/utils/user';
+import { useMCPProfilesWithToggle, type MCPCredentialProfile } from '@/hooks/react-query/composio';
 
 const overlayVariants = {
   hidden: { opacity: 0 },
@@ -121,98 +100,16 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
 
   const [mounted, setMounted] = useState(false);
   const { user, isLoaded } = useUser();
-  const { signOut } = useClerk();
-  const { getToken } = useAuth();
-  const queryClient = useQueryClient();
-  const [isUpdatingIntegration, setIsUpdatingIntegration] = useState<string | null>(null);
-  
-  // Get billing information for the profile popover
-  const { 
-    creditsRemaining, 
-    creditsTotal, 
-    planName,
-    rawCreditsTotal, 
-    rawCreditsRemaining,
-    isLoading: billingLoading,
-    deploymentsUsed,
-    deploymentsTotal,
-    deploymentUsagePercentage
-  } = useBilling();
+  const { signOut } = useSignOut();
 
-  // Calculate daily refills for free users (same logic as DailyRefillsMeter)
-  const isFreeUser = planName?.toLowerCase() === 'free' || !planName;
-  const maxRefills = 4;
-  const creditsPerRefill = 5;
-  const creditsUsed = (rawCreditsTotal || 0) - (rawCreditsRemaining || 0);
-  const refillsUsed = Math.min(Math.ceil(creditsUsed / creditsPerRefill), maxRefills);
-  const refillsRemaining = maxRefills - refillsUsed;
-  const refillsProgressPercentage = (refillsUsed / maxRefills) * 100;
-
-  const handleSignOut = async () => {
-    await signOut({ redirectUrl: '/' });
-  };
-
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
-
-  // Fetch MCP credential profiles
-  const { data: mcpProfilesData = [], isLoading: isMcpLoading } = useQuery({
-    queryKey: ['mcp-credential-profiles'],
-    queryFn: async () => {
-      const apiClient = createClerkBackendApi(getToken);
-      const response = await apiClient.get('/composio/profiles');
-      // API returns { success: true, profiles: [...], count: X }
-      const profiles = response.data?.profiles;
-      return Array.isArray(profiles) ? profiles : [];
-    },
-    enabled: mounted && isLoaded && !!user,
-  });
-
-  // Ensure mcpProfiles is always an array
-  const mcpProfiles = Array.isArray(mcpProfilesData) ? mcpProfilesData : [];
-
-  // Update integration toggle mutation
-  const updateIntegrationMutation = useMutation({
-    mutationFn: async ({ profileId, isDefault }: { profileId: string; isDefault: boolean }) => {
-      const apiClient = createClerkBackendApi(getToken);
-      await apiClient.put(`/composio/profiles/${profileId}`, {
-        is_default_for_dashboard: isDefault
-      });
-      return { profileId, isDefault };
-    },
-    onSuccess: (data) => {
-      queryClient.setQueryData(['mcp-credential-profiles'], (old: MCPCredentialProfile[]) => {
-        return old?.map(profile => 
-          profile.profile_id === data.profileId 
-            ? { ...profile, is_default_for_dashboard: data.isDefault }
-            : profile
-        ) || [];
-      });
-      const action = data.isDefault ? 'enabled' : 'disabled';
-      toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} integration for chats`);
-    },
-    onError: (error) => {
-      console.error('Error updating integration:', error);
-      toast.error('Failed to update integration setting');
-    },
-    onSettled: () => {
-      setIsUpdatingIntegration(null);
-    }
-  });
-
-  const handleIntegrationToggle = async (profileId: string, currentValue: boolean) => {
-    setIsUpdatingIntegration(profileId);
-    await updateIntegrationMutation.mutateAsync({ 
-      profileId, 
-      isDefault: !currentValue 
-    });
-  };
+  // Use consolidated MCP profiles hook
+  const {
+    mcpProfiles,
+    activeCount,
+    isLoading: isMcpLoading,
+    toggleIntegration,
+    isUpdatingProfile,
+  } = useMCPProfilesWithToggle(mounted && isLoaded && !!user);
 
   useEffect(() => {
     setMounted(true);
@@ -342,166 +239,15 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
             <div className="flex items-center space-x-3">
               {mounted && isLoaded && user ? (
                 <div className="hidden md:flex items-center space-x-2">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <HoverBorderGradient
-                        containerClassName=""
-                        className="h-8 flex items-center justify-center text-sm font-normal tracking-wide text-white w-fit px-3"
-                        duration={2}
-                      >
-                        <Zap className="w-3 h-3 mr-1.5" />
-                        Integrations
-                        {mcpProfiles.filter(p => p.is_default_for_dashboard).length > 0 && (
-                          <Badge variant="secondary" className="ml-2 h-4 px-1.5 text-xs">
-                            {mcpProfiles.filter(p => p.is_default_for_dashboard).length}
-                          </Badge>
-                        )}
-                      </HoverBorderGradient>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      className="w-80 rounded-2xl ring-1 ring-white/10 bg-gray-950/95 backdrop-blur-md shadow-xl border-0 p-0"
-                      align="end"
-                      sideOffset={8}
-                    >
-                      <div className="p-4 space-y-3">
-                        <h4 className="text-sm font-semibold text-white">Integrations</h4>
-                        <p className="text-sm text-muted-foreground">
-                          Connect and enable tools for your dashboard chats. Manage all integrations in settings.
-                        </p>
-
-                        <Button asChild className="w-full h-9 bg-white text-black hover:bg-white/90">
-                          <a href="/settings/integrations" className="flex items-center justify-center gap-2">
-                            <Zap className="h-4 w-4 text-green-500" />
-                            Manage Integrations
-                          </a>
-                        </Button>
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <button
-                        className="h-8 w-8 rounded-full hover:opacity-80 transition-opacity"
-                      >
-                        <Avatar className="h-8 w-8 border border-white/[0.12]">
-                          <AvatarImage src={user.imageUrl} alt={user.fullName || 'User'} />
-                          <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-xs font-semibold">
-                            {getInitials(user.fullName || user.firstName || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'U')}
-                          </AvatarFallback>
-                        </Avatar>
-                      </button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent
-                      className="w-64 rounded-2xl ring-1 ring-white/10 bg-gray-900/95 backdrop-blur-md shadow-xl border-0"
-                      align="end"
-                      sideOffset={8}
-                    >
-                      {/* Plan Header */}
-                      <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800/80 bg-gradient-to-b from-white/5 to-transparent rounded-t-2xl">
-                        <div className="flex items-center gap-1.5">
-                          <Barcode className="h-4 w-4 text-green-500" />
-                          <span className="text-sm font-medium text-white">
-                            {planName || 'Free'}
-                          </span>
-                        </div>
-                        <Link 
-                          href="/settings/billing" 
-                          className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
-                        >
-                          Manage
-                          <ExternalLink className="h-3 w-3" />
-                        </Link>
-                      </div>
-
-                      {/* Account Stats */}
-                      <TooltipProvider>
-                        <div className="p-3 space-y-3">
-                        {/* Credits */}
-                        <div className="flex items-center justify-between">
-                          <span className="text-sm text-gray-300">Credits</span>
-                          <div className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 ring-1 ring-white/15 bg-transparent">
-                            <span className="text-sm font-semibold text-gray-100 tabular-nums">
-                              {!billingLoading && creditsRemaining !== undefined ? 
-                                (creditsRemaining >= 1000 ? 
-                                  `${(creditsRemaining / 1000).toFixed(2)}K` : 
-                                  creditsRemaining.toFixed(0)
-                                ) : 
-                                '--'
-                              }
-                            </span>
-                            <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_0_2px_rgba(34,197,94,0.35)]"></div>
-                          </div>
-                        </div>
-
-                        {/* Daily Refills - Only for Free users with valid data */}
-                        {isFreeUser && !billingLoading && rawCreditsTotal !== undefined && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between">
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-sm text-gray-300">Daily refills</span>
-                                <Tooltip>
-                                  <TooltipTrigger asChild>
-                                    <Info className="h-3 w-3 text-gray-500 cursor-help" />
-                                  </TooltipTrigger>
-                                  <TooltipContent>
-                                    <p className="text-xs">You get up to 4 refills each month. Each refill is 5 credits for the day.</p>
-                                  </TooltipContent>
-                                </Tooltip>
-                              </div>
-                              <span className="text-sm font-medium text-white">
-                                {!billingLoading && rawCreditsTotal !== undefined ?
-                                  `${refillsUsed}/${maxRefills}` :
-                                  '--'
-                                }
-                              </span>
-                            </div>
-                            {/* Progress Bar */}
-                              <div className="w-full bg-white/10 rounded-full h-[3px]">
-                                <div 
-                                  className="bg-green-500 h-[3px] rounded-full transition-all duration-300 shadow-[0_0_6px_1px_rgba(34,197,94,0.35)]" 
-                                style={{ 
-                                  width: !billingLoading && rawCreditsTotal !== undefined ? 
-                                    `${refillsProgressPercentage}%` : 
-                                    '0%' 
-                                }}
-                              ></div>
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Deployments */}
-                        <div className="space-y-1.5">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-gray-300">Deployments</span>
-                            <span className="text-sm font-medium text-white">
-                              {billingLoading ? '--' : `${deploymentsUsed || 0}/${deploymentsTotal || 0}`}
-                            </span>
-                          </div>
-                          {/* Progress Bar */}
-                          <div className="w-full bg-white/10 rounded-full h-[3px]">
-                            <div 
-                              className="bg-green-500 h-[3px] rounded-full transition-all duration-300 shadow-[0_0_6px_1px_rgba(34,197,94,0.35)]" 
-                              style={{ width: `${deploymentUsagePercentage || 0}%` }}
-                            ></div>
-                          </div>
-                        </div>
-                        </div>
-                      </TooltipProvider>
-
-                      {/* Logout */}
-                      <div className="border-t border-gray-800 px-1 py-0.5">
-                        <DropdownMenuItem asChild className="cursor-pointer">
-                          <button
-                            onClick={handleSignOut}
-                            className="flex items-center gap-2 w-full px-2 py-1 text-left text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition-colors"
-                          >
-                            <LogOut className="h-4 w-4" />
-                            <span>Log out</span>
-                          </button>
-                        </DropdownMenuItem>
-                      </div>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                  <IntegrationsDropdown triggerVariant="gradient" enabled={mounted && isLoaded && !!user} />
+                  <ProfileDropdown
+                    user={{
+                      imageUrl: user.imageUrl,
+                      fullName: user.fullName,
+                      firstName: user.firstName,
+                      email: user.emailAddresses[0]?.emailAddress,
+                    }}
+                  />
                 </div>
                               ) : mounted && isLoaded ? (
                 <div className="hidden md:flex items-center space-x-2">
@@ -664,8 +410,8 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
                                   }`} />
                                   <Switch
                                     checked={profile.is_default_for_dashboard}
-                                    onCheckedChange={() => handleIntegrationToggle(profile.profile_id, profile.is_default_for_dashboard)}
-                                    disabled={isUpdatingIntegration === profile.profile_id || !profile.is_active}
+                                    onCheckedChange={() => toggleIntegration(profile.profile_id, profile.is_default_for_dashboard)}
+                                    disabled={isUpdatingProfile(profile.profile_id) || !profile.is_active}
                                   />
                                 </div>
                               </div>
@@ -688,7 +434,7 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
                         <Avatar className="h-10 w-10">
                           <AvatarImage src={user.imageUrl} alt={user.fullName || 'User'} />
                           <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-semibold">
-                            {getInitials(user.fullName || user.firstName || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'U')}
+                            {getUserInitials(user.fullName || user.firstName || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'U')}
                           </AvatarFallback>
                         </Avatar>
                         <div className="flex flex-col min-w-0 flex-1">
@@ -720,7 +466,7 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
                         </Link>
                         <button
                           onClick={() => {
-                            handleSignOut();
+                            signOut();
                             setIsDrawerOpen(false);
                           }}
                           className="flex items-center gap-2 px-3 py-2 text-sm rounded-md hover:bg-accent transition-colors text-left w-full"

@@ -13,10 +13,10 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import Link from 'next/link';
 import { ChevronUp, Settings, User, LogOut } from 'lucide-react';
-import { useClerk } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
 import { useSidebar } from '@/components/ui/sidebar';
 import { cn } from '@/lib/utils';
+import { useSignOut } from '@/hooks/use-sign-out';
+import { getUserInitials } from '@/lib/utils/user';
 
 interface NavUserProps {
   user: {
@@ -27,22 +27,8 @@ interface NavUserProps {
 }
 
 export function NavUser({ user }: NavUserProps) {
-  const router = useRouter();
   const { state } = useSidebar();
-  const { signOut } = useClerk();
-
-  const handleSignOut = async () => {
-    await signOut({ redirectUrl: '/' });
-  };
-
-  const getInitials = (name: string) => {
-    return name
-      .split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase()
-      .slice(0, 2);
-  };
+  const { signOut } = useSignOut();
 
   return (
     <DropdownMenu>
@@ -57,7 +43,7 @@ export function NavUser({ user }: NavUserProps) {
           <Avatar className="h-8 w-8 border-2 border-sidebar-border">
             <AvatarImage src={user.avatar} alt={user.name} />
             <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-semibold">
-              {getInitials(user.name)}
+              {getUserInitials(user.name)}
             </AvatarFallback>
           </Avatar>
           {state !== "collapsed" && (
@@ -86,7 +72,7 @@ export function NavUser({ user }: NavUserProps) {
             <Avatar className="h-10 w-10 border-2 border-sidebar-border">
               <AvatarImage src={user.avatar} alt={user.name} />
               <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-sm font-semibold">
-                {getInitials(user.name)}
+                {getUserInitials(user.name)}
               </AvatarFallback>
             </Avatar>
             <div className="flex flex-col min-w-0">
@@ -121,7 +107,7 @@ export function NavUser({ user }: NavUserProps) {
         <div className="p-1">
           <DropdownMenuItem asChild className="rounded-md cursor-pointer">
             <button
-              onClick={handleSignOut}
+              onClick={signOut}
               className="flex items-center gap-2 w-full px-2 py-2 text-left"
             >
               <LogOut className="h-4 w-4" />

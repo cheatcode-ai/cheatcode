@@ -3,10 +3,6 @@
 import React, { useState, memo } from 'react';
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Alert, AlertDescription } from '@/components/ui/alert';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,7 +14,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-import { Settings, Store, Server, AlertTriangle, Trash2, Globe, Shield, Loader2 } from 'lucide-react';
+import { Settings, Store, AlertTriangle, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
@@ -43,21 +39,6 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [profileToDelete, setProfileToDelete] = useState<ComposioProfile | null>(null);
   const [activeTab, setActiveTab] = useState('browse-apps');
-
-  // Custom MCP form state
-  const [customServerType, setCustomServerType] = useState<'sse' | 'http' | 'json'>('sse');
-  const [customMCPFormData, setCustomMCPFormData] = useState<{
-    profile_name: string;
-    display_name: string;
-    config: Record<string, string>;
-    is_default: boolean;
-  }>({
-    profile_name: '',
-    display_name: '',
-    config: {},
-    is_default: false
-  });
-  const [isCreatingCustomMCP, setIsCreatingCustomMCP] = useState(false);
 
   // Get Composio profiles
   const { data: profiles = [], isLoading, error } = useComposioProfiles();
@@ -97,15 +78,6 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
     }
   };
 
-  const handleProfileSelected = (profile: ComposioProfile) => {
-    console.log('Profile selected:', profile);
-  };
-
-  const handleToolsSelected = (profileId: string, selectedTools: string[], toolkitName: string, toolkitSlug: string) => {
-    console.log('Tools selected:', { profileId, selectedTools, toolkitName, toolkitSlug });
-    toast.success(`Selected ${selectedTools.length} tools from ${toolkitName}`);
-  };
-
   const handleFixTools = async (profileId: string) => {
     try {
       await composioApi.updateEnabledTools(profileId, []);
@@ -114,71 +86,6 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
     } catch (error) {
       console.error('Error fixing tools:', error);
       toast.error('Failed to auto-enable tools');
-    }
-  };
-
-  // Custom MCP form helpers
-  const handleCustomMCPConfigChange = (key: string, value: string) => {
-    setCustomMCPFormData(prev => ({
-      ...prev,
-      config: {
-        ...prev.config,
-        [key]: value
-      }
-    }));
-  };
-
-  const isCustomMCPFormValid = () => {
-    if (!customMCPFormData.profile_name.trim() || !customMCPFormData.display_name.trim()) {
-      return false;
-    }
-
-    if (customServerType === 'json') {
-      return !!customMCPFormData.config.command;
-    } else {
-      return !!customMCPFormData.config.url;
-    }
-  };
-
-  const resetCustomMCPForm = () => {
-    setCustomServerType('sse');
-    setCustomMCPFormData({
-      profile_name: '',
-      display_name: '',
-      config: {},
-      is_default: false
-    });
-  };
-
-  const handleSaveCustomMCP = async () => {
-    if (!isCustomMCPFormValid()) {
-      toast.error('Please fill in all required fields');
-      return;
-    }
-
-    setIsCreatingCustomMCP(true);
-    try {
-      const profileData = {
-        toolkit_slug: `custom_${customServerType}_${customMCPFormData.display_name.toLowerCase().replace(/\s+/g, '_')}`,
-        profile_name: customMCPFormData.profile_name,
-        display_name: customMCPFormData.display_name,
-        auth_config: customMCPFormData.config,
-      };
-
-      await composioApi.createProfile(profileData);
-
-      await queryClient.invalidateQueries({
-        queryKey: composioKeys.profiles.all()
-      });
-
-      toast.success('Custom MCP connection created successfully');
-      resetCustomMCPForm();
-    } catch (error: unknown) {
-      console.error('Error creating custom MCP:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to create custom MCP connection';
-      toast.error(errorMessage);
-    } finally {
-      setIsCreatingCustomMCP(false);
     }
   };
 
@@ -306,25 +213,6 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
                   <Store className="h-4 w-4" />
                   Browse Apps
                 </Button>
-
-                {/* Custom MCP Button */}
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => setActiveTab('custom-mcp')}
-                  role="tab"
-                  aria-selected={activeTab === 'custom-mcp'}
-                  className={cn(
-                    'relative z-10 h-9 px-4 text-sm rounded-full transition-colors flex items-center gap-2',
-                    activeTab === 'custom-mcp'
-                      ? 'bg-zinc-900 text-white'
-                      : 'text-gray-400 hover:text-white'
-                  )}
-                >
-                  <Server className="h-4 w-4" />
-                  Custom MCP
-                </Button>
               </div>
             </div>
           </div>
@@ -401,147 +289,7 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
         {/* Browse Apps Tab */}
         {activeTab === 'browse-apps' && (
           <div className="border border-border rounded-xl p-4 bg-card">
-            <ComposioRegistry
-              onProfileSelected={handleProfileSelected}
-              onToolsSelected={handleToolsSelected}
-            />
-          </div>
-        )}
-
-        {/* Custom MCP Tab */}
-        {activeTab === 'custom-mcp' && (
-          <div className="border border-border rounded-xl p-6 bg-card">
-            <div className="space-y-6">
-              {/* Header */}
-              <div className="flex items-center gap-3 p-4 bg-muted rounded-lg">
-                <div className="w-12 h-12 rounded-md bg-primary/10 flex items-center justify-center">
-                  <Globe className="h-6 w-6 text-primary" />
-                </div>
-                <div>
-                  <h3 className="font-medium">Custom MCP Server</h3>
-                  <p className="text-sm text-muted-foreground">Configure your own MCP server connection</p>
-                </div>
-              </div>
-
-              {/* Form */}
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="custom_profile_name">Profile Name *</Label>
-                    <Input
-                      id="custom_profile_name"
-                      value={customMCPFormData.profile_name}
-                      onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, profile_name: e.target.value }))}
-                      placeholder="Enter a profile name (e.g., 'My Custom Server')"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="custom_display_name">Display Name *</Label>
-                    <Input
-                      id="custom_display_name"
-                      value={customMCPFormData.display_name}
-                      onChange={(e) => setCustomMCPFormData(prev => ({ ...prev, display_name: e.target.value }))}
-                      placeholder="Enter a display name for this server"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <Label htmlFor="server_type">Server Type *</Label>
-                  <Select value={customServerType} onValueChange={(value: 'sse' | 'http' | 'json') => setCustomServerType(value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select server type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="sse">SSE (Server-Sent Events)</SelectItem>
-                      <SelectItem value="http">HTTP</SelectItem>
-                      <SelectItem value="json">JSON/stdio</SelectItem>
-                    </SelectContent>
-                  </Select>
-                  <p className="text-xs text-muted-foreground">
-                    Choose the connection type for your MCP server
-                  </p>
-                </div>
-
-                {customServerType === 'json' ? (
-                  <div className="space-y-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="server_command">Command *</Label>
-                      <Input
-                        id="server_command"
-                        value={customMCPFormData.config.command || ''}
-                        onChange={(e) => handleCustomMCPConfigChange('command', e.target.value)}
-                        placeholder="Enter the command to start your MCP server (e.g., 'node server.js')"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        The command to execute your MCP server
-                      </p>
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="server_args">Arguments (optional)</Label>
-                      <Input
-                        id="server_args"
-                        value={customMCPFormData.config.args || ''}
-                        onChange={(e) => handleCustomMCPConfigChange('args', e.target.value)}
-                        placeholder="Enter command arguments (comma-separated)"
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        Additional arguments for the command (separated by commas)
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    <Label htmlFor="server_url">Server URL *</Label>
-                    <Input
-                      id="server_url"
-                      type="url"
-                      value={customMCPFormData.config.url || ''}
-                      onChange={(e) => handleCustomMCPConfigChange('url', e.target.value)}
-                      placeholder={`Enter your ${customServerType.toUpperCase()} server URL`}
-                    />
-                    <p className="text-xs text-muted-foreground">
-                      The URL to your custom MCP server endpoint
-                    </p>
-                  </div>
-                )}
-
-                <Alert>
-                  <Globe className="h-4 w-4" />
-                  <AlertDescription>
-                    This will create a custom MCP server profile that you can use in your agents.
-                    Make sure your server is accessible and properly configured.
-                  </AlertDescription>
-                </Alert>
-
-                <Alert>
-                  <Shield className="h-4 w-4" />
-                  <AlertDescription>
-                    Your server configuration will be encrypted and stored securely. You can create multiple profiles for different custom servers.
-                  </AlertDescription>
-                </Alert>
-
-                {/* Action buttons */}
-                <div className="flex items-center justify-between pt-4 border-t">
-                  <Button variant="outline" onClick={resetCustomMCPForm}>
-                    Reset Form
-                  </Button>
-                  <Button
-                    onClick={handleSaveCustomMCP}
-                    disabled={!isCustomMCPFormValid() || isCreatingCustomMCP}
-                  >
-                    {isCreatingCustomMCP ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin mr-2" />
-                        Creating...
-                      </>
-                    ) : (
-                      'Create Connection'
-                    )}
-                  </Button>
-                </div>
-              </div>
-            </div>
+            <ComposioRegistry />
           </div>
         )}
 
@@ -555,26 +303,16 @@ function CompositoDashboardManagerComponent({ compact = false }: CompositoDashbo
               No integrations connected
             </h4>
             <p className="text-sm text-muted-foreground mb-4 max-w-md mx-auto">
-              Use the "Browse Apps" or "Custom MCP" tabs to add your first integration.
+              Use the "Browse Apps" tab to add your first integration.
             </p>
-            <div className="flex gap-2 justify-center">
-              <Button
-                variant="outline"
-                onClick={() => setActiveTab('browse-apps')}
-                className="flex items-center gap-2"
-              >
-                <Store className="h-4 w-4" />
-                Browse Apps
-              </Button>
-              <Button
-                variant="outline"
-                onClick={() => setActiveTab('custom-mcp')}
-                className="flex items-center gap-2"
-              >
-                <Server className="h-4 w-4" />
-                Custom MCP
-              </Button>
-            </div>
+            <Button
+              variant="outline"
+              onClick={() => setActiveTab('browse-apps')}
+              className="flex items-center gap-2"
+            >
+              <Store className="h-4 w-4" />
+              Browse Apps
+            </Button>
           </div>
         )}
       </div>

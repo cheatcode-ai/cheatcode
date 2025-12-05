@@ -1,16 +1,17 @@
 import { createBrowserClient } from '@supabase/ssr';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase/client';
+import { API_URL } from '@/lib/api/config';
 
 // Create a Supabase client that can accept Clerk tokens
 export const createClerkSupabaseClient = (clerkToken: string | null) => {
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  let supabaseUrl = SUPABASE_URL;
 
   // Ensure the URL is in the proper format with http/https protocol
   if (supabaseUrl && !supabaseUrl.startsWith('http')) {
     supabaseUrl = `http://${supabaseUrl}`;
   }
 
-  return createBrowserClient(supabaseUrl, supabaseAnonKey, {
+  return createBrowserClient(supabaseUrl, SUPABASE_ANON_KEY, {
     global: {
       fetch: async (url, options: RequestInit = {}) => {
         return fetch(url, {
@@ -27,7 +28,6 @@ export const createClerkSupabaseClient = (clerkToken: string | null) => {
 
 // API client for making authenticated requests to your backend
 export const createClerkApiClient = (clerkToken: string | null) => {
-  const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
   
   return {
     async fetch(endpoint: string, options: RequestInit = {}) {

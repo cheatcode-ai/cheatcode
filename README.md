@@ -303,7 +303,7 @@ deployment-cheatcode/
 ├── backend/                     # FastAPI service, workers, agents, services
 │   ├── agent/                   # Agent runtime, tools and prompts
 │   ├── services/                # Integrations (billing, email, llm, redis, etc.)
-│   ├── mcp_service/             # Secure MCP endpoints
+│   ├── composio_integration/    # Composio MCP integrations and OAuth flows
 │   ├── sandbox/                 # Sandbox APIs and Docker contexts
 │   ├── deployments/             # Deployment APIs
 │   ├── utils/                   # Configuration, logging, auth utilities

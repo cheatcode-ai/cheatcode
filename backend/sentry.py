@@ -1,8 +1,8 @@
 import sentry_sdk
 from sentry_sdk.integrations.dramatiq import DramatiqIntegration
-import os
+from utils.config import config
 
-sentry_dsn = os.getenv("SENTRY_DSN", None)
+sentry_dsn = config.SENTRY_DSN
 if sentry_dsn:
   sentry_sdk.init(
       dsn=sentry_dsn,

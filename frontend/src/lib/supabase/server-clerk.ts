@@ -1,13 +1,13 @@
 import { auth } from '@clerk/nextjs/server';
 import { createServerClient } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './client';
 
 export const createClerkSupabaseServerClient = async () => {
   const cookieStore = await cookies();
   const { getToken } = await auth();
-  
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+
+  let supabaseUrl = SUPABASE_URL;
 
   // Ensure the URL is in the proper format with http/https protocol
   if (supabaseUrl && !supabaseUrl.startsWith('http')) {
@@ -15,7 +15,7 @@ export const createClerkSupabaseServerClient = async () => {
     supabaseUrl = `http://${supabaseUrl}`;
   }
 
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  return createServerClient(supabaseUrl, SUPABASE_ANON_KEY, {
     cookies: {
       getAll() {
         return cookieStore.getAll();

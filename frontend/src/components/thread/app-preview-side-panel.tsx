@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion, AnimatePresence } from 'motion/react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,8 +55,7 @@ export function AppPreviewSidePanel({
   });
 
   const fileExplorer = useFileExplorer({
-    projectId: project?.project_id, // Primary: Use Git-based file access
-    sandboxId: project?.sandbox?.id, // Fallback: Use sandbox-based file access
+    sandboxId: project?.sandbox?.id,
     isCodeTabActive: activeMainTab === 'code',
     appType: project?.app_type || 'web'
   });

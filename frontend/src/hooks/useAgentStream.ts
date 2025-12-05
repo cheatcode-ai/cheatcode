@@ -5,6 +5,7 @@ import {
   AgentRun,
   getMessages,
   streamAgent,
+  ApiMessageType,
 } from '@/lib/api';
 import { toast } from 'sonner';
 import {
@@ -16,17 +17,6 @@ import { safeJsonParse } from '@/components/thread/utils';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('AgentStream');
-
-interface ApiMessageType {
-  message_id?: string;
-  thread_id?: string;
-  type: string;
-  is_llm_message?: boolean;
-  content: string;
-  metadata?: string;
-  created_at?: string;
-  updated_at?: string;
-}
 
 // Define the structure returned by the hook
 export interface UseAgentStreamResult {

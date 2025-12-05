@@ -1,11 +1,11 @@
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { cookies } from 'next/headers';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from './client';
 
 // Keep the existing cookie-based client for general server-side use
 export const createClient = async () => {
   const cookieStore = await cookies();
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  let supabaseUrl = SUPABASE_URL;
 
   // Ensure the URL is in the proper format with http/https protocol
   if (supabaseUrl && !supabaseUrl.startsWith('http')) {
@@ -14,9 +14,9 @@ export const createClient = async () => {
   }
 
   // console.log('[SERVER] Supabase URL:', supabaseUrl);
-  // console.log('[SERVER] Supabase Anon Key:', supabaseAnonKey);
+  // console.log('[SERVER] Supabase Anon Key:', SUPABASE_ANON_KEY);
 
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  return createServerClient(supabaseUrl, SUPABASE_ANON_KEY, {
     cookies: {
       getAll() {
         return cookieStore.getAll();
@@ -38,15 +38,14 @@ export const createClient = async () => {
 
 // NEW: Create a client with a JWT token for user-authenticated requests
 export const createClientWithToken = (token: string) => {
-  let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+  let supabaseUrl = SUPABASE_URL;
 
   // Ensure the URL is in the proper format with http/https protocol
   if (supabaseUrl && !supabaseUrl.startsWith('http')) {
     supabaseUrl = `http://${supabaseUrl}`;
   }
 
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
+  return createServerClient(supabaseUrl, SUPABASE_ANON_KEY, {
     global: {
       headers: {
         Authorization: `Bearer ${token}`,

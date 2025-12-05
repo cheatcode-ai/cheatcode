@@ -1,20 +1,21 @@
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+// Centralized Supabase configuration - import these instead of accessing process.env directly
+export const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
+export const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
-export const supabase = createSupabaseClient(supabaseUrl, supabaseAnonKey)
+export const supabase = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 
-// Default client function for backward compatibility
+// Create a basic Supabase client without authentication
 export function createClient() {
-  return createSupabaseClient(supabaseUrl, supabaseAnonKey)
+  return createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY)
 }
 
 // Create a Supabase client with Clerk authentication
 export function createClientWithToken(clerkToken: string) {
   console.log('Creating Supabase client with Clerk token:', clerkToken ? 'present' : 'missing')
-  
-  const client = createSupabaseClient(supabaseUrl, supabaseAnonKey, {
+
+  const client = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: {
       headers: {
         Authorization: `Bearer ${clerkToken}`,

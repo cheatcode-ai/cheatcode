@@ -1,6 +1,7 @@
 import { useAuth } from '@clerk/nextjs';
 import { createBrowserClient } from '@supabase/ssr';
 import { useMemo } from 'react';
+import { SUPABASE_URL, SUPABASE_ANON_KEY } from '@/lib/supabase/client';
 
 // Create a singleton client instance to prevent multiple instances
 let globalSupabaseClient: ReturnType<typeof createBrowserClient> | null = null;
@@ -14,8 +15,7 @@ export const useClerkSupabaseClient = () => {
       return globalSupabaseClient;
     }
 
-    let supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-    const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!;
+    let supabaseUrl = SUPABASE_URL;
 
     // Ensure the URL is in the proper format with http/https protocol
     if (supabaseUrl && !supabaseUrl.startsWith('http')) {
@@ -23,7 +23,7 @@ export const useClerkSupabaseClient = () => {
       supabaseUrl = `http://${supabaseUrl}`;
     }
 
-    globalSupabaseClient = createBrowserClient(supabaseUrl, supabaseAnonKey, {
+    globalSupabaseClient = createBrowserClient(supabaseUrl, SUPABASE_ANON_KEY, {
       auth: {
         // Disable Supabase's built-in auth for third-party auth
         persistSession: false,
@@ -43,7 +43,7 @@ export const useClerkSupabaseClient = () => {
               // Ensure JSON so 0-arg RPCs are resolved correctly.
               'Content-Type': 'application/json',
               // Remove any existing authorization header that might conflict
-              'apikey': supabaseAnonKey,
+              'apikey': SUPABASE_ANON_KEY,
             },
           });
         },

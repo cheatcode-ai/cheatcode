@@ -225,7 +225,16 @@ export const getAgentRuns = async (threadId: string, clerkToken?: string): Promi
   }
 };
 
-// EventSource-based agent streaming implementation
+// Stream connection configuration
+const STREAM_CONFIG = {
+  maxRetries: 5,
+  baseDelayMs: 1000,           // Initial retry delay (1 second)
+  maxDelayMs: 30000,           // Max retry delay (30 seconds)
+  heartbeatTimeoutMs: 45000,   // No message timeout (45 seconds - backend sends pings every 15s)
+  errorResetWindowMs: 5 * 60 * 1000, // Reset error count after 5 min of stability
+};
+
+// EventSource-based agent streaming implementation with robust reconnection
 export const streamAgent = (
   agentRunId: string,
   callbacks: {
@@ -246,196 +255,314 @@ export const streamAgent = (
   let eventSource: EventSource | null = null;
   let isClosed = false;
   let errorCount = 0;
-  const maxErrors = 5;
   let lastErrorTime = 0;
+  let lastMessageTime = Date.now();
+  let heartbeatCheckInterval: ReturnType<typeof setInterval> | null = null;
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  let isReconnecting = false;
+
+  // Calculate exponential backoff delay with jitter
+  const getReconnectDelay = (attempt: number): number => {
+    const exponentialDelay = STREAM_CONFIG.baseDelayMs * Math.pow(2, attempt);
+    const cappedDelay = Math.min(exponentialDelay, STREAM_CONFIG.maxDelayMs);
+    // Add 10-30% jitter to prevent thundering herd
+    const jitter = cappedDelay * (0.1 + Math.random() * 0.2);
+    return Math.floor(cappedDelay + jitter);
+  };
+
+  const clearTimers = () => {
+    if (heartbeatCheckInterval) {
+      clearInterval(heartbeatCheckInterval);
+      heartbeatCheckInterval = null;
+    }
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+      reconnectTimeout = null;
+    }
+  };
 
   const cleanup = () => {
-    if (eventSource && !isClosed) {
-      isClosed = true;
+    if (isClosed) return;
+    isClosed = true;
+    clearTimers();
+    if (eventSource) {
       eventSource.close();
       eventSource = null;
     }
   };
 
-  try {
-    const url = new URL(`${API_URL}/agent-run/${agentRunId}/stream`);
-    url.searchParams.append('token', clerkToken);
+  const createConnection = () => {
+    if (isClosed) return;
 
-    eventSource = new EventSource(url.toString());
+    // Close existing connection if any
+    if (eventSource) {
+      eventSource.close();
+      eventSource = null;
+    }
 
-    eventSource.onopen = () => {
-      if (isClosed) return;
-      errorCount = 0;
-      lastErrorTime = 0;
-    };
+    try {
+      const url = new URL(`${API_URL}/agent-run/${agentRunId}/stream`);
+      url.searchParams.append('token', clerkToken);
 
-    eventSource.onmessage = (event) => {
-      if (isClosed) return;
+      eventSource = new EventSource(url.toString());
+      lastMessageTime = Date.now();
 
-      try {
-        const rawData = event.data;
-        if (rawData.includes('"type":"ping"')) return;
+      eventSource.onopen = () => {
+        if (isClosed) return;
+        // Connection successful - reset error tracking
+        errorCount = 0;
+        lastErrorTime = 0;
+        isReconnecting = false;
+        console.log(`[streamAgent] Connected to stream for ${agentRunId}`);
+      };
 
-        if (!rawData || rawData.trim() === '') {
-          return;
-        }
+      eventSource.onmessage = (event) => {
+        if (isClosed) return;
+
+        // Update last message time for heartbeat tracking
+        lastMessageTime = Date.now();
 
         try {
-          const jsonData = JSON.parse(rawData);
-          if (jsonData.status === 'error') {
-            console.error(`[streamAgent] Error status received for ${agentRunId}:`, jsonData);
-            callbacks.onError(jsonData.message || 'Unknown error occurred');
+          const rawData = event.data;
+
+          // Handle ping messages - update heartbeat but don't forward
+          if (rawData.includes('"type":"ping"')) return;
+
+          if (!rawData || rawData.trim() === '') {
             return;
           }
-        } catch (jsonError) {
-          // Not JSON or invalid JSON, continue with normal processing
-        }
 
-        if (
-          rawData.includes('Agent run') &&
-          rawData.includes('not found in active runs')
-        ) {
-          callbacks.onError('Agent run not found in active runs');
-          cleanup();
-          callbacks.onClose();
-          return;
-        }
-
-        if (
-          rawData.includes('"type":"status"') &&
-          rawData.includes('"status":"completed"')
-        ) {
-          cleanup();
-          callbacks.onClose();
-          return;
-        }
-
-        if (
-          rawData.includes('"type":"status"') &&
-          rawData.includes('"status_type":"thread_run_end"')
-        ) {
-          cleanup();
-          callbacks.onClose();
-          return;
-        }
-
-        callbacks.onMessage(rawData);
-      } catch (error) {
-        console.error(`[streamAgent] Error handling message:`, error);
-        callbacks.onError(error instanceof Error ? error : String(error));
-      }
-    };
-
-    eventSource.onerror = (event) => {
-      if (isClosed) return;
-
-      const currentTime = Date.now();
-      const timeSinceLastError = currentTime - lastErrorTime;
-      lastErrorTime = currentTime;
-
-      if (timeSinceLastError > 5 * 60 * 1000) {
-        errorCount = 0;
-      }
-
-      errorCount++;
-
-      const eventSourceState = eventSource?.readyState;
-      let errorMessage = 'Connection error';
-      let shouldAttemptReconnect = true;
-
-      if (errorCount >= maxErrors) {
-        errorMessage = `Stream failed after ${errorCount} attempts - please refresh the page`;
-        shouldAttemptReconnect = false;
-      } else {
-        if (eventSourceState === EventSource.CONNECTING) {
-          errorMessage = `Failed to connect to stream (attempt ${errorCount}/${maxErrors}) - retrying...`;
-        } else if (eventSourceState === EventSource.CLOSED) {
-          errorMessage = 'Stream connection closed unexpectedly';
-          shouldAttemptReconnect = false;
-        } else if (eventSourceState === EventSource.OPEN) {
-          errorMessage = `Stream connection interrupted (attempt ${errorCount}/${maxErrors}) - reconnecting...`;
-        }
-
-        if (event.target && (event.target as EventSource).url) {
-          if (eventSourceState === EventSource.CONNECTING && errorCount >= 3) {
-            errorMessage = 'Persistent connection failure - authentication may have expired';
-            shouldAttemptReconnect = false;
-          }
-        }
-
-        try {
-          if ('error' in event && event.error) {
-            errorMessage += ` (${event.error})`;
-          }
-
-          if ('message' in event && event.message) {
-            errorMessage += ` - ${event.message}`;
-          }
-
-          if ('status' in event && event.status) {
-            switch (event.status) {
-              case 401:
-                errorMessage = 'Authentication failed - please refresh and try again';
-                shouldAttemptReconnect = false;
-                break;
-              case 403:
-                errorMessage = 'Access denied - insufficient permissions';
-                shouldAttemptReconnect = false;
-                break;
-              case 404:
-                errorMessage = 'Stream endpoint not found - agent may have completed';
-                shouldAttemptReconnect = false;
-                break;
-              case 500:
-                errorMessage = `Server error (attempt ${errorCount}/${maxErrors}) - stream temporarily unavailable`;
-                break;
-              case 503:
-                errorMessage = `Service unavailable (attempt ${errorCount}/${maxErrors}) - please try again later`;
-                break;
-              default:
-                errorMessage = `Connection error (HTTP ${event.status}, attempt ${errorCount}/${maxErrors})`;
+          try {
+            const jsonData = JSON.parse(rawData);
+            if (jsonData.status === 'error') {
+              console.error(`[streamAgent] Error status received for ${agentRunId}:`, jsonData);
+              callbacks.onError(jsonData.message || 'Unknown error occurred');
+              return;
             }
+          } catch (jsonError) {
+            // Not JSON or invalid JSON, continue with normal processing
           }
-        } catch (inspectionError) {
-          // Could not extract detailed error info
+
+          if (
+            rawData.includes('Agent run') &&
+            rawData.includes('not found in active runs')
+          ) {
+            callbacks.onError('Agent run not found in active runs');
+            cleanup();
+            callbacks.onClose();
+            return;
+          }
+
+          if (
+            rawData.includes('"type":"status"') &&
+            rawData.includes('"status":"completed"')
+          ) {
+            cleanup();
+            callbacks.onClose();
+            return;
+          }
+
+          if (
+            rawData.includes('"type":"status"') &&
+            rawData.includes('"status_type":"thread_run_end"')
+          ) {
+            cleanup();
+            callbacks.onClose();
+            return;
+          }
+
+          callbacks.onMessage(rawData);
+        } catch (error) {
+          console.error(`[streamAgent] Error handling message:`, error);
+          callbacks.onError(error instanceof Error ? error : String(error));
         }
+      };
+
+      eventSource.onerror = (event) => {
+        if (isClosed) return;
+
+        const currentTime = Date.now();
+        const timeSinceLastError = currentTime - lastErrorTime;
+        lastErrorTime = currentTime;
+
+        // Reset error count if enough time has passed since last error
+        if (timeSinceLastError > STREAM_CONFIG.errorResetWindowMs) {
+          errorCount = 0;
+        }
+
+        errorCount++;
+
+        const eventSourceState = eventSource?.readyState;
+        let errorMessage = 'Connection error';
+        let shouldAttemptReconnect = true;
+        let isAuthError = false;
+
+        if (errorCount >= STREAM_CONFIG.maxRetries) {
+          errorMessage = `Stream failed after ${errorCount} attempts - please refresh the page`;
+          shouldAttemptReconnect = false;
+        } else {
+          if (eventSourceState === EventSource.CONNECTING) {
+            errorMessage = `Connecting to stream (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})...`;
+          } else if (eventSourceState === EventSource.CLOSED) {
+            errorMessage = 'Stream connection closed unexpectedly';
+            // Still attempt reconnect for closed connections unless max errors reached
+          } else if (eventSourceState === EventSource.OPEN) {
+            errorMessage = `Stream interrupted (attempt ${errorCount}/${STREAM_CONFIG.maxRetries}) - reconnecting...`;
+          }
+
+          // Check for persistent connection failures
+          if (eventSourceState === EventSource.CONNECTING && errorCount >= 3) {
+            errorMessage = 'Persistent connection failure - checking authentication...';
+            isAuthError = true;
+          }
+
+          try {
+            if ('status' in event && event.status) {
+              switch (event.status) {
+                case 401:
+                  errorMessage = 'Authentication failed - please refresh and try again';
+                  shouldAttemptReconnect = false;
+                  isAuthError = true;
+                  break;
+                case 403:
+                  errorMessage = 'Access denied - insufficient permissions';
+                  shouldAttemptReconnect = false;
+                  isAuthError = true;
+                  break;
+                case 404:
+                  errorMessage = 'Stream endpoint not found - agent may have completed';
+                  shouldAttemptReconnect = false;
+                  break;
+                case 500:
+                  errorMessage = `Server error (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`;
+                  break;
+                case 503:
+                  errorMessage = `Service unavailable (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`;
+                  break;
+                default:
+                  errorMessage = `Connection error (HTTP ${event.status}, attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`;
+              }
+            }
+          } catch (inspectionError) {
+            // Could not extract detailed error info
+          }
+        }
+
+        // Don't reconnect for auth errors even if under retry limit
+        if (isAuthError && errorCount >= 3) {
+          shouldAttemptReconnect = false;
+        }
+
+        if (!shouldAttemptReconnect) {
+          cleanup();
+          callbacks.onError(errorMessage);
+          callbacks.onClose();
+          return;
+        }
+
+        // Attempt explicit reconnection with exponential backoff
+        if (!isReconnecting) {
+          isReconnecting = true;
+          const delay = getReconnectDelay(errorCount - 1);
+          console.log(`[streamAgent] Reconnecting in ${delay}ms (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`);
+
+          // Close the failed connection
+          if (eventSource) {
+            eventSource.close();
+            eventSource = null;
+          }
+
+          reconnectTimeout = setTimeout(() => {
+            if (!isClosed) {
+              createConnection();
+            }
+          }, delay);
+        }
+
+        // Only notify user of persistent errors, not transient reconnection attempts
+        if (errorCount > 1) {
+          callbacks.onError(errorMessage);
+        }
+      };
+
+    } catch (error) {
+      console.error(`[streamAgent] Failed to create EventSource for ${agentRunId}:`, error);
+
+      let errorMessage = 'Failed to start stream';
+
+      if (error instanceof Error) {
+        if (error.name === 'SecurityError') {
+          errorMessage = 'Security error - unable to connect to stream (check CORS settings)';
+        } else if (error.name === 'TypeError') {
+          errorMessage = 'Invalid stream URL or network configuration error';
+        } else if (error.message.includes('fetch')) {
+          errorMessage = 'Network error - unable to reach streaming endpoint';
+        } else if (error.message.includes('token')) {
+          errorMessage = 'Authentication token error - please refresh and try again';
+        } else {
+          errorMessage = `Stream setup failed: ${error.message}`;
+        }
+        callbacks.onError(errorMessage);
+      } else {
+        callbacks.onError(`Stream setup failed: ${String(error)}`);
       }
 
-      if (!shouldAttemptReconnect) {
-        cleanup();
-        callbacks.onError(errorMessage);
+      // Attempt recovery for network errors
+      errorCount++;
+      if (errorCount < STREAM_CONFIG.maxRetries && !isClosed) {
+        const delay = getReconnectDelay(errorCount - 1);
+        console.log(`[streamAgent] Retrying connection in ${delay}ms`);
+        reconnectTimeout = setTimeout(() => {
+          if (!isClosed) {
+            createConnection();
+          }
+        }, delay);
+      } else {
         callbacks.onClose();
+      }
+    }
+  };
+
+  // Start heartbeat monitoring - reconnect if no messages received
+  const startHeartbeatMonitor = () => {
+    heartbeatCheckInterval = setInterval(() => {
+      if (isClosed) {
+        clearTimers();
         return;
       }
 
-      callbacks.onError(errorMessage);
-    };
+      const timeSinceLastMessage = Date.now() - lastMessageTime;
 
-  } catch (error) {
-    console.error(`[streamAgent] Failed to create EventSource for ${agentRunId}:`, error);
+      if (timeSinceLastMessage > STREAM_CONFIG.heartbeatTimeoutMs) {
+        console.warn(`[streamAgent] No messages for ${Math.round(timeSinceLastMessage / 1000)}s - reconnecting`);
 
-    let errorMessage = 'Failed to start stream';
-
-    if (error instanceof Error) {
-      if (error.name === 'SecurityError') {
-        errorMessage = 'Security error - unable to connect to stream (check CORS settings)';
-      } else if (error.name === 'TypeError') {
-        errorMessage = 'Invalid stream URL or network configuration error';
-      } else if (error.message.includes('fetch')) {
-        errorMessage = 'Network error - unable to reach streaming endpoint';
-      } else if (error.message.includes('token')) {
-        errorMessage = 'Authentication token error - please refresh and try again';
-      } else {
-        errorMessage = `Stream setup failed: ${error.message}`;
+        // Trigger reconnection
+        if (!isReconnecting && eventSource) {
+          errorCount++;
+          if (errorCount < STREAM_CONFIG.maxRetries) {
+            isReconnecting = true;
+            eventSource.close();
+            eventSource = null;
+            const delay = getReconnectDelay(errorCount - 1);
+            reconnectTimeout = setTimeout(() => {
+              if (!isClosed) {
+                createConnection();
+              }
+            }, delay);
+            callbacks.onError(`Connection stale - reconnecting (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})...`);
+          } else {
+            cleanup();
+            callbacks.onError('Stream connection timed out - please refresh the page');
+            callbacks.onClose();
+          }
+        }
       }
-      callbacks.onError(errorMessage);
-    } else {
-      callbacks.onError(`Stream setup failed: ${String(error)}`);
-    }
+    }, 10000); // Check every 10 seconds
+  };
 
-    callbacks.onClose();
-    return () => {};
-  }
+  // Initialize connection and heartbeat monitor
+  createConnection();
+  startHeartbeatMonitor();
 
   return cleanup;
 };

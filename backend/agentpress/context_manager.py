@@ -11,6 +11,7 @@ from typing import List, Dict, Any, Optional, Union
 from litellm.utils import token_counter
 from services.supabase import DBConnection
 from utils.logger import logger
+from utils.models import get_context_compression_limit
 
 DEFAULT_TOKEN_THRESHOLD = 120000
 
@@ -211,7 +212,7 @@ class ContextManager:
 
     def compress_messages(self, messages: List[Dict[str, Any]], llm_model: str, max_tokens: Optional[int] = 41000, token_threshold: int = 4096, max_iterations: int = 5) -> List[Dict[str, Any]]:
         """Compress the messages.
-        
+
         Args:
             messages: List of messages to compress
             llm_model: Model name for token counting
@@ -219,17 +220,8 @@ class ContextManager:
             token_threshold: Token threshold for individual message compression (must be a power of 2)
             max_iterations: Maximum number of compression iterations
         """
-        # Set model-specific token limits
-        if 'sonnet' in llm_model.lower():
-            max_tokens = 200 * 1000 - 64000 - 28000
-        elif 'gpt' in llm_model.lower():
-            max_tokens = 128 * 1000 - 28000
-        elif 'gemini' in llm_model.lower():
-            max_tokens = 1000 * 1000 - 300000
-        elif 'deepseek' in llm_model.lower():
-            max_tokens = 128 * 1000 - 28000
-        else:
-            max_tokens = 41 * 1000 - 10000
+        # Get model-specific context compression limit from single source of truth
+        max_tokens = get_context_compression_limit(llm_model)
 
         result = messages
         result = self.remove_meta_messages(result)

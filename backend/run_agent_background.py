@@ -15,15 +15,15 @@ import dramatiq
 import uuid
 from services.supabase import DBConnection
 from dramatiq.brokers.redis import RedisBroker
-import os
 from utils.retry import retry
 from services.langfuse import langfuse, safe_trace
 from utils.concurrency_monitor import get_monitor, start_monitoring_task, start_stale_lock_cleanup_task
 from utils.health_check import get_health_checker, start_health_monitoring
+from utils.config import config
 
 # Redis Configuration for Dramatiq
 # Use Upstash Redis URL for Dramatiq broker
-redis_url = os.getenv('REDIS_URL')
+redis_url = config.REDIS_URL
 
 if not redis_url:
     raise ValueError("REDIS_URL environment variable is required")
@@ -34,8 +34,6 @@ broker_kwargs = {
     "middleware": [dramatiq.middleware.AsyncIO()],
     # Reduce heartbeat frequency to minimize Redis noise
     "heartbeat_timeout": 60000,  # 60 seconds instead of default 15
-    # Reduce queue polling frequency 
-    "requeue_interval": 10000,   # 10 seconds instead of default 5
 }
 
 redis_broker = RedisBroker(**broker_kwargs)
@@ -313,7 +311,7 @@ async def run_agent_background(
             if stop_signal_received:
                 logger.info(f"Agent run {agent_run_id} stopped by signal.")
                 final_status = "stopped"
-                trace.span(name="agent_run_stopped").end(status_message="agent_run_stopped", level="WARNING")
+                trace.start_span(name="agent_run_stopped").end(status_message="agent_run_stopped", level="WARNING")
                 break
 
             # Store response in Redis list and publish notification
@@ -348,7 +346,7 @@ async def run_agent_background(
              # via the deployments API ('deploy_from_git'). No auto-initialization here.
              
              completion_message = {"type": "status", "status": "completed", "message": "Agent run completed successfully"}
-             trace.span(name="agent_run_completed").end(status_message="agent_run_completed", level="DEFAULT")
+             trace.start_span(name="agent_run_completed").end(status_message="agent_run_completed", level="DEFAULT")
              await redis.rpush(response_list_key, json.dumps(completion_message))
              await redis.publish(response_channel, "new") # Notify about the completion message
 
@@ -384,7 +382,7 @@ async def run_agent_background(
         duration = (datetime.now(timezone.utc) - start_time).total_seconds()
         logger.error(f"Error in agent run {agent_run_id} after {duration:.2f}s: {error_message}\n{traceback_str} (Instance: {instance_id})")
         final_status = "failed"
-        trace.span(name="agent_run_failed").end(status_message=error_message, level="ERROR")
+        trace.start_span(name="agent_run_failed").end(status_message=error_message, level="ERROR")
 
         # Push error message to Redis list
         error_response = {"type": "status", "status": "error", "message": error_message}
@@ -505,12 +503,37 @@ async def run_agent_background(
             except Exception as e:
                 cleanup_errors.append(f"Error completing pending Redis operations: {e}")
 
+        # 6. Clean up orphaned user messages on failure (no assistant response)
+        if final_status == "failed":
+            try:
+                # Get the agent run to find the triggering message
+                agent_run_data = await client.table('agent_runs').select('metadata, started_at').eq('run_id', agent_run_id).execute()
+                if agent_run_data.data:
+                    metadata = agent_run_data.data[0].get('metadata', {})
+                    triggering_message_id = metadata.get('triggering_message_id')
+                    run_started_at = agent_run_data.data[0].get('started_at')
+
+                    if triggering_message_id:
+                        # Check if any assistant messages were created after the run started
+                        assistant_msgs = await client.table('messages').select('message_id').eq(
+                            'thread_id', thread_id
+                        ).eq('type', 'assistant').gte('created_at', run_started_at).limit(1).execute()
+
+                        if not assistant_msgs.data:
+                            # No assistant response - delete the orphaned user message
+                            await client.table('messages').delete().eq('message_id', triggering_message_id).execute()
+                            logger.info(f"Cleaned up orphaned user message {triggering_message_id} for failed run {agent_run_id}")
+                        else:
+                            logger.debug(f"Keeping user message {triggering_message_id} - assistant response exists")
+            except Exception as cleanup_msg_err:
+                cleanup_errors.append(f"Failed message cleanup: {cleanup_msg_err}")
+
         # Log cleanup status
         if cleanup_errors:
             logger.warning(f"Agent run {agent_run_id} cleanup completed with {len(cleanup_errors)} errors: {'; '.join(cleanup_errors)}")
         else:
             logger.info(f"Agent run {agent_run_id} cleanup completed successfully")
-            
+
         logger.info(f"Agent run background task fully completed for: {agent_run_id} (Instance: {instance_id}) with final status: {final_status}")
 
 async def _cleanup_redis_instance_key(agent_run_id: str):

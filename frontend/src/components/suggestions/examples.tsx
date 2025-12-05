@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { Button } from '@/components/ui/button';
 import {
   Codesandbox,
@@ -106,7 +106,7 @@ export const Examples = ({
             >
               <div className="flex items-center gap-2">
                 <div className="flex-shrink-0">
-                  {React.cloneElement(prompt.icon as React.ReactElement, { size: 14 })}
+                  {prompt.icon}
                 </div>
                 <span className="whitespace-nowrap">{prompt.title}</span>
               </div>

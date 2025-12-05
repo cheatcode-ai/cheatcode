@@ -8,11 +8,16 @@ import uuid
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel
 import os
-import mimetypes
 
 
 from services.supabase import DBConnection
-from utils.auth_utils import get_current_user_id_from_jwt, verify_thread_access, get_user_id_from_stream_auth
+from utils.auth_utils import (
+    get_current_user_id_from_jwt,
+    verify_thread_access,
+    get_user_id_from_stream_auth,
+    get_account_id_for_clerk_user,
+    get_account_id_or_raise,
+)
 from utils.logger import logger, structlog
 from services.billing import check_billing_status, can_use_model
 from utils.config import config
@@ -20,25 +25,19 @@ from utils.encryption import decrypt_data
 from sandbox.sandbox import create_sandbox_from_snapshot, delete_sandbox, get_or_start_sandbox
 from services.llm import make_llm_api_call
 from agent.run_agent import run_agent_run_stream, update_agent_run_status
-from utils.constants import MODEL_NAME_ALIASES
+from utils.models import get_available_models, get_default_model, resolve_model_id
 # from flags.flags import is_enabled  # Unused import
 import run_agent_background
 from services import redis
 
 from .utils import check_for_active_project_agent_run
+from utils.file_utils import is_image_file
+from utils.constants import SSE_BATCH_SIZE, SSE_BATCH_TIMEOUT_MS, REDIS_RESPONSE_LIST_TTL
 
 # Initialize shared resources
 router = APIRouter()
 db = None
-instance_id = None # Global instance ID for this backend instance
-
-# TTL for Redis response lists (24 hours)
-REDIS_RESPONSE_LIST_TTL = 3600 * 24
-
-# Response batching configuration for SSE streaming
-# Batching reduces network overhead by combining multiple small messages
-SSE_BATCH_SIZE = 10  # Max responses per batch
-SSE_BATCH_TIMEOUT_MS = 50  # Max time to wait for batch (ms)
+instance_id = None  # Global instance ID for this backend instance
 
 
 def format_sse_batch(responses: list) -> str:
@@ -88,33 +87,6 @@ def chunk_responses(responses: list, chunk_size: int = SSE_BATCH_SIZE) -> list:
     return [responses[i:i + chunk_size] for i in range(0, len(responses), chunk_size)]
 
 
-def is_image_file(file: UploadFile) -> bool:
-    """Check if the uploaded file is an image based on MIME type and filename"""
-    # Check MIME type first (most reliable)
-    if file.content_type and file.content_type.startswith('image/'):
-        return True
-    
-    # Check file extension as fallback
-    if file.filename:
-        filename_lower = file.filename.lower()
-        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.tif']
-        if any(filename_lower.endswith(ext) for ext in image_extensions):
-            return True
-            
-        # Also check using mimetypes module
-        mime_type, _ = mimetypes.guess_type(file.filename)
-        if mime_type and mime_type.startswith('image/'):
-            return True
-    
-    return False
-
-async def get_account_id_from_clerk_user(client, user_id: str) -> str:
-    """Get the account ID for a Clerk user"""
-    account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-    if not account_result.data:
-        raise HTTPException(status_code=400, detail="User account not found")
-    return account_result.data
-
 class AgentStartRequest(BaseModel):
     model_name: Optional[str] = None  # Will be set from config.MODEL_TO_USE in the endpoint
     enable_thinking: Optional[bool] = False
@@ -148,6 +120,21 @@ def initialize(
         instance_id = str(uuid.uuid4())[:8]
 
     logger.info(f"Initialized agent API with instance ID: {instance_id}")
+
+
+@router.get("/models/available")
+async def get_models_available():
+    """
+    Get list of available AI models for user selection.
+    Returns models with their display names, providers, and descriptions.
+    """
+    models = get_available_models()
+    default_model = get_default_model()
+    return {
+        "models": models,
+        "default_model_id": default_model["id"] if default_model else "claude-sonnet-4.5"
+    }
+
 
 async def cleanup():
     """Clean up resources and stop running agents on shutdown."""
@@ -208,27 +195,11 @@ async def start_agent(
     if not instance_id:
         raise HTTPException(status_code=500, detail="Agent API not initialized with instance ID")
 
-    # Use model from config if not specified in the request
-    model_name = body.model_name
-    logger.info(f"Original model_name from request: {model_name}")
-
-    if model_name is None:
-        model_name = config.MODEL_TO_USE
-        logger.info(f"Using model from config: {model_name}")
-
-    # Log the model name after alias resolution
-    resolved_model = MODEL_NAME_ALIASES.get(model_name, model_name)
-    logger.info(f"Resolved model name: {resolved_model}")
-
-    # Update model_name to use the resolved version
-    model_name = resolved_model
-
     # Validate app_type parameter for type safety
     if body.app_type not in ['web', 'mobile']:
         logger.warning(f"Invalid app_type '{body.app_type}' received, defaulting to 'web'")
         body.app_type = 'web'
-    
-    logger.info(f"Starting new agent for thread: {thread_id} with config: model={model_name}, thinking={body.enable_thinking}, effort={body.reasoning_effort}, stream={body.stream}, context_manager={body.enable_context_manager}, app_type={body.app_type} (Instance: {instance_id})")
+
     client = await db.client
 
     await verify_thread_access(client, thread_id, user_id)
@@ -240,13 +211,13 @@ async def start_agent(
     thread_data = thread_result.data[0]
     project_id = thread_data.get('project_id')
     account_id = thread_data.get('user_id')
-    
+
     # Batch queries: token status, MCP credentials, and project data in parallel
     try:
         from services.token_billing import get_user_token_status
         from utils.constants import TOKENS_PER_CONVERSATION_ESTIMATE, get_credits_from_tokens
 
-        # Run queries in parallel for better performance
+        # Run all queries in parallel for better performance
         token_status_task = asyncio.create_task(get_user_token_status(client, account_id))
         cred_profiles_task = asyncio.create_task(
             client.table('user_mcp_credential_profiles').select(
@@ -299,7 +270,6 @@ async def start_agent(
         'description': 'Specialized agent for webapp development with 100+ UI components',
         'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
         'configured_mcps': [],
-        'custom_mcps': [],
         # No agentpress_tools specified so all tools are enabled by default
         'account_id': account_id
     }
@@ -368,10 +338,6 @@ async def start_agent(
         logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
         # Continue without MCPs if loading fails
 
-    can_use, model_message, allowed_models = await can_use_model(client, account_id, model_name)
-    if not can_use:
-        raise HTTPException(status_code=403, detail={"message": model_message, "allowed_models": allowed_models})
-
     can_run, message, subscription = await check_billing_status(client, account_id)
     if not can_run:
         raise HTTPException(status_code=402, detail={"message": message, "subscription": subscription})
@@ -386,18 +352,43 @@ async def start_agent(
         project_result = await project_task if project_task else await client.table('projects').select('*').eq('project_id', project_id).execute()
         if not project_result.data:
             raise HTTPException(status_code=404, detail="Project not found")
-        
+
         project_data = project_result.data[0]
+
+        # Model selection: request > project (single source of truth) > config default
+        stored_model = project_data.get('model_name')
+        model_name = body.model_name or stored_model or config.MODEL_TO_USE
+
+        # Resolve to full OpenRouter ID for API calls
+        model_name = resolve_model_id(model_name)
+        logger.info(f"Using model: {model_name} (request={body.model_name}, stored={stored_model})")
+
+        # Check if user can use the selected model
+        can_use, model_message, allowed_models = await can_use_model(client, account_id, model_name)
+        if not can_use:
+            raise HTTPException(status_code=403, detail={"message": model_message, "allowed_models": allowed_models})
+
         sandbox_info = project_data.get('sandbox', {})
         if not sandbox_info.get('id'):
             raise HTTPException(status_code=404, detail="No sandbox found for this project")
-            
+
         sandbox_id = sandbox_info['id']
         sandbox = await get_or_start_sandbox(sandbox_id)
-        logger.info(f"Successfully started sandbox {sandbox_id} for project {project_id}")
+        logger.info(f"Started sandbox {sandbox_id}")
     except Exception as e:
         logger.error(f"Failed to start sandbox for project {project_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to initialize sandbox: {str(e)}")
+
+    # Find the most recent user message that triggered this agent run
+    triggering_message_id = None
+    try:
+        latest_user_msg = await client.table('messages').select('message_id').eq(
+            'thread_id', thread_id
+        ).eq('type', 'user').order('created_at', desc=True).limit(1).execute()
+        if latest_user_msg.data:
+            triggering_message_id = latest_user_msg.data[0]['message_id']
+    except Exception as e:
+        logger.warning(f"Failed to find triggering message: {e}")
 
     agent_run = await client.table('agent_runs').insert({
         "thread_id": thread_id, "status": "running",
@@ -406,7 +397,8 @@ async def start_agent(
             "model_name": model_name,
             "enable_thinking": body.enable_thinking,
             "reasoning_effort": body.reasoning_effort,
-            "enable_context_manager": body.enable_context_manager
+            "enable_context_manager": body.enable_context_manager,
+            "triggering_message_id": triggering_message_id
         }
     }).execute()
     agent_run_id = agent_run.data[0]['run_id']
@@ -571,11 +563,13 @@ async def stream_agent_run(
                 
                 while not terminate_stream and listener_failure_count < max_listener_failures:
                     try:
-                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=30.0)
-                        
+                        # Timeout reduced from 30s to 15s for more aggressive heartbeats
+                        # Frontend has 45s timeout, so 15s gives 30s margin for network delays
+                        done, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=15.0)
+
                         # Handle timeout case
                         if not done:
-                            logger.warning(f"Listener timeout after 30s for {agent_run_id}, sending heartbeat")
+                            logger.debug(f"Listener timeout after 15s for {agent_run_id}, sending heartbeat")
                             await message_queue.put({"type": "heartbeat"})
                             continue
                             
@@ -956,8 +950,8 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
         db_conn = DBConnection()
         client = await db_conn.client
 
-        # Use the configured model instead of hardcoded OpenAI
-        model_name = config.MODEL_TO_USE
+        # Use the configured model and resolve to full OpenRouter ID
+        model_name = resolve_model_id(config.MODEL_TO_USE)
         system_prompt = "You are a helpful assistant that generates extremely concise titles (2-4 words maximum) for chat threads based on the user's message. Respond with only the title, no other text or punctuation."
         user_message = f"Generate an extremely brief title (2-4 words only) for a chat thread that starts with this message: \"{prompt}\""
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
@@ -1027,22 +1021,22 @@ async def initiate_agent_with_files(
         model_name = config.MODEL_TO_USE
         logger.info(f"Using model from config: {model_name}")
 
-    # Log the model name after alias resolution
-    resolved_model = MODEL_NAME_ALIASES.get(model_name, model_name)
+    # Keep the original short model ID for UI persistence
+    ui_model_name = model_name
+
+    # Resolve model name using the models registry for API calls
+    resolved_model = resolve_model_id(model_name)
     logger.info(f"Resolved model name: {resolved_model}")
 
-    # Update model_name to use the resolved version
+    # Use resolved version for API calls
     model_name = resolved_model
 
-    logger.info(f"[\033[91mDEBUG\033[0m] Initiating new coding agent with prompt and {len(files)} files (Instance: {instance_id}), model: {model_name}, enable_thinking: {enable_thinking}")
+    logger.info(f"[\033[91mDEBUG\033[0m] Initiating new coding agent with prompt and {len(files)} files (Instance: {instance_id}), model: {model_name}, ui_model: {ui_model_name}, enable_thinking: {enable_thinking}")
     client = await db.client
-    
-    # Get the account ID for this Clerk user
-    account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-    if not account_result.data:
-        raise HTTPException(status_code=400, detail="User account not found")
-    account_id = account_result.data
-    
+
+    # Get the account ID for this Clerk user using centralized helper
+    account_id = await get_account_id_or_raise(client, user_id)
+
     # Check token quota before starting new conversation
     try:
         from services.token_billing import get_user_token_status
@@ -1081,7 +1075,6 @@ async def initiate_agent_with_files(
         'description': 'Specialized agent for webapp development with 100+ UI components',
         'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
         'configured_mcps': [],
-        'custom_mcps': [],
         # No agentpress_tools specified so all tools are enabled by default
         'account_id': account_id
     }
@@ -1157,7 +1150,8 @@ async def initiate_agent_with_files(
         project = await client.table('projects').insert({
             "project_id": str(uuid.uuid4()), "user_id": account_id, "name": placeholder_name,
             "created_at": datetime.now(timezone.utc).isoformat(),
-            "app_type": app_type  # Store app_type in project for later retrieval
+            "app_type": app_type,  # Store app_type in project for later retrieval
+            "model_name": ui_model_name  # Store short model ID for UI persistence (not resolved ID)
         }).execute()
         project_id = project.data[0]['project_id']
         logger.info(f"Created new project: {project_id}")
@@ -1346,7 +1340,8 @@ async def initiate_agent_with_files(
                 "model_name": model_name,
                 "enable_thinking": enable_thinking,
                 "reasoning_effort": reasoning_effort,
-                "enable_context_manager": enable_context_manager
+                "enable_context_manager": enable_context_manager,
+                "triggering_message_id": message_id
             }
         }).execute()
         agent_run_id = agent_run.data[0]['run_id']
@@ -1407,7 +1402,6 @@ async def initiate_agent_with_files(
 
 # Removed unused POST /agents endpoint - was only used by deleted useCreateAgent hook
 
-# Removed unused merge_custom_mcps function - was only used by deleted update_agent
 
 # Removed unused PUT /agents/{agent_id} endpoint - was only used by deleted useUpdateAgent hook
 

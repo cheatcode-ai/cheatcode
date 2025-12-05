@@ -1,7 +1,6 @@
 import { createClient } from '@/lib/supabase/client';
 import { handleApiError, handleNetworkError, ErrorContext, ApiError } from './error-handler';
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+import { API_URL } from './api/config';
 
 export interface ApiClientOptions {
   showErrors?: boolean;
@@ -31,15 +30,10 @@ export const apiClient = {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), timeout);
 
-      // Note: This function is not used in the current auth flow
-      // Keeping for backward compatibility but should use Clerk tokens
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
         ...fetchOptions.headers as Record<string, string>,
       };
-
-      // TODO: Replace with Clerk token when this function is used
-      // For now, headers will be set by the calling code
 
       const response = await fetch(url, {
         ...fetchOptions,

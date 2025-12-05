@@ -17,8 +17,13 @@ import json
 import asyncio
 from openai import OpenAIError
 import litellm
+from litellm import Router
 from utils.logger import logger
 from utils.config import config
+from utils.models import (
+    get_router_model_list as _get_router_model_list_from_models,
+    get_router_model_name as _get_router_model_name_from_models,
+)
 
 # litellm.set_verbose=True
 litellm.modify_params=True
@@ -28,6 +33,239 @@ MAX_RETRIES = 2
 RATE_LIMIT_DELAY = 30
 RETRY_DELAY = 0.1
 LLM_CALL_TIMEOUT = 120  # 2 minute timeout for LLM API calls
+
+# Circuit breaker constants
+CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5  # Failures before opening circuit
+CIRCUIT_BREAKER_RECOVERY_TIMEOUT = 60  # Seconds before attempting recovery
+CIRCUIT_BREAKER_HALF_OPEN_CALLS = 2    # Test calls allowed in half-open state
+
+
+# ============================================================================
+# Circuit Breaker Pattern for Provider Outages
+# ============================================================================
+
+class CircuitBreakerState:
+    """Enum-like class for circuit breaker states."""
+    CLOSED = "closed"       # Normal operation, calls allowed
+    OPEN = "open"           # Circuit tripped, calls blocked
+    HALF_OPEN = "half_open" # Testing if service recovered
+
+
+class CircuitBreaker:
+    """
+    Circuit breaker pattern to prevent cascading failures during provider outages.
+
+    States:
+    - CLOSED: Normal operation, all calls pass through
+    - OPEN: Service is failing, calls are rejected immediately
+    - HALF_OPEN: Testing if service has recovered
+
+    Transitions:
+    - CLOSED -> OPEN: After failure_threshold consecutive failures
+    - OPEN -> HALF_OPEN: After recovery_timeout seconds
+    - HALF_OPEN -> CLOSED: After successful test calls
+    - HALF_OPEN -> OPEN: If test call fails
+    """
+
+    def __init__(
+        self,
+        name: str,
+        failure_threshold: int = CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+        recovery_timeout: float = CIRCUIT_BREAKER_RECOVERY_TIMEOUT,
+        half_open_calls: int = CIRCUIT_BREAKER_HALF_OPEN_CALLS
+    ):
+        self.name = name
+        self.failure_threshold = failure_threshold
+        self.recovery_timeout = recovery_timeout
+        self.half_open_calls = half_open_calls
+
+        self.state = CircuitBreakerState.CLOSED
+        self.failure_count = 0
+        self.success_count = 0
+        self.last_failure_time: Optional[float] = None
+        self._lock = asyncio.Lock()
+
+    async def can_execute(self) -> bool:
+        """Check if a call should be allowed through the circuit breaker."""
+        async with self._lock:
+            if self.state == CircuitBreakerState.CLOSED:
+                return True
+
+            if self.state == CircuitBreakerState.OPEN:
+                # Check if recovery timeout has passed
+                if self.last_failure_time:
+                    import time
+                    elapsed = time.monotonic() - self.last_failure_time
+                    if elapsed >= self.recovery_timeout:
+                        logger.info(f"Circuit breaker '{self.name}' transitioning to HALF_OPEN after {elapsed:.1f}s")
+                        self.state = CircuitBreakerState.HALF_OPEN
+                        self.success_count = 0
+                        return True
+                return False
+
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                # Allow limited test calls
+                return self.success_count < self.half_open_calls
+
+            return False
+
+    async def record_success(self) -> None:
+        """Record a successful call."""
+        async with self._lock:
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                self.success_count += 1
+                if self.success_count >= self.half_open_calls:
+                    logger.info(f"Circuit breaker '{self.name}' transitioning to CLOSED after {self.success_count} successful calls")
+                    self.state = CircuitBreakerState.CLOSED
+                    self.failure_count = 0
+                    self.success_count = 0
+            elif self.state == CircuitBreakerState.CLOSED:
+                # Reset failure count on success
+                self.failure_count = 0
+
+    async def record_failure(self) -> None:
+        """Record a failed call."""
+        import time
+        async with self._lock:
+            self.failure_count += 1
+            self.last_failure_time = time.monotonic()
+
+            if self.state == CircuitBreakerState.HALF_OPEN:
+                # Any failure in half-open reopens the circuit
+                logger.warning(f"Circuit breaker '{self.name}' reopening after failure in HALF_OPEN state")
+                self.state = CircuitBreakerState.OPEN
+
+            elif self.state == CircuitBreakerState.CLOSED:
+                if self.failure_count >= self.failure_threshold:
+                    logger.error(f"Circuit breaker '{self.name}' OPENED after {self.failure_count} consecutive failures")
+                    self.state = CircuitBreakerState.OPEN
+
+    def get_state(self) -> Dict[str, Any]:
+        """Get current circuit breaker state for monitoring."""
+        return {
+            "name": self.name,
+            "state": self.state,
+            "failure_count": self.failure_count,
+            "success_count": self.success_count,
+            "last_failure_time": self.last_failure_time
+        }
+
+
+class CircuitBreakerOpenError(Exception):
+    """Exception raised when circuit breaker is open."""
+    def __init__(self, name: str, recovery_in: float):
+        self.name = name
+        self.recovery_in = recovery_in
+        super().__init__(f"Circuit breaker '{name}' is OPEN. Recovery in {recovery_in:.1f}s")
+
+
+# Global circuit breakers per provider
+_circuit_breakers: Dict[str, CircuitBreaker] = {}
+
+
+def get_circuit_breaker(provider: str) -> CircuitBreaker:
+    """Get or create a circuit breaker for a provider."""
+    if provider not in _circuit_breakers:
+        _circuit_breakers[provider] = CircuitBreaker(name=provider)
+        logger.debug(f"Created circuit breaker for provider: {provider}")
+    return _circuit_breakers[provider]
+
+
+def get_provider_from_model(model_name: str) -> str:
+    """Extract provider name from model name for circuit breaker tracking."""
+    if model_name.startswith("openrouter/"):
+        # For OpenRouter, track by the underlying provider
+        parts = model_name.split("/")
+        if len(parts) >= 3:
+            return f"openrouter/{parts[1]}"  # e.g., "openrouter/anthropic"
+        return "openrouter"
+    elif model_name.startswith("bedrock/"):
+        return "bedrock"
+    elif "claude" in model_name.lower() or "anthropic" in model_name.lower():
+        return "anthropic"
+    elif "gpt" in model_name.lower() or "openai" in model_name.lower():
+        return "openai"
+    elif "gemini" in model_name.lower() or "google" in model_name.lower():
+        return "google"
+    return "default"
+
+
+# ============================================================================
+# LiteLLM Router Configuration for Model Fallbacks
+# ============================================================================
+
+def get_router_model_list() -> List[Dict[str, Any]]:
+    """
+    Get the model list for LiteLLM Router.
+
+    This is now generated from the single source of truth in utils/models.py.
+    """
+    openrouter_key = config.OPENROUTER_API_KEY
+    if not openrouter_key:
+        logger.warning("OPENROUTER_API_KEY not set - router will use direct calls")
+        return []
+
+    return _get_router_model_list_from_models(openrouter_key)
+
+
+def create_llm_router() -> Optional[Router]:
+    """
+    Create a LiteLLM Router instance with fallback configuration.
+
+    The router provides:
+    - Automatic model fallbacks on errors
+    - Retry logic with configurable attempts
+    - Timeout handling
+    - TPM/RPM tracking (optional)
+    """
+    model_list = get_router_model_list()
+
+    if not model_list:
+        logger.info("No router model list configured - using direct LiteLLM calls")
+        return None
+
+    try:
+        router = Router(
+            model_list=model_list,
+            num_retries=MAX_RETRIES,
+            timeout=LLM_CALL_TIMEOUT,
+            retry_after=RETRY_DELAY,
+            fallbacks=[
+                # Define explicit fallback chains
+                {"claude-sonnet": ["claude-sonnet"]},
+                {"gemini-pro": ["gemini-pro"]},
+                {"gemini-flash": ["gemini-flash"]},
+                {"kimi-k2": ["kimi-k2"]},
+            ],
+            routing_strategy="simple-shuffle",
+            set_verbose=False,
+        )
+        logger.info(f"LiteLLM Router initialized with {len(model_list)} model configurations")
+        return router
+    except Exception as e:
+        logger.error(f"Failed to create LiteLLM Router: {str(e)}")
+        return None
+
+
+# Global router instance (lazy initialized)
+_llm_router: Optional[Router] = None
+
+
+def get_llm_router() -> Optional[Router]:
+    """Get or create the global LLM router instance."""
+    global _llm_router
+    if _llm_router is None:
+        _llm_router = create_llm_router()
+    return _llm_router
+
+
+def get_router_model_name(model_name: str) -> Optional[str]:
+    """
+    Map an OpenRouter model ID to the router group name (short ID).
+
+    This is now generated from the single source of truth in utils/models.py.
+    """
+    return _get_router_model_name_from_models(model_name)
 
 class LLMError(Exception):
     """Base exception for LLM-related errors."""
@@ -141,7 +379,7 @@ def prepare_params(
             "anthropic-beta": "output-128k-2025-02-19"
         }
         params["fallbacks"] = [{
-            "model": "openrouter/anthropic/claude-sonnet-4",
+            "model": "openrouter/anthropic/claude-sonnet-4.5",
             "messages": messages,
         }]
         # params["mock_testing_fallback"] = True
@@ -260,7 +498,20 @@ async def make_llm_api_call(
     """
     logger.info(f"Making LLM API call to model: {model_name} (Thinking: {enable_thinking}, Effort: {reasoning_effort})")
     logger.info(f"📡 API Call: Using model {model_name}")
-    
+
+    # =========================================================================
+    # Circuit Breaker Check
+    # =========================================================================
+    provider = get_provider_from_model(model_name)
+    circuit_breaker = get_circuit_breaker(provider)
+
+    if not await circuit_breaker.can_execute():
+        import time
+        elapsed = time.monotonic() - (circuit_breaker.last_failure_time or 0)
+        recovery_in = max(0, circuit_breaker.recovery_timeout - elapsed)
+        logger.warning(f"Circuit breaker OPEN for {provider}. Rejecting call. Recovery in {recovery_in:.1f}s")
+        raise CircuitBreakerOpenError(provider, recovery_in)
+
     # Direct Gemini API routing is DISABLED - always use LiteLLM/OpenRouter
     # if should_use_direct_gemini(model_name):
     #     logger.info(f"🔗 Routing to direct Gemini API for model: {model_name}")
@@ -288,7 +539,50 @@ async def make_llm_api_call(
         enable_thinking=enable_thinking,
         reasoning_effort=reasoning_effort
     )
-    
+
+    # =========================================================================
+    # Try using LiteLLM Router for automatic fallbacks (if configured)
+    # =========================================================================
+    router = get_llm_router()
+    router_model = get_router_model_name(model_name) if router else None
+
+    if router and router_model and not api_key:
+        # Use router for automatic fallbacks (only if not using custom API key)
+        logger.info(f"🔄 Using LiteLLM Router for model group: {router_model}")
+        try:
+            # Prepare router params (router handles retries internally)
+            router_params = {
+                "model": router_model,
+                "messages": messages,
+                "temperature": temperature,
+                "stream": stream,
+            }
+            if max_tokens:
+                router_params["max_tokens"] = max_tokens
+            if tools:
+                router_params["tools"] = tools
+                router_params["tool_choice"] = tool_choice
+            if top_p:
+                router_params["top_p"] = top_p
+            if response_format:
+                router_params["response_format"] = response_format
+
+            response = await asyncio.wait_for(
+                router.acompletion(**router_params),
+                timeout=LLM_CALL_TIMEOUT
+            )
+            logger.debug(f"Successfully received API response via router for {router_model}")
+            await circuit_breaker.record_success()  # Record success with circuit breaker
+            return response
+
+        except Exception as router_error:
+            logger.warning(f"Router call failed for {router_model}: {str(router_error)}. Falling back to direct call.")
+            await circuit_breaker.record_failure()  # Record failure (but continue to fallback)
+            # Fall through to direct LiteLLM call
+
+    # =========================================================================
+    # Direct LiteLLM call with manual retry loop (fallback or non-router models)
+    # =========================================================================
     last_error = None
     for attempt in range(MAX_RETRIES):
         try:
@@ -301,16 +595,18 @@ async def make_llm_api_call(
                 timeout=LLM_CALL_TIMEOUT
             )
             logger.debug(f"Successfully received API response from {model_name}")
-            # logger.debug(f"Response: {response}")
+            await circuit_breaker.record_success()  # Record success with circuit breaker
             return response
 
         except asyncio.TimeoutError as e:
             last_error = e
             logger.warning(f"LLM API call timed out after {LLM_CALL_TIMEOUT}s on attempt {attempt + 1}/{MAX_RETRIES}")
+            await circuit_breaker.record_failure()  # Record timeout as failure
             await handle_error(e, attempt, MAX_RETRIES)
 
         except (litellm.exceptions.RateLimitError, OpenAIError, json.JSONDecodeError) as e:
             last_error = e
+            await circuit_breaker.record_failure()  # Record API error as failure
             await handle_error(e, attempt, MAX_RETRIES)
 
         except Exception as e:

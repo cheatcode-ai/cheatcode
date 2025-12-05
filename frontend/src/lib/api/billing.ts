@@ -69,13 +69,6 @@ export const checkBillingStatus = async (clerkToken?: string): Promise<BillingSt
     }
 
     const data = await response.json();
-
-    // Add backward compatibility fields
-    data.can_run = data.credits_remaining > 0 || data.plan_id === 'byok';
-    data.message = data.can_run
-      ? `You have ${data.credits_remaining} credits remaining`
-      : `Insufficient credits. You have ${data.credits_remaining} credits remaining.`;
-
     return data;
   } catch (error) {
     console.error('Failed to check billing status:', error);

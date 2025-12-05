@@ -2,15 +2,15 @@
 Simple encryption utilities for MCP credential profiles.
 """
 
-import os
 import base64
 from cryptography.fernet import Fernet
 from utils.logger import logger
+from utils.config import config
 
 
 def get_encryption_key() -> bytes:
     """Get or create encryption key for credentials."""
-    key_env = os.getenv("MCP_CREDENTIAL_ENCRYPTION_KEY")
+    key_env = config.MCP_CREDENTIAL_ENCRYPTION_KEY
     
     if key_env:
         try:

@@ -10,8 +10,7 @@ import { fileQueryKeys } from '@/hooks/react-query/files/use-file-queries';
 // Tooltip removed to prevent ref compose loops
 import { UploadedFile } from './chat-input';
 import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+import { API_URL } from '@/lib/api/config';
 
 const isImageFile = (file: File): boolean => {
   // Check MIME type

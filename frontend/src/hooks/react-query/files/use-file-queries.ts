@@ -2,9 +2,7 @@ import React from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 import { listSandboxFiles, type FileInfo } from '@/lib/api';
-
-// Re-export FileCache utilities for compatibility
-export { FileCache } from '@/hooks/use-cached-file';
+import { API_URL } from '@/lib/api/config';
 
 /**
  * Normalize a file path to ensure consistent caching
@@ -20,7 +18,7 @@ function normalizePath(path: string, appType: 'web' | 'mobile' = 'web'): string 
     path = `${workspacePath}/${path.startsWith('/') ? path.substring(1) : path}`;
   }
   
-  // For backward compatibility, convert old /workspace paths to correct workspace
+  // Convert generic /workspace paths to the app-specific workspace path
   if (path === '/workspace' || (path.startsWith('/workspace/') && !path.startsWith(workspacePath))) {
     const relativePart = path.replace('/workspace/', '').replace('/workspace', '');
     if (relativePart) {
@@ -126,7 +124,7 @@ export async function fetchFileContent(
 ): Promise<string | Blob | any> {
   const normalizedPath = normalizePath(filePath, appType);
   
-  const url = new URL(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content`);
+  const url = new URL(`${API_URL}/sandboxes/${sandboxId}/files/content`);
   url.searchParams.append('path', normalizedPath);
   
   console.log(`[FILE QUERY] Fetching ${contentType} content for: ${normalizedPath}`);
@@ -186,31 +184,6 @@ export async function fetchFileContent(
     default:
       return await response.text();
   }
-}
-
-/**
- * Legacy compatibility function for getCachedFile
- */
-export async function getCachedFile(
-  sandboxId: string,
-  filePath: string,
-  options: {
-    contentType?: 'text' | 'blob' | 'json';
-    force?: boolean;
-    token?: string;
-    appType?: 'web' | 'mobile';
-  } = {}
-): Promise<any> {
-  const appType = options.appType || 'web';
-  const normalizedPath = normalizePath(filePath, appType);
-  const detectedContentType = getContentTypeFromPath(filePath);
-  const effectiveContentType = options.contentType || detectedContentType;
-  
-  if (!options.token) {
-    throw new Error('Authentication token required');
-  }
-  
-  return fetchFileContent(sandboxId, normalizedPath, effectiveContentType, options.token, appType);
 }
 
 /**
@@ -275,10 +248,6 @@ export function useFileContentQuery(
   return {
     ...queryResult,
     refreshCache,
-    // Legacy compatibility methods
-    getCachedFile: () => Promise.resolve(queryResult.data),
-    getFromCache: () => queryResult.data,
-    cache: new Map(), // Legacy compatibility - empty map
   };
 }
 
@@ -365,59 +334,4 @@ export function useFilePreloader() {
   }, [queryClient, getToken]);
   
   return { preloadFiles };
-}
-
-/**
- * Compatibility hook that mimics the old useCachedFile API
- */
-export function useCachedFile<T = string>(
-  sandboxId?: string,
-  filePath?: string,
-  options: {
-    expiration?: number;
-    contentType?: 'json' | 'text' | 'blob' | 'arrayBuffer' | 'base64';
-    processFn?: (data: any) => T;
-  } = {}
-) {
-  // Map old contentType values to new ones
-  const mappedContentType = React.useMemo(() => {
-    switch (options.contentType) {
-      case 'json': return 'json';
-      case 'blob':
-      case 'arrayBuffer':
-      case 'base64': return 'blob';
-      case 'text':
-      default: return 'text';
-    }
-  }, [options.contentType]);
-  
-  const query = useFileContentQuery(sandboxId, filePath, {
-    contentType: mappedContentType,
-    staleTime: options.expiration,
-  });
-  
-  // Process data if processFn is provided
-  const processedData = React.useMemo(() => {
-    if (!query.data || !options.processFn) {
-      return query.data as T;
-    }
-    
-    try {
-      return options.processFn(query.data);
-    } catch (error) {
-      console.error('Error processing file data:', error);
-      return null;
-    }
-  }, [query.data, options.processFn]);
-  
-  return {
-    data: processedData,
-    isLoading: query.isLoading,
-    error: query.error,
-    refreshCache: query.refreshCache,
-    // Legacy compatibility methods
-    getCachedFile: () => Promise.resolve(processedData),
-    getFromCache: () => processedData,
-    cache: new Map(), // Legacy compatibility - empty map
-  };
 } 

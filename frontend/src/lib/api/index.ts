@@ -1,4 +1,4 @@
-// API Module Index - Re-exports all API functions and types for backward compatibility
+// API Module Index - Re-exports all API functions and types
 
 // Config
 export { API_URL } from './config';
@@ -35,6 +35,7 @@ export type {
   PlanListResponse,
   CheckoutSessionResponse,
   CreateCheckoutSessionResponse,
+  ApiMessageType,
 } from './types';
 
 // Project APIs

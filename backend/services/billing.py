@@ -11,7 +11,11 @@ from supabase import Client
 
 from utils.logger import logger
 from services.supabase import DBConnection
-from utils.auth_utils import get_current_user_id_from_jwt
+from utils.auth_utils import (
+    get_current_user_id_from_jwt,
+    get_account_id_for_clerk_user,
+    get_account_id_or_raise,
+)
 from utils.payment_methods import (
     get_payment_methods_by_region, 
     detect_country_from_request,
@@ -85,10 +89,6 @@ class TestOpenRouterKeyResponse(BaseModel):
 class CreateCheckoutSessionRequest(BaseModel):
     plan_id: str  # 'free', 'pro', 'premium', 'byok'
     success_url: Optional[str] = None
-    cancel_url: Optional[str] = None
-    allowed_payment_methods: Optional[List[str]] = None  # Restrict payment methods
-    country_code: Optional[str] = None  # ISO country code for region-based payment methods
-    use_regional_defaults: bool = True  # Auto-detect and use regional payment methods
 
 class CheckoutSessionResponse(BaseModel):
     checkout_url: Optional[str] = None
@@ -140,24 +140,22 @@ async def get_billing_status(
             # Graceful fallback: return default free plan for users without billing records
             logger.info(f"No subscription found for user {current_user_id}, returning default free plan")
             
-            # Get account_id for the user
+            # Get account_id for the user using centralized helper
             db = DBConnection()
             async with db.get_async_client() as client:
-                account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-                if not account_result.data:
-                    raise HTTPException(status_code=404, detail="User account not found")
-                account_id = account_result.data
-            
+                account_id = await get_account_id_or_raise(client, current_user_id)
+
             # Return default free plan
             free_plan = get_plan_by_id('free')
             free_tokens = free_plan['token_quota']
             free_credits = free_plan['display_credits']
             
             # Get deployment count
-            from deployments.api import _count_deployed_projects_for_account, _max_deployed_for_plan
+            from deployments.api import _count_deployed_projects_for_account
+            from utils.constants import get_plan_deployment_limit
             async with db.get_async_client() as client:
                 deployments_used = await _count_deployed_projects_for_account(client, account_id)
-            deployments_total = _max_deployed_for_plan('free')
+            deployments_total = get_plan_deployment_limit('free')
             
             return SubscriptionStatusResponse(
                 account_id=account_id,
@@ -180,11 +178,12 @@ async def get_billing_status(
             raise HTTPException(status_code=500, detail="Invalid plan configuration")
             
         # Get deployment count
-        from deployments.api import _count_deployed_projects_for_account, _max_deployed_for_plan
+        from deployments.api import _count_deployed_projects_for_account
+        from utils.constants import get_plan_deployment_limit
         db = DBConnection()
         async with db.get_async_client() as client:
             deployments_used = await _count_deployed_projects_for_account(client, subscription['account_id'])
-        deployments_total = _max_deployed_for_plan(subscription['plan'])
+        deployments_total = get_plan_deployment_limit(subscription['plan'])
         
         return SubscriptionStatusResponse(
             account_id=subscription['account_id'],
@@ -210,7 +209,7 @@ async def get_billing_status(
 async def get_subscription_status(
     current_user_id: str = Depends(get_current_user_id_from_jwt)
 ):
-    """Get subscription status - alias for /status endpoint for frontend compatibility."""
+    """Get current subscription status for the user."""
     return await get_billing_status(current_user_id)
 
 
@@ -224,12 +223,8 @@ async def get_usage_history(
     try:
         db = DBConnection()
         async with db.get_async_client() as client:
-            # Get account_id from Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-                
-            account_id = account_result.data
+            # Get account_id from Clerk user using centralized helper
+            account_id = await get_account_id_or_raise(client, current_user_id)
             usage_history = await get_token_usage_history(client, account_id, days=days)
             
             total_tokens = sum(entry['total_tokens'] for entry in usage_history)
@@ -267,7 +262,6 @@ async def get_available_plans(
 @router.post("/create-checkout-session", response_model=CheckoutSessionResponse)
 async def create_checkout_session(
     request: CreateCheckoutSessionRequest,
-    http_request: Request,
     current_user_id: str = Depends(get_current_user_id_from_jwt)
 ):
     """Create Polar checkout session for plan upgrade."""
@@ -290,13 +284,9 @@ async def create_checkout_session(
             
             db = DBConnection()
             async with db.get_async_client() as client:
-                # Get account_id from Clerk user
-                account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-                if not account_result.data:
-                    raise HTTPException(status_code=404, detail="User account not found")
-                    
-                account_id = account_result.data
-                
+                # Get account_id from Clerk user using centralized helper
+                account_id = await get_account_id_or_raise(client, current_user_id)
+
                 # Get user info for customer creation from users table
                 user_result = await client.table('users').select('*').eq('id', account_id).execute()
                 if not user_result.data:
@@ -309,45 +299,10 @@ async def create_checkout_session(
                 if not user_email or 'placeholder' in user_email or 'missing_email' in user_email:
                     logger.error(f"User {account_id} has invalid email in billing_customers table: {user_email}")
                     raise HTTPException(
-                        status_code=400, 
+                        status_code=400,
                         detail="Your account is missing a valid email address. Please contact support."
                     )
-                
-                # Determine payment methods based on region and user preferences
-                final_payment_methods = request.allowed_payment_methods
-                
-                # Auto-detect user's country from request headers or use provided country
-                detected_country = request.country_code or detect_country_from_request(dict(http_request.headers))
-                
-                if request.use_regional_defaults and not final_payment_methods:
-                    if detected_country:
-                        # Get region-appropriate payment methods (subscription-safe)
-                        final_payment_methods = get_payment_methods_by_region(
-                            country_code=detected_country,
-                            is_subscription=True  # All plan upgrades are subscriptions
-                        )
-                        logger.info(f"Using regional payment methods for {detected_country}: {final_payment_methods}")
-                    else:
-                        # Fallback to subscription-safe default methods
-                        final_payment_methods = get_payment_methods_by_region(
-                            country_code=RegionCode.DEFAULT.value,
-                            is_subscription=True
-                        )
-                        logger.info(f"Using default payment methods: {final_payment_methods}")
-                
-                # Validate payment methods if explicitly provided
-                if request.allowed_payment_methods:
-                    validation = validate_payment_methods(
-                        methods=request.allowed_payment_methods,
-                        country_code=detected_country or RegionCode.DEFAULT.value,
-                        is_subscription=True
-                    )
-                    if not validation["valid"]:
-                        logger.warning(f"Invalid payment methods provided: {validation['unsupported_methods']}")
-                        # Use only supported methods
-                        final_payment_methods = validation["supported_methods"]
-                
-                # Validate email before calling checkout
+
                 if not user_email or '@' not in user_email:
                     raise HTTPException(
                         status_code=400, 
@@ -358,10 +313,7 @@ async def create_checkout_session(
                     plan_id=request.plan_id,
                     account_id=account_id,
                     user_email=user_email,
-                    user_name=user_data.get('name', ''),
                     success_url=request.success_url,
-                    cancel_url=request.cancel_url,
-                    allowed_payment_methods=final_payment_methods
                 )
                 
                 return CheckoutSessionResponse(
@@ -400,13 +352,9 @@ async def upgrade_plan(
             
         db = DBConnection()
         async with db.get_async_client() as client:
-            # Get account_id from Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-                
-            account_id = account_result.data
-            
+            # Get account_id from Clerk user using centralized helper
+            account_id = await get_account_id_or_raise(client, current_user_id)
+
             # Update user's plan and quota
             new_quota_reset = datetime.now(timezone.utc) + timedelta(days=30)
 
@@ -433,21 +381,6 @@ async def upgrade_plan(
     except Exception as e:
         logger.error(f"Error upgrading plan: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error upgrading plan: {str(e)}")
-
-@router.post("/webhook/success")
-async def handle_payment_success(
-    request: Dict,
-    background_tasks=None
-):
-    """Handle successful payment webhook (legacy endpoint)."""
-    try:
-        # Note: Primary webhook handling is in api/webhooks/polar.py
-        logger.info("Payment success webhook received")
-        return {"status": "ok"}
-
-    except Exception as e:
-        logger.error(f"Error handling payment success: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error processing payment success")
 
 @router.post("/admin/reset-quotas")
 async def manual_quota_reset(
@@ -526,7 +459,6 @@ async def get_quota_status(
         logger.error(f"Error getting quota status: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Error retrieving quota status: {str(e)}")
 
-# Legacy compatibility functions (for existing code)
 # Billing status cache TTL in seconds (30 seconds for quick updates while reducing DB load)
 BILLING_STATUS_CACHE_TTL = 30
 
@@ -540,12 +472,11 @@ async def can_use_model(client: Client, user_id: str, model_name: str):
     from services import redis as redis_service
 
     try:
-        # Get account_id from Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-        if not account_result.data:
+        # Get account_id from Clerk user using centralized helper
+        account_id = await get_account_id_for_clerk_user(client, user_id)
+        if not account_id:
             return False, "User account not found", {}
 
-        account_id = account_result.data
         cache_key = f"billing_status:{account_id}"
 
         # Try to get from cache first
@@ -751,14 +682,11 @@ async def store_openrouter_key(
 ):
     """Store user's OpenRouter API key for BYOK functionality"""
     try:
-        # Get account_id for the user
+        # Get account_id for the user using centralized helper
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-            account_id = account_result.data
-        
+            account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Validate user can use BYOK
         can_use_byok, error_msg = await APIKeyResolver.validate_user_can_use_byok(account_id)
         if not can_use_byok:
@@ -794,19 +722,16 @@ async def get_openrouter_key_status(
 ):
     """Get status of user's OpenRouter API key"""
     try:
-        # Get account_id for the user
+        # Get account_id for the user using centralized helper
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-            account_id = account_result.data
-        
+            account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Validate user can use BYOK
         can_use_byok, error_msg = await APIKeyResolver.validate_user_can_use_byok(account_id)
         if not can_use_byok:
             raise HTTPException(status_code=403, detail=error_msg)
-        
+
         # Get key information
         key_info = await OpenRouterKeyManager.get_key_info(account_id)
         
@@ -840,14 +765,11 @@ async def delete_openrouter_key(
 ):
     """Delete user's OpenRouter API key"""
     try:
-        # Get account_id for the user
+        # Get account_id for the user using centralized helper
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-            account_id = account_result.data
-        
+            account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Validate user can use BYOK
         can_use_byok, error_msg = await APIKeyResolver.validate_user_can_use_byok(account_id)
         if not can_use_byok:
@@ -874,14 +796,11 @@ async def test_openrouter_key(
 ):
     """Test OpenRouter API key connection"""
     try:
-        # Get account_id for the user
+        # Get account_id for the user using centralized helper
         db = DBConnection()
         async with db.get_async_client() as client:
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': current_user_id}).execute()
-            if not account_result.data:
-                raise HTTPException(status_code=404, detail="User account not found")
-            account_id = account_result.data
-        
+            account_id = await get_account_id_or_raise(client, current_user_id)
+
         # Validate user can use BYOK
         can_use_byok, error_msg = await APIKeyResolver.validate_user_can_use_byok(account_id)
         if not can_use_byok:

@@ -7,29 +7,17 @@ Composio MCP URL format: https://backend.composio.dev/v3/mcp/{server_id}
 Authentication via headers: x-api-key, x-composio-connected-account-id
 """
 
-import os
 import httpx
 from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
 from utils.logger import logger
-
-
-# Composio API base URL - v3 is the current version
-COMPOSIO_API_V3 = "https://backend.composio.dev/api/v3"
-
-
-def _get_api_key() -> str:
-    """Get Composio API key from environment."""
-    api_key = os.getenv("COMPOSIO_API_KEY")
-    if not api_key:
-        raise ValueError("COMPOSIO_API_KEY environment variable is required")
-    return api_key
+from composio_integration.client import get_composio_api_key, COMPOSIO_API_V3
 
 
 def _get_headers() -> Dict[str, str]:
     """Get headers for Composio API requests."""
     return {
-        "X-API-Key": _get_api_key(),
+        "X-API-Key": get_composio_api_key(),
         "Content-Type": "application/json"
     }
 

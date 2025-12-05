@@ -1,4 +1,3 @@
-import os
 import logging
 from typing import Optional
 import mailtrap as mt
@@ -8,9 +7,10 @@ logger = logging.getLogger(__name__)
 
 class EmailService:
     def __init__(self):
-        self.api_token = os.getenv('MAILTRAP_API_TOKEN')
-        self.sender_email = os.getenv('MAILTRAP_SENDER_EMAIL', 'hello@cheatcode.ai')
-        self.sender_name = os.getenv('MAILTRAP_SENDER_NAME', 'CheatCode AI Team')
+        # Use centralized config for environment variables
+        self.api_token = config.MAILTRAP_API_TOKEN
+        self.sender_email = getattr(config, 'MAILTRAP_SENDER_EMAIL', None) or 'hello@cheatcode.ai'
+        self.sender_name = getattr(config, 'MAILTRAP_SENDER_NAME', None) or 'CheatCode AI Team'
         
         if not self.api_token:
             logger.warning("MAILTRAP_API_TOKEN not found in environment variables")

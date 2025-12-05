@@ -1,7 +1,6 @@
 import React from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
+import { API_URL } from './api/config';
 
 export interface FeatureFlag {
   flag_name: string;
@@ -290,12 +289,10 @@ export const useFeatureFlag = (flagName: string, options?: {
     };
   }
 
-  // Return backward-compatible interface
   return {
     enabled: query.data ?? false,
     loading: query.isLoading,
     error: query.error?.message ?? null,
-    // Also expose React Query properties for advanced usage
     ...query,
   };
 };

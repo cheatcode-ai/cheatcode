@@ -8,7 +8,6 @@ import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { DeleteOperationProvider } from '@/contexts/DeleteOperationContext';
 import { BillingProvider } from '@/contexts/BillingContext';
-import { MaintenanceAlert } from '@/components/maintenance-alert';
 import { useAccounts } from '@/hooks/use-accounts';
 import { Loader2 } from 'lucide-react';
 import { MaintenancePage } from '@/components/maintenance/maintenance-page';
@@ -32,9 +31,6 @@ export default function HomeLayout({
   const [isClient, setIsClient] = useState(false);
   const pathname = usePathname();
 
-  // Enhanced features from layout-content.tsx
-  const [showPricingAlert, setShowPricingAlert] = useState(false);
-  const [showMaintenanceAlert, setShowMaintenanceAlert] = useState(false);
   // TODO: Implement maintenance notice fetching from API or server component
   const [currentMaintenanceNotice] = useState<IMaintenanceNotice>({ enabled: false });
   const { data: accounts } = useAccounts();
@@ -54,11 +50,6 @@ export default function HomeLayout({
     setIsClient(true);
   }, []);
 
-  // Enhanced: Initialize alert states
-  useEffect(() => {
-    setShowPricingAlert(false);
-    setShowMaintenanceAlert(false);
-  }, []);
 
   // Listen for sidebar toggle events from navbar
   useEffect(() => {
@@ -168,21 +159,6 @@ export default function HomeLayout({
             )}
           </div>
         </SidebarInset>
-
-        {/* Enhanced: Pricing Alert Framework (ready to enable) */}
-        {/* <PricingAlert
-          open={showPricingAlert}
-          onOpenChange={setShowPricingAlert}
-          closeable={false}
-          accountId={personalAccount?.account_id}
-        /> */}
-
-        {/* Enhanced: Maintenance Alert */}
-        <MaintenanceAlert
-          open={showMaintenanceAlert}
-          onOpenChange={setShowMaintenanceAlert}
-          closeable={true}
-        />
 
         {/* Enhanced: Status overlay for deletion operations and async tasks */}
         <StatusOverlay />

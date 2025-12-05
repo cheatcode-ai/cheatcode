@@ -15,6 +15,7 @@ export type Project = {
   };
   is_public?: boolean;
   app_type?: 'web' | 'mobile';
+  model_name?: string;
   [key: string]: any;
 };
 
@@ -222,4 +223,17 @@ export interface FileTreeResponse {
   tree: FileTreeNode[];
   totalFiles: number;
   basePath: string;
+}
+
+/**
+ * Extended message type for API responses with database fields.
+ * This is the canonical definition - import from '@/lib/api' elsewhere.
+ */
+export interface ApiMessageType extends Message {
+  message_id?: string;
+  thread_id?: string;
+  is_llm_message?: boolean;
+  metadata?: string;
+  created_at?: string;
+  updated_at?: string;
 }

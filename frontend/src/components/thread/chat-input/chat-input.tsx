@@ -7,7 +7,7 @@ import React, {
   forwardRef,
   useImperativeHandle,
 } from 'react';
-import { motion } from 'framer-motion';
+import { motion } from 'motion/react';
 import { X } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { handleFiles } from './file-upload-handler';
@@ -49,6 +49,9 @@ export interface ChatInputProps {
   isSidePanelOpen?: boolean;
   appType?: 'web' | 'mobile';
   onAppTypeChange?: (appType: 'web' | 'mobile') => void;
+  // Model selection
+  selectedModel?: string;
+  onModelChange?: (modelId: string) => void;
 }
 
 export interface UploadedFile {
@@ -87,6 +90,8 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       isSidePanelOpen = false,
       appType = 'web',
       onAppTypeChange,
+      selectedModel,
+      onModelChange,
     },
     ref,
   ) => {
@@ -285,6 +290,8 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 disableAnimation={disableAnimation}
                 appType={appType}
                 onAppTypeChange={onAppTypeChange}
+                selectedModel={selectedModel}
+                onModelChange={onModelChange}
               />
             </CardContent>
           </div>

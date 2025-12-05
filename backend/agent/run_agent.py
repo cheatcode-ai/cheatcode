@@ -155,7 +155,7 @@ async def run_agent_run_stream(
             if stop_event.is_set():
                 logger.info(f"Agent run {agent_run_id} stopped by signal.")
                 final_status = "stopped"
-                trace.span(name="agent_run_stopped").end(
+                trace.start_span(name="agent_run_stopped").end(
                     status_message="agent_run_stopped", level="WARNING"
                 )
                 break
@@ -192,7 +192,7 @@ async def run_agent_run_stream(
                 "status": "completed",
                 "message": "Agent run completed successfully",
             }
-            trace.span(name="agent_run_completed").end(
+            trace.start_span(name="agent_run_completed").end(
                 status_message="agent_run_completed"
             )
             all_responses.append(completion_message)
@@ -215,7 +215,7 @@ async def run_agent_run_stream(
             f"Error in agent run {agent_run_id} after {duration:.2f}s: {error_message}\n{traceback_str} (Instance: {instance_id})"
         )
         final_status = "failed"
-        trace.span(name="agent_run_failed").end(
+        trace.start_span(name="agent_run_failed").end(
             status_message=error_message, level="ERROR"
         )
 

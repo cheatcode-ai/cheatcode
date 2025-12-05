@@ -9,16 +9,16 @@ from fastapi import FastAPI, UploadFile, File, HTTPException, APIRouter, Form, D
 from fastapi.responses import Response
 from pydantic import BaseModel
 from daytona import AsyncSandbox
-import mimetypes
 
 from sandbox.sandbox import get_or_start_sandbox, get_sandbox, delete_sandbox
 from utils.logger import logger
-from utils.auth_utils import get_optional_user_id
+from utils.auth_utils import get_optional_user_id, get_account_id_for_clerk_user
+from utils.config import config
 from services.supabase import DBConnection
-from utils.qr_extractor import extract_expo_url
+from utils.file_utils import is_image_file
 
-# Preview proxy URL - removes Daytona warning page
-PREVIEW_PROXY_URL = os.environ.get('PREVIEW_PROXY_URL', 'https://preview.trycheatcode.com')
+# Preview proxy URL from centralized config
+PREVIEW_PROXY_URL = config.PREVIEW_PROXY_URL
 
 # Initialize shared resources
 router = APIRouter(tags=["sandbox"])
@@ -29,26 +29,6 @@ def initialize(_db: DBConnection):
     global db
     db = _db
     logger.info("Initialized sandbox API with database connection")
-
-def is_image_file(file: UploadFile) -> bool:
-    """Check if the uploaded file is an image based on MIME type and filename"""
-    # Check MIME type first (most reliable)
-    if file.content_type and file.content_type.startswith('image/'):
-        return True
-    
-    # Check file extension as fallback
-    if file.filename:
-        filename_lower = file.filename.lower()
-        image_extensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.tif']
-        if any(filename_lower.endswith(ext) for ext in image_extensions):
-            return True
-            
-        # Also check using mimetypes module
-        mime_type, _ = mimetypes.guess_type(file.filename)
-        if mime_type and mime_type.startswith('image/'):
-            return True
-    
-    return False
 
 class FileInfo(BaseModel):
     """Model for file information"""
@@ -128,9 +108,9 @@ async def verify_sandbox_access(client, sandbox_id: str, user_id: Optional[str] 
 
     # Verify ownership - check if the authenticated user matches the project owner
     if project_user_id:
-        # Get the account_id for the authenticated Clerk user
-        account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-        if account_result.data and account_result.data == project_user_id:
+        # Get the account_id for the authenticated Clerk user using centralized helper
+        account_id = await get_account_id_for_clerk_user(client, user_id)
+        if account_id and account_id == project_user_id:
             return project_data
 
     raise HTTPException(status_code=403, detail="Not authorized to access this sandbox")
@@ -804,9 +784,9 @@ async def ensure_project_sandbox_active(
 
         # Verify ownership - check if the authenticated user matches the project owner
         if project_user_id:
-            # Get the account_id for the authenticated Clerk user
-            account_result = await client.rpc('get_account_id_for_clerk_user', {'p_clerk_user_id': user_id}).execute()
-            if not (account_result.data and account_result.data == project_user_id):
+            # Get the account_id for the authenticated Clerk user using centralized helper
+            account_id = await get_account_id_for_clerk_user(client, user_id)
+            if not (account_id and account_id == project_user_id):
                 logger.error(f"User {user_id} not authorized to access project {project_id}")
                 raise HTTPException(status_code=403, detail="Not authorized to access this project")
     
@@ -1299,11 +1279,10 @@ async def stream_dev_server_status(
                 # Stream logs using Daytona's async log streaming
                 server_ready = False
                 log_buffer = []
-                expo_url_found = None  # Track if we've found an Expo URL
 
                 async def on_log_chunk(chunk: str):
                     """Callback for real-time log chunks."""
-                    nonlocal server_ready, log_buffer, expo_url_found
+                    nonlocal server_ready, log_buffer
                     log_buffer.append(chunk)
 
                     # Check if any ready pattern is in the logs
@@ -1313,14 +1292,7 @@ async def stream_dev_server_status(
                             server_ready = True
                             break
 
-                    # For mobile apps, also try to extract the Expo URL from logs
-                    if app_type == 'mobile' and expo_url_found is None:
-                        extracted_url = extract_expo_url(combined_logs)
-                        if extracted_url:
-                            expo_url_found = extracted_url
-                            logger.info(f"Extracted Expo URL from logs: {extracted_url}")
-
-                # Start streaming logs asynchronously
+                # Start polling logs (streaming not available in current SDK)
                 try:
                     # Get the command ID - Command object has 'id' field, not 'cmd_id'
                     command_id = getattr(latest_command, 'id', None) or getattr(latest_command, 'cmd_id', None)
@@ -1329,20 +1301,37 @@ async def stream_dev_server_status(
                         yield f"data: {json.dumps({'type': 'error', 'message': 'Could not get command ID'})}\n\n"
                         return
 
-                    # Use asyncio.wait_for to add a timeout
-                    log_task = asyncio.create_task(
-                        sandbox.process.get_session_command_logs_async(
-                            session_id=session_name,
-                            command_id=command_id,
-                            on_logs=on_log_chunk
-                        )
-                    )
-
                     # Poll for ready state with short intervals
                     check_count = 0
                     max_checks = 60  # 60 seconds max
 
                     while check_count < max_checks:
+                        # Poll logs instead of streaming
+                        try:
+                            logs_response = await sandbox.process.get_session_command_logs(
+                                session_id=session_name,
+                                command_id=command_id
+                            )
+                            # Extract logs from response object
+                            if logs_response:
+                                logs_text = ""
+                                if hasattr(logs_response, 'logs'):
+                                    logs_text = logs_response.logs or ""
+                                elif isinstance(logs_response, str):
+                                    logs_text = logs_response
+                                else:
+                                    logs_text = str(logs_response)
+
+                                if logs_text:
+                                    log_buffer.append(logs_text)
+                                    combined_logs = ''.join(log_buffer)
+                                    for pattern in ready_patterns:
+                                        if pattern.lower() in combined_logs.lower():
+                                            server_ready = True
+                                            break
+                        except Exception as log_err:
+                            logger.debug(f"Log polling error: {log_err}")
+
                         if server_ready:
                             yield f"data: {json.dumps({'type': 'status', 'status': 'running'})}\n\n"
 
@@ -1354,16 +1343,10 @@ async def stream_dev_server_status(
                             except Exception:
                                 pass
 
-                            # For mobile apps, emit the Expo URL for QR code generation
-                            if app_type == 'mobile' and expo_url_found:
-                                yield f"data: {json.dumps({'type': 'expo_url', 'url': expo_url_found})}\n\n"
-                                logger.info(f"Emitted Expo URL via SSE: {expo_url_found}")
-
                             break
 
                         # Check if client disconnected
                         if await request.is_disconnected():
-                            log_task.cancel()
                             return
 
                         await asyncio.sleep(1)
@@ -1389,8 +1372,6 @@ async def stream_dev_server_status(
                         except Exception as e:
                             logger.warning(f"Fallback port check failed: {e}")
                             yield f"data: {json.dumps({'type': 'status', 'status': 'unknown'})}\n\n"
-
-                    log_task.cancel()
 
                 except Exception as e:
                     logger.error(f"Error streaming logs: {e}")

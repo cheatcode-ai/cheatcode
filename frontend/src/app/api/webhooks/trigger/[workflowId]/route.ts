@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { BACKEND_URL } from '@/lib/api/server-config';
 
 export async function POST(
   request: NextRequest,
@@ -6,9 +7,9 @@ export async function POST(
 ) {
   try {
     const { workflowId } = await params;
-    
+
     console.log(`[Webhook Proxy] Received webhook for workflow: ${workflowId}`);
-    
+
     const body = await request.arrayBuffer();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => {
@@ -16,8 +17,8 @@ export async function POST(
         headers[key] = value;
       }
     });
-    
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
+
+    const backendUrl = BACKEND_URL;
     const targetUrl = `${backendUrl}/api/webhooks/trigger/${workflowId}`;
     
     console.log(`[Webhook Proxy] Backend URL: ${backendUrl}`);
@@ -72,8 +73,8 @@ export async function GET(
 ) {
   try {
     const { workflowId } = await params;
-    const backendUrl = process.env.BACKEND_URL || 'http://localhost:8000';
-    
+    const backendUrl = BACKEND_URL;
+
     const response = await fetch(`${backendUrl}/api/webhooks/test/${workflowId}`, {
       method: 'GET',
       headers: {

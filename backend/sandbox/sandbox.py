@@ -279,7 +279,6 @@ async def create_sandbox_from_snapshot(
 
     if project_id:
         labels['project_id'] = project_id
-        labels['id'] = project_id  # Keep for backward compatibility
 
     if account_id:
         labels['account_id'] = account_id

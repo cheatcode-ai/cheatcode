@@ -312,68 +312,46 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
     }
   }, [agentGetters.isTerminal, agentState.status, currentHookRunId, stopStreaming, agentActions]);
 
-  // Automatically start the agent if a thread has user messages but no active run yet
-  // Only for genuinely new threads, not completed threads being reloaded
+  // Auto-connect to running agent or auto-start for new threads
   useEffect(() => {
-    // Wait for agent runs query to complete loading before making decisions
-    if (agentRunsQuery.isLoading || agentRunsQuery.isFetching) {
-      console.log('[ACTIONS] Waiting for agent runs query to complete...');
+    if (agentRunsQuery.isLoading || agentRunsQuery.isFetching) return;
+    if (agentState.autoStartedRun || !agentGetters.isIdle || agentState.runId) return;
+    if (agentState.isSending || startAgentMutation.isPending) return;
+
+    const runs = agentRunsQuery.data || [];
+    const runningRun = runs.find(r => r.status === 'running' || r.status === 'queued');
+    const hasCompletedRuns = runs.some(r => ['completed', 'error', 'stopped'].includes(r.status));
+    const hasAssistantMessages = messages.some(m => m.type === 'assistant' || m.type === 'tool');
+    const lastIsUser = messages.length > 0 && messages[messages.length - 1].type === 'user';
+
+    // Connect to existing running agent
+    if (runningRun) {
+      agentActions.setAutoStarted(true);
+      agentActions.connect(runningRun.run_id);
+      startStreaming(runningRun.run_id);
       return;
     }
 
-    const hasMessages = messages.length > 0;
-    const lastMessageType = hasMessages ? messages[messages.length - 1].type : null;
-
-    if (
-      !agentState.autoStartedRun &&
-      agentGetters.isIdle &&
-      !agentState.runId &&
-      hasMessages &&
-      lastMessageType === 'user' &&
-      !startAgentMutation.isPending
-    ) {
-      // Check if there are any completed agent runs for this thread
-      const hasCompletedRuns = agentRunsQuery.data && agentRunsQuery.data.length > 0 && 
-        agentRunsQuery.data.some(run => run.status === 'completed' || run.status === 'error' || run.status === 'stopped');
-      
-      // Also check for assistant/tool messages as secondary indicator
-      const hasAssistantMessages = messages.some(msg => msg.type === 'assistant' || msg.type === 'tool');
-      
-      if (!hasCompletedRuns && !hasAssistantMessages) {
-        console.log('[ACTIONS] Auto-starting agent for newly created thread...');
-        agentActions.setAutoStarted(true);
-        startAgentMutation.mutate(
-          { threadId, options: { app_type: project?.app_type || 'web' } },
-          {
-            onSuccess: (data) => {
-              if (data.agent_run_id) {
-                agentActions.connect(data.agent_run_id);
-                startStreaming(data.agent_run_id);
-              }
-            },
-            onError: (err) => {
-              console.error('[ACTIONS] Failed to auto-start agent:', err);
-              agentActions.setAutoStarted(false);
-            },
-          }
-        );
-      } else {
-        console.log('[ACTIONS] Skipping auto-start - thread already has completed runs or assistant messages');
-      }
+    // Auto-start only for new threads with pending user message
+    if (lastIsUser && !hasCompletedRuns && !hasAssistantMessages) {
+      agentActions.setAutoStarted(true);
+      startAgentMutation.mutate(
+        { threadId, options: { app_type: project?.app_type || 'web' } },
+        {
+          onSuccess: (data) => {
+            if (data.agent_run_id) {
+              agentActions.connect(data.agent_run_id);
+              startStreaming(data.agent_run_id);
+            }
+          },
+          onError: () => agentActions.setAutoStarted(false),
+        }
+      );
     }
   }, [
-    agentState.autoStartedRun, 
-    agentGetters.isIdle, 
-    agentState.runId, 
-    messages,
-    startAgentMutation,
-    threadId, 
-    project?.app_type,
-    agentActions, 
-    startStreaming, 
-    agentRunsQuery.data, 
-    agentRunsQuery.isLoading, 
-    agentRunsQuery.isFetching
+    agentState.autoStartedRun, agentGetters.isIdle, agentState.runId, agentState.isSending,
+    messages, startAgentMutation, threadId, project?.app_type, agentActions, startStreaming,
+    agentRunsQuery.data, agentRunsQuery.isLoading, agentRunsQuery.isFetching
   ]);
 
   const value: ThreadActionsContextValue = {

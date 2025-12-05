@@ -3,7 +3,7 @@
 import React from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
-import { langs } from '@uiw/codemirror-extensions-langs';
+import { loadLanguage } from '@uiw/codemirror-extensions-langs';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -15,32 +15,31 @@ interface CodeRendererProps {
   className?: string;
 }
 
-// Map of language aliases to CodeMirror language support
-const languageMap: Record<string, any> = {
-  js: langs.javascript,
-  jsx: langs.jsx,
-  ts: langs.typescript,
-  tsx: langs.tsx,
-  html: langs.html,
-  css: langs.css,
-  json: langs.json,
-  md: langs.markdown,
-  python: langs.python,
-  py: langs.python,
-  rust: langs.rust,
-  go: langs.go,
-  java: langs.java,
-  c: langs.c,
-  cpp: langs.cpp,
-  cs: langs.csharp,
-  php: langs.php,
-  ruby: langs.ruby,
-  sh: langs.shell,
-  bash: langs.shell,
-  sql: langs.sql,
-  yaml: langs.yaml,
-  yml: langs.yaml,
-  // Add more languages as needed
+// Map of language aliases to CodeMirror language names
+const languageAliases: Record<string, string> = {
+  js: 'javascript',
+  jsx: 'jsx',
+  ts: 'typescript',
+  tsx: 'tsx',
+  html: 'html',
+  css: 'css',
+  json: 'json',
+  md: 'markdown',
+  python: 'python',
+  py: 'python',
+  rust: 'rust',
+  go: 'go',
+  java: 'java',
+  c: 'c',
+  cpp: 'cpp',
+  cs: 'csharp',
+  php: 'php',
+  ruby: 'ruby',
+  sh: 'shell',
+  bash: 'shell',
+  sql: 'sql',
+  yaml: 'yaml',
+  yml: 'yaml',
 };
 
 export function CodeRenderer({
@@ -48,14 +47,14 @@ export function CodeRenderer({
   language = '',
   className,
 }: CodeRendererProps) {
-
-
   // Determine the language extension to use
-  const langExtension =
-    language && languageMap[language] ? [languageMap[language]()] : [];
+  const langName = languageAliases[language] || language;
+  const langExtension = langName ? loadLanguage(langName as any) : null;
 
   // Add line wrapping extension
-  const extensions = [...langExtension, EditorView.lineWrapping];
+  const extensions = langExtension
+    ? [langExtension, EditorView.lineWrapping]
+    : [EditorView.lineWrapping];
 
   // Always use dark theme
   const theme = vscodeDark;

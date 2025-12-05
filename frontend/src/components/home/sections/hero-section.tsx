@@ -43,6 +43,7 @@ export function HeroSection() {
   const { scrollY } = useScroll();
   const [inputValue, setInputValue] = useState('');
   const [appType, setAppType] = useState<'web' | 'mobile'>('web');
+  const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4.5');
   // This is now a coding-only system - no agent selection needed
   const router = useRouter();
   const { user, isLoaded } = useUser();
@@ -140,7 +141,8 @@ export function HeroSection() {
         console.warn(`Invalid app_type '${appType}', defaulting to 'web'`);
       }
       
-      // model_name deprecated – backend decides the model.
+      // Pass selected model to backend
+      formData.append('model_name', selectedModel);
       formData.append('enable_thinking', String(false));
       formData.append('reasoning_effort', 'low');
       formData.append('stream', String(true));
@@ -243,6 +245,8 @@ export function HeroSection() {
                   autoFocus={false}
                   appType={appType}
                   onAppTypeChange={setAppType}
+                  selectedModel={selectedModel}
+                  onModelChange={setSelectedModel}
                 />
               </div>
               {/* Subtle glow effect */}

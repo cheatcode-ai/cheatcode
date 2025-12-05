@@ -4,28 +4,17 @@ Handles listing, filtering, and retrieving toolkit/app information.
 Uses Composio REST API for compatibility with SDK changes.
 """
 
-import os
 import httpx
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
 from utils.logger import logger
-
-# Composio API base URLs - v3 is the current version
-COMPOSIO_API_V3 = "https://backend.composio.dev/api/v3"
-
-
-def _get_api_key() -> str:
-    """Get Composio API key from environment."""
-    api_key = os.getenv("COMPOSIO_API_KEY")
-    if not api_key:
-        raise ValueError("COMPOSIO_API_KEY environment variable is required")
-    return api_key
+from composio_integration.client import get_composio_api_key, COMPOSIO_API_V3
 
 
 def _get_headers() -> Dict[str, str]:
     """Get headers for Composio API requests."""
     return {
-        "X-API-Key": _get_api_key(),
+        "X-API-Key": get_composio_api_key(),
         "Content-Type": "application/json"
     }
 
@@ -52,7 +41,7 @@ class ToolkitInfo(BaseModel):
     slug: str
     name: str
     description: Optional[str] = None
-    logo_url: Optional[str] = None
+    icon_url: Optional[str] = None  # Icon/logo URL from Composio
     categories: List[str] = Field(default_factory=list)
     auth_schemes: List[str] = Field(default_factory=list)
     connected_account_initiation_fields: List[InitiationField] = Field(default_factory=list)
@@ -90,6 +79,30 @@ class ToolkitService:
         "Email",
     ]
 
+    # Featured/popular apps to show first (in order of priority)
+    FEATURED_APPS = [
+        "github",
+        "slack",
+        "gmail",
+        "notion",
+        "linear",
+        "google_sheets",
+        "google_drive",
+        "google_calendar",
+        "jira",
+        "discord",
+        "asana",
+        "trello",
+        "airtable",
+        "hubspot",
+        "salesforce",
+        "stripe",
+        "twitter",
+        "figma",
+        "dropbox",
+        "zoom",
+    ]
+
     def __init__(self):
         self._toolkits_cache: Optional[List[ToolkitInfo]] = None
         self._cache_timestamp: float = 0
@@ -104,8 +117,11 @@ class ToolkitService:
             # Handle REST API response format (dict)
             slug = app.get('key') or app.get('slug') or app.get('appId') or app.get('name', '').lower().replace(' ', '_')
             name = app.get('name', slug)
-            description = app.get('description', '')
-            logo = app.get('logo') or app.get('logo_url') or app.get('logoUrl')
+
+            # Get meta object for nested fields
+            meta = app.get('meta', {}) or {}
+            description = app.get('description', '') or meta.get('description', '')
+            logo = meta.get('logo') or app.get('logo') or app.get('logo_url') or app.get('logoUrl')
 
             # Get auth schemes
             auth_schemes = []
@@ -121,10 +137,15 @@ class ToolkitService:
                 elif isinstance(auth_info, dict):
                     auth_schemes = [auth_info.get('type', '')]
 
-            # Get categories
+            # Get categories (can be in meta.categories or app.categories)
             categories = []
-            if 'categories' in app:
-                categories = app['categories'] if isinstance(app['categories'], list) else [app['categories']]
+            raw_categories = meta.get('categories') or app.get('categories') or []
+            if isinstance(raw_categories, list):
+                for cat in raw_categories:
+                    if isinstance(cat, dict):
+                        categories.append(cat.get('name', ''))
+                    elif isinstance(cat, str):
+                        categories.append(cat)
 
             # Get initiation fields for OAuth
             initiation_fields = []
@@ -145,7 +166,7 @@ class ToolkitService:
                 slug=slug,
                 name=name,
                 description=description,
-                logo_url=logo,
+                icon_url=logo,
                 categories=categories,
                 auth_schemes=auth_schemes,
                 connected_account_initiation_fields=initiation_fields,
@@ -238,8 +259,22 @@ class ToolkitService:
                     if any(category_lower in c.lower() for c in t.categories)
                 ]
 
-            # Sort alphabetically by name
-            toolkits.sort(key=lambda t: t.name.lower())
+            # Sort: featured apps first (in order), then alphabetically
+            def sort_key(t: ToolkitInfo) -> tuple:
+                slug_lower = t.slug.lower()
+                # Check if it's a featured app
+                if slug_lower in self.FEATURED_APPS:
+                    # Featured apps get priority (0) and their index determines order
+                    return (0, self.FEATURED_APPS.index(slug_lower), t.name.lower())
+                else:
+                    # Non-featured apps come after (1) and are sorted alphabetically
+                    return (1, 0, t.name.lower())
+
+            # Only apply featured sorting when not searching
+            if search:
+                toolkits.sort(key=lambda t: t.name.lower())
+            else:
+                toolkits.sort(key=sort_key)
 
             # Apply pagination
             start_idx = 0
@@ -312,7 +347,7 @@ class ToolkitService:
             Icon URL if available, None otherwise
         """
         toolkit = await self.get_toolkit_details(slug)
-        return toolkit.logo_url if toolkit else None
+        return toolkit.icon_url if toolkit else None
 
     async def get_toolkit_auth_schemes(self, slug: str) -> List[str]:
         """

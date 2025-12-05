@@ -9,10 +9,10 @@ export async function getProject(projectId: string, clerkToken?: string) {
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
+
   const { data, error } = await supabase
     .from('projects')
-    .select('project_id, name, description, user_id, sandbox, is_public, app_type, created_at, updated_at')
+    .select('project_id, name, description, user_id, sandbox, is_public, app_type, model_name, created_at, updated_at')
     .eq('project_id', projectId)
     .single()
 
@@ -29,6 +29,7 @@ export async function getProject(projectId: string, clerkToken?: string) {
     sandbox: data.sandbox || {},
     is_public: data.is_public,
     app_type: data.app_type,
+    model_name: data.model_name,
     created_at: data.created_at,
     updated_at: data.updated_at
   }
@@ -154,10 +155,10 @@ export async function getPublicProjects(clerkToken?: string) {
   if (!supabase) {
     throw new Error('No authentication token provided')
   }
-  
+
   const { data, error } = await supabase
     .from('projects')
-    .select('project_id, name, description, user_id, sandbox, is_public, app_type, created_at, updated_at')
+    .select('project_id, name, description, user_id, sandbox, is_public, app_type, model_name, created_at, updated_at')
     .eq('is_public', true)
     .order('created_at', { ascending: false })
 
@@ -174,6 +175,7 @@ export async function getPublicProjects(clerkToken?: string) {
     sandbox: project.sandbox || {},
     is_public: project.is_public,
     app_type: project.app_type,
+    model_name: project.model_name,
     created_at: project.created_at,
     updated_at: project.updated_at
   })) || []

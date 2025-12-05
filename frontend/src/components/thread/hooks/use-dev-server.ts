@@ -1,5 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '@clerk/nextjs';
+import { API_URL } from '@/lib/api/config';
 
 import { DevServerStatus } from '../types/app-preview';
 
@@ -50,7 +51,7 @@ export const useDevServer = ({
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
+      const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/execute`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -142,7 +143,7 @@ export const useDevServer = ({
 
       console.log(`[${appType.toUpperCase()} DEV SERVER] Sending start command:`, command);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/execute`, {
+      const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/execute`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${token}`,
@@ -166,7 +167,7 @@ export const useDevServer = ({
             await new Promise(resolve => setTimeout(resolve, 3000));
             
             try {
-              const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/sessions/dev_server_${appType}/status`, {
+              const statusResponse = await fetch(`${API_URL}/sandboxes/${sandboxId}/sessions/dev_server_${appType}/status`, {
                 headers: { 'Authorization': `Bearer ${token}` }
               });
               
@@ -278,7 +279,7 @@ export const useDevServer = ({
       }
 
       const sessionName = `dev_server_${appType}`;
-      const sseUrl = `${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/dev-server/stream?session_name=${sessionName}&app_type=${appType}`;
+      const sseUrl = `${API_URL}/sandboxes/${sandboxId}/dev-server/stream?session_name=${sessionName}&app_type=${appType}`;
 
       console.log('[DEV SERVER] Connecting to SSE stream:', sseUrl);
 
@@ -456,7 +457,7 @@ export const useDevServer = ({
 
       console.log(`[DEV SERVER] Fetching Expo URL (attempt ${retryCount + 1})`);
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/expo-url`, {
+      const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/expo-url`, {
         headers: {
           'Authorization': `Bearer ${token}`,
           'Content-Type': 'application/json',

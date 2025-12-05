@@ -22,21 +22,6 @@ export const Highlight = ({
 
 export const BLUR_FADE_DELAY = 0.15;
 
-export interface PricingTier {
-  name: string;
-  price: string;
-  yearlyPrice?: string;
-  originalYearlyPrice?: string;
-  discountPercentage?: number;
-  description: string;
-  features: string[];
-  isPopular?: boolean;
-  hidden?: boolean;
-  buttonColor?: string;
-
-  planId?: string; // For Polar checkout integration
-}
-
 export const siteConfig = {
   name: 'Cheatcode AI',
   description: 'Your technical co-founder - an AI agent that can build web and mobile apps by chatting.',
@@ -54,8 +39,6 @@ export const siteConfig = {
       // Navigation items removed
     ],
   },
-  // Legacy pricing configuration - replaced by API-driven plans
-  cloudPricingItems: [] as PricingTier[],
 };
 
 export type SiteConfig = typeof siteConfig;

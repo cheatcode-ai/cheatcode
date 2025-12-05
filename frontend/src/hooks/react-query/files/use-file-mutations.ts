@@ -1,32 +1,30 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 import { fileQueryKeys } from './use-file-queries';
-import { FileCache } from '@/hooks/use-cached-file';
 import { toast } from 'sonner';
-// Import the normalizePath function from use-file-queries
+import { API_URL } from '@/lib/api/config';
+
 function normalizePath(path: string): string {
   if (!path) return '/';
-  
+
   // Remove any leading/trailing whitespace
   path = path.trim();
-  
+
   // Ensure path starts with /
   if (!path.startsWith('/')) {
     path = '/' + path;
   }
-  
+
   // Remove duplicate slashes and normalize
   path = path.replace(/\/+/g, '/');
-  
+
   // Remove trailing slash unless it's the root
   if (path.length > 1 && path.endsWith('/')) {
     path = path.slice(0, -1);
   }
-  
+
   return path;
 }
-
-const API_URL = process.env.NEXT_PUBLIC_BACKEND_URL || '';
 
 /**
  * Hook for uploading files
@@ -159,32 +157,6 @@ export function useFileDelete() {
       ['text', 'blob', 'json'].forEach(contentType => {
         const queryKey = fileQueryKeys.content(variables.sandboxId, variables.filePath, contentType);
         queryClient.removeQueries({ queryKey });
-      });
-
-      // Clean up legacy FileCache entries for this file
-      const normalizedPath = normalizePath(variables.filePath);
-      const legacyCacheKeys = [
-        `${variables.sandboxId}:${normalizedPath}:blob`,
-        `${variables.sandboxId}:${normalizedPath}:text`,
-        `${variables.sandboxId}:${normalizedPath}:json`,
-        `${variables.sandboxId}:${normalizedPath}`,
-        // Also try without leading slash for compatibility
-        `${variables.sandboxId}:${normalizedPath.substring(1)}:blob`,
-        `${variables.sandboxId}:${normalizedPath.substring(1)}:text`,
-        `${variables.sandboxId}:${normalizedPath.substring(1)}:json`,
-        `${variables.sandboxId}:${normalizedPath.substring(1)}`,
-      ];
-
-      legacyCacheKeys.forEach(key => {
-        const cachedEntry = (FileCache as any).cache?.get(key);
-        if (cachedEntry) {
-          // If it's a blob URL, revoke it before deleting
-          if (cachedEntry.type === 'url' && typeof cachedEntry.content === 'string' && cachedEntry.content.startsWith('blob:')) {
-            console.log(`[FILE DELETE] Revoking blob URL for deleted file: ${cachedEntry.content}`);
-            URL.revokeObjectURL(cachedEntry.content);
-          }
-          FileCache.delete(key);
-        }
       });
     },
     onError: (error) => {

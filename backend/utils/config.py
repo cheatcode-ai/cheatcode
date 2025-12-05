@@ -43,7 +43,6 @@ class Configuration:
     # LLM API keys
     ANTHROPIC_API_KEY: Optional[str] = None
     OPENAI_API_KEY: Optional[str] = None
-    MORPH_API_KEY: Optional[str] = None
     RELACE_API_KEY: Optional[str] = None
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_API_BASE: Optional[str] = "https://openrouter.ai/api/v1"
@@ -51,9 +50,9 @@ class Configuration:
     OR_APP_NAME: Optional[str] = "Cheatcode AI"
     
     # Model configuration
-    # Primary model: openrouter/anthropic/claude-sonnet-4 (Claude Sonnet 4 - state-of-the-art with 72.7% SWE-bench)
-    # Using OpenRouter for Claude Sonnet 4 access
-    MODEL_TO_USE: Optional[str] = "openrouter/anthropic/claude-sonnet-4"
+    # Default model: claude-sonnet-4.5 (will be resolved by models registry)
+    # Users can select from available models via the UI
+    MODEL_TO_USE: Optional[str] = "claude-sonnet-4.5"
     
     # Supabase configuration
     SUPABASE_URL: str
@@ -73,8 +72,12 @@ class Configuration:
     FIRECRAWL_API_KEY: str
     FIRECRAWL_URL: Optional[str] = "https://api.firecrawl.dev"
     
-    # Freestyle deployment
-    FREESTYLE_API_KEY: Optional[str] = None
+    # Vercel deployment (fast, non-blocking deployments)
+    VERCEL_BEARER_TOKEN: Optional[str] = None
+    VERCEL_TEAM_ID: Optional[str] = None  # Optional, for team deployments
+
+    # API base URL for webhooks (e.g., https://api.trycheatcode.com)
+    API_BASE_URL: Optional[str] = None
     
 
     
@@ -82,7 +85,28 @@ class Configuration:
     
     # Clerk configuration
     CLERK_SECRET_KEY: Optional[str] = None
-    
+
+    # Admin API key for server-side operations
+    ADMIN_API_KEY: Optional[str] = None
+
+    # Composio integration
+    COMPOSIO_API_KEY: Optional[str] = None
+
+    # Preview proxy URL - removes Daytona warning page
+    PREVIEW_PROXY_URL: Optional[str] = "https://preview.trycheatcode.com"
+
+    # Email service (Mailtrap)
+    MAILTRAP_API_TOKEN: Optional[str] = None
+
+    # Google API (for various integrations)
+    GOOGLE_API_KEY: Optional[str] = None
+
+    # Sentry configuration
+    SENTRY_DSN: Optional[str] = None
+
+    # Encryption key for MCP credentials
+    MCP_CREDENTIAL_ENCRYPTION_KEY: Optional[str] = None
+
     # Polar.sh configuration
     POLAR_ACCESS_TOKEN: Optional[str] = None
     POLAR_WEBHOOK_SECRET: Optional[str] = None
@@ -96,8 +120,6 @@ class Configuration:
     # Sandbox configuration
     SANDBOX_SNAPSHOT_NAME = "cheatcode-one-snapshot"
     MOBILE_SANDBOX_SNAPSHOT_NAME = "cheatcode-mobile-snapshot"
-
-    SANDBOX_ENTRYPOINT = "/usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf"  # Legacy - not used for snapshots
 
     # LangFuse configuration
     LANGFUSE_PUBLIC_KEY: Optional[str] = None

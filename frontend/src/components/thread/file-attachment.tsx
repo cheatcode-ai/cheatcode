@@ -11,6 +11,7 @@ import { MarkdownRenderer } from './preview-renderers/markdown-renderer';
 import { useFileContent, useImageContent } from '@/hooks/react-query/files';
 import { useAuth } from '@clerk/nextjs';
 import { Project } from '@/lib/api';
+import { API_URL } from '@/lib/api/config';
 
 // Define basic file types
 export type FileType =
@@ -141,7 +142,7 @@ function getFileUrl(sandboxId: string | undefined, path: string, appType: string
         console.error('Error processing Unicode escapes in path:', e);
     }
 
-    const url = new URL(`${process.env.NEXT_PUBLIC_BACKEND_URL}/sandboxes/${sandboxId}/files/content`);
+    const url = new URL(`${API_URL}/sandboxes/${sandboxId}/files/content`);
 
     // Properly encode the path parameter for UTF-8 support
     url.searchParams.append('path', path);

@@ -21,24 +21,11 @@ import { useComposioToolkits } from '@/hooks/react-query/composio';
 import { useComposioProfiles } from '@/hooks/react-query/composio/use-composio-profiles';
 import { ComposioConnectButton } from './composio-connect-button';
 import { toast } from 'sonner';
-import type { ComposioProfile, ComposioToolkit } from '@/types/composio-profiles';
+import type { ComposioToolkit } from '@/types/composio-profiles';
 import { useQueryClient } from '@tanstack/react-query';
 import { composioKeys } from '@/hooks/react-query/composio/keys';
 
-interface ComposioRegistryProps {
-  onProfileSelected?: (profile: ComposioProfile) => void;
-  onToolsSelected?: (
-    profileId: string,
-    selectedTools: string[],
-    toolkitName: string,
-    toolkitSlug: string
-  ) => void;
-}
-
-export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
-  onProfileSelected,
-  onToolsSelected,
-}) => {
+export const ComposioRegistry: React.FC = () => {
   const [search, setSearch] = useState('');
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [showConnectDialog, setShowConnectDialog] = useState(false);
@@ -67,29 +54,6 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
 
   const getToolkitProfiles = (toolkitSlug: string) => {
     return profiles?.filter((p) => p.toolkit_slug === toolkitSlug && p.is_active) || [];
-  };
-
-  const handleProfileSelect = (profileId: string | null, toolkit: ComposioToolkit) => {
-    if (!profileId) return;
-
-    const profile = profiles?.find((p) => p.profile_id === profileId);
-    if (!profile) return;
-
-    // Skip tool selection - use all tools from the MCP server directly
-    // The MCP server exposes all available tools automatically
-    onProfileSelected?.(profile);
-
-    if (onToolsSelected) {
-      // Pass empty array for tools - the MCP server will provide all tools
-      // enabled_tools being empty means "use all available tools"
-      onToolsSelected(
-        profile.profile_id,
-        profile.enabled_tools || [], // Use profile's enabled tools or all if empty
-        profile.display_name || profile.profile_name,
-        profile.toolkit_slug
-      );
-      toast.success(`Added ${toolkit.name} integration!`);
-    }
   };
 
   const handleConnectToolkit = (toolkit: ComposioToolkit) => {
@@ -131,8 +95,7 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
 
   const ToolkitCard: React.FC<{ toolkit: ComposioToolkit }> = ({ toolkit }) => {
     const toolkitProfiles = getToolkitProfiles(toolkit.slug);
-    const hasConnectedProfiles = toolkitProfiles.length > 0;
-    const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+    const isConnected = toolkitProfiles.length > 0;
 
     return (
       <Card className="group transition-all duration-200 hover:shadow-lg border border-border hover:border-primary/20 bg-card hover:bg-card/95 h-full">
@@ -172,32 +135,12 @@ export const ComposioRegistry: React.FC<ComposioRegistryProps> = ({
               </div>
             )}
 
-            {/* Connection Status */}
+            {/* Connection Status - Simplified: Connected or Not Connected */}
             <div className="mt-auto">
-              {hasConnectedProfiles ? (
-                <div className="space-y-3">
-                  <div className="flex items-center gap-2">
-                    <CheckCircle2 className="h-4 w-4 text-green-500" />
-                    <span className="text-sm text-green-600 font-medium">Connected</span>
-                  </div>
-                  <select
-                    value={selectedProfileId || ''}
-                    onChange={(e) => {
-                      const profileId = e.target.value;
-                      setSelectedProfileId(profileId);
-                      if (profileId) {
-                        handleProfileSelect(profileId, toolkit);
-                      }
-                    }}
-                    className="w-full h-9 text-sm rounded-md border border-input bg-background px-3 py-1 focus:outline-none focus:ring-2 focus:ring-ring"
-                  >
-                    <option value="">Select profile...</option>
-                    {toolkitProfiles.map((profile) => (
-                      <option key={profile.profile_id} value={profile.profile_id}>
-                        {profile.profile_name}
-                      </option>
-                    ))}
-                  </select>
+              {isConnected ? (
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                  <span className="text-sm text-green-600 font-medium">Connected</span>
                 </div>
               ) : (
                 <div className="space-y-3">

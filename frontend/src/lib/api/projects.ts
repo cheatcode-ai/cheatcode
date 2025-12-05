@@ -98,6 +98,7 @@ export const getProject = async (projectId: string, clerkToken?: string): Promis
       is_public: data.is_public || false,
       created_at: data.created_at,
       app_type: data.app_type || 'web',
+      model_name: data.model_name,
       sandbox: data.sandbox || {
         id: '',
         token: '',
