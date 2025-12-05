@@ -13,22 +13,6 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  // Redirect www to non-www for Clerk compatibility
-  async redirects() {
-    return [
-      {
-        source: '/:path*',
-        has: [
-          {
-            type: 'host',
-            value: 'www.trycheatcode.com',
-          },
-        ],
-        destination: 'https://trycheatcode.com/:path*',
-        permanent: true,
-      },
-    ];
-  },
 };
 
 export default nextConfig;
