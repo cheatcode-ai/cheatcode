@@ -8,7 +8,7 @@ Build, run, and ship full-stack applications with an agent that codes, executes,
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE-Apache-2.0)
 [![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)](#backend)
-[![Frontend](https://img.shields.io/badge/Frontend-Next.js_15-000000)](#frontend)
+[![Frontend](https://img.shields.io/badge/Frontend-Next.js_16-000000)](#frontend)
 [![DB](https://img.shields.io/badge/DB-Supabase-3FCF8E)](#database)
 
 ![Cheatcode AI](frontend/public/cheatcode-github-hero.png)
@@ -36,10 +36,16 @@ Build, run, and ship full-stack applications with an agent that codes, executes,
 Cheatcode is a full-stack application that pairs a Next.js dashboard with a FastAPI backend to provide an AI agent capable of:
 
 - Creating and modifying projects and threads with a collaborative chat interface
-- Executing actions inside isolated sandboxes using Daytona for code execution and app previews
-- Integrating with multiple LLM providers including OpenAI, Anthropic, OpenRouter, and Groq via LiteLLM
-- Managing authentication and data through Supabase with Redis for queues and caching
-- Supporting web browsing and crawling via external APIs with optional billing and usage tracking
+- Executing code inside isolated Daytona sandboxes with live app previews
+- Multi-model support with model selector - works with OpenAI, Anthropic, OpenRouter via LiteLLM
+- Web search (Tavily) and web scraping (Firecrawl) for research capabilities
+- Managing authentication via Clerk and data through Supabase with Redis for queues
+
+**Optional features:**
+- Fast code editing with Relace API for rapid inline modifications
+- One-click deployments to Vercel for instant production sites
+- Third-party app integrations via Composio MCP (GitHub, Slack, Gmail, Notion, etc.)
+- Token-based billing with Polar.sh and BYOK (Bring Your Own Key) for OpenRouter
 
 The platform is designed to run locally via Docker Compose or be self-hosted on your own infrastructure.
 
@@ -48,10 +54,10 @@ The platform is designed to run locally via Docker Compose or be self-hosted on 
 ```mermaid
 graph TD
   subgraph Frontend
-    FE["Next.js 15 (React) + Clerk + TanStack Query"]
+    FE["Next.js 16 (React 19) + Clerk + TanStack Query"]
   end
   subgraph Backend
-    API["FastAPI: /api/* (projects, threads, agent, sandbox, deployments, billing, transcription, MCP)"]
+    API["FastAPI: /api/* (projects, threads, agent, sandbox, deployments, billing, composio)"]
     Worker["Dramatiq workers"]
     Redis[("Redis")]
   end
@@ -63,14 +69,15 @@ graph TD
     LLM["LiteLLM Router"]
     OpenAI["OpenAI"]
     Anthropic["Anthropic"]
-    Groq["Groq"]
     OpenRouter["OpenRouter"]
+    Relace["Relace (Fast Code Edits)"]
+    Vercel["Vercel (Deployments)"]
     Tav["Tavily (Search)"]
     Fire["Firecrawl (Scrape)"]
     Mail["Mailtrap / SMTP"]
     Sentry["Sentry"]
     Langfuse["Langfuse"]
-    Polar["Polar.sh"]
+    Polar["Polar.sh (Billing)"]
     MCP["Composio MCP"]
   end
 
@@ -80,17 +87,18 @@ graph TD
   API --> Redis
   Redis --> Worker
   API -->|"Sandbox mgmt"| DAY
-  API -->|"MCP credentials/tools"| MCP
+  API -->|"MCP integrations"| MCP
   API -->|"Billing webhooks"| Polar
   API -->|"Tracing"| Langfuse
   API -->|"Errors"| Sentry
   API -->|"Search"| Tav
   API -->|"Scrape"| Fire
   API -->|"Email"| Mail
+  API -->|"Fast edits"| Relace
+  API -->|"Deploy"| Vercel
   API -->|"LLM requests"| LLM
   LLM --> OpenAI
   LLM --> Anthropic
-  LLM --> Groq
   LLM --> OpenRouter
 ```
 
@@ -98,9 +106,9 @@ graph TD
 
 - **Backend API (FastAPI, Python 3.11)**: REST endpoints, thread/project/message management, LLM orchestration with async background jobs
 - **Worker (Dramatiq)**: Processes background jobs including agent runs and long tasks
-- **Frontend (Next.js 15 + React 18)**: Authentication via Clerk, data via Supabase and backend REST, UI with Tailwind CSS v4
+- **Frontend (Next.js 16 + React 19)**: Authentication via Clerk, data via Supabase and backend REST, UI with Tailwind CSS v4
 - **Redis**: Caching, queues, and rate-limiting
-- **Supabase**: Database, authentication, storage, and Row Level Security (RLS)
+- **Supabase**: Database, storage, Realtime, and Row Level Security (RLS) with Clerk integration
 
 ## Prerequisites
 
@@ -121,11 +129,16 @@ graph TD
 
 - **Supabase project** with URL, anon key, and service role key
 - **Clerk application** with publishable key and secret key
-- **At least one LLM provider**: OpenAI, Anthropic, OpenRouter, or Groq API key
+- **At least one LLM provider**: OpenAI, Anthropic, or OpenRouter API key
+- **Daytona account** for sandbox code execution and app previews
+- **Tavily API key** for web search capabilities
+- **Firecrawl API key** for web scraping capabilities
 
 ### Optional Integrations
 
-- **Daytona account** for sandbox code execution and app previews
+- **Vercel account** for one-click deployments
+- **Relace API key** for fast inline code edits
+- **Composio account** for third-party app integrations (GitHub, Slack, etc.)
 - **Sentry** for error monitoring
 - **Langfuse** for LLM observability
 
@@ -134,13 +147,13 @@ graph TD
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/your-username/deployment-cheatcode.git
-cd deployment-cheatcode
+git clone https://github.com/cheatcode-ai/cheatcode.git
+cd cheatcode
 ```
 
 ### 2. Backend Configuration
 
-Create `backend/.env`:
+Create `backend/.env.local` (for Docker) or `backend/.env` (for local dev):
 
 ```env
 # Core Configuration
@@ -155,19 +168,31 @@ CLERK_SECRET_KEY=YOUR_CLERK_SECRET_KEY
 # Redis (Docker Compose uses service name 'redis')
 REDIS_URL=redis://redis:6379
 
-# LLM Providers (choose at least one)
-OPENAI_API_KEY=YOUR_OPENAI_API_KEY
-ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
-OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
-
-# Optional: Sandbox Integration
+# Sandbox Integration (required for code execution)
 DAYTONA_API_KEY=YOUR_DAYTONA_API_KEY
 DAYTONA_SERVER_URL=YOUR_DAYTONA_SERVER_URL
 DAYTONA_TARGET=YOUR_DAYTONA_TARGET
 
-# Optional: External Services
+# Web Search & Scraping (required)
 TAVILY_API_KEY=YOUR_TAVILY_API_KEY
 FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY
+
+# LLM Providers (at least one required)
+OPENAI_API_KEY=YOUR_OPENAI_API_KEY
+ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
+OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+
+# Optional: Deployment (Vercel)
+VERCEL_BEARER_TOKEN=YOUR_VERCEL_BEARER_TOKEN
+VERCEL_TEAM_ID=YOUR_VERCEL_TEAM_ID
+
+# Optional: Fast Code Edits (Relace)
+RELACE_API_KEY=YOUR_RELACE_API_KEY
+
+# Optional: Third-Party Integrations (Composio)
+COMPOSIO_API_KEY=YOUR_COMPOSIO_API_KEY
+
+# Optional: Observability
 LANGFUSE_PUBLIC_KEY=YOUR_LANGFUSE_PUBLIC_KEY
 LANGFUSE_SECRET_KEY=YOUR_LANGFUSE_SECRET_KEY
 ```
@@ -203,15 +228,15 @@ docker compose up --build
 
 ### 5. Access the Application
 
-- **Frontend**: http://localhost:3000
+- **Frontend**: http://localhost:3001 (Docker) or http://localhost:3000 (local dev)
 - **Backend API**: http://localhost:8000
 - **API Health Check**: http://localhost:8000/api/health
-- **Redis**: localhost:6379
+- **Redis**: localhost:6380 (Docker) or localhost:6379 (local dev)
 
 ### 6. First-Run Verification
 
 1. **API Health**: Visit http://localhost:8000/api/health (expect `{ "status": "ok" }`)
-2. **Frontend Access**: Visit http://localhost:3000 and sign in with Clerk
+2. **Frontend Access**: Visit http://localhost:3001 (Docker) and sign in with Clerk
 3. **Create Project**: Create a new project and thread
 4. **Test Agent**: Send a message and start the agent
 
@@ -239,11 +264,11 @@ uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
 ```bash
 cd frontend
 
-# Install dependencies
-npm install
+# Install dependencies (uses pnpm)
+pnpm install
 
 # Start development server
-npm run dev
+pnpm run dev
 ```
 
 ### Development Workflow
@@ -268,15 +293,18 @@ npm run dev
 | `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
 | `CLERK_SECRET_KEY` | Yes | Clerk secret key for authentication |
 | `REDIS_URL` | Yes | Redis connection URL (`redis://redis:6379` for Docker Compose) |
+| `DAYTONA_API_KEY` | Yes | Daytona API key for sandboxes |
+| `DAYTONA_SERVER_URL` | Yes | Daytona server URL |
+| `DAYTONA_TARGET` | Yes | Daytona target environment |
+| `TAVILY_API_KEY` | Yes | Tavily API key for web search |
+| `FIRECRAWL_API_KEY` | Yes | Firecrawl API key for web scraping |
 | `OPENAI_API_KEY` | * | OpenAI API key |
 | `ANTHROPIC_API_KEY` | * | Anthropic API key |
 | `OPENROUTER_API_KEY` | * | OpenRouter API key |
-| `GROQ_API_KEY` | * | Groq API key |
-| `DAYTONA_API_KEY` | No | Daytona API key for sandboxes |
-| `DAYTONA_SERVER_URL` | No | Daytona server URL |
-| `DAYTONA_TARGET` | No | Daytona target environment |
-| `TAVILY_API_KEY` | No | Tavily API key for web search |
-| `FIRECRAWL_API_KEY` | No | Firecrawl API key for web scraping |
+| `VERCEL_BEARER_TOKEN` | No | Vercel API token for deployments (optional) |
+| `VERCEL_TEAM_ID` | No | Vercel team ID for team deployments (optional) |
+| `RELACE_API_KEY` | No | Relace API key for fast code edits (optional) |
+| `COMPOSIO_API_KEY` | No | Composio API key for third-party integrations (optional) |
 | `LANGFUSE_PUBLIC_KEY` | No | Langfuse public key for LLM observability |
 | `LANGFUSE_SECRET_KEY` | No | Langfuse secret key |
 | `SENTRY_DSN` | No | Sentry DSN for error monitoring |
@@ -299,26 +327,26 @@ npm run dev
 ## Repository Structure
 
 ```
-deployment-cheatcode/
+cheatcode/
 ├── backend/                     # FastAPI service, workers, agents, services
 │   ├── agent/                   # Agent runtime, tools and prompts
-│   ├── services/                # Integrations (billing, email, llm, redis, etc.)
+│   ├── agentpress/              # Agent framework for orchestration
+│   ├── services/                # Integrations (billing, llm, vercel_deploy, redis, etc.)
 │   ├── composio_integration/    # Composio MCP integrations and OAuth flows
-│   ├── sandbox/                 # Sandbox APIs and Docker contexts
-│   ├── deployments/             # Deployment APIs
-│   ├── utils/                   # Configuration, logging, auth utilities
+│   ├── sandbox/                 # Sandbox APIs and Daytona integration
+│   ├── deployments/             # Vercel deployment APIs
+│   ├── utils/                   # Configuration, logging, auth, models
 │   ├── main.py                  # FastAPI application entry point
 │   └── pyproject.toml           # Python dependencies managed by uv
-├── frontend/                    # Next.js 15 application
+├── frontend/                    # Next.js 16 application
 │   ├── src/app/                 # App Router pages (home, projects, settings, API routes)
-│   ├── src/components/          # Reusable UI components
-│   ├── src/contexts/            # React contexts for state management
+│   ├── src/components/          # UI components (model-selector, integrations, thread, etc.)
 │   ├── src/hooks/               # React Query and custom hooks
 │   ├── src/lib/                 # API clients, configuration, Supabase helpers
-│   ├── src/middleware.ts        # Clerk authentication middleware
-│   ├── src/providers/           # Application-wide providers
 │   ├── src/types/               # Shared TypeScript types
-│   └── package.json             # Node.js dependencies
+│   └── package.json             # Node.js dependencies (pnpm)
+├── api-worker/                  # Cloudflare API worker
+├── preview-worker/              # Cloudflare preview proxy worker
 ├── docker-compose.yaml          # Multi-service Docker orchestration
 ├── README.md                    # This file
 ├── LICENSE-Apache-2.0           # Apache 2.0 license
@@ -370,13 +398,15 @@ All backend endpoints are prefixed with `/api`.
 - `POST /billing/create-checkout-session` - Create checkout session
 - `POST /billing/upgrade-plan` - Upgrade subscription plan
 
-#### MCP & Integrations
-- `/composio/*` - Composio integration endpoints
-- `/secure-mcp/*` - Secure MCP endpoints
+#### Models & Integrations
+- `GET /agent/models` - List available AI models
+- `/composio/*` - Composio integration endpoints (connect third-party apps)
 
 ## Self-Hosting
 
-### Production Deployment
+### Production Deployment Options
+
+#### Option 1: Docker Compose (Self-hosted)
 
 1. **Provision Infrastructure**
    - Deploy on any Docker-compatible host (VPS, cloud instance, etc.)
@@ -397,11 +427,28 @@ All backend endpoints are prefixed with `/api`.
    docker compose up -d --build
    ```
 
-5. **Security Considerations**
-   - Use strong passwords and API keys
-   - Configure firewall rules
-   - Enable HTTPS/TLS encryption
-   - Regular security updates for dependencies
+#### Option 2: Cloud Deployment (Recommended for Production)
+
+**Frontend (Vercel)**
+- Connect your GitHub repo to Vercel
+- Auto-deploys on push to main branch
+- Configure environment variables in Vercel dashboard
+
+**Backend (Google Cloud Run)**
+- Use the included GitHub Actions workflow (`.github/workflows/docker-build.yml`)
+- Automatically builds and deploys on push to main
+- Configure secrets in GitHub repository settings
+
+**Preview Proxy (Cloudflare Workers)**
+- Deploy `preview-worker/` to Cloudflare Workers
+- Handles sandbox preview proxying with proper CORS
+
+### Security Considerations
+
+- Use strong passwords and API keys
+- Configure firewall rules
+- Enable HTTPS/TLS encryption
+- Regular security updates for dependencies
 
 ### Docker Compose Services
 
@@ -415,31 +462,35 @@ The application consists of four main services:
 ## Technology Stack
 
 ### Frontend Technologies
-- **Framework**: Next.js 15.3.1 with App Router
-- **UI Library**: React 18 with TypeScript 5
-- **Styling**: Tailwind CSS 4, Radix UI, shadcn/ui components
-- **State Management**: TanStack Query 5, Zustand 5, SWR 2.2.5
+- **Framework**: Next.js 16.0.7 with App Router and Turbopack
+- **UI Library**: React 19.2.1 with TypeScript 5.9.3
+- **Styling**: Tailwind CSS 4.1.17, Radix UI, shadcn/ui components
+- **State Management**: TanStack Query 5, Zustand 5
 - **Code Editor**: CodeMirror 6 with syntax highlighting
 - **Authentication**: Clerk
 - **Icons**: Lucide React
-- **Animations**: Framer Motion
+- **Animations**: Motion (Framer Motion)
 
 ### Backend Technologies
-- **Framework**: FastAPI 0.115.12 with Python 3.11
-- **Server**: uvicorn 0.27.1 (development), Gunicorn 23 (production)
-- **Task Queue**: Dramatiq 1.18.0 with Redis
-- **AI/LLM**: LiteLLM 1.72.2, OpenAI 1.90.0, Anthropic, OpenRouter
-- **Database**: Supabase (PostgreSQL) with Basejump extensions
+- **Framework**: FastAPI 0.123.7 with Python 3.11
+- **Server**: uvicorn 0.38.0 (development), Gunicorn 23 (production)
+- **Task Queue**: Dramatiq 2.0.0 with Redis
+- **AI/LLM**: LiteLLM 1.80.7 with OpenAI, Anthropic, OpenRouter support
+- **Fast Code Edits**: Relace API (optional) for rapid inline modifications
+- **Database**: Supabase (PostgreSQL) with Clerk RLS integration
 - **Sandboxing**: Daytona SDK for cloud development environments
-- **Observability**: Sentry, Langfuse 2.60.5, Structlog 25.4.0
-- **Payments**: Polar SDK 0.23.0
+- **Deployments**: Vercel API (optional) for one-click deployments
+- **Integrations**: Composio (optional) for third-party app connections
+- **Observability**: Sentry, Langfuse 3.10.5, Structlog 25.5.0
+- **Payments**: Polar SDK 0.28.0 for token-based billing
 - **External APIs**: Tavily (search), Firecrawl (web scraping)
 
 ### Infrastructure & DevOps
 - **Containerization**: Docker and Docker Compose
-- **Package Management**: uv 0.6.5 (Python), pnpm/npm (Node.js)
+- **Package Management**: uv (Python), pnpm (Node.js)
+- **CI/CD**: GitHub Actions for automated deployments
+- **Hosting**: Vercel (frontend), Google Cloud Run (backend), Cloudflare Workers (preview proxy)
 - **Version Control**: Git
-- **Development**: mise environment manager
 
 ## Troubleshooting
 
@@ -472,10 +523,10 @@ sudo usermod -aG docker $USER
 3. **Check Redis Connectivity**
    ```bash
    # Check Redis container logs
-   docker logs deployment-cheatcode-redis-1
+   docker logs cheatcode-production-redis-1
    
    # Test Redis connection
-   docker exec -it deployment-cheatcode-redis-1 redis-cli ping
+   docker exec -it cheatcode-production-redis-1 redis-cli ping
    ```
 
 4. **Verify LLM Provider Keys**
@@ -498,7 +549,7 @@ sudo usermod -aG docker $USER
 3. **Middleware Issues**
    ```bash
    # Check middleware logs
-   docker logs deployment-cheatcode-frontend-1
+   docker logs cheatcode-production-frontend-1
    ```
 
 #### Database Issues
@@ -511,7 +562,7 @@ sudo usermod -aG docker $USER
 2. **Migration Issues**
    ```bash
    # Check backend logs for database errors
-   docker logs deployment-cheatcode-api-1
+   docker logs cheatcode-production-api-1
    ```
 
 #### Agent Not Responding
@@ -519,7 +570,7 @@ sudo usermod -aG docker $USER
 1. **Check Worker Status**
    ```bash
    # Verify worker is running
-   docker logs deployment-cheatcode-worker-1
+   docker logs cheatcode-production-worker-1
    ```
 
 2. **LLM Provider Issues**
@@ -548,13 +599,13 @@ sudo usermod -aG docker $USER
 
 2. **Health Checks**
    - API: http://localhost:8000/api/health
-   - Frontend: http://localhost:3000
-   - Redis: `docker exec -it deployment-cheatcode-redis-1 redis-cli ping`
+   - Frontend: http://localhost:3001 (Docker) or http://localhost:3000 (local dev)
+   - Redis: `docker exec -it cheatcode-production-redis-1 redis-cli ping`
 
 3. **Common Solutions**
    - Restart services: `docker compose restart`
    - Rebuild containers: `docker compose up --build`
-   - Clear Redis cache: `docker exec -it deployment-cheatcode-redis-1 redis-cli flushall`
+   - Clear Redis cache: `docker exec -it cheatcode-production-redis-1 redis-cli flushall`
    - Reset Docker: `docker compose down && docker compose up --build`
 
 ## Contributing
@@ -565,7 +616,7 @@ We welcome contributions from the community! Please follow these guidelines:
 
 1. **Fork the Repository**
    - Click the "Fork" button on the GitHub repository page
-   - Clone your fork locally: `git clone https://github.com/YOUR_USERNAME/deployment-cheatcode.git`
+   - Clone your fork locally: `git clone https://github.com/YOUR_USERNAME/cheatcode.git`
 
 2. **Set Up Development Environment**
    - Follow the [Local Development](#local-development) instructions
