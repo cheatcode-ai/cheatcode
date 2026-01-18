@@ -219,7 +219,7 @@ function Sidebar({
         data-slot="sidebar-gap"
         className={cn(
           'relative w-(--sidebar-width) bg-transparent transition-[width] duration-200 ease-linear',
-          'group-data-[collapsible=offcanvas]:w-0',
+          'group-data-[collapsible=offcanvas]:hidden',
           'group-data-[side=right]:rotate-180',
           variant === 'floating' || variant === 'inset'
             ? 'group-data-[collapsible=icon]:w-[calc(var(--sidebar-width-icon)+(--spacing(4)))]'
