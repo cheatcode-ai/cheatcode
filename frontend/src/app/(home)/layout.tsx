@@ -11,8 +11,8 @@ import { DeleteOperationProvider } from '@/contexts/DeleteOperationContext';
 import { BillingProvider } from '@/contexts/BillingContext';
 import { useAccounts } from '@/hooks/use-accounts';
 import { Loader2 } from 'lucide-react';
-import { MaintenancePage } from '@/components/maintenance/maintenance-page';
 import { StatusOverlay } from '@/components/ui/status-overlay';
+import { ApiHealthBanner } from '@/components/ui/api-health-banner';
 import type { IMaintenanceNotice } from '@/lib/edge-flags';
 import { MaintenanceNotice } from './_components/maintenance-notice';
 import { MaintenanceBanner } from './_components/maintenance-banner';
@@ -37,6 +37,7 @@ export default function HomeLayout({
   const { user, isLoaded } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
+  const [showHealthBanner, setShowHealthBanner] = useState(true);
   const pathname = usePathname();
 
   // TODO: Implement maintenance notice fetching from API or server component
@@ -97,18 +98,18 @@ export default function HomeLayout({
     );
   }
 
-  // Enhanced: Show loading state while checking auth or health
-  if (!isClient || !isLoaded || isCheckingHealth) {
+  // Health banner shown when API is unhealthy (non-blocking)
+  const healthBanner = !isApiHealthy && !isCheckingHealth && showHealthBanner ? (
+    <ApiHealthBanner onDismiss={() => setShowHealthBanner(false)} />
+  ) : null;
+
+  // Show loading state while checking auth (health check runs in background)
+  if (!isClient || !isLoaded) {
     return (
       <div className="flex items-center justify-center min-h-screen">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
       </div>
     );
-  }
-
-  // Enhanced: Show maintenance page if API is not healthy
-  if (!isApiHealthy) {
-    return <MaintenancePage />;
   }
 
   // Enhanced: Graceful degradation - Don't render anything if not authenticated
@@ -118,6 +119,7 @@ export default function HomeLayout({
       <div
         className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
       >
+        {healthBanner}
         {!isThreadPage && <Navbar sidebarOpen={false} />}
         <div className={isThreadPage ? "pt-0" : "pt-6"}>
           <Suspense fallback={<PageLoadingFallback />}>
@@ -142,6 +144,8 @@ export default function HomeLayout({
         <SidebarInset>
           {/* Enhanced: Maintenance banner */}
           {maintenanceBanner}
+          {/* Health banner when API is unhealthy */}
+          {healthBanner}
 
           <div
             className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
