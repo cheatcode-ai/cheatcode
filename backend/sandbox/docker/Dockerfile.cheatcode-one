@@ -8,7 +8,7 @@ FROM node:20-alpine AS build
 # ---------- Build arguments ----------
 ARG PNPM_VERSION=9.15.0
 ARG TEMPLATE_REPO="https://github.com/iamjr15/cheatcode-app.git"
-ARG TEMPLATE_REF="master"
+ARG TEMPLATE_REF="main"
 
 # ---------- Environment ----------
 ENV PNPM_HOME="/pnpm"
