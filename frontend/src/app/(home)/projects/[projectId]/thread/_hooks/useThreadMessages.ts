@@ -88,6 +88,7 @@ export function useThreadMessages(
   }, [messagesQuery.data, queryIsError, queryIsLoading, threadId]);
 
   // Handle subsequent message updates (when not streaming)
+  // Also handles refetch after initial empty load
   useEffect(() => {
     if (messagesQuery.data && messagesQuery.status === 'success') {
       // Only update messages from server if we're not actively streaming/connecting

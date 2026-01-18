@@ -19,10 +19,10 @@ export const useMessagesQuery = (threadId: string) => {
       retry: (failureCount) => {
         return failureCount < 2;
       },
-      staleTime: 5 * 60 * 1000, // 5 minutes - messages don't change unless user sends new ones
-      gcTime: 30 * 60 * 1000, // 30 minutes cache
+      staleTime: 30 * 1000, // 30 seconds - allow refetch if stale
+      gcTime: 10 * 60 * 1000, // 10 minutes cache
       refetchOnWindowFocus: false,
-      refetchOnMount: false, // Don't refetch if we have cached data
+      refetchOnMount: 'always', // Always refetch on mount to ensure fresh data
     }
   )();
 };
