@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { UnifiedMessage, AgentStatus } from '../_types';
+import { AgentStatus } from '../_types';
 
 interface UseAppPreviewReturn {
   isSidePanelOpen: boolean;
@@ -11,7 +11,7 @@ interface UseAppPreviewReturn {
 }
 
 export function useAppPreview(
-  messages: UnifiedMessage[],
+  _messages: unknown[],
   setLeftSidebarOpen: (open: boolean) => void,
   agentStatus?: AgentStatus
 ): UseAppPreviewReturn {

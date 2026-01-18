@@ -16,7 +16,6 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
   const [refreshKey, setRefreshKey] = useState(0);
   const [currentView, setCurrentView] = useState<ViewMode>('desktop');
   const [iframeRef, setIframeRef] = useState<HTMLIFrameElement | null>(null);
-  const [authToken, setAuthToken] = useState<string | null>(null);
   const [retryCount, setRetryCount] = useState(0);
   
   const { getToken } = useAuth();
@@ -30,7 +29,6 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
     
     try {
       const token = await getToken();
-      setAuthToken(token);
       
       const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/preview-url`, {
         headers: {
@@ -47,27 +45,14 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
           setRetryCount(0);
           setIsLoading(false);
           return;
-        } else {
-          // Status like 'dev_server_not_running', 'preview_not_available' - expected during startup
-          if (currentRetryCount === 0) {
-            console.log('[Preview URL] Waiting for dev server...', data.status);
-          }
         }
-      } else if (response.status >= 500) {
-        // Server error - might be transient, will retry
-        console.warn(`[Preview URL] Server error (${response.status}) - will retry`);
-      } else {
-        // Client error (4xx) - log but continue retrying
-        console.warn(`[Preview URL] Request failed: ${response.status}`);
       }
 
       // If we reach here, the request didn't get a preview URL - trigger retry
       throw new Error('Preview URL not ready');
       
     } catch (error) {
-      // Use warn instead of error for expected retry scenarios
       if (currentRetryCount < maxRetries) {
-        console.log(`[Preview URL] Retry ${currentRetryCount + 1}/${maxRetries} - waiting for dev server...`);
         const delay = baseDelay * Math.pow(2, currentRetryCount); // 2s, 4s, 8s, 16s, 32s
         setRetryCount(currentRetryCount + 1);
 
@@ -77,7 +62,6 @@ export const usePreviewUrl = ({ sandboxId }: UsePreviewUrlProps) => {
       } else {
         setHasError(true);
         setIsLoading(false);
-        console.warn('[Preview URL] Max retries reached - dev server may not be running');
       }
     }
   }, [sandboxId, getToken]);

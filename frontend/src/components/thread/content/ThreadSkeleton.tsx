@@ -1,5 +1,7 @@
-import React from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
+'use client';
+
+import { motion } from 'motion/react';
+import Image from 'next/image';
 
 interface ThreadSkeletonProps {
     isSidePanelOpen?: boolean;
@@ -8,114 +10,72 @@ interface ThreadSkeletonProps {
 }
 
 export function ThreadSkeleton({
-    isSidePanelOpen = false,
-    showHeader = true,
-    messageCount = 3,
+    isSidePanelOpen: _isSidePanelOpen = false,
+    showHeader: _showHeader = true,
+    messageCount: _messageCount = 3,
 }: ThreadSkeletonProps) {
     return (
-        <div className="flex h-screen">
-            <div
-                className={`flex flex-col flex-1 overflow-hidden transition-all duration-200 ease-in-out`}
-            >
-                {/* Skeleton Header */}
-                {showHeader && (
-                    <div className="border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                        <div className="flex h-14 items-center gap-4 px-4">
-                            <div className="flex-1">
-                                <div className="flex items-center gap-2">
-                                    <Skeleton className="h-6 w-6 rounded-full" />
-                                    <Skeleton className="h-5 w-40" />
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <Skeleton className="h-8 w-8 rounded-full" />
-                                <Skeleton className="h-8 w-8 rounded-full" />
-                            </div>
-                        </div>
+        <div className="fixed inset-0 z-50 flex h-screen w-full flex-col items-center justify-center bg-zinc-950 font-mono">
+            <div className="relative flex flex-col items-center justify-center">
+                {/* Logo with pulsing effect */}
+                <motion.div
+                    initial={{ scale: 0.8, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ duration: 0.5, ease: "easeOut" }}
+                    className="relative z-10"
+                >
+                    <div className="relative h-20 w-20">
+                        <Image
+                            src="/cheatcode-symbol.png"
+                            alt="Cheatcode"
+                            fill
+                            className="object-contain"
+                            priority
+                        />
                     </div>
-                )}
+                </motion.div>
 
-                {/* Skeleton Chat Messages */}
-                <div className="flex-1 overflow-y-auto px-6 py-4 pb-[5.5rem]">
-                    <div className="mx-auto max-w-3xl space-y-6">
-                        {/* Generate multiple message skeletons based on messageCount */}
-                        {Array.from({ length: messageCount }).map((_, index) => (
-                            <React.Fragment key={index}>
-                                {/* User message - every other message */}
-                                {index % 2 === 0 ? (
-                                    <div className="flex justify-end">
-                                        <div className="max-w-[85%] rounded-lg bg-primary/10 px-4 py-3">
-                                            <div className="space-y-2">
-                                                <Skeleton className="h-4 w-48" />
-                                                <Skeleton className="h-4 w-32" />
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    /* Assistant response with tool usage */
-                                    <div>
-                                        <div className="flex items-start gap-3">
-                                            <Skeleton className="flex-shrink-0 w-5 h-5 mt-2 rounded-full" />
-                                            <div className="flex-1 space-y-2">
-                                                <div className="max-w-[90%] w-full rounded-lg bg-muted px-4 py-3">
-                                                    <div className="space-y-3">
-                                                        <div>
-                                                            <Skeleton className="h-4 w-full max-w-[360px] mb-2" />
-                                                            <Skeleton className="h-4 w-full max-w-[320px] mb-2" />
-                                                            <Skeleton className="h-4 w-full max-w-[290px]" />
-                                                        </div>
+                {/* Glow effect behind logo - subtle pulse */}
+                <motion.div
+                    animate={{
+                        scale: [1, 1.2, 1],
+                        opacity: [0.1, 0.2, 0.1],
+                    }}
+                    transition={{
+                        duration: 3,
+                        repeat: Infinity,
+                        ease: "easeInOut",
+                    }}
+                    className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-40 w-40 rounded-full bg-purple-500/20 blur-[50px]"
+                />
 
-                                                        {/* Tool call button skeleton */}
-                                                        {index % 3 === 1 && (
-                                                            <div className="py-1">
-                                                                <Skeleton className="h-6 w-32 rounded-md" />
-                                                            </div>
-                                                        )}
-
-                                                        {index % 3 === 1 && (
-                                                            <div>
-                                                                <Skeleton className="h-4 w-full max-w-[340px] mb-2" />
-                                                                <Skeleton className="h-4 w-full max-w-[280px]" />
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </React.Fragment>
+                {/* Text */}
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.3, duration: 0.5 }}
+                    className="mt-8 flex flex-col items-center gap-3"
+                >
+                    <h2 className="text-lg font-medium text-zinc-200">Spinning up your project</h2>
+                    
+                    {/* Loading dots */}
+                    <div className="flex gap-1.5">
+                        {[0, 1, 2].map((i) => (
+                            <motion.div
+                                key={i}
+                                animate={{ opacity: [0.3, 1, 0.3] }}
+                                transition={{
+                                    duration: 1.5,
+                                    repeat: Infinity,
+                                    delay: i * 0.2,
+                                    ease: "easeInOut",
+                                }}
+                                className="h-1.5 w-1.5 rounded-full bg-purple-500"
+                            />
                         ))}
-
-                        {/* Assistant thinking state */}
-                        <div>
-                            <div className="flex items-start gap-3">
-                                <Skeleton className="flex-shrink-0 w-5 h-5 mt-2 rounded-full" />
-                                <div className="flex-1 space-y-2">
-                                    <div className="flex items-center gap-1.5 py-1">
-                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400/50 animate-pulse" />
-                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400/50 animate-pulse delay-150" />
-                                        <div className="h-1.5 w-1.5 rounded-full bg-gray-400/50 animate-pulse delay-300" />
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
                     </div>
-                </div>
+                </motion.div>
             </div>
-
-            {/* Skeleton Side Panel (closed state) */}
-            {isSidePanelOpen && (
-                <div className="hidden sm:block">
-                    <div className="h-screen w-[450px] border-l">
-                        <div className="p-4">
-                            <Skeleton className="h-8 w-32 mb-4" />
-                            <Skeleton className="h-20 w-full rounded-md mb-4" />
-                            <Skeleton className="h-40 w-full rounded-md" />
-                        </div>
-                    </div>
-                </div>
-            )}
         </div>
     );
 }

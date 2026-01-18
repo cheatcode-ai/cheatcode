@@ -29,17 +29,11 @@ export function useImageContent(
   // Create blob URL when we have blob data and clean up properly
   React.useEffect(() => {
     if (blobData instanceof Blob) {
-      console.log(`[IMAGE CONTENT] Creating blob URL for ${filePath}`, {
-        size: blobData.size,
-        type: blobData.type
-      });
-      
       const url = URL.createObjectURL(blobData);
       setBlobUrl(url);
-      
+
       // Cleanup function to revoke the blob URL
       return () => {
-        console.log(`[IMAGE CONTENT] Cleaning up blob URL for ${filePath}: ${url}`);
         URL.revokeObjectURL(url);
         setBlobUrl(null);
       };

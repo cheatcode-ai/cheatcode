@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AnimatePresence, motion } from "motion/react";
+import { motion } from "motion/react";
 import { cn } from "@/lib/utils";
 import { LucideIcon } from "lucide-react";
 
@@ -40,18 +40,12 @@ const buttonVariants = {
   }),
 };
 
-const spanVariants = {
-  initial: { width: 0, opacity: 0 },
-  animate: { width: "auto", opacity: 1 },
-  exit: { width: 0, opacity: 0 },
-};
-
 const transition = { type: "spring" as const, bounce: 0, duration: 0.4 };
 
 export function ExpandableTabs({
   tabs,
   className,
-  activeColor = "text-primary",
+  activeColor: _activeColor = "text-primary",
   onChange,
 }: ExpandableTabsProps) {
   const [selected, setSelected] = React.useState<number | null>(0);
@@ -70,13 +64,13 @@ export function ExpandableTabs({
   };
 
   const Separator = () => (
-    <div className="mx-2 h-[16px] w-[1px] bg-border/50" aria-hidden="true" />
+    <div className="mx-1 h-[24px] w-[1px] bg-zinc-800" aria-hidden="true" />
   );
 
   return (
     <div
       className={cn(
-        "flex items-center gap-1 rounded-xl bg-transparent",
+        "flex items-center gap-1 rounded-full p-1",
         className
       )}
     >
@@ -87,39 +81,28 @@ export function ExpandableTabs({
 
         const tabItem = tab as Tab;
         const Icon = tabItem.icon;
+        const isSelected = selected === index;
+
         return (
           <motion.button
             key={tabItem.title}
             variants={buttonVariants}
             initial={false}
             animate="animate"
-            custom={selected === index}
+            custom={isSelected}
             onClick={() => handleSelect(index)}
             transition={transition}
             className={cn(
-              "relative flex items-center rounded-xl h-8 text-xs font-medium transition-all duration-300 bg-transparent hover:bg-accent/50",
-              selected === index
-                ? "bg-accent/70 text-foreground"
-                : "text-muted-foreground hover:text-foreground"
+              "relative flex items-center justify-center rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors duration-200 outline-none",
+              isSelected
+                ? "text-white"
+                : "text-zinc-500 hover:text-zinc-300"
             )}
           >
-            <div className="p-2">
-              <Icon size={16} className={tabItem.iconColor || ""} />
-            </div>
-            <AnimatePresence initial={false}>
-              {selected === index && (
-                <motion.span
-                  variants={spanVariants}
-                  initial="initial"
-                  animate="animate"
-                  exit="exit"
-                  transition={transition}
-                  className="overflow-hidden whitespace-nowrap pr-2"
-                >
-                  {tabItem.title}
-                </motion.span>
-              )}
-            </AnimatePresence>
+            <Icon size={16} className={cn("mr-2 transition-colors", isSelected ? "text-white" : "text-zinc-500 group-hover:text-zinc-400")} />
+            <span className="whitespace-nowrap">
+              {tabItem.title}
+            </span>
           </motion.button>
         );
       })}

@@ -34,7 +34,7 @@ function normalizePath(path: string, appType: 'web' | 'mobile' = 'web'): string 
       return String.fromCharCode(parseInt(hexCode, 16));
     });
   } catch (e) {
-    console.error('Error processing Unicode escapes in path:', e);
+    // Error processing Unicode escapes in path
   }
   
   return path;
@@ -71,21 +71,6 @@ function getContentTypeFromPath(path: string): 'text' | 'blob' | 'json' {
   
   // Default to text
   return 'text';
-}
-
-/**
- * Check if a file is an image
- */
-function isImageFile(path: string): boolean {
-  const ext = path.split('.').pop()?.toLowerCase() || '';
-  return ['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp', 'bmp', 'ico'].includes(ext);
-}
-
-/**
- * Check if a file is a PDF
- */
-function isPdfFile(path: string): boolean {
-  return path.toLowerCase().endsWith('.pdf');
 }
 
 /**
@@ -127,8 +112,6 @@ export async function fetchFileContent(
   const url = new URL(`${API_URL}/sandboxes/${sandboxId}/files/content`);
   url.searchParams.append('path', normalizedPath);
   
-  console.log(`[FILE QUERY] Fetching ${contentType} content for: ${normalizedPath}`);
-  
   const headers: Record<string, string> = {};
   if (token) {
     headers['Authorization'] = `Bearer ${token}`;
@@ -153,31 +136,10 @@ export async function fetchFileContent(
       // Ensure correct MIME type for known file types
       const expectedMimeType = getMimeTypeFromPath(filePath);
       if (expectedMimeType !== blob.type && expectedMimeType !== 'application/octet-stream') {
-        console.log(`[FILE QUERY] Correcting MIME type for ${filePath}: ${blob.type} → ${expectedMimeType}`);
         const correctedBlob = new Blob([blob], { type: expectedMimeType });
-        
-        // Additional validation for images
-        if (isImageFile(filePath)) {
-          console.log(`[FILE QUERY] Created image blob:`, {
-            originalType: blob.type,
-            correctedType: correctedBlob.type,
-            size: correctedBlob.size,
-            filePath
-          });
-        }
-        
         return correctedBlob;
       }
-      
-      // Log blob details for debugging
-      if (isImageFile(filePath)) {
-        console.log(`[FILE QUERY] Image blob details:`, {
-          type: blob.type,
-          size: blob.size,
-          filePath
-        });
-      }
-      
+
       return blob;
     }
     case 'text':
@@ -275,8 +237,7 @@ export function useDirectoryQuery(
       if (!sandboxId || !normalizedPath) {
         throw new Error('Missing required parameters');
       }
-      
-      console.log(`[FILE QUERY] Fetching directory listing for: ${normalizedPath}`);
+
       const token = await getToken();
       return await listSandboxFiles(sandboxId, normalizedPath, token || undefined);
     },
@@ -301,12 +262,10 @@ export function useFilePreloader() {
   ): Promise<void> => {
     const token = await getToken();
     if (!token) {
-      console.warn('Cannot preload files: No authentication token available');
       return;
     }
-    
+
     const uniquePaths = [...new Set(filePaths)];
-    console.log(`[FILE QUERY] Preloading ${uniquePaths.length} files for sandbox ${sandboxId}`);
     
     const preloadPromises = uniquePaths.map(async (path) => {
       const normalizedPath = normalizePath(path, appType);
@@ -315,9 +274,8 @@ export function useFilePreloader() {
       // Check if already cached
       const queryKey = fileQueryKeys.content(sandboxId, normalizedPath, contentType, appType);
       const existingData = queryClient.getQueryData(queryKey);
-      
+
       if (existingData) {
-        console.log(`[FILE QUERY] Already cached: ${normalizedPath}`);
         return existingData;
       }
       
@@ -330,7 +288,6 @@ export function useFilePreloader() {
     });
     
     await Promise.all(preloadPromises);
-    console.log(`[FILE QUERY] Completed preloading ${uniquePaths.length} files`);
   }, [queryClient, getToken]);
   
   return { preloadFiles };

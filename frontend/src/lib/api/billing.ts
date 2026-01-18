@@ -23,13 +23,6 @@ export const getSubscription = async (clerkToken?: string): Promise<Subscription
     });
 
     if (!response.ok) {
-      const errorText = await response
-        .text()
-        .catch(() => 'No error details available');
-      console.error(
-        `Error getting subscription: ${response.status} ${response.statusText}`,
-        errorText,
-      );
       throw new Error(
         `Error getting subscription: ${response.statusText} (${response.status})`,
       );
@@ -37,7 +30,6 @@ export const getSubscription = async (clerkToken?: string): Promise<Subscription
 
     return response.json();
   } catch (error) {
-    console.error('Failed to get subscription:', error);
     handleApiError(error, { operation: 'load subscription', resource: 'billing information' });
     throw error;
   }
@@ -56,13 +48,6 @@ export const checkBillingStatus = async (clerkToken?: string): Promise<BillingSt
     });
 
     if (!response.ok) {
-      const errorText = await response
-        .text()
-        .catch(() => 'No error details available');
-      console.error(
-        `Error checking billing status: ${response.status} ${response.statusText}`,
-        errorText,
-      );
       throw new Error(
         `Error checking billing status: ${response.statusText} (${response.status})`,
       );
@@ -71,7 +56,6 @@ export const checkBillingStatus = async (clerkToken?: string): Promise<BillingSt
     const data = await response.json();
     return data;
   } catch (error) {
-    console.error('Failed to check billing status:', error);
     handleApiError(error, { operation: 'check billing status', resource: 'billing information' });
     throw error;
   }
@@ -95,7 +79,6 @@ export const getUsageHistory = async (clerkToken?: string, days: number = 30): P
 
     return await response.json();
   } catch (error) {
-    console.error('Failed to get usage history:', error);
     handleApiError(error, { operation: 'get usage history', resource: 'usage information' });
     throw error;
   }
@@ -119,7 +102,6 @@ export const getAvailablePlans = async (clerkToken?: string): Promise<PlanListRe
 
     return await response.json();
   } catch (error) {
-    console.error('Failed to get plans:', error);
     handleApiError(error, { operation: 'get plans', resource: 'plan information' });
     throw error;
   }
@@ -161,7 +143,6 @@ export const createPolarCheckoutSession = async (
 
     return await response.json();
   } catch (error) {
-    console.error('Failed to create checkout session:', error);
     throw error;
   }
 };

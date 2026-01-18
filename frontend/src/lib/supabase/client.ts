@@ -13,8 +13,6 @@ export function createClient() {
 
 // Create a Supabase client with Clerk authentication
 export function createClientWithToken(clerkToken: string) {
-  console.log('Creating Supabase client with Clerk token:', clerkToken ? 'present' : 'missing')
-
   const client = createSupabaseClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     global: {
       headers: {
@@ -22,21 +20,7 @@ export function createClientWithToken(clerkToken: string) {
       },
     },
   })
-  
-  // Add debug logging for JWT parsing
-  if (clerkToken) {
-    try {
-      const parts = clerkToken.split('.')
-      if (parts.length === 3) {
-        const payload = JSON.parse(atob(parts[1]))
-        console.log('JWT payload:', payload)
-        console.log('Clerk user ID from JWT:', payload.sub)
-      }
-    } catch (error) {
-      console.error('Error parsing JWT:', error)
-    }
-  }
-  
+
   return client
 }
 
@@ -49,7 +33,7 @@ export function getClerkUserIdFromToken(token: string): string | null {
       return payload.sub || null
     }
   } catch (error) {
-    console.error('Error parsing JWT for user ID:', error)
+    // Invalid JWT format
   }
   return null
 }

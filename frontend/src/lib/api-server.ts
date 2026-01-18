@@ -24,8 +24,6 @@ export const getProject = async (projectId: string): Promise<Project> => {
       .eq('project_id', projectId)
       .single();
 
-      console.log('Raw project data from database:', data);
-
     if (error) {
       // Handle the specific "no rows returned" error from Supabase
       if (error.code === 'PGRST116') {
@@ -33,8 +31,6 @@ export const getProject = async (projectId: string): Promise<Project> => {
       }
       throw error;
     }
-
-    console.log('Raw project data from database:', data);
 
     // // If project has a sandbox, ensure it's started
     // if (data.sandbox?.id) {
@@ -103,7 +99,6 @@ export const getProject = async (projectId: string): Promise<Project> => {
 
     return mappedProject;
   } catch (error) {
-    console.error(`Error fetching project ${projectId}:`, error);
     throw error;
   }
 };

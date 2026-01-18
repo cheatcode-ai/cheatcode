@@ -26,7 +26,6 @@ export const getProjects = async (clerkToken?: string): Promise<Project[]> => {
     const projects = await response.json();
     return projects;
   } catch (err) {
-    console.error('Error fetching projects:', err);
     handleApiError(err, { operation: 'load projects', resource: 'projects' });
     return [];
   }
@@ -74,16 +73,10 @@ export const getProject = async (projectId: string, clerkToken?: string): Promis
           );
 
           if (!response.ok) {
-            const errorText = await response
-              .text()
-              .catch(() => 'No error details available');
-            console.warn(
-              `Failed to ensure sandbox is active: ${response.status} ${response.statusText}`,
-              errorText,
-            );
+            // Sandbox activation failed silently
           }
         } catch (sandboxError) {
-          console.warn('Failed to ensure sandbox is active:', sandboxError);
+          // Failed to ensure sandbox is active
         }
       };
 
@@ -109,7 +102,6 @@ export const getProject = async (projectId: string, clerkToken?: string): Promis
 
     return mappedProject;
   } catch (error) {
-    console.error(`Error fetching project ${projectId}:`, error);
     handleApiError(error, { operation: 'load project', resource: `project ${projectId}` });
     throw error;
   }
@@ -168,7 +160,6 @@ export const updateProject = async (
   const supabase = createClient();
 
   if (!projectId || projectId === '') {
-    console.error('Attempted to update project with invalid ID:', projectId);
     throw new Error('Cannot update project: Invalid project ID');
   }
 
@@ -180,7 +171,6 @@ export const updateProject = async (
     .single();
 
   if (error) {
-    console.error('Error updating project:', error);
     handleApiError(error, { operation: 'update project', resource: `project ${projectId}` });
     throw error;
   }
@@ -249,7 +239,6 @@ export const getPublicProjects = async (): Promise<Project[]> => {
       .eq('is_public', true);
 
     if (threadsError) {
-      console.error('Error fetching public threads:', threadsError);
       return [];
     }
 
@@ -271,7 +260,6 @@ export const getPublicProjects = async (): Promise<Project[]> => {
       .in('project_id', publicProjectIds);
 
     if (projectsError) {
-      console.error('Error fetching public projects:', projectsError);
       return [];
     }
 
@@ -293,7 +281,6 @@ export const getPublicProjects = async (): Promise<Project[]> => {
 
     return mappedProjects;
   } catch (err) {
-    console.error('Error fetching public projects:', err);
     handleApiError(err, { operation: 'load public projects', resource: 'public projects' });
     return [];
   }

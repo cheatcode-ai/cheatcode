@@ -3,7 +3,7 @@
 import React from 'react';
 import { ThreadStateProvider } from './ThreadStateContext';
 import { ThreadActionsProvider } from './ThreadActionsContext';
-import { BillingProvider } from './BillingContext';
+import { ThreadBillingProvider } from './BillingContext';
 import { LayoutProvider } from './LayoutContext';
 
 interface ThreadProvidersProps {
@@ -15,13 +15,13 @@ interface ThreadProvidersProps {
 export function ThreadProviders({ children, threadId, projectId }: ThreadProvidersProps) {
   return (
     <ThreadStateProvider threadId={threadId} projectId={projectId}>
-      <BillingProvider>
+      <ThreadBillingProvider>
         <LayoutProvider>
           <ThreadActionsProvider>
             {children}
           </ThreadActionsProvider>
         </LayoutProvider>
-      </BillingProvider>
+      </ThreadBillingProvider>
     </ThreadStateProvider>
   );
 }
@@ -29,5 +29,5 @@ export function ThreadProviders({ children, threadId, projectId }: ThreadProvide
 // Export all hooks for easy consumption
 export { useThreadState } from './ThreadStateContext';
 export { useThreadActions } from './ThreadActionsContext';
-export { useBilling } from './BillingContext';
+export { useThreadBilling } from './BillingContext';
 export { useLayout } from './LayoutContext';

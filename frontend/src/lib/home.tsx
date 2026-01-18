@@ -1,5 +1,5 @@
 import { cn } from '@/lib/utils';
-import React, { type ReactNode } from 'react';
+import { type ReactNode } from 'react';
 
 export const Highlight = ({
   children,
@@ -22,6 +22,12 @@ export const Highlight = ({
 
 export const BLUR_FADE_DELAY = 0.15;
 
+interface NavLink {
+  id: string;
+  name: string;
+  href: string;
+}
+
 export const siteConfig = {
   name: 'Cheatcode AI',
   description: 'Your technical co-founder - an AI agent that can build web and mobile apps by chatting.',
@@ -35,9 +41,7 @@ export const siteConfig = {
     linkedin: 'https://www.linkedin.com/company/cheatcode-ai/',
   },
   nav: {
-    links: [
-      // Navigation items removed
-    ],
+    links: [] as NavLink[],
   },
 };
 

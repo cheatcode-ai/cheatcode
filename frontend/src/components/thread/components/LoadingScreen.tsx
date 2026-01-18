@@ -7,7 +7,7 @@ interface LoadingScreenProps {
   onClose: () => void;
 }
 
-export const LoadingScreen: React.FC<LoadingScreenProps> = ({ agentStatus, onClose }) => {
+export const LoadingScreen: React.FC<LoadingScreenProps> = ({ agentStatus: _agentStatus, onClose: _onClose }) => {
 
   return (
     <div className="flex flex-col items-center justify-center h-full p-8 relative overflow-hidden">

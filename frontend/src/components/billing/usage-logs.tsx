@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import {
   Card,
   CardContent,
@@ -25,9 +25,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, Loader2 } from 'lucide-react';
-import Link from 'next/link';
-import { OpenInNewWindowIcon } from '@radix-ui/react-icons';
+import { ExternalLink } from 'lucide-react';
 import { useUsageLogs } from '@/hooks/react-query/subscriptions/use-billing';
 import { TokenUsageEntry } from '@/lib/api';
 
@@ -46,18 +44,15 @@ interface Props {
   accountId: string;
 }
 
-export default function UsageLogs({ accountId }: Props) {
-  const [daysFilter, setDaysFilter] = useState(30);
+export default function UsageLogs({ accountId: _accountId }: Props) {
+  const [_daysFilter, _setDaysFilter] = useState(30);
 
-  // Use React Query hook for usage logs
-  const { data: usageData, isLoading, error, refetch } = useUsageLogs(daysFilter);
+  // Use React Query hook for usage logs - using 30 days directly
+  const { data: usageData, isLoading, error } = useUsageLogs(30);
 
   // Extract logs from usage data
   const logs = (usageData as any)?.usage_entries || [];
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
-  };
 
   const formatCost = (cost: number | string) => {
     if (typeof cost === 'string' || cost === 0) {
@@ -174,11 +169,6 @@ export default function UsageLogs({ accountId }: Props) {
   }
 
   const dailyUsage = groupLogsByDate(logs);
-  const totalUsage = logs.reduce(
-    (sum, log) =>
-      sum + (typeof log.estimated_cost === 'number' ? log.estimated_cost : 0),
-    0,
-  );
 
   return (
     <div className="space-y-6 w-full">

@@ -22,12 +22,9 @@ export interface OpenRouterKeyStatus {
  * Uses cached auth and makes authenticated backend call
  */
 export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatus> => {
-  console.log('[SERVER] Fetching OpenRouter key status');
-  
   try {
     const authResult = await getCachedAuth();
     if (!authResult) {
-      console.log('[SERVER] No auth available for OpenRouter key status');
       return {
         has_key: false,
         key_configured: false,
@@ -35,8 +32,8 @@ export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatu
       };
     }
 
-    const { userId, token } = authResult;
-    
+    const { token } = authResult;
+
     // Make authenticated call to backend API
     const url = new URL('/api/billing/openrouter-key/status', BACKEND_URL);
     // Note: user_id is extracted from JWT token by the backend, no need to pass as param
@@ -50,7 +47,6 @@ export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatu
     });
 
     if (!response.ok) {
-      console.log(`[SERVER] OpenRouter key status fetch failed: ${response.status}`);
       // Return safe defaults instead of throwing
       return {
         has_key: false,
@@ -60,11 +56,9 @@ export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatu
     }
 
     const data = await response.json();
-    console.log('[SERVER] OpenRouter key status fetched successfully');
     return data;
 
   } catch (error) {
-    console.error('[SERVER] Error fetching OpenRouter key status:', error);
     // Return safe defaults instead of throwing
     return {
       has_key: false,
@@ -79,16 +73,13 @@ export const getOpenRouterKeyStatus = cache(async (): Promise<OpenRouterKeyStatu
  * Uses cached auth and makes authenticated backend call
  */
 export const getComposioProfiles = cache(async (): Promise<ComposioProfile[]> => {
-  console.log('[SERVER] Fetching Composio profiles');
-
   try {
     const authResult = await getCachedAuth();
     if (!authResult) {
-      console.log('[SERVER] No auth available for Composio profiles');
       return [];
     }
 
-    const { userId, token } = authResult;
+    const { token } = authResult;
 
     // Make authenticated call to backend API
     const url = new URL('/api/composio/profiles', BACKEND_URL);
@@ -103,7 +94,6 @@ export const getComposioProfiles = cache(async (): Promise<ComposioProfile[]> =>
     });
 
     if (!response.ok) {
-      console.log(`[SERVER] Composio profiles fetch failed: ${response.status}`);
       // Return empty array instead of throwing
       return [];
     }
@@ -111,12 +101,9 @@ export const getComposioProfiles = cache(async (): Promise<ComposioProfile[]> =>
     const responseData = await response.json();
     // Backend returns { success: true, profiles: [...], count: number }
     const profiles = responseData.profiles || [];
-
-    console.log(`[SERVER] Composio profiles fetched successfully: ${profiles.length} profiles`);
     return profiles;
 
   } catch (error) {
-    console.error('[SERVER] Error fetching Composio profiles:', error);
     // Return empty array instead of throwing
     return [];
   }

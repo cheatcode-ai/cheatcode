@@ -11,7 +11,6 @@ export const normalizeFilenameToNFC = (filename: string): string => {
     // Normalize to NFC (Normalized Form Composed)
     return filename.normalize('NFC');
   } catch (error) {
-    console.warn('Failed to normalize filename to NFC:', filename, error);
     return filename;
   }
 };
@@ -28,7 +27,6 @@ export const normalizePathToNFC = (path: string): string => {
     // Normalize to NFC (Normalized Form Composed)
     return path.normalize('NFC');
   } catch (error) {
-    console.warn('Failed to normalize path to NFC:', path, error);
     return path;
   }
 }; 

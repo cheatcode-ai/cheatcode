@@ -1,4 +1,3 @@
-import { Zap } from 'lucide-react';
 import { CredentialsPageClient } from '@/app/(home)/settings/credentials/_components/credentials-page-client';
 import { RefetchControlProvider } from '@/hooks/use-refetch-control';
 

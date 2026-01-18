@@ -1,8 +1,7 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React from 'react';
 import { motion } from 'motion/react';
-import { Button } from '@/components/ui/button';
 import {
   Codesandbox,
   TrendingUp,
@@ -99,9 +98,8 @@ export const Examples = ({
               ease: "easeOut"
             }}
           >
-            <Button
-              variant="ghost"
-              className="w-fit h-fit px-3 py-2 rounded-full border border-neutral-800 !bg-black hover:!bg-neutral-900 text-sm font-normal text-muted-foreground hover:text-foreground transition-colors"
+            <button
+              className="w-fit h-fit px-3 py-2 rounded-full border border-zinc-800 bg-black hover:bg-zinc-900 hover:border-zinc-700 text-sm font-normal text-muted-foreground hover:text-white transition-all cursor-pointer"
               onClick={() => onSelectPrompt && onSelectPrompt(prompt.query)}
             >
               <div className="flex items-center gap-2">
@@ -110,7 +108,7 @@ export const Examples = ({
                 </div>
                 <span className="whitespace-nowrap">{prompt.title}</span>
               </div>
-            </Button>
+            </button>
           </motion.div>
         ))}
       </div>

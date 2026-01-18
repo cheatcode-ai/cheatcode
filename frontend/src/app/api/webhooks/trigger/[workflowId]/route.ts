@@ -8,8 +8,6 @@ export async function POST(
   try {
     const { workflowId } = await params;
 
-    console.log(`[Webhook Proxy] Received webhook for workflow: ${workflowId}`);
-
     const body = await request.arrayBuffer();
     const headers: Record<string, string> = {};
     request.headers.forEach((value, key) => {
@@ -20,11 +18,6 @@ export async function POST(
 
     const backendUrl = BACKEND_URL;
     const targetUrl = `${backendUrl}/api/webhooks/trigger/${workflowId}`;
-    
-    console.log(`[Webhook Proxy] Backend URL: ${backendUrl}`);
-    console.log(`[Webhook Proxy] Target URL: ${targetUrl}`);
-    console.log(`[Webhook Proxy] Headers to forward:`, Object.keys(headers));
-    console.log(`[Webhook Proxy] Body size:`, body.byteLength);
 
     const response = await fetch(targetUrl, {
       method: 'POST',
@@ -35,11 +28,7 @@ export async function POST(
       body: body,
     });
     
-    console.log(`[Webhook Proxy] Backend response status: ${response.status}`);
-    console.log(`[Webhook Proxy] Backend response ok: ${response.ok}`);
-
     const responseData = await response.text();
-    console.log(`[Webhook Proxy] Backend response data:`, responseData);
     
     return new NextResponse(responseData, {
       status: response.status,
@@ -49,13 +38,6 @@ export async function POST(
     });
 
   } catch (error) {
-    console.error('[Webhook Proxy] Error occurred:', error);
-    console.error('[Webhook Proxy] Error details:', {
-      name: error instanceof Error ? error.name : 'Unknown',
-      message: error instanceof Error ? error.message : 'Unknown error',
-      cause: error instanceof Error ? error.cause : undefined,
-    });
-    
     return NextResponse.json(
       { 
         error: 'Internal server error', 
@@ -68,7 +50,7 @@ export async function POST(
 }
 
 export async function GET(
-  request: NextRequest,
+  _request: NextRequest,
   { params }: { params: Promise<{ workflowId: string }> }
 ) {
   try {
@@ -87,7 +69,6 @@ export async function GET(
     return NextResponse.json(responseData, { status: response.status });
 
   } catch (error) {
-    console.error('Webhook test proxy error:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

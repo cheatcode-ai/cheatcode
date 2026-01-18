@@ -1,59 +1,76 @@
 'use client';
 
-/**
- * Profile Popover Components - Reusable user profile dropdown content
- * Consolidated from navbar.tsx and thread-site-header.tsx
- */
-
 import Link from 'next/link';
-import { Barcode, ExternalLink, Info, LogOut } from 'lucide-react';
+import { Barcode, LogOut, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
-  DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
 import { useBilling } from '@/contexts/BillingContext';
 import { useSignOut } from '@/hooks/use-sign-out';
 import { getUserInitials } from '@/lib/utils/user';
+import { cn } from '@/lib/utils';
 
 /**
- * Plan header section showing current plan and manage link
+ * Segmented Progress Bar Component
+ * Renders a technical-looking progress bar made of individual segments
  */
-export function ProfilePlanHeader() {
-  const { planName } = useBilling();
+function SegmentedProgress({ value, max = 100, segments = 40, color = 'bg-emerald-500' }: { value: number; max?: number; segments?: number; color?: string }) {
+  const percentage = Math.min(100, Math.max(0, (value / max) * 100));
+  const activeSegments = Math.ceil((percentage / 100) * segments);
 
   return (
-    <div className="flex items-center justify-between px-3 py-2 border-b border-gray-800/80 bg-gradient-to-b from-white/5 to-transparent rounded-t-2xl">
-      <div className="flex items-center gap-1.5">
-        <Barcode className="h-4 w-4 text-green-500" />
-        <span className="text-sm font-medium text-white">
-          {planName || 'Free'}
-        </span>
-      </div>
-      <Link
-        href="/settings/billing"
-        className="flex items-center gap-1 text-xs text-gray-400 hover:text-white transition-colors"
-      >
-        Manage
-        <ExternalLink className="h-3 w-3" />
-      </Link>
+    <div className="flex gap-[2px] w-full h-2 overflow-hidden">
+      {Array.from({ length: segments }).map((_, i) => (
+        <div
+          key={i}
+          className={cn(
+            "flex-1 rounded-[1px] transition-all duration-300",
+            i < activeSegments ? color : "bg-zinc-900"
+          )}
+        />
+      ))}
     </div>
   );
 }
 
 /**
- * Account stats section showing credits, refills, and deployments
+ * Header section with user info in a technical layout
  */
-export function ProfileStats() {
+export function ProfileHeader({ user }: { user: { imageUrl?: string; fullName?: string | null; firstName?: string | null; email?: string } }) {
+  const displayName = user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
+  const displayEmail = user.email || 'No email';
+  const { planName } = useBilling();
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-zinc-800/50">
+      <Avatar className="h-9 w-9 border border-zinc-700 rounded-md">
+        <AvatarImage src={user.imageUrl} alt={displayName} />
+        <AvatarFallback className="bg-zinc-900 text-zinc-400 text-xs font-mono rounded-md">
+          {getUserInitials(displayName)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex flex-col min-w-0">
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] font-bold text-white truncate font-mono tracking-tight">{displayName}</span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-[2px] bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono font-bold uppercase">{planName || 'Free'}</span>
+        </div>
+        <span className="text-[10px] text-zinc-500 truncate font-mono">{displayEmail}</span>
+      </div>
+      <div className="ml-auto">
+        <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Usage stats with "Credit Usage" aesthetic
+ */
+export function ProfileUsage() {
   const {
     creditsRemaining,
     rawCreditsTotal,
@@ -61,103 +78,90 @@ export function ProfileStats() {
     planName,
     deploymentsUsed,
     deploymentsTotal,
-    deploymentUsagePercentage,
     isLoading: billingLoading,
   } = useBilling();
+
+  const total = rawCreditsTotal || 100;
+  const remaining = rawCreditsRemaining || 0;
+  const used = total - remaining;
+  const percentage = total > 0 ? (used / total) * 100 : 0;
 
   // Calculate daily refills for free users
   const isFreeUser = planName?.toLowerCase() === 'free' || !planName;
   const maxRefills = 4;
   const creditsPerRefill = 5;
-  const creditsUsed = (rawCreditsTotal || 0) - (rawCreditsRemaining || 0);
-  const refillsUsed = Math.min(Math.ceil(creditsUsed / creditsPerRefill), maxRefills);
-  const refillsProgressPercentage = (refillsUsed / maxRefills) * 100;
+  const refillsUsed = Math.min(Math.ceil(used / creditsPerRefill), maxRefills);
 
   return (
-    <TooltipProvider>
-      <div className="p-3 space-y-3">
-        {/* Credits */}
-        <div className="flex items-center justify-between">
-          <span className="text-sm text-gray-300">Credits</span>
-          <div className="flex items-center gap-1.5 rounded-full px-2.5 py-0.5 ring-1 ring-white/15 bg-transparent">
-            <span className="text-sm font-semibold text-gray-100 tabular-nums">
-              {!billingLoading && creditsRemaining !== undefined
-                ? creditsRemaining >= 1000
-                  ? `${(creditsRemaining / 1000).toFixed(2)}K`
-                  : creditsRemaining.toFixed(0)
-                : '--'}
+    <div className="px-4 py-3 space-y-4">
+      {/* Credit Usage Visualization */}
+      <div className="space-y-2">
+        <div className="flex justify-between items-start">
+          <div className="flex flex-col items-start">
+            <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-mono mb-0.5">Usage</span>
+            <span className="text-xl font-bold text-white tabular-nums tracking-tighter">
+              {percentage.toFixed(1)}%
             </span>
-            <div className="w-2 h-2 rounded-full bg-green-400 shadow-[0_0_0_2px_rgba(34,197,94,0.35)]"></div>
+          </div>
+          <div className="flex flex-col items-end text-right">
+             <span className="text-[9px] text-zinc-500 font-mono mb-0.5 tracking-wider uppercase">Left</span>
+             <span className="text-xl font-bold text-white tabular-nums tracking-tighter">
+               {billingLoading ? '...' : (creditsRemaining !== undefined ? (creditsRemaining >= 1000 ? `${(creditsRemaining / 1000).toFixed(1)}K` : creditsRemaining.toFixed(0)) : '0')}
+             </span>
           </div>
         </div>
 
-        {/* Daily Refills - Only for Free users with valid data */}
-        {isFreeUser && !billingLoading && rawCreditsTotal !== undefined && (
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <span className="text-sm text-gray-300">Daily refills</span>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <Info className="h-3 w-3 text-gray-500 cursor-help" />
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    <p className="text-xs">You get up to 4 refills each month. Each refill is 5 credits for the day.</p>
-                  </TooltipContent>
-                </Tooltip>
-              </div>
-              <span className="text-sm font-medium text-white">
-                {refillsUsed}/{maxRefills}
-              </span>
-            </div>
-            {/* Progress Bar */}
-            <div className="w-full bg-white/10 rounded-full h-[3px]">
-              <div
-                className="bg-green-500 h-[3px] rounded-full transition-all duration-300 shadow-[0_0_6px_1px_rgba(34,197,94,0.35)]"
-                style={{ width: `${refillsProgressPercentage}%` }}
-              ></div>
-            </div>
-          </div>
-        )}
-
-        {/* Deployments */}
-        <div className="space-y-1.5">
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-gray-300">Deployments</span>
-            <span className="text-sm font-medium text-white">
-              {billingLoading ? '--' : `${deploymentsUsed || 0}/${deploymentsTotal || 0}`}
-            </span>
-          </div>
-          {/* Progress Bar */}
-          <div className="w-full bg-white/10 rounded-full h-[3px]">
-            <div
-              className="bg-green-500 h-[3px] rounded-full transition-all duration-300 shadow-[0_0_6px_1px_rgba(34,197,94,0.35)]"
-              style={{ width: `${deploymentUsagePercentage || 0}%` }}
-            ></div>
-          </div>
+        <div className="relative pt-1">
+          <SegmentedProgress value={used} max={total} color="bg-amber-500" segments={40} />
         </div>
       </div>
-    </TooltipProvider>
+
+      {/* Secondary Stats - Stacked Vertically for Full Width */}
+      <div className="space-y-3 pt-1">
+        {/* Deployments */}
+        <div className="space-y-1.5">
+          <div className="flex justify-between items-center text-[9px] font-mono">
+            <span className="text-zinc-500 uppercase tracking-wider">Deployments</span>
+            <span className="text-zinc-300">{deploymentsUsed}/{deploymentsTotal}</span>
+          </div>
+          <SegmentedProgress value={deploymentsUsed || 0} max={deploymentsTotal || 1} segments={40} color="bg-emerald-500" />
+        </div>
+
+        {/* Refills / Daily Usage */}
+        {isFreeUser && (
+          <div className="space-y-1.5">
+            <div className="flex justify-between items-center text-[9px] font-mono">
+              <span className="text-zinc-500 uppercase tracking-wider">Refills</span>
+              <span className="text-zinc-300">{refillsUsed}/{maxRefills}</span>
+            </div>
+            <SegmentedProgress value={refillsUsed} max={maxRefills} segments={40} color="bg-blue-500" />
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
 /**
- * Logout button section
+ * Action buttons grid
  */
-export function ProfileLogoutButton() {
+export function ProfileActions() {
   const { signOut } = useSignOut();
 
   return (
-    <div className="border-t border-gray-800 px-1 py-0.5">
-      <DropdownMenuItem asChild className="cursor-pointer">
-        <button
-          onClick={signOut}
-          className="flex items-center gap-2 w-full px-2 py-1 text-left text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-md transition-colors"
-        >
-          <LogOut className="h-4 w-4" />
-          <span>Log out</span>
-        </button>
-      </DropdownMenuItem>
+    <div className="grid grid-cols-2 gap-px bg-zinc-800 border-t border-zinc-800">
+      <Link href="/settings/account" className="group relative bg-zinc-950 hover:bg-zinc-900 transition-colors p-2 flex flex-col items-center justify-center gap-1.5 text-center h-14">
+        <User className="h-3.5 w-3.5 text-zinc-600 group-hover:text-white transition-colors" />
+        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-white transition-colors leading-tight">Profile</span>
+      </Link>
+
+      <button
+        onClick={signOut}
+        className="group relative bg-zinc-950 hover:bg-zinc-900 transition-colors p-2 flex flex-col items-center justify-center gap-1.5 text-center h-14"
+      >
+        <LogOut className="h-3.5 w-3.5 text-zinc-600 group-hover:text-red-400 transition-colors" />
+        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-red-400 transition-colors leading-tight">Logout</span>
+      </button>
     </div>
   );
 }
@@ -173,7 +177,6 @@ interface ProfileDropdownProps {
 
 /**
  * Complete profile dropdown component
- * Combines avatar trigger with plan header, stats, and logout
  */
 export function ProfileDropdown({ user }: ProfileDropdownProps) {
   const displayName = user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
@@ -181,24 +184,67 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <button className="h-8 w-8 rounded-full hover:opacity-80 transition-opacity">
-          <Avatar className="h-8 w-8 border border-white/[0.12]">
+        <button className="h-8 w-8 rounded-md border border-zinc-800 bg-zinc-900/50 hover:bg-zinc-800 transition-all flex items-center justify-center overflow-hidden group">
+          <Avatar className="h-full w-full rounded-none">
             <AvatarImage src={user.imageUrl} alt={displayName} />
-            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-xs font-semibold">
+            <AvatarFallback className="bg-zinc-900 text-zinc-400 text-xs font-mono">
               {getUserInitials(displayName)}
             </AvatarFallback>
           </Avatar>
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
-        className="w-64 rounded-2xl ring-1 ring-white/10 bg-gray-900/95 backdrop-blur-md shadow-xl border-0"
+        className="w-80 p-0 rounded-none bg-zinc-950 border border-zinc-800 shadow-2xl font-mono"
         align="end"
         sideOffset={8}
       >
-        <ProfilePlanHeader />
-        <ProfileStats />
-        <ProfileLogoutButton />
+        <ProfileHeader user={user} />
+        <ProfileUsage />
+        <ProfileActions />
       </DropdownMenuContent>
     </DropdownMenu>
+  );
+}
+
+// Re-export individual components for compatibility if they are used standalone elsewhere
+export function ProfilePlanHeader() {
+  const { planName } = useBilling();
+  return (
+    <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-950">
+      <div className="flex items-center gap-2">
+        <Barcode className="h-3.5 w-3.5 text-zinc-500" />
+        <span className="text-[10px] font-mono font-bold text-white uppercase tracking-wide">
+          {planName || 'Standard'}
+        </span>
+      </div>
+      <Link
+        href="/settings/account"
+        className="text-[9px] font-mono uppercase tracking-wider text-zinc-500 hover:text-white transition-colors"
+      >
+        Manage
+      </Link>
+    </div>
+  );
+}
+
+export function ProfileStats() {
+  // Re-use the main usage component content
+  return <ProfileUsage />;
+}
+
+export function ProfileLogoutButton() {
+  const { signOut } = useSignOut();
+  return (
+    <div className="p-1 border-t border-zinc-800 bg-zinc-950">
+      <DropdownMenuItem asChild className="cursor-pointer focus:bg-zinc-900 rounded-none">
+        <button
+          onClick={signOut}
+          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-[10px] font-mono uppercase tracking-wide text-zinc-400 hover:text-red-400 transition-colors"
+        >
+          <LogOut className="h-3 w-3" />
+          <span>Logout</span>
+        </button>
+      </DropdownMenuItem>
+    </div>
   );
 }

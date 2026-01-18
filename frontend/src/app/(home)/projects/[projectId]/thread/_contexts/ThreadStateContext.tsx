@@ -1,7 +1,7 @@
 'use client';
 
 import React, { createContext, useContext } from 'react';
-import { UnifiedMessage, Project } from '../_types';
+import { UnifiedMessage, Project, AgentStatus } from '../_types';
 import { useThreadData } from '../_hooks';
 
 interface ThreadStateContextValue {
@@ -13,12 +13,18 @@ interface ThreadStateContextValue {
   project: Project | null;
   sandboxId: string | null;
   projectName: string;
-  
+
+  // Agent state
+  agentStatus: AgentStatus;
+  setAgentStatus: React.Dispatch<React.SetStateAction<AgentStatus>>;
+  agentRunId: string | null;
+  setAgentRunId: React.Dispatch<React.SetStateAction<string | null>>;
+
   // Loading states
   isLoading: boolean;
   error: string | null;
   initialLoadCompleted: boolean;
-  
+
   // React Query objects for refetching
   threadQuery: any;
   messagesQuery: any;
@@ -49,6 +55,10 @@ export function ThreadStateProvider({ children, threadId, projectId }: ThreadSta
     project,
     sandboxId,
     projectName,
+    agentStatus,
+    setAgentStatus,
+    agentRunId,
+    setAgentRunId,
     isLoading,
     error,
     initialLoadCompleted,
@@ -69,6 +79,10 @@ export function ThreadStateProvider({ children, threadId, projectId }: ThreadSta
     project,
     sandboxId,
     projectName,
+    agentStatus,
+    setAgentStatus,
+    agentRunId,
+    setAgentRunId,
     isLoading,
     error,
     initialLoadCompleted,

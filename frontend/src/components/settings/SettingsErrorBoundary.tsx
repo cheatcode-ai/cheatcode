@@ -49,8 +49,6 @@ export class SettingsErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
-    console.error('[SettingsErrorBoundary] Caught an error:', error, errorInfo);
-    
     this.setState({
       error,
       errorInfo,
@@ -234,9 +232,7 @@ function DefaultSettingsErrorFallback({
  * Hook to wrap components with error boundary
  */
 export function useSettingsErrorHandler() {
-  return React.useCallback((error: Error, errorInfo: React.ErrorInfo) => {
-    console.error('[Settings] Error caught by boundary:', error, errorInfo);
-    
+  return React.useCallback((_error: Error, _errorInfo: React.ErrorInfo) => {
     // Could dispatch to global error store here
     // or send to analytics
   }, []);

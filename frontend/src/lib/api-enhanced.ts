@@ -1,5 +1,4 @@
 import { createClerkBackendApi } from './api-client';
-import { handleApiSuccess } from './error-handler';
 import { 
   CreateCheckoutSessionRequest,
   CreateCheckoutSessionResponse,
@@ -33,7 +32,6 @@ export const createClerkBillingApi = (getToken: () => Promise<string | null>) =>
 
         return result.data || null;
       } catch (error) {
-        console.error('Error in getSubscription:', error);
         throw error;
       }
     },

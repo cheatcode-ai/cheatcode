@@ -14,11 +14,6 @@ interface UseFileExplorerProps {
  * Flattens a nested tree structure for efficient rendering with virtualization.
  * Each node includes its depth level for indentation.
  */
-interface FlattenedNode extends FileTreeNode {
-  level: number;
-  isExpanded?: boolean;
-  hasChildren: boolean;
-}
 
 /**
  * Optimized File Explorer Hook
@@ -48,7 +43,6 @@ export const useFileExplorer = ({
     data: fileTreeData,
     isLoading: isLoadingFileTree,
     error: fileTreeError,
-    refetch: refetchFileTree,
   } = useQuery({
     queryKey: ['file-tree-optimized', sandboxId, appType],
     queryFn: async (): Promise<FileTreeResponse> => {
@@ -57,13 +51,7 @@ export const useFileExplorer = ({
       const token = await getToken();
       if (!token) throw new Error('No authentication token');
 
-      console.log('[FILE EXPLORER] Fetching complete file tree via optimized endpoint');
-      const startTime = performance.now();
-
       const result = await getSandboxFileTree(sandboxId, workspacePath, token);
-
-      const endTime = performance.now();
-      console.log(`[FILE EXPLORER] Tree loaded: ${result.totalFiles} files in ${Math.round(endTime - startTime)}ms`);
 
       return result;
     },
@@ -92,7 +80,6 @@ export const useFileExplorer = ({
 
       // Construct full path for API call
       const fullPath = `${workspacePath}/${selectedFile}`;
-      console.log('[FILE EXPLORER] Loading file content:', fullPath);
 
       const content = await getSandboxFileContent(sandboxId, fullPath, token);
       return typeof content === 'string' ? content : '[Binary file]';
@@ -204,7 +191,6 @@ export const useFileExplorer = ({
 
   // Force refresh function
   const forceRefresh = useCallback(() => {
-    console.log('[FILE EXPLORER] Force refreshing file tree and content');
     queryClient.invalidateQueries({ queryKey: ['file-tree-optimized', sandboxId] });
     queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
     setSelectedFile(null);
@@ -213,7 +199,6 @@ export const useFileExplorer = ({
 
   // Invalidate just file content (for when files are modified by agents)
   const invalidateFileContent = useCallback(() => {
-    console.log('[FILE EXPLORER] Invalidating file content cache');
     queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
   }, [queryClient, sandboxId]);
 

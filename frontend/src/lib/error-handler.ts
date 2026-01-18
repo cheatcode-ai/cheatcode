@@ -1,5 +1,4 @@
 import { toast } from 'sonner';
-import { useModal } from '@/hooks/use-modal-store';
 import { BillingError } from './api';
 
 export interface ApiError extends Error {
@@ -120,8 +119,6 @@ const formatErrorMessage = (message: string, context?: ErrorContext): string => 
 
 
 export const handleApiError = (error: any, context?: ErrorContext): void => {
-  console.error('API Error:', error, context);
-
   if (!shouldShowError(error, context)) {
     return;
   }

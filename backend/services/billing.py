@@ -150,11 +150,9 @@ async def get_billing_status(
             free_tokens = free_plan['token_quota']
             free_credits = free_plan['display_credits']
             
-            # Get deployment count
-            from deployments.api import _count_deployed_projects_for_account
+            # Get deployment count with caching
             from utils.constants import get_plan_deployment_limit
-            async with db.get_async_client() as client:
-                deployments_used = await _count_deployed_projects_for_account(client, account_id)
+            deployments_used = await get_deployment_count_cached(account_id)
             deployments_total = get_plan_deployment_limit('free')
             
             return SubscriptionStatusResponse(
@@ -177,12 +175,9 @@ async def get_billing_status(
         if not plan_config:
             raise HTTPException(status_code=500, detail="Invalid plan configuration")
             
-        # Get deployment count
-        from deployments.api import _count_deployed_projects_for_account
+        # Get deployment count with caching
         from utils.constants import get_plan_deployment_limit
-        db = DBConnection()
-        async with db.get_async_client() as client:
-            deployments_used = await _count_deployed_projects_for_account(client, subscription['account_id'])
+        deployments_used = await get_deployment_count_cached(subscription['account_id'])
         deployments_total = get_plan_deployment_limit(subscription['plan'])
         
         return SubscriptionStatusResponse(
@@ -461,6 +456,44 @@ async def get_quota_status(
 
 # Billing status cache TTL in seconds (30 seconds for quick updates while reducing DB load)
 BILLING_STATUS_CACHE_TTL = 30
+
+# Deployment count cache TTL (60 seconds - deployments change less frequently)
+DEPLOYMENT_COUNT_CACHE_TTL = 60
+
+
+async def get_deployment_count_cached(account_id: str) -> int:
+    """Get deployment count with Redis caching to avoid redundant queries.
+
+    Caches the result for 60 seconds since deployments change infrequently.
+    """
+    import json
+    from services import redis as redis_service
+    from deployments.api import _count_deployed_projects_for_account
+
+    cache_key = f"deployment_count:{account_id}"
+
+    # Try cache first
+    try:
+        cached_count = await redis_service.get_value(cache_key)
+        if cached_count is not None:
+            logger.debug(f"Cache HIT for deployment count: {account_id}")
+            return int(cached_count)
+    except Exception as e:
+        logger.debug(f"Cache miss for deployment count {account_id}: {e}")
+
+    # Cache miss - query database
+    db = DBConnection()
+    async with db.get_async_client() as client:
+        count = await _count_deployed_projects_for_account(client, account_id)
+
+    # Cache the result
+    try:
+        await redis_service.set_value(cache_key, str(count), ttl=DEPLOYMENT_COUNT_CACHE_TTL)
+        logger.debug(f"Cached deployment count for {account_id}: {count}")
+    except Exception as e:
+        logger.warning(f"Failed to cache deployment count: {e}")
+
+    return count
 
 async def can_use_model(client: Client, user_id: str, model_name: str):
     """Check if user can use a specific model based on their subscription.

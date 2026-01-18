@@ -1,5 +1,5 @@
 import { createQueryHook } from "@/hooks/use-query";
-import { getAvailablePlans, PlanListResponse } from "@/lib/api";
+import { getAvailablePlans } from "@/lib/api";
 import { billingKeys } from "@/hooks/react-query/threads/keys";
 import { useAuth } from '@clerk/nextjs';
 

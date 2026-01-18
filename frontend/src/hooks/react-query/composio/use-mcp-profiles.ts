@@ -70,8 +70,7 @@ export function useIntegrationToggle() {
       const action = data.isDefault ? 'enabled' : 'disabled';
       toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} integration for chats`);
     },
-    onError: (error) => {
-      console.error('Error updating integration:', error);
+    onError: () => {
       toast.error('Failed to update integration setting');
     },
     onSettled: () => {

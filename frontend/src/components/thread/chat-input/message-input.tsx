@@ -1,15 +1,12 @@
-import React, { forwardRef, useEffect, useState } from 'react';
+import { forwardRef, useEffect, useState, useRef, useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import { Button } from '@/components/ui/button';
-import { Square, Loader2, ArrowUp, Monitor, Smartphone } from 'lucide-react';
+import { Square, Loader2, ArrowUp, Globe, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UploadedFile } from './chat-input';
 import { FileUploadHandler } from './file-upload-handler';
 import { VoiceRecorder } from './voice-recorder';
-import { ExpandableTabs } from '@/components/ui/expandable-tabs';
 import { ModelSelector } from '@/components/model-selector';
-
-import { BillingModal } from '@/components/billing/billing-modal';
+import { LiquidMetalButton } from '@/components/ui/liquid-metal-button';
 
 interface MessageInputProps {
   value: string;
@@ -50,7 +47,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       onChange,
       onSubmit,
       onTranscription,
-      placeholder,
+      placeholder: _placeholder,
       loading,
       disabled,
       isAgentRunning,
@@ -68,8 +65,6 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       messages = [],
       isLoggedIn = true,
 
-      selectedAgentId,
-      onAgentSelect,
       disableAnimation = false,
       appType = 'web',
       onAppTypeChange,
@@ -78,13 +73,11 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
     },
     ref,
   ) => {
-    const [billingModalOpen, setBillingModalOpen] = useState(false);
-
     // Typewriter placeholder animation
     const typewriterSentences = [
-      'build a beautiful landing page for my app',
-      'build me a portfolio website with animations ',
-      'build a full stack app for my startup',
+      'Build a landing page',
+      'Create a mobile app',
+      'Fix a bug',
     ];
     const [sentenceIndex, setSentenceIndex] = useState(0);
     const [charIndex, setCharIndex] = useState(0);
@@ -128,27 +121,45 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
 
 
 
-    useEffect(() => {
-      const textarea = ref as React.RefObject<HTMLTextAreaElement>;
-      if (!textarea.current) return;
+    // Ref for debounce timeout
+    const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-      const adjustHeight = () => {
-        textarea.current!.style.height = 'auto';
+    // Create stable adjustHeight function
+    const adjustHeight = useMemo(() => {
+      return () => {
+        const textarea = ref as React.RefObject<HTMLTextAreaElement>;
+        if (!textarea.current) return;
+        textarea.current.style.height = 'auto';
         const newHeight = Math.min(
-          Math.max(textarea.current!.scrollHeight, 24),
+          Math.max(textarea.current.scrollHeight, 24),
           200,
         );
-        textarea.current!.style.height = `${newHeight}px`;
+        textarea.current.style.height = `${newHeight}px`;
       };
+    }, [ref]);
 
+    // Debounced version for resize events
+    const debouncedAdjustHeight = useMemo(() => {
+      return () => {
+        if (resizeTimeoutRef.current) {
+          clearTimeout(resizeTimeoutRef.current);
+        }
+        resizeTimeoutRef.current = setTimeout(adjustHeight, 100);
+      };
+    }, [adjustHeight]);
+
+    useEffect(() => {
+      // Initial adjustment (immediate)
       adjustHeight();
 
-      // Call it twice to ensure proper height calculation
-      adjustHeight();
-
-      window.addEventListener('resize', adjustHeight);
-      return () => window.removeEventListener('resize', adjustHeight);
-    }, [value, ref]);
+      window.addEventListener('resize', debouncedAdjustHeight);
+      return () => {
+        window.removeEventListener('resize', debouncedAdjustHeight);
+        if (resizeTimeoutRef.current) {
+          clearTimeout(resizeTimeoutRef.current);
+        }
+      };
+    }, [value, adjustHeight, debouncedAdjustHeight]);
 
     const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -168,25 +179,27 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
     return (
       <div className="relative flex flex-col w-full h-full gap-2 justify-between">
 
-        <div className="flex flex-col gap-1 px-2">
-          <Textarea
-            ref={ref}
-            value={value}
-            onChange={onChange}
-            onKeyDown={handleKeyDown}
-            placeholder={displayPlaceholder}
-            className={cn(
-              'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0.5 pb-6 pt-4 !text-[15px] min-h-[36px] max-h-[200px] overflow-y-auto resize-none',
-              isDraggingOver ? 'opacity-40' : '',
-            )}
-            disabled={loading || (disabled && !isAgentRunning)}
-            rows={1}
-          />
+        <div className="flex flex-col gap-1 px-2 flex-1">
+          <div className="flex items-start gap-2 pt-4">
+             <Textarea
+                ref={ref}
+                value={value}
+                onChange={onChange}
+                onKeyDown={handleKeyDown}
+                placeholder={displayPlaceholder}
+                className={cn(
+                  'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0 pb-6 pt-0 !text-[15px] min-h-[36px] max-h-[200px] overflow-y-auto resize-none font-mono text-white placeholder:text-zinc-500',
+                  isDraggingOver ? 'opacity-40' : '',
+                )}
+                disabled={loading || (disabled && !isAgentRunning)}
+                rows={1}
+              />
+          </div>
         </div>
 
 
-        <div className="flex items-center justify-between mt-0 mb-1 px-2">
-          <div className="flex items-center gap-3">
+        <div className="flex items-center justify-between mt-0 mb-1 px-2 relative">
+          <div className="flex items-center gap-3 z-10">
             {!hideAttachments && (
               <FileUploadHandler
                 ref={fileInputRef}
@@ -203,37 +216,41 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 appType={appType}
               />
             )}
-
-            {/* Only show app type toggle when creating new projects (onAppTypeChange is provided) */}
+            {/* App Type Selector */}
             {onAppTypeChange && (
-              <ExpandableTabs
-                tabs={[
-                  { title: "building for web", icon: Monitor, iconColor: "text-orange-500" },
-                  { type: "separator" },
-                  { title: "building for mobile", icon: Smartphone, iconColor: "text-green-500" }
-                ]}
-                onChange={(index) => {
-                  if (index === 0) {
-                    onAppTypeChange('web');
-                  } else if (index === 2) {
-                    onAppTypeChange('mobile');
-                  }
-                }}
-              />
+              <div className="flex items-center gap-1 p-1 bg-zinc-800/50 rounded-full">
+                <button
+                  type="button"
+                  onClick={() => onAppTypeChange('web')}
+                  className={cn(
+                    "p-1.5 rounded-full transition-all",
+                    appType === 'web'
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                  title="Web App"
+                >
+                  <Globe className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onAppTypeChange('mobile')}
+                  className={cn(
+                    "p-1.5 rounded-full transition-all",
+                    appType === 'mobile'
+                      ? "bg-zinc-700 text-white"
+                      : "text-zinc-500 hover:text-zinc-300"
+                  )}
+                  title="Mobile App"
+                >
+                  <Smartphone className="h-3.5 w-3.5" />
+                </button>
+              </div>
             )}
-
           </div>
 
-          <div className='flex items-center gap-2'>
-
-            {/* Billing Modal */}
-            <BillingModal
-              open={billingModalOpen}
-              onOpenChange={setBillingModalOpen}
-              returnUrl={typeof window !== 'undefined' ? window.location.href : '/'}
-            />
-
-            {/* Model selector - on the right side near microphone */}
+          <div className='flex items-center gap-2 z-10'>
+            {/* Model Selector - right aligned next to mic */}
             {onModelChange && (
               <ModelSelector
                 value={selectedModel || ''}
@@ -248,16 +265,16 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
               disabled={loading || (disabled && !isAgentRunning)}
             />}
 
-            <Button
+            <LiquidMetalButton
               type="submit"
+              variant="circular"
               onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
-              size="sm"
               className={cn(
-                'w-8 h-8 flex-shrink-0 self-end rounded-xl',
+                'h-8 w-8 flex-shrink-0 self-end rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all',
                 (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
                   loading ||
                   (disabled && !isAgentRunning)
-                  ? 'opacity-50'
+                  ? 'opacity-50 cursor-not-allowed'
                   : '',
               )}
               disabled={
@@ -267,13 +284,13 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
               }
             >
               {loading ? (
-                <Loader2 className="h-5 w-5 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" />
               ) : isAgentRunning ? (
-                <div className="min-h-[14px] min-w-[14px] w-[14px] h-[14px] rounded-sm bg-current" />
+                <Square className="h-3.5 w-3.5 fill-current" />
               ) : (
-                <ArrowUp className="h-5 w-5" />
+                <ArrowUp className="h-4 w-4" />
               )}
-            </Button>
+            </LiquidMetalButton>
           </div>
         </div>
 

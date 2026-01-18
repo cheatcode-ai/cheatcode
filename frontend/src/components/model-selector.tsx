@@ -1,6 +1,4 @@
 'use client';
-
-import React from 'react';
 import {
   Select,
   SelectContent,
@@ -76,7 +74,7 @@ export function ModelSelector({
     <Select value={selectedValue} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
         className={cn(
-          'h-7 w-auto gap-1.5 border-none bg-transparent px-2 py-1 text-xs shadow-none hover:bg-muted/50 focus:ring-0 focus-visible:ring-0',
+          'h-7 w-auto gap-1.5 border-none bg-transparent px-2 py-1 text-[10px] shadow-none hover:bg-zinc-800/50 focus:ring-0 focus-visible:ring-0 rounded-md font-mono text-zinc-400 hover:text-zinc-200 transition-all uppercase tracking-wide',
           className
         )}
         size="sm"
@@ -86,28 +84,28 @@ export function ModelSelector({
             <ProviderLogo
               logoUrl={selectedModel?.logo_url}
               provider={selectedModel?.provider || ''}
-              className="h-3.5 w-3.5"
+              className="h-3.5 w-3.5 opacity-80"
             />
-            <span className="font-medium">{selectedModel?.name || 'Select Model'}</span>
+            <span className="uppercase">{selectedModel?.name || 'Select model'}</span>
           </div>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="end" className="min-w-[200px]">
+      <SelectContent align="end" className="min-w-[240px] rounded-md bg-popover border border-zinc-800 p-0 font-mono shadow-2xl">
         {models.map((model) => (
           <SelectItem
             key={model.id}
             value={model.id}
-            className="cursor-pointer"
+            className="cursor-pointer rounded-md focus:bg-zinc-900 focus:text-white pl-2 py-2 m-1"
           >
             <div className="flex items-center gap-2">
               <ProviderLogo
                 logoUrl={model.logo_url}
                 provider={model.provider}
-                className="h-4 w-4"
+                className="h-3.5 w-3.5 opacity-70"
               />
               <div className="flex flex-col">
-                <span className="font-medium">{model.name}</span>
-                <span className="text-xs text-muted-foreground">
+                <span className="text-xs uppercase">{model.name}</span>
+                <span className="text-[9px] text-zinc-600">
                   {model.description}
                 </span>
               </div>

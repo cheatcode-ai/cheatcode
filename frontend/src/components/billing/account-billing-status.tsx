@@ -1,129 +1,107 @@
 'use client';
 
 import { useState } from 'react';
-import { Button } from '@/components/ui/button';
 import { BillingPricingSection } from '@/components/billing/billing-pricing-section';
 import { CreditMeter } from '@/components/billing/CreditMeter';
 import { DeploymentMeter } from '@/components/billing/DeploymentMeter';
-
-
 import { useAuth } from '@clerk/nextjs';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useSubscription } from '@/hooks/react-query';
 import { useBilling } from '@/contexts/BillingContext';
-import Link from 'next/link';
-import { OpenInNewWindowIcon } from '@radix-ui/react-icons';
+import { cn } from '@/lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 
 type Props = {
   accountId: string;
   returnUrl: string;
 };
 
-export default function AccountBillingStatus({ accountId, returnUrl }: Props) {
+type Tab = 'Usage' | 'Plans';
+
+export default function AccountBillingStatus({ accountId: _accountId, returnUrl }: Props) {
   const { isLoaded } = useAuth();
-  const authLoading = !isLoaded;
-  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>('Usage');
 
   const {
-    data: subscriptionData,
     isLoading,
-    error: subscriptionQueryError,
   } = useSubscription();
   
-  // Get credit information from billing context
-  const {
-    creditsRemaining,
-    creditsTotal,
-    planName: billingPlanName,
-    isLoading: billingLoading
-  } = useBilling();
+  const { isLoading: billingLoading } = useBilling();
 
-
-
-
-
-  // Show loading state
-  if (isLoading || authLoading || billingLoading) {
+  if (isLoading || !isLoaded || billingLoading) {
     return (
-      <div className="rounded-xl shadow-sm bg-card p-6 border-0">
-        <h2 className="text-xl font-semibold mb-4">Billing & Credits</h2>
-        <div className="space-y-4">
-          <Skeleton className="h-20 w-full" />
-          <Skeleton className="h-40 w-full" />
-          <Skeleton className="h-10 w-full" />
-        </div>
+      <div className="max-w-3xl mx-auto p-12 space-y-8">
+        <Skeleton className="h-32 w-full rounded-3xl bg-zinc-900/50" />
+        <Skeleton className="h-32 w-full rounded-3xl bg-zinc-900/50" />
       </div>
     );
   }
-
-  // Show error state
-  if (error || subscriptionQueryError) {
-    return (
-      <div className="rounded-xl shadow-sm bg-card p-6 border-0">
-        <h2 className="text-xl font-semibold mb-4">Billing & Credits</h2>
-        <div className="p-4 mb-4 bg-destructive/10 border border-destructive/20 rounded-lg text-center">
-          <p className="text-sm text-destructive">
-            Error loading billing status:{' '}
-            {error || subscriptionQueryError.message}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
-  const isPlan = (planId?: string) => {
-    return subscriptionData?.plan_name === planId;
-  };
-
-  const planName = isPlan('free')
-    ? 'Free'
-    : isPlan('base')
-      ? 'Pro'
-      : isPlan('extra')
-        ? 'Enterprise'
-        : 'Unknown';
 
   return (
-    <div className="rounded-xl shadow-sm bg-card p-6 border-0">
-      <div className="flex justify-between items-center mb-4">
-        <h2 className="text-xl font-semibold">Billing & Credits</h2>
-        <Button variant='outline' asChild className='text-sm'>
-          <Link href="/settings/usage-logs">
-            Usage logs
-          </Link>
-        </Button>
+    <div className="text-zinc-200">
+      <div className={cn(
+        "mx-auto transition-all duration-500 ease-in-out",
+        activeTab === 'Plans' ? "max-w-7xl" : "max-w-3xl"
+      )}>
+        
+        {/* Minimal Header & Tabs */}
+        <div className="flex flex-col items-center mb-10 space-y-6">
+            <h1 className="text-2xl font-medium tracking-tight text-white">Account</h1>
+            
+            <div className="flex items-center gap-1 p-1 bg-zinc-900/50 rounded-full border border-zinc-800/50 backdrop-blur-sm">
+                {(['Usage', 'Plans'] as const).map((tab) => (
+                    <button 
+                        key={tab} 
+                        onClick={() => setActiveTab(tab)}
+                        className={cn(
+                            "relative px-6 py-2 text-sm font-medium transition-colors rounded-full z-10",
+                            activeTab === tab 
+                                ? "text-black dark:text-black" 
+                                : "text-zinc-500 hover:text-zinc-300"
+                        )}
+                    >
+                        {activeTab === tab && (
+                            <motion.div 
+                                layoutId="activeTab"
+                                className="absolute inset-0 bg-white rounded-full z-[-1]"
+                                transition={{ type: "spring", bounce: 0.2, duration: 0.6 }}
+                            />
+                        )}
+                        {tab}
+                    </button>
+                ))}
+            </div>
+        </div>
+
+        {/* Content */}
+        <AnimatePresence mode="wait">
+            {activeTab === 'Usage' && (
+                <motion.div 
+                    key="usage"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                    className="space-y-8"
+                >
+                    <CreditMeter variant="card" showUpgradePrompt={true} />
+                    <DeploymentMeter variant="card" showUpgradePrompt={true} />
+                </motion.div>
+            )}
+
+            {activeTab === 'Plans' && (
+                <motion.div 
+                    key="plans"
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    transition={{ duration: 0.4, ease: "easeOut" }}
+                >
+                    <BillingPricingSection returnUrl={returnUrl} showTitleAndTabs={false} insideDialog={true} />
+                </motion.div>
+            )}
+        </AnimatePresence>
       </div>
-
-      {subscriptionData ? (
-        <>
-
-          {/* Add CreditMeter and DeploymentMeter Components */}
-          <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CreditMeter variant="card" showUpgradePrompt={true} />
-            <DeploymentMeter variant="card" showUpgradePrompt={true} />
-          </div>
-
-          {/* Plans Comparison */}
-          <BillingPricingSection returnUrl={returnUrl} showTitleAndTabs={false} insideDialog={true} />
-
-          <div className="mt-20"></div>
-
-        </>
-      ) : (
-        <>
-
-          {/* Add CreditMeter and DeploymentMeter Components */}
-          <div className="mb-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <CreditMeter variant="card" showUpgradePrompt={true} />
-            <DeploymentMeter variant="card" showUpgradePrompt={true} />
-          </div>
-
-          {/* Plans Comparison */}
-          <BillingPricingSection returnUrl={returnUrl} showTitleAndTabs={false} insideDialog={true} />
-
-
-        </>
-      )}
     </div>
   );
 }

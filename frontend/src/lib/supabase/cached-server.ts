@@ -32,27 +32,22 @@ export const getCachedAuth = cache(async (): Promise<CachedAuthResult | null> =>
     const { getToken, userId } = await auth();
 
     if (!userId) {
-      console.log('[CACHED_AUTH] No user ID found');
       return null;
     }
 
     const supabaseToken = await getToken();
     if (!supabaseToken) {
-      console.log('[CACHED_AUTH] No Supabase token found');
       return null;
     }
 
     const supabaseClient = createClientWithToken(supabaseToken);
 
-    console.log('[CACHED_AUTH] Successfully created cached auth for user:', userId);
-    
     return {
       userId,
       token: supabaseToken,
       supabaseClient,
     };
   } catch (error) {
-    console.error('[CACHED_AUTH] Error in getCachedAuth:', error);
     return null;
   }
 });
@@ -64,8 +59,6 @@ export const getCachedAuth = cache(async (): Promise<CachedAuthResult | null> =>
  */
 export const getPersonalAccount = cache(async (): Promise<PersonalAccountResult> => {
   try {
-    console.log('[CACHED_SERVER] Starting getPersonalAccount...');
-    
     const authResult = await getCachedAuth();
     if (!authResult) {
       return {
@@ -76,8 +69,6 @@ export const getPersonalAccount = cache(async (): Promise<PersonalAccountResult>
 
     const { userId, supabaseClient } = authResult;
 
-    console.log('[CACHED_SERVER] Fetching personal account for user:', userId);
-
     const { data: accounts, error } = await supabaseClient
       .from('users')
       .select('id, name, email, created_at, updated_at')
@@ -85,7 +76,6 @@ export const getPersonalAccount = cache(async (): Promise<PersonalAccountResult>
       .single();
 
     if (error) {
-      console.error('[CACHED_SERVER] Database error:', error);
       return {
         account: null,
         error: 'Unable to load account information. Please try again later.',
@@ -93,21 +83,17 @@ export const getPersonalAccount = cache(async (): Promise<PersonalAccountResult>
     }
 
     if (!accounts) {
-      console.log('[CACHED_SERVER] No personal account found for user:', userId);
       return {
         account: null,
         error: 'No personal account found.',
       };
     }
 
-    console.log('[CACHED_SERVER] Successfully retrieved personal account:', accounts.id);
-    
     return {
       account: accounts as PersonalAccount,
       error: null,
     };
   } catch (error) {
-    console.error('[CACHED_SERVER] Unexpected error in getPersonalAccount:', error);
     return {
       account: null,
       error: 'An unexpected error occurred. Please try again.',

@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Download, File, Loader } from 'lucide-react';
@@ -29,15 +28,12 @@ export function BinaryRenderer({
       onDownload();
     } else if (url) {
       // Fallback to direct URL download (less robust)
-      console.log(`[BINARY RENDERER] Using fallback download for ${fileName}`);
       const link = document.createElement('a');
       link.href = url;
       link.download = fileName.split('/').pop() || 'file';
       document.body.appendChild(link);
       link.click();
       document.body.removeChild(link);
-    } else {
-      console.error('[BINARY RENDERER] No download URL or handler available');
     }
   };
 

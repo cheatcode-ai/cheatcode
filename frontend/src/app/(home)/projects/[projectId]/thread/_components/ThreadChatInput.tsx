@@ -1,15 +1,18 @@
-import React, { useState, useEffect, useCallback } from 'react';
+'use client';
+
+import { useState, useEffect, useCallback } from 'react';
 import { ChatInput } from '@/components/thread/chat-input/chat-input';
 import { cn } from '@/lib/utils';
 import { useThreadState } from '../_contexts/ThreadStateContext';
 import { useThreadActions } from '../_contexts/ThreadActionsContext';
 import { useLayout } from '../_contexts/LayoutContext';
 import { useUpdateProjectMutation } from '@/hooks/react-query/threads/use-project';
+import { threadStyles } from '@/lib/theme/thread-colors';
 
 export function ThreadChatInput() {
   const { sandboxId, project, projectId } = useThreadState();
   const { sendMessage, agentState, agentGetters, stopAgent } = useThreadActions();
-  const { isSidePanelOpen, isMobile } = useLayout();
+  const { isSidePanelOpen } = useLayout();
   const updateProjectMutation = useUpdateProjectMutation();
 
   const [newMessage, setNewMessage] = useState('');
@@ -40,7 +43,7 @@ export function ThreadChatInput() {
     }
   }, [projectId, project?.model_name, updateProjectMutation]);
 
-  const handleSubmit = async (message: string, attachments?: Array<{ name: string; path: string; }>) => {
+  const handleSubmit = async (message: string, _attachments?: Array<{ name: string; path: string; }>) => {
     await sendMessage(message, { app_type: projectAppType, model_name: selectedModel });
     setNewMessage('');
   };
@@ -48,38 +51,35 @@ export function ThreadChatInput() {
   return (
     <div
       className={cn(
-        "fixed bottom-0 left-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent px-4 pt-8 transition-all duration-200 ease-in-out",
-        !isMobile && (isSidePanelOpen ? 'right-[60vw]' : 'right-0'),
-        isMobile && (isSidePanelOpen ? 'right-2' : 'right-0')
+        "absolute bottom-0 left-0 right-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent pt-8 pb-6 transition-all duration-200 ease-in-out",
       )}
     >
-      <div
-        className={cn(
-          !isMobile && 'pl-0',
-          isMobile ? 'px-0' : 'px-4',
-          isSidePanelOpen && !isMobile ? 'w-full' : 'mx-auto w-full max-w-3xl'
-        )}
-      >
-        <ChatInput
-          value={newMessage}
-          onChange={setNewMessage}
-          onSubmit={handleSubmit}
-          placeholder="Describe what you need help with..."
-          loading={agentState.isSending}
-          disabled={agentState.isSending || agentGetters.isActive}
-          isAgentRunning={agentGetters.isActive}
-          onStopAgent={stopAgent}
-          autoFocus={false}
-          sandboxId={sandboxId || undefined}
-          messages={[]}
-          isLoggedIn={true}
-          isSidePanelOpen={isSidePanelOpen}
-          disableAnimation={true}
-          bgColor="bg-muted"
-          // Model selection - persisted to project as single source of truth
-          selectedModel={selectedModel}
-          onModelChange={handleModelChange}
-        />
+      <div className="relative w-full z-10 flex justify-center px-4 items-end gap-3 max-w-3xl mx-auto">
+        <div className={cn(
+          "w-full rounded-2xl shadow-2xl overflow-hidden px-4 py-2 transition-all duration-200",
+          threadStyles.card
+        )}>
+          <ChatInput
+            value={newMessage}
+            onChange={setNewMessage}
+            onSubmit={handleSubmit}
+            placeholder="Describe what you need help with..."
+            loading={agentState.isSending}
+            disabled={agentState.isSending || agentGetters.isActive}
+            isAgentRunning={agentGetters.isActive}
+            onStopAgent={stopAgent}
+            autoFocus={false}
+            sandboxId={sandboxId || undefined}
+            messages={[]}
+            isLoggedIn={true}
+            isSidePanelOpen={isSidePanelOpen}
+            disableAnimation={true}
+            bgColor="bg-transparent"
+            // Model selection - persisted to project as single source of truth
+            selectedModel={selectedModel}
+            onModelChange={handleModelChange}
+          />
+        </div>
       </div>
     </div>
   );

@@ -87,12 +87,13 @@ export const useUpdateProject = () => {
       return { previousProjects, previousProject, projectId };
     },
     // Rollback on error
-    onError: (_error, _variables, context: { previousProjects?: Project[]; previousProject?: Project; projectId?: string } | undefined) => {
-      if (context?.previousProjects) {
-        queryClient.setQueryData(projectKeys.lists(), context.previousProjects);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousProjects?: Project[]; previousProject?: Project; projectId?: string } | undefined;
+      if (result?.previousProjects) {
+        queryClient.setQueryData(projectKeys.lists(), result.previousProjects);
       }
-      if (context?.previousProject && context?.projectId) {
-        queryClient.setQueryData(projectKeys.details(context.projectId), context.previousProject);
+      if (result?.previousProject && result?.projectId) {
+        queryClient.setQueryData(projectKeys.details(result.projectId), result.previousProject);
       }
     },
     // Always refetch after error or success
@@ -142,9 +143,10 @@ export const useDeleteProject = () => {
       return { previousProjects };
     },
     // Rollback on error
-    onError: (_error, _variables, context: { previousProjects?: Project[] } | undefined) => {
-      if (context?.previousProjects) {
-        queryClient.setQueryData(projectKeys.lists(), context.previousProjects);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousProjects?: Project[] } | undefined;
+      if (result?.previousProjects) {
+        queryClient.setQueryData(projectKeys.lists(), result.previousProjects);
       }
     },
     // Always refetch after error or success

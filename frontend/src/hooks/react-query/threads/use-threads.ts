@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { createMutationHook, createQueryHook } from "@/hooks/use-query";
 import { threadKeys } from "./keys";
 import { Thread, updateThread, toggleThreadPublicStatus, deleteThread, updateThreadName } from "./utils";
@@ -97,9 +97,10 @@ export const useToggleThreadPublicStatus = () => {
 
       return { previousThread, threadId };
     },
-    onError: (_error, _variables, context: { previousThread?: Thread; threadId?: string } | undefined) => {
-      if (context?.previousThread && context?.threadId) {
-        queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousThread?: Thread; threadId?: string } | undefined;
+      if (result?.previousThread && result?.threadId) {
+        queryClient.setQueryData(threadKeys.details(result.threadId), result.previousThread);
       }
     },
     onSettled: (_data, _error, variables) => {
@@ -139,9 +140,10 @@ export const useUpdateThreadMutation = () => {
 
       return { previousThread, threadId };
     },
-    onError: (_error, _variables, context: { previousThread?: Thread; threadId?: string } | undefined) => {
-      if (context?.previousThread && context?.threadId) {
-        queryClient.setQueryData(threadKeys.details(context.threadId), context.previousThread);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousThread?: Thread; threadId?: string } | undefined;
+      if (result?.previousThread && result?.threadId) {
+        queryClient.setQueryData(threadKeys.details(result.threadId), result.previousThread);
       }
     },
     onSettled: (_data, _error, variables) => {

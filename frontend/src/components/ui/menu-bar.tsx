@@ -1,8 +1,6 @@
 "use client"
 
 import * as React from "react"
-import { motion, Easing } from "motion/react"
-import { useTheme } from "next-themes"
 import { cn } from "@/lib/utils"
 import { LucideIcon } from "lucide-react"
 
@@ -20,109 +18,41 @@ interface MenuBarProps extends React.HTMLAttributes<HTMLDivElement> {
   onItemClick?: (label: string) => void
 }
 
-
-
-const glowVariants = {
-  initial: { opacity: 0, scale: 0.8 },
-  hover: {
-    opacity: 1,
-    scale: 2,
-    transition: {
-      opacity: { duration: 0.5, ease: [0.4, 0, 0.2, 1] as Easing },
-      scale: { duration: 0.5, type: "spring" as const, stiffness: 300, damping: 25 },
-    },
-  },
-}
-
-const navGlowVariants = {
-  initial: { opacity: 0 },
-  hover: {
-    opacity: 1,
-    transition: {
-      duration: 0.5,
-      ease: [0.4, 0, 0.2, 1] as Easing,
-    },
-  },
-}
-
-const sharedTransition = {
-  type: "spring",
-  stiffness: 100,
-  damping: 20,
-  duration: 0.5,
-}
-
 export const MenuBar = React.forwardRef<HTMLDivElement, MenuBarProps>(
   ({ className, items, activeItem, onItemClick, ...props }, ref) => {
-    const { theme } = useTheme()
-    const isDarkTheme = theme === "dark"
-
     return (
-      <motion.nav
+      <nav
         ref={ref}
         className={cn(
-          "p-2 rounded-2xl bg-gradient-to-b from-background/80 to-background/40 backdrop-blur-lg border border-border/40 shadow-lg relative overflow-hidden",
+          "flex items-center p-1 rounded-full bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800",
           className,
         )}
-        initial="initial"
-        whileHover="hover"
+        {...props}
       >
-        <motion.div
-          className={`absolute -inset-2 bg-gradient-radial from-transparent ${
-            isDarkTheme
-              ? "via-blue-400/30 via-30% via-purple-400/30 via-60% via-red-400/30 via-90%"
-              : "via-blue-400/20 via-30% via-purple-400/20 via-60% via-red-400/20 via-90%"
-          } to-transparent rounded-3xl z-0 pointer-events-none`}
-          variants={navGlowVariants}
-        />
-        <ul className="flex items-center gap-0.5 relative z-10">
+        <ul className="flex items-center gap-1">
           {items.map((item) => {
-            const Icon = item.icon
             const isActive = item.label === activeItem
+            const Icon = item.icon
 
             return (
-              <motion.li key={item.label} className="relative">
+              <li key={item.label} className="relative">
                 <button
                   onClick={() => onItemClick?.(item.label)}
-                  className="block w-full"
+                  className={cn(
+                    "relative px-4 py-2 rounded-full text-sm font-medium transition-colors duration-200 ease-in-out flex items-center gap-2",
+                    isActive 
+                      ? "text-zinc-900 dark:text-zinc-100 bg-white dark:bg-zinc-800 shadow-sm" 
+                      : "text-zinc-500 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-200 hover:bg-zinc-200/50 dark:hover:bg-zinc-800/50"
+                  )}
                 >
-                  <div className="block rounded-xl overflow-visible group relative">
-                    <motion.div
-                      className="absolute inset-0 z-0 pointer-events-none"
-                      variants={glowVariants}
-                      animate={isActive ? "hover" : "initial"}
-                      style={{
-                        background: item.gradient,
-                        opacity: isActive ? 1 : 0,
-                        borderRadius: "16px",
-                      }}
-                    />
-                    <div
-                      className={cn(
-                        "flex items-center gap-1.5 px-3 py-1.5 relative z-10 bg-transparent transition-colors rounded-xl text-xs",
-                        isActive
-                          ? "text-foreground"
-                          : "text-muted-foreground group-hover:text-foreground",
-                      )}
-                    >
-                      <span
-                        className={cn(
-                          "transition-colors duration-300",
-                          isActive ? item.iconColor : "text-foreground",
-                          `group-hover:${item.iconColor}`,
-                        )}
-                      >
-                        <Icon className="h-3.5 w-3.5" />
-                      </span>
-                      <span>{item.label}</span>
-                    </div>
-                  </div>
+                  <Icon className={cn("w-4 h-4", isActive ? "opacity-100" : "opacity-70")} />
+                  <span>{item.label === 'Bring Your Own Key (BYOK)' ? 'BYOK' : item.label}</span>
                 </button>
-              </motion.li>
+              </li>
             )
           })}
         </ul>
-      </motion.nav>
+      </nav>
     )
   },
 )

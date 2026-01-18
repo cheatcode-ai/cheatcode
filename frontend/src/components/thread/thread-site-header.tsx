@@ -1,17 +1,14 @@
 'use client';
 
 import { Button } from "@/components/ui/button"
-import { PanelRightOpen, Check, X, Menu, TrendingUp, Globe, Loader2 } from "lucide-react"
-import { usePathname } from "next/navigation"
+import { PanelRightOpen, Menu, Globe, Loader2, RefreshCw } from "lucide-react"
 import { toast } from "sonner"
 import { CheatcodeLogo } from "@/components/sidebar/cheatcode-logo"
 import { useUser } from '@clerk/nextjs';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { createClerkBackendApi } from '@/lib/api-client';
 import { useAuth } from '@clerk/nextjs';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { ExternalLink, Rocket } from 'lucide-react';
-import { useModal } from '@/hooks/use-modal-store';
 
 import { useState, useRef, KeyboardEvent, useEffect } from "react"
 import { Input } from "@/components/ui/input"
@@ -21,16 +18,12 @@ import { cn } from "@/lib/utils"
 import { useSidebar } from "@/components/ui/sidebar"
 import { threadKeys } from "@/hooks/react-query/threads/keys";
 
+import { LiquidMetalButton } from "@/components/ui/liquid-metal-button";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 
 // Import our focused contexts
 import { useThreadState } from "@/app/(home)/projects/[projectId]/thread/_contexts/ThreadStateContext";
@@ -38,15 +31,16 @@ import { useLayout } from "@/app/(home)/projects/[projectId]/thread/_contexts/La
 
 // Consolidated components and utilities
 import { IntegrationsDropdown } from '@/components/integrations/integrations-dropdown';
-import { ProfilePlanHeader, ProfileStats, ProfileLogoutButton } from '@/components/user/profile-popover';
-import { getUserInitials } from '@/lib/utils/user';
+import { ProfileDropdown } from '@/components/user/profile-popover';
+
+// Centralized thread color system
+import { threadStyles } from '@/lib/theme/thread-colors';
 
 export function SiteHeader() {
   // Get data from contexts instead of props
-  const { threadId, projectId, projectName, project } = useThreadState();
-  const { toggleSidePanel, isMobile, debugMode, isSidePanelOpen, handleProjectRenamed } = useLayout();
+  const { projectId, projectName, project } = useThreadState();
+  const { toggleSidePanel, isMobile, debugMode, handleProjectRenamed } = useLayout();
 
-  const pathname = usePathname();
   const { setOpen: setLeftSidebarOpen, state: leftSidebarState } = useSidebar();
   const { user } = useUser();
   const { getToken } = useAuth();
@@ -64,7 +58,6 @@ export function SiteHeader() {
   const [isDeploying, setIsDeploying] = useState<boolean>(false);
   const [isUpdatingDeployment, setIsUpdatingDeployment] = useState<boolean>(false);
   const [deployProgress, setDeployProgress] = useState(0);
-  const { onOpen } = useModal();
 
   // Progress bar simulation effect for perceived progress
   useEffect(() => {
@@ -200,7 +193,6 @@ export function SiteHeader() {
       } catch (error) {
         const errorMessage =
           error instanceof Error ? error.message : 'Failed to rename project';
-        console.error('Failed to rename project:', errorMessage);
         toast.error(errorMessage);
         setTempName(projectName);
       }
@@ -220,22 +212,23 @@ export function SiteHeader() {
   return (
     <>
       <header className={cn(
-        "bg-background border-0 shadow-none fixed top-0 left-0 right-0 flex h-14 shrink-0 items-center justify-between z-30 w-full",
-        isMobile ? "px-2" : "px-4"
+        "fixed top-0 left-0 right-0 flex h-14 shrink-0 items-center justify-between z-30 w-full",
+        threadStyles.header,
+        isMobile ? "px-4" : "px-6"
       )}>
         {/* Left side - Logo/hamburger and project name */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-6">
           {/* Logo button to open sidebar when closed */}
           {leftSidebarState === 'collapsed' && (
             <Button
               variant="ghost"
               size="icon"
               onClick={() => setLeftSidebarOpen(true)}
-              className="h-9 w-9 ml-2"
+              className={cn("h-8 w-8 hover:bg-transparent p-0", threadStyles.buttonGhost)}
               aria-label="Open sidebar"
               title="Open sidebar"
             >
-              <CheatcodeLogo size={22} />
+              <CheatcodeLogo size={20} />
             </Button>
           )}
 
@@ -244,122 +237,130 @@ export function SiteHeader() {
               variant="ghost"
               size="icon"
               onClick={() => setOpenMobile(true)}
-              className="h-9 w-9 mr-1"
+              className={cn("h-8 w-8 hover:bg-transparent", threadStyles.buttonGhost)}
               aria-label="Open sidebar"
             >
               <Menu className="h-4 w-4" />
             </Button>
           )}
 
-          <div className="flex items-center gap-2 px-3">
+          <div className="flex items-center group/name-edit">
             {isEditing ? (
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0">
                 <Input
                   ref={inputRef}
                   value={tempName}
                   onChange={(e) => setTempName(e.target.value)}
                   onKeyDown={handleKeyDown}
                   onBlur={saveNewName}
-                  className="h-8 w-auto min-w-[180px] text-base font-medium"
+                  className={cn(
+                    "h-7 w-auto min-w-[200px] text-[11px] font-mono px-2 uppercase tracking-widest rounded-sm transition-all focus-visible:ring-1 focus-visible:ring-thread-border-hover",
+                    threadStyles.input
+                  )}
                   maxLength={50}
                 />
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={saveNewName}
-                >
-                  <Check className="h-3.5 w-3.5" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-7 w-7"
-                  onClick={cancelEditing}
-                >
-                  <X className="h-3.5 w-3.5" />
-                </Button>
               </div>
             ) : !projectName || projectName === 'Project' ? (
-              <Skeleton className="h-5 w-32" />
+              <Skeleton className={cn("h-4 w-32", threadStyles.skeleton)} />
             ) : (
               <div
-                className="text-sm font-bold text-muted-foreground hover:text-foreground cursor-pointer flex items-center"
+                className="flex items-center gap-2 px-2 py-1 -ml-2 rounded-sm hover:bg-thread-surface-subtle cursor-pointer transition-all"
                 onClick={startEditing}
                 title="Click to rename project"
               >
-                {projectName}
+                <div className="text-[11px] font-mono text-thread-text-secondary group-hover/name-edit:text-thread-text-primary transition-colors tracking-[0.2em] uppercase font-bold">
+                  {projectName}
+                </div>
+                <div className="opacity-0 group-hover/name-edit:opacity-100 transition-opacity duration-200">
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="10"
+                      height="10"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-thread-text-muted"
+                    >
+                      <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+                    </svg>
+                </div>
               </div>
             )}
           </div>
         </div>
 
         {/* Right side - Action buttons pushed to extreme right */}
-        <div className="flex items-center gap-4">
+        <div className="flex items-center gap-6">
           {/* Debug mode indicator */}
           {debugMode && (
-            <div className="bg-amber-500 text-black text-xs px-2 py-0.5 rounded-md mr-2">
-              Debug
+            <div className="text-[10px] font-mono text-thread-status-warning uppercase tracking-widest opacity-80">
+              DEBUG MODE
             </div>
           )}
 
           {/* Action buttons on the extreme right */}
           {!isMobile && (
-            <div className="flex items-center gap-3">
-              <Button
-                variant="secondary"
-                size="sm"
-                className="h-8 px-3 text-xs bg-muted hover:bg-muted/80"
-                onClick={() => onOpen('paymentRequiredDialog')}
-              >
-                <TrendingUp className="w-3 h-3 mr-1.5 text-pink-400" />
-                Upgrade Plan
-              </Button>
+            <div className="flex items-center gap-4">
               {/* Hide deploy controls entirely for mobile app type */}
               {projectId && project?.app_type === 'mobile' ? null : isLoadingDeploymentStatus ? (
-                <Skeleton className="h-8 w-[140px]" />
+                <Skeleton className={cn("h-8 w-24 rounded-md", threadStyles.skeleton)} />
               ) : (
                 (deploymentStatus as any)?.has_deployment ? (
                   <Popover open={deployPopoverOpen} onOpenChange={setDeployPopoverOpen}>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 px-3 text-xs bg-muted hover:bg-muted/80"
+                      <button
+                        className={cn(
+                          "h-8 pl-2.5 pr-3 flex items-center gap-2 rounded-md transition-all group shadow-sm text-[11px] font-mono uppercase tracking-wider",
+                          threadStyles.buttonOutline
+                        )}
                       >
-                        <Globe className="w-3 h-3 mr-1.5 text-blue-400" />
-                        Manage Deployment
-                      </Button>
+                         <div className={cn(
+                           "h-1.5 w-1.5 rounded-full",
+                           (isDeploying || isUpdatingDeployment)
+                             ? threadStyles.statusDotWarning
+                             : threadStyles.statusDotActive
+                         )}></div>
+                        {(isDeploying || isUpdatingDeployment) ? 'Deploying...' : 'Deployed'}
+                      </button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-80 rounded-2xl ring-1 ring-white/10 bg-gray-950/95 backdrop-blur-md shadow-xl border-0 p-0">
-                      <div className="p-4 space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h4 className="text-sm font-semibold text-white flex items-center gap-2">
-                            <Globe className="w-4 h-4 text-gray-200" />
-                            Manage your deployment
-                          </h4>
-                          <span className="relative inline-flex h-2.5 w-2.5 rounded-full">
-                            <span className={`absolute inline-flex h-full w-full rounded-full opacity-75 animate-pulse ${(isDeploying || isUpdatingDeployment) ? 'bg-amber-400' : 'bg-emerald-400'}`} />
-                            <span className={`relative inline-flex rounded-full h-2.5 w-2.5 ${(isDeploying || isUpdatingDeployment) ? 'bg-amber-400 shadow-[0_0_8px_2px_rgba(251,191,36,0.7)]' : 'bg-emerald-400 shadow-[0_0_8px_2px_rgba(16,185,129,0.7)]'}`} />
-                          </span>
+                    <PopoverContent className={cn("w-80 rounded-lg shadow-2xl p-0 overflow-hidden font-mono", threadStyles.card)}>
+                      <div className="p-5 space-y-4">
+                        <div>
+                          <div className="flex items-center justify-between mb-1.5">
+                            <h4 className="text-xs font-medium text-thread-text-primary uppercase tracking-wide">Deployment</h4>
+                            <span className={cn(
+                              "text-[9px] font-mono px-1.5 py-0.5 rounded-sm border",
+                              (isDeploying || isUpdatingDeployment)
+                                ? threadStyles.statusBadgeWarning
+                                : threadStyles.statusBadgeSuccess
+                            )}>
+                              {(isDeploying || isUpdatingDeployment) ? 'IN PROGRESS' : 'ACTIVE'}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-thread-text-tertiary leading-normal">
+                            Manage your project's live deployment and view status.
+                          </p>
                         </div>
                         
                         {/* Progress bar during deployment/redeployment */}
                         {(isDeploying || isUpdatingDeployment) && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-gray-300">
+                          <div className="space-y-2 py-1">
+                            <div className="flex items-center justify-between text-[10px] font-mono text-thread-text-secondary uppercase tracking-wider">
+                              <span>
                                 {liveStatus?.state === 'preparing' ? 'Preparing...' :
-                                 liveStatus?.state === 'pushing' ? 'Pushing code...' :
+                                 liveStatus?.state === 'pushing' ? 'Pushing...' :
                                  liveStatus?.state === 'building' ? 'Building...' :
                                  liveStatus?.state === 'deploying' ? 'Deploying...' :
                                  isUpdatingDeployment ? 'Redeploying...' : 'Preparing...'}
                               </span>
-                              <span className="text-gray-400">{Math.round(deployProgress)}%</span>
+                              <span>{Math.round(deployProgress)}%</span>
                             </div>
-                            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                            <div className="h-0.5 bg-thread-surface rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-gradient-to-r from-amber-400 to-amber-300 rounded-full transition-all duration-300 ease-out"
+                                className="h-full bg-thread-text-primary rounded-full transition-all duration-300 ease-out"
                                 style={{ width: `${deployProgress}%` }}
                               />
                             </div>
@@ -369,107 +370,101 @@ export function SiteHeader() {
                         {/* Deployed site link */}
                         {(deploymentStatus as any)?.domains && (deploymentStatus as any).domains.length > 0 && (
                           <div className="space-y-2">
-                            <p className="text-sm text-muted-foreground">Your site is live at:</p>
                             {(deploymentStatus as any).domains.map((domain: string, index: number) => (
                               <a
                                 key={index}
                                 href={`https://${domain}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="flex items-center gap-2 px-3 py-2 rounded-xl bg-white/5 ring-1 ring-white/10 hover:bg-white/10 hover:ring-white/20 transition-colors group"
+                                className="flex items-center gap-2 text-thread-text-secondary hover:text-thread-text-primary transition-colors group"
                               >
-                                <Globe className="w-4 h-4 text-gray-200" />
-                                <span className="text-sm text-gray-200 group-hover:text-white truncate">{domain}</span>
-                                <ExternalLink className="w-3.5 h-3.5 text-gray-200 ml-auto" />
+                                <Globe className="w-3.5 h-3.5" />
+                                <span className="text-xs truncate font-mono underline decoration-thread-border underline-offset-4 group-hover:decoration-thread-text-tertiary">{domain}</span>
+                                <ExternalLink className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                               </a>
                             ))}
                           </div>
                         )}
 
-                        {/* Action buttons side by side */}
-                        <div className="flex gap-2">
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            className="flex-1 h-9 text-xs bg-gradient-to-br from-white/10 to-white/5 hover:from-white/15 hover:to-white/10 text-white ring-1 ring-white/10"
-                        onClick={async () => {
-                          if (!projectId) {
-                            toast.error('Missing project ID');
-                            return;
-                          }
-                          try {
-                            setIsUpdatingDeployment(true);
-                                // temporarily show amber status while redeploying
-                                // UI effect handled by disabling button state below
-                            const apiClient = createClerkBackendApi(getToken);
-                                await apiClient.post(`/project/${projectId}/deploy/git/update`, {}, {
-                                  timeout: 600000, // 10 minutes for deploy update requests
-                                });
-                            toast.success('Deployment update triggered');
-                                setDeployPopoverOpen(false);
-                            // Invalidate deployment status cache to refresh UI
-                            queryClient.invalidateQueries({ queryKey: ['deployment-status', projectId] });
-                          } catch (e) {
-                            console.error(e);
-                            toast.error('Failed to trigger deployment update');
-                          } finally {
-                            setIsUpdatingDeployment(false);
-                          }
-                        }}
-                        disabled={isUpdatingDeployment}
-                      >
-                            {isUpdatingDeployment ? (
-                              <Loader2 className="w-3 h-3 mr-1.5 animate-spin text-amber-300" />
-                            ) : (
-                              <Rocket className="w-3 h-3 mr-1.5 text-gray-200" />
-                            )}
-                            Redeploy
-                          </Button>
-                        </div>
+                        {/* Liquid Metal Button */}
+                        <LiquidMetalButton
+                          className="w-full"
+                          onClick={async () => {
+                            if (!projectId) {
+                              toast.error('Missing project ID');
+                              return;
+                            }
+                            try {
+                              setIsUpdatingDeployment(true);
+                              const apiClient = createClerkBackendApi(getToken);
+                              await apiClient.post(`/project/${projectId}/deploy/git/update`, {}, {
+                                timeout: 600000,
+                              });
+                              toast.success('Deployment update triggered');
+                              setDeployPopoverOpen(false);
+                              queryClient.invalidateQueries({ queryKey: ['deployment-status', projectId] });
+                            } catch (e) {
+                              toast.error('Failed to trigger deployment update');
+                            } finally {
+                              setIsUpdatingDeployment(false);
+                            }
+                          }}
+                          disabled={isUpdatingDeployment}
+                        >
+                          {isUpdatingDeployment ? (
+                            <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          ) : (
+                            <RefreshCw className="w-3.5 h-3.5 mr-2" />
+                          )}
+                          <span className="whitespace-nowrap">Redeploy Project</span>
+                        </LiquidMetalButton>
                       </div>
                     </PopoverContent>
                   </Popover>
                 ) : (
                   <Popover open={deployPopoverOpen} onOpenChange={setDeployPopoverOpen}>
                     <PopoverTrigger asChild>
-                      <Button
-                        variant="secondary"
-                        size="sm"
-                        className="h-8 px-3 text-xs bg-muted hover:bg-muted/80"
+                      <button
+                        className={cn(
+                          "h-8 pl-2.5 pr-3 flex items-center gap-2 rounded-md transition-all group shadow-sm text-[11px] font-mono uppercase tracking-wider",
+                          threadStyles.buttonOutline
+                        )}
                       >
-                        <Globe className="w-3 h-3 mr-1.5 text-blue-400" />
-                        Deploy
-                      </Button>
+                        <Rocket className={`w-3.5 h-3.5 ${isDeploying ? 'animate-pulse' : ''}`} />
+                        {isDeploying ? 'Deploying...' : 'Deploy'}
+                      </button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-80 rounded-2xl ring-1 ring-white/10 bg-gray-950/95 backdrop-blur-md shadow-xl border-0 p-0">
-                      <div className="p-4 space-y-3">
-                        <h4 className="text-sm font-semibold text-white">Deploy your site</h4>
-                        <p className="text-sm text-muted-foreground">
-                            Your app will be deployed and you&apos;ll receive a live URL.
+                    <PopoverContent className={cn("w-80 rounded-lg shadow-2xl p-0 overflow-hidden font-mono", threadStyles.card)}>
+                      <div className="p-5 space-y-5">
+                        <div>
+                          <h4 className="text-xs font-medium text-thread-text-primary uppercase tracking-wide">Deploy Project</h4>
+                          <p className="text-[10px] text-thread-text-tertiary mt-1.5 leading-normal">
+                            Deploy your project to get a live URL accessible from anywhere.
                           </p>
-                        
+                        </div>
+
                         {/* Progress bar during deployment */}
                         {isDeploying && (
-                          <div className="space-y-1.5">
-                            <div className="flex items-center justify-between text-xs">
-                              <span className="text-gray-300">
-                                {liveStatus?.state === 'preparing' ? 'Preparing...' :
-                                 liveStatus?.state === 'pushing' ? 'Pushing code...' :
-                                 liveStatus?.state === 'building' ? 'Building...' :
-                                 liveStatus?.state === 'deploying' ? 'Deploying...' : 'Preparing...'}
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between text-[10px] font-mono uppercase tracking-widest text-thread-text-tertiary">
+                              <span>
+                                {liveStatus?.state === 'preparing' ? 'Preparing' :
+                                 liveStatus?.state === 'pushing' ? 'Pushing' :
+                                 liveStatus?.state === 'building' ? 'Building' :
+                                 liveStatus?.state === 'deploying' ? 'Deploying' : 'Preparing'}
                               </span>
-                              <span className="text-gray-400">{Math.round(deployProgress)}%</span>
+                              <span>{Math.round(deployProgress)}%</span>
                             </div>
-                            <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
+                            <div className="h-0.5 bg-thread-surface rounded-full overflow-hidden">
                               <div
-                                className="h-full bg-gradient-to-r from-blue-400 to-blue-300 rounded-full transition-all duration-300 ease-out"
+                                className="h-full bg-thread-text-primary rounded-full transition-all duration-300 ease-out"
                                 style={{ width: `${deployProgress}%` }}
                               />
                             </div>
                           </div>
                         )}
-                        <Button
-                          className="w-full h-9 bg-white text-black hover:bg-white/90"
+                        <LiquidMetalButton
+                          className="w-full"
                           onClick={async () => {
                             if (!projectId) {
                               toast.error('Missing project ID');
@@ -494,7 +489,6 @@ export function SiteHeader() {
                                 toast.error('Deployment failed');
                               }
                             } catch (e) {
-                              console.error(e);
                               toast.error('Deployment failed');
                             } finally {
                               setIsDeploying(false);
@@ -503,77 +497,48 @@ export function SiteHeader() {
                           disabled={isDeploying}
                         >
                           {isDeploying ? (
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin text-blue-500" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
-                            <Globe className="w-4 h-4 mr-2 text-blue-500" />
+                            <Rocket className="w-3.5 h-3.5" />
                           )}
-                          {isDeploying ? 'Deploying...' : 'Deploy Site'}
-                        </Button>
+                          <span className="whitespace-nowrap">{isDeploying ? 'Deploying...' : 'Deploy Now'}</span>
+                        </LiquidMetalButton>
                       </div>
                     </PopoverContent>
                   </Popover>
                 )
               )}
               
-              {/* Integrations Dropdown */}
-              <IntegrationsDropdown triggerVariant="button" />
+              {/* Integrations Dropdown - Simplified */}
+              <IntegrationsDropdown triggerVariant="ghost" />
             </div>
           )}
 
           {/* User Profile */}
           {user && !isMobile && (
-            <div className="mr-2">
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <button className="h-8 w-8 rounded-full hover:opacity-80 transition-opacity">
-                    <Avatar className="h-8 w-8 border border-white/[0.12]">
-                      <AvatarImage src={user.imageUrl} alt={user.fullName || 'User'} />
-                      <AvatarFallback className="bg-gradient-to-br from-blue-500 to-purple-600 text-white text-xs font-semibold">
-                        {getUserInitials(user.fullName || user.firstName || user.emailAddresses[0]?.emailAddress?.split('@')[0] || 'U')}
-                      </AvatarFallback>
-                    </Avatar>
-                  </button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent
-                  className="w-64 rounded-2xl ring-1 ring-white/10 bg-gray-900/95 backdrop-blur-md shadow-xl border-0"
-                  align="end"
-                  sideOffset={8}
-                >
-                  <ProfilePlanHeader />
-                  <ProfileStats />
-                  <ProfileLogoutButton />
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
+            <ProfileDropdown
+              user={{
+                imageUrl: user.imageUrl,
+                fullName: user.fullName,
+                firstName: user.firstName,
+                email: user.emailAddresses[0]?.emailAddress,
+              }}
+            />
           )}
 
-          {isMobile ? (
-            // Mobile view - only show the side panel toggle
+          {isMobile && (
             <Button
               variant="ghost"
               size="icon"
               onClick={toggleSidePanel}
-              className="h-9 w-9 cursor-pointer"
+              className={cn("h-8 w-8 cursor-pointer", threadStyles.buttonGhost)}
               aria-label="Toggle computer panel"
             >
               <PanelRightOpen className="h-4 w-4" />
             </Button>
-          ) : (
-            // Desktop view - show all buttons with tooltips
-            <div className="flex gap-2 ml-2">
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={toggleSidePanel}
-                className="h-9 w-9 cursor-pointer"
-                title="Toggle Computer Preview (CMD+I)"
-              >
-                <PanelRightOpen className="h-4 w-4" />
-              </Button>
-            </div>
           )}
         </div>
       </header>
     </>
   )
-} 
+}

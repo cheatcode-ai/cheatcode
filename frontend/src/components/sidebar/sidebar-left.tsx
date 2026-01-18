@@ -3,41 +3,24 @@
 import * as React from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
-import { Bot, Menu, Plus, X } from 'lucide-react';
-import { useUser } from '@clerk/nextjs';
+import { Plus, X } from 'lucide-react';
 
-import { CheatcodeLogo } from '@/components/sidebar/cheatcode-logo';
 import { NavProjects } from '@/components/sidebar/nav-projects';
 import {
   Sidebar,
   SidebarContent,
   SidebarFooter,
-  SidebarGroup,
   SidebarHeader,
-  SidebarMenuButton,
   SidebarRail,
-  SidebarTrigger,
   useSidebar,
 } from '@/components/ui/sidebar';
-import { useEffect, useState } from 'react';
-import { createClient } from '@/lib/supabase/client';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/use-mobile';
-import { Badge } from '../ui/badge';
-import { usePathname } from 'next/navigation';
 
 import { Button } from '@/components/ui/button';
 
 export function SidebarLeft({
   ...props
 }: React.ComponentProps<typeof Sidebar>) {
-  const { user } = useUser();
-  const { setOpen, openMobile, setOpenMobile, state, isMobile } = useSidebar();
-  const pathname = usePathname();
+  const { setOpen, state, isMobile } = useSidebar();
 
   // Handle click outside to close sidebar
   const sidebarRef = React.useRef<HTMLDivElement>(null);
@@ -74,7 +57,7 @@ export function SidebarLeft({
       {/* Backdrop */}
       {state === 'expanded' && (
         <div 
-          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40"
+          className="fixed inset-0 bg-background/20 backdrop-blur-sm z-40"
           onClick={() => setOpen(false)}
         />
       )}
@@ -82,76 +65,66 @@ export function SidebarLeft({
       <Sidebar
         ref={sidebarRef}
         collapsible="offcanvas"
-        className={`fixed left-0 top-0 h-full border-r-0 bg-background/95 backdrop-blur-sm [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] transition-transform duration-200 ease-in-out ${
-          state === 'expanded' ? 'translate-x-0 shadow-2xl z-50' : '-translate-x-full z-50'
+        className={`fixed left-0 top-0 h-full border-r border-zinc-800 bg-zinc-950 [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] transition-transform duration-300 ease-in-out ${
+          state === 'expanded' ? 'translate-x-0 z-50' : '-translate-x-full z-50'
         }`}
         style={{ width: '256px' }}
         {...props}
       >
-        <SidebarHeader className="px-2 pt-6 pb-2">
-          <div className="flex h-[40px] items-center px-1 relative">
+        {/* Header Cell */}
+        <SidebarHeader className="h-16 border-b border-zinc-800 px-5 flex items-center justify-center bg-zinc-950/50 backdrop-blur-sm sticky top-0 z-10">
+          <div className="flex w-full items-center justify-center relative">
             <Link
               href="/"
               onClick={() => setOpen(false)}
-              className="flex items-center hover:bg-accent rounded-md p-1 transition-colors"
+              className="flex items-center transition-opacity hover:opacity-80"
               title="Home"
             >
               <Image
                 src="/logo-white.png"
                 alt="Cheatcode Logo"
-                width={140}
-                height={22}
+                width={110}
+                height={20}
+                className="invert dark:invert-0"
                 priority
               />
             </Link>
-            {state !== 'collapsed' && (
-              <div className="ml-2 transition-all duration-200 ease-in-out whitespace-nowrap">
-              </div>
-            )}
-            <div className="ml-auto flex items-center gap-2">
+            {isMobile && (
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setOpen(false)}
-                className="h-8 w-8"
-                title="Close sidebar"
+                className="h-8 w-8 text-zinc-400 hover:text-white hover:bg-zinc-900 absolute right-0"
               >
                 <X className="h-4 w-4" />
               </Button>
-              {isMobile && (
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => setOpenMobile(true)}
-                      className="h-8 w-8 flex items-center justify-center rounded-md hover:bg-accent"
-                    >
-                      <Menu className="h-4 w-4" />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>Open menu</TooltipContent>
-                </Tooltip>
-              )}
-            </div>
+            )}
           </div>
         </SidebarHeader>
-        <SidebarContent className="[&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-          <SidebarGroup>
-            <Link href="/">
-              <SidebarMenuButton>
-                <Plus className="h-4 w-4 mr-2" />
-                <span className="flex items-center justify-between w-full">
-                  New Project
-                </span>
-              </SidebarMenuButton>
+
+        <SidebarContent className="flex flex-col [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none'] p-0">
+          {/* New Project Control Cell */}
+          <div className="p-4 border-b border-zinc-800 flex justify-center">
+            <Link href="/" className="w-full max-w-[200px]">
+              <button 
+                className="group relative w-full flex items-center justify-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 transition-all duration-200 py-2 px-3 text-xs font-bold tracking-widest uppercase shadow-sm border border-transparent rounded-sm"
+              >
+                <Plus className="h-3.5 w-3.5" />
+                <span>New Project</span>
+              </button>
             </Link>
-
-
-          </SidebarGroup>
-          <NavProjects />
+          </div>
+          
+          <div className="flex-1">
+            <NavProjects />
+          </div>
         </SidebarContent>
-        <SidebarFooter>
+        
+        {/* Footer Cell */}
+        <SidebarFooter className="border-t border-zinc-800 p-4 bg-zinc-950">
+          {/* Footer content */}
         </SidebarFooter>
-        <SidebarRail />
+        <SidebarRail className="hover:after:bg-zinc-800" />
       </Sidebar>
     </>
   );

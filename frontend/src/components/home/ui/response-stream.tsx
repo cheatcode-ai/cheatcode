@@ -222,7 +222,6 @@ function useTextStream({
 
         markComplete();
       } catch (error) {
-        console.error('Error processing text stream:', error);
         markComplete();
         onError?.(error);
       }

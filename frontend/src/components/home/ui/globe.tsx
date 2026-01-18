@@ -94,13 +94,24 @@ export function Globe({
   };
 
   useEffect(() => {
+    let resizeTimeout: NodeJS.Timeout | null = null;
+
     const onResize = () => {
       if (canvasRef.current) {
         widthRef.current = canvasRef.current.offsetWidth;
       }
     };
 
-    window.addEventListener('resize', onResize);
+    // Debounced resize handler
+    const debouncedResize = () => {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
+      resizeTimeout = setTimeout(onResize, 150);
+    };
+
+    window.addEventListener('resize', debouncedResize);
+    // Initial size check (immediate)
     onResize();
 
     const globe = createGlobe(canvasRef.current!, {
@@ -118,7 +129,10 @@ export function Globe({
     setTimeout(() => (canvasRef.current!.style.opacity = '1'), 0);
     return () => {
       globe.destroy();
-      window.removeEventListener('resize', onResize);
+      window.removeEventListener('resize', debouncedResize);
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
     };
   }, [rs, finalConfig]);
 

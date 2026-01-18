@@ -1,15 +1,13 @@
 import React from 'react';
-import Image from 'next/image';
 import {
-    FileText, FileImage, FileCode, FilePlus, FileSpreadsheet, FileVideo,
+    FileText, FileImage, FileCode, FileSpreadsheet, FileVideo,
     FileAudio, FileType, Database, Archive, File, ExternalLink,
-    Download, Loader2
+    Loader2
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { AttachmentGroup } from './attachment-group';
 import { MarkdownRenderer } from './preview-renderers/markdown-renderer';
 import { useFileContent, useImageContent } from '@/hooks/react-query/files';
-import { useAuth } from '@clerk/nextjs';
 import { Project } from '@/lib/api';
 import { API_URL } from '@/lib/api/config';
 
@@ -139,7 +137,7 @@ function getFileUrl(sandboxId: string | undefined, path: string, appType: string
             return String.fromCharCode(parseInt(hexCode, 16));
         });
     } catch (e) {
-        console.error('Error processing Unicode escapes in path:', e);
+        // Error processing Unicode escapes in path - continue with original
     }
 
     const url = new URL(`${API_URL}/sandboxes/${sandboxId}/files/content`);
@@ -167,10 +165,6 @@ interface FileAttachmentProps {
     project?: Project;
 }
 
-// Cache fetched content between mounts to avoid duplicate fetches
-const contentCache = new Map<string, string>();
-const errorCache = new Set<string>();
-
 export function FileAttachment({
     filepath,
     onClick,
@@ -182,8 +176,6 @@ export function FileAttachment({
     collapsed = true,
     project
 }: FileAttachmentProps) {
-    // Authentication 
-    const { getToken } = useAuth();
 
     // Simplified state management
     const [hasError, setHasError] = React.useState(false);
@@ -243,7 +235,7 @@ export function FileAttachment({
     if (isImage && showPreview) {
         // Use custom height for images if provided through CSS variable
         const imageHeight = isGridLayout
-            ? customStyle['--attachment-height'] as string
+            ? (customStyle as Record<string, string>)?.['--attachment-height'] ?? '180px'
             : '54px';
 
         // Show loading state for images
@@ -252,9 +244,9 @@ export function FileAttachment({
                 <button
                     onClick={handleClick}
                     className={cn(
-                        "group relative min-h-[54px] min-w-fit rounded-xl cursor-pointer",
-                        "border border-black/10 dark:border-white/10",
-                        "bg-black/5 dark:bg-black/20",
+                        "group relative min-h-[54px] min-w-fit rounded-sm cursor-pointer",
+                        "border border-zinc-900 bg-background hover:bg-zinc-900 rounded-sm",
+                        "bg-zinc-900",
                         "p-0 overflow-hidden",
                         "flex items-center justify-center",
                         isGridLayout ? "w-full" : "min-w-[54px]",
@@ -278,9 +270,9 @@ export function FileAttachment({
                 <button
                     onClick={handleClick}
                     className={cn(
-                        "group relative min-h-[54px] min-w-fit rounded-xl cursor-pointer",
-                        "border border-black/10 dark:border-white/10",
-                        "bg-black/5 dark:bg-black/20",
+                        "group relative min-h-[54px] min-w-fit rounded-sm cursor-pointer",
+                        "border border-zinc-900 bg-background hover:bg-zinc-900 rounded-sm",
+                        "bg-zinc-900",
                         "p-0 overflow-hidden",
                         "flex flex-col items-center justify-center gap-1",
                         isGridLayout ? "w-full" : "inline-block",
@@ -303,9 +295,9 @@ export function FileAttachment({
             <button
                 onClick={handleClick}
                 className={cn(
-                    "group relative min-h-[54px] rounded-2xl cursor-pointer",
-                    "border border-black/10 dark:border-white/10",
-                    "bg-black/5 dark:bg-black/20",
+                    "group relative min-h-[54px] rounded-sm cursor-pointer",
+                    "border border-zinc-900 bg-background hover:bg-zinc-900 rounded-sm",
+                    "bg-zinc-900",
                     "p-0 overflow-hidden", // No padding, content touches borders
                     "flex items-center justify-center", // Center the image
                     isGridLayout ? "w-full" : "inline-block", // Full width in grid
@@ -319,7 +311,7 @@ export function FileAttachment({
                 title={filename}
             >
                 <img
-                    src={sandboxId ? imageUrl : fileUrl}
+                    src={sandboxId ? (imageUrl ?? undefined) : fileUrl}
                     alt={filename}
                     className={cn(
                         "max-h-full", // Respect parent height constraint
@@ -331,45 +323,12 @@ export function FileAttachment({
                         objectFit: isGridLayout ? "cover" : "contain"
                     }}
                     onLoad={() => {
-                        console.log("Image loaded successfully:", filename);
+                        // Image loaded successfully
                     }}
                     onError={(e) => {
-                        // Avoid logging the error for all instances of the same image
-                        console.error('Image load error for:', filename);
-
-                        // Only log details in dev environments to avoid console spam
-                        if (process.env.NODE_ENV === 'development') {
-                            const imgSrc = sandboxId ? imageUrl : fileUrl;
-                            console.error('Image URL:', imgSrc);
-
-                            // Additional debugging for blob URLs
-                            if (typeof imgSrc === 'string' && imgSrc.startsWith('blob:')) {
-                                console.error('Blob URL failed to load. This could indicate:');
-                                console.error('- Blob URL was revoked prematurely');
-                                console.error('- Blob data is corrupted or invalid');
-                                console.error('- MIME type mismatch');
-
-                                // Try to check if the blob URL is still valid
-                                fetch(imgSrc, { method: 'HEAD' })
-                                    .then(response => {
-                                        console.error(`Blob URL HEAD request status: ${response.status}`);
-                                        console.error(`Blob URL content type: ${response.headers.get('content-type')}`);
-                                    })
-                                    .catch(err => {
-                                        console.error('Blob URL HEAD request failed:', err.message);
-                                    });
-                            }
-
-                            // Check if the error is potentially due to authentication
-                            if (sandboxId) {
-                                console.error('Authentication issue: Check token availability');
-                            }
-                        }
-
                         setHasError(true);
                         // If the image failed to load and we have a localPreviewUrl that's a blob URL, try using it directly
                         if (localPreviewUrl && typeof localPreviewUrl === 'string' && localPreviewUrl.startsWith('blob:')) {
-                            console.log('Falling back to localPreviewUrl for:', filename);
                             (e.target as HTMLImageElement).src = localPreviewUrl;
                         }
                     }}
@@ -391,7 +350,7 @@ export function FileAttachment({
         return (
             <div
                 className={cn(
-                    "group relative rounded-xl w-full",
+                    "group relative rounded-sm w-full",
                     "border",
                     "bg-card",
                     "overflow-hidden",
@@ -470,7 +429,7 @@ export function FileAttachment({
                     {onClick && (
                         <button
                             onClick={handleClick}
-                            className="p-1 rounded-full hover:bg-black/10 dark:hover:bg-white/10"
+                            className="p-1 rounded-full hover:bg-background/10 dark:hover:bg-white/10"
                         >
                             <ExternalLink size={14} />
                         </button>
@@ -481,16 +440,16 @@ export function FileAttachment({
     }
 
     // Regular files with details
-    const safeStyle = { ...customStyle };
+    const safeStyle: React.CSSProperties = { ...customStyle };
     delete safeStyle.height;
-    delete safeStyle['--attachment-height'];
+    delete (safeStyle as Record<string, unknown>)['--attachment-height'];
 
     return (
         <button
             onClick={handleClick}
             className={cn(
-                "group flex rounded-xl transition-all duration-200 min-h-[54px] h-[54px] overflow-hidden cursor-pointer",
-                "border border-black/10 dark:border-white/10",
+                "group flex rounded-sm transition-all duration-200 min-h-[54px] h-[54px] overflow-hidden cursor-pointer",
+                "border border-zinc-900 bg-background hover:bg-zinc-900 rounded-sm",
                 "bg-sidebar",
                 "text-left",
                 "pr-7", // Right padding for X button
@@ -502,7 +461,7 @@ export function FileAttachment({
             style={safeStyle}
             title={filename}
         >
-            <div className="relative min-w-[54px] w-[54px] h-full aspect-square flex-shrink-0 bg-black/5 dark:bg-white/5">
+            <div className="relative min-w-[54px] w-[54px] h-full aspect-square flex-shrink-0 bg-zinc-900">
                 <div className="flex items-center justify-center h-full w-full">
                     <IconComponent className="h-5 w-5 text-black/60 dark:text-white/60" />
                 </div>

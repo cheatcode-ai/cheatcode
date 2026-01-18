@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { isLocalMode } from '@/lib/config';
 import { useBillingStatusQuery } from '@/hooks/react-query/threads/use-billing-status';
 import { BillingData, AgentStatus } from '../_types';
 
@@ -50,7 +49,6 @@ export function useBilling(
       }
       return false;
     } catch (err) {
-      console.error('Error checking billing status:', err);
       return false;
     }
   }, [projectAccountId, billingStatusQuery]);
@@ -65,7 +63,6 @@ export function useBilling(
 
   useEffect(() => {
     if (projectAccountId && initialLoadCompleted && !billingStatusQuery.data) {
-      console.log('Checking billing status on initial load');
       checkBillingLimits();
     }
   }, [projectAccountId, checkBillingLimits, initialLoadCompleted, billingStatusQuery.data]);

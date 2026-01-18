@@ -1,0 +1,97 @@
+services:
+  # Backend API with hot reload
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    ports:
+      - "8000:8000"
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    environment:
+      - ENV_MODE=development
+      - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dev-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+  # Dramatiq worker for background tasks
+  worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev
+    command: uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
+    env_file:
+      - ./backend/.env
+    volumes:
+      - ./backend:/app
+      - /app/.venv
+    environment:
+      - ENV_MODE=development
+      - REDIS_URL=redis://redis:6379
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      redis:
+        condition: service_healthy
+    networks:
+      - dev-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    restart: unless-stopped
+
+  # Frontend with hot reload
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      target: development
+    ports:
+      - "3000:3000"
+    env_file:
+      - ./frontend/.env
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+      - WATCHPACK_POLLING=true
+    networks:
+      - dev-network
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+
+  # Redis
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:6380:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - dev-network
+    command: redis-server --appendonly yes --bind 0.0.0.0 --protected-mode no
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+networks:
+  dev-network:
+    driver: bridge
+
+volumes:
+  redis_data:

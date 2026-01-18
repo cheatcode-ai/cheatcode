@@ -1,8 +1,7 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect } from 'react';
+import React, { createContext, useContext, useCallback } from 'react';
 import { useSubscription } from '@/hooks/react-query/subscriptions/use-billing';
-import { isLocalMode } from '@/lib/config';
 import { BillingData } from '../_types';
 import { useBilling as useBaseBilling } from '../_hooks';
 import { useThreadState } from './ThreadStateContext';
@@ -21,10 +20,10 @@ interface BillingContextValue {
 
 const BillingContext = createContext<BillingContextValue | null>(null);
 
-export function useBilling() {
+export function useThreadBilling() {
   const context = useContext(BillingContext);
   if (!context) {
-    throw new Error('useBilling must be used within BillingProvider');
+    throw new Error('useThreadBilling must be used within ThreadBillingProvider');
   }
   return context;
 }
@@ -33,7 +32,7 @@ interface BillingProviderProps {
   children: React.ReactNode;
 }
 
-export function BillingProvider({ children }: BillingProviderProps) {
+export function ThreadBillingProvider({ children }: BillingProviderProps) {
   const { project, initialLoadCompleted } = useThreadState();
 
   const {
@@ -41,9 +40,7 @@ export function BillingProvider({ children }: BillingProviderProps) {
     setShowBillingAlert,
     billingData,
     setBillingData,
-    checkBillingLimits,
-    billingStatusQuery,
-  } = useBaseBilling(project?.account_id, undefined, initialLoadCompleted);
+  } = useBaseBilling(project?.account_id, 'idle', initialLoadCompleted);
 
   const { data: subscriptionData } = useSubscription();
   const subscriptionStatus: 'active' | 'no_subscription' = subscriptionData?.status === 'active'

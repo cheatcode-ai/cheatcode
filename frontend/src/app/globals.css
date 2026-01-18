@@ -44,6 +44,34 @@
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
+
+  /* Thread Screen Color System - Tailwind integration */
+  --color-thread-panel: var(--thread-panel-bg);
+  --color-thread-panel-translucent: var(--thread-panel-bg-translucent);
+  --color-thread-surface: var(--thread-surface);
+  --color-thread-surface-hover: var(--thread-surface-hover);
+  --color-thread-surface-subtle: var(--thread-surface-subtle);
+  --color-thread-border: var(--thread-border);
+  --color-thread-border-subtle: var(--thread-border-subtle);
+  --color-thread-border-hover: var(--thread-border-hover);
+  --color-thread-divider: var(--thread-divider);
+  --color-thread-text-primary: var(--thread-text-primary);
+  --color-thread-text-secondary: var(--thread-text-secondary);
+  --color-thread-text-tertiary: var(--thread-text-tertiary);
+  --color-thread-text-muted: var(--thread-text-muted);
+  --color-thread-text-placeholder: var(--thread-text-placeholder);
+  --color-thread-hover: var(--thread-hover-bg);
+  --color-thread-active: var(--thread-active-bg);
+  --color-thread-status-success: var(--thread-status-success);
+  --color-thread-status-success-bg: var(--thread-status-success-bg);
+  --color-thread-status-warning: var(--thread-status-warning);
+  --color-thread-status-warning-bg: var(--thread-status-warning-bg);
+  --color-thread-status-error: var(--thread-status-error);
+  --color-thread-status-error-bg: var(--thread-status-error-bg);
+  --color-thread-status-info: var(--thread-status-info);
+  --color-thread-accent-purple: var(--thread-accent-purple);
+  --color-thread-skeleton: var(--thread-skeleton-bg);
+  --color-thread-loading: var(--thread-loading-dot);
   --animate-accordion-down: accordion-down 0.2s ease-out;
   --animate-accordion-up: accordion-up 0.2s ease-out;
   --animate-marquee: marquee var(--duration) infinite linear;
@@ -225,7 +253,7 @@
 }
 
 :root {
-  --background: #000000;
+  --background: #09090b;
   --foreground: oklch(0.985 0 0);
   --card: #000000;
   --card-foreground: oklch(0.985 0 0);
@@ -258,40 +286,104 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
+
+  /* ============================================
+   * THREAD SCREEN COLOR SYSTEM
+   * All thread-related colors centralized here
+   * ============================================ */
+
+  /* Thread Panel Backgrounds */
+  --thread-panel-bg: #09090b;                    /* zinc-950 */
+  --thread-panel-bg-translucent: rgba(9, 9, 11, 0.8);  /* zinc-950/80 */
+  --thread-surface: #131112;                     
+  --thread-surface-hover: #1c1a1b;               
+  --thread-surface-subtle: rgba(19, 17, 18, 0.5); 
+
+  /* Thread Borders */
+  --thread-border: #27272a;                      /* zinc-800 */
+  --thread-border-subtle: rgba(39, 39, 42, 0.5); /* zinc-800/50 */
+  --thread-border-hover: #3f3f46;                /* zinc-700 */
+  --thread-divider: #52525b;                     /* zinc-600 */
+
+  /* Thread Text Colors */
+  --thread-text-primary: #ffffff;                /* white */
+  --thread-text-secondary: #a1a1aa;              /* zinc-400 */
+  --thread-text-tertiary: #71717a;               /* zinc-500 */
+  --thread-text-muted: #52525b;                  /* zinc-600 */
+  --thread-text-placeholder: #71717a;            /* zinc-500 */
+
+  /* Thread Interactive States */
+  --thread-hover-bg: #1c1a1b;                    
+  --thread-active-bg: #27272a;                   
+  --thread-focus-ring: #52525b;                  /* zinc-600 */
+
+  /* Thread Status Colors */
+  --thread-status-success: #10b981;              /* emerald-500 */
+  --thread-status-success-bg: rgba(16, 185, 129, 0.1);
+  --thread-status-success-border: rgba(16, 185, 129, 0.2);
+  --thread-status-success-glow: rgba(16, 185, 129, 0.4);
+
+  --thread-status-warning: #f59e0b;              /* amber-500 */
+  --thread-status-warning-bg: rgba(245, 158, 11, 0.1);
+  --thread-status-warning-border: rgba(245, 158, 11, 0.2);
+
+  --thread-status-error: #ef4444;                /* red-500 */
+  --thread-status-error-bg: rgba(239, 68, 68, 0.1);
+  --thread-status-error-border: rgba(127, 29, 29, 0.3); /* red-900/30 */
+  --thread-status-error-text: #f87171;           /* red-400 */
+
+  --thread-status-info: #3b82f6;                 /* blue-500 */
+
+  /* Thread Accent Colors */
+  --thread-accent-purple: #a855f7;               /* purple-500 */
+  --thread-accent-purple-glow: rgba(168, 85, 247, 0.2);
+
+  /* Thread Message Bubbles */
+  --thread-user-message-bg: #131112;
+  --thread-assistant-message-bg: rgba(24, 24, 27, 0.2); /* zinc-900/20 */
+  --thread-assistant-message-border: rgba(39, 39, 42, 0.5);
+
+  /* Thread Code/Tool Colors */
+  --thread-code-bg: rgba(255, 255, 255, 0.01);
+  --thread-tool-border: #27272a;
+
+  /* Thread Skeleton/Loading */
+  --thread-skeleton-bg: rgba(39, 39, 42, 0.5);   /* zinc-800/50 */
+  --thread-loading-dot: #a855f7;                 /* purple-500 */
 }
 
 .dark {
-  --background: #000000; /* pure black background */
+  --background: #09090b;
   --foreground: oklch(0.985 0 0);
-  --card: #000000;
+  --card: #141414;
   --card-foreground: oklch(0.985 0 0);
-  --popover: #262626;
+  --popover: #141414;
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
   --primary-foreground: oklch(0.205 0 0);
   --secondary: oklch(54.65% 0.246 262.87);
   --secondary-foreground: oklch(0.985 0 0);
-  --muted: #1a1a1a;
+  --muted: #1f1f1f;
   --muted-foreground: oklch(0.708 0 0);
-  --accent: #0d0d0d;
+  --accent: #1f1f1f;
   --accent-foreground: oklch(0.985 0 0);
   --destructive: oklch(0.396 0.141 25.723);
   --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: #333333;
-  --input: #1a1a1a;
+  --border: #222222;
+  --input: #1f1f1f;
   --ring: oklch(0.439 0 0);
   --chart-1: oklch(0.488 0.243 264.376);
   --chart-2: oklch(0.696 0.17 162.48);
   --chart-3: oklch(0.769 0.188 70.08);
   --chart-4: oklch(0.627 0.265 303.9);
   --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: oklch(0.185 0.005 285.823);
+  --sidebar: #0f0f0f;
   --sidebar-foreground: oklch(0.985 0 0);
   --sidebar-primary: oklch(0.488 0.243 264.376);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.269 0 0);
+  --sidebar-accent: #1f1f1f;
   --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: oklch(0.269 0 0);
+  --sidebar-border: #222222;
   --sidebar-ring: oklch(0.439 0 0);
 }
 
@@ -556,8 +648,13 @@
   }
 }
 
+/* Home page gradient background - extracted from inline styles */
+.gradient-home-bg {
+  background-image: linear-gradient(156.2deg, rgba(0,0,0,1) 14.8%, rgba(32,104,177,1) 68.1%, rgba(222,229,237,1) 129%);
+}
+
 .bg-pattern-grid {
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
   background-size: 20px 20px;
@@ -650,7 +747,8 @@
 
 @theme inline {
   --animate-shiny-text: shiny-text 5s infinite;
- 
+  --animate-liquid-shimmer: liquid-shimmer 2s ease-in-out infinite;
+
   @keyframes shiny-text {
     0%,
     90%,
@@ -660,6 +758,15 @@
     30%,
     60% {
       background-position: calc(100% + var(--shiny-width)) 0;
+    }
+  }
+
+  @keyframes liquid-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
     }
   }
 }

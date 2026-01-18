@@ -169,7 +169,10 @@ async def cleanup():
 
 
 async def get_agent_run_with_access_check(client, agent_run_id: str, user_id: str):
-    agent_run = await client.table('agent_runs').select('*').eq('run_id', agent_run_id).execute()
+    # Only select columns needed for access check and response
+    agent_run = await client.table('agent_runs').select(
+        'run_id, thread_id, status, started_at, completed_at, error, metadata, created_at, updated_at'
+    ).eq('run_id', agent_run_id).execute()
     if not agent_run.data:
         raise HTTPException(status_code=404, detail="Agent run not found")
 
@@ -225,7 +228,9 @@ async def start_agent(
             ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
         ) if project_id else None
         project_task = asyncio.create_task(
-            client.table('projects').select('*').eq('project_id', project_id).execute()
+            client.table('projects').select(
+                'project_id, name, user_id, sandbox, app_type, model_name'
+            ).eq('project_id', project_id).execute()
         ) if project_id else None
 
         # Await token status first (needed for quota check)
@@ -349,7 +354,9 @@ async def start_agent(
 
     try:
         # Use pre-fetched project data from parallel query above
-        project_result = await project_task if project_task else await client.table('projects').select('*').eq('project_id', project_id).execute()
+        project_result = await project_task if project_task else await client.table('projects').select(
+            'project_id, name, user_id, sandbox, app_type, model_name'
+        ).eq('project_id', project_id).execute()
         if not project_result.data:
             raise HTTPException(status_code=404, detail="Project not found")
 

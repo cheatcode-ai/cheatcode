@@ -11,7 +11,7 @@ import { useStartAgentMutation, useStopAgentMutation } from '@/hooks/react-query
 // Removed useThreadAgent import - agent display is now hardcoded to "cheatcode"
 import { UnifiedMessage } from '../_types';
 import { useThreadState } from './ThreadStateContext';
-import { useBilling } from './BillingContext';
+import { useThreadBilling } from './BillingContext';
 
 interface SendMessageOptions {
   model_name?: string;
@@ -82,15 +82,13 @@ interface ThreadActionsProviderProps {
 export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) {
   const {
     threadId,
-    projectId,
     messages,
     setMessages,
     project,
-    messagesQuery,
     agentRunsQuery,
   } = useThreadState();
   
-  const { setBillingData, setShowBillingAlert } = useBilling();
+  const { setBillingData, setShowBillingAlert } = useThreadBilling();
   const { getToken } = useAuth();
 
   // Agent State Machine
@@ -102,16 +100,6 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   // Removed useThreadAgent hook call and agent variable
 
   const handleNewMessageFromStream = useCallback((message: UnifiedMessage) => {
-    console.log(
-      `[STREAM HANDLER] Received message: ID=${message.message_id}, Type=${message.type}`,
-    );
-
-    if (!message.message_id) {
-      console.warn(
-        `[STREAM HANDLER] Received message is missing ID: Type=${message.type}, Content=${message.content?.substring(0, 50)}...`,
-      );
-    }
-
     setMessages((prev) => {
       const messageExists = prev.some(
         (m) => m.message_id === message.message_id,
@@ -127,13 +115,10 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   }, [setMessages]);
 
   const handleStreamStatusChange = useCallback((hookStatus: string) => {
-    console.log(`[ACTIONS] Hook status changed: ${hookStatus}`);
     handleStatusUpdate(hookStatus);
   }, [handleStatusUpdate]);
 
   const handleStreamError = useCallback((errorMessage: string) => {
-    console.error(`[ACTIONS] Stream hook error: ${errorMessage}`);
-    
     // Suppress common expected errors that shouldn't show user notifications
     const suppressErrors = [
       'not found',
@@ -155,15 +140,15 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   }, []);
 
   const handleStreamClose = useCallback(() => {
-    console.log(`[ACTIONS] Stream hook closed with final status: ${agentState.status}`);
-  }, [agentState.status]);
+    // Stream closed - no-op
+  }, []);
 
   // Agent stream hook with state machine integration
   const {
     status: streamHookStatus,
     textContent: streamingTextContent,
     toolCall: streamingToolCall,
-    error: streamError,
+    error: _streamError,
     agentRunId: currentHookRunId,
     startStreaming,
     stopStreaming,
@@ -233,15 +218,11 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
           // Messages will be updated through the EventSource (SSE) stream instead
           agentRunsQuery.refetch();
         } catch (connectError) {
-          console.error('Error connecting to agent or starting stream:', connectError);
           throw connectError; // Re-throw to be caught by outer catch block
         }
 
       } catch (err) {
-        console.error('Error sending message or starting agent:', err);
-        
         if (err instanceof BillingError) {
-          console.log("Caught BillingError:", err.detail);
           setBillingData({
             currentUsage: err.detail.currentUsage as number | undefined,
             limit: err.detail.limit as number | undefined,
@@ -265,7 +246,6 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   );
 
   const stopAgent = useCallback(async () => {
-    console.log(`[ACTIONS] Requesting agent stop via hook.`);
     agentActions.stop();
 
     await stopStreaming();
@@ -274,8 +254,8 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
       try {
         await stopAgentMutation.mutateAsync(agentState.runId);
         agentRunsQuery.refetch();
-      } catch (error) {
-        console.error('Error stopping agent:', error);
+      } catch {
+        // Agent stop failed silently - agent may have already completed
       }
     }
   }, [stopStreaming, agentState.runId, stopAgentMutation, agentRunsQuery, agentActions]);
@@ -283,14 +263,11 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   // Auto-start agent effect - only stream if agent is active and no stream is already running
   useEffect(() => {
     if (
-      agentState.runId && 
+      agentState.runId &&
       agentState.runId !== currentHookRunId &&
       agentGetters.isActive && // Only stream if agent is connecting or running
       streamHookStatus === 'idle' // Only start if no stream is currently active
     ) {
-      console.log(
-        `[ACTIONS] Target agentRunId set to ${agentState.runId}, initiating stream...`,
-      );
       startStreaming(agentState.runId);
     }
   }, [agentState.runId, startStreaming, currentHookRunId, agentGetters.isActive, streamHookStatus]);
@@ -298,9 +275,6 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
   // Stop streaming when agent reaches terminal state
   useEffect(() => {
     if (agentGetters.isTerminal && currentHookRunId) {
-      console.log(
-        `[ACTIONS] Agent reached terminal state (${agentState.status}), stopping stream...`
-      );
       stopStreaming();
       
       // Clear runId after a delay to allow final status updates
@@ -318,9 +292,9 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
     if (agentState.autoStartedRun || !agentGetters.isIdle || agentState.runId) return;
     if (agentState.isSending || startAgentMutation.isPending) return;
 
-    const runs = agentRunsQuery.data || [];
-    const runningRun = runs.find(r => r.status === 'running' || r.status === 'queued');
-    const hasCompletedRuns = runs.some(r => ['completed', 'error', 'stopped'].includes(r.status));
+    const runs: Array<{ run_id: string; status: string }> = agentRunsQuery.data || [];
+    const runningRun = runs.find((r: { run_id: string; status: string }) => r.status === 'running' || r.status === 'queued');
+    const hasCompletedRuns = runs.some((r: { run_id: string; status: string }) => ['completed', 'error', 'stopped'].includes(r.status));
     const hasAssistantMessages = messages.some(m => m.type === 'assistant' || m.type === 'tool');
     const lastIsUser = messages.length > 0 && messages[messages.length - 1].type === 'user';
 

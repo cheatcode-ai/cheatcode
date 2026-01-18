@@ -74,7 +74,7 @@ export const FileTree: React.FC<FileTreeProps> = memo(({
   files,
   selectedFile,
   onFileSelect,
-  onDirectoryToggle,
+  onDirectoryToggle: _onDirectoryToggle,
   expandedDirectories,
   loadingDirectories = new Set(),
   isLoading,
@@ -88,11 +88,8 @@ export const FileTree: React.FC<FileTreeProps> = memo(({
     onFileSelect(relativePath);
   }, [onFileSelect, workspacePath]);
 
-  // Stable directory toggle handler
-  const handleTreeDirectoryToggle = useCallback((directoryPath: string) => {
-    const relativePath = directoryPath.replace(`${workspacePath}/`, '');
-    onDirectoryToggle(relativePath);
-  }, [onDirectoryToggle, workspacePath]);
+  // Note: Directory toggle handler is managed by Tree component internally
+  // onDirectoryToggle is used when Tree detects folder expansion
 
   // Convert files to TreeViewElement format - memoized
   const treeViewElements = useMemo(() => {
@@ -173,17 +170,17 @@ export const FileTree: React.FC<FileTreeProps> = memo(({
   // Loading state
   if (isLoading) {
     return (
-      <div className="w-64 border-r border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-col">
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700/50">
-          <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+      <div className="w-64 border-r border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm flex flex-col">
+        <div className="h-10 px-4 flex items-center border-b border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm">
+          <div className="text-[10px] font-mono font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
             Explorer
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="flex flex-col items-center space-y-2">
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-blue-500"></div>
-            <div className="text-sm text-zinc-500 dark:text-zinc-400">
-              Loading project files...
+          <div className="flex flex-col items-center space-y-3">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-zinc-300 border-t-zinc-600 dark:border-zinc-700 dark:border-t-zinc-400"></div>
+            <div className="text-xs font-mono text-zinc-500 dark:text-zinc-300">
+              Loading...
             </div>
           </div>
         </div>
@@ -194,14 +191,14 @@ export const FileTree: React.FC<FileTreeProps> = memo(({
   // Empty state
   if (files.length === 0) {
     return (
-      <div className="w-64 border-r border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-col">
-        <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700/50">
-          <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+      <div className="w-64 border-r border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm flex flex-col">
+        <div className="h-10 px-4 flex items-center border-b border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm">
+          <div className="text-[10px] font-mono font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
             Explorer
           </div>
         </div>
         <div className="flex-1 flex items-center justify-center">
-          <div className="text-sm text-zinc-500 dark:text-zinc-400">
+          <div className="text-xs font-mono text-zinc-500 dark:text-zinc-300 uppercase tracking-wide">
             No files found
           </div>
         </div>
@@ -210,17 +207,17 @@ export const FileTree: React.FC<FileTreeProps> = memo(({
   }
 
   return (
-    <div className="w-64 border-r border-zinc-200 dark:border-zinc-700/50 bg-zinc-50/50 dark:bg-zinc-900/50 flex flex-col">
+    <div className="w-64 border-r border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm flex flex-col">
       {/* Header */}
-      <div className="px-4 py-3 border-b border-zinc-200 dark:border-zinc-700/50 bg-white/60 dark:bg-zinc-800/60">
-        <div className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 uppercase tracking-wide">
+      <div className="h-10 px-4 flex items-center border-b border-zinc-200 dark:border-zinc-800/50 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm">
+        <div className="text-[10px] font-mono font-medium text-zinc-500 dark:text-zinc-400 uppercase tracking-widest">
           Explorer
         </div>
       </div>
 
       {/* File Tree */}
-      <div className="flex-1 overflow-hidden">
-        <div className="h-full overflow-y-auto px-2 py-2 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-600 scrollbar-track-transparent hover:scrollbar-thumb-zinc-400 dark:hover:scrollbar-thumb-zinc-500 scrollbar-thumb-rounded-full">
+      <div className="flex-1 overflow-hidden bg-zinc-50 dark:bg-transparent">
+        <div className="h-full overflow-y-auto px-0 py-2 scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-800 scrollbar-track-transparent">
           <Tree
             initialSelectedId={selectedFile ? `${workspacePath}/${selectedFile}` : undefined}
             initialExpandedItems={allExpandedPaths}

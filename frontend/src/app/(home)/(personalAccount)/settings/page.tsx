@@ -4,6 +4,6 @@ import { redirect } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
 export default async function PersonalAccountSettingsPage() {
-  // Redirect to billing tab by default
-  redirect('/settings/billing');
+  // Redirect to account tab by default
+  redirect('/settings/account');
 }

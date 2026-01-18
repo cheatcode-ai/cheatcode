@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import { HeroSection } from '@/components/home/sections/hero-section';
 import { ModalProviders } from '@/providers/modal-providers';
 

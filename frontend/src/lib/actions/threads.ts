@@ -15,7 +15,6 @@ export const generateThreadName = async (message: string): Promise<string> => {
     const apiKey = process.env.OPENAI_API_KEY;
 
     if (!apiKey) {
-      console.error('OpenAI API key not found');
       return defaultName;
     }
 
@@ -44,8 +43,6 @@ export const generateThreadName = async (message: string): Promise<string> => {
     });
 
     if (!response.ok) {
-      const errorData = await response.text();
-      console.error('OpenAI API error:', errorData);
       return defaultName;
     }
 
@@ -55,7 +52,6 @@ export const generateThreadName = async (message: string): Promise<string> => {
     // Return the generated name or default if empty
     return generatedName || defaultName;
   } catch (error) {
-    console.error('Error generating thread name:', error);
     // Fall back to using a truncated version of the message
     return message.trim().length > 50
       ? message.trim().substring(0, 47) + '...'
@@ -65,27 +61,22 @@ export const generateThreadName = async (message: string): Promise<string> => {
 
 export const generateAndUpdateThreadName = async (threadId: string, message: string): Promise<string> => {
   try {
-    console.log(`Generating name for thread ${threadId} with message: ${message}`);
-    
     // Get Clerk token from server-side auth
     const { getToken } = await auth();
     const clerkToken = await getToken();
-    
+
     if (!clerkToken) {
       throw new Error('Authentication required. No Clerk token available.');
     }
-    
+
     // Generate the thread name
     const threadName = await generateThreadName(message);
-    console.log(`Generated thread name: ${threadName}`);
-    
+
     // Update the thread in the database
     await updateThreadNameApi(threadId, threadName, clerkToken);
-    console.log(`Updated thread ${threadId} with name: ${threadName}`);
-    
+
     return threadName;
   } catch (error) {
-    console.error('Error generating and updating thread name:', error);
     // Return a fallback name
     return message.trim().length > 50
       ? message.trim().substring(0, 47) + '...'

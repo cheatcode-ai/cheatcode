@@ -4,27 +4,6 @@ import { fileQueryKeys } from './use-file-queries';
 import { toast } from 'sonner';
 import { API_URL } from '@/lib/api/config';
 
-function normalizePath(path: string): string {
-  if (!path) return '/';
-
-  // Remove any leading/trailing whitespace
-  path = path.trim();
-
-  // Ensure path starts with /
-  if (!path.startsWith('/')) {
-    path = '/' + path;
-  }
-
-  // Remove duplicate slashes and normalize
-  path = path.replace(/\/+/g, '/');
-
-  // Remove trailing slash unless it's the root
-  if (path.length > 1 && path.endsWith('/')) {
-    path = path.slice(0, -1);
-  }
-
-  return path;
-}
 
 /**
  * Hook for uploading files

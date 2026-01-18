@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import {
@@ -20,10 +20,11 @@ interface DeleteConfirmationDialogProps {
   onConfirm: () => void;
   threadName: string;
   isDeleting: boolean;
+  deleteType?: 'project' | 'conversation' | 'multiple';
 }
 
 /**
- * Confirmation dialog for deleting a conversation
+ * Confirmation dialog for deleting a project, conversation, or multiple items
  */
 export function DeleteConfirmationDialog({
   isOpen,
@@ -31,6 +32,7 @@ export function DeleteConfirmationDialog({
   onConfirm,
   threadName,
   isDeleting,
+  deleteType = 'conversation',
 }: DeleteConfirmationDialogProps) {
   // Reset pointer events when dialog opens
   useEffect(() => {
@@ -39,16 +41,56 @@ export function DeleteConfirmationDialog({
     }
   }, [isOpen]);
 
-  return (
-    <AlertDialog open={isOpen} onOpenChange={onClose}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>Delete conversation</AlertDialogTitle>
-          <AlertDialogDescription>
+  const getTitle = () => {
+    switch (deleteType) {
+      case 'project':
+        return 'Delete project';
+      case 'multiple':
+        return 'Delete conversations';
+      default:
+        return 'Delete conversation';
+    }
+  };
+
+  const getDescription = () => {
+    switch (deleteType) {
+      case 'project':
+        return (
+          <>
+            Are you sure you want to delete the project{' '}
+            <span className="font-semibold">"{threadName}"</span>?
+            <br />
+            This will permanently delete the project and all its conversations.
+          </>
+        );
+      case 'multiple':
+        return (
+          <>
+            Are you sure you want to delete{' '}
+            <span className="font-semibold">{threadName}</span>?
+            <br />
+            This action cannot be undone.
+          </>
+        );
+      default:
+        return (
+          <>
             Are you sure you want to delete the conversation{' '}
             <span className="font-semibold">"{threadName}"</span>?
             <br />
             This action cannot be undone.
+          </>
+        );
+    }
+  };
+
+  return (
+    <AlertDialog open={isOpen} onOpenChange={onClose}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>{getTitle()}</AlertDialogTitle>
+          <AlertDialogDescription>
+            {getDescription()}
           </AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>

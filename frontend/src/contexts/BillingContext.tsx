@@ -1,34 +1,40 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useCallback, useEffect, useRef, useMemo } from 'react';
 import { useBillingStatusQuery } from '@/hooks/react-query/threads/use-billing-status';
+import { useOpenRouterKeyStatus } from '@/hooks/react-query/settings/use-settings-queries';
+import { useBillingCalculations } from '@/hooks/use-billing-calculations';
 import { BillingStatusResponse } from '@/lib/api';
-import { isLocalMode } from '@/lib/config';
 import { useAuth } from '@clerk/nextjs';
 import { createLogger } from '@/lib/logger';
 
 const logger = createLogger('Billing');
 
 interface BillingContextType {
+  // Core billing status
   billingStatus: BillingStatusResponse | null;
   isLoading: boolean;
   error: Error | null;
   checkBillingStatus: () => Promise<boolean>;
   lastCheckTime: number | null;
-  // Enhanced credit information
+
+  // Calculated credit information
   creditsRemaining: number;
   creditsTotal: number;
   creditsUsagePercentage: number;
+  rawCreditsRemaining: number;
+  rawCreditsTotal: number;
+
+  // Plan information
   planName: string;
   isUpgradeRequired: boolean;
   quotaResetsAt: string | null;
-  // Raw credits for calculations (monthly totals)
-  rawCreditsRemaining: number;
-  rawCreditsTotal: number;
+
   // BYOK key status
   byokKeyConfigured: boolean;
   byokKeyValid: boolean;
   byokKeyError?: string;
+
   // Deployment information
   deploymentsUsed: number;
   deploymentsTotal: number;
@@ -38,19 +44,24 @@ interface BillingContextType {
 const BillingContext = createContext<BillingContextType | null>(null);
 
 export function BillingProvider({ children }: { children: React.ReactNode }) {
-  const { isLoaded, isSignedIn, getToken } = useAuth();
-  
-  // Only enable billing status query when user is fully authenticated
+  const { isLoaded, isSignedIn } = useAuth();
+
+  // Core billing status query
   const billingStatusQuery = useBillingStatusQuery(isLoaded && isSignedIn);
+  const billingStatus = billingStatusQuery.data ?? null;
+
+  // Use the calculations hook
+  const calculations = useBillingCalculations(billingStatus);
+
+  // BYOK status using the existing settings hook (only fetch for BYOK users)
+  const byokStatusQuery = useOpenRouterKeyStatus(calculations.isByokUser && isLoaded && isSignedIn);
+
+  // Track last check time
   const lastCheckRef = useRef<number | null>(null);
   const checkInProgressRef = useRef<boolean>(false);
 
+  // Manual billing check function
   const checkBillingStatus = useCallback(async (force = false): Promise<boolean> => {
-    // if (isLocalMode()) {
-    //   console.log('Running in local development mode - billing checks are disabled');
-    //   return false;
-    // }
-
     // Don't check billing status if user isn't authenticated
     if (!isLoaded || !isSignedIn) {
       logger.debug('User not authenticated, skipping billing check');
@@ -81,115 +92,54 @@ export function BillingProvider({ children }: { children: React.ReactNode }) {
     }
   }, [billingStatusQuery, isLoaded, isSignedIn]);
 
+  // Initial billing check
   useEffect(() => {
-    if (!billingStatusQuery.data) {
+    if (!billingStatusQuery.data && isLoaded && isSignedIn) {
       checkBillingStatus(true);
     }
-  }, [checkBillingStatus, billingStatusQuery.data]);
+  }, [checkBillingStatus, billingStatusQuery.data, isLoaded, isSignedIn]);
 
-  // Calculate enhanced credit information
-  const billingStatus = billingStatusQuery.data || null;
-  const rawCreditsRemaining = billingStatus?.credits_remaining || 0;
-  const rawCreditsTotal = billingStatus?.credits_total || 0;
-  const planName = billingStatus?.plan_name || 'Free';
-  const quotaResetsAt = billingStatus?.quota_resets_at || null;
-  
-  // Deployment information
-  const deploymentsUsed = billingStatus?.deployments_used || 0;
-  const deploymentsTotal = billingStatus?.deployments_total || 0;
-  const deploymentUsagePercentage = deploymentsTotal > 0 ? (deploymentsUsed / deploymentsTotal) * 100 : 0;
-  
-  // For free users, show daily credits (5/5) instead of monthly total (20/20)
-  const isFreeUser = planName?.toLowerCase() === 'free' || billingStatus?.plan_id === 'free';
-  const creditsRemaining = isFreeUser ? Math.min(rawCreditsRemaining, 5) : rawCreditsRemaining;
-  const creditsTotal = isFreeUser ? 5 : rawCreditsTotal;
-  const creditsUsagePercentage = creditsTotal > 0 ? ((creditsTotal - creditsRemaining) / creditsTotal) * 100 : 0;
-  const isUpgradeRequired = rawCreditsRemaining <= 0 && billingStatus?.plan_id !== 'byok';
-  
-  // BYOK key status - Real implementation with API call
-  const [byokStatus, setByokStatus] = React.useState<{
-    configured: boolean;
-    valid: boolean;
-    error?: string;
-  }>({
-    configured: false,
-    valid: false,
-    error: undefined
-  });
-  
-  const isByokUser = billingStatus?.plan_id === 'byok';
-  
-  // Fetch BYOK status for BYOK users
-  React.useEffect(() => {
-    const fetchByokStatus = async () => {
-      if (!isByokUser || !isLoaded || !isSignedIn) {
-        setByokStatus({ configured: false, valid: false });
-        return;
-      }
-      
-      try {
-        const token = await getToken();
-        if (!token) return;
-        
-        const response = await fetch('/api/billing/openrouter-key/status', {
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'application/json',
-          },
-        });
-        
-        if (response.ok) {
-          const data = await response.json();
-          setByokStatus({
-            configured: data.key_configured || false,
-            valid: !data.error,
-            error: data.error
-          });
-        } else {
-          setByokStatus({ 
-            configured: false, 
-            valid: false, 
-            error: 'Failed to check BYOK status' 
-          });
-        }
-      } catch (error) {
-        logger.error('Error fetching BYOK status:', error);
-        setByokStatus({
-          configured: false,
-          valid: false,
-          error: 'Failed to check BYOK status'
-        });
-      }
-    };
-    
-    fetchByokStatus();
-  }, [isByokUser, isLoaded, isSignedIn, getToken]);
-  
-  const byokKeyConfigured = byokStatus.configured;
-  const byokKeyValid = byokStatus.valid;
-  const byokKeyError = byokStatus.error;
+  // Derive BYOK status from the query
+  const byokKeyConfigured = byokStatusQuery.data?.key_configured ?? false;
+  const byokKeyValid = byokStatusQuery.data?.has_key && !byokStatusQuery.data?.error;
+  const byokKeyError = byokStatusQuery.data?.error;
 
-  const value = {
+  // Memoize context value to prevent unnecessary re-renders
+  const value = useMemo<BillingContextType>(() => ({
+    // Core billing
     billingStatus,
     isLoading: billingStatusQuery.isLoading,
     error: billingStatusQuery.error,
     checkBillingStatus,
     lastCheckTime: lastCheckRef.current,
-    creditsRemaining,
-    creditsTotal,
-    creditsUsagePercentage,
-    planName,
-    isUpgradeRequired,
-    quotaResetsAt,
-    rawCreditsRemaining,
-    rawCreditsTotal,
+
+    // From calculations hook
+    creditsRemaining: calculations.creditsRemaining,
+    creditsTotal: calculations.creditsTotal,
+    creditsUsagePercentage: calculations.creditsUsagePercentage,
+    rawCreditsRemaining: calculations.rawCreditsRemaining,
+    rawCreditsTotal: calculations.rawCreditsTotal,
+    planName: calculations.planName,
+    isUpgradeRequired: calculations.isUpgradeRequired,
+    quotaResetsAt: calculations.quotaResetsAt,
+    deploymentsUsed: calculations.deploymentsUsed,
+    deploymentsTotal: calculations.deploymentsTotal,
+    deploymentUsagePercentage: calculations.deploymentUsagePercentage,
+
+    // BYOK status
+    byokKeyConfigured,
+    byokKeyValid: byokKeyValid ?? false,
+    byokKeyError,
+  }), [
+    billingStatus,
+    billingStatusQuery.isLoading,
+    billingStatusQuery.error,
+    checkBillingStatus,
+    calculations,
     byokKeyConfigured,
     byokKeyValid,
     byokKeyError,
-    deploymentsUsed,
-    deploymentsTotal,
-    deploymentUsagePercentage,
-  };
+  ]);
 
   return (
     <BillingContext.Provider value={value}>
@@ -204,4 +154,7 @@ export function useBilling() {
     throw new Error('useBilling must be used within a BillingProvider');
   }
   return context;
-} 
+}
+
+// Re-export calculations hook for direct use
+export { useBillingCalculations } from '@/hooks/use-billing-calculations';

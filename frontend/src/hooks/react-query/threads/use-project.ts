@@ -4,36 +4,24 @@ import { getProject, getPublicProjects, Project, updateProject } from "./utils";
 import { useAuth } from '@clerk/nextjs';
 
 export const useProjectQuery = (projectId: string) => {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
-  
-  console.log('[DEBUG] useProjectQuery - Auth State:', {
-    isLoaded,
-    isSignedIn,
-    userId,
-    projectId
-  });
-  
+  const { getToken, isLoaded } = useAuth();
+
   return createQueryHook(
     threadKeys.project(projectId),
     async () => {
-      console.log('[DEBUG] useProjectQuery - Fetching project...');
-      try {
-        const token = await getToken();
-        console.log('[DEBUG] useProjectQuery - Got token:', !!token);
-        const result = await getProject(projectId, token || undefined);
-        console.log('[DEBUG] useProjectQuery - Success');
-        return result;
-      } catch (error) {
-        console.error('[DEBUG] useProjectQuery - Error:', error);
-        throw error;
-      }
+      const token = await getToken();
+      const result = await getProject(projectId, token || undefined);
+      return result;
     },
     {
       enabled: !!projectId && isLoaded,
-      retry: (failureCount, error) => {
-        console.log('[DEBUG] useProjectQuery - Retry attempt:', failureCount, error);
+      retry: (failureCount) => {
         return failureCount < 2;
       },
+      staleTime: 10 * 60 * 1000, // 10 minutes - project data rarely changes
+      gcTime: 60 * 60 * 1000, // 1 hour cache
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
     }
   )();
 };

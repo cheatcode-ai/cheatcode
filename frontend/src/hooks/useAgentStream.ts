@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   getAgentStatus,
   stopAgent,
-  AgentRun,
   getMessages,
   streamAgent,
   ApiMessageType,
@@ -598,7 +597,7 @@ export function useAgentStream(
       setTextContent([]);
       setToolCall(null);
       setError(null);
-      
+
       // Clear external streaming content if callback provided
       streamingActions?.clearStreamingContent();
       updateStatus('connecting');
@@ -608,16 +607,16 @@ export function useAgentStream(
       try {
         // Verify agent is running before connecting
         const clerkToken = getToken ? await getToken() : null;
-        const agentStatus = await getAgentStatus(runId, clerkToken);
+        const agentStatusResult = await getAgentStatus(runId, clerkToken ?? undefined);
         if (!isMountedRef.current) return;
 
-        if (agentStatus.status !== 'running') {
+        if (agentStatusResult.status !== 'running') {
           logger.warn(
-            `Agent run ${runId} is not in running state (status: ${agentStatus.status}). Cannot start stream.`,
+            `Agent run ${runId} is not in running state (status: ${agentStatusResult.status}). Cannot start stream.`,
           );
-          setError(`Agent run is not running (status: ${agentStatus.status})`);
+          setError(`Agent run is not running (status: ${agentStatusResult.status})`);
           finalizeStream(
-            mapAgentStatus(agentStatus.status) || 'agent_not_running',
+            mapAgentStatus(agentStatusResult.status) || 'agent_not_running',
             runId,
           );
           return;
@@ -642,7 +641,7 @@ export function useAgentStream(
         finalizeStream(isNotFoundError ? 'agent_not_running' : 'error', runId);
       }
     },
-    [updateStatus, finalizeStream, mapAgentStatus, startEventSourceStream, getToken],
+    [updateStatus, finalizeStream, startEventSourceStream, getToken],
   );
 
   const stopStreaming = useCallback(async () => {

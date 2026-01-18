@@ -1,18 +1,21 @@
-import React from 'react';
 import { AppPreviewSidePanel } from '@/components/thread/app-preview-side-panel';
 import { useThreadState } from '../_contexts/ThreadStateContext';
 import { useThreadActions } from '../_contexts/ThreadActionsContext';
 import { useLayout } from '../_contexts/LayoutContext';
 
 export function ThreadAppPreview() {
-  const { project, initialLoadCompleted } = useThreadState();
-  const { agentState } = useThreadActions(); // Removed agent - no longer available in context
-  const { 
-    isSidePanelOpen, 
-    userClosedPanelRef, 
-    setIsSidePanelOpen, 
-    setAutoOpenedPanel 
+  const { project, initialLoadCompleted, messagesQuery } = useThreadState();
+  const { agentState } = useThreadActions();
+  const {
+    isSidePanelOpen,
+    userClosedPanelRef,
+    setIsSidePanelOpen,
+    setAutoOpenedPanel
   } = useLayout();
+
+  // Show panel when messages are available (progressive loading)
+  const hasMessages = messagesQuery?.data !== undefined;
+  const canShowPanel = initialLoadCompleted || hasMessages;
 
   const handleSidePanelClose = () => {
     setIsSidePanelOpen(false);
@@ -22,11 +25,10 @@ export function ThreadAppPreview() {
 
   return (
     <AppPreviewSidePanel
-      isOpen={isSidePanelOpen && initialLoadCompleted}
+      isOpen={isSidePanelOpen && canShowPanel}
       onClose={handleSidePanelClose}
       project={project || undefined}
       agentStatus={agentState.status}
-      // Removed agentName prop - custom agents no longer supported
     />
   );
 }

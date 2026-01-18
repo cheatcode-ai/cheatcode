@@ -20,7 +20,7 @@ export function SettingsMenuBar({ initialActiveItem = 'Account' }: SettingsMenuB
     {
       icon: User,
       label: 'Account',
-      href: '/settings/billing',
+      href: '/settings/account',
       gradient: 'radial-gradient(circle, rgba(59,130,246,0.15) 0%, rgba(37,99,235,0.06) 50%, rgba(29,78,216,0) 100%)',
       iconColor: 'text-blue-500',
     },
@@ -65,9 +65,8 @@ export function SettingsMenuBar({ initialActiveItem = 'Account' }: SettingsMenuB
   };
 
   // Prefetching DISABLED for better button responsiveness
-  const handleItemHover = (label: string) => {
+  const handleItemHover = (_label: string) => {
     // No prefetching to avoid conflicts
-    console.log(`[SETTINGS] Hover on ${label} - prefetching disabled`);
   };
 
   return (

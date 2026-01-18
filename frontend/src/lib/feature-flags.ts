@@ -1,4 +1,4 @@
-import React from 'react';
+import { useMemo } from 'react';
 import { useQuery, useQueries } from '@tanstack/react-query';
 import { API_URL } from './api/config';
 
@@ -45,7 +45,6 @@ export class FeatureFlagManager {
         },
       });
       if (!response.ok) {
-        console.warn(`Failed to fetch feature flag ${flagName}: ${response.status}`);
         return false;
       }
       
@@ -58,7 +57,6 @@ export class FeatureFlagManager {
       
       return data.enabled;
     } catch (error) {
-      console.error(`Error checking feature flag ${flagName}:`, error);
       return false;
     }
   }
@@ -73,14 +71,12 @@ export class FeatureFlagManager {
       });
       
       if (!response.ok) {
-        console.warn(`Failed to fetch feature flag details for ${flagName}: ${response.status}`);
         return null;
       }
       
       const data: FeatureFlag = await response.json();
       return data;
     } catch (error) {
-      console.error(`Error fetching feature flag details for ${flagName}:`, error);
       return null;
     }
   }
@@ -99,7 +95,6 @@ export class FeatureFlagManager {
       });
       
       if (!response.ok) {
-        console.warn(`Failed to fetch all feature flags: ${response.status}`);
         return {};
       }
       
@@ -118,7 +113,6 @@ export class FeatureFlagManager {
       
       return data.flags;
     } catch (error) {
-      console.error('Error fetching all feature flags:', error);
       return {};
     }
   }
@@ -133,7 +127,7 @@ export class FeatureFlagManager {
       const promises = flagNames.map(flagName => this.isEnabled(flagName));
       await Promise.all(promises);
     } catch (error) {
-      console.error('Error preloading feature flags:', error);
+      // Silently fail on preload errors
     }
   }
 }
@@ -290,10 +284,10 @@ export const useFeatureFlag = (flagName: string, options?: {
   }
 
   return {
+    ...query,
     enabled: query.data ?? false,
     loading: query.isLoading,
     error: query.error?.message ?? null,
-    ...query,
   };
 };
 
@@ -412,7 +406,7 @@ export const useFeatureFlags = (flagNames: string[], options?: {
   });
 
   // Transform the results into a more convenient format
-  const flags = React.useMemo(() => {
+  const flags = useMemo(() => {
     if (!flagsEnabled) {
       // Create a flags object where every requested flag is set to false
       return flagNames.reduce((acc, name) => {

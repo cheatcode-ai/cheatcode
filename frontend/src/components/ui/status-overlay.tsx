@@ -1,4 +1,3 @@
-import React from 'react';
 import { Loader2, CheckCircle, AlertCircle } from 'lucide-react';
 import { useDeleteOperation } from '@/contexts/DeleteOperationContext';
 

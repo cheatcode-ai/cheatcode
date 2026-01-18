@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import { Progress } from '@/components/ui/progress';
 import { Info, Zap, CheckCircle } from 'lucide-react';
 import { useBilling } from '@/contexts/BillingContext';

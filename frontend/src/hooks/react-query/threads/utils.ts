@@ -17,7 +17,6 @@ export async function getProject(projectId: string, clerkToken?: string) {
     .single()
 
   if (error) {
-    console.error('Error fetching project:', error)
     throw error
   }
 
@@ -48,7 +47,6 @@ export async function getThread(threadId: string, clerkToken?: string) {
     .single()
 
   if (error) {
-    console.error('Error fetching thread:', error)
     throw error
   }
 
@@ -76,7 +74,6 @@ export async function getMessages(threadId: string, clerkToken?: string) {
     .order('created_at', { ascending: true })
   
   if (error) {
-    console.error('Error fetching messages:', error)
     throw error
   }
   
@@ -96,7 +93,6 @@ export async function getAgentRuns(threadId: string, clerkToken?: string) {
     .order('created_at', { ascending: true })
   
   if (error) {
-    console.error('Error fetching agent runs:', error)
     throw error
   }
   
@@ -122,7 +118,6 @@ export async function createClerkAccount(clerkUserId: string, name: string, cler
     .single()
 
   if (userError) {
-    console.error('Error creating user:', userError)
     throw userError
   }
 
@@ -163,7 +158,6 @@ export async function getPublicProjects(clerkToken?: string) {
     .order('created_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching public projects:', error)
     throw error
   }
 
@@ -203,7 +197,6 @@ export async function updateProject(projectId: string, data: Partial<Project>, c
     .single()
 
   if (error) {
-    console.error('Error updating project:', error)
     throw error
   }
 
@@ -234,7 +227,6 @@ export async function toggleThreadPublicStatus(threadId: string, isPublic: boole
     .single()
 
   if (error) {
-    console.error('Error toggling thread public status:', error)
     throw error
   }
 
@@ -267,7 +259,6 @@ export async function updateThread(threadId: string, data: Partial<Thread>, cler
     .single()
 
   if (error) {
-    console.error('Error updating thread:', error)
     throw error
   }
 
@@ -298,10 +289,8 @@ export async function updateThreadName(threadId: string, name: string, clerkToke
   if (fetchError) {
     // PGRST116 means no rows returned - thread may not exist yet or RLS blocks access
     if (fetchError.code === 'PGRST116') {
-      console.warn(`Thread ${threadId} not found or not accessible, skipping name update`)
       return null
     }
-    console.error('Error fetching current thread metadata:', fetchError)
     throw fetchError
   }
 
@@ -321,10 +310,8 @@ export async function updateThreadName(threadId: string, name: string, clerkToke
   if (error) {
     // Also handle case where update finds no rows
     if (error.code === 'PGRST116') {
-      console.warn(`Thread ${threadId} not found during update, skipping`)
       return null
     }
-    console.error('Error updating thread name:', error)
     throw error
   }
 
@@ -339,7 +326,7 @@ export async function updateThreadName(threadId: string, name: string, clerkToke
   }
 }
 
-export async function deleteThread(threadId: string, sandboxId?: string, clerkToken?: string) {
+export async function deleteThread(threadId: string, _sandboxId?: string, clerkToken?: string) {
   const supabase = clerkToken ? createClientWithToken(clerkToken) : null
   if (!supabase) {
     throw new Error('No authentication token provided')
@@ -352,16 +339,12 @@ export async function deleteThread(threadId: string, sandboxId?: string, clerkTo
     .eq('thread_id', threadId)
   
   if (error) {
-    console.error('Error deleting thread:', error)
     throw error
   }
-  
+
   // If a sandbox ID is provided, optionally handle sandbox cleanup
   // This would typically be done via a backend API call
-  if (sandboxId) {
-    console.log(`Thread ${threadId} deleted, sandbox ${sandboxId} may need cleanup`)
-    // TODO: Add sandbox cleanup logic if needed
-  }
+  // TODO: Add sandbox cleanup logic if needed
   
   return { success: true }
 }
@@ -378,7 +361,6 @@ export async function getAllThreads(clerkToken?: string) {
     .order('updated_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching all threads:', error)
     throw error
   }
 
@@ -406,7 +388,6 @@ export async function getThreadsForAccount(accountId: string, clerkToken?: strin
     .order('updated_at', { ascending: false })
 
   if (error) {
-    console.error('Error fetching threads for account:', error)
     throw error
   }
 

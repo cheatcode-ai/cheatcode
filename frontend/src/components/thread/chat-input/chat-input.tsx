@@ -1,18 +1,16 @@
 'use client';
 
-import React, {
+import {
   useState,
   useRef,
   useEffect,
   forwardRef,
   useImperativeHandle,
 } from 'react';
-import { motion } from 'motion/react';
-import { X } from 'lucide-react';
-import { Card, CardContent } from '@/components/ui/card';
 import { handleFiles } from './file-upload-handler';
 import { MessageInput } from './message-input';
 import { AttachmentGroup } from '../attachment-group';
+import { cn } from '@/lib/utils';
 
 
 import { useFileDelete } from '@/hooks/react-query/files';
@@ -81,13 +79,8 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       // Removed unused agentName prop - custom agents no longer supported
       messages = [],
       bgColor = 'bg-card',
-      toolCalls = [],
-      toolCallIndex = 0,
-      showToolPreview = false,
-      onExpandToolPreview,
       isLoggedIn = true,
       disableAnimation = false,
-      isSidePanelOpen = false,
       appType = 'web',
       onAppTypeChange,
       selectedModel,
@@ -204,12 +197,10 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
           sandboxId,
           filePath: fileToRemove.path,
         }, {
-          onError: (error) => {
-            console.error('Failed to delete file from server:', error);
+          onError: () => {
+            // Failed to delete file from server
           }
         });
-      } else if (isFileUsedInChat) {
-        console.log(`Skipping server deletion for ${fileToRemove.path} - file is referenced in chat history`);
       }
     };
 
@@ -226,9 +217,9 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
     };
 
     return (
-      <div className={`${isSidePanelOpen ? 'w-full' : 'mx-auto w-full max-w-4xl'}`}>
-        <Card
-          className={`-mb-2 shadow-none w-full ${isSidePanelOpen ? '' : 'mx-auto max-w-4xl'} bg-transparent border-none rounded-3xl overflow-hidden`}
+      <div className="w-full">
+        <div
+          className="w-full bg-transparent border-none overflow-visible"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={(e) => {
@@ -251,8 +242,12 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
             }
           }}
         >
-          <div className="w-full text-sm flex flex-col justify-between items-start rounded-lg">
-            <CardContent className={`w-full p-1.5 pb-2 ${bgColor} rounded-3xl border`}>
+          <div className="w-full text-sm flex flex-col justify-between items-start">
+            <div className={cn(
+              "w-full p-2 transition-colors duration-200 rounded-2xl overflow-hidden",
+              bgColor,
+              isDraggingOver && "bg-zinc-900"
+            )}>
               <AttachmentGroup
                 files={uploadedFiles || []}
                 sandboxId={sandboxId}
@@ -275,7 +270,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 isDraggingOver={isDraggingOver}
                 uploadedFiles={uploadedFiles}
 
-                fileInputRef={fileInputRef}
+                fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
                 isUploading={isUploading}
                 sandboxId={sandboxId}
                 setPendingFiles={setPendingFiles}
@@ -293,12 +288,9 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
               />
-            </CardContent>
+            </div>
           </div>
-        </Card>
-
-
-
+        </div>
       </div>
     );
   },

@@ -2,9 +2,9 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { UnifiedMessage } from '../_types';
 
 interface UseMessageScrollReturn {
-  messagesEndRef: React.RefObject<HTMLDivElement>;
-  messagesContainerRef: React.RefObject<HTMLDivElement>;
-  latestMessageRef: React.RefObject<HTMLDivElement>;
+  messagesEndRef: React.RefObject<HTMLDivElement | null>;
+  messagesContainerRef: React.RefObject<HTMLDivElement | null>;
+  latestMessageRef: React.RefObject<HTMLDivElement | null>;
   showScrollButton: boolean;
   userHasScrolled: boolean;
   setUserHasScrolled: (scrolled: boolean) => void;
@@ -13,8 +13,8 @@ interface UseMessageScrollReturn {
 
 export function useMessageScroll(
   messages: UnifiedMessage[],
-  streamingTextContent: string,
-  streamingToolCall: any,
+  _streamingTextContent: string,
+  _streamingToolCall: unknown,
   isAgentRunning: boolean
 ): UseMessageScrollReturn {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -39,15 +39,15 @@ export function useMessageScroll(
   // Intersection observer for scroll button visibility
   useEffect(() => {
     if (!latestMessageRef.current || messages.length === 0) return;
-    
+
     const observer = new IntersectionObserver(
       ([entry]) => setShowScrollButton(!entry?.isIntersecting),
       { root: messagesContainerRef.current, threshold: 0.1 },
     );
-    
+
     observer.observe(latestMessageRef.current);
     return () => observer.disconnect();
-  }, [messages, streamingTextContent, streamingToolCall]);
+  }, [messages, _streamingTextContent, _streamingToolCall]);
 
   return {
     messagesEndRef,

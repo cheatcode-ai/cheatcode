@@ -84,9 +84,10 @@ export const useDeleteThread = () => {
       return { previousThreads };
     },
     // Rollback on error
-    onError: (_error, _variables, context: { previousThreads?: Thread[] } | undefined) => {
-      if (context?.previousThreads) {
-        queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousThreads?: Thread[] } | undefined;
+      if (result?.previousThreads) {
+        queryClient.setQueryData(threadKeys.lists(), result.previousThreads);
       }
     },
     // Always refetch after error or success to ensure consistency
@@ -114,7 +115,7 @@ export const useDeleteMultipleThreads = () => {
         threadIds.map(async (threadId) => {
           try {
             const sandboxId = threadSandboxMap?.[threadId];
-            const result = await deleteThread(threadId, sandboxId, token || undefined);
+            await deleteThread(threadId, sandboxId, token || undefined);
             completedCount++;
             onProgress?.(completedCount, threadIds.length);
             return { success: true, threadId };
@@ -150,9 +151,10 @@ export const useDeleteMultipleThreads = () => {
 
       return { previousThreads };
     },
-    onError: (_error, _variables, context: { previousThreads?: Thread[] } | undefined) => {
-      if (context?.previousThreads) {
-        queryClient.setQueryData(threadKeys.lists(), context.previousThreads);
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousThreads?: Thread[] } | undefined;
+      if (result?.previousThreads) {
+        queryClient.setQueryData(threadKeys.lists(), result.previousThreads);
       }
     },
     onSettled: () => {
@@ -187,9 +189,6 @@ export const processThreadsWithProjects = (
 
     const project = projectsById.get(projectId);
     if (!project) {
-      console.log(
-        `❌ Thread ${thread.thread_id} has project_id=${projectId} but no matching project found`,
-      );
       continue;
     }
     

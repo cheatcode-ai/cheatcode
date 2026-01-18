@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Project, ApiMessageType } from '@/lib/api';
 
 // Re-export ApiMessageType from the canonical source

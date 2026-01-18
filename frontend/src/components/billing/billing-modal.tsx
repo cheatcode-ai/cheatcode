@@ -1,20 +1,17 @@
 'use client';
 
-import { useEffect, useState } from 'react';
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
-import { Button } from '@/components/ui/button';
 import { BillingPricingSection } from '@/components/billing/billing-pricing-section';
 
 
 import { useAuth } from '@clerk/nextjs';
 import { useSubscription } from '@/hooks/react-query/subscriptions/use-billing';
 import { Skeleton } from '@/components/ui/skeleton';
-import { X } from 'lucide-react';
 
 interface BillingModalProps {
     open: boolean;

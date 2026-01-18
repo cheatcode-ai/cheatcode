@@ -74,7 +74,6 @@ export function FileBrowser({
       }
     } catch (error) {
       toast.error('Failed to load files');
-      console.error('Failed to load files:', error);
     } finally {
       setIsLoading(false);
     }
@@ -95,7 +94,6 @@ export function FileBrowser({
       }
     } catch (error) {
       toast.error('Failed to load file content');
-      console.error('Failed to load file content:', error);
       setFileContent(null);
     } finally {
       setIsLoading(false);

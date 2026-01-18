@@ -7,7 +7,6 @@ import {
   QueryClientProvider,
   DehydratedState,
 } from '@tanstack/react-query';
-import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
 import { handleApiError } from '@/lib/error-handler';
 
 export function ReactQueryProvider({
@@ -46,7 +45,7 @@ export function ReactQueryProvider({
               if (error?.status >= 400 && error?.status < 500 && !isNetworkError(error)) return false;
               return failureCount < 2;
             },
-            onError: (error: any, variables: any, context: any) => {
+            onError: (error: any, _variables: unknown, _context: unknown) => {
               // Only show error toasts for non-network errors
               if (!isNetworkError(error)) {
                 handleApiError(error, {

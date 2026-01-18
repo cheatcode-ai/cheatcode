@@ -132,8 +132,6 @@ const uploadFiles = async (
 
       // If file was already in chat and we have queryClient, invalidate its cache
       if (isFileInChat && queryClient) {
-        console.log(`Invalidating cache for existing file: ${uploadPath}`);
-
         // Invalidate all content types for this file
         ['text', 'blob', 'json'].forEach(contentType => {
           const queryKey = fileQueryKeys.content(sandboxId, uploadPath, contentType);
@@ -159,7 +157,6 @@ const uploadFiles = async (
 
     setUploadedFiles((prev) => [...prev, ...newUploadedFiles]);
   } catch (error) {
-    console.error('File upload failed:', error);
     toast.error(
       typeof error === 'string'
         ? error
@@ -278,9 +275,9 @@ export const FileUploadHandler = forwardRef<
           <Button
             type="button"
             onClick={handleFileUpload}
-            variant="outline"
+            variant="ghost"
             size="sm"
-            className="h-8 p-2 bg-transparent border border-border rounded-xl text-muted-foreground hover:text-foreground hover:bg-accent/50 flex items-center"
+            className="h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors"
             disabled={
               !isLoggedIn || loading || (disabled && !isAgentRunning) || isUploading
             }

@@ -128,7 +128,6 @@ export function parseToolResult(content: any): ParsedToolResult | null {
     
     return null;
   } catch (error) {
-    console.error('Error parsing tool result:', error);
     return null;
   }
 }

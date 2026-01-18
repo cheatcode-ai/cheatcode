@@ -41,7 +41,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(data);
 
   } catch (error) {
-    console.error('Error in openrouter-key POST API route:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }
@@ -49,7 +48,7 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function DELETE(request: NextRequest) {
+export async function DELETE(_request: NextRequest) {
   try {
     // Get user authentication from Clerk
     const { userId } = await auth();
@@ -81,7 +80,6 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json(data);
 
   } catch (error) {
-    console.error('Error in openrouter-key DELETE API route:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

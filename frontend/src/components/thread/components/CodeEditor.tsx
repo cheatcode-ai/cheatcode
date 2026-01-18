@@ -18,7 +18,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 }) => {
   if (!selectedFile) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-zinc-500 dark:text-zinc-400">
+      <div className="flex items-center justify-center h-full text-sm text-zinc-500 dark:text-zinc-300 bg-zinc-50 dark:bg-transparent">
         Select a file to view its content
       </div>
     );
@@ -26,10 +26,10 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center h-full">
-        <div className="flex flex-col items-center space-y-2">
-          <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-          <span className="text-sm text-zinc-500">Loading file content...</span>
+      <div className="flex items-center justify-center h-full bg-zinc-50 dark:bg-transparent">
+        <div className="flex flex-col items-center space-y-3">
+          <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
+          <span className="text-xs font-mono text-zinc-500 dark:text-zinc-300">Loading content...</span>
         </div>
       </div>
     );
@@ -37,7 +37,7 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
 
   if (error) {
     return (
-      <div className="flex items-center justify-center h-full text-sm text-red-500">
+      <div className="flex items-center justify-center h-full text-sm text-red-500 bg-zinc-50 dark:bg-transparent">
         Error loading file: {error.message || 'Unknown error'}
       </div>
     );
@@ -47,9 +47,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
   const language = selectedFile ? getLanguageFromExtension(selectedFile) : '';
 
   return (
-    <div className="h-full flex flex-col">
-      <div className="border-b border-zinc-200 dark:border-zinc-700 px-3 py-2 bg-zinc-50 dark:bg-zinc-800">
-        <div className="text-xs font-medium text-zinc-700 dark:text-zinc-300 truncate">
+    <div className="h-full flex flex-col bg-zinc-50 dark:bg-transparent">
+      <div className="h-10 flex items-center px-4 border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950/20 backdrop-blur-sm">
+        <div className="text-[11px] font-mono text-zinc-500 dark:text-zinc-400 truncate tracking-wide">
           {selectedFile}
         </div>
       </div>

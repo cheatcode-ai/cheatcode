@@ -38,10 +38,10 @@ interface LayoutProviderProps {
 }
 
 export function LayoutProvider({ children }: LayoutProviderProps) {
-  const { messages, initialLoadCompleted } = useThreadState();
+  const { messages, initialLoadCompleted, messagesQuery, agentStatus } = useThreadState();
   const isMobile = useIsMobile();
   const searchParams = useSearchParams();
-  
+
   const [debugMode, setDebugMode] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
   const [initialPanelOpenAttempted, setInitialPanelOpenAttempted] = useState(false);
@@ -56,7 +56,7 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
     setAutoOpenedPanel,
     toggleSidePanel,
     userClosedPanelRef,
-  } = useAppPreview(messages, setLeftSidebarOpen, undefined);
+  } = useAppPreview(messages, setLeftSidebarOpen, agentStatus);
 
   // Keyboard shortcuts
   useKeyboardShortcuts({
@@ -67,7 +67,7 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
     userClosedPanelRef,
   });
 
-  const handleProjectRenamed = useCallback((newName: string) => {
+  const handleProjectRenamed = useCallback((_newName: string) => {
     // Implementation for project renaming
   }, []);
 
@@ -79,16 +79,17 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
     }
   }, []);
 
-  // Auto-open panel on initial load
+  // Auto-open panel when messages are available (progressive loading)
+  const hasMessages = messagesQuery?.data !== undefined;
   useEffect(() => {
-    if (initialLoadCompleted && !initialPanelOpenAttempted) {
+    if ((initialLoadCompleted || hasMessages) && !initialPanelOpenAttempted) {
       setInitialPanelOpenAttempted(true);
 
       if (messages.length > 0) {
         setIsSidePanelOpen(true);
       }
     }
-  }, [initialPanelOpenAttempted, messages, initialLoadCompleted, setIsSidePanelOpen]);
+  }, [initialPanelOpenAttempted, messages, initialLoadCompleted, hasMessages, setIsSidePanelOpen]);
 
   // Debug mode from URL params
   useEffect(() => {

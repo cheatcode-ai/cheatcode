@@ -58,8 +58,9 @@ async def get_projects(
             return []
 
         # Query projects for this account with pagination and ordering
+        # Only select columns needed for the API response to reduce data transfer
         result = await client.table('projects')\
-            .select('*')\
+            .select('project_id, name, description, user_id, created_at, updated_at, sandbox, is_public, app_type')\
             .eq('user_id', account_id)\
             .order('created_at', desc=True)\
             .range(offset, offset + limit - 1)\
@@ -106,8 +107,10 @@ async def get_project(
     try:
         client = await db.client
 
-        # Fetch the project row
-        result = await client.table('projects').select('*').eq('project_id', project_id).execute()
+        # Fetch the project row - only select needed columns
+        result = await client.table('projects').select(
+            'project_id, name, description, user_id, created_at, updated_at, sandbox, is_public, app_type'
+        ).eq('project_id', project_id).execute()
 
         if not result.data:
             raise HTTPException(status_code=404, detail="Project not found")
@@ -167,8 +170,10 @@ async def get_threads(
             return []
 
         # Build query with server-side filtering for agent builder threads
-        # and pagination for performance
-        query = client.table('threads').select('*').eq('user_id', account_id)
+        # and pagination for performance - only select needed columns
+        query = client.table('threads').select(
+            'thread_id, user_id, project_id, is_public, created_at, updated_at, metadata'
+        ).eq('user_id', account_id)
 
         if project_id:
             query = query.eq('project_id', project_id)

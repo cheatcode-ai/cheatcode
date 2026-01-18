@@ -1,10 +1,12 @@
+'use client';
+
 import { AnimatePresence, motion } from 'motion/react';
 import { X, Plus } from 'lucide-react';
 import { TooltipProvider, Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip';
 import { FileAttachment } from './file-attachment';
 import { cn } from '@/lib/utils';
 import { Project } from '@/lib/api';
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import {
     Dialog,
     DialogContent,
@@ -45,7 +47,7 @@ export function AttachmentGroup({
     className,
     onFileClick,
     showPreviews = true,
-    maxHeight = '216px',
+    maxHeight: _maxHeight = '216px',
     gridImageHeight = 180, // Increased from 120 for better visibility
     collapsed = true, // By default, HTML/MD files are collapsed
     project // Add project prop
@@ -55,26 +57,37 @@ export function AttachmentGroup({
     // Responsive state - ALWAYS initialize this hook first before any conditionals
     const [isMobile, setIsMobile] = useState(false);
 
-    // Constants for height calculation - each row is about 66px (54px height + 12px gap)
-    const ROW_HEIGHT = 54; // Height of a single file
-    const GAP = 12; // Gap between rows (gap-3 = 0.75rem = 12px)
-    const TWO_ROWS_HEIGHT = (ROW_HEIGHT * 2) + GAP; // Height of 2 rows plus gap
+
+    // Debounced resize check for mobile detection
+    const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+    const debouncedCheckMobile = useMemo(() => {
+        return () => {
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+            timeoutRef.current = setTimeout(() => {
+                setIsMobile(window.innerWidth < 640);
+            }, 150);
+        };
+    }, []);
 
     // Check for mobile on mount and window resize
     useEffect(() => {
-        const checkMobile = () => {
-            setIsMobile(window.innerWidth < 640);
-        };
+        // Initial check (immediate, not debounced)
+        setIsMobile(window.innerWidth < 640);
 
-        // Initial check
-        checkMobile();
-
-        // Add resize listener
-        window.addEventListener('resize', checkMobile);
+        // Add debounced resize listener
+        window.addEventListener('resize', debouncedCheckMobile);
 
         // Clean up
-        return () => window.removeEventListener('resize', checkMobile);
-    }, []);
+        return () => {
+            window.removeEventListener('resize', debouncedCheckMobile);
+            if (timeoutRef.current) {
+                clearTimeout(timeoutRef.current);
+            }
+        };
+    }, [debouncedCheckMobile]);
 
     // Return early with empty content if no files, but after hook initialization
     if (!files || files.length === 0) {
@@ -134,7 +147,7 @@ export function AttachmentGroup({
     }
 
     // Pre-process files for rendering to avoid conditional logic in JSX
-    const visibleFilesWithMeta = uniqueFiles.slice(0, visibleCount).map((file, index) => {
+    const visibleFilesWithMeta = uniqueFiles.slice(0, visibleCount).map((file, _index) => {
         const path = getFilePath(file);
         const filename = path.split('/').pop() || '';
         const isImage = filename.match(/\.(jpg|jpeg|png|gif|webp|svg|bmp)$/i) !== null;
@@ -198,7 +211,6 @@ export function AttachmentGroup({
     // Now continue with the fully conditional rendering but with pre-computed values
     const renderContent = () => {
         if (layout === 'grid') {
-            const shouldLastItemSpanFull = sortedFiles.length % 2 === 1 && sortedFiles.length > 1;
 
             return (
                 <div className={cn(
@@ -250,7 +262,7 @@ export function AttachmentGroup({
                             {onRemove && (
                                 <div
                                     className="absolute -top-1 -right-1 h-5 w-5 rounded-full
-                                    bg-black dark:bg-white
+                                    bg-background dark:bg-white
                                     border-3 border-sidebar
                                     text-white dark:text-black flex items-center justify-center
                                     z-30 cursor-pointer"
@@ -291,7 +303,7 @@ export function AttachmentGroup({
                             {onRemove && (
                                 <div
                                     className="absolute -top-1 -right-1 h-5 w-5 rounded-full
-                                        bg-black dark:bg-white
+                                        bg-background dark:bg-white
                                         border-3 border-sidebar
                                         text-white dark:text-black flex items-center justify-center
                                         z-30 cursor-pointer"
@@ -319,17 +331,17 @@ export function AttachmentGroup({
                         <button
                             onClick={() => setIsModalOpen(true)}
                             className={cn(
-                                "h-[54px] rounded-xl cursor-pointer",
-                                "border border-black/10 dark:border-white/10",
-                                "bg-black/5 dark:bg-black/20",
-                                "hover:bg-primary/10 dark:hover:bg-primary/20",
+                                "h-[54px] rounded-sm cursor-pointer",
+                                "border border-zinc-900",
+                                "bg-background",
+                                "hover:bg-zinc-900",
                                 "flex items-center justify-center transition-colors",
                                 isMobile ? "w-full" : "min-w-[120px] w-fit"
                             )}
                             title={`${moreCount} more ${moreCount === 1 ? 'file' : 'files'}`}
                         >
                             <div className="flex items-center gap-2">
-                                <div className="flex items-center justify-center w-6 h-6 bg-primary/10 rounded-full">
+                                <div className="flex items-center justify-center w-6 h-6 bg-zinc-900 rounded-full">
                                     <Plus size={14} className="text-primary" />
                                 </div>
                                 <span className="text-sm font-medium">{moreCount} more</span>
@@ -453,7 +465,7 @@ export function AttachmentGroup({
                                     {onRemove && (
                                         <div
                                             className="absolute -top-1 -right-1 h-5 w-5 rounded-full
-                                                bg-black dark:bg-white
+                                                bg-background dark:bg-white
                                                 border-3 border-sidebar
                                                 text-white dark:text-black flex items-center justify-center
                                                 z-30 cursor-pointer"

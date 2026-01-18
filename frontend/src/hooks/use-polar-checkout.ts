@@ -66,7 +66,6 @@ export function usePolarCheckout(options: UsePolarCheckoutOptions = {}) {
 
     } catch (error) {
       setIsLoading(false);
-      console.error('Failed to open checkout:', error);
       const errorMessage = error instanceof Error ? error.message : 'Failed to open checkout';
       onError?.(errorMessage);
       toast.error(errorMessage);

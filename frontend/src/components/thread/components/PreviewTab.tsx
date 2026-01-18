@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Loader2, Monitor, Code2 } from 'lucide-react';
+import { useRef, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { ViewMode, DevServerStatus, ViewportDimensions } from '../types/app-preview';
 import { MobilePreviewTab } from './MobilePreviewTab';
@@ -85,7 +85,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
         onRefresh={onRefresh}
         onOpenInNewTab={onOpenInNewTab}
         onCycleView={onCycleView}
-        setIframeRef={setIframeRef}
+        setIframeRef={setIframeRef as (ref: HTMLIFrameElement | null) => void}
         onRefreshExpoUrl={onRefreshExpoUrl}
       />
     );
@@ -93,7 +93,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
 
   return (
     <div className={cn(
-      "h-full overflow-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent p-2",
+      "h-full overflow-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent p-2 pt-0",
       currentView !== 'desktop' && "flex items-center justify-center"
     )}>
       <div className={cn(
@@ -106,7 +106,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
           <div className="absolute inset-0 flex items-center justify-center bg-white dark:bg-zinc-900 z-10">
             <div className="flex flex-col items-center space-y-2">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
-              <span className="text-sm text-zinc-500">
+              <span className="text-sm text-zinc-500 dark:text-zinc-400">
                 {devServerStatus === 'starting' ? 'Starting development server...' : 'Loading preview...'}
               </span>
             </div>

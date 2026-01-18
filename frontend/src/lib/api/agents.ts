@@ -63,7 +63,6 @@ export const startAgent = async (
         if (response.status === 402) {
           try {
             const errorData = await response.json();
-            console.error(`[API] Billing error starting agent (402):`, errorData);
             const detail = errorData?.detail || { message: 'Payment Required' };
             if (typeof detail.message !== 'string') {
               detail.message = 'Payment Required';
@@ -71,7 +70,6 @@ export const startAgent = async (
             throw new BillingError(response.status, detail);
           } catch (parseError) {
             if (parseError instanceof BillingError) throw parseError;
-            console.error('[API] Could not parse 402 error response body:', parseError);
             throw new BillingError(
               response.status,
               { message: 'Payment Required' },
@@ -90,15 +88,10 @@ export const startAgent = async (
 
         if (isSandboxLockError && attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
-          console.log(`[API] Sandbox lock error, retrying in ${delay}ms (attempt ${attempt + 1}/${maxRetries})`);
           await new Promise(resolve => setTimeout(resolve, delay));
           continue; // Retry
         }
 
-        console.error(
-          `[API] Error starting agent: ${response.status} ${response.statusText}`,
-          errorText,
-        );
         throw new Error(
           `Error starting agent: ${response.statusText} (${response.status})`,
         );
@@ -111,15 +104,13 @@ export const startAgent = async (
         throw error;
       }
 
-      // Don't log or handle transient errors during retry attempts
+      // Don't handle transient errors during retry attempts
       if (attempt < maxRetries && error instanceof Error &&
           error.message.includes('500')) {
         const delay = baseDelay * Math.pow(2, attempt);
         await new Promise(resolve => setTimeout(resolve, delay));
         continue;
       }
-
-      console.error('[API] Failed to start agent:', error);
 
       if (
         error instanceof TypeError &&
@@ -178,14 +169,6 @@ export const getAgentStatus = async (agentRunId: string, clerkToken?: string): P
     });
 
     if (!response.ok) {
-      const errorText = await response
-        .text()
-        .catch(() => 'No error details available');
-      console.error(
-        `[API] Error getting agent status: ${response.status} ${response.statusText}`,
-        errorText,
-      );
-
       throw new Error(
         `Error getting agent status: ${response.statusText} (${response.status})`,
       );
@@ -194,7 +177,6 @@ export const getAgentStatus = async (agentRunId: string, clerkToken?: string): P
     const data = await response.json();
     return data;
   } catch (err) {
-    console.error(`[API] Error in getAgentStatus for ${agentRunId}:`, err);
     throw err;
   }
 };
@@ -219,7 +201,6 @@ export const getAgentRuns = async (threadId: string, clerkToken?: string): Promi
     const data = await response.json();
     return data.agent_runs || [];
   } catch (error) {
-    console.error('Failed to get agent runs:', error);
     handleApiError(error, { operation: 'load agent runs', resource: 'conversation history' });
     throw error;
   }
@@ -246,7 +227,6 @@ export const streamAgent = (
 ): (() => void) => {
   if (!clerkToken) {
     const authError = new Error('Authentication required. Please sign in to continue.');
-    console.error('[streamAgent] No Clerk token available');
     callbacks.onError(authError);
     callbacks.onClose();
     return () => {};
@@ -313,7 +293,6 @@ export const streamAgent = (
         errorCount = 0;
         lastErrorTime = 0;
         isReconnecting = false;
-        console.log(`[streamAgent] Connected to stream for ${agentRunId}`);
       };
 
       eventSource.onmessage = (event) => {
@@ -335,7 +314,6 @@ export const streamAgent = (
           try {
             const jsonData = JSON.parse(rawData);
             if (jsonData.status === 'error') {
-              console.error(`[streamAgent] Error status received for ${agentRunId}:`, jsonData);
               callbacks.onError(jsonData.message || 'Unknown error occurred');
               return;
             }
@@ -373,7 +351,6 @@ export const streamAgent = (
 
           callbacks.onMessage(rawData);
         } catch (error) {
-          console.error(`[streamAgent] Error handling message:`, error);
           callbacks.onError(error instanceof Error ? error : String(error));
         }
       };
@@ -464,7 +441,6 @@ export const streamAgent = (
         if (!isReconnecting) {
           isReconnecting = true;
           const delay = getReconnectDelay(errorCount - 1);
-          console.log(`[streamAgent] Reconnecting in ${delay}ms (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`);
 
           // Close the failed connection
           if (eventSource) {
@@ -486,7 +462,6 @@ export const streamAgent = (
       };
 
     } catch (error) {
-      console.error(`[streamAgent] Failed to create EventSource for ${agentRunId}:`, error);
 
       let errorMessage = 'Failed to start stream';
 
@@ -511,7 +486,6 @@ export const streamAgent = (
       errorCount++;
       if (errorCount < STREAM_CONFIG.maxRetries && !isClosed) {
         const delay = getReconnectDelay(errorCount - 1);
-        console.log(`[streamAgent] Retrying connection in ${delay}ms`);
         reconnectTimeout = setTimeout(() => {
           if (!isClosed) {
             createConnection();
@@ -534,7 +508,6 @@ export const streamAgent = (
       const timeSinceLastMessage = Date.now() - lastMessageTime;
 
       if (timeSinceLastMessage > STREAM_CONFIG.heartbeatTimeoutMs) {
-        console.warn(`[streamAgent] No messages for ${Math.round(timeSinceLastMessage / 1000)}s - reconnecting`);
 
         // Trigger reconnection
         if (!isReconnecting && eventSource) {
@@ -600,11 +573,6 @@ export const initiateAgent = async (
         errorDetail = { message: errorText };
       }
 
-      console.error(
-        `[API] Error initiating agent: ${response.status} ${response.statusText}`,
-        errorDetail,
-      );
-
       if (response.status === 402) {
         throw new BillingError(response.status, {
           message: errorDetail.message || 'Payment required to create new project',
@@ -646,7 +614,6 @@ export const initiateAgent = async (
     const result = await response.json();
     return result;
   } catch (error) {
-    console.error('[API] Failed to initiate agent:', error);
 
     if (
       error instanceof TypeError &&

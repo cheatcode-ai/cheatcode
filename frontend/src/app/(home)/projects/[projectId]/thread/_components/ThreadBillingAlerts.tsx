@@ -1,13 +1,12 @@
-import React from 'react';
 import { BillingErrorAlert } from '@/components/billing/usage-limit-alert';
-import { useBilling } from '../_contexts/BillingContext';
+import { useThreadBilling } from '../_contexts/BillingContext';
 
 export function ThreadBillingAlerts() {
   const {
     showBillingAlert,
     billingData,
     onDismissBilling,
-  } = useBilling();
+  } = useThreadBilling();
 
   return (
     <BillingErrorAlert

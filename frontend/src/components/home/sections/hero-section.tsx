@@ -1,10 +1,6 @@
 'use client';
-import { siteConfig } from '@/lib/home';
-import { ArrowRight, Github, X, AlertCircle, Square } from 'lucide-react';
-import { useMediaQuery } from '@/hooks/use-media-query';
-import { useState, useEffect, useRef, FormEvent } from 'react';
-import { useScroll } from 'motion/react';
-import Link from 'next/link';
+
+import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import {
@@ -16,17 +12,16 @@ import {
 import { useInitiateAgentMutation } from '@/hooks/react-query/agents/use-initiate-agent';
 import { useThreadQuery } from '@/hooks/react-query/threads/use-threads';
 import { generateAndUpdateThreadName } from '@/lib/actions/threads';
-
-// Dialog imports removed - now using global Clerk modal system
 import { BillingErrorAlert } from '@/components/billing/usage-limit-alert';
 import { useBillingError } from '@/hooks/useBillingError';
 import { useAccounts } from '@/hooks/use-accounts';
-import { isLocalMode, config } from '@/lib/config';
+import { isLocalMode } from '@/lib/config';
 import { toast } from 'sonner';
 import { useModal } from '@/hooks/use-modal-store';
 import { ChatInput, ChatInputHandles } from '@/components/thread/chat-input/chat-input';
 import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
 import { Examples } from '@/components/suggestions/examples';
+import { ThreadSkeleton } from '@/components/thread/content/ThreadSkeleton';
 
 
 // BlurredDialogOverlay removed - no longer needed with global modal system
@@ -35,12 +30,8 @@ import { Examples } from '@/components/suggestions/examples';
 const PENDING_PROMPT_KEY = 'pendingAgentPrompt';
 
 export function HeroSection() {
-  const tablet = useMediaQuery('(max-width: 1024px)');
-  const [mounted, setMounted] = useState(false);
-  const [isScrolling, setIsScrolling] = useState(false);
+  const [_mounted, setMounted] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
-  const { scrollY } = useScroll();
   const [inputValue, setInputValue] = useState('');
   const [appType, setAppType] = useState<'web' | 'mobile'>('web');
   const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4.5');
@@ -48,7 +39,7 @@ export function HeroSection() {
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const isLoading = !isLoaded;
-  const { billingError, handleBillingError, clearBillingError } =
+  const { billingError, clearBillingError } =
     useBillingError();
   const { data: accounts } = useAccounts();
   const personalAccount = accounts?.find((account) => account.personal_account);
@@ -63,32 +54,6 @@ export function HeroSection() {
   useEffect(() => {
     setMounted(true);
   }, []);
-
-  // Detect when scrolling is active to reduce animation complexity
-  useEffect(() => {
-    const unsubscribe = scrollY.on('change', () => {
-      setIsScrolling(true);
-
-      // Clear any existing timeout
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-
-      // Set a new timeout
-      scrollTimeout.current = setTimeout(() => {
-        setIsScrolling(false);
-      }, 300); // Wait 300ms after scroll stops
-    });
-
-    return () => {
-      unsubscribe();
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-    };
-  }, [scrollY]);
-
-  // Auth dialog useEffect hooks removed - now using global modal system
 
   useEffect(() => {
     if (threadQuery.data && initiatedThreadId) {
@@ -105,7 +70,7 @@ export function HeroSection() {
   // Handle ChatInput submission
   const handleChatInputSubmit = async (
     message: string,
-    attachments?: Array<{ name: string; path: string; }>,
+    _attachments?: Array<{ name: string; path: string; }>,
     appType?: 'web' | 'mobile'
   ) => {
     if ((!message.trim() && !chatInputRef.current?.getPendingFiles().length) || isSubmitting) return;
@@ -137,9 +102,6 @@ export function HeroSection() {
 
       // Validate app_type for type safety
       const validatedAppType = appType === 'mobile' ? 'mobile' : 'web';
-      if (appType && appType !== 'web' && appType !== 'mobile') {
-        console.warn(`Invalid app_type '${appType}', defaulting to 'web'`);
-      }
       
       // Pass selected model to backend
       formData.append('model_name', selectedModel);
@@ -156,11 +118,8 @@ export function HeroSection() {
         
         // Generate and update thread name in the background
         generateAndUpdateThreadName(result.thread_id, message)
-          .then((threadName) => {
-            console.log(`Thread name generated: ${threadName}`);
-          })
-          .catch((error) => {
-            console.error('Failed to generate thread name:', error);
+          .catch(() => {
+            // Failed to generate thread name - non-critical
           });
       } else {
         throw new Error('Agent initiation did not return a thread_id.');
@@ -170,22 +129,18 @@ export function HeroSection() {
       setInputValue('');
     } catch (error: any) {
       if (error instanceof BillingError) {
-        console.log('Billing error:', error.detail);
         onOpen("paymentRequiredDialog");
       } else if (error instanceof InitiationAuthError) {
-        console.log('Authentication error:', error.detail);
         toast.error(
           'Authentication failed. Please sign in again and try creating your project.',
           { duration: 5000 }
         );
       } else if (error instanceof SandboxCreationError) {
-        console.log('Sandbox creation error:', error.detail);
         toast.error(
           `Failed to create development environment${error.detail.sandboxType ? ` (${error.detail.sandboxType})` : ''}. Please try again in a moment.`,
           { duration: 5000 }
         );
       } else if (error instanceof ProjectInitiationError) {
-        console.log('Project initiation error:', error.detail);
         let errorMessage = error.message;
         
         // Provide more specific messaging based on error type
@@ -214,6 +169,11 @@ export function HeroSection() {
     }
   };
 
+  // Show skeleton loading screen when submitting
+  if (isSubmitting) {
+    return <ThreadSkeleton />;
+  }
+
   return (
     <section id="hero" className="w-full relative overflow-hidden">
       <div className="relative flex flex-col items-center w-full px-6">
@@ -230,9 +190,9 @@ export function HeroSection() {
             </h1>
           </div>
 
-          <div className="flex items-center w-full max-w-4xl gap-2 flex-wrap justify-center">
-            <div className="w-full relative">
-              <div className="relative z-10">
+          <div className="flex items-center w-full max-w-3xl gap-2 flex-wrap justify-center">
+            <div className="w-full relative group">
+              <div className="relative z-10 border border-zinc-800 bg-black shadow-2xl overflow-hidden px-4 py-2 transition-colors duration-300 group-focus-within:border-zinc-700">
                 <ChatInput
                   ref={chatInputRef}
                   onSubmit={handleChatInputSubmit}
@@ -247,10 +207,12 @@ export function HeroSection() {
                   onAppTypeChange={setAppType}
                   selectedModel={selectedModel}
                   onModelChange={setSelectedModel}
+                  bgColor="bg-black"
                 />
               </div>
-              {/* Subtle glow effect */}
-              <div className="absolute -bottom-4 inset-x-0 h-6 bg-secondary/20 blur-xl rounded-full -z-10 opacity-70" />
+              {/* Grid line extension effect */}
+              <div className="absolute -left-4 top-1/2 w-4 h-px bg-zinc-800/50" />
+              <div className="absolute -right-4 top-1/2 w-4 h-px bg-zinc-800/50" />
             </div>
           </div>
 

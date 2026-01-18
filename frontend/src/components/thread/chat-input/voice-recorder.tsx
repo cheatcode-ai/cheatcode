@@ -114,10 +114,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             onTranscriptionRef.current(fullText);
         };
 
-        recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
-            if (event.error !== 'aborted' && event.error !== 'no-speech') {
-                console.error('Speech recognition error:', event.error);
-            }
+        recognition.onerror = (_event: SpeechRecognitionErrorEvent) => {
             setIsListening(false);
         };
 
@@ -146,9 +143,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
                 recognitionRef.current.start();
                 setIsListening(true);
             } catch (error) {
-                if (error instanceof Error && !error.message.includes('already started')) {
-                    console.error('Error starting speech recognition:', error);
-                }
+                // Error starting speech recognition - ignore if already started
             }
         }
     }, [isListening, currentValue]);

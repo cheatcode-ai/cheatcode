@@ -5,7 +5,7 @@ import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 
 export const useMessagesQuery = (threadId: string) => {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { getToken, isLoaded } = useAuth();
 
   return createQueryHook(
     threadKeys.messages(threadId),
@@ -15,12 +15,14 @@ export const useMessagesQuery = (threadId: string) => {
       return result;
     },
     {
-      enabled: !!threadId && isLoaded && isSignedIn,
+      enabled: !!threadId && isLoaded,
       retry: (failureCount) => {
         return failureCount < 2;
       },
-      staleTime: 1000 * 30, // Consider data fresh for 30 seconds
-      refetchOnWindowFocus: false, // Don't refetch on every window focus
+      staleTime: 5 * 60 * 1000, // 5 minutes - messages don't change unless user sends new ones
+      gcTime: 30 * 60 * 1000, // 30 minutes cache
+      refetchOnWindowFocus: false,
+      refetchOnMount: false, // Don't refetch if we have cached data
     }
   )();
 };
@@ -67,11 +69,12 @@ export const useAddUserMessageMutation = () => {
       return { previousMessages, threadId };
     },
     // Rollback on error
-    onError: (_error, _variables, context: { previousMessages?: Message[]; threadId?: string } | undefined) => {
-      if (context?.previousMessages && context?.threadId) {
+    onError: (_error, _variables, onMutateResult, _context) => {
+      const result = onMutateResult as { previousMessages?: Message[]; threadId?: string } | undefined;
+      if (result?.previousMessages && result?.threadId) {
         queryClient.setQueryData(
-          threadKeys.messages(context.threadId),
-          context.previousMessages
+          threadKeys.messages(result.threadId),
+          result.previousMessages
         );
       }
     },

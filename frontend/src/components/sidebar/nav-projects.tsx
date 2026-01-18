@@ -7,11 +7,9 @@ import {
   Link as LinkIcon,
   MoreHorizontal,
   Trash2,
-  MessagesSquare,
   Loader2,
   X,
-  Check,
-  History
+  Check
 } from "lucide-react"
 import { toast } from "sonner"
 import { usePathname, useRouter } from "next/navigation"
@@ -27,21 +25,13 @@ import {
   SidebarGroup,
   SidebarGroupLabel,
   SidebarMenu,
-  SidebarMenuAction,
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
 } from '@/components/ui/sidebar';
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger
-} from "@/components/ui/tooltip"
 import Link from "next/link"
 import { DeleteConfirmationDialog } from "@/components/thread/DeleteConfirmationDialog"
-import { useDeleteOperation } from '@/contexts/DeleteOperationContext'
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { ThreadWithProject } from '@/hooks/react-query/sidebar/use-sidebar';
 import { Monitor, Smartphone } from 'lucide-react';
 import { processThreadsWithProjects, useDeleteMultipleThreads, useDeleteThread, useProjects, useThreads } from '@/hooks/react-query/sidebar/use-sidebar';
@@ -50,14 +40,13 @@ import { projectKeys, threadKeys } from '@/hooks/react-query/sidebar/keys';
 import { useDeleteProject } from '@/hooks/react-query/sidebar/use-project-mutations';
 
 export function NavProjects() {
-  const { isMobile, state, setOpen, setOpenMobile } = useSidebar()
+  const { isMobile, state, setOpen } = useSidebar()
   const [loadingThreadId, setLoadingThreadId] = useState<string | null>(null)
   const pathname = usePathname()
   const router = useRouter()
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [threadToDelete, setThreadToDelete] = useState<{ id: string; name: string } | null>(null)
+  const [threadToDelete, setThreadToDelete] = useState<{ id: string; name: string; type: 'project' | 'conversation' | 'multiple' } | null>(null)
   const isNavigatingRef = useRef(false)
-  const { performDelete } = useDeleteOperation();
   const isPerformingActionRef = useRef(false);
   const queryClient = useQueryClient();
 
@@ -68,16 +57,14 @@ export function NavProjects() {
   const {
     data: projects = [],
     isLoading: isProjectsLoading,
-    error: projectsError
   } = useProjects();
 
   const {
     data: threads = [],
     isLoading: isThreadsLoading,
-    error: threadsError
   } = useThreads();
 
-  const { mutate: deleteThreadMutation, isPending: isDeletingSingle } = useDeleteThread();
+  const { isPending: _isDeletingSingle } = useDeleteThread();
   const {
     mutate: deleteMultipleThreadsMutation,
     isPending: isDeletingMultiple
@@ -118,7 +105,7 @@ export function NavProjects() {
     const handleProjectUpdate = (event: Event) => {
       const customEvent = event as CustomEvent;
       if (customEvent.detail) {
-        const { projectId, updatedData } = customEvent.detail;
+        const { projectId } = customEvent.detail;
         queryClient.invalidateQueries({ queryKey: projectKeys.details(projectId) });
         queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
       }
@@ -139,7 +126,6 @@ export function NavProjects() {
 
   useEffect(() => {
     const handleNavigationComplete = () => {
-      console.log('NAVIGATION - Navigation event completed');
       document.body.style.pointerEvents = 'auto';
       isNavigatingRef.current = false;
     };
@@ -163,7 +149,7 @@ export function NavProjects() {
 
   // Function to handle thread click with loading state
   const handleThreadClick = (e: React.MouseEvent<HTMLAnchorElement>, threadId: string, url: string) => {
-    // If thread is selected, prevent navigation 
+    // If thread is selected, prevent navigation
     if (selectedThreads.has(threadId)) {
       e.preventDefault();
       return;
@@ -171,12 +157,9 @@ export function NavProjects() {
 
     e.preventDefault();
     setLoadingThreadId(threadId);
-    // Close the sidebar immediately so the main view isn’t offset
-    if (isMobile) {
-      setOpenMobile(false);
-    } else {
-      setOpen(false);
-    }
+    // Close the sidebar immediately so the main view isn't offset
+    // Use setOpen for both mobile and desktop since our custom sidebar uses CSS transforms based on state (derived from open)
+    setOpen(false);
     router.push(url);
   }
 
@@ -211,7 +194,7 @@ export function NavProjects() {
 
   // Function to handle project deletion
   const handleDeleteProject = async (projectId: string, projectName: string) => {
-    setThreadToDelete({ id: `project-${projectId}`, name: `project: ${projectName}` });
+    setThreadToDelete({ id: `project-${projectId}`, name: projectName, type: 'project' });
     setIsDeleteDialogOpen(true);
   };
 
@@ -227,7 +210,8 @@ export function NavProjects() {
       id: "multiple",
       name: selectedThreads.size > 3
         ? `${selectedThreads.size} conversations`
-        : threadNames
+        : threadNames,
+      type: 'multiple'
     });
 
     setTotalToDelete(selectedThreads.size);
@@ -277,9 +261,8 @@ export function NavProjects() {
             }
           );
       } catch (error) {
-        console.error('Project deletion failed:', error);
-          setThreadToDelete(null);
-          isPerformingActionRef.current = false;
+        setThreadToDelete(null);
+        isPerformingActionRef.current = false;
         document.body.style.pointerEvents = 'auto';
       }
     } else {
@@ -350,8 +333,7 @@ export function NavProjects() {
               setDeleteProgress(0);
               setTotalToDelete(0);
             },
-            onError: (error) => {
-              console.error('Error in bulk deletion:', error);
+            onError: () => {
               toast.error('Error deleting conversations');
             },
             onSettled: () => {
@@ -362,8 +344,7 @@ export function NavProjects() {
             }
           }
         );
-      } catch (err) {
-        console.error('Error initiating bulk deletion:', err);
+      } catch {
         toast.error('Error initiating deletion process');
 
         // Reset states
@@ -378,71 +359,59 @@ export function NavProjects() {
 
   // Loading state or error handling
   const isLoading = isProjectsLoading || isThreadsLoading;
-  const hasError = projectsError || threadsError;
-
-  if (hasError) {
-    console.error('Error loading data:', { projectsError, threadsError });
-  }
+  // Error state available via projectsError || threadsError if needed
 
   return (
-    <SidebarGroup>
-      <div className="flex justify-between items-center">
-        <SidebarGroupLabel>Projects</SidebarGroupLabel>
-        {state !== 'collapsed' ? (
-          <div className="flex items-center space-x-1">
-            {selectedThreads.size > 0 ? (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={deselectAllThreads}
-                  className="h-7 w-7"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={selectAllThreads}
-                  disabled={selectedThreads.size === combinedThreads.length}
-                  className="h-7 w-7"
-                >
-                  <Check className="h-4 w-4" />
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleMultiDelete}
-                  className="h-7 w-7 text-destructive"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </>
-            ) : null}
+    <SidebarGroup className="p-0">
+      {/* Grid Header Cell */}
+      <div className="flex h-10 items-center justify-between px-4 border-b border-zinc-800 bg-zinc-950">
+        <SidebarGroupLabel className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">
+          Projects
+        </SidebarGroupLabel>
+        {state !== 'collapsed' && selectedThreads.size > 0 && (
+          <div className="flex items-center gap-2 animate-in fade-in duration-200">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={deselectAllThreads}
+              className="h-5 w-5 text-zinc-500 hover:text-white hover:bg-transparent"
+            >
+              <X className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={selectAllThreads}
+              className="h-5 w-5 text-zinc-500 hover:text-white hover:bg-transparent"
+            >
+              <Check className="h-3 w-3" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={handleMultiDelete}
+              className="h-5 w-5 text-zinc-500 hover:text-red-500 hover:bg-transparent"
+            >
+              <Trash2 className="h-3 w-3" />
+            </Button>
           </div>
-        ) : null}
+        )}
       </div>
 
-      <SidebarMenu className="overflow-y-auto max-h-[calc(100vh-200px)] [&::-webkit-scrollbar]:hidden [-ms-overflow-style:'none'] [scrollbar-width:'none']">
-
-
+      <SidebarMenu className="gap-0">
         {state !== 'collapsed' && (
           <>
             {isLoading ? (
-              // Show skeleton loaders while loading
+              // Minimal skeleton rows
               Array.from({ length: 3 }).map((_, index) => (
                 <SidebarMenuItem key={`skeleton-${index}`}>
-                  <SidebarMenuButton>
-                    <div className="h-4 w-4 bg-sidebar-foreground/10 rounded-md animate-pulse"></div>
-                    <div className="h-3 bg-sidebar-foreground/10 rounded w-3/4 animate-pulse"></div>
-                  </SidebarMenuButton>
+                  <div className="h-12 w-full border-b border-zinc-900 bg-zinc-950/30 animate-pulse" />
                 </SidebarMenuItem>
               ))
             ) : combinedThreads.length > 0 ? (
-              // Show all threads with project info
+              // Project List - Grid Rows
               <>
                 {combinedThreads.map((thread) => {
-                  // Check if this thread is currently active
                   const isActive = pathname?.includes(thread.threadId) || false;
                   const isThreadLoading = loadingThreadId === thread.threadId;
                   const isSelected = selectedThreads.has(thread.threadId);
@@ -451,99 +420,116 @@ export function NavProjects() {
                     <SidebarMenuItem key={`thread-${thread.threadId}`} className="group/row">
                       <SidebarMenuButton
                         asChild
-                        className={`relative ${isActive
-                          ? 'bg-accent text-accent-foreground font-medium'
-                          : isSelected
-                            ? 'bg-primary/10'
-                            : ''
+                        className={`relative w-full justify-start py-6 px-4 rounded-none border-b border-zinc-800/50 transition-colors duration-150
+                          ${isActive
+                            ? 'bg-zinc-900 text-white border-l-2 border-l-white border-b-zinc-800'
+                            : isSelected
+                              ? 'bg-zinc-900/50 text-white border-l-2 border-l-zinc-500'
+                              : 'text-zinc-500 hover:text-white hover:bg-zinc-900/30 border-l-2 border-l-transparent'
                           }`}
                       >
-                        <div className="flex items-center w-full">
+                        <div className="flex items-center w-full gap-3">
                           <Link
                             href={thread.url}
                             onClick={(e) =>
                               handleThreadClick(e, thread.threadId, thread.url)
                             }
-                            className="flex items-center flex-1 min-w-0"
+                            className="flex items-center flex-1 min-w-0 gap-3 group/link"
                           >
-                            {isThreadLoading ? (
-                              <Loader2 className="h-4 w-4 animate-spin mr-2 flex-shrink-0" />
-                            ) : (
-                              <span className="mr-2 flex-shrink-0">
-                                {thread.appType === 'mobile' ? (
-                                  <Smartphone className="h-4 w-4 text-green-500" />
-                                ) : (
-                                  <Monitor className="h-4 w-4 text-orange-500" />
-                                )}
-                              </span>
-                            )}
-                            <span className="truncate">{thread.projectName}</span>
+                            <div className="flex-shrink-0">
+                              {isThreadLoading ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-zinc-500" />
+                              ) : (
+                                <>
+                                  {thread.appType === 'mobile' ? (
+                                    <Smartphone className={`h-4 w-4 transition-colors ${isActive ? 'text-white' : 'text-zinc-600 group-hover/row:text-zinc-400'}`} />
+                                  ) : (
+                                    <Monitor className={`h-4 w-4 transition-colors ${isActive ? 'text-white' : 'text-zinc-600 group-hover/row:text-zinc-400'}`} />
+                                  )}
+                                </>
+                              )}
+                            </div>
+                            
+                            <span className={`truncate text-sm font-medium ${isActive ? 'text-white' : 'text-zinc-500 group-hover/row:text-zinc-300'}`}>
+                              {thread.projectName}
+                            </span>
                           </Link>
                           
-                          {/* Checkbox - only visible on hover of this specific area */}
-                          <div
-                            className="mr-1 flex-shrink-0 w-4 h-4 flex items-center justify-center group/checkbox"
-                            onClick={(e) => toggleThreadSelection(thread.threadId, e)}
-                          >
-                            <div
-                              className={`h-4 w-4 border rounded cursor-pointer transition-all duration-150 flex items-center justify-center ${isSelected
-                                ? 'opacity-100 bg-primary border-primary hover:bg-primary/90'
-                                : 'opacity-0 group-hover/checkbox:opacity-100 border-muted-foreground/30 bg-background hover:bg-muted/50'
-                                }`}
+                          <div className="flex items-center gap-2 opacity-0 group-hover/row:opacity-100 transition-opacity duration-200">
+                            {/* Checkbox */}
+                            <button
+                              className="h-6 w-6 flex items-center justify-center transition-colors"
+                              onClick={(e) => toggleThreadSelection(thread.threadId, e)}
                             >
-                              {isSelected && <Check className="h-3 w-3 text-primary-foreground" />}
-                            </div>
-                          </div>
-
-                          {/* Dropdown Menu - inline with content */}
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
-                              <button
-                                className="flex-shrink-0 w-6 h-6 flex items-center justify-center hover:bg-muted/50 rounded transition-all duration-150 text-muted-foreground hover:text-foreground opacity-0 group-hover/row:opacity-100"
-                                onClick={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                }}
+                              <div
+                                className={`h-3 w-3 border flex items-center justify-center transition-all rounded-sm
+                                  ${isSelected
+                                    ? 'bg-white border-white'
+                                    : 'border-zinc-600 hover:border-white bg-transparent'
+                                  }`}
                               >
-                                <MoreHorizontal className="h-4 w-4" />
-                                <span className="sr-only">More actions</span>
-                              </button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent
-                              className="w-56 rounded-lg z-50"
-                              side={isMobile ? 'bottom' : 'right'}
-                              align={isMobile ? 'end' : 'start'}
-                              onCloseAutoFocus={(e) => e.preventDefault()}
-                            >
-                              <DropdownMenuItem asChild>
-                                <a
-                                  href={`/projects/${thread.projectId}/thread/${thread.threadId}`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="flex cursor-pointer items-center gap-2"
+                                {isSelected && <Check className="h-2 w-2 text-black" />}
+                              </div>
+                            </button>
+
+                            {/* Dropdown Menu */}
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <button
+                                  className="h-6 w-6 flex items-center justify-center text-zinc-600 hover:text-white transition-colors"
                                   onClick={(e) => {
-                                    // prevent the row Link from navigating
+                                    e.preventDefault();
                                     e.stopPropagation();
                                   }}
                                 >
-                                  <ArrowUpRight className="text-muted-foreground" />
-                                  <span>Open in New Tab</span>
-                                </a>
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem
-                                onSelect={(e) => {
-                                  e.preventDefault();
-                                  e.stopPropagation();
-                                  handleDeleteProject(thread.projectId, thread.projectName);
-                                }}
-                                className="cursor-pointer flex items-center gap-2 text-destructive"
+                                  <MoreHorizontal className="h-4 w-4" />
+                                </button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent
+                                className="w-56 rounded-md bg-zinc-950 border border-zinc-800 p-0"
+                                side={isMobile ? 'bottom' : 'right'}
+                                align={isMobile ? 'end' : 'start'}
+                                onCloseAutoFocus={(e) => e.preventDefault()}
                               >
-                                <Trash2 className="text-destructive" />
-                                <span>Delete Project</span>
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                                <DropdownMenuItem asChild className="rounded-none focus:bg-zinc-900 focus:text-white cursor-pointer py-2.5 px-3 border-b border-zinc-900 last:border-0">
+                                  <a
+                                    href={thread.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="flex items-center gap-3 text-zinc-400 text-xs font-mono uppercase tracking-wide"
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <ArrowUpRight className="h-3.5 w-3.5" />
+                                    <span>Open in New Tab</span>
+                                  </a>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    const fullUrl = `${window.location.origin}${thread.url}`;
+                                    navigator.clipboard.writeText(fullUrl).then(() => {
+                                      toast.success('Link copied to clipboard');
+                                    }).catch(() => {
+                                      toast.error('Failed to copy link');
+                                    });
+                                  }}
+                                  className="rounded-none focus:bg-zinc-900 focus:text-white cursor-pointer py-2.5 px-3 border-b border-zinc-900 last:border-0 flex items-center gap-3 text-zinc-400 text-xs font-mono uppercase tracking-wide"
+                                >
+                                  <LinkIcon className="h-3.5 w-3.5" />
+                                  <span>Copy Link</span>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator className="bg-zinc-800 my-0" />
+                                <DropdownMenuItem
+                                  onSelect={() => {
+                                    handleDeleteProject(thread.projectId, thread.projectName);
+                                  }}
+                                  className="rounded-none focus:bg-red-950/30 focus:text-red-400 cursor-pointer py-2.5 px-3 border-b border-zinc-900 last:border-0 flex items-center gap-3 text-zinc-400 hover:text-red-400 text-xs font-mono uppercase tracking-wide"
+                                >
+                                  <Trash2 className="h-3.5 w-3.5" />
+                                  <span>Delete Project</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
+                          </div>
                         </div>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
@@ -552,16 +538,16 @@ export function NavProjects() {
               </>
             ) : (
               <SidebarMenuItem>
-                <SidebarMenuButton className="text-sidebar-foreground/70">
-                  <span>No projects yet</span>
-                </SidebarMenuButton>
+                <div className="px-4 py-8 text-center border-b border-zinc-900">
+                  <p className="text-xs font-mono text-zinc-600 uppercase tracking-wide">No projects initialized</p>
+                </div>
               </SidebarMenuItem>
             )}
           </>
         )}
       </SidebarMenu>
 
-      {(isDeletingSingle || isDeletingMultiple || isDeletingProject) && totalToDelete > 0 && (
+      {(_isDeletingSingle || isDeletingMultiple || isDeletingProject) && totalToDelete > 0 && (
         <div className="mt-2 px-2">
           <div className="text-xs text-muted-foreground mb-1">
             Deleting {deleteProgress > 0 ? `(${Math.floor(deleteProgress)}%)` : '...'}
@@ -581,7 +567,8 @@ export function NavProjects() {
           onClose={() => setIsDeleteDialogOpen(false)}
           onConfirm={confirmDelete}
           threadName={threadToDelete.name}
-          isDeleting={isDeletingSingle || isDeletingMultiple || isDeletingProject}
+          isDeleting={_isDeletingSingle || isDeletingMultiple || isDeletingProject}
+          deleteType={threadToDelete.type}
         />
       )}
     </SidebarGroup>

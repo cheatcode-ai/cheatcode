@@ -83,12 +83,8 @@ export function DeleteOperationProvider({
     if (state.operation === 'success' && state.isActive) {
       // Delay navigation to allow UI feedback
       const timer = setTimeout(() => {
-        try {
-          // Use window.location for reliable navigation
-          window.location.pathname = '/';
-        } catch (error) {
-          console.error('Navigation error:', error);
-        }
+        // Use window.location for reliable navigation
+        window.location.pathname = '/';
       }, 500);
       return () => clearTimeout(timer);
     }
@@ -169,8 +165,6 @@ export function DeleteOperationProvider({
         }
       }, 50);
     } catch (error) {
-      console.error('Delete operation failed:', error);
-
       // Reset states on error
       document.body.style.pointerEvents = 'auto';
       isOperationInProgress.current = false;

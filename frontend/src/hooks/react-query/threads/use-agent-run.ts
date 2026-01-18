@@ -5,8 +5,8 @@ import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 
 export const useAgentRunsQuery = (threadId: string) => {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
-  
+  const { getToken, isLoaded } = useAuth();
+
   return createQueryHook(
     threadKeys.agentRuns(threadId),
     async () => {
@@ -15,7 +15,7 @@ export const useAgentRunsQuery = (threadId: string) => {
       return result;
     },
     {
-      enabled: !!threadId && isLoaded && isSignedIn,
+      enabled: !!threadId && isLoaded,
       retry: (failureCount, error) => {
         // Don't retry authentication errors
         if (error?.message?.includes('Authentication required')) {
@@ -23,14 +23,16 @@ export const useAgentRunsQuery = (threadId: string) => {
         }
         return failureCount < 2;
       },
-      staleTime: 1000 * 30, // Consider data fresh for 30 seconds
-      refetchOnWindowFocus: false, // Don't refetch on every window focus
+      staleTime: 5 * 60 * 1000, // 5 minutes cache
+      gcTime: 30 * 60 * 1000, // 30 minutes
+      refetchOnWindowFocus: false,
+      refetchOnMount: false,
     }
   )();
 };
 
 export const useStartAgentMutation = () => {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   
   return createMutationHook(
@@ -66,7 +68,7 @@ export const useStartAgentMutation = () => {
 };
 
 export const useStopAgentMutation = () => {
-  const { getToken, isLoaded, isSignedIn, userId } = useAuth();
+  const { getToken } = useAuth();
   
   return createMutationHook(
     async (agentRunId: string) => {

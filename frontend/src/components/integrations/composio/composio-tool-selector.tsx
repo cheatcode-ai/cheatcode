@@ -4,16 +4,15 @@
  * Composio Tool Selector - Select which tools to enable for a profile.
  */
 
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Button } from '@/components/ui/button';
-import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Search, Loader2, CheckCircle, Circle } from 'lucide-react';
 import { useComposioTools, useUpdateComposioEnabledTools } from '@/hooks/react-query/composio';
 import { toast } from 'sonner';
-import type { ComposioProfile, ComposioTool } from '@/types/composio-profiles';
+import type { ComposioProfile } from '@/types/composio-profiles';
 
 interface ComposioToolSelectorProps {
   toolkitSlug: string;

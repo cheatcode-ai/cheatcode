@@ -32,7 +32,6 @@ export const getThreads = async (projectId?: string, clerkToken?: string): Promi
     const threads = await response.json();
     return threads;
   } catch (err) {
-    console.error('Error fetching threads:', err);
     handleApiError(err, { operation: 'load threads', resource: projectId ? `threads for project ${projectId}` : 'threads' });
     return [];
   }
@@ -48,7 +47,6 @@ export const getThread = async (threadId: string, clerkToken?: string): Promise<
     .single();
 
   if (error) {
-    console.error('Error fetching thread:', error);
     handleApiError(error, { operation: 'load thread', resource: `thread ${threadId}` });
     throw new Error(`Error getting thread: ${error.message}`);
   }
@@ -103,7 +101,6 @@ export const addUserMessage = async (
   });
 
   if (error) {
-    console.error('Error adding user message:', error);
     handleApiError(error, { operation: 'add message', resource: 'message' });
     throw new Error(`Error adding message: ${error.message}`);
   }
@@ -128,7 +125,6 @@ export const getMessages = async (threadId: string, clerkToken?: string): Promis
       .range(from, from + batchSize - 1);
 
     if (error) {
-      console.error('Error fetching messages:', error);
       handleApiError(error, { operation: 'load messages', resource: `messages for thread ${threadId}` });
       throw new Error(`Error getting messages: ${error.message}`);
     }
@@ -153,7 +149,6 @@ export const updateThreadName = async (threadId: string, name: string, clerkToke
 
     return await updateThreadNameUtil(threadId, name, clerkToken);
   } catch (error) {
-    console.error('Failed to update thread name:', error);
     handleApiError(error, { operation: 'update thread name', resource: 'thread' });
     throw error;
   }

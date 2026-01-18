@@ -1,201 +1,138 @@
 'use client';
 
-import React from 'react';
 import { useBilling } from '@/contexts/BillingContext';
-import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { AlertTriangle, Zap, Calendar } from 'lucide-react';
-import { DailyRefillsMeter } from '@/components/billing/DailyRefillsMeter';
+import { cn } from '@/lib/utils';
+import { DailyRefillsMeter } from './DailyRefillsMeter';
+import Link from 'next/link';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Separator } from '@/components/ui/separator';
+import { Card, CardContent } from '@/components/ui/card';
 
 interface CreditMeterProps {
   variant?: 'minimal' | 'card' | 'detailed';
   showUpgradePrompt?: boolean;
 }
 
-export function CreditMeter({ variant = 'minimal', showUpgradePrompt = true }: CreditMeterProps) {
+export function CreditMeter({ variant = 'minimal', showUpgradePrompt: _showUpgradePrompt = true }: CreditMeterProps) {
   const { 
     creditsRemaining, 
     creditsTotal, 
-    creditsUsagePercentage, 
-    planName, 
-    isUpgradeRequired, 
-    quotaResetsAt,
+    creditsUsagePercentage,
+    planName,
     isLoading,
-    deploymentsUsed,
-    deploymentsTotal,
-    deploymentUsagePercentage
   } = useBilling();
 
+  // Mock history data
+  const history = [
+    { date: 'Dec 21, 09:26 PM', model: 'Claude 4.5 Sonnet', credits: '641.5K', cost: '$0.54' },
+    { date: 'Dec 21, 09:21 PM', model: 'Claude 4.5 Sonnet', credits: '334.1K', cost: '$0.27' },
+    { date: 'Dec 21, 09:18 PM', model: 'GPT 4o', credits: '194.4K', cost: '$0.11' },
+    { date: 'Dec 21, 09:16 PM', model: 'Claude 3.5 Sonnet', credits: '277.1K', cost: '$0.21' },
+  ];
+
   if (isLoading) {
-    return (
-      <div className="flex items-center space-x-2 animate-pulse">
-        <div className="h-4 bg-gray-200 rounded w-16"></div>
-        <div className="h-4 bg-gray-200 rounded w-24"></div>
-      </div>
-    );
+    return <div className="h-48 w-full bg-zinc-900/30 rounded-3xl animate-pulse" />;
   }
 
-  const formatResetDate = (isoString: string | null) => {
-    if (!isoString) return 'Unknown';
-    const date = new Date(isoString);
-    return date.toLocaleDateString('en-US', { 
-      month: 'short', 
-      day: 'numeric',
-      year: date.getFullYear() !== new Date().getFullYear() ? 'numeric' : undefined
-    });
-  };
-
-  const getStatusColor = () => {
-    if (isUpgradeRequired) return 'destructive';
-    if (creditsUsagePercentage > 80) return 'warning';
-    return 'default';
-  };
-
-  const getProgressColor = () => {
-    if (isUpgradeRequired) return 'bg-red-500';
-    if (creditsUsagePercentage > 80) return 'bg-yellow-500';
-    return 'bg-green-500';
-  };
-
-  if (variant === 'minimal') {
+  // Restored Segmented Progress Bar (Orange)
+  const SegmentedProgress = ({ value, total = 50 }: { value: number, total?: number }) => {
+    const filledSegments = Math.round((value / 100) * total);
     return (
-      <div className="flex items-center space-x-2">
-        <Zap className="h-4 w-4 text-blue-600" />
-        <span className="text-sm font-medium">
-          {creditsRemaining} / {creditsTotal} credits
-        </span>
-        {isUpgradeRequired && showUpgradePrompt && (
-          <Badge variant="destructive" className="text-xs">
-            Upgrade Required
-          </Badge>
-        )}
-      </div>
-    );
-  }
-
-  if (variant === 'card') {
-    return (
-      <Card className="w-full overflow-hidden">
-        <CardHeader className="pb-2">
-          <CardTitle className="text-sm font-medium flex items-center gap-2">
-            <Zap className="h-4 w-4 text-blue-500" />
-            <span>Credits Usage</span>
-            <Badge
-              variant="secondary"
-              className="ml-auto rounded-full bg-black/60 text-white border border-white/20 px-2.5 py-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] flex items-center gap-1.5 text-sm"
-            >
-              <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-              {planName}
-            </Badge>
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-1 gap-3">
-            <div className="flex items-center justify-between text-sm">
-              <span className="text-muted-foreground">Credits</span>
-              <span className="font-semibold tabular-nums">
-                {creditsRemaining} / {creditsTotal}
-              </span>
-            </div>
-            <Progress 
-              value={creditsUsagePercentage} 
-              className="h-2 rounded-full"
-              indicatorClassName={getProgressColor()}
-            />
-            {isUpgradeRequired && showUpgradePrompt && (
-              <div className="flex items-center gap-2 text-sm text-red-500 bg-red-500/10 border border-red-500/30 p-2 rounded-md">
-                <AlertTriangle className="h-4 w-4" />
-                <span>Upgrade required to continue</span>
-              </div>
+      <div className="flex gap-[2px] h-5 w-full mt-6 mb-3">
+        {Array.from({ length: total }).map((_, i) => (
+          <div
+            key={i}
+            className={cn(
+              "flex-1 rounded-[1px]",
+              i < filledSegments ? "bg-orange-500" : "bg-zinc-800"
             )}
-            {quotaResetsAt && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Calendar className="h-3 w-3" />
-                <span>Resets on {formatResetDate(quotaResetsAt)}</span>
-              </div>
-            )}
-          </div>
-
-          {/* Daily refills summary for Free plan */}
-          <DailyRefillsMeter className="pt-2" />
-        </CardContent>
-      </Card>
-    );
-  }
-
-  // Detailed variant
-  return (
-    <Card className="w-full">
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Zap className="h-5 w-5" />
-          <span>Credit Usage</span>
-          <Badge
-            variant="secondary"
-            className="ml-auto rounded-full bg-black/60 text-white border border-white/20 px-2.5 py-0.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] flex items-center gap-1.5 text-sm"
-          >
-            <span className="inline-block w-1.5 h-1.5 rounded-full bg-green-400" />
-            {planName} Plan
-          </Badge>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="grid grid-cols-2 gap-4 text-sm">
-          <div>
-            <div className="text-muted-foreground">Credits Remaining</div>
-            <div className="text-2xl font-bold text-blue-600">
-              {creditsRemaining}
-            </div>
-          </div>
-          <div>
-            <div className="text-muted-foreground">Total Credits</div>
-            <div className="text-2xl font-bold">
-              {creditsTotal}
-            </div>
-          </div>
-        </div>
-        
-        <div>
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-muted-foreground">Usage</span>
-            <span className="font-medium">
-              {Math.round(creditsUsagePercentage)}% used
-            </span>
-          </div>
-          <Progress 
-            value={creditsUsagePercentage} 
-            className="h-3"
-            indicatorClassName={getProgressColor()}
           />
-        </div>
-        
-        {isUpgradeRequired && showUpgradePrompt && (
-          <div className="flex items-center space-x-2 text-sm text-red-600 bg-red-50 p-3 rounded-lg">
-            <AlertTriangle className="h-5 w-5" />
-            <div>
-              <div className="font-medium">Upgrade Required</div>
-              <div className="text-xs text-red-500">
-                You've reached your credit limit. Upgrade to continue using the service.
+        ))}
+      </div>
+    );
+  };
+
+  if (variant === 'minimal') return null;
+
+  return (
+    <Card className="w-full bg-[#111] border-zinc-800 shadow-xl overflow-hidden rounded-2xl">
+      <CardContent className="p-8 space-y-6">
+          {/* Header Section */}
+          <div className="flex justify-between items-start">
+              <div>
+                  <div className="text-[10px] text-zinc-500 font-mono tracking-wider mb-1 uppercase">Credits Used</div>
+                  <div className="text-5xl font-mono tracking-tighter text-white">
+                      {creditsUsagePercentage.toFixed(1)}%
+                  </div>
               </div>
-            </div>
+              <div className="flex flex-col items-end">
+                  <div className={cn(
+                      "px-3 py-1 rounded-full border text-[10px] font-medium tracking-widest uppercase shadow-sm backdrop-blur-md",
+                      planName?.toLowerCase() === 'pro' 
+                          ? "bg-gradient-to-b from-blue-500/20 to-blue-500/5 border-blue-500/30 text-blue-200 shadow-[0_0_10px_rgba(59,130,246,0.1)]"
+                          : "bg-gradient-to-b from-zinc-700/50 to-zinc-800/50 border-zinc-700/50 text-zinc-300"
+                  )}>
+                      {planName?.toLowerCase() === 'pro' ? 'PRO' : (planName || 'Free Plan')}
+                  </div>
+              </div>
           </div>
-        )}
-        
-        {quotaResetsAt && (
-          <div className="flex items-center justify-between text-sm text-muted-foreground bg-gray-50 p-3 rounded-lg">
-            <div className="flex items-center space-x-2">
-              <Calendar className="h-4 w-4" />
-              <span>Credits reset on</span>
-            </div>
-            <span className="font-medium">
-              {formatResetDate(quotaResetsAt)}
-            </span>
+
+          {/* Progress Bar */}
+          <div>
+              <SegmentedProgress value={creditsUsagePercentage} />
+              <div className="flex justify-between text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
+                  <span>{Math.round(creditsTotal - creditsRemaining).toLocaleString()} / {creditsTotal.toLocaleString()} Credits</span>
+                  <span>{creditsRemaining.toLocaleString()} Credits Left</span>
+              </div>
           </div>
-        )}
-        
-        {/* Add Daily Refills for Free Users */}
-        <DailyRefillsMeter />
+
+          <Separator className="bg-zinc-800/50 my-6" />
+
+          {/* Usage History Header */}
+          <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-4">
+                  <span className="text-sm font-medium text-zinc-300">Usage History</span>
+                  <Link href="/settings/usage-logs" className="h-6 flex items-center justify-center text-xs rounded-full px-3 border border-zinc-800 hover:bg-zinc-800 text-zinc-400 hover:text-white transition-colors">
+                      View all
+                  </Link>
+              </div>
+              <Select defaultValue="30">
+                  <SelectTrigger className="w-[100px] h-7 text-xs bg-transparent border-zinc-800 text-zinc-400">
+                      <SelectValue placeholder="Select" />
+                  </SelectTrigger>
+                  <SelectContent className="bg-[#111] border-zinc-800 text-zinc-300">
+                      <SelectItem value="30">30 Days</SelectItem>
+                      <SelectItem value="7">7 Days</SelectItem>
+                  </SelectContent>
+              </Select>
+          </div>
+
+          {/* Minimal Table */}
+          <div className="overflow-hidden">
+              <Table>
+                  <TableHeader className="bg-transparent hover:bg-transparent">
+                      <TableRow className="hover:bg-transparent border-none">
+                          <TableHead className="text-[10px] font-mono uppercase text-zinc-600 h-8 pl-0">Date</TableHead>
+                          <TableHead className="text-[10px] font-mono uppercase text-zinc-600 h-8">Model</TableHead>
+                          <TableHead className="text-[10px] font-mono uppercase text-zinc-600 h-8 text-right">Credits</TableHead>
+                          <TableHead className="text-[10px] font-mono uppercase text-zinc-600 h-8 text-right pr-0">Cost</TableHead>
+                      </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                      {history.map((item, i) => (
+                          <TableRow key={i} className="hover:bg-zinc-900/50 border-zinc-800/30 text-xs font-mono group transition-colors">
+                              <TableCell className="py-2.5 pl-0 text-zinc-500 group-hover:text-zinc-400">{item.date}</TableCell>
+                              <TableCell className="py-2.5 text-zinc-400 group-hover:text-white">{item.model}</TableCell>
+                              <TableCell className="py-2.5 text-right text-zinc-500 group-hover:text-zinc-400">{item.credits}</TableCell>
+                              <TableCell className="py-2.5 text-right pr-0 text-zinc-400 group-hover:text-white">{item.cost}</TableCell>
+                          </TableRow>
+                      ))}
+                  </TableBody>
+              </Table>
+          </div>
+          
+          <DailyRefillsMeter />
       </CardContent>
     </Card>
   );

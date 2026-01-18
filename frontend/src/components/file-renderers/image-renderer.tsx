@@ -24,7 +24,7 @@ export function ImageRenderer({ url, className }: ImageRendererProps) {
   const [position, setPosition] = useState({ x: 0, y: 0 });
   const [startPanPosition, setStartPanPosition] = useState({ x: 0, y: 0 });
   const [isFitToScreen, setIsFitToScreen] = useState(true);
-  const [imgLoaded, setImgLoaded] = useState(false);
+  const [_imgLoaded, setImgLoaded] = useState(false);
   const [imgError, setImgError] = useState(false);
   const [imgInfo, setImgInfo] = useState<{
     width: number;

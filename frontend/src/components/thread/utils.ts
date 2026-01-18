@@ -7,14 +7,10 @@ import {
   Search,
   Globe,
   Code,
-  MessageSquare,
-  Folder,
   FileX,
   CloudUpload,
   Wrench,
-  Cog,
   Network,
-  FileSearch,
   FilePlus,
   PlugIcon,
   BookOpen,
@@ -141,6 +137,10 @@ export const getToolIcon = (toolName: string): ElementType => {
 
     // Default case
     default:
+      if (toolName?.toLowerCase().includes('search')) {
+        return Search;
+      }
+      
       if (toolName?.startsWith('mcp_')) {
         const parts = toolName.split('_');
         if (parts.length >= 3) {
@@ -159,10 +159,6 @@ export const getToolIcon = (toolName: string): ElementType => {
         return PlugIcon; // Default icon for MCP tools
       }
       
-      // Add logging for debugging unhandled tool types
-      console.log(
-        `[PAGE] Using default icon for unknown tool type: ${toolName}`,
-      );
       return Wrench; // Default icon for tools
   }
 };
@@ -253,7 +249,6 @@ export const extractPrimaryParam = (
 
     return null;
   } catch (e) {
-    console.warn('Error parsing tool parameters:', e);
     return null;
   }
 };
@@ -334,14 +329,6 @@ const TOOL_DISPLAY_NAMES = new Map([
 ]);
 
 
-const MCP_SERVER_NAMES = new Map([
-  ['exa', 'Exa Search'],
-  ['github', 'GitHub'],
-  ['notion', 'Notion'],
-  ['slack', 'Slack'],
-  ['filesystem', 'File System'],
-  ['memory', 'Memory'],
-]);
 
 function formatMCPToolName(serverName: string, toolName: string): string {
   const serverMappings: Record<string, string> = {
@@ -355,7 +342,8 @@ function formatMCPToolName(serverName: string, toolName: string): string {
     'openai': 'OpenAI',
     'composio': 'Composio',
     'langchain': 'LangChain',
-    'llamaindex': 'LlamaIndex'
+    'llamaindex': 'LlamaIndex',
+    'search': 'Searching',
   };
   
   const formattedServerName = serverMappings[serverName.toLowerCase()] || 
@@ -386,7 +374,7 @@ function formatMCPToolName(serverName: string, toolName: string): string {
     formattedToolName = toolName.charAt(0).toUpperCase() + toolName.slice(1);
   }
   
-  return `${formattedServerName}: ${formattedToolName}`;
+  return `${formattedServerName} ${formattedToolName}`;
 }
 
 export function getUserFriendlyToolName(toolName: string): string {

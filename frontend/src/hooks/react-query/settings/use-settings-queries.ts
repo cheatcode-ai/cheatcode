@@ -1,7 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { useOptimizedAuth } from '@/contexts/AuthTokenContext';
 import { settingsKeys, settingsQueryOptions } from './keys';
-import { useRefetchControl } from '@/hooks/use-refetch-control';
 
 // Types for OpenRouter API responses
 export interface OpenRouterKeyStatus {
@@ -49,8 +48,6 @@ export function useOpenRouterKeyStatus(enabled = true) {
   return useQuery<OpenRouterKeyStatus, Error>({
     queryKey: settingsKeys.byok.openrouter.status(),
     queryFn: async (): Promise<OpenRouterKeyStatus> => {
-      console.log('[BYOK] 🚨 FALLBACK: Server prefetch failed, using client-side API call');
-      
       const token = await getToken();
       if (!token) {
         throw new Error('Authentication required');
@@ -67,7 +64,6 @@ export function useOpenRouterKeyStatus(enabled = true) {
       }
 
       const data = await response.json();
-      console.log('[BYOK] ✅ Fallback API call succeeded');
       return data;
     },
     enabled: enabled && isLoaded && isSignedIn,
@@ -168,25 +164,21 @@ export function useSaveOpenRouterKey() {
         })
       );
 
-      console.log('[BYOK] Optimistically updated key status for instant UX');
-
       return { previousStatus };
     },
-    onError: (err, newKeyData, context) => {
+    onError: (_err, _newKeyData, context) => {
       // Rollback optimistic update on error
       if (context?.previousStatus) {
         queryClient.setQueryData(
           settingsKeys.byok.openrouter.status(),
           context.previousStatus
         );
-        console.log('[BYOK] Rolled back optimistic update due to error:', err.message);
       }
     },
     onSuccess: () => {
-      console.log('[BYOK] Save operation confirmed by server');
       // Invalidate and refetch to ensure we have the latest server data
-      queryClient.invalidateQueries({ 
-        queryKey: settingsKeys.byok.openrouter.all 
+      queryClient.invalidateQueries({
+        queryKey: settingsKeys.byok.openrouter.all
       });
     },
     mutationKey: ['save-openrouter-key'],
@@ -250,7 +242,7 @@ export function useDeleteOpenRouterKey() {
 
       return { previousStatus };
     },
-    onError: (err, variables, context) => {
+    onError: (_err, _variables, context) => {
       // Rollback optimistic update on error
       if (context?.previousStatus) {
         queryClient.setQueryData(

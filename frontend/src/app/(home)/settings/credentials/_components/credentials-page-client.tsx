@@ -1,6 +1,6 @@
 'use client';
 
-import React, { memo } from 'react';
+import { memo } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { CompositoDashboardManager } from '@/components/integrations/composio';
 

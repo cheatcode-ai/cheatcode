@@ -1,7 +1,19 @@
-import React from 'react';
+import dynamic from 'next/dynamic';
 import { FileTree } from './FileTree';
-import { CodeEditor } from './CodeEditor';
 import { FileTreeItem } from '../types/app-preview';
+
+// Dynamic import for CodeEditor - heavy component with syntax highlighting
+const CodeEditor = dynamic(
+  () => import('./CodeEditor').then(mod => ({ default: mod.CodeEditor })),
+  {
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="animate-pulse text-zinc-400 text-sm">Loading editor...</div>
+      </div>
+    ),
+    ssr: false
+  }
+);
 
 interface CodeTabProps {
 files: FileTreeItem[];
@@ -24,7 +36,7 @@ selectedFile,
 content,
 isLoadingFiles,
 isLoadingContent,
-filesError,
+filesError: _filesError,
 contentError,
 onFileSelect,
 onDirectoryToggle,
@@ -45,7 +57,7 @@ appType
         appType={appType}
       />
       
-      <div className="flex-1 bg-white dark:bg-zinc-900">
+      <div className="flex-1 bg-zinc-50 dark:bg-zinc-950">
         <CodeEditor
           selectedFile={selectedFile}
           content={content}

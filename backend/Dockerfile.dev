@@ -1,0 +1,19 @@
+FROM ghcr.io/astral-sh/uv:python3.11-alpine
+
+ENV ENV_MODE=development
+WORKDIR /app
+
+RUN apk add --no-cache curl git build-base linux-headers rust cargo
+
+COPY pyproject.toml ./
+ENV UV_LINK_MODE=copy
+RUN --mount=type=cache,target=/root/.cache/uv uv lock
+RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --quiet
+
+COPY . .
+
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+EXPOSE 8000
+
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

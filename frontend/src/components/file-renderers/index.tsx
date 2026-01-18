@@ -1,11 +1,37 @@
 'use client';
 
-import React, { forwardRef } from 'react';
+import dynamic from 'next/dynamic';
 import { cn } from '@/lib/utils';
-import { MarkdownRenderer } from './markdown-renderer';
-import { CodeRenderer } from './code-renderer';
 import { ImageRenderer } from './image-renderer';
 import { BinaryRenderer } from './binary-renderer';
+
+// Dynamic imports for heavy renderers with syntax highlighting
+const MarkdownRenderer = dynamic(
+  () => import('./markdown-renderer').then(mod => ({ default: mod.MarkdownRenderer })),
+  {
+    loading: () => (
+      <div className="w-full h-full p-4 animate-pulse">
+        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-3/4 mb-2"></div>
+        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-1/2"></div>
+      </div>
+    ),
+    ssr: false
+  }
+);
+
+const CodeRenderer = dynamic(
+  () => import('./code-renderer').then(mod => ({ default: mod.CodeRenderer })),
+  {
+    loading: () => (
+      <div className="w-full h-full p-4 animate-pulse bg-zinc-50 dark:bg-zinc-900">
+        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-full mb-1"></div>
+        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-5/6 mb-1"></div>
+        <div className="h-4 bg-zinc-200 dark:bg-zinc-800 rounded w-4/5"></div>
+      </div>
+    ),
+    ssr: false
+  }
+);
 
 
 export type FileType =
@@ -139,7 +165,7 @@ export function FileRenderer({
   binaryUrl,
   fileName,
   className,
-  project,
+  project: _project,
   markdownRef,
   onDownload,
   isDownloading,

@@ -191,8 +191,7 @@ export const useCreateComposioProfile = () => {
         }
       }
     },
-    onError: (error) => {
-      console.error('Failed to create Composio profile:', error);
+    onError: () => {
     },
   });
 };
@@ -210,8 +209,7 @@ export const useDeleteComposioConnection = () => {
       queryClient.invalidateQueries({ queryKey: composioKeys.connections() });
       queryClient.invalidateQueries({ queryKey: composioKeys.profiles.all() });
     },
-    onError: (error) => {
-      console.error('Failed to delete connection:', error);
+    onError: () => {
     },
   });
 };
@@ -225,11 +223,10 @@ export const useDiscoverComposioTools = () => {
 
   return useMutation({
     mutationFn: (profileId: string) => composioApi.discoverTools(profileId),
-    onSuccess: (data, profileId) => {
+    onSuccess: (_data, profileId) => {
       queryClient.invalidateQueries({ queryKey: composioKeys.profiles.detail(profileId) });
     },
-    onError: (error) => {
-      console.error('Failed to discover tools:', error);
+    onError: () => {
     },
   });
 };
@@ -244,12 +241,11 @@ export const useUpdateComposioEnabledTools = () => {
   return useMutation({
     mutationFn: ({ profileId, enabledTools }: { profileId: string; enabledTools: string[] }) =>
       composioApi.updateEnabledTools(profileId, enabledTools),
-    onSuccess: (data, { profileId }) => {
+    onSuccess: (_data, { profileId }) => {
       queryClient.invalidateQueries({ queryKey: composioKeys.profiles.detail(profileId) });
       queryClient.invalidateQueries({ queryKey: composioKeys.profiles.all() });
     },
-    onError: (error) => {
-      console.error('Failed to update enabled tools:', error);
+    onError: () => {
     },
   });
 };

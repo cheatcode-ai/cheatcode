@@ -1,8 +1,6 @@
 'use client';
 
-import { Icons } from '@/components/home/icons';
 import { NavMenu } from '@/components/home/nav-menu';
-
 import { siteConfig } from '@/lib/home';
 import { cn } from '@/lib/utils';
 import { Menu, X, User, Settings, LogOut, Zap, Loader2 } from 'lucide-react';
@@ -12,7 +10,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { useEffect, useState } from 'react';
 
-import { useUser, useAuth } from '@clerk/nextjs';
+import { useUser } from '@clerk/nextjs';
 import { buttonVariants, Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -24,7 +22,7 @@ import { IntegrationsDropdown } from '@/components/integrations/integrations-dro
 import { ProfileDropdown } from '@/components/user/profile-popover';
 import { useSignOut } from '@/hooks/use-sign-out';
 import { getUserInitials } from '@/lib/utils/user';
-import { useMCPProfilesWithToggle, type MCPCredentialProfile } from '@/hooks/react-query/composio';
+import { useMCPProfilesWithToggle } from '@/hooks/react-query/composio';
 
 const overlayVariants = {
   hidden: { opacity: 0 },
@@ -96,8 +94,7 @@ const drawerMenuVariants = {
 
 export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [activeSection, setActiveSection] = useState('hero');
-
+  const [_activeSection, setActiveSection] = useState('hero');
   const [mounted, setMounted] = useState(false);
   const { user, isLoaded } = useUser();
   const { signOut } = useSignOut();
@@ -105,7 +102,6 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
   // Use consolidated MCP profiles hook
   const {
     mcpProfiles,
-    activeCount,
     isLoading: isMcpLoading,
     toggleIntegration,
     isUpdatingProfile,
@@ -292,7 +288,7 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
         {isDrawerOpen && (
           <>
             <motion.div
-              className="fixed inset-0 bg-black/50 backdrop-blur-sm"
+              className="fixed inset-0 bg-background/50 backdrop-blur-sm"
               initial="hidden"
               animate="visible"
               exit="exit"
@@ -352,11 +348,7 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
                             element?.scrollIntoView({ behavior: 'smooth' });
                             setIsDrawerOpen(false);
                           }}
-                          className={`underline-offset-4 hover:text-primary/80 transition-colors ${
-                            activeSection === item.href.substring(1)
-                              ? 'text-primary font-medium'
-                              : 'text-primary/60'
-                          }`}
+                          className="underline-offset-4 hover:text-primary/80 transition-colors text-primary/60"
                         >
                           {item.name}
                         </a>

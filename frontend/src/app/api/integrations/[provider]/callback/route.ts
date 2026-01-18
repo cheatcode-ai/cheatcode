@@ -13,21 +13,18 @@ export async function GET(
     const error = searchParams.get('error');
     const validProviders = ['slack', 'discord', 'teams'];
     if (!validProviders.includes(provider)) {
-      console.error(`Invalid OAuth provider: ${provider}`);
       return NextResponse.redirect(
         new URL(`/agents?${provider}_error=invalid_provider`, request.url)
       );
     }
 
     if (error) {
-      console.error(`${provider} OAuth error:`, error);
       return NextResponse.redirect(
         new URL(`/agents?${provider}_error=${error}`, request.url)
       );
     }
     
     if (!code || !state) {
-      console.error(`Missing required OAuth parameters for ${provider}`);
       return NextResponse.redirect(
         new URL(`/agents?${provider}_error=missing_parameters`, request.url)
       );
@@ -55,8 +52,6 @@ export async function GET(
       return NextResponse.redirect(frontendRedirectUrl);
     }
     if (!response.ok) {
-      const errorText = await response.text().catch(() => 'Unknown error');
-      console.error(`Backend OAuth callback failed for ${provider}:`, errorText);
       return NextResponse.redirect(
         new URL(`/agents?${provider}_error=backend_error`, request.url)
       );
@@ -66,7 +61,6 @@ export async function GET(
     );
     
   } catch (error) {
-    console.error('OAuth callback error:', error);
     const { provider } = await params;
     return NextResponse.redirect(
       new URL(`/agents?${provider}_error=callback_failed`, request.url)

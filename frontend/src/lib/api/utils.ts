@@ -1,11 +1,12 @@
 // Utility API Functions
 import { createClient } from '@/lib/supabase/client';
 
+// Exported for potential testing purposes
 export const testSupabaseConnection = async (): Promise<{ success: boolean; message: string }> => {
   try {
     const supabase = createClient();
 
-    const { data, error } = await supabase
+    const { error } = await supabase
       .from('projects')
       .select('count')
       .eq('is_public', true)

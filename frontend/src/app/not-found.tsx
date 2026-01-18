@@ -1,45 +1,9 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useState, useRef } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { useScroll } from 'motion/react';
-import { useMediaQuery } from '@/hooks/use-media-query';
 
 export default function NotFound() {
-  const tablet = useMediaQuery('(max-width: 1024px)');
-  const [mounted, setMounted] = useState(false);
-  const [isScrolling, setIsScrolling] = useState(false);
-  const scrollTimeout = useRef<NodeJS.Timeout | null>(null);
-  const { scrollY } = useScroll();
-
-  useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  // Detect when scrolling is active to reduce animation complexity
-  useEffect(() => {
-    const unsubscribe = scrollY.on('change', () => {
-      setIsScrolling(true);
-
-      // Clear any existing timeout
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-
-      // Set a new timeout
-      scrollTimeout.current = setTimeout(() => {
-        setIsScrolling(false);
-      }, 300); // Wait 300ms after scroll stops
-    });
-
-    return () => {
-      unsubscribe();
-      if (scrollTimeout.current) {
-        clearTimeout(scrollTimeout.current);
-      }
-    };
-  }, [scrollY]);
 
   return (
     <section className="w-full relative overflow-hidden min-h-screen flex items-center justify-center">

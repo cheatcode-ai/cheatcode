@@ -15,7 +15,7 @@ interface UseDevServerProps {
 
 export const useDevServer = ({
   sandboxId,
-  isPreviewTabActive = false,
+  isPreviewTabActive: _isPreviewTabActive = false,
   appType = 'web',
   previewUrl,
   autoStart = true, // Frontend handles auto-starting dev server for faster response
@@ -70,15 +70,6 @@ export const useDevServer = ({
         const result = await response.json();
         const httpCode = result.output?.trim();
         
-        // Debug logging for mobile projects
-        if (appType === 'mobile') {
-          console.log('[MOBILE DEV SERVER] Process check:', {
-            httpCode,
-            success: result.success,
-            output: result.output
-          });
-        }
-        
         if (httpCode && httpCode !== '000' && result.success) {
           setStatus('running');
           setError(null);
@@ -86,7 +77,6 @@ export const useDevServer = ({
 
           // If dev server is running but no preview URL, trigger retry
           if (!previewUrl && onPreviewUrlRetry) {
-            console.log('[DEV SERVER] Dev server running but no preview URL, triggering retry');
             onPreviewUrlRetry();
           }
         } else {
@@ -103,7 +93,6 @@ export const useDevServer = ({
         }
       }
     } catch (error) {
-      console.error('Failed to check dev server status:', error);
       // Only set to 'stopped' if we're not currently starting
       if (status !== 'starting' && !isStarting && !hasAutoStarted.current) {
         setStatus('stopped');
@@ -114,10 +103,7 @@ export const useDevServer = ({
   }, [sandboxId, getToken, appType, status, isStarting, onPreviewUrlRetry]);
 
   const start = useCallback(async () => {
-    console.log(`[${appType.toUpperCase()} DEV SERVER] start() called`, { sandboxId, startInProgress: startInProgress.current });
-
     if (!sandboxId || startInProgress.current) {
-      console.log(`[${appType.toUpperCase()} DEV SERVER] start() aborted:`, { sandboxId: !!sandboxId, startInProgress: startInProgress.current });
       return;
     }
 
@@ -130,7 +116,6 @@ export const useDevServer = ({
 
       const token = await getToken();
       if (!token) {
-        console.log(`[${appType.toUpperCase()} DEV SERVER] No auth token`);
         setError('Authentication required');
         setStatus('stopped');
         setIsStarting(false);
@@ -140,8 +125,6 @@ export const useDevServer = ({
       const command = appType === 'mobile'
         ? "cd /workspace/cheatcode-mobile && npm install -g @expo/ngrok@^4.1.0 && npx --yes expo start --max-workers 4 --tunnel"
         : "cd /workspace/cheatcode-app && pnpm dev";
-
-      console.log(`[${appType.toUpperCase()} DEV SERVER] Sending start command:`, command);
 
       const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/execute`, {
         method: 'POST',
@@ -158,9 +141,8 @@ export const useDevServer = ({
       });
 
       if (response.ok) {
-        const result = await response.json();
-        console.log('Dev server started:', result);
-        
+        await response.json();
+
         // Monitor the session for better feedback
         const monitorSession = async () => {
           for (let i = 0; i < 10; i++) {
@@ -173,17 +155,6 @@ export const useDevServer = ({
               
               if (statusResponse.ok) {
                 const sessionStatus = await statusResponse.json();
-                
-                // Debug logging for mobile session monitoring
-                if (appType === 'mobile') {
-                  console.log('[MOBILE SESSION] Session status:', sessionStatus);
-                  sessionStatus.commands?.forEach((cmd: any, index: number) => {
-                    const logs = typeof cmd.logs === 'string' ? cmd.logs : '';
-                    if (logs) {
-                      console.log(`[MOBILE SESSION] Command ${index} logs:`, logs.substring(0, 200));
-                    }
-                  });
-                }
 
                 const hasStartupLogs = sessionStatus.commands?.some((cmd: any) => {
                   const logs = typeof cmd.logs === 'string' ? cmd.logs : '';
@@ -201,13 +172,12 @@ export const useDevServer = ({
                 });
                 
                 if (hasStartupLogs) {
-                  console.log(`[${appType.toUpperCase()} SESSION] Startup logs detected, checking status`);
                   checkStatus(previewUrl);
                   break;
                 }
               }
             } catch (error) {
-              console.log('Session monitoring error:', error);
+              // Session monitoring error - continue
             }
           }
           
@@ -223,7 +193,6 @@ export const useDevServer = ({
         setIsStarting(false);
       }
     } catch (error) {
-      console.error('Failed to start dev server:', error);
       setError('Failed to start development server');
       setStatus('stopped');
       setIsStarting(false);
@@ -239,19 +208,16 @@ export const useDevServer = ({
   useEffect(() => {
     // Reset hasAutoStarted when sandboxId changes (inline to avoid race condition)
     if (sandboxId && sandboxId !== lastSandboxId.current) {
-      console.log(`[${appType.toUpperCase()} DEV SERVER] Sandbox changed from ${lastSandboxId.current} to ${sandboxId}, resetting auto-start flag`);
       lastSandboxId.current = sandboxId;
       hasAutoStarted.current = false;
 
       // Immediately trigger auto-start for new sandbox (don't wait for status check)
       if (autoStart && !startInProgress.current) {
-        console.log(`[${appType.toUpperCase()} DEV SERVER] Immediate auto-start for new sandbox ${sandboxId}`);
         hasAutoStarted.current = true;
 
         // Call start() directly - no timeout needed since sandbox should be ready
         // Using queueMicrotask to ensure state updates have settled
         queueMicrotask(() => {
-          console.log(`[${appType.toUpperCase()} DEV SERVER] Executing auto-start for sandbox ${sandboxId}`);
           start();
         });
       }
@@ -273,15 +239,12 @@ export const useDevServer = ({
     try {
       const token = await getToken();
       if (!token) {
-        console.log('[DEV SERVER] No auth token, falling back to polling');
         useSSE.current = false;
         return;
       }
 
       const sessionName = `dev_server_${appType}`;
       const sseUrl = `${API_URL}/sandboxes/${sandboxId}/dev-server/stream?session_name=${sessionName}&app_type=${appType}`;
-
-      console.log('[DEV SERVER] Connecting to SSE stream:', sseUrl);
 
       // Note: EventSource doesn't support custom headers, so we use fetch with streaming
       const response = await fetch(sseUrl, {
@@ -321,7 +284,6 @@ export const useDevServer = ({
                   const data = JSON.parse(event.slice(6));
 
                   if (data.type === 'status') {
-                    console.log('[DEV SERVER SSE] Status update:', data.status);
                     if (data.status === 'running') {
                       setStatus('running');
                       setError(null);
@@ -337,16 +299,12 @@ export const useDevServer = ({
                       setStatus('starting');
                     }
                   } else if (data.type === 'preview_url' && data.url) {
-                    console.log('[DEV SERVER SSE] Preview URL received:', data.url);
                     if (!previewUrl && onPreviewUrlRetry) {
                       onPreviewUrlRetry();
                     }
                   } else if (data.type === 'expo_url' && data.url) {
-                    console.log('[DEV SERVER SSE] Expo URL received:', data.url);
                     setExpoUrl(data.url);
                   } else if (data.type === 'error') {
-                    // Log backend errors but don't alarm users with transient issues
-                    console.warn('[DEV SERVER SSE] Backend error:', data.message);
                     // Only set error for user-actionable issues, not SDK internals
                     if (data.message && !data.message.includes('object has no attribute')) {
                       setError(data.message);
@@ -354,25 +312,24 @@ export const useDevServer = ({
                     // Fall back to polling on backend errors
                     useSSE.current = false;
                   } else if (data.type === 'done') {
-                    console.log('[DEV SERVER SSE] Stream completed');
+                    // Stream completed
                   } else if (data.type === 'heartbeat') {
                     // Heartbeat received - connection is healthy
                   }
                 } catch (parseError) {
-                  console.warn('[DEV SERVER SSE] Failed to parse event:', event);
+                  // Failed to parse SSE event
                 }
               }
             }
           }
         } catch (streamError) {
-          console.error('[DEV SERVER SSE] Stream error:', streamError);
+          // SSE stream error
         }
       };
 
       processStream();
 
     } catch (error) {
-      console.error('[DEV SERVER] SSE connection failed, falling back to polling:', error);
       useSSE.current = false;
     }
   }, [sandboxId, appType, getToken, previewUrl, onPreviewUrlRetry]);
@@ -386,7 +343,6 @@ export const useDevServer = ({
     // This prevents race condition where checkStatus sets status='running' before auto-start fires
     if (hasAutoStarted.current || isStarting) {
       // Auto-start in progress, skip immediate check but still set up polling
-      console.log(`[${appType.toUpperCase()} DEV SERVER] Skipping initial status check, auto-start in progress`);
     } else {
       // Delayed initial status check (after auto-start would have triggered)
       setTimeout(() => {
@@ -448,14 +404,12 @@ export const useDevServer = ({
 
   // Fetch Expo URL from backend (fallback for when SSE doesn't provide it)
   // Includes retry logic since tunnel takes time to establish
-  const fetchExpoUrl = useCallback(async (retryCount = 0): Promise<boolean> => {
+  const fetchExpoUrl = useCallback(async (_retryCount = 0): Promise<boolean> => {
     if (!sandboxId || appType !== 'mobile') return false;
 
     try {
       const token = await getToken();
       if (!token) return false;
-
-      console.log(`[DEV SERVER] Fetching Expo URL (attempt ${retryCount + 1})`);
 
       const response = await fetch(`${API_URL}/sandboxes/${sandboxId}/expo-url`, {
         headers: {
@@ -466,9 +420,7 @@ export const useDevServer = ({
 
       if (response.ok) {
         const data = await response.json();
-        console.log('[DEV SERVER] Expo URL response:', data);
         if (data.expo_url) {
-          console.log('[DEV SERVER] Fetched Expo URL:', data.expo_url);
           setExpoUrl(data.expo_url);
           // Stop polling when URL is found
           if (expoUrlPollingRef.current) {
@@ -476,12 +428,10 @@ export const useDevServer = ({
             expoUrlPollingRef.current = null;
           }
           return true;
-        } else {
-          console.log('[DEV SERVER] Expo URL not ready yet, status:', data.status);
         }
       }
     } catch (error) {
-      console.warn('[DEV SERVER] Failed to fetch Expo URL:', error);
+      // Failed to fetch Expo URL
     }
     return false;
   }, [sandboxId, appType, getToken]);
@@ -491,13 +441,11 @@ export const useDevServer = ({
     // Don't start if already polling or already have URL
     if (expoUrlPollingRef.current || expoUrl) return;
 
-    console.log('[DEV SERVER] Starting Expo URL polling');
     expoUrlFetchAttemptsRef.current = 0;
 
     // Poll every 3 seconds for up to 60 seconds (20 attempts)
     expoUrlPollingRef.current = setInterval(async () => {
       expoUrlFetchAttemptsRef.current += 1;
-      console.log(`[DEV SERVER] Expo URL poll attempt ${expoUrlFetchAttemptsRef.current}`);
 
       const found = await fetchExpoUrl(expoUrlFetchAttemptsRef.current);
 
@@ -506,9 +454,6 @@ export const useDevServer = ({
         if (expoUrlPollingRef.current) {
           clearInterval(expoUrlPollingRef.current);
           expoUrlPollingRef.current = null;
-        }
-        if (!found) {
-          console.log('[DEV SERVER] Gave up polling for Expo URL after 20 attempts');
         }
       }
     }, 3000);
@@ -520,7 +465,6 @@ export const useDevServer = ({
     if (appType === 'mobile' && !expoUrl && (status === 'running' || previewUrl)) {
       // Delay a bit to give the tunnel time to establish, then start polling
       const timeout = setTimeout(() => {
-        console.log('[DEV SERVER] Starting Expo URL polling for mobile project, status:', status, 'previewUrl:', !!previewUrl);
         startExpoUrlPolling();
       }, previewUrl ? 1000 : 3000); // Shorter delay if preview already available
       return () => clearTimeout(timeout);

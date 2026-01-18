@@ -18,7 +18,6 @@ export const maintenanceNoticeFlag = flag({
   async decide() {
     try {
       if (!process.env.EDGE_CONFIG) {
-        console.warn('Edge config is not set');
         return { enabled: false } as const;
       }
 
@@ -47,9 +46,6 @@ export const maintenanceNoticeFlag = flag({
         endTime,
       } as const;
     } catch (cause) {
-      console.error(
-        new Error('Failed to get maintenance notice flag', { cause }),
-      );
       return { enabled: false } as const;
     }
   },

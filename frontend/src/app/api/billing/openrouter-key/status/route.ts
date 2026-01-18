@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { BACKEND_URL } from '@/lib/api/server-config';
 
-export async function GET(request: NextRequest) {
+export async function GET(_request: NextRequest) {
   try {
     // Get user authentication from Clerk
     const { userId } = await auth();
@@ -34,7 +34,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(data);
 
   } catch (error) {
-    console.error('Error in openrouter-key/status API route:', error);
     return NextResponse.json(
       { error: 'Internal server error' },
       { status: 500 }

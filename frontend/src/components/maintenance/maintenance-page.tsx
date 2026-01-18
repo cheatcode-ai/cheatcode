@@ -32,7 +32,7 @@ export function MaintenancePage() {
         window.location.reload();
       }
     } catch (error) {
-      console.error('API health check failed:', error);
+      // API health check failed - will retry on next click
     } finally {
       setLastChecked(new Date());
     }

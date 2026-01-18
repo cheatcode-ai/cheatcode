@@ -19,7 +19,7 @@ export const useInitiateAgentMutation = () => {
     },
     {
       errorContext: { operation: 'initiate agent', resource: 'AI assistant' },
-      onSuccess: (data) => {
+      onSuccess: (_data) => {
         handleApiSuccess("Agent initiated successfully", "Your AI assistant is ready to help");
       },
       onError: (error) => {
@@ -44,7 +44,7 @@ export const useInitiateAgentWithInvalidation = () => {
       return initiateAgent(formData, token || undefined);
     },
     {
-      onSuccess: (data) => {
+      onSuccess: (_data) => {
         handleApiSuccess("Agent initiated successfully", "Your AI assistant is ready to help");
         queryClient.invalidateQueries({ queryKey: projectKeys.all });
         queryClient.invalidateQueries({ queryKey: threadKeys.all });

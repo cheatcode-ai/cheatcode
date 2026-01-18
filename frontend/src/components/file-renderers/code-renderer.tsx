@@ -1,6 +1,5 @@
 'use client';
 
-import React from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
 import { loadLanguage } from '@uiw/codemirror-extensions-langs';
@@ -61,22 +60,38 @@ export function CodeRenderer({
 
   return (
     <ScrollArea className={cn('w-full h-full', className)}>
-      <div className="w-full">
+      <div className="w-full h-full bg-transparent">
         <CodeMirror
           value={content}
           theme={theme}
           extensions={extensions}
           basicSetup={{
-            lineNumbers: false,
-            highlightActiveLine: false,
-            highlightActiveLineGutter: false,
-            foldGutter: false,
+            lineNumbers: true,
+            highlightActiveLine: true,
+            highlightActiveLineGutter: true,
+            foldGutter: true,
           }}
           editable={false}
           className="text-sm w-full min-h-full"
           style={{ maxWidth: '100%' }}
-          height="auto"
+          height="100%"
+          onCreateEditor={(view) => {
+            view.scrollDOM.style.backgroundColor = 'transparent';
+            view.contentDOM.style.backgroundColor = 'transparent';
+          }}
         />
+        <style jsx global>{`
+          .cm-editor {
+            background-color: transparent !important;
+          }
+          .cm-gutters {
+            background-color: transparent !important;
+            border-right: 1px solid var(--border) !important;
+          }
+          .cm-activeLine, .cm-activeLineGutter {
+            background-color: rgba(255, 255, 255, 0.03) !important;
+          }
+        `}</style>
       </div>
     </ScrollArea>
   );

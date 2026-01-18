@@ -1,5 +1,6 @@
 'use client';
 
+import { Suspense } from 'react';
 import { Navbar } from '@/components/home/sections/navbar';
 import { SidebarProvider, SidebarInset } from '@/components/ui/sidebar';
 import { SidebarLeft } from '@/components/sidebar/sidebar-left';
@@ -17,14 +18,21 @@ import { MaintenanceNotice } from './_components/maintenance-notice';
 import { MaintenanceBanner } from './_components/maintenance-banner';
 import { useApiHealth } from '@/hooks/react-query/usage/use-health';
 
+// Loading fallback for Suspense boundaries
+function PageLoadingFallback() {
+  return (
+    <div className="flex items-center justify-center min-h-[50vh]">
+      <Loader2 className="h-8 w-8 animate-spin text-primary" />
+    </div>
+  );
+}
+
 interface HomeLayoutProps {
   children: React.ReactNode;
-  maintenanceNotice?: IMaintenanceNotice;
 }
 
 export default function HomeLayout({
   children,
-  maintenanceNotice,
 }: HomeLayoutProps) {
   const { user, isLoaded } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -33,8 +41,7 @@ export default function HomeLayout({
 
   // TODO: Implement maintenance notice fetching from API or server component
   const [currentMaintenanceNotice] = useState<IMaintenanceNotice>({ enabled: false });
-  const { data: accounts } = useAccounts();
-  const personalAccount = accounts?.find((account) => account.personal_account);
+  useAccounts();
 
 
 
@@ -105,28 +112,24 @@ export default function HomeLayout({
   }
 
   // Enhanced: Graceful degradation - Don't render anything if not authenticated
+  // Note: BillingProvider removed from unauthenticated branch - billing is only needed for authenticated users
   if (!user) {
     return (
-      <BillingProvider>
-        <div
-          className="w-full relative min-h-screen"
-          style={!isThreadPage ? {
-            backgroundImage: 'linear-gradient( 156.2deg,  rgba(0,0,0,1) 14.8%, rgba(32,104,177,1) 68.1%, rgba(222,229,237,1) 129% )'
-          } : {
-            backgroundColor: '#0a0a0a'
-          }}
-        >
-          {!isThreadPage && <Navbar sidebarOpen={false} />}
-          <div className={isThreadPage ? "pt-0" : "pt-6"}>
+      <div
+        className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
+      >
+        {!isThreadPage && <Navbar sidebarOpen={false} />}
+        <div className={isThreadPage ? "pt-0" : "pt-6"}>
+          <Suspense fallback={<PageLoadingFallback />}>
             {children}
-          </div>
-          {!isThreadPage && (
-            <footer className="w-full py-6 text-center text-xs text-white/70">
-              Built by <a href="https://jigyansurout.com/" target="_blank" rel="noreferrer" className="no-underline hover:text-white">Jigyansu Rout</a>
-            </footer>
-          )}
+          </Suspense>
         </div>
-      </BillingProvider>
+        {!isThreadPage && (
+          <footer className="w-full py-6 text-center text-xs text-white/70">
+            Built by <a href="https://jigyansurout.com/" target="_blank" rel="noreferrer" className="no-underline hover:text-white">Jigyansu Rout</a>
+          </footer>
+        )}
+      </div>
     );
   }
 
@@ -141,16 +144,13 @@ export default function HomeLayout({
           {maintenanceBanner}
 
           <div
-            className="w-full relative min-h-screen"
-            style={!isThreadPage ? {
-              backgroundImage: 'linear-gradient( 156.2deg,  rgba(0,0,0,1) 14.8%, rgba(32,104,177,1) 68.1%, rgba(222,229,237,1) 129% )'
-            } : {
-              backgroundColor: '#0a0a0a'
-            }}
+            className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
           >
             {!isThreadPage && <Navbar sidebarOpen={sidebarOpen} />}
             <div className={isThreadPage ? "pt-0" : "pt-6"}>
-              {children}
+              <Suspense fallback={<PageLoadingFallback />}>
+                {children}
+              </Suspense>
             </div>
             {!isThreadPage && (
               <footer className="w-full py-6 text-center text-xs text-white/70">

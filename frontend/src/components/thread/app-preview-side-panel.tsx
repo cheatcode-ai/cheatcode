@@ -1,11 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Eye, Code, X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Loader2, Download } from 'lucide-react';
+import { X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Loader2, Download } from 'lucide-react';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -13,6 +12,9 @@ import { useAuth } from '@clerk/nextjs';
 import { downloadSandboxCode } from '@/lib/api';
 import { toast } from 'sonner';
 import { useModal } from '@/hooks/use-modal-store';
+
+// Centralized thread color system
+import { threadStyles } from '@/lib/theme/thread-colors';
 
 // Import types
 import { AppPreviewSidePanelProps, MainTab } from './types/app-preview';
@@ -33,7 +35,6 @@ export function AppPreviewSidePanel({
   onClose,
   project,
   agentStatus
-  // Removed unused agentName prop - custom agents no longer supported
 }: AppPreviewSidePanelProps) {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('preview');
   const [isDownloading, setIsDownloading] = useState(false);
@@ -64,18 +65,6 @@ export function AppPreviewSidePanel({
   const isFreePlan = (planName || '').toLowerCase() === 'free' || billingStatus?.plan_id === 'free';
   const { onOpen } = useModal();
 
-  // Debug logging for mobile projects
-  useEffect(() => {
-    if (project?.app_type === 'mobile') {
-      console.log('[MOBILE DEBUG] Preview state:', {
-        appType: project?.app_type,
-        previewUrl: previewUrl.previewUrl,
-        devServerStatus: devServer.status,
-        agentStatus,
-        activeTab: activeMainTab
-      });
-    }
-  }, [project?.app_type, previewUrl.previewUrl, devServer.status, agentStatus, activeMainTab]);
 
   // Show loading screen when agent is actively building OR no preview URL available
   // But prioritize showing preview if URL exists and agent isn't actively modifying code
@@ -84,18 +73,6 @@ export function AppPreviewSidePanel({
     agentStatus === 'running' || 
     agentStatus === 'connecting'
   ) && (activeMainTab === 'preview' || !previewUrl.previewUrl);
-
-  // Debug logging for loading screen decisions
-  React.useEffect(() => {
-    console.log('[PREVIEW DEBUG] Loading screen decision:', {
-      shouldShowLoadingScreen,
-      previewUrl: !!previewUrl.previewUrl,
-      agentStatus,
-      devServerStatus: devServer.status,
-      activeMainTab,
-      previewUrlValue: previewUrl.previewUrl?.substring(0, 50) + '...'
-    });
-  }, [shouldShowLoadingScreen, previewUrl.previewUrl, agentStatus, devServer.status, activeMainTab]);
 
   // Switch to preview tab when loading starts if user is on code tab
   useEffect(() => {
@@ -128,12 +105,11 @@ export function AppPreviewSidePanel({
       await downloadSandboxCode(
         project.sandbox.id,
         project.name || 'project',
-        token,
+        token ?? undefined,
         project.app_type || 'web'
       );
       toast.success('Code downloaded successfully!');
-    } catch (error) {
-      console.error('Failed to download code:', error);
+    } catch (err) {
       toast.error('Failed to download code. Please try again.');
     } finally {
       setIsDownloading(false);
@@ -171,200 +147,183 @@ export function AppPreviewSidePanel({
   // Disable code tab during loading
   const isCodeTabDisabled = shouldShowLoadingScreen;
 
-
-
   const renderContent = () => {
     return (
       <Tabs value={activeMainTab} onValueChange={(v) => setActiveMainTab(v as MainTab)} className="flex flex-col h-full">
-        {/* Tab Header with Controls */}
-        <motion.div className="p-2">
-          <div className="flex items-center justify-between gap-2">
-            {/* Left side - Tabs */}
-            <div className="flex items-center gap-2">
-              <TabsList className="h-8 bg-zinc-100/70 dark:bg-zinc-800/70 rounded-lg">
-                <TabsTrigger value="preview" className="rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900 data-[state=active]:text-primary px-3 text-xs">
-                  <Eye className={cn("h-3.5 w-3.5 mr-1", activeMainTab === 'preview' ? 'text-yellow-400' : 'text-zinc-400')} />
-                  Preview
-                </TabsTrigger>
-                <TabsTrigger 
-                  value="code" 
-                  disabled={isCodeTabDisabled}
-                  className="rounded-md data-[state=active]:bg-white dark:data-[state=active]:bg-zinc-900 data-[state=active]:text-primary px-3 text-xs disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  <Code className={cn("h-3.5 w-3.5 mr-1", activeMainTab === 'code' ? 'text-red-400' : 'text-zinc-400')} />
-                  Code
-                </TabsTrigger>
-              </TabsList>
-            </div>
+        {/* Tab Header with Controls - Polarity/Frontier Style */}
+        <div className={cn("pl-2 pr-4 h-9 flex items-center justify-between sticky top-0 z-20", threadStyles.header)}>
+          <div className="flex items-center h-full">
+            <TabsList className="h-full bg-transparent p-0 rounded-none border-none flex gap-0">
+              <TabsTrigger
+                value="preview"
+                className={cn(
+                  "h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none uppercase font-mono shadow-none",
+                  "data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary"
+                )}
+              >
+                Preview
+              </TabsTrigger>
+              <TabsTrigger
+                value="code"
+                disabled={isCodeTabDisabled}
+                className={cn(
+                  "h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none disabled:opacity-30 disabled:cursor-not-allowed uppercase font-mono shadow-none",
+                  "data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary"
+                )}
+              >
+                Code
+              </TabsTrigger>
+            </TabsList>
+          </div>
 
-            {/* Right side - Controls */}
-            <div className="flex items-center gap-2">
-              {/* Preview Controls - only show when preview tab is active */}
-              {activeMainTab === 'preview' && (
-                <>
-                  {agentStatus === 'running' && (
-                    <div className="px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/20 dark:text-blue-400 flex items-center gap-1.5">
-                      <Loader2 className="h-3 w-3 animate-spin" />
-                      <span>Building</span>
+          <div className="flex items-center gap-4 flex-1 justify-end">
+            {/* Preview Controls - only show when preview tab is active */}
+            {activeMainTab === 'preview' && (
+              <div className="flex items-center gap-3 animate-in fade-in slide-in-from-right-2 duration-300">
+                {agentStatus === 'running' && (
+                  <div className="hidden md:flex items-center gap-2 text-[9px] font-mono text-thread-text-tertiary uppercase tracking-widest mr-2">
+                    <Loader2 className="w-2.5 h-2.5 animate-spin" />
+                    <span>Processing</span>
+                  </div>
+                )}
+
+                {/* Web-specific controls: viewport toggle and URL navigation */}
+                {project?.app_type !== 'mobile' && (
+                  <>
+                    <div className="relative group hidden md:block">
+                      <Input
+                        type="text"
+                        placeholder="https://..."
+                        value={previewUrl.urlInput}
+                        onChange={(e) => previewUrl.setUrlInput(e.target.value)}
+                        className={cn(
+                          "h-7 w-[220px] text-[11px] px-3 transition-all rounded-md font-mono shadow-none focus-visible:ring-0",
+                          threadStyles.input
+                        )}
+                        onKeyDown={(e) => e.key === 'Enter' && previewUrl.handleUrlSubmit(e as any)}
+                      />
                     </div>
-                  )}
 
-                  {/* Web-specific controls: viewport toggle and URL navigation */}
-                  {project?.app_type !== 'mobile' && (
-                    <>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={previewUrl.cycleView}
-                        className="p-1.5 h-8 w-8"
-                        title={`Switch to ${previewUrl.currentView === 'desktop' ? 'tablet' : previewUrl.currentView === 'tablet' ? 'mobile' : 'desktop'} view`}
-                      >
-                        {getCurrentViewIcon()}
-                      </Button>
+                    <div className="flex items-center gap-1">
+                      <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={previewUrl.cycleView}
+                              className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                            >
+                              {getCurrentViewIcon()}
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>VIEWPORT</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
 
-                      <form onSubmit={previewUrl.handleUrlSubmit} className="max-w-32">
-                        <Input
-                          type="text"
-                          value={previewUrl.urlInput}
-                          onChange={(e) => previewUrl.setUrlInput(e.target.value)}
-                          placeholder="/path"
-                          className="h-8 text-xs"
-                        />
-                      </form>
-                    </>
-                  )}
+                      <TooltipProvider delayDuration={0}>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <button
+                              onClick={previewUrl.handleRefresh}
+                              className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                            >
+                              <RefreshCw className="h-3 w-3" />
+                            </button>
+                          </TooltipTrigger>
+                          <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>REFRESH</TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
 
-                  {/* Mobile platform toggle - only show for mobile projects */}
-                  {project?.app_type === 'mobile' && (
-                    <div
-                      className="relative inline-flex h-8 items-center rounded-full p-0.5 bg-zinc-800/70 ring-1 ring-white/10 backdrop-blur-md shadow-inner overflow-hidden"
-                      role="tablist"
-                      aria-label="Select mobile platform"
+                      {previewUrl.previewUrl && (
+                        <TooltipProvider delayDuration={0}>
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <button
+                                onClick={previewUrl.openInNewTab}
+                                className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                              >
+                                <ExternalLink className="h-3 w-3" />
+                              </button>
+                            </TooltipTrigger>
+                            <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>OPEN IN NEW TAB</TooltipContent>
+                          </Tooltip>
+                        </TooltipProvider>
+                      )}
+                    </div>
+                  </>
+                )}
+
+                {/* Mobile platform toggle */}
+                {project?.app_type === 'mobile' && (
+                  <div className="flex items-center gap-1 border border-thread-border rounded-md p-1 bg-thread-surface-subtle">
+                    <button
+                      onClick={() => setSelectedPlatform('ios')}
+                      className={cn(
+                        'px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all rounded-[3px]',
+                        selectedPlatform === 'ios'
+                          ? 'bg-thread-text-primary text-thread-panel shadow-sm'
+                          : 'text-thread-text-tertiary hover:text-thread-text-secondary'
+                      )}
                     >
-                      {/* No sliding indicator */}
+                      iOS
+                    </button>
+                    <button
+                      onClick={() => setSelectedPlatform('android')}
+                      className={cn(
+                        'px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all rounded-[3px]',
+                        selectedPlatform === 'android'
+                          ? 'bg-thread-text-primary text-thread-panel shadow-sm'
+                          : 'text-thread-text-tertiary hover:text-thread-text-secondary'
+                      )}
+                    >
+                      Android
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
 
-                      {/* iOS btn */}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedPlatform('ios')}
-                        role="tab"
-                        aria-selected={selectedPlatform === 'ios'}
-                        className={cn(
-                          'relative z-10 h-7 px-3 text-xs rounded-full transition-colors flex items-center',
-                          selectedPlatform === 'ios'
-                            ? 'bg-zinc-900 text-white'
-                            : 'text-gray-400 hover:text-white'
-                        )}
-                      >
-                        <svg className={cn('w-3 h-3 mr-1', selectedPlatform === 'ios' ? 'text-white' : 'text-gray-400')} viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z" />
-                        </svg>
-                        iOS
-                      </Button>
-
-                      {/* Android btn */}
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedPlatform('android')}
-                        role="tab"
-                        aria-selected={selectedPlatform === 'android'}
-                        className={cn(
-                          'relative z-10 h-7 px-3 text-xs rounded-full transition-colors flex items-center',
-                          selectedPlatform === 'android'
-                            ? 'bg-zinc-900 text-white'
-                            : 'text-gray-400 hover:text-white'
-                        )}
-                      >
-                        <svg className={cn('w-3 h-3 mr-1', selectedPlatform === 'android' ? 'text-green-400' : 'text-gray-400')} viewBox="0 0 24 24" fill="currentColor">
-                          <path d="M17.523 15.3414c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993.0001.5511-.4482.9997-.9993.9997m-11.046 0c-.5511 0-.9993-.4486-.9993-.9997s.4482-.9993.9993-.9993c.5511 0 .9993.4482.9993.9993 0 .5511-.4482.9997-.9993.9997m11.4045-6.02l1.9973-3.4592a.416.416 0 00-.1518-.5972.416.416 0 00-.5972.1518l-2.0223 3.5046C15.5207 8.2926 13.8961 7.8 12.0015 7.8s-3.5192.4926-5.1954 1.0141L4.7837 5.2952a.416.416 0 00-.5972-.1518.416.416 0 00-.1518.5972L6.0320 9.3214C2.6148 11.2632.5 15.0982.5 19.35h23c0-4.2518-2.1148-8.0868-5.5320-10.0286" />
-                        </svg>
-                        Android
-                      </Button>
-                    </div>
-                  )}
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={previewUrl.handleRefresh}
-                    className="h-8 w-8"
-                    title="Refresh preview"
-                  >
-                    <RefreshCw className="h-4 w-4" />
-                  </Button>
-
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={previewUrl.openInNewTab}
-                    className="h-8 w-8"
-                    title="Open in new tab"
-                  >
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
-                </>
-              )}
-
-              {/* Code Controls - only show when code tab is active */}
-              {activeMainTab === 'code' && (
-                <TooltipProvider>
+            {/* Code Controls */}
+            {activeMainTab === 'code' && (
+              <div className="animate-in fade-in slide-in-from-right-2 duration-300">
+                <TooltipProvider delayDuration={0}>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="sm"
+                      <button
                         onClick={handleDownloadCode}
                         disabled={isDownloading || !project?.sandbox?.id}
                         className={cn(
-                          "h-8 px-2 text-[11px] rounded-full flex items-center gap-1.5 transition-colors leading-none",
-                          "bg-zinc-900/80 text-white hover:bg-zinc-900/90 ring-1 ring-white/10 backdrop-blur-md shadow-sm",
-                          (isDownloading || !project?.sandbox?.id) && "opacity-60 cursor-not-allowed"
+                          "h-7 w-7 flex items-center justify-center rounded-md transition-all",
+                          threadStyles.buttonGhost,
+                          (isDownloading || !project?.sandbox?.id) && "opacity-50 cursor-not-allowed"
                         )}
-                        aria-label="Download code as ZIP"
-                        aria-busy={isDownloading}
                       >
                         {isDownloading ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin text-white" />
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
                         ) : (
-                          <Download className="h-3.5 w-3.5 text-white" />
+                          <Download className="h-3.5 w-3.5" />
                         )}
-                        <span className="font-medium">Download code</span>
-                        {isFreePlan && (
-                          <span className="ml-1 rounded-full px-1.5 py-0.5 text-[10px] font-semibold text-pink-300 bg-pink-500/10 ring-1 ring-pink-500/20">
-                            PRO
-                          </span>
-                        )}
-                      </Button>
+                      </button>
                     </TooltipTrigger>
-                    <TooltipContent>
-                      Download code as ZIP
-                    </TooltipContent>
+                    <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>DOWNLOAD CODE</TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-              )}
+              </div>
+            )}
 
-              {/* Close button - hide when agent is building for immersive experience */}
-              {agentStatus !== 'running' && agentStatus !== 'connecting' && (
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  onClick={handleClose}
-                  className="h-8 w-8"
-                  title="Close preview panel"
-                >
-                  <X className="h-4 w-4" />
-                </Button>
-              )}
+            {/* Close button - always visible */}
+            <div className="pl-1">
+              <button
+                onClick={handleClose}
+                className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+              >
+                <X className="h-4 w-4" />
+              </button>
             </div>
           </div>
-        </motion.div>
+        </div>
 
         {/* Tab Content */}
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden bg-[var(--background)]">
           <TabsContent value="preview" className="h-full mt-0">
             {shouldShowLoadingScreen ? (
               <LoadingScreen
@@ -425,27 +384,25 @@ export function AppPreviewSidePanel({
       {isOpen && (
         <motion.div
           key="preview-panel"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
+          initial={{ opacity: 0, x: 20 }}
+          animate={{ opacity: 1, x: 0 }}
+          exit={{ opacity: 0, x: 20 }}
           transition={{
-            opacity: { duration: 0.15 },
+            type: "spring",
+            stiffness: 400,
+            damping: 40
           }}
           className={cn(
-            'fixed top-14 right-2 bottom-2 border rounded-3xl flex flex-col z-30 bg-background dark:bg-neutral-900',
+            'fixed top-14 right-0 bottom-0 flex flex-col z-30 shadow-none overflow-hidden',
+            threadStyles.sidePanel,
             isMobile
-              ? 'left-2'
-              : 'w-[60vw]',
+              ? 'left-0 right-0 bottom-14'
+              : 'w-[65vw]',
           )}
-          style={{
-            overflow: 'hidden',
-          }}
         >
-          <div className="flex-1 flex flex-col overflow-hidden bg-background dark:bg-neutral-900">
             {renderContent()}
-          </div>
         </motion.div>
       )}
     </AnimatePresence>
   );
-} 
+}

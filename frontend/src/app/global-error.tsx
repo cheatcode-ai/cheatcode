@@ -9,7 +9,7 @@ export default function GlobalError({
   error: Error & { digest?: string };
 }) {
   useEffect(() => {
-    console.error(error);
+    // Error is handled by Next.js error boundary
   }, [error]);
 
   return (
