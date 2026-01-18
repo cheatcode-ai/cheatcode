@@ -97,6 +97,7 @@ tests/
 .claude/
 .cursor/
 .gemini/
+.gemini-clipboard/
 .windsurf/
 .aider/
 .continue/
