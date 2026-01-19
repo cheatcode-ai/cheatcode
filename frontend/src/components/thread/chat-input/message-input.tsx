@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useState, useRef, useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import { Square, Loader2, ArrowUp, Globe, Smartphone, Sparkles, Send, Wand2 } from 'lucide-react';
+import { Square, Loader2, ArrowUp, Globe, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UploadedFile } from './chat-input';
 import { FileUploadHandler } from './file-upload-handler';
