@@ -192,24 +192,23 @@ export function HeroSection() {
 
           <div className="flex items-center w-full max-w-3xl gap-2 flex-wrap justify-center">
             <div className="w-full relative group">
-              <div className="relative z-10 border border-zinc-800 bg-black shadow-2xl overflow-hidden px-4 py-2 transition-colors duration-300 group-focus-within:border-zinc-700">
-                <ChatInput
-                  ref={chatInputRef}
-                  onSubmit={handleChatInputSubmit}
-                  placeholder="Describe what you need help with..."
-                  loading={isSubmitting}
-                  disabled={isSubmitting}
-                  value={inputValue}
-                  onChange={setInputValue}
-                  isLoggedIn={!!user}
-                  autoFocus={false}
-                  appType={appType}
-                  onAppTypeChange={setAppType}
-                  selectedModel={selectedModel}
-                  onModelChange={setSelectedModel}
-                  bgColor="bg-black"
-                />
-              </div>
+              <ChatInput
+                ref={chatInputRef}
+                onSubmit={handleChatInputSubmit}
+                placeholder="Describe what you need help with..."
+                loading={isSubmitting}
+                disabled={isSubmitting}
+                value={inputValue}
+                onChange={setInputValue}
+                isLoggedIn={!!user}
+                autoFocus={false}
+                appType={appType}
+                onAppTypeChange={setAppType}
+                selectedModel={selectedModel}
+                onModelChange={setSelectedModel}
+                bgColor="bg-[#121212]"
+                variant="home"
+              />
               {/* Grid line extension effect */}
               <div className="absolute -left-4 top-1/2 w-4 h-px bg-zinc-800/50" />
               <div className="absolute -right-4 top-1/2 w-4 h-px bg-zinc-800/50" />

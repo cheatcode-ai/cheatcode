@@ -90,7 +90,7 @@ export const Examples = ({
         {allPrompts.map((prompt, index) => (
           <motion.div
             key={`${prompt.title}-${index}`}
-            initial={{ opacity: 0, scale: 0.8 }}
+            initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{
               duration: 0.3,
@@ -99,14 +99,14 @@ export const Examples = ({
             }}
           >
             <button
-              className="w-fit h-fit px-3 py-2 rounded-full border border-zinc-800 bg-black hover:bg-zinc-900 hover:border-zinc-700 text-sm font-normal text-muted-foreground hover:text-white transition-all cursor-pointer"
+              className="w-fit h-fit px-4 py-2.5 rounded-none border border-white/5 bg-[#09090b] shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.05)] hover:bg-[#121212] hover:border-white/10 text-[11px] font-mono font-medium tracking-wider text-zinc-400 hover:text-white transition-all cursor-pointer group"
               onClick={() => onSelectPrompt && onSelectPrompt(prompt.query)}
             >
-              <div className="flex items-center gap-2">
-                <div className="flex-shrink-0">
+              <div className="flex items-center gap-3">
+                <div className="flex-shrink-0 opacity-50 group-hover:opacity-100 transition-all duration-300 grayscale group-hover:grayscale-0 scale-90 group-hover:scale-100">
                   {prompt.icon}
                 </div>
-                <span className="whitespace-nowrap">{prompt.title}</span>
+                <span className="whitespace-nowrap uppercase">{prompt.title}</span>
               </div>
             </button>
           </motion.div>

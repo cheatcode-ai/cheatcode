@@ -65,6 +65,25 @@ class VercelDeploymentService:
         """Add team params to requests if team_id is configured."""
         return {"teamId": self.team_id} if self.team_id else {}
 
+    async def disable_deployment_protection(self, project_id: str) -> None:
+        """
+        Disable SSO protection on a Vercel project to make deployments publicly accessible.
+
+        Without this, deployments may require Vercel login to view if the team
+        has default deployment protection enabled.
+        """
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.patch(
+                f"{VERCEL_API_BASE}/v10/projects/{project_id}",
+                headers=self._headers(),
+                params=self._team_params(),
+                json={"ssoProtection": None}
+            )
+            if resp.status_code not in (200, 201):
+                logger.warning(f"Failed to disable deployment protection: {resp.status_code} {resp.text}")
+            else:
+                logger.info(f"Disabled deployment protection for project: {project_id}")
+
     async def ensure_project(self, project_name: str, framework: str = "nextjs") -> Dict[str, Any]:
         """
         Create or get existing Vercel project.
@@ -92,7 +111,10 @@ class VercelDeploymentService:
                 json={"name": project_name, "framework": framework}
             )
             if resp.status_code in (200, 201):
-                return resp.json()
+                project = resp.json()
+                # Disable deployment protection for public access
+                await self.disable_deployment_protection(project.get('id'))
+                return project
 
             error_msg = f"Failed to create Vercel project: {resp.status_code} {resp.text}"
             logger.error(error_msg)
@@ -152,6 +174,10 @@ class VercelDeploymentService:
             if resp.status_code in (200, 201):
                 result = resp.json()
                 logger.info(f"Vercel deployment created: {result.get('id')} -> {result.get('url')}")
+                # Disable deployment protection to ensure public access (fixes existing projects too)
+                project_id = result.get('projectId')
+                if project_id:
+                    await self.disable_deployment_protection(project_id)
                 return result
 
             error_msg = f"Vercel deployment failed: {resp.status_code} {resp.text}"

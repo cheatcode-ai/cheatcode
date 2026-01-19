@@ -50,6 +50,7 @@ export interface ChatInputProps {
   // Model selection
   selectedModel?: string;
   onModelChange?: (modelId: string) => void;
+  variant?: 'default' | 'home';
 }
 
 export interface UploadedFile {
@@ -78,13 +79,14 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       onAgentSelect,
       // Removed unused agentName prop - custom agents no longer supported
       messages = [],
-      bgColor = 'bg-card',
+      bgColor = 'bg-[#121212]',
       isLoggedIn = true,
       disableAnimation = false,
       appType = 'web',
       onAppTypeChange,
       selectedModel,
       onModelChange,
+      variant = 'default',
     },
     ref,
   ) => {
@@ -244,18 +246,21 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
         >
           <div className="w-full text-sm flex flex-col justify-between items-start">
             <div className={cn(
-              "w-full p-2 transition-colors duration-200 rounded-2xl overflow-hidden",
+              "w-full transition-colors duration-200 overflow-hidden",
+              variant === 'home' ? "rounded-none border border-white/5 shadow-[0_20px_50px_-12px_rgba(0,0,0,1),inset_0_1px_0_rgba(255,255,255,0.15)] bg-[#09090b]" : "rounded-2xl",
               bgColor,
               isDraggingOver && "bg-zinc-900"
             )}>
-              <AttachmentGroup
-                files={uploadedFiles || []}
-                sandboxId={sandboxId}
-                onRemove={removeUploadedFile}
-                layout="inline"
-                maxHeight="216px"
-                showPreviews={true}
-              />
+              <div className={cn(variant === 'home' ? "px-4 pt-2" : "px-2 pt-2")}>
+                <AttachmentGroup
+                  files={uploadedFiles || []}
+                  sandboxId={sandboxId}
+                  onRemove={removeUploadedFile}
+                  layout="inline"
+                  maxHeight="216px"
+                  showPreviews={true}
+                />
+              </div>
               <MessageInput
                 ref={textareaRef}
                 value={value}
@@ -287,6 +292,7 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 onAppTypeChange={onAppTypeChange}
                 selectedModel={selectedModel}
                 onModelChange={onModelChange}
+                variant={variant}
               />
             </div>
           </div>

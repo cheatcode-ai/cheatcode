@@ -1,11 +1,13 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { Mic, Square } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 interface VoiceRecorderProps {
     onTranscription: (text: string) => void;
     currentValue?: string;  // Current input value to preserve
     disabled?: boolean;
+    className?: string;
 }
 
 // Web Speech API type declarations
@@ -65,6 +67,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
     onTranscription,
     currentValue = '',
     disabled = false,
+    className,
 }) => {
     const [isListening, setIsListening] = useState(false);
     const [isSupported, setIsSupported] = useState(true);
@@ -173,7 +176,7 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
                 variant="ghost"
                 size="sm"
                 disabled
-                className="h-8 w-8 p-0 opacity-50"
+                className={cn("h-8 w-8 p-0 opacity-50", className)}
                 title="Speech recognition not supported in this browser"
             >
                 <Mic className="h-4 w-4" />
@@ -188,9 +191,11 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
             size="sm"
             onClick={handleClick}
             disabled={disabled}
-            className={`h-8 w-8 p-0 transition-colors ${
-                isListening ? 'text-red-500 hover:bg-red-100' : 'hover:bg-gray-100'
-            }`}
+            className={cn(
+                "h-8 w-8 p-0 transition-colors",
+                isListening ? 'text-red-500 bg-red-500/10' : 'text-zinc-400 hover:text-white',
+                className
+            )}
             title={isListening ? 'Click to stop' : 'Click to start voice input'}
         >
             {isListening ? <Square className="h-4 w-4" /> : <Mic className="h-4 w-4" />}

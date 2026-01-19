@@ -6,6 +6,7 @@ import { Paperclip, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
+import { cn } from '@/lib/utils';
 import { fileQueryKeys } from '@/hooks/react-query/files/use-file-queries';
 // Tooltip removed to prevent ref compose loops
 import { UploadedFile } from './chat-input';
@@ -201,6 +202,7 @@ interface FileUploadHandlerProps {
   messages?: any[]; // Add messages prop
   isLoggedIn?: boolean;
   appType?: 'web' | 'mobile';
+  className?: string;
 }
 
 export const FileUploadHandler = forwardRef<
@@ -220,6 +222,7 @@ export const FileUploadHandler = forwardRef<
       messages = [],
       isLoggedIn = true,
       appType = 'web',
+      className,
     },
     ref,
   ) => {
@@ -277,7 +280,10 @@ export const FileUploadHandler = forwardRef<
             onClick={handleFileUpload}
             variant="ghost"
             size="sm"
-            className="h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors"
+            className={cn(
+              "h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors",
+              className
+            )}
             disabled={
               !isLoggedIn || loading || (disabled && !isAgentRunning) || isUploading
             }
@@ -285,7 +291,7 @@ export const FileUploadHandler = forwardRef<
             {isUploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Paperclip className="h-4 w-4" />
+              <Paperclip className={cn("h-4 w-4", className?.includes("h-9") && "h-5 w-5")} />
             )}
           </Button>
         </span>

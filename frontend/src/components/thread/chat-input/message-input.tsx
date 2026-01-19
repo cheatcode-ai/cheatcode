@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useState, useRef, useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
-import { Square, Loader2, ArrowUp, Globe, Smartphone } from 'lucide-react';
+import { Square, Loader2, ArrowUp, Globe, Smartphone, Sparkles, Send, Wand2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { UploadedFile } from './chat-input';
 import { FileUploadHandler } from './file-upload-handler';
@@ -38,6 +38,7 @@ interface MessageInputProps {
   onAppTypeChange?: (appType: 'web' | 'mobile') => void;
   selectedModel?: string;
   onModelChange?: (modelId: string) => void;
+  variant?: 'default' | 'home';
 }
 
 export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
@@ -70,11 +71,13 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       onAppTypeChange,
       selectedModel,
       onModelChange,
+      variant = 'default',
     },
     ref,
   ) => {
     // Typewriter placeholder animation
     const typewriterSentences = [
+      'Automate my client onboarding flow and send progress reports weekly',
       'Build a landing page',
       'Create a mobile app',
       'Fix a bug',
@@ -177,10 +180,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
 
 
     return (
-      <div className="relative flex flex-col w-full h-full gap-2 justify-between">
+      <div className="relative flex flex-col w-full h-full justify-between">
 
-        <div className="flex flex-col gap-1 px-2 flex-1">
-          <div className="flex items-start gap-2 pt-4">
+        <div className="flex flex-col gap-1 px-4 flex-1">
+          <div className={cn("flex items-start gap-2", variant === 'home' ? "pt-6" : "pt-4")}>
              <Textarea
                 ref={ref}
                 value={value}
@@ -188,7 +191,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 onKeyDown={handleKeyDown}
                 placeholder={displayPlaceholder}
                 className={cn(
-                  'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0 pb-6 pt-0 !text-[15px] min-h-[36px] max-h-[200px] overflow-y-auto resize-none font-mono text-white placeholder:text-zinc-500',
+                  'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0 pt-0 overflow-y-auto resize-none font-mono text-white/90 placeholder:text-zinc-600',
+                  variant === 'home' 
+                    ? 'pb-4 !text-[16px] min-h-[48px] max-h-[200px] caret-blue-500' 
+                    : 'pb-6 !text-[15px] min-h-[36px] max-h-[200px]',
                   isDraggingOver ? 'opacity-40' : '',
                 )}
                 disabled={loading || (disabled && !isAgentRunning)}
@@ -197,102 +203,232 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
           </div>
         </div>
 
-
-        <div className="flex items-center justify-between mt-0 mb-1 px-2 relative">
-          <div className="flex items-center gap-3 z-10">
-            {!hideAttachments && (
-              <FileUploadHandler
-                ref={fileInputRef}
-                loading={loading}
-                disabled={disabled}
-                isAgentRunning={isAgentRunning}
-                isUploading={isUploading}
-                sandboxId={sandboxId}
-                setPendingFiles={setPendingFiles}
-                setUploadedFiles={setUploadedFiles}
-                setIsUploading={setIsUploading}
-                messages={messages}
-                isLoggedIn={isLoggedIn}
-                appType={appType}
-              />
-            )}
-            {/* App Type Selector */}
-            {onAppTypeChange && (
-              <div className="flex items-center gap-1 p-1 bg-zinc-800/50 rounded-full">
-                <button
-                  type="button"
-                  onClick={() => onAppTypeChange('web')}
-                  className={cn(
-                    "p-1.5 rounded-full transition-all",
-                    appType === 'web'
-                      ? "bg-zinc-700 text-white"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  )}
-                  title="Web App"
-                >
-                  <Globe className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onAppTypeChange('mobile')}
-                  className={cn(
-                    "p-1.5 rounded-full transition-all",
-                    appType === 'mobile'
-                      ? "bg-zinc-700 text-white"
-                      : "text-zinc-500 hover:text-zinc-300"
-                  )}
-                  title="Mobile App"
-                >
-                  <Smartphone className="h-3.5 w-3.5" />
-                </button>
+        {variant === 'home' ? (
+          <div className="flex flex-col">
+            {/* Button Row */}
+            <div className="flex items-center justify-between px-4 pb-4 pt-2">
+              <div className="flex items-center gap-2">
+                {!hideAttachments && (
+                  <FileUploadHandler
+                    ref={fileInputRef}
+                    loading={loading}
+                    disabled={disabled}
+                    isAgentRunning={isAgentRunning}
+                    isUploading={isUploading}
+                    sandboxId={sandboxId}
+                    setPendingFiles={setPendingFiles}
+                    setUploadedFiles={setUploadedFiles}
+                    setIsUploading={setIsUploading}
+                    messages={messages}
+                    isLoggedIn={isLoggedIn}
+                    appType={appType}
+                    className={cn(
+                      "h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all",
+                      "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
+                      "border border-white/5",
+                      "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
+                      "hover:from-[#3a3a3a] hover:to-[#222]"
+                    )}
+                  />
+                )}
+                
+                {/* App Type Selector */}
+                {onAppTypeChange && (
+                  <div className="flex items-center gap-1 p-1 border border-white/10 bg-black/40 backdrop-blur-sm">
+                    <button
+                      type="button"
+                      onClick={() => onAppTypeChange('web')}
+                      className={cn(
+                        "h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent",
+                        appType === 'web'
+                          ? "bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]"
+                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/5"
+                      )}
+                    >
+                      <Globe className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Web</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onAppTypeChange('mobile')}
+                      className={cn(
+                        "h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent",
+                        appType === 'mobile'
+                          ? "bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]"
+                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/5"
+                      )}
+                    >
+                      <Smartphone className="h-3.5 w-3.5" />
+                      <span className="hidden sm:inline">Mobile</span>
+                    </button>
+                  </div>
+                )}
               </div>
-            )}
+
+              <div className='flex items-center gap-2'>
+                {/* ModelSelector */}
+                {onModelChange && (
+                  <div className="mr-2">
+                    <ModelSelector
+                      value={selectedModel || ''}
+                      onChange={onModelChange}
+                      disabled={loading || isAgentRunning}
+                      className={cn(
+                        "h-10 px-3 rounded-none text-zinc-400 hover:text-white transition-all",
+                        "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
+                        "border border-white/5",
+                        "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
+                        "hover:from-[#3a3a3a] hover:to-[#222]",
+                        "font-mono text-[10px] uppercase tracking-widest"
+                      )}
+                    />
+                  </div>
+                )}
+
+                {isLoggedIn && (
+                  <VoiceRecorder
+                    onTranscription={onTranscription}
+                    currentValue={value}
+                    disabled={loading || (disabled && !isAgentRunning)}
+                    className={cn(
+                      "h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all",
+                      "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
+                      "border border-white/5",
+                      "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
+                      "hover:from-[#3a3a3a] hover:to-[#222]"
+                    )}
+                  />
+                )}
+
+                <LiquidMetalButton
+                  type="submit"
+                  variant="circular"
+                  onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
+                  className={cn(
+                    'h-10 w-10 flex-shrink-0 text-zinc-400 hover:text-white transition-all',
+                    (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                      loading ||
+                      (disabled && !isAgentRunning)
+                      ? 'opacity-50 cursor-not-allowed'
+                      : '',
+                  )}
+                  disabled={
+                    (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                    loading ||
+                    (disabled && !isAgentRunning)
+                  }
+                >
+                  {loading ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : isAgentRunning ? (
+                    <Square className="h-4 w-4 fill-current" />
+                  ) : (
+                    <ArrowUp className="h-5 w-5" />
+                  )}
+                </LiquidMetalButton>
+              </div>
+            </div>
+            
+            {/* Decorative dotted pattern footer */}
+            <div className="h-10 w-full bg-[#121212] bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:4px_4px] rounded-none border-t border-white/[0.05]" />
           </div>
+        ) : (
+          <div className="flex items-center justify-between mt-0 mb-1 px-2 relative">
+            <div className="flex items-center gap-3 z-10">
+              {!hideAttachments && (
+                <FileUploadHandler
+                  ref={fileInputRef}
+                  loading={loading}
+                  disabled={disabled}
+                  isAgentRunning={isAgentRunning}
+                  isUploading={isUploading}
+                  sandboxId={sandboxId}
+                  setPendingFiles={setPendingFiles}
+                  setUploadedFiles={setUploadedFiles}
+                  setIsUploading={setIsUploading}
+                  messages={messages}
+                  isLoggedIn={isLoggedIn}
+                  appType={appType}
+                />
+              )}
+              {/* App Type Selector */}
+              {onAppTypeChange && (
+                <div className="flex items-center gap-1 p-1 bg-zinc-800/50 rounded-full">
+                  <button
+                    type="button"
+                    onClick={() => onAppTypeChange('web')}
+                    className={cn(
+                      "p-1.5 rounded-full transition-all",
+                      appType === 'web'
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                    title="Web App"
+                  >
+                    <Globe className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => onAppTypeChange('mobile')}
+                    className={cn(
+                      "p-1.5 rounded-full transition-all",
+                      appType === 'mobile'
+                        ? "bg-zinc-700 text-white"
+                        : "text-zinc-500 hover:text-zinc-300"
+                    )}
+                    title="Mobile App"
+                  >
+                    <Smartphone className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
+            </div>
 
-          <div className='flex items-center gap-2 z-10'>
-            {/* Model Selector - right aligned next to mic */}
-            {onModelChange && (
-              <ModelSelector
-                value={selectedModel || ''}
-                onChange={onModelChange}
-                disabled={loading || isAgentRunning}
-              />
-            )}
+            <div className='flex items-center gap-2 z-10'>
+              {/* Model Selector - right aligned next to mic */}
+              {onModelChange && (
+                <ModelSelector
+                  value={selectedModel || ''}
+                  onChange={onModelChange}
+                  disabled={loading || isAgentRunning}
+                />
+              )}
 
-            {isLoggedIn && <VoiceRecorder
-              onTranscription={onTranscription}
-              currentValue={value}
-              disabled={loading || (disabled && !isAgentRunning)}
-            />}
+              {isLoggedIn && <VoiceRecorder
+                onTranscription={onTranscription}
+                currentValue={value}
+                disabled={loading || (disabled && !isAgentRunning)}
+              />}
 
-            <LiquidMetalButton
-              type="submit"
-              variant="circular"
-              onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
-              className={cn(
-                'h-8 w-8 flex-shrink-0 self-end rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all',
-                (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+              <LiquidMetalButton
+                type="submit"
+                variant="circular"
+                onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
+                className={cn(
+                  'h-8 w-8 flex-shrink-0 self-end rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all',
+                  (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                    loading ||
+                    (disabled && !isAgentRunning)
+                    ? 'opacity-50 cursor-not-allowed'
+                    : '',
+                )}
+                disabled={
+                  (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
                   loading ||
                   (disabled && !isAgentRunning)
-                  ? 'opacity-50 cursor-not-allowed'
-                  : '',
-              )}
-              disabled={
-                (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
-                loading ||
-                (disabled && !isAgentRunning)
-              }
-            >
-              {loading ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : isAgentRunning ? (
-                <Square className="h-3.5 w-3.5 fill-current" />
-              ) : (
-                <ArrowUp className="h-4 w-4" />
-              )}
-            </LiquidMetalButton>
+                }
+              >
+                {loading ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : isAgentRunning ? (
+                  <Square className="h-3.5 w-3.5 fill-current" />
+                ) : (
+                  <ArrowUp className="h-4 w-4" />
+                )}
+              </LiquidMetalButton>
+            </div>
           </div>
-        </div>
+        )}
 
       </div>
     );
