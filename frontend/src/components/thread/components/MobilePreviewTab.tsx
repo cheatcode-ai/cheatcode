@@ -101,17 +101,17 @@ export const MobilePreviewTab: React.FC<MobilePreviewTabProps> = ({
   return (
     <div className="h-full overflow-y-auto flex flex-col lg:flex-row bg-zinc-50 dark:bg-background">
       {/* Phone Preview Area */}
-      <div className="flex-1 flex items-center justify-center p-8 lg:p-12 relative">
+      <div className="flex-1 flex items-center justify-center p-4 lg:p-6 relative min-h-0">
         {/* Background Pattern */}
         <div className="absolute inset-0 bg-grid-zinc-200/50 dark:bg-grid-zinc-800/20 [mask-image:radial-gradient(ellipse_at_center,black,transparent_75%)] pointer-events-none" />
 
         <div className="relative z-10 transform transition-transform duration-500 hover:scale-[1.02]">
           {selectedPlatform === 'ios' ? (
-            <IPhoneMockup screenWidth={300} screenType="island">
+            <IPhoneMockup screenWidth={250} screenType="island">
               {renderMockupContent()}
             </IPhoneMockup>
           ) : (
-            <AndroidMockup screenWidth={300}>
+            <AndroidMockup screenWidth={250}>
               {renderMockupContent()}
             </AndroidMockup>
           )}

@@ -25,10 +25,10 @@ class MockObservation:
     def end(self, **kwargs) -> None:
         pass
 
-    def start_span(self, _name: str, **_kwargs) -> "MockObservation":
+    def start_span(self, name: str = "", **_kwargs) -> "MockObservation":
         return MockObservation()
 
-    def start_generation(self, _name: str, **_kwargs) -> "MockObservation":
+    def start_generation(self, name: str = "", **_kwargs) -> "MockObservation":
         return MockObservation()
 
     def event(self, name: str, **kwargs) -> None:

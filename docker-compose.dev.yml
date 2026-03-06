@@ -15,9 +15,14 @@ services:
       - ENV_MODE=local
       - REDIS_URL=redis://redis:6379
       - PYTHONUNBUFFERED=1
+      - INNGEST_DEV=1
+      - INNGEST_BASE_URL=http://inngest:8288
+      - INNGEST_SERVE_ORIGIN=http://backend:8000
     depends_on:
       redis:
         condition: service_healthy
+      inngest:
+        condition: service_started
     networks:
       - dev-network
     dns:
@@ -46,6 +51,17 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
+
+  # Inngest Dev Server (local function invocation)
+  inngest:
+    image: inngest/inngest:latest
+    ports:
+      - "8288:8288"
+    environment:
+      - INNGEST_LOG_LEVEL=info
+    networks:
+      - dev-network
+    command: inngest dev -u http://backend:8000/api/inngest
 
   # Redis
   redis:

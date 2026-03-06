@@ -87,11 +87,13 @@ export function AppPreviewSidePanel({
   const { onOpen } = useModal();
 
   // Show loading screen when agent is actively building OR no preview URL available
-  // But prioritize showing preview if URL exists and agent isn't actively modifying code
+  // For mobile: show preview early (QR code + phone mockup) even while agent runs,
+  // since Expo bundler needs time and the QR code is useful immediately
+  const isMobileApp = project?.app_type === 'mobile';
   const shouldShowLoadingScreen =
     (!previewUrl.previewUrl ||
-      agentStatus === 'running' ||
-      agentStatus === 'connecting') &&
+      (agentStatus === 'running' && !isMobileApp) ||
+      (agentStatus === 'connecting' && !isMobileApp)) &&
     (activeMainTab === 'preview' || !previewUrl.previewUrl);
 
   // Switch to preview tab when loading starts if user is on code tab
