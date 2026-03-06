@@ -72,10 +72,10 @@ jobs:
       run:
         working-directory: frontend
     env:
-      NEXT_PUBLIC_SUPABASE_URL: "https://placeholder.supabase.co"
-      NEXT_PUBLIC_SUPABASE_ANON_KEY: "placeholder-anon-key"
-      NEXT_PUBLIC_BACKEND_URL: "https://placeholder.api.com"
-      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_Y2xlcmsuaW52YWxpZC5jb20k"
+      NEXT_PUBLIC_SUPABASE_URL: "https://snqtclnmhcaupqynjyux.supabase.co"
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNucXRjbG5taGNhdXBxeW5qeXV4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIwODA1NjMsImV4cCI6MjA2NzY1NjU2M30.kItD97rTmof6nflCPM8-0RxR003nbc6T1-KNVi3nA_g"
+      NEXT_PUBLIC_BACKEND_URL: "http://localhost:8000/api"
+      NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: "pk_test_c3RpcnJlZC1nb29zZS0xNy5jbGVyay5hY2NvdW50cy5kZXYk"
       NEXT_PUBLIC_APP_URL: "http://localhost:3000"
     steps:
       - uses: actions/checkout@v4
