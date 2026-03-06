@@ -186,7 +186,13 @@ if config.ENV_MODE == EnvMode.PRODUCTION:
 
     app.add_middleware(
         TrustedHostMiddleware,
-        allowed_hosts=["trycheatcode.com", "www.trycheatcode.com", "*.trycheatcode.com", "localhost"],
+        allowed_hosts=[
+            "trycheatcode.com",
+            "www.trycheatcode.com",
+            "*.trycheatcode.com",
+            "*.run.app",
+            "localhost",
+        ],
     )
 
 app.add_middleware(

@@ -48,9 +48,9 @@ export default {
     // Build target URL
     const targetUrl = `${CLOUD_RUN_URL}${url.pathname}${url.search}`;
 
-    // Clone headers
+    // Clone headers, forwarding original host so TrustedHostMiddleware accepts it
     const headers = new Headers(request.headers);
-    headers.delete('host');
+    headers.set('host', url.host);
 
     // Proxy request
     const proxyRequest = new Request(targetUrl, {
