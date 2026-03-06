@@ -15,7 +15,6 @@ services:
       - ENV_MODE=local
       - REDIS_URL=redis://redis:6379
       - PYTHONUNBUFFERED=1
-      - INNGEST_DEV=1
     depends_on:
       redis:
         condition: service_healthy

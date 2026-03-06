@@ -50,8 +50,8 @@ async def _verify_clerk_jwt(token: str) -> dict:
         if config.CLERK_SECRET_KEY or config.CLERK_JWT_KEY:
             # Keys configured — verify signature, fail-closed
             options = VerifyTokenOptions(
-                secret_key=config.CLERK_SECRET_KEY or "",
-                jwt_key=config.CLERK_JWT_KEY or "",
+                secret_key=config.CLERK_SECRET_KEY,
+                jwt_key=config.CLERK_JWT_KEY,
             )
             return await asyncio.to_thread(verify_token, token, options)
         # No keys — dev convenience mode
@@ -61,8 +61,8 @@ async def _verify_clerk_jwt(token: str) -> dict:
     # PRODUCTION mode: enforce signature verification
     if config.CLERK_SECRET_KEY or config.CLERK_JWT_KEY:
         options = VerifyTokenOptions(
-            secret_key=config.CLERK_SECRET_KEY or "",
-            jwt_key=config.CLERK_JWT_KEY or "",
+            secret_key=config.CLERK_SECRET_KEY,
+            jwt_key=config.CLERK_JWT_KEY,
         )
         # verify_token() does synchronous HTTP I/O (JWKS fetch) when jwt_key is absent,
         # so run in a thread to avoid blocking the async event loop.
