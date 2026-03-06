@@ -8,8 +8,15 @@ const securityHeaders = [
   { key: 'Strict-Transport-Security', value: 'max-age=31536000; includeSubDomains' },
   {
     key: 'Content-Security-Policy-Report-Only',
-    value:
-      "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; connect-src 'self' https://*.supabase.co https://*.trycheatcode.com",
+    value: [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://*.clerk.com https://clerk.trycheatcode.com https://www.googletagmanager.com https://static.cloudflareinsights.com",
+      "style-src 'self' 'unsafe-inline'",
+      "connect-src 'self' https://*.supabase.co https://*.trycheatcode.com https://*.clerk.com https://clerk.trycheatcode.com https://www.google-analytics.com",
+      "img-src 'self' data: blob: https://*.clerk.com https://raw.githubusercontent.com",
+      "frame-src 'self' https://*.clerk.com https://clerk.trycheatcode.com",
+      "worker-src 'self' blob:",
+    ].join('; '),
   },
 ];
 
