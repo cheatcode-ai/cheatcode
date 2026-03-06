@@ -34,39 +34,6 @@ services:
       retries: 3
       start_period: 40s
 
-  worker:
-    image: ghcr.io/cheatcode-ai/backend:latest
-    platform: linux/amd64
-    build:
-      context: .
-      dockerfile: Dockerfile
-    command: uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
-    env_file:
-      - .env
-    volumes:
-      - .:/app
-      - /app/.venv
-      - ./worker-logs:/app/logs
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - app-network
-    environment:
-      - REDIS_URL=${REDIS_URL}
-      - LOG_LEVEL=INFO
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "uv", "run", "worker_health.py"]
-      timeout: 20s
-      interval: 30s
-      start_period: 40s
-
   redis:
     image: redis:8-alpine
     ports:

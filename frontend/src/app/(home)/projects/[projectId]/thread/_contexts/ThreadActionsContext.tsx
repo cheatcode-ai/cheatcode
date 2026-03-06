@@ -1,15 +1,23 @@
 'use client';
 
-import React, { createContext, useContext, useCallback, useEffect } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useCallback,
+  useEffect,
+} from 'react';
 import { BillingError } from '@/lib/api';
 import { toast } from 'sonner';
 import { useAuth } from '@clerk/nextjs';
 import { useAgentStream } from '@/hooks/useAgentStream';
 import { useAgentStateMachine } from '@/hooks/useAgentStateMachine';
 import { useAddUserMessageMutation } from '@/hooks/react-query/threads/use-messages';
-import { useStartAgentMutation, useStopAgentMutation } from '@/hooks/react-query/threads/use-agent-run';
+import {
+  useStartAgentMutation,
+  useStopAgentMutation,
+} from '@/hooks/react-query/threads/use-agent-run';
 // Removed useThreadAgent import - agent display is now hardcoded to "cheatcode"
-import { UnifiedMessage } from '../_types';
+import { type UnifiedMessage } from '../_types';
 import { useThreadState } from './ThreadStateContext';
 import { useThreadBilling } from './BillingContext';
 
@@ -23,7 +31,7 @@ interface AgentStateMachineState {
   status: string;
   runId: string | null;
   streamingTextContent: string;
-  streamingToolCall: any;
+  streamingToolCall: Record<string, unknown> | null;
   isSending: boolean;
   autoStartedRun: boolean;
 }
@@ -36,7 +44,7 @@ interface AgentStateMachineActions {
   reset: () => void;
   setAutoStarted: (started: boolean) => void;
   updateStreamingText: (content: string) => void;
-  updateStreamingTool: (tool: any) => void;
+  updateStreamingTool: (tool: Record<string, unknown> | null) => void;
   clearStreamingContent: () => void;
 }
 
@@ -54,23 +62,27 @@ interface ThreadActionsContextValue {
   agentActions: AgentStateMachineActions;
   agentGetters: AgentStateMachineGetters;
   // Removed agent from context value
-  
+
   // Streaming content
   streamingTextContent: string;
-  streamingToolCall: any;
+  streamingToolCall: Record<string, unknown> | null;
   streamHookStatus: string;
-  
+
   // Actions
   sendMessage: (message: string, options?: SendMessageOptions) => Promise<void>;
   stopAgent: () => Promise<void>;
 }
 
-const ThreadActionsContext = createContext<ThreadActionsContextValue | null>(null);
+const ThreadActionsContext = createContext<ThreadActionsContextValue | null>(
+  null,
+);
 
 export function useThreadActions() {
   const context = useContext(ThreadActionsContext);
   if (!context) {
-    throw new Error('useThreadActions must be used within ThreadActionsProvider');
+    throw new Error(
+      'useThreadActions must be used within ThreadActionsProvider',
+    );
   }
   return context;
 }
@@ -79,44 +91,52 @@ interface ThreadActionsProviderProps {
   children: React.ReactNode;
 }
 
-export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) {
-  const {
-    threadId,
-    messages,
-    setMessages,
-    project,
-    agentRunsQuery,
-  } = useThreadState();
-  
+export function ThreadActionsProvider({
+  children,
+}: ThreadActionsProviderProps) {
+  const { threadId, messages, setMessages, project, agentRunsQuery } =
+    useThreadState();
+
   const { setBillingData, setShowBillingAlert } = useThreadBilling();
   const { getToken } = useAuth();
 
   // Agent State Machine
-  const { state: agentState, actions: agentActions, getters: agentGetters, handleStatusUpdate } = useAgentStateMachine();
+  const {
+    state: agentState,
+    actions: agentActions,
+    getters: agentGetters,
+    handleStatusUpdate,
+  } = useAgentStateMachine();
 
   const addUserMessageMutation = useAddUserMessageMutation();
   const startAgentMutation = useStartAgentMutation();
   const stopAgentMutation = useStopAgentMutation();
   // Removed useThreadAgent hook call and agent variable
 
-  const handleNewMessageFromStream = useCallback((message: UnifiedMessage) => {
-    setMessages((prev) => {
-      const messageExists = prev.some(
-        (m) => m.message_id === message.message_id,
-      );
-      if (messageExists) {
-        return prev.map((m) =>
-          m.message_id === message.message_id ? message : m,
+  const handleNewMessageFromStream = useCallback(
+    (message: UnifiedMessage) => {
+      setMessages((prev) => {
+        const messageExists = prev.some(
+          (m) => m.message_id === message.message_id,
         );
-      } else {
-        return [...prev, message];
-      }
-    });
-  }, [setMessages]);
+        if (messageExists) {
+          return prev.map((m) =>
+            m.message_id === message.message_id ? message : m,
+          );
+        } else {
+          return [...prev, message];
+        }
+      });
+    },
+    [setMessages],
+  );
 
-  const handleStreamStatusChange = useCallback((hookStatus: string) => {
-    handleStatusUpdate(hookStatus);
-  }, [handleStatusUpdate]);
+  const handleStreamStatusChange = useCallback(
+    (hookStatus: string) => {
+      handleStatusUpdate(hookStatus);
+    },
+    [handleStatusUpdate],
+  );
 
   const handleStreamError = useCallback((errorMessage: string) => {
     // Suppress common expected errors that shouldn't show user notifications
@@ -127,13 +147,13 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
       'agent run.*is not running',
       'not active',
       'completed',
-      'stopped'
+      'stopped',
     ];
-    
-    const shouldSuppressError = suppressErrors.some(pattern => 
-      errorMessage.toLowerCase().includes(pattern.toLowerCase())
+
+    const shouldSuppressError = suppressErrors.some((pattern) =>
+      errorMessage.toLowerCase().includes(pattern.toLowerCase()),
     );
-    
+
     if (!shouldSuppressError) {
       toast.error(`Stream Error: ${errorMessage}`);
     }
@@ -166,14 +186,11 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
       updateStreamingTool: agentActions.updateStreamingTool,
       clearStreamingContent: agentActions.clearStreamingContent,
     },
-    getToken
+    getToken,
   );
 
   const sendMessage = useCallback(
-    async (
-      message: string,
-      options?: SendMessageOptions,
-    ) => {
+    async (message: string, options?: SendMessageOptions) => {
       if (!message.trim() || agentState.isSending || agentGetters.isActive) {
         return;
       }
@@ -196,7 +213,7 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
         // First, save the user message to the database
         await addUserMessageMutation.mutateAsync({
           threadId,
-          message
+          message,
         });
 
         // Then start the agent (this prevents race condition)
@@ -204,36 +221,41 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
           threadId,
           options: {
             app_type: project?.app_type || 'web', // Use project's app_type, fallback to 'web'
-            ...options
-          }
+            ...options,
+          },
         });
 
         try {
           agentActions.connect(agentResult.agent_run_id);
-          
+
           // Immediately start streaming for this agent run
           startStreaming(agentResult.agent_run_id);
-          
+
           // Note: Removed messagesQuery.refetch() to prevent overriding optimistic messages
           // Messages will be updated through the EventSource (SSE) stream instead
           agentRunsQuery.refetch();
         } catch (connectError) {
           throw connectError; // Re-throw to be caught by outer catch block
         }
-
       } catch (err) {
         if (err instanceof BillingError) {
           setBillingData({
             currentUsage: err.detail.currentUsage as number | undefined,
             limit: err.detail.limit as number | undefined,
-            message: err.detail.message || 'Monthly usage limit reached. Please upgrade.',
-            accountId: project?.account_id || null
+            message:
+              err.detail.message ||
+              'Monthly usage limit reached. Please upgrade.',
+            accountId: project?.account_id || null,
           });
           setShowBillingAlert(true);
-          setMessages(prev => prev.filter(m => m.message_id !== optimisticUserMessage.message_id));
+          setMessages((prev) =>
+            prev.filter(
+              (m) => m.message_id !== optimisticUserMessage.message_id,
+            ),
+          );
           return;
         }
-        
+
         toast.error(err instanceof Error ? err.message : 'Operation failed');
         setMessages((prev) =>
           prev.filter((m) => m.message_id !== optimisticUserMessage.message_id),
@@ -242,7 +264,21 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
         agentActions.stopSending();
       }
     },
-    [threadId, project?.account_id, project?.app_type, addUserMessageMutation, startAgentMutation, agentRunsQuery, setMessages, setBillingData, setShowBillingAlert, agentState.isSending, agentGetters.isActive, agentActions, startStreaming],
+    [
+      threadId,
+      project?.account_id,
+      project?.app_type,
+      addUserMessageMutation,
+      startAgentMutation,
+      agentRunsQuery,
+      setMessages,
+      setBillingData,
+      setShowBillingAlert,
+      agentState.isSending,
+      agentGetters.isActive,
+      agentActions,
+      startStreaming,
+    ],
   );
 
   const stopAgent = useCallback(async () => {
@@ -258,7 +294,13 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
         // Agent stop failed silently - agent may have already completed
       }
     }
-  }, [stopStreaming, agentState.runId, stopAgentMutation, agentRunsQuery, agentActions]);
+  }, [
+    stopStreaming,
+    agentState.runId,
+    stopAgentMutation,
+    agentRunsQuery,
+    agentActions,
+  ]);
 
   // Auto-start agent effect - only stream if agent is active and no stream is already running
   useEffect(() => {
@@ -270,13 +312,19 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
     ) {
       startStreaming(agentState.runId);
     }
-  }, [agentState.runId, startStreaming, currentHookRunId, agentGetters.isActive, streamHookStatus]);
+  }, [
+    agentState.runId,
+    startStreaming,
+    currentHookRunId,
+    agentGetters.isActive,
+    streamHookStatus,
+  ]);
 
   // Stop streaming when agent reaches terminal state
   useEffect(() => {
     if (agentGetters.isTerminal && currentHookRunId) {
       stopStreaming();
-      
+
       // Clear runId after a delay to allow final status updates
       setTimeout(() => {
         if (agentGetters.isTerminal) {
@@ -284,19 +332,33 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
         }
       }, 1000);
     }
-  }, [agentGetters.isTerminal, agentState.status, currentHookRunId, stopStreaming, agentActions]);
+  }, [
+    agentGetters.isTerminal,
+    agentState.status,
+    currentHookRunId,
+    stopStreaming,
+    agentActions,
+  ]);
 
   // Auto-connect to running agent or auto-start for new threads
   useEffect(() => {
     if (agentRunsQuery.isLoading || agentRunsQuery.isFetching) return;
-    if (agentState.autoStartedRun || !agentGetters.isIdle || agentState.runId) return;
+    if (agentState.autoStartedRun || !agentGetters.isIdle || agentState.runId)
+      return;
     if (agentState.isSending || startAgentMutation.isPending) return;
 
-    const runs: Array<{ run_id: string; status: string }> = agentRunsQuery.data || [];
-    const runningRun = runs.find((r: { run_id: string; status: string }) => r.status === 'running' || r.status === 'queued');
-    const hasCompletedRuns = runs.some((r: { run_id: string; status: string }) => ['completed', 'error', 'stopped'].includes(r.status));
-    const hasAssistantMessages = messages.some(m => m.type === 'assistant' || m.type === 'tool');
-    const lastIsUser = messages.length > 0 && messages[messages.length - 1].type === 'user';
+    const runs = agentRunsQuery.data || [];
+    const runningRun = runs.find(
+      (r) => r.status === 'running' || r.status === 'queued',
+    );
+    const hasCompletedRuns = runs.some((r) =>
+      ['completed', 'error', 'stopped'].includes(r.status),
+    );
+    const hasAssistantMessages = messages.some(
+      (m) => m.type === 'assistant' || m.type === 'tool',
+    );
+    const lastIsUser =
+      messages.length > 0 && messages[messages.length - 1].type === 'user';
 
     // Connect to existing running agent
     if (runningRun) {
@@ -319,13 +381,23 @@ export function ThreadActionsProvider({ children }: ThreadActionsProviderProps) 
             }
           },
           onError: () => agentActions.setAutoStarted(false),
-        }
+        },
       );
     }
   }, [
-    agentState.autoStartedRun, agentGetters.isIdle, agentState.runId, agentState.isSending,
-    messages, startAgentMutation, threadId, project?.app_type, agentActions, startStreaming,
-    agentRunsQuery.data, agentRunsQuery.isLoading, agentRunsQuery.isFetching
+    agentState.autoStartedRun,
+    agentGetters.isIdle,
+    agentState.runId,
+    agentState.isSending,
+    messages,
+    startAgentMutation,
+    threadId,
+    project?.app_type,
+    agentActions,
+    startStreaming,
+    agentRunsQuery.data,
+    agentRunsQuery.isLoading,
+    agentRunsQuery.isFetching,
   ]);
 
   const value: ThreadActionsContextValue = {

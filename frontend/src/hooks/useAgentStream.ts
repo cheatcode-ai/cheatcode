@@ -4,13 +4,13 @@ import {
   stopAgent,
   getMessages,
   streamAgent,
-  ApiMessageType,
+  type ApiMessageType,
 } from '@/lib/api';
 import { toast } from 'sonner';
 import {
-  UnifiedMessage,
-  ParsedContent,
-  ParsedMetadata,
+  type UnifiedMessage,
+  type ParsedContent,
+  type ParsedMetadata,
 } from '@/components/thread/types';
 import { safeJsonParse } from '@/components/thread/utils';
 import { createLogger } from '@/lib/logger';
@@ -18,7 +18,7 @@ import { createLogger } from '@/lib/logger';
 const logger = createLogger('AgentStream');
 
 // Define the structure returned by the hook
-export interface UseAgentStreamResult {
+interface UseAgentStreamResult {
   status: string;
   textContent: string;
   toolCall: ParsedContent | null;
@@ -29,7 +29,7 @@ export interface UseAgentStreamResult {
 }
 
 // Define the callbacks the hook consumer can provide
-export interface AgentStreamCallbacks {
+interface AgentStreamCallbacks {
   onMessage: (message: UnifiedMessage) => void; // Callback for complete messages
   onStatusChange?: (status: string) => void; // Optional: Notify on internal status changes
   onError?: (error: string) => void; // Optional: Notify on errors
@@ -63,10 +63,10 @@ export function useAgentStream(
   setMessages: (messages: UnifiedMessage[]) => void,
   streamingActions?: {
     updateStreamingText: (content: string) => void;
-    updateStreamingTool: (tool: any) => void;
+    updateStreamingTool: (tool: Record<string, unknown> | null) => void;
     clearStreamingContent: () => void;
   },
-  getToken?: () => Promise<string | null>
+  getToken?: () => Promise<string | null>,
 ): UseAgentStreamResult {
   const [agentRunId, setAgentRunId] = useState<string | null>(null);
   const [status, setStatus] = useState<string>('idle');
@@ -81,6 +81,9 @@ export function useAgentStream(
   const currentRunIdRef = useRef<string | null>(null); // Ref to track the run ID being processed
   const threadIdRef = useRef(threadId); // Ref to hold the current threadId
   const setMessagesRef = useRef(setMessages); // Ref to hold the setMessages function
+  const finalizationTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
   // EventSource handles reconnection automatically, so we don't need manual reconnect logic
 
   const orderedTextContent = useMemo(() => {
@@ -106,6 +109,10 @@ export function useAgentStream(
       if (streamCleanupRef.current) {
         streamCleanupRef.current();
         streamCleanupRef.current = null;
+      }
+      if (finalizationTimeoutRef.current) {
+        clearTimeout(finalizationTimeoutRef.current);
+        finalizationTimeoutRef.current = null;
       }
     };
   }, []);
@@ -170,7 +177,7 @@ export function useAgentStream(
       // Reset streaming-specific state
       setTextContent([]);
       setToolCall(null);
-      
+
       // Clear external streaming content if callback provided
       streamingActions?.clearStreamingContent();
 
@@ -191,11 +198,14 @@ export function useAgentStream(
         logger.debug(
           `Scheduling message refetch for thread ${currentThreadId} after finalization with status ${finalStatus}.`,
         );
-        
+
         // Add a delay to allow database writes to complete before refetching
-        setTimeout(() => {
+        if (finalizationTimeoutRef.current) {
+          clearTimeout(finalizationTimeoutRef.current);
+        }
+        finalizationTimeoutRef.current = setTimeout(() => {
           if (!isMountedRef.current) return;
-          
+
           logger.debug(
             `Refetching messages for thread ${currentThreadId} after completion delay.`,
           );
@@ -205,23 +215,31 @@ export function useAgentStream(
                 logger.debug(
                   `Refetched ${messagesData.length} messages for thread ${currentThreadId}.`,
                 );
-                              const unifiedMessages = mapApiMessagesToUnified(
-                messagesData,
-                currentThreadId,
-              );
-              
-              // Use the same deduplication logic as streaming messages
-              // instead of replacing the entire message array
-              (currentSetMessages as any)((prevMessages: UnifiedMessage[]) => {
-                const existingIds = new Set(prevMessages.map(m => m.message_id));
-                const newMessages = unifiedMessages.filter(m => !existingIds.has(m.message_id));
-                
-                logger.debug(
-                  `Merging ${newMessages.length} new messages with ${prevMessages.length} existing messages`,
+                const unifiedMessages = mapApiMessagesToUnified(
+                  messagesData,
+                  currentThreadId,
                 );
-                
-                return [...prevMessages, ...newMessages];
-              });
+
+                // Use the same deduplication logic as streaming messages
+                // instead of replacing the entire message array
+                (
+                  currentSetMessages as unknown as (
+                    updater: (prev: UnifiedMessage[]) => UnifiedMessage[],
+                  ) => void
+                )((prevMessages: UnifiedMessage[]) => {
+                  const existingIds = new Set(
+                    prevMessages.map((m) => m.message_id),
+                  );
+                  const newMessages = unifiedMessages.filter(
+                    (m) => !existingIds.has(m.message_id),
+                  );
+
+                  logger.debug(
+                    `Merging ${newMessages.length} new messages with ${prevMessages.length} existing messages`,
+                  );
+
+                  return [...prevMessages, ...newMessages];
+                });
               }
             })
             .catch((err) => {
@@ -234,7 +252,7 @@ export function useAgentStream(
         }, 2000); // 2 second delay to allow database writes to complete
       }
 
-      // If the run was stopped or completed, try to get final status 
+      // If the run was stopped or completed, try to get final status
       if (
         runId &&
         (finalStatus === 'completed' ||
@@ -243,7 +261,7 @@ export function useAgentStream(
       ) {
         // Get authentication token for the status check
         if (getToken) {
-          getToken().then(clerkToken => {
+          getToken().then((clerkToken) => {
             if (clerkToken) {
               getAgentStatus(runId, clerkToken).catch((err) => {
                 logger.debug(
@@ -255,6 +273,7 @@ export function useAgentStream(
         }
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [agentRunId, updateStatus, getToken],
   );
 
@@ -262,7 +281,6 @@ export function useAgentStream(
   const handleStreamMessage = useCallback(
     (rawData: string) => {
       if (!isMountedRef.current) return;
-      (window as any).lastStreamMessage = Date.now();
 
       const processedData = rawData;
       if (!processedData) return;
@@ -272,9 +290,7 @@ export function useAgentStream(
         processedData ===
         '{"type": "status", "status": "completed", "message": "Agent run completed successfully"}'
       ) {
-        logger.debug(
-          'Received final completion status message',
-        );
+        logger.debug('Received final completion status message');
         finalizeStream('completed', currentRunIdRef.current);
         return;
       }
@@ -336,24 +352,25 @@ export function useAgentStream(
           finalizeStream('completed', currentRunIdRef.current);
           return;
         }
-      } catch (jsonError) {
+      } catch {
         // Not JSON or could not parse as JSON, continue processing
       }
 
       // --- Process JSON messages ---
-      const message = safeJsonParse(processedData, null) as UnifiedMessage | null;
+      const message = safeJsonParse(
+        processedData,
+        null,
+      ) as UnifiedMessage | null;
       if (!message) {
-        logger.warn(
-          'Failed to parse streamed message:',
-          processedData,
-        );
+        logger.warn('Failed to parse streamed message:', processedData);
         return;
       }
-      
 
-      
       // Only process actual chat message types
-      if (message.type && !['assistant', 'user', 'tool', 'system'].includes(message.type)) {
+      if (
+        message.type &&
+        !['assistant', 'user', 'tool', 'system'].includes(message.type)
+      ) {
         logger.debug(`Filtered out message type '${message.type}':`, message);
         return;
       }
@@ -374,19 +391,27 @@ export function useAgentStream(
         case 'assistant':
           if (
             parsedMetadata.stream_status === 'chunk' &&
-            parsedContent.content
+            parsedContent.content &&
+            typeof parsedContent.content === 'string'
           ) {
+            const chunkStr = parsedContent.content;
             // Handle streaming chunks - update UI but don't add to chat
             setTextContent((prev) => {
-              return prev.concat({
-                sequence: message.sequence || parsedMetadata.sequence || 0,
-                content: parsedContent.content,
-              });
+              const seq =
+                message.sequence ||
+                (typeof parsedMetadata.sequence === 'number'
+                  ? parsedMetadata.sequence
+                  : 0);
+              const chunk: { content: string; sequence?: number } = {
+                sequence: seq,
+                content: chunkStr,
+              };
+              return [...prev, chunk];
             });
-            callbacks.onAssistantChunk?.({ content: parsedContent.content });
-            
+            callbacks.onAssistantChunk?.({ content: chunkStr });
+
             // Update external streaming text if callback provided
-            streamingActions?.updateStreamingText(parsedContent.content);
+            streamingActions?.updateStreamingText(chunkStr);
           } else if (parsedMetadata.stream_status === 'complete') {
             // Complete message - clear streaming and add to chat
             setTextContent([]);
@@ -397,57 +422,74 @@ export function useAgentStream(
           } else if (!parsedMetadata.stream_status) {
             // Handle non-chunked assistant messages (fallback)
             // Only add to chat if it looks like a complete message and isn't raw code
-            const hasValidContent = parsedContent.content && 
-              typeof parsedContent.content === 'string' && 
+            const hasValidContent =
+              parsedContent.content &&
+              typeof parsedContent.content === 'string' &&
               parsedContent.content.trim().length > 0;
-            
+
             // Filter out messages that are primarily code or very verbose tool content
-            const contentStr = typeof parsedContent.content === 'string' ? parsedContent.content : '';
-            const isLikelyCode = contentStr && (
-              contentStr.includes('<parameter name=') ||
-              contentStr.includes('<function_calls>') ||
-              contentStr.includes('```') ||
-              (contentStr.length > 2000 && contentStr.includes('<'))
-            );
-            
+            const contentStr =
+              typeof parsedContent.content === 'string'
+                ? parsedContent.content
+                : '';
+            const isLikelyCode =
+              contentStr &&
+              (contentStr.includes('<parameter name=') ||
+                contentStr.includes('<function_calls>') ||
+                contentStr.includes('```') ||
+                (contentStr.length > 2000 && contentStr.includes('<')));
+
             if (hasValidContent && !isLikelyCode) {
               callbacks.onAssistantStart?.();
               if (message.message_id) {
                 callbacks.onMessage(message);
               }
             } else if (hasValidContent && isLikelyCode) {
-              logger.debug('Filtered out code-heavy message:', contentStr.substring(0, 100) + '...');
+              logger.debug(
+                'Filtered out code-heavy message:',
+                contentStr.substring(0, 100) + '...',
+              );
             } else {
               // Treat as streaming chunk if no valid content but has some content
-              if (parsedContent.content && !isLikelyCode) {
+              if (
+                parsedContent.content &&
+                typeof parsedContent.content === 'string' &&
+                !isLikelyCode
+              ) {
+                const chunkContent = parsedContent.content;
                 setTextContent((prev) => [
                   ...prev,
-                  { content: parsedContent.content, sequence: 0 }
+                  { content: chunkContent, sequence: 0 },
                 ]);
-                callbacks.onAssistantChunk?.({ content: parsedContent.content });
-                streamingActions?.updateStreamingText(parsedContent.content);
+                callbacks.onAssistantChunk?.({
+                  content: chunkContent,
+                });
+                streamingActions?.updateStreamingText(chunkContent);
               }
             }
           }
           break;
-          
+
         case 'tool':
           // Clear any streaming tool call
           setToolCall(null);
-          
+
           // Only add tool messages to chat if they have proper structure
           // and aren't raw tool content/code snippets
           if (message.message_id && parsedContent) {
             // Check if this is a complete tool message vs raw tool content
-            const isStructuredTool = 
+            const isStructuredTool =
               (parsedContent.name || parsedContent.function_name) &&
-              (parsedContent.result !== undefined || parsedContent.arguments !== undefined);
-            
-            const isRawContent = typeof parsedContent === 'string' && (parsedContent as string).length > 0 &&
-              ((parsedContent as string).includes('<') || 
-               (parsedContent as string).includes('```') || 
-               (parsedContent as string).length > 1000);
-            
+              (parsedContent.result !== undefined ||
+                parsedContent.arguments !== undefined);
+
+            const isRawContent =
+              typeof parsedContent === 'string' &&
+              (parsedContent as string).length > 0 &&
+              ((parsedContent as string).includes('<') ||
+                (parsedContent as string).includes('```') ||
+                (parsedContent as string).length > 1000);
+
             if (isStructuredTool && !isRawContent) {
               callbacks.onMessage(message);
             } else {
@@ -455,23 +497,26 @@ export function useAgentStream(
             }
           }
           break;
-          
+
         case 'status':
           // Handle status messages based on status_type
           switch (parsedContent.status_type) {
-            case 'tool_started':
+            case 'tool_started': {
+              const fnName = parsedContent.function_name as string | undefined;
+              const fnArgs = parsedContent.arguments as string | undefined;
               setToolCall({
                 role: 'assistant',
                 status_type: 'tool_started',
-                name: parsedContent.function_name,
-                arguments: parsedContent.arguments,
+                name: fnName,
+                arguments: fnArgs,
               });
               // Update external streaming tool if callback provided
               streamingActions?.updateStreamingTool({
-                name: parsedContent.function_name,
-                arguments: parsedContent.arguments,
+                name: fnName,
+                arguments: fnArgs,
               });
               break;
+            }
             case 'thread_run_end':
               logger.debug('Received thread run end status');
               finalizeStream('completed', currentRunIdRef.current);
@@ -482,7 +527,7 @@ export function useAgentStream(
               break;
           }
           break;
-          
+
         default:
           // For any other message types, only add to chat if they have a message_id
           if (message.message_id) {
@@ -511,26 +556,23 @@ export function useAgentStream(
   );
 
   // Stream close handler for EventSource
-  const handleStreamClose = useCallback(
-    () => {
-      if (!isMountedRef.current) return;
+  const handleStreamClose = useCallback(() => {
+    if (!isMountedRef.current) return;
 
-      logger.debug('Stream connection closed');
+    logger.debug('Stream connection closed');
 
-      const runId = currentRunIdRef.current;
-      if (!runId) {
-        logger.warn('Stream closed but no active agentRunId.');
-        if (status === 'streaming' || status === 'connecting') {
-          finalizeStream('completed');
-        }
-        return;
+    const runId = currentRunIdRef.current;
+    if (!runId) {
+      logger.warn('Stream closed but no active agentRunId.');
+      if (status === 'streaming' || status === 'connecting') {
+        finalizeStream('completed');
       }
+      return;
+    }
 
-      // EventSource closed, likely agent completed normally
-      finalizeStream('completed', runId);
-    },
-    [status, finalizeStream],
-  );
+    // EventSource closed, likely agent completed normally
+    finalizeStream('completed', runId);
+  }, [status, finalizeStream]);
 
   // Function to establish EventSource connection
   const startEventSourceStream = useCallback(
@@ -561,31 +603,39 @@ export function useAgentStream(
 
       try {
         // Use the streamAgent function from the API
-        const cleanup = streamAgent(runId, {
-          onMessage: handleStreamMessage,
-          onError: handleStreamError,
-          onClose: handleStreamClose,
-        }, clerkToken);
+        const cleanup = streamAgent(
+          runId,
+          {
+            onMessage: handleStreamMessage,
+            onError: handleStreamError,
+            onClose: handleStreamClose,
+          },
+          clerkToken,
+        );
 
         streamCleanupRef.current = cleanup;
         logger.debug(`EventSource stream established for ${runId}`);
-
       } catch (error) {
         logger.error('Failed to create EventSource stream:', error);
-        const errorMessage = error instanceof Error ? error.message : 'Failed to connect';
+        const errorMessage =
+          error instanceof Error ? error.message : 'Failed to connect';
         setError(errorMessage);
         finalizeStream('error', runId);
       }
     },
-    [handleStreamMessage, handleStreamError, handleStreamClose, finalizeStream, getToken],
+    [
+      handleStreamMessage,
+      handleStreamError,
+      handleStreamClose,
+      finalizeStream,
+      getToken,
+    ],
   );
 
   const startStreaming = useCallback(
     async (runId: string) => {
       if (!isMountedRef.current) return;
-      logger.debug(
-        `Received request to start streaming for ${runId}`,
-      );
+      logger.debug(`Received request to start streaming for ${runId}`);
 
       // Clean up any previous connection
       if (streamCleanupRef.current) {
@@ -607,14 +657,19 @@ export function useAgentStream(
       try {
         // Verify agent is running before connecting
         const clerkToken = getToken ? await getToken() : null;
-        const agentStatusResult = await getAgentStatus(runId, clerkToken ?? undefined);
+        const agentStatusResult = await getAgentStatus(
+          runId,
+          clerkToken ?? undefined,
+        );
         if (!isMountedRef.current) return;
 
         if (agentStatusResult.status !== 'running') {
           logger.warn(
             `Agent run ${runId} is not in running state (status: ${agentStatusResult.status}). Cannot start stream.`,
           );
-          setError(`Agent run is not running (status: ${agentStatusResult.status})`);
+          setError(
+            `Agent run is not running (status: ${agentStatusResult.status})`,
+          );
           finalizeStream(
             mapAgentStatus(agentStatusResult.status) || 'agent_not_running',
             runId,
@@ -628,9 +683,7 @@ export function useAgentStream(
         if (!isMountedRef.current) return;
 
         const errorMessage = err instanceof Error ? err.message : String(err);
-        logger.error(
-          `Error initiating stream for ${runId}: ${errorMessage}`,
-        );
+        logger.error(`Error initiating stream for ${runId}: ${errorMessage}`);
         setError(errorMessage);
 
         const isNotFoundError =
@@ -641,6 +694,7 @@ export function useAgentStream(
         finalizeStream(isNotFoundError ? 'agent_not_running' : 'error', runId);
       }
     },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [updateStatus, finalizeStream, startEventSourceStream, getToken],
   );
 
@@ -648,9 +702,7 @@ export function useAgentStream(
     if (!isMountedRef.current || !agentRunId) return;
 
     const runIdToStop = agentRunId;
-    logger.debug(
-      `Stopping stream for agent run ${runIdToStop}`,
-    );
+    logger.debug(`Stopping stream for agent run ${runIdToStop}`);
 
     // Immediately update status and clean up stream
     finalizeStream('stopped', runIdToStop);

@@ -3,7 +3,7 @@
 import { updateThreadName as updateThreadNameApi } from '@/lib/api';
 import { auth } from '@clerk/nextjs/server';
 
-export const generateThreadName = async (message: string): Promise<string> => {
+const generateThreadName = async (message: string): Promise<string> => {
   try {
     // Default name in case the API fails
     const defaultName =
@@ -51,7 +51,7 @@ export const generateThreadName = async (message: string): Promise<string> => {
 
     // Return the generated name or default if empty
     return generatedName || defaultName;
-  } catch (error) {
+  } catch {
     // Fall back to using a truncated version of the message
     return message.trim().length > 50
       ? message.trim().substring(0, 47) + '...'
@@ -59,7 +59,10 @@ export const generateThreadName = async (message: string): Promise<string> => {
   }
 };
 
-export const generateAndUpdateThreadName = async (threadId: string, message: string): Promise<string> => {
+export const generateAndUpdateThreadName = async (
+  threadId: string,
+  message: string,
+): Promise<string> => {
   try {
     // Get Clerk token from server-side auth
     const { getToken } = await auth();
@@ -76,7 +79,7 @@ export const generateAndUpdateThreadName = async (threadId: string, message: str
     await updateThreadNameApi(threadId, threadName, clerkToken);
 
     return threadName;
-  } catch (error) {
+  } catch {
     // Return a fallback name
     return message.trim().length > 50
       ? message.trim().substring(0, 47) + '...'

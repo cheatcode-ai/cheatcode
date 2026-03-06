@@ -1,11 +1,11 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { Project } from '@/lib/api';
-import { useThreadQuery } from '@/hooks/react-query/threads/use-threads';
-import { useMessagesQuery } from '@/hooks/react-query/threads/use-messages';
-import { useProjectQuery } from '@/hooks/react-query/threads/use-project';
-import { useAgentRunsQuery } from '@/hooks/react-query/threads/use-agent-run';
-import { UnifiedMessage, AgentStatus } from '../_types';
+import { type Project } from '@/lib/api';
+import { type useThreadQuery } from '@/hooks/react-query/threads/use-threads';
+import { type useMessagesQuery } from '@/hooks/react-query/threads/use-messages';
+import { type useProjectQuery } from '@/hooks/react-query/threads/use-project';
+import { type useAgentRunsQuery } from '@/hooks/react-query/threads/use-agent-run';
+import { type UnifiedMessage, type AgentStatus } from '../_types';
 import { useThreadMetadata } from './useThreadMetadata';
 import { useThreadMessages } from './useThreadMessages';
 import { useAgentRunState } from './useAgentRunState';
@@ -39,17 +39,26 @@ interface UseThreadDataReturn {
  *
  * For finer-grained control, use the individual hooks directly.
  */
-export function useThreadData(threadId: string, projectId: string): UseThreadDataReturn {
+export function useThreadData(
+  threadId: string,
+  projectId: string,
+): UseThreadDataReturn {
   // Use individual focused hooks
   const metadata = useThreadMetadata(threadId, projectId);
   const agentRun = useAgentRunState(threadId);
-  const messagesHook = useThreadMessages(threadId, agentRun.agentStatus, metadata.isLoading);
+  const messagesHook = useThreadMessages(
+    threadId,
+    agentRun.agentStatus,
+    metadata.isLoading,
+  );
 
   // Track overall initial load completion
-  const initialLoadCompleted = useRef(false);
+  const [initialLoadCompleted, setInitialLoadCompleted] = useState(false);
+  const initialLoadCompletedRef = useRef(false);
 
   // Compute overall loading state
-  const isLoading = metadata.isLoading || messagesHook.isLoading || agentRun.isLoading;
+  const isLoading =
+    metadata.isLoading || messagesHook.isLoading || agentRun.isLoading;
 
   // Track when all data is loaded
   useEffect(() => {
@@ -57,9 +66,11 @@ export function useThreadData(threadId: string, projectId: string): UseThreadDat
       !metadata.isLoading &&
       !messagesHook.isLoading &&
       !agentRun.isLoading &&
-      !initialLoadCompleted.current
+      !initialLoadCompletedRef.current
     ) {
-      initialLoadCompleted.current = true;
+      initialLoadCompletedRef.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setInitialLoadCompleted(true);
     }
   }, [metadata.isLoading, messagesHook.isLoading, agentRun.isLoading]);
 
@@ -89,7 +100,7 @@ export function useThreadData(threadId: string, projectId: string): UseThreadDat
     // Overall state
     isLoading,
     error: metadata.error,
-    initialLoadCompleted: initialLoadCompleted.current,
+    initialLoadCompleted,
 
     // Queries for direct access
     threadQuery: metadata.threadQuery,
@@ -100,6 +111,3 @@ export function useThreadData(threadId: string, projectId: string): UseThreadDat
 }
 
 // Re-export individual hooks for direct use
-export { useThreadMetadata } from './useThreadMetadata';
-export { useThreadMessages, useOptimisticMessage } from './useThreadMessages';
-export { useAgentRunState } from './useAgentRunState';

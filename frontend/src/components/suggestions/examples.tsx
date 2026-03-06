@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import {
   Codesandbox,
   TrendingUp,
@@ -23,27 +23,32 @@ type PromptExample = {
 const webPrompts: PromptExample[] = [
   {
     title: 'AI startup landing page',
-    query: 'build a simple AI startup landing page with hero, features, pricing, and waitlist signup',
+    query:
+      'build a simple AI startup landing page with hero, features, pricing, and waitlist signup',
     icon: <Codesandbox className="text-purple-400" size={16} />,
   },
   {
     title: 'Creative portfolio website',
-    query: 'build a simple creative portfolio website with gallery, case studies, and contact form',
+    query:
+      'build a simple creative portfolio website with gallery, case studies, and contact form',
     icon: <Palette className="text-pink-400" size={16} />,
   },
   {
     title: 'Crypto trading dashboard',
-    query: 'build a simple crypto trading dashboard with live charts and portfolio view',
+    query:
+      'build a simple crypto trading dashboard with live charts and portfolio view',
     icon: <TrendingUp className="text-orange-400" size={16} />,
   },
   {
     title: 'Personal finance tracker',
-    query: 'build a simple personal finance tracker with budgets, expenses, and charts',
+    query:
+      'build a simple personal finance tracker with budgets, expenses, and charts',
     icon: <DollarSign className="text-green-400" size={16} />,
   },
   {
     title: 'Mental wellness app',
-    query: 'build a simple mental wellness app with mood tracking, meditation, and journal',
+    query:
+      'build a simple mental wellness app with mood tracking, meditation, and journal',
     icon: <Heart className="text-green-400" size={16} />,
   },
 ];
@@ -51,12 +56,14 @@ const webPrompts: PromptExample[] = [
 const mobilePrompts: PromptExample[] = [
   {
     title: 'Run Tracker',
-    query: 'build a simple run tracker app with start/stop, distance, and run history',
+    query:
+      'build a simple run tracker app with start/stop, distance, and run history',
     icon: <Activity className="text-green-400" size={16} />,
   },
   {
     title: 'Calorie Tracker',
-    query: 'build a simple calorie tracker with meals, daily targets, and progress',
+    query:
+      'build a simple calorie tracker with meals, daily targets, and progress',
     icon: <Flame className="text-orange-400" size={16} />,
   },
   {
@@ -66,7 +73,8 @@ const mobilePrompts: PromptExample[] = [
   },
   {
     title: 'Financial management app',
-    query: 'build a simple financial management app with budgets, expenses, and charts',
+    query:
+      'build a simple financial management app with budgets, expenses, and charts',
     icon: <PiggyBank className="text-emerald-400" size={16} />,
   },
   {
@@ -88,14 +96,14 @@ export const Examples = ({
     <div className="w-full max-w-4xl mx-auto px-4">
       <div className="flex gap-2 justify-center py-2 flex-wrap">
         {allPrompts.map((prompt, index) => (
-          <motion.div
+          <m.div
             key={`${prompt.title}-${index}`}
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{
               duration: 0.3,
               delay: index * 0.03,
-              ease: "easeOut"
+              ease: 'easeOut',
             }}
           >
             <button
@@ -106,12 +114,14 @@ export const Examples = ({
                 <div className="flex-shrink-0 opacity-50 group-hover:opacity-100 transition-all duration-300 grayscale group-hover:grayscale-0 scale-90 group-hover:scale-100">
                   {prompt.icon}
                 </div>
-                <span className="whitespace-nowrap uppercase">{prompt.title}</span>
+                <span className="whitespace-nowrap uppercase">
+                  {prompt.title}
+                </span>
               </div>
             </button>
-          </motion.div>
+          </m.div>
         ))}
       </div>
     </div>
   );
-}; 
+};

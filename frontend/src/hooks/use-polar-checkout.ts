@@ -1,4 +1,4 @@
-"use client";
+'use client';
 
 import { useCallback, useState } from 'react';
 import { toast } from 'sonner';
@@ -23,54 +23,53 @@ export function usePolarCheckout(options: UsePolarCheckoutOptions = {}) {
 
   const { onError } = options;
 
-  const openCheckout = useCallback(async (checkoutOptions: CheckoutOpenOptions) => {
-    try {
-      setIsLoading(true);
+  const openCheckout = useCallback(
+    async (checkoutOptions: CheckoutOpenOptions) => {
+      try {
+        setIsLoading(true);
 
-      const {
-        planId,
-        paymentLink,
-        successUrl,
-        cancelUrl
-      } = checkoutOptions;
+        const { planId, paymentLink, successUrl, cancelUrl } = checkoutOptions;
 
-      let finalPaymentLink = paymentLink;
+        let finalPaymentLink = paymentLink;
 
-      // If planId is provided but no paymentLink, call backend to create checkout session
-      if (planId && !paymentLink) {
-        const token = await getToken();
-        if (!token) {
-          throw new Error('Authentication required');
+        // If planId is provided but no paymentLink, call backend to create checkout session
+        if (planId && !paymentLink) {
+          const token = await getToken();
+          if (!token) {
+            throw new Error('Authentication required');
+          }
+
+          const result = await createPolarCheckoutSession(
+            token,
+            planId,
+            successUrl || `${window.location.origin}/dashboard?upgrade=success`,
+            cancelUrl ||
+              `${window.location.origin}/dashboard?upgrade=cancelled`,
+          );
+
+          if (!result.checkout_url) {
+            throw new Error('Failed to create checkout session');
+          }
+
+          finalPaymentLink = result.checkout_url;
         }
 
-        const result = await createPolarCheckoutSession(
-          token,
-          planId,
-          successUrl || `${window.location.origin}/dashboard?upgrade=success`,
-          cancelUrl || `${window.location.origin}/dashboard?upgrade=cancelled`
-        );
-
-        if (!result.checkout_url) {
-          throw new Error('Failed to create checkout session');
+        if (!finalPaymentLink) {
+          throw new Error('Either planId or paymentLink must be provided');
         }
 
-        finalPaymentLink = result.checkout_url;
+        // Direct redirect to Polar hosted checkout
+        window.location.href = finalPaymentLink;
+      } catch (error) {
+        setIsLoading(false);
+        const errorMessage =
+          error instanceof Error ? error.message : 'Failed to open checkout';
+        onError?.(errorMessage);
+        toast.error(errorMessage);
       }
-
-      if (!finalPaymentLink) {
-        throw new Error('Either planId or paymentLink must be provided');
-      }
-
-      // Direct redirect to Polar hosted checkout
-      window.location.href = finalPaymentLink;
-
-    } catch (error) {
-      setIsLoading(false);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to open checkout';
-      onError?.(errorMessage);
-      toast.error(errorMessage);
-    }
-  }, [onError, getToken]);
+    },
+    [onError, getToken],
+  );
 
   return {
     openCheckout,

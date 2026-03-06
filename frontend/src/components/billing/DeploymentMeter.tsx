@@ -10,37 +10,48 @@ interface DeploymentMeterProps {
   showUpgradePrompt?: boolean;
 }
 
-export function DeploymentMeter({ variant: _variant = 'minimal', showUpgradePrompt = true }: DeploymentMeterProps) {
-  const { 
+// Segmented Progress Bar (Blue) - extracted to module level
+function DeploymentSegmentedProgress({
+  value,
+  total = 50,
+}: {
+  value: number;
+  total?: number;
+}) {
+  const filledSegments = Math.round((value / 100) * total);
+  return (
+    <div className="flex gap-[2px] h-4 w-full mt-6 mb-3">
+      {Array.from({ length: total }).map((_, i) => (
+        <div
+          key={i}
+          className={cn(
+            'flex-1 rounded-[1px]',
+            i < filledSegments ? 'bg-blue-500' : 'bg-zinc-800',
+          )}
+        />
+      ))}
+    </div>
+  );
+}
+
+export function DeploymentMeter({
+  variant: _variant = 'minimal',
+  showUpgradePrompt = true,
+}: DeploymentMeterProps) {
+  const {
     deploymentsUsed,
     deploymentsTotal,
     deploymentUsagePercentage,
-    isLoading 
+    isLoading,
   } = useBilling();
 
   if (isLoading) {
-    return <div className="h-48 w-full bg-zinc-900/30 rounded-3xl animate-pulse" />;
+    return (
+      <div className="h-48 w-full bg-zinc-900/30 rounded-3xl animate-pulse" />
+    );
   }
 
   const isAtLimit = deploymentsUsed >= deploymentsTotal;
-
-  // Segmented Progress Bar (Blue)
-  const SegmentedProgress = ({ value, total = 50 }: { value: number, total?: number }) => {
-    const filledSegments = Math.round((value / 100) * total);
-    return (
-      <div className="flex gap-[2px] h-4 w-full mt-6 mb-3">
-        {Array.from({ length: total }).map((_, i) => (
-          <div
-            key={i}
-            className={cn(
-              "flex-1 rounded-[1px]",
-              i < filledSegments ? "bg-blue-500" : "bg-zinc-800"
-            )}
-          />
-        ))}
-      </div>
-    );
-  };
 
   return (
     <Card className="w-full bg-[#111] border-zinc-800 shadow-xl overflow-hidden rounded-2xl">
@@ -52,16 +63,21 @@ export function DeploymentMeter({ variant: _variant = 'minimal', showUpgradeProm
               Deployments
             </div>
             <div className="text-4xl font-mono tracking-tighter text-white">
-              {deploymentsUsed} <span className="text-xl text-zinc-600">/ {deploymentsTotal}</span>
+              {deploymentsUsed}{' '}
+              <span className="text-xl text-zinc-600">
+                / {deploymentsTotal}
+              </span>
             </div>
           </div>
         </div>
 
         <div>
-          <SegmentedProgress value={deploymentUsagePercentage} />
+          <DeploymentSegmentedProgress value={deploymentUsagePercentage} />
           <div className="flex justify-between text-[10px] font-mono text-zinc-500 uppercase tracking-wider">
             <span>{deploymentsUsed} Active</span>
-            <span>{Math.max(0, deploymentsTotal - deploymentsUsed)} Slots Left</span>
+            <span>
+              {Math.max(0, deploymentsTotal - deploymentsUsed)} Slots Left
+            </span>
           </div>
         </div>
 

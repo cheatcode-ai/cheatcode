@@ -1,13 +1,7 @@
-import type { Project, ApiMessageType } from '@/lib/api';
+import type { ApiMessageType } from '@/lib/api';
 
 // Re-export ApiMessageType from the canonical source
 export type { ApiMessageType };
-
-// Define a type for the params to make React.use() work properly
-export type ThreadParams = {
-  threadId: string;
-  projectId: string;
-};
 
 // Unified Message Interface matching the backend/database schema
 export interface UnifiedMessage {
@@ -25,12 +19,12 @@ export interface UnifiedMessage {
 // Helper type for parsed content - structure depends on message.type
 export interface ParsedContent {
   role?: 'user' | 'assistant' | 'tool' | 'system'; // From the JSON string in content
-  content?: any; // Can be string, object, etc. after parsing
-  tool_calls?: any[]; // For native tool calls
+  content?: string | Record<string, unknown>; // Can be string, object, etc. after parsing
+  tool_calls?: Record<string, unknown>[]; // For native tool calls
   tool_call_id?: string; // For tool results
   name?: string; // For tool results
   status_type?: string; // For status messages
-  [key: string]: any; // Allow other properties
+  [key: string]: unknown; // Allow other properties
 }
 
 // Helper type for parsed metadata
@@ -40,9 +34,8 @@ export interface ParsedMetadata {
   tool_index?: number;
   assistant_message_id?: string; // Link tool results/statuses back
   linked_tool_result_message_id?: string; // Link status to tool result
-  parsing_details?: any;
-  [key: string]: any; // Allow other properties
+  parsing_details?: Record<string, unknown>;
+  [key: string]: unknown; // Allow other properties
 }
 
 // Re-export existing types
-export type { Project };

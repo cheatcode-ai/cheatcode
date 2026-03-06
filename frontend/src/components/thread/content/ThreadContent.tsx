@@ -5,7 +5,7 @@ import { ArrowDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Markdown } from '@/components/ui/markdown';
 import { FileAttachmentGrid } from '@/components/thread/file-attachment';
-import { Project } from '@/lib/api';
+import { type Project } from '@/lib/api';
 import {
   extractPrimaryParam,
   getToolIcon,
@@ -23,11 +23,15 @@ import { StreamingContent } from './StreamingContent';
 
 // Import our focused contexts
 import { useThreadState } from '@/app/(home)/projects/[projectId]/thread/_contexts/ThreadStateContext';
-import { useThreadActions } from '@/app/(home)/projects/[projectId]/thread/_contexts/ThreadActionsContext';
+import { useThreadActions } from '@/app/(home)/projects/[projectId]/thread/_contexts/ThreadProviders';
 import { useLayout } from '@/app/(home)/projects/[projectId]/thread/_contexts/LayoutContext';
 
 // Helper function to render attachments
-export function renderAttachments(attachments: string[], sandboxId?: string, project?: Project) {
+function renderAttachments(
+  attachments: string[],
+  sandboxId?: string,
+  project?: Project,
+) {
   if (!attachments || attachments.length === 0) return null;
 
   return (
@@ -43,11 +47,14 @@ export function renderAttachments(attachments: string[], sandboxId?: string, pro
 // Render Markdown content while preserving XML tags that should be displayed as tool calls
 export function renderMarkdownContent(
   content: string,
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void,
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void,
   messageId: string | null,
   sandboxId?: string,
   project?: Project,
-  debugMode?: boolean
+  debugMode?: boolean,
 ) {
   // If in debug mode, just display raw content in a pre tag
   if (debugMode) {
@@ -60,20 +67,35 @@ export function renderMarkdownContent(
 
   // Check if content contains the new Cursor-style format
   if (isNewXmlFormat(content)) {
-    return renderNewXmlFormat(content, handleToolClick, messageId, sandboxId, project);
+    return renderNewXmlFormat(
+      content,
+      handleToolClick,
+      messageId,
+      sandboxId,
+      project,
+    );
   }
 
   // Fall back to old XML format handling
-  return renderOldXmlFormat(content, handleToolClick, messageId, sandboxId, project);
+  return renderOldXmlFormat(
+    content,
+    handleToolClick,
+    messageId,
+    sandboxId,
+    project,
+  );
 }
 
 // Render new XML format (function_calls)
 function renderNewXmlFormat(
   content: string,
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void,
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void,
   messageId: string | null,
   sandboxId?: string,
-  project?: Project
+  project?: Project,
 ) {
   const contentParts: React.ReactNode[] = [];
   let lastIndex = 0;
@@ -87,9 +109,12 @@ function renderNewXmlFormat(
       const textBeforeBlock = content.substring(lastIndex, regexMatch.index);
       if (textBeforeBlock.trim()) {
         contentParts.push(
-          <Markdown key={`md-${lastIndex}`} className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words">
+          <Markdown
+            key={`md-${lastIndex}`}
+            className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words"
+          >
             {textBeforeBlock}
-          </Markdown>
+          </Markdown>,
         );
       }
     }
@@ -102,7 +127,7 @@ function renderNewXmlFormat(
       const toolName = toolCall.functionName.replace(/_/g, '-');
 
       if (toolName === 'ask') {
-        const askText = toolCall.parameters.text || '';
+        const askText = String(toolCall.parameters.text || '');
         const attachments = toolCall.parameters.attachments || [];
         const attachmentArray = Array.isArray(attachments)
           ? attachments
@@ -116,7 +141,7 @@ function renderNewXmlFormat(
               {askText}
             </Markdown>
             {renderAttachments(attachmentArray, sandboxId, project)}
-          </div>
+          </div>,
         );
       } else {
         contentParts.push(
@@ -126,7 +151,7 @@ function renderNewXmlFormat(
             toolCall={toolCall}
             handleToolClick={handleToolClick}
             messageId={messageId}
-          />
+          />,
         );
       }
     });
@@ -139,14 +164,19 @@ function renderNewXmlFormat(
     const remainingText = content.substring(lastIndex);
     if (remainingText.trim()) {
       contentParts.push(
-        <Markdown key={`md-${lastIndex}`} className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words">
+        <Markdown
+          key={`md-${lastIndex}`}
+          className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words"
+        >
           {remainingText}
-        </Markdown>
+        </Markdown>,
       );
     }
   }
 
-  return contentParts.length > 0 ? contentParts : (
+  return contentParts.length > 0 ? (
+    contentParts
+  ) : (
     <Markdown className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words">
       {content}
     </Markdown>
@@ -156,12 +186,16 @@ function renderNewXmlFormat(
 // Render old XML format
 function renderOldXmlFormat(
   content: string,
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void,
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void,
   messageId: string | null,
   sandboxId?: string,
-  project?: Project
+  project?: Project,
 ) {
-  const xmlRegex = /<(?!inform\b)([a-zA-Z\-_]+)(?:\s+[^>]*)?>(?:[\s\S]*?)<\/\1>|<(?!inform\b)([a-zA-Z\-_]+)(?:\s+[^>]*)?\/>/g;
+  const xmlRegex =
+    /<(?!inform\b)([a-zA-Z\-_]+)(?:\s+[^>]*)?>(?:[\s\S]*?)<\/\1>|<(?!inform\b)([a-zA-Z\-_]+)(?:\s+[^>]*)?\/>/g;
   let lastIndex = 0;
   const contentParts: React.ReactNode[] = [];
   let match;
@@ -180,9 +214,12 @@ function renderOldXmlFormat(
     if (match.index > lastIndex) {
       const textBeforeTag = content.substring(lastIndex, match.index);
       contentParts.push(
-        <Markdown key={`md-${lastIndex}`} className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none inline-block mr-1 break-words">
+        <Markdown
+          key={`md-${lastIndex}`}
+          className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none inline-block mr-1 break-words"
+        >
           {textBeforeTag}
-        </Markdown>
+        </Markdown>,
       );
     }
 
@@ -205,7 +242,7 @@ function renderOldXmlFormat(
             {askContent}
           </Markdown>
           {renderAttachments(attachments, sandboxId, project)}
-        </div>
+        </div>,
       );
     } else {
       const IconComponent = getToolIcon(toolName);
@@ -223,12 +260,15 @@ function renderOldXmlFormat(
               {getUserFriendlyToolName(toolName)}
             </span>
             {paramDisplay && (
-              <span className="text-zinc-500 group-hover:text-zinc-400 truncate max-w-[180px] transition-colors bg-zinc-800/50 px-2 py-0.5 rounded-md font-mono text-[11px]" title={paramDisplay}>
+              <span
+                className="text-zinc-500 group-hover:text-zinc-400 truncate max-w-[180px] transition-colors bg-zinc-800/50 px-2 py-0.5 rounded-md font-mono text-[11px]"
+                title={paramDisplay}
+              >
                 {paramDisplay}
               </span>
             )}
           </button>
-        </div>
+        </div>,
       );
     }
     lastIndex = xmlRegex.lastIndex;
@@ -237,9 +277,12 @@ function renderOldXmlFormat(
   // Add text after the last tag
   if (lastIndex < content.length) {
     contentParts.push(
-      <Markdown key={`md-${lastIndex}`} className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words">
+      <Markdown
+        key={`md-${lastIndex}`}
+        className="text-sm prose prose-sm dark:prose-invert chat-markdown max-w-none break-words"
+      >
         {content.substring(lastIndex)}
-      </Markdown>
+      </Markdown>,
     );
   }
 
@@ -249,25 +292,34 @@ function renderOldXmlFormat(
 // Tool call button component
 interface ToolCallButtonProps {
   toolName: string;
-  toolCall: { parameters: Record<string, string> };
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void;
+  toolCall: { parameters: Record<string, unknown> };
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void;
   messageId: string | null;
 }
 
-function ToolCallButton({ toolName, toolCall, handleToolClick, messageId }: ToolCallButtonProps) {
-  const IconComponent = getToolIcon(toolName);
+function ToolCallButton({
+  toolName,
+  toolCall,
+  handleToolClick,
+  messageId,
+}: ToolCallButtonProps) {
+  const IconComponent = useMemo(() => getToolIcon(toolName), [toolName]);
 
+  const params = toolCall.parameters;
   let paramDisplay = '';
-  if (toolCall.parameters.file_path) {
-    paramDisplay = toolCall.parameters.file_path;
-  } else if (toolCall.parameters.target_file) {
-    paramDisplay = toolCall.parameters.target_file;
-  } else if (toolCall.parameters.command) {
-    paramDisplay = toolCall.parameters.command;
-  } else if (toolCall.parameters.query) {
-    paramDisplay = toolCall.parameters.query;
-  } else if (toolCall.parameters.url) {
-    paramDisplay = toolCall.parameters.url;
+  if (params.file_path) {
+    paramDisplay = String(params.file_path);
+  } else if (params.target_file) {
+    paramDisplay = String(params.target_file);
+  } else if (params.command) {
+    paramDisplay = String(params.command);
+  } else if (params.query) {
+    paramDisplay = String(params.query);
+  } else if (params.url) {
+    paramDisplay = String(params.url);
   }
 
   return (
@@ -277,12 +329,16 @@ function ToolCallButton({ toolName, toolCall, handleToolClick, messageId }: Tool
         className="inline-flex flex-nowrap items-center gap-2.5 py-1 px-3 text-[13px] rounded-full transition-all cursor-pointer bg-transparent hover:bg-zinc-800/50 group font-sans tracking-wide text-zinc-300"
         disabled={!handleToolClick}
       >
+        {/* eslint-disable-next-line react-hooks/static-components */}
         <IconComponent className="h-3.5 w-3.5 flex-shrink-0 text-zinc-400 group-hover:text-zinc-300 transition-colors" />
         <span className="font-medium whitespace-nowrap flex-shrink-0">
           {getUserFriendlyToolName(toolName)}
         </span>
         {paramDisplay && (
-          <span className="text-zinc-500 group-hover:text-zinc-400 truncate max-w-[180px] transition-colors bg-zinc-800/50 px-2 py-0.5 rounded-md font-mono text-[11px]" title={paramDisplay}>
+          <span
+            className="text-zinc-500 group-hover:text-zinc-400 truncate max-w-[180px] transition-colors bg-zinc-800/50 px-2 py-0.5 rounded-md font-mono text-[11px]"
+            title={paramDisplay}
+          >
             {paramDisplay}
           </span>
         )}
@@ -334,7 +390,8 @@ export const ThreadContent: React.FC = () => {
 
   const handleScroll = useCallback(() => {
     if (!messagesContainerRef.current) return;
-    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    const { scrollTop, scrollHeight, clientHeight } =
+      messagesContainerRef.current;
     const isScrolledUp = scrollHeight - scrollTop - clientHeight > 100;
     setShowScrollButton(isScrolledUp);
   }, []);
@@ -343,9 +400,12 @@ export const ThreadContent: React.FC = () => {
     messagesEndRef.current?.scrollIntoView({ behavior });
   }, []);
 
-  const handleToolClick = useCallback((_assistantMessageId: string | null, _toolName: string) => {
-    // Tool click handler - can be extended to show tool details
-  }, []);
+  const handleToolClick = useCallback(
+    (_assistantMessageId: string | null, _toolName: string) => {
+      // Tool click handler - can be extended to show tool details
+    },
+    [],
+  );
 
   // Memoize streaming content component
   const streamingContentElement = useMemo(() => {
@@ -361,9 +421,15 @@ export const ThreadContent: React.FC = () => {
     );
   }, [streamingTextContent, streamHookStatus, debugMode]);
 
-  const containerClassName = 'flex-1 overflow-y-auto scrollbar-hide px-6 py-6 pb-40 bg-thread-panel font-mono';
-  const isEmpty = messages.length === 0 && !streamingTextContent && !streamingToolCall && agentState.status === 'idle';
-  const showLoader = (agentState.status === 'running' || agentState.status === 'connecting') &&
+  const containerClassName =
+    'flex-1 overflow-y-auto scrollbar-hide px-6 py-6 pb-40 bg-thread-panel font-mono';
+  const isEmpty =
+    messages.length === 0 &&
+    !streamingTextContent &&
+    !streamingToolCall &&
+    agentState.status === 'idle';
+  const showLoader =
+    (agentState.status === 'running' || agentState.status === 'connecting') &&
     !streamingTextContent &&
     (messages.length === 0 || messages[messages.length - 1].type === 'user');
 
@@ -389,7 +455,9 @@ export const ThreadContent: React.FC = () => {
                   sandboxId={sandboxId ?? undefined}
                   project={project ?? undefined}
                   debugMode={debugMode}
-                  latestMessageRef={latestMessageRef as React.RefObject<HTMLDivElement>}
+                  latestMessageRef={
+                    latestMessageRef as React.RefObject<HTMLDivElement>
+                  }
                   streamingContent={streamingContentElement}
                 />
               ))}
@@ -421,5 +489,3 @@ export const ThreadContent: React.FC = () => {
     </>
   );
 };
-
-export default ThreadContent;

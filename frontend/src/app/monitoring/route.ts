@@ -35,7 +35,7 @@ export const POST = async (req: Request) => {
     });
 
     return response;
-  } catch (e) {
+  } catch {
     return Response.json(
       { error: 'error tunneling to sentry' },
       { status: 500 },

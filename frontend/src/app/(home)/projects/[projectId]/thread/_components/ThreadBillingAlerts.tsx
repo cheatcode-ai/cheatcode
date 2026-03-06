@@ -2,11 +2,8 @@ import { BillingErrorAlert } from '@/components/billing/usage-limit-alert';
 import { useThreadBilling } from '../_contexts/BillingContext';
 
 export function ThreadBillingAlerts() {
-  const {
-    showBillingAlert,
-    billingData,
-    onDismissBilling,
-  } = useThreadBilling();
+  const { showBillingAlert, billingData, onDismissBilling } =
+    useThreadBilling();
 
   return (
     <BillingErrorAlert

@@ -1,5 +1,5 @@
-"""
-Composio integration module for Cheatcode.
+"""Composio integration module for Cheatcode.
+
 Provides third-party app integrations via Composio's REST API.
 """
 

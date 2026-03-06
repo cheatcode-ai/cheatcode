@@ -27,9 +27,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Button } from '@/components/ui/button';
 import { ExternalLink } from 'lucide-react';
 import { useUsageLogs } from '@/hooks/react-query/subscriptions/use-billing';
-import { TokenUsageEntry } from '@/lib/api';
-
-
+import { type TokenUsageEntry } from '@/lib/api';
 
 interface DailyUsage {
   date: string;
@@ -51,8 +49,7 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
   const { data: usageData, isLoading, error } = useUsageLogs(30);
 
   // Extract logs from usage data
-  const logs = (usageData as any)?.usage_entries || [];
-
+  const logs = usageData?.usage_entries || [];
 
   const formatCost = (cost: number | string) => {
     if (typeof cost === 'string' || cost === 0) {
@@ -113,8 +110,6 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
     );
   };
 
-
-
   if (isLoading && !usageData) {
     return (
       <Card>
@@ -151,7 +146,10 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
   }
 
   // Handle local development mode message
-  if ((usageData as any)?.message) {
+  const devMessage = (
+    usageData as unknown as Record<string, unknown> | undefined
+  )?.message;
+  if (devMessage) {
     return (
       <Card>
         <CardHeader>
@@ -160,7 +158,7 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
         <CardContent>
           <div className="p-4 bg-muted/30 border border-border rounded-lg text-center">
             <p className="text-sm text-muted-foreground">
-              {(usageData as any).message}
+              {String(devMessage)}
             </p>
           </div>
         </CardContent>
@@ -177,7 +175,7 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
         <CardHeader>
           <CardTitle>Daily Usage Logs</CardTitle>
           <CardDescription>
-            <div className='flex justify-between items-center'>
+            <div className="flex justify-between items-center">
               Your token usage organized by day, sorted by most recent.
             </div>
           </CardDescription>
@@ -244,8 +242,7 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
                                   </Badge>
                                 </TableCell>
                                 <TableCell className="text-right font-mono font-medium text-sm">
-                                  {log.prompt_tokens.toLocaleString()}{' '}
-                                  -&gt;{' '}
+                                  {log.prompt_tokens.toLocaleString()} -&gt;{' '}
                                   {log.completion_tokens.toLocaleString()}
                                 </TableCell>
                                 <TableCell className="text-right font-mono font-medium text-sm">
@@ -256,14 +253,19 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
                                     variant="ghost"
                                     size="sm"
                                     onClick={() =>
-                                      handleThreadClick(log.thread_id || '', log.project_id || '')
+                                      handleThreadClick(
+                                        log.thread_id || '',
+                                        log.project_id || '',
+                                      )
                                     }
                                     disabled={!log.thread_id || !log.project_id}
                                     className="h-8 w-8 p-0"
                                     title={
-                                      !log.thread_id ? "Thread ID not available" : 
-                                      !log.project_id ? "Project ID not available" : 
-                                      "Open thread in new tab"
+                                      !log.thread_id
+                                        ? 'Thread ID not available'
+                                        : !log.project_id
+                                          ? 'Project ID not available'
+                                          : 'Open thread in new tab'
                                     }
                                   >
                                     <ExternalLink className="h-4 w-4" />
@@ -278,8 +280,6 @@ export default function UsageLogs({ accountId: _accountId }: Props) {
                   </AccordionItem>
                 ))}
               </Accordion>
-
-
             </>
           )}
         </CardContent>

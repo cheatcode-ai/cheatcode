@@ -1,6 +1,5 @@
 'use client';
 
-import { useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 
 import {
@@ -34,12 +33,15 @@ export function DeleteConfirmationDialog({
   isDeleting,
   deleteType = 'conversation',
 }: DeleteConfirmationDialogProps) {
-  // Reset pointer events when dialog opens
-  useEffect(() => {
-    if (isOpen) {
+  const handleOpenChange = (open: boolean) => {
+    if (open) {
+      // Reset pointer events when dialog opens (workaround for Radix UI stale pointer-events)
       document.body.style.pointerEvents = 'auto';
     }
-  }, [isOpen]);
+    if (!open) {
+      onClose();
+    }
+  };
 
   const getTitle = () => {
     switch (deleteType) {
@@ -85,13 +87,11 @@ export function DeleteConfirmationDialog({
   };
 
   return (
-    <AlertDialog open={isOpen} onOpenChange={onClose}>
+    <AlertDialog open={isOpen} onOpenChange={handleOpenChange}>
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogTitle>{getTitle()}</AlertDialogTitle>
-          <AlertDialogDescription>
-            {getDescription()}
-          </AlertDialogDescription>
+          <AlertDialogDescription>{getDescription()}</AlertDialogDescription>
         </AlertDialogHeader>
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>

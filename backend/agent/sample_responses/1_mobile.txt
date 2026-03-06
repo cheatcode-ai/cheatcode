@@ -1,0 +1,77 @@
+I'll build a joke generator app for you. Let me find the right mobile components first.
+
+<function_calls>
+<invoke name="search_components">
+<parameter name="query">card component with button and text content</parameter>
+<parameter name="match_count">3</parameter>
+<parameter name="include_full_code">true</parameter>
+</invoke>
+</function_calls>
+
+I found some great components. Now I'll build the screen.
+
+<function_calls>
+<invoke name="edit_file">
+<parameter name="target_file">app/index.tsx</parameter>
+<parameter name="instructions">I am replacing the entire screen content with a joke generator app that has a header, joke card with refresh button, and category buttons using React Native components and NativeWind styling.</parameter>
+<parameter name="code_edit">import React, { useState } from 'react'
+import { View, Text, ScrollView, Pressable } from 'react-native'
+import { Laugh, Sparkles, Theater, RefreshCw } from 'lucide-react-native'
+
+const jokes = [
+  "Why don't scientists trust atoms? Because they make up everything!",
+  "I told my wife she was drawing her eyebrows too high. She looked surprised.",
+  "Why do programmers prefer dark mode? Because light attracts bugs!"
+]
+
+const categories = [
+  { icon: Laugh, label: "Dad Jokes" },
+  { icon: Sparkles, label: "Silly" },
+  { icon: Theater, label: "Witty" },
+]
+
+export default function HomeScreen() {
+  const [joke, setJoke] = useState(jokes[0])
+  const newJoke = () => setJoke(jokes[Math.floor(Math.random() * jokes.length)])
+
+  return (
+    <ScrollView className="flex-1 bg-white dark:bg-gray-900">
+      <View className="px-6 pt-16 pb-8">
+        <Text className="text-4xl font-bold text-center text-gray-900 dark:text-white">Joke Generator</Text>
+        <Text className="text-lg text-center text-gray-500 dark:text-gray-400 mt-2">Tap to get a random joke!</Text>
+      </View>
+
+      <View className="px-6">
+        <View className="bg-yellow-50 dark:bg-yellow-900/20 border border-yellow-200 dark:border-yellow-800 p-6 rounded-2xl">
+          <Text className="text-xl font-bold text-center text-gray-900 dark:text-white mb-4">Random Joke</Text>
+          <Text className="text-base text-center text-gray-700 dark:text-gray-300 mb-6 leading-6">{joke}</Text>
+          <Pressable onPress={newJoke} className="flex-row items-center justify-center gap-2 bg-purple-600 py-3 rounded-xl">
+            <RefreshCw size={18} color="white" />
+            <Text className="text-white font-semibold text-base">New Joke</Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View className="px-6 mt-8">
+        <Text className="text-xl font-bold text-gray-900 dark:text-white mb-4">Categories</Text>
+        <View className="flex-row gap-3">
+          {categories.map((cat) => (
+            <Pressable key={cat.label} className="flex-1 items-center bg-gray-100 dark:bg-gray-800 p-4 rounded-xl">
+              <cat.icon size={24} className="text-purple-600" />
+              <Text className="text-sm font-medium text-gray-700 dark:text-gray-300 mt-2">{cat.label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+    </ScrollView>
+  )
+}
+</parameter>
+</invoke>
+</function_calls>
+
+<function_calls>
+<invoke name="complete">
+<parameter name="result">success</parameter>
+</invoke>
+</function_calls>

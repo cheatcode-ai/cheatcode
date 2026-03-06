@@ -1,6 +1,6 @@
-import { createMutationHook, createQueryHook } from "@/hooks/use-query";
-import { threadKeys } from "./keys";
-import { getProject, getPublicProjects, Project, updateProject } from "./utils";
+import { createMutationHook, createQueryHook } from '@/hooks/use-query';
+import { threadKeys } from './keys';
+import { getProject, type Project, updateProject } from './utils';
 import { useAuth } from '@clerk/nextjs';
 
 export const useProjectQuery = (projectId: string) => {
@@ -22,13 +22,13 @@ export const useProjectQuery = (projectId: string) => {
       gcTime: 60 * 60 * 1000, // 1 hour cache
       refetchOnWindowFocus: false,
       refetchOnMount: false,
-    }
+    },
   )();
 };
 
 export const useUpdateProjectMutation = () => {
   const { getToken } = useAuth();
-  
+
   return createMutationHook(
     async ({
       projectId,
@@ -39,21 +39,6 @@ export const useUpdateProjectMutation = () => {
     }) => {
       const token = await getToken();
       return updateProject(projectId, data, token || undefined);
-    }
-  )();
-};
-
-export const usePublicProjectsQuery = () => {
-  const { getToken } = useAuth();
-  
-  return createQueryHook(
-    threadKeys.publicProjects(),
-    async () => {
-      const token = await getToken();
-      return getPublicProjects(token || undefined);
     },
-    {
-      retry: 1,
-    }
   )();
 };

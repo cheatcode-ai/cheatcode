@@ -3,11 +3,11 @@
 // Custom error for billing issues
 export class BillingError extends Error {
   status: number;
-  detail: { message: string; [key: string]: any };
+  detail: { message: string; [key: string]: unknown };
 
   constructor(
     status: number,
-    detail: { message: string; [key: string]: any },
+    detail: { message: string; [key: string]: unknown },
     message?: string,
   ) {
     super(message || detail.message || 'Billing error occurred');
@@ -24,11 +24,11 @@ export class BillingError extends Error {
 // Custom error for project initiation failures
 export class ProjectInitiationError extends Error {
   status: number;
-  detail: { message: string; errorType: string; [key: string]: any };
+  detail: { message: string; errorType: string; [key: string]: unknown };
 
   constructor(
     status: number,
-    detail: { message: string; errorType: string; [key: string]: any },
+    detail: { message: string; errorType: string; [key: string]: unknown },
     message?: string,
   ) {
     super(message || detail.message || 'Project initiation failed');
@@ -45,11 +45,11 @@ export class ProjectInitiationError extends Error {
 // Custom error for sandbox creation failures
 export class SandboxCreationError extends Error {
   status: number;
-  detail: { message: string; sandboxType?: string; [key: string]: any };
+  detail: { message: string; sandboxType?: string; [key: string]: unknown };
 
   constructor(
     status: number,
-    detail: { message: string; sandboxType?: string; [key: string]: any },
+    detail: { message: string; sandboxType?: string; [key: string]: unknown },
     message?: string,
   ) {
     super(message || detail.message || 'Sandbox creation failed');
@@ -66,14 +66,18 @@ export class SandboxCreationError extends Error {
 // Custom error for authentication issues during initiation
 export class InitiationAuthError extends Error {
   status: number;
-  detail: { message: string; [key: string]: any };
+  detail: { message: string; [key: string]: unknown };
 
   constructor(
     status: number,
-    detail: { message: string; [key: string]: any },
+    detail: { message: string; [key: string]: unknown },
     message?: string,
   ) {
-    super(message || detail.message || 'Authentication failed during project initiation');
+    super(
+      message ||
+        detail.message ||
+        'Authentication failed during project initiation',
+    );
     this.name = 'InitiationAuthError';
     this.status = status;
     this.detail = detail;
@@ -86,7 +90,7 @@ export class InitiationAuthError extends Error {
 
 // Custom error for insufficient credits
 export class InsufficientCreditsError extends Error {
-  constructor(public details: any) {
+  constructor(public details: { message?: string }) {
     super(details.message || 'Insufficient credits');
     this.name = 'InsufficientCreditsError';
   }

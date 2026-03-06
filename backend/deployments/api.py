@@ -1,49 +1,48 @@
-from fastapi import APIRouter, HTTPException, Depends
-from typing import Optional, Dict, Any, Tuple
 import re
+from typing import Any
 
-from utils.auth_utils import get_current_user_id_from_jwt, get_account_id_or_raise
-from services.supabase import DBConnection
-from utils.logger import logger
-from utils.config import config
-from utils.constants import get_plan_deployment_limit
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from sandbox.sandbox import get_or_start_sandbox
-from services.billing import get_user_subscription
 from services import redis as redis_service
+from services.billing import get_user_subscription
+from services.supabase import DBConnection
 from services.vercel_deploy import VercelDeploymentService, collect_files_for_vercel
+from utils.auth_utils import get_account_id_or_raise, get_current_user_id_from_jwt
+from utils.config import config
+from utils.constants import get_plan_deployment_limit
+from utils.logger import logger
+from utils.rate_limit import limiter
 
 # Redis key prefix for deployment progress tracking
 DEPLOYMENT_PROGRESS_KEY_PREFIX = "deployment_progress:"
 DEPLOYMENT_PROGRESS_TTL = 600  # 10 minutes TTL for progress keys
 
 
-async def set_deployment_progress(project_id: str, state: str, message: str = None):
+async def set_deployment_progress(project_id: str, state: str, message: str | None = None):
     """Set deployment progress in Redis for real-time status updates.
 
     States: 'preparing', 'pushing', 'building', 'deploying', 'deployed', 'failed'
     """
     try:
         import json
+
         key = f"{DEPLOYMENT_PROGRESS_KEY_PREFIX}{project_id}"
-        data = {
-            "state": state,
-            "message": message or f"Deployment {state}",
-            "timestamp": __import__('time').time()
-        }
+        data = {"state": state, "message": message or f"Deployment {state}", "timestamp": __import__("time").time()}
         await redis_service.set_value(key, json.dumps(data), ttl=DEPLOYMENT_PROGRESS_TTL)
         logger.debug(f"Set deployment progress for {project_id}: {state}")
     except Exception as e:
         logger.warning(f"Failed to set deployment progress (non-critical): {e}")
 
 
-async def get_deployment_progress(project_id: str) -> Optional[Dict[str, Any]]:
+async def get_deployment_progress(project_id: str) -> dict[str, Any] | None:
     """Get deployment progress from Redis.
 
     Returns None if no progress is tracked, otherwise returns the progress state.
     """
     try:
         import json
+
         key = f"{DEPLOYMENT_PROGRESS_KEY_PREFIX}{project_id}"
         data = await redis_service.get_value(key)
         if data:
@@ -72,103 +71,106 @@ async def _count_deployed_projects_for_account(client, account_id: str) -> int:
     """Count projects with active Vercel deployments."""
     try:
         # Use a more efficient query with database-side filtering
-        res = await client.rpc('count_deployed_projects_for_account', {'p_account_id': account_id}).execute()
+        res = await client.rpc("count_deployed_projects_for_account", {"p_account_id": account_id}).execute()
         return res.data or 0
     except Exception:
         # Fallback: count projects with Vercel deployments
-        res = await client.table('projects').select('sandbox').eq('user_id', account_id).execute()
+        res = await client.table("projects").select("sandbox").eq("user_id", account_id).execute()
         count = 0
         for p in res.data or []:
-            sandbox_info = p.get('sandbox') or {}
+            sandbox_info = p.get("sandbox") or {}
             if isinstance(sandbox_info, dict):
-                vercel_meta = sandbox_info.get('vercel') or {}
-                if isinstance(vercel_meta, dict) and vercel_meta.get('last_deployment_id'):
+                vercel_meta = sandbox_info.get("vercel") or {}
+                if isinstance(vercel_meta, dict) and vercel_meta.get("last_deployment_id"):
                     count += 1
         return count
 
 
 # FastAPI Dependency Functions for shared logic
 
+
 async def get_validated_project(
-    project_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-) -> Dict[str, Any]:
+    project_id: str, user_id: str = Depends(get_current_user_id_from_jwt)
+) -> dict[str, Any]:
     """FastAPI dependency to fetch and validate project ownership."""
     client = await db.client
     account_id = await get_account_id_or_raise(client, user_id)
-    
-    result = await client.table('projects').select(
-        'project_id, name, user_id, sandbox, app_type'
-    ).eq('project_id', project_id).eq('user_id', account_id).single().execute()
-    
+
+    result = (
+        await client.table("projects")
+        .select("project_id, name, user_id, sandbox, app_type")
+        .eq("project_id", project_id)
+        .eq("user_id", account_id)
+        .single()
+        .execute()
+    )
+
     if not result.data:
         raise HTTPException(status_code=404, detail="Project not found or access denied")
-    
+
     return result.data
 
+
 async def get_validated_project_with_quota_check(
-    project_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-) -> Tuple[Dict[str, Any], str, str]:
+    project_id: str, user_id: str = Depends(get_current_user_id_from_jwt)
+) -> tuple[dict[str, Any], str, str]:
     """FastAPI dependency to fetch project and perform quota checks."""
     project = await get_validated_project(project_id, user_id)
     client = await db.client
-    account_id = project['user_id']
-    
+    account_id = project["user_id"]
+
     # Check quota if this is the first deployment for this project
     if not await _project_already_deployed(project):
         subscription = await get_user_subscription(user_id)
-        plan_id = (subscription or {}).get('plan') or 'free'
+        plan_id = (subscription or {}).get("plan") or "free"
         max_deployed = get_plan_deployment_limit(plan_id)
-        
+
         current_deployed = await _count_deployed_projects_for_account(client, account_id)
         if current_deployed >= max_deployed:
             raise HTTPException(
-                status_code=403, 
-                detail=f"Deployment limit reached. Your {plan_id} plan allows {max_deployed} deployed projects."
+                status_code=403,
+                detail=f"Deployment limit reached. Your {plan_id} plan allows {max_deployed} deployed projects.",
             )
-    
+
     return project, account_id, user_id
 
-async def _project_already_deployed(project: Dict[str, Any]) -> bool:
+
+async def _project_already_deployed(project: dict[str, Any]) -> bool:
     """Check if project has an active Vercel deployment."""
-    sandbox_info = project.get('sandbox') or {}
+    sandbox_info = project.get("sandbox") or {}
     if isinstance(sandbox_info, dict):
-        vercel_meta = sandbox_info.get('vercel') or {}
-        if isinstance(vercel_meta, dict) and vercel_meta.get('last_deployment_id'):
+        vercel_meta = sandbox_info.get("vercel") or {}
+        if isinstance(vercel_meta, dict) and vercel_meta.get("last_deployment_id"):
             return True
     return False
 
 
 def _sanitize_vercel_name(project_name: str, project_id: str) -> str:
     """Sanitize project name for Vercel (lowercase, alphanumeric, hyphens only)."""
-    vercel_name = re.sub(r'[^a-z0-9-]', '-', project_name.lower())
-    vercel_name = re.sub(r'-+', '-', vercel_name).strip('-')[:100]
+    vercel_name = re.sub(r"[^a-z0-9-]", "-", project_name.lower())
+    vercel_name = re.sub(r"-+", "-", vercel_name).strip("-")[:100]
     return vercel_name or f"project-{project_id[:8]}"
 
 
 async def _execute_vercel_deployment(
-    project: Dict[str, Any],
-    account_id: str,
-    is_redeploy: bool = False
-) -> Dict[str, Any]:
-    """
-    Core deployment logic shared by deploy and redeploy endpoints.
+    project: dict[str, Any], account_id: str, is_redeploy: bool = False
+) -> dict[str, Any]:
+    """Core deployment logic shared by deploy and redeploy endpoints.
 
     Handles: file collection, Vercel API calls, database updates, progress tracking.
     """
-    project_id = project['project_id']
-    project_name = project.get('name', f"project-{project_id[:8]}")
+    project_id = project["project_id"]
+    project_name = project.get("name", f"project-{project_id[:8]}")
     client = await db.client
 
-    sandbox_info = project.get('sandbox') or {}
-    sandbox_id = sandbox_info.get('id') if isinstance(sandbox_info, dict) else None
+    sandbox_info = project.get("sandbox") or {}
+    sandbox_id = sandbox_info.get("id") if isinstance(sandbox_info, dict) else None
     if not sandbox_id:
         raise HTTPException(status_code=404, detail="Project sandbox not found")
 
     # Get existing Vercel project name or create one
-    vercel_info = sandbox_info.get('vercel') or {}
-    vercel_name = vercel_info.get('project_name') if is_redeploy else None
+    vercel_info = sandbox_info.get("vercel") or {}
+    vercel_name = vercel_info.get("project_name") if is_redeploy else None
     if not vercel_name:
         vercel_name = _sanitize_vercel_name(project_name, project_id)
 
@@ -186,8 +188,8 @@ async def _execute_vercel_deployment(
         await set_deployment_progress(project_id, "pushing", "Collecting files...")
 
         sandbox = await get_or_start_sandbox(sandbox_id)
-        app_type = project.get('app_type', 'web')
-        workdir = '/workspace/cheatcode-mobile' if app_type == 'mobile' else '/workspace/cheatcode-app'
+        app_type = project.get("app_type", "web")
+        workdir = "/workspace/cheatcode-mobile" if app_type == "mobile" else "/workspace/cheatcode-app"
 
         files = await collect_files_for_vercel(sandbox, workdir)
         logger.info(f"Collected {len(files)} files for Vercel {action}")
@@ -196,16 +198,12 @@ async def _execute_vercel_deployment(
             raise HTTPException(status_code=400, detail="No files found in workspace to deploy")
 
         # Phase 3: Deploy to Vercel (returns immediately, build happens async)
-        await set_deployment_progress(project_id, "building", f"Deploying to Vercel...")
+        await set_deployment_progress(project_id, "building", "Deploying to Vercel...")
 
-        deployment = await vercel.deploy_files(
-            project_name=vercel_name,
-            files=files,
-            target="production"
-        )
+        deployment = await vercel.deploy_files(project_name=vercel_name, files=files, target="production")
 
-        deployment_id = deployment.get('id')
-        deployment_url = deployment.get('url')
+        deployment_id = deployment.get("id")
+        deployment_url = deployment.get("url")
 
         if not deployment_id:
             raise Exception("Vercel API did not return a deployment ID")
@@ -214,23 +212,27 @@ async def _execute_vercel_deployment(
 
         # Save deployment info to database
         updated_sandbox = dict(sandbox_info)
-        updated_sandbox['vercel'] = {
-            'project_id': vercel_project.get('id'),
-            'project_name': vercel_name,
-            'last_deployment_id': deployment_id,
-            'url': deployment_url,
-            'domains': [deployment_url],
+        updated_sandbox["vercel"] = {
+            "project_id": vercel_project.get("id"),
+            "project_name": vercel_name,
+            "last_deployment_id": deployment_id,
+            "url": deployment_url,
+            "domains": [deployment_url],
         }
 
-        await client.table('projects').update({
-            'sandbox': updated_sandbox
-        }).eq('project_id', project_id).eq('user_id', account_id).execute()
+        await (
+            client.table("projects")
+            .update({"sandbox": updated_sandbox})
+            .eq("project_id", project_id)
+            .eq("user_id", account_id)
+            .execute()
+        )
 
         return {
-            'deploymentId': deployment_id,
-            'domains': [deployment_url],
-            'url': f"https://{deployment_url}",
-            'status': 'ok'
+            "deploymentId": deployment_id,
+            "domains": [deployment_url],
+            "url": f"https://{deployment_url}",
+            "status": "ok",
         }
 
     except HTTPException:
@@ -239,29 +241,52 @@ async def _execute_vercel_deployment(
     except Exception as e:
         logger.error(f"Vercel {action} failed: {e}")
         await set_deployment_progress(project_id, "failed", str(e)[:100])
-        raise HTTPException(status_code=500, detail=f"{action.capitalize()} failed: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"{action.capitalize()} failed: {e!s}") from e
 
 
 @router.post("/project/{project_id}/deploy/git")
+@limiter.limit("5/minute")
 async def deploy_to_vercel(
-    project_data: Tuple[Dict[str, Any], str, str] = Depends(get_validated_project_with_quota_check),
+    request: Request,  # noqa: ARG001 — required by slowapi limiter
+    project_data: tuple[dict[str, Any], str, str] = Depends(get_validated_project_with_quota_check),
 ):
-    """Deploy project to Vercel using inline file upload (fast, non-blocking).
+    """Deploy project to Vercel via durable Inngest pipeline.
 
-    - Files are collected from sandbox and sent directly to Vercel
-    - Vercel API returns immediately, build happens async on Vercel's infrastructure
-    - User wait time: 5-30 seconds
+    Emits an Inngest event and returns immediately. The Inngest function
+    handles file collection, Vercel API calls, and DB updates durably.
     """
     if not config.VERCEL_BEARER_TOKEN:
         raise HTTPException(status_code=500, detail="Vercel API not configured")
 
-    project, account_id, _ = project_data
-    return await _execute_vercel_deployment(project, account_id, is_redeploy=False)
+    project, account_id, user_id = project_data  # noqa: F841 — account_id kept for signature compat
+
+    import inngest as inngest_lib
+
+    from services.inngest_client import inngest_client
+
+    sandbox_info = project.get("sandbox") or {}
+    sandbox_id = sandbox_info.get("id") if isinstance(sandbox_info, dict) else None
+    if not sandbox_id:
+        raise HTTPException(status_code=404, detail="Project sandbox not found")
+
+    await inngest_client.send(
+        inngest_lib.Event(
+            name="deployment/requested",
+            data={
+                "project_id": project["project_id"],
+                "user_id": user_id,
+                "sandbox_id": sandbox_id,
+            },
+        )
+    )
+    return {"status": "deploying", "message": "Deployment started via background pipeline"}
 
 
 @router.post("/project/{project_id}/deploy/git/update")
+@limiter.limit("5/minute")
 async def update_deployment(
-    project: Dict[str, Any] = Depends(get_validated_project),
+    request: Request,
+    project: dict[str, Any] = Depends(get_validated_project),
 ):
     """Redeploy project to Vercel with latest changes.
 
@@ -271,36 +296,37 @@ async def update_deployment(
     if not config.VERCEL_BEARER_TOKEN:
         raise HTTPException(status_code=500, detail="Vercel API not configured")
 
-    return await _execute_vercel_deployment(project, project['user_id'], is_redeploy=True)
+    return await _execute_vercel_deployment(project, project["user_id"], is_redeploy=True)
 
 
 @router.get("/project/{project_id}/deployment/status")
 async def get_deployment_status(
-    project: Dict[str, Any] = Depends(get_validated_project),
+    project: dict[str, Any] = Depends(get_validated_project),
 ):
     """Get the deployment status for a project (Vercel).
-    Returns: { has_deployment: bool, domains: string[], url: string?, last_deployment_id: string? }
+
+    Returns: { has_deployment: bool, domains: string[], url: string?, last_deployment_id: string? }.
     """
-    sandbox_info = project.get('sandbox') or {}
-    vercel = (sandbox_info.get('vercel') or {}) if isinstance(sandbox_info, dict) else {}
+    sandbox_info = project.get("sandbox") or {}
+    vercel = (sandbox_info.get("vercel") or {}) if isinstance(sandbox_info, dict) else {}
 
     # Check if project has Vercel deployment
-    has_deployment = bool(vercel.get('last_deployment_id'))
+    has_deployment = bool(vercel.get("last_deployment_id"))
 
     return {
         "has_deployment": has_deployment,
-        "domains": vercel.get('domains', []),
-        "url": vercel.get('url'),
-        "last_deployment_id": vercel.get('last_deployment_id'),
-        "project_name": vercel.get('project_name'),
+        "domains": vercel.get("domains", []),
+        "url": vercel.get("url"),
+        "last_deployment_id": vercel.get("last_deployment_id"),
+        "project_name": vercel.get("project_name"),
         # Include app_type so the frontend can hide deploy UI for mobile projects
-        "app_type": project.get('app_type', 'web'),
+        "app_type": project.get("app_type", "web"),
     }
 
 
 @router.get("/project/{project_id}/deployment/live-status")
 async def get_deployment_live_status(
-    project: Dict[str, Any] = Depends(get_validated_project),
+    project: dict[str, Any] = Depends(get_validated_project),
 ):
     """Get the real-time deployment status from Vercel API.
 
@@ -314,16 +340,16 @@ async def get_deployment_live_status(
     - ERROR: Build/deploy failed
     - CANCELED: Deployment was canceled
     """
-    project_id = project['project_id']
-    sandbox_info = project.get('sandbox') or {}
-    vercel = (sandbox_info.get('vercel') or {}) if isinstance(sandbox_info, dict) else {}
-    deployment_id = vercel.get('last_deployment_id')
+    project_id = project["project_id"]
+    sandbox_info = project.get("sandbox") or {}
+    vercel = (sandbox_info.get("vercel") or {}) if isinstance(sandbox_info, dict) else {}
+    deployment_id = vercel.get("last_deployment_id")
 
     # First, check if there's an in-progress deployment tracked in Redis
     progress = await get_deployment_progress(project_id)
     if progress:
-        state = progress.get('state', 'preparing')
-        message = progress.get('message', f'Deployment {state}')
+        state = progress.get("state", "preparing")
+        message = progress.get("message", f"Deployment {state}")
         return {
             "state": state,
             "message": message,
@@ -350,24 +376,24 @@ async def get_deployment_live_status(
         vercel_service = VercelDeploymentService()
         data = await vercel_service.get_deployment_status(deployment_id)
 
-        ready_state = data.get('readyState', 'UNKNOWN')
-        url = data.get('url')
-        created_at = data.get('createdAt')
-        ready_at = data.get('ready')
+        ready_state = data.get("readyState", "UNKNOWN")
+        url = data.get("url")
+        created_at = data.get("createdAt")
+        ready_at = data.get("ready")
 
         # Map Vercel readyState to user-friendly states
         state_map = {
-            'QUEUED': 'building',
-            'BUILDING': 'building',
-            'INITIALIZING': 'building',
-            'READY': 'deployed',
-            'ERROR': 'failed',
-            'CANCELED': 'failed',
+            "QUEUED": "building",
+            "BUILDING": "building",
+            "INITIALIZING": "building",
+            "READY": "deployed",
+            "ERROR": "failed",
+            "CANCELED": "failed",
         }
-        friendly_state = state_map.get(ready_state, 'unknown')
+        friendly_state = state_map.get(ready_state, "unknown")
 
         # Clear deployment progress from Redis when deployment is complete
-        if friendly_state in ('deployed', 'failed'):
+        if friendly_state in ("deployed", "failed"):
             await clear_deployment_progress(project_id)
 
         return {

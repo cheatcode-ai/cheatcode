@@ -3,7 +3,7 @@ import { useOptimizedAuth } from '@/contexts/AuthTokenContext';
 import { settingsKeys, settingsQueryOptions } from './keys';
 
 // Types for OpenRouter API responses
-export interface OpenRouterKeyStatus {
+interface OpenRouterKeyStatus {
   has_key: boolean;
   key_configured: boolean;
   display_name?: string;
@@ -12,19 +12,7 @@ export interface OpenRouterKeyStatus {
   error?: string;
 }
 
-export interface KeyTestResult {
-  success: boolean;
-  message?: string;
-  error?: string;
-  key_info?: {
-    usage: number;
-    limit: number | null;
-    limit_remaining: number | null;
-    is_free_tier: boolean;
-  };
-}
-
-export interface SaveKeyRequest {
+interface SaveKeyRequest {
   api_key: string;
   display_name: string;
 }
@@ -44,7 +32,7 @@ export interface SaveKeyRequest {
  */
 export function useOpenRouterKeyStatus(enabled = true) {
   const { getToken, isLoaded, isSignedIn } = useOptimizedAuth();
-  
+
   return useQuery<OpenRouterKeyStatus, Error>({
     queryKey: settingsKeys.byok.openrouter.status(),
     queryFn: async (): Promise<OpenRouterKeyStatus> => {
@@ -55,7 +43,7 @@ export function useOpenRouterKeyStatus(enabled = true) {
 
       const response = await fetch('/api/billing/openrouter-key/status', {
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
@@ -74,41 +62,6 @@ export function useOpenRouterKeyStatus(enabled = true) {
 }
 
 /**
- * Hook to test an OpenRouter API key
- * Returns cached results for the same key within a short timeframe
- */
-export function useTestOpenRouterKey() {
-  const { getToken } = useOptimizedAuth();
-
-  return useMutation({
-    mutationFn: async (apiKey: string): Promise<KeyTestResult> => {
-      const token = await getToken();
-      if (!token) {
-        throw new Error('Authentication required');
-      }
-
-      const response = await fetch('/api/billing/openrouter-key/test', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-        },
-        body: JSON.stringify({ api_key: apiKey }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.error || 'Test failed');
-      }
-
-      return response.json();
-    },
-    // Cache test results for the same key temporarily
-    mutationKey: ['test-openrouter-key'],
-  });
-}
-
-/**
  * Hook to save OpenRouter API key
  * Includes optimistic updates for instant UX and automatic cache invalidation
  */
@@ -117,7 +70,9 @@ export function useSaveOpenRouterKey() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (request: SaveKeyRequest): Promise<{ success: boolean }> => {
+    mutationFn: async (
+      request: SaveKeyRequest,
+    ): Promise<{ success: boolean }> => {
       const token = await getToken();
       if (!token) {
         throw new Error('Authentication required');
@@ -127,27 +82,29 @@ export function useSaveOpenRouterKey() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify(request),
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.error || 'Failed to save API key');
+        throw new Error(
+          errorData.detail || errorData.error || 'Failed to save API key',
+        );
       }
 
       return response.json();
     },
     onMutate: async (newKeyData) => {
       // Cancel any outgoing refetches to avoid conflicts
-      await queryClient.cancelQueries({ 
-        queryKey: settingsKeys.byok.openrouter.status() 
+      await queryClient.cancelQueries({
+        queryKey: settingsKeys.byok.openrouter.status(),
       });
 
       // Snapshot the previous value
       const previousStatus = queryClient.getQueryData<OpenRouterKeyStatus>(
-        settingsKeys.byok.openrouter.status()
+        settingsKeys.byok.openrouter.status(),
       );
 
       // Optimistically update to show key as saved
@@ -161,7 +118,7 @@ export function useSaveOpenRouterKey() {
           created_at: new Date().toISOString(),
           last_used_at: undefined, // Will be set on first use
           error: undefined,
-        })
+        }),
       );
 
       return { previousStatus };
@@ -171,14 +128,14 @@ export function useSaveOpenRouterKey() {
       if (context?.previousStatus) {
         queryClient.setQueryData(
           settingsKeys.byok.openrouter.status(),
-          context.previousStatus
+          context.previousStatus,
         );
       }
     },
     onSuccess: () => {
       // Invalidate and refetch to ensure we have the latest server data
       queryClient.invalidateQueries({
-        queryKey: settingsKeys.byok.openrouter.all
+        queryKey: settingsKeys.byok.openrouter.all,
       });
     },
     mutationKey: ['save-openrouter-key'],
@@ -203,26 +160,28 @@ export function useDeleteOpenRouterKey() {
       const response = await fetch('/api/billing/openrouter-key', {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          Authorization: `Bearer ${token}`,
         },
       });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || errorData.error || 'Failed to remove API key');
+        throw new Error(
+          errorData.detail || errorData.error || 'Failed to remove API key',
+        );
       }
 
       return response.json();
     },
     onMutate: async () => {
       // Optimistically update the cache
-      await queryClient.cancelQueries({ 
-        queryKey: settingsKeys.byok.openrouter.status() 
+      await queryClient.cancelQueries({
+        queryKey: settingsKeys.byok.openrouter.status(),
       });
 
       // Get the previous value
       const previousStatus = queryClient.getQueryData<OpenRouterKeyStatus>(
-        settingsKeys.byok.openrouter.status()
+        settingsKeys.byok.openrouter.status(),
       );
 
       // Optimistically update to show key as removed
@@ -236,7 +195,7 @@ export function useDeleteOpenRouterKey() {
             display_name: undefined,
             last_used_at: undefined,
             created_at: undefined,
-          }
+          },
         );
       }
 
@@ -247,63 +206,16 @@ export function useDeleteOpenRouterKey() {
       if (context?.previousStatus) {
         queryClient.setQueryData(
           settingsKeys.byok.openrouter.status(),
-          context.previousStatus
+          context.previousStatus,
         );
       }
     },
     onSuccess: () => {
       // Ensure we have the latest data
-      queryClient.invalidateQueries({ 
-        queryKey: settingsKeys.byok.openrouter.all 
+      queryClient.invalidateQueries({
+        queryKey: settingsKeys.byok.openrouter.all,
       });
     },
     mutationKey: ['delete-openrouter-key'],
   });
-}
-
-/**
- * Hook to get personal account data on the client side
- * OPTIMIZED: Reads from server-hydrated cache - NO network requests needed!
- * 
- * Architecture:
- * 1. Server layout calls getPersonalAccount() and prefetches into QueryClient
- * 2. Data is dehydrated and sent to client via HydrationBoundary  
- * 3. This hook reads the hydrated data instantly from cache
- * 4. Zero client-side API calls for account data = instant UX
- * 
- * Previous: Client hook → API call → /api/account/personal → DB query
- * Current:  Client hook → Reads hydrated cache → Instant data
- */
-export function usePersonalAccount(enabled = true) {
-  const { isLoaded, isSignedIn } = useOptimizedAuth();
-
-  return useQuery({
-    queryKey: settingsKeys.account.personal(),
-    // 🎯 No queryFn needed! Data is hydrated from server-side prefetch
-    // TanStack Query automatically uses the hydrated cache data from layout
-    enabled: enabled && isLoaded && isSignedIn,
-    ...settingsQueryOptions.user,
-    // Keep data stale for a long time since server prefetches fresh data
-    staleTime: 60 * 60 * 1000, // 1 hour - much longer since server prefetches fresh data
-  });
-}
-
-// Export commonly used query invalidation helpers
-export function useInvalidateSettingsQueries() {
-  const queryClient = useQueryClient();
-
-  return {
-    invalidateAll: () => queryClient.invalidateQueries({ 
-      queryKey: settingsKeys.all 
-    }),
-    invalidateAccount: () => queryClient.invalidateQueries({ 
-      queryKey: settingsKeys.account.all 
-    }),
-    invalidateByok: () => queryClient.invalidateQueries({ 
-      queryKey: settingsKeys.byok.all 
-    }),
-    invalidateIntegrations: () => queryClient.invalidateQueries({ 
-      queryKey: settingsKeys.integrations.all 
-    }),
-  };
 }

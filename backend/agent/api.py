@@ -1,38 +1,38 @@
-from fastapi import APIRouter, HTTPException, Depends, Request, Body, File, UploadFile, Form, Query
-from fastapi.responses import StreamingResponse
 import asyncio
+import contextlib
 import json
 import traceback
-from datetime import datetime, timezone
 import uuid
-from typing import Optional, List, Dict, Any
+from datetime import UTC, datetime
+
+import inngest as inngest_lib
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-import os
 
-
+from agent.schemas import ProjectName
+from inngest_functions.agent_run import get_task_status, stop_agent_run
+from sandbox.sandbox import create_sandbox_from_snapshot, delete_sandbox, get_or_start_sandbox
+from services import redis
+from services.billing import can_use_model, check_billing_status
+from services.inngest_client import inngest_client
+from services.llm import make_structured_llm_call
 from services.supabase import DBConnection
 from utils.auth_utils import (
-    get_current_user_id_from_jwt,
-    verify_thread_access,
-    get_user_id_from_stream_auth,
-    get_account_id_for_clerk_user,
     get_account_id_or_raise,
+    get_current_user_id_from_jwt,
+    get_user_id_from_stream_auth,
+    verify_thread_access,
 )
-from utils.logger import logger, structlog
-from services.billing import check_billing_status, can_use_model
 from utils.config import config
+from utils.constants import SSE_BATCH_SIZE
 from utils.encryption import decrypt_data
-from sandbox.sandbox import create_sandbox_from_snapshot, delete_sandbox, get_or_start_sandbox
-from services.llm import make_llm_api_call
-from agent.run_agent import run_agent_run_stream, update_agent_run_status
+from utils.file_utils import is_image_file
+from utils.logger import logger, structlog
 from utils.models import get_available_models, get_default_model, resolve_model_id
-# from flags.flags import is_enabled  # Unused import
-import run_agent_background
-from services import redis
+from utils.rate_limit import limiter
 
 from .utils import check_for_active_project_agent_run
-from utils.file_utils import is_image_file
-from utils.constants import SSE_BATCH_SIZE, SSE_BATCH_TIMEOUT_MS, REDIS_RESPONSE_LIST_TTL
 
 # Initialize shared resources
 router = APIRouter()
@@ -40,9 +40,13 @@ db = None
 instance_id = None  # Global instance ID for this backend instance
 
 
+def error_detail(message: str, error_code: str = "UNKNOWN_ERROR", **extra) -> dict:
+    """Standardized error response format for HTTPException detail."""
+    return {"message": message, "error": error_code, **extra}
+
+
 def format_sse_batch(responses: list) -> str:
-    """
-    Format multiple responses into a single SSE batch message.
+    """Format multiple responses into a single SSE batch message.
 
     Uses a custom 'batch' event type that clients can parse to extract
     individual responses. Falls back to single response format for
@@ -53,6 +57,7 @@ def format_sse_batch(responses: list) -> str:
 
     Returns:
         SSE-formatted string with batched responses
+
     """
     if not responses:
         return ""
@@ -63,17 +68,12 @@ def format_sse_batch(responses: list) -> str:
 
     # Multiple responses - batch them together
     # Client should handle 'batch' wrapper and extract 'items' array
-    batch_payload = {
-        "type": "batch",
-        "count": len(responses),
-        "items": responses
-    }
+    batch_payload = {"type": "batch", "count": len(responses), "items": responses}
     return f"data: {json.dumps(batch_payload)}\n\n"
 
 
 def chunk_responses(responses: list, chunk_size: int = SSE_BATCH_SIZE) -> list:
-    """
-    Split responses into chunks for batched streaming.
+    """Split responses into chunks for batched streaming.
 
     Args:
         responses: List of responses to chunk
@@ -81,59 +81,53 @@ def chunk_responses(responses: list, chunk_size: int = SSE_BATCH_SIZE) -> list:
 
     Returns:
         List of response chunks
+
     """
     if not responses:
         return []
-    return [responses[i:i + chunk_size] for i in range(0, len(responses), chunk_size)]
+    return [responses[i : i + chunk_size] for i in range(0, len(responses), chunk_size)]
 
 
 class AgentStartRequest(BaseModel):
-    model_name: Optional[str] = None  # Will be set from config.MODEL_TO_USE in the endpoint
-    enable_thinking: Optional[bool] = False
-    reasoning_effort: Optional[str] = 'low'
-    stream: Optional[bool] = True
-    enable_context_manager: Optional[bool] = True
-    app_type: Optional[str] = 'web'
+    model_name: str | None = None  # Will be set from config.MODEL_TO_USE in the endpoint
+    enable_thinking: bool | None = False
+    reasoning_effort: str | None = "low"
+    stream: bool | None = True
+    enable_context_manager: bool | None = True
+    app_type: str | None = "web"
+
 
 class InitiateAgentResponse(BaseModel):
     thread_id: str
-    agent_run_id: Optional[str] = None
+    agent_run_id: str | None = None
+
 
 # Removed unused agent-related models:
 # - AgentCreateRequest, AgentUpdateRequest - deleted custom agent endpoints
 # - AgentResponse, PaginationInfo, AgentsResponse - agents table dropped
 # - ThreadAgentResponse - hardcoded agent display
 
-def initialize(
-    _db: DBConnection,
-    _instance_id: Optional[str] = None
-):
+
+def initialize(_db: DBConnection, _instance_id: str | None = None):
     """Initialize the agent API with resources from the main API."""
     global db, instance_id
     db = _db
 
     # Use provided instance_id or generate a new one
-    if _instance_id:
-        instance_id = _instance_id
-    else:
-        # Generate instance ID
-        instance_id = str(uuid.uuid4())[:8]
+    instance_id = _instance_id if _instance_id else str(uuid.uuid4())[:8]
 
     logger.info(f"Initialized agent API with instance ID: {instance_id}")
 
 
 @router.get("/models/available")
 async def get_models_available():
-    """
-    Get list of available AI models for user selection.
+    """Get list of available AI models for user selection.
+
     Returns models with their display names, providers, and descriptions.
     """
     models = get_available_models()
     default_model = get_default_model()
-    return {
-        "models": models,
-        "default_model_id": default_model["id"] if default_model else "claude-sonnet-4.5"
-    }
+    return {"models": models, "default_model_id": default_model["id"] if default_model else "claude-sonnet-4.5"}
 
 
 async def cleanup():
@@ -142,7 +136,7 @@ async def cleanup():
 
     # Use the instance_id to find and clean up this instance's keys
     try:
-        if instance_id: # Ensure instance_id is set
+        if instance_id:  # Ensure instance_id is set
             running_keys = await redis.scan_keys(f"active_run:{instance_id}:*")
             logger.info(f"Found {len(running_keys)} running agent runs for instance {instance_id} to clean up")
 
@@ -151,69 +145,73 @@ async def cleanup():
                 parts = key.split(":")
                 if len(parts) == 3:
                     agent_run_id = parts[2]
-                    # Use background worker's stop function to publish to correct control channel
-                    await run_agent_background.stop_agent_run(agent_run_id)
+                    await stop_agent_run(agent_run_id)
                 else:
                     logger.warning(f"Unexpected key format found: {key}")
         else:
             logger.warning("Instance ID not set, cannot clean up instance-specific agent runs.")
 
     except Exception as e:
-        logger.error(f"Failed to clean up running agent runs: {str(e)}")
+        logger.error(f"Failed to clean up running agent runs: {e!s}")
 
     # Close Redis connection
     await redis.close()
     logger.info("Completed cleanup of agent API resources")
 
 
-
-
 async def get_agent_run_with_access_check(client, agent_run_id: str, user_id: str):
     # Only select columns needed for access check and response
-    agent_run = await client.table('agent_runs').select(
-        'run_id, thread_id, status, started_at, completed_at, error, metadata, created_at, updated_at'
-    ).eq('run_id', agent_run_id).execute()
+    agent_run = (
+        await client.table("agent_runs")
+        .select("run_id, thread_id, status, started_at, completed_at, error, metadata, created_at, updated_at")
+        .eq("run_id", agent_run_id)
+        .execute()
+    )
     if not agent_run.data:
-        raise HTTPException(status_code=404, detail="Agent run not found")
+        raise HTTPException(status_code=404, detail=error_detail("Agent run not found", "AGENT_RUN_NOT_FOUND"))
 
     agent_run_data = agent_run.data[0]
-    thread_id = agent_run_data['thread_id']
+    thread_id = agent_run_data["thread_id"]
     await verify_thread_access(client, thread_id, user_id)
     return agent_run_data
 
 
-
-
 @router.post("/thread/{thread_id}/agent/start")
+@limiter.limit("10/minute")
 async def start_agent(
+    request: Request,  # noqa: ARG001 — required by slowapi limiter
     thread_id: str,
     body: AgentStartRequest = Body(...),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Start an agent for a specific thread in the background."""
     structlog.contextvars.bind_contextvars(
         thread_id=thread_id,
     )
-    global instance_id # Ensure instance_id is accessible
+    global instance_id  # Ensure instance_id is accessible
     if not instance_id:
-        raise HTTPException(status_code=500, detail="Agent API not initialized with instance ID")
+        raise HTTPException(
+            status_code=500, detail=error_detail("Agent API not initialized with instance ID", "NOT_INITIALIZED")
+        )
 
     # Validate app_type parameter for type safety
-    if body.app_type not in ['web', 'mobile']:
+    if body.app_type not in ["web", "mobile"]:
         logger.warning(f"Invalid app_type '{body.app_type}' received, defaulting to 'web'")
-        body.app_type = 'web'
+        body.app_type = "web"
 
     client = await db.client
 
     await verify_thread_access(client, thread_id, user_id)
 
     # Batch initial queries for better performance
-    thread_result = await client.table('threads').select('project_id', 'user_id', 'metadata').eq('thread_id', thread_id).execute()
+    thread_result = (
+        await client.table("threads").select("project_id", "user_id", "metadata").eq("thread_id", thread_id).execute()
+    )
     if not thread_result.data:
-        raise HTTPException(status_code=404, detail="Thread not found")
+        raise HTTPException(status_code=404, detail=error_detail("Thread not found", "THREAD_NOT_FOUND"))
     thread_data = thread_result.data[0]
-    project_id = thread_data.get('project_id')
-    account_id = thread_data.get('user_id')
+    project_id = thread_data.get("project_id")
+    account_id = thread_data.get("user_id")
 
     # Batch queries: token status, MCP credentials, and project data in parallel
     try:
@@ -222,25 +220,37 @@ async def start_agent(
 
         # Run all queries in parallel for better performance
         token_status_task = asyncio.create_task(get_user_token_status(client, account_id))
-        cred_profiles_task = asyncio.create_task(
-            client.table('user_mcp_credential_profiles').select(
-                'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
-            ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
-        ) if project_id else None
-        project_task = asyncio.create_task(
-            client.table('projects').select(
-                'project_id, name, user_id, sandbox, app_type, model_name'
-            ).eq('project_id', project_id).execute()
-        ) if project_id else None
+        cred_profiles_task = (
+            asyncio.create_task(
+                client.table("user_mcp_credential_profiles")
+                .select("profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard")
+                .eq("user_id", account_id)
+                .eq("is_active", True)
+                .eq("is_default_for_dashboard", True)
+                .execute()
+            )
+            if project_id
+            else None
+        )
+        project_task = (
+            asyncio.create_task(
+                client.table("projects")
+                .select("project_id, name, user_id, sandbox, app_type, model_name")
+                .eq("project_id", project_id)
+                .execute()
+            )
+            if project_id
+            else None
+        )
 
         # Await token status first (needed for quota check)
         token_status = await token_status_task
-        
+
         # Check if user has enough tokens for a conversation
-        if token_status['plan'] != 'byok' and token_status['tokens_remaining'] < TOKENS_PER_CONVERSATION_ESTIMATE:
-            remaining_credits = token_status['credits_remaining']
+        if token_status["plan"] != "byok" and token_status["tokens_remaining"] < TOKENS_PER_CONVERSATION_ESTIMATE:
+            remaining_credits = token_status["credits_remaining"]
             needed_credits = get_credits_from_tokens(TOKENS_PER_CONVERSATION_ESTIMATE)
-            
+
             raise HTTPException(
                 status_code=402,  # Payment Required
                 detail={
@@ -248,20 +258,22 @@ async def start_agent(
                     "message": f"Insufficient credits to start conversation. You have {remaining_credits} credits remaining, but need at least {needed_credits} credits.",
                     "credits_remaining": remaining_credits,
                     "credits_needed": needed_credits,
-                    "current_plan": token_status['plan_name'],
-                    "upgrade_required": True
-                }
+                    "current_plan": token_status["plan_name"],
+                    "upgrade_required": True,
+                },
             )
-            
-        logger.info(f"✅ Token quota check passed for account {account_id}. Remaining: {token_status['tokens_remaining']} tokens ({token_status['credits_remaining']} credits)")
-        
+
+        logger.info(
+            f"✅ Token quota check passed for account {account_id}. Remaining: {token_status['tokens_remaining']} tokens ({token_status['credits_remaining']} credits)"
+        )
+
     except HTTPException:
         raise  # Re-raise HTTP exceptions
     except Exception as e:
-        logger.error(f"Error checking token quota for account {account_id}: {str(e)}")
+        logger.error(f"Error checking token quota for account {account_id}: {e!s}")
         # Don't block execution for quota check errors in case of system issues
-    
-    thread_metadata = thread_data.get('metadata', {})
+
+    thread_metadata = thread_data.get("metadata", {})
 
     structlog.contextvars.bind_contextvars(
         project_id=project_id,
@@ -271,99 +283,125 @@ async def start_agent(
 
     # This is now a coding-only system - always use coding agent configuration
     agent_config = {
-        'name': 'Coding Agent',
-        'description': 'Specialized agent for webapp development with 100+ UI components',
-        'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
-        'configured_mcps': [],
+        "name": "Coding Agent",
+        "description": "Specialized agent for webapp development with 100+ UI components",
+        "system_prompt": "",  # Will use get_coding_agent_prompt() from run.py
+        "configured_mcps": [],
         # No agentpress_tools specified so all tools are enabled by default
-        'account_id': account_id
+        "account_id": account_id,
     }
-    logger.info(f"Using coding agent configuration with all development tools enabled")
+    logger.info("Using coding agent configuration with all development tools enabled")
 
     # Load and merge dashboard MCP preferences for dashboard chats
     logger.info(f"Loading dashboard MCP preferences for account {account_id}")
+    mcp_profile_ids = []  # Capture profile IDs for Inngest (credentials decrypted at runtime)
     try:
         # Use pre-fetched credential profiles from parallel query above
-        cred_profiles_result = await cred_profiles_task if cred_profiles_task else await client.table('user_mcp_credential_profiles').select(
-            'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
-        ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
+        cred_profiles_result = (
+            await cred_profiles_task
+            if cred_profiles_task
+            else await client.table("user_mcp_credential_profiles")
+            .select("profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard")
+            .eq("user_id", account_id)
+            .eq("is_active", True)
+            .eq("is_default_for_dashboard", True)
+            .execute()
+        )
 
-        logger.info(f"[MCP DEBUG] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}")
+        logger.info(
+            f"[MCP DEBUG] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}"
+        )
 
         if cred_profiles_result.data:
+            mcp_profile_ids = [p["profile_id"] for p in cred_profiles_result.data]
             dashboard_configured_mcps = []
 
             for profile in cred_profiles_result.data:
-                logger.info(f"[MCP DEBUG] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}, display_name: {profile['display_name']}")
+                logger.info(
+                    f"[MCP DEBUG] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}, display_name: {profile['display_name']}"
+                )
 
                 # Decrypt and parse the configuration
                 try:
-                    decrypted_config = await asyncio.to_thread(
-                        decrypt_data, profile['encrypted_config']
-                    )
+                    decrypted_config = await asyncio.to_thread(decrypt_data, profile["encrypted_config"])
                     config_data = json.loads(decrypted_config)
-                    logger.info(f"[MCP DEBUG] Decrypted config keys for {profile['profile_id']}: {list(config_data.keys())}")
+                    logger.info(
+                        f"[MCP DEBUG] Decrypted config keys for {profile['profile_id']}: {list(config_data.keys())}"
+                    )
                     logger.info(f"[MCP DEBUG] connected_account_id present: {'connected_account_id' in config_data}")
                 except Exception as e:
                     logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
                     config_data = {}
 
                 # Remove provider prefix (e.g., "composio:") for the server key used in tool names
-                clean_server_name = profile['mcp_qualified_name']
-                if ':' in clean_server_name:
-                    clean_server_name = clean_server_name.split(':', 1)[1]
+                clean_server_name = profile["mcp_qualified_name"]
+                if ":" in clean_server_name:
+                    clean_server_name = clean_server_name.split(":", 1)[1]
 
                 # Add each credential profile as a configured MCP
                 mcp_config = {
-                    'name': clean_server_name,
-                    'qualifiedName': clean_server_name,
-                    'provider': 'composio',
-                    'config': config_data,
-                    'enabledTools': [],  # Enable all tools by default
-                    'instructions': f"Use {profile['display_name']} integration",
-                    'isCustom': False
+                    "name": clean_server_name,
+                    "qualifiedName": clean_server_name,
+                    "provider": "composio",
+                    "config": config_data,
+                    "enabledTools": [],  # Enable all tools by default
+                    "instructions": f"Use {profile['display_name']} integration",
+                    "isCustom": False,
                 }
-                logger.info(f"[MCP DEBUG] Created MCP config for {clean_server_name}: name={mcp_config['name']}, isCustom={mcp_config['isCustom']}")
+                logger.info(
+                    f"[MCP DEBUG] Created MCP config for {clean_server_name}: name={mcp_config['name']}, isCustom={mcp_config['isCustom']}"
+                )
                 dashboard_configured_mcps.append(mcp_config)
 
             # Merge dashboard MCPs with existing agent configuration
-            logger.info(f"[MCP DEBUG] Merging {len(dashboard_configured_mcps)} dashboard MCPs with existing agent config")
-            existing_mcps = agent_config.get('configured_mcps', [])
+            logger.info(
+                f"[MCP DEBUG] Merging {len(dashboard_configured_mcps)} dashboard MCPs with existing agent config"
+            )
+            existing_mcps = agent_config.get("configured_mcps", [])
             # Add dashboard MCPs that aren't already configured
-            existing_qualified_names = {mcp.get('qualifiedName') for mcp in existing_mcps}
+            existing_qualified_names = {mcp.get("qualifiedName") for mcp in existing_mcps}
             for dashboard_mcp in dashboard_configured_mcps:
-                if dashboard_mcp['qualifiedName'] not in existing_qualified_names:
+                if dashboard_mcp["qualifiedName"] not in existing_qualified_names:
                     existing_mcps.append(dashboard_mcp)
-            agent_config['configured_mcps'] = existing_mcps
-            logger.info(f"[MCP DEBUG] Final agent_config['configured_mcps'] has {len(existing_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in existing_mcps]}")
+            agent_config["configured_mcps"] = existing_mcps
+            logger.info(
+                f"[MCP DEBUG] Final agent_config['configured_mcps'] has {len(existing_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in existing_mcps]}"
+            )
         else:
             logger.info(f"No dashboard MCP credentials found for account {account_id}")
 
     except Exception as e:
-        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
+        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {e!s}")
         # Continue without MCPs if loading fails
 
     can_run, message, subscription = await check_billing_status(client, account_id)
     if not can_run:
         raise HTTPException(status_code=402, detail={"message": message, "subscription": subscription})
 
+    # NOTE: Inngest Singleton(mode="cancel", key=project_id) provides a second
+    # layer of one-agent-per-project protection at the queue level.
     active_run_id = await check_for_active_project_agent_run(client, project_id)
     if active_run_id:
         logger.info(f"Stopping existing agent run {active_run_id} for project {project_id}")
-        await run_agent_background.stop_agent_run(active_run_id)
+        await stop_agent_run(active_run_id)
 
     try:
         # Use pre-fetched project data from parallel query above
-        project_result = await project_task if project_task else await client.table('projects').select(
-            'project_id, name, user_id, sandbox, app_type, model_name'
-        ).eq('project_id', project_id).execute()
+        project_result = (
+            await project_task
+            if project_task
+            else await client.table("projects")
+            .select("project_id, name, user_id, sandbox, app_type, model_name")
+            .eq("project_id", project_id)
+            .execute()
+        )
         if not project_result.data:
             raise HTTPException(status_code=404, detail="Project not found")
 
         project_data = project_result.data[0]
 
         # Model selection: request > project (single source of truth) > config default
-        stored_model = project_data.get('model_name')
+        stored_model = project_data.get("model_name")
         model_name = body.model_name or stored_model or config.MODEL_TO_USE
 
         # Resolve to full OpenRouter ID for API calls
@@ -375,40 +413,60 @@ async def start_agent(
         if not can_use:
             raise HTTPException(status_code=403, detail={"message": model_message, "allowed_models": allowed_models})
 
-        sandbox_info = project_data.get('sandbox', {})
-        if not sandbox_info.get('id'):
+        sandbox_info = project_data.get("sandbox", {})
+        if not sandbox_info.get("id"):
             raise HTTPException(status_code=404, detail="No sandbox found for this project")
 
-        sandbox_id = sandbox_info['id']
-        sandbox = await get_or_start_sandbox(sandbox_id)
+        sandbox_id = sandbox_info["id"]
+        await get_or_start_sandbox(sandbox_id)
         logger.info(f"Started sandbox {sandbox_id}")
     except Exception as e:
-        logger.error(f"Failed to start sandbox for project {project_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to initialize sandbox: {str(e)}")
+        logger.error(f"Failed to start sandbox for project {project_id}: {e!s}")
+        raise HTTPException(status_code=500, detail=f"Failed to initialize sandbox: {e!s}") from e
 
     # Find the most recent user message that triggered this agent run
     triggering_message_id = None
     try:
-        latest_user_msg = await client.table('messages').select('message_id').eq(
-            'thread_id', thread_id
-        ).eq('type', 'user').order('created_at', desc=True).limit(1).execute()
+        latest_user_msg = (
+            await client.table("messages")
+            .select("message_id")
+            .eq("thread_id", thread_id)
+            .eq("type", "user")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
         if latest_user_msg.data:
-            triggering_message_id = latest_user_msg.data[0]['message_id']
+            triggering_message_id = latest_user_msg.data[0]["message_id"]
     except Exception as e:
         logger.warning(f"Failed to find triggering message: {e}")
 
-    agent_run = await client.table('agent_runs').insert({
-        "thread_id": thread_id, "status": "running",
-        "started_at": datetime.now(timezone.utc).isoformat(),
-        "metadata": {
-            "model_name": model_name,
-            "enable_thinking": body.enable_thinking,
-            "reasoning_effort": body.reasoning_effort,
-            "enable_context_manager": body.enable_context_manager,
-            "triggering_message_id": triggering_message_id
-        }
-    }).execute()
-    agent_run_id = agent_run.data[0]['run_id']
+    # Generate request_id before DB insert so it's stored in metadata
+    request_id = str(uuid.uuid4())
+
+    agent_run = (
+        await client.table("agent_runs")
+        .insert(
+            {
+                "thread_id": thread_id,
+                "status": "running",
+                "started_at": datetime.now(UTC).isoformat(),
+                "metadata": {
+                    "model_name": model_name,
+                    "enable_thinking": body.enable_thinking,
+                    "reasoning_effort": body.reasoning_effort,
+                    "enable_context_manager": body.enable_context_manager,
+                    "triggering_message_id": triggering_message_id,
+                    "stream": body.stream,
+                    "app_type": body.app_type,
+                    "request_id": request_id,
+                    "mcp_profile_ids": mcp_profile_ids,
+                },
+            }
+        )
+        .execute()
+    )
+    agent_run_id = agent_run.data[0]["run_id"]
     structlog.contextvars.bind_contextvars(
         agent_run_id=agent_run_id,
     )
@@ -419,52 +477,64 @@ async def start_agent(
     try:
         await redis.set(instance_key, "running", ex=redis.REDIS_KEY_TTL)
     except Exception as e:
-        logger.warning(f"Failed to register agent run in Redis ({instance_key}): {str(e)}")
+        logger.warning(f"Failed to register agent run in Redis ({instance_key}): {e!s}")
 
-    # Queue background task instead of running agent directly
-    request_id = str(uuid.uuid4())
-    logger.info(f"Queuing background task for agent run {agent_run_id}")
-    
+    # Resolve priority based on user plan for queue ordering
+    plan_priority = 0
     try:
-        run_agent_background.run_agent_background.send(
-            agent_run_id=agent_run_id,
-            thread_id=thread_id,
-            instance_id=instance_id,
-            project_id=project_id,
-            model_name=model_name,
-            enable_thinking=body.enable_thinking,
-            reasoning_effort=body.reasoning_effort,
-            stream=body.stream,
-            enable_context_manager=body.enable_context_manager,
-            agent_config=agent_config,
-            request_id=request_id,
-            app_type=body.app_type
+        user_plan_data = await client.table("users").select("plan_id").eq("id", account_id).single().execute()
+        plan_id = (user_plan_data.data or {}).get("plan_id", "free")
+        priority_map = {"premium": 300, "pro": 100, "byok": 200, "free": 0}
+        plan_priority = priority_map.get(plan_id, 0)
+    except Exception:
+        plan_priority = 0
+
+    # Send Inngest event to trigger agent execution
+    logger.info(f"Sending Inngest event for agent run {agent_run_id}")
+
+    try:
+        await inngest_client.send(
+            inngest_lib.Event(
+                name="agent/run.requested",
+                data={
+                    "agent_run_id": agent_run_id,
+                    "thread_id": thread_id,
+                    "project_id": project_id,
+                    "instance_id": instance_id,
+                    "priority": plan_priority,
+                },
+            )
         )
-        logger.info(f"Successfully queued background task for agent run {agent_run_id}")
+        logger.info(f"Successfully sent Inngest event for agent run {agent_run_id}")
     except Exception as e:
-        logger.error(f"Failed to queue background task for agent run {agent_run_id}: {e}")
+        logger.error(f"Failed to send Inngest event for agent run {agent_run_id}: {e}")
         # Update agent run status to failed
-        await client.table('agent_runs').update({
-            "status": "failed",
-            "error": f"Failed to queue background task: {str(e)}",
-            "completed_at": datetime.now(timezone.utc).isoformat()
-        }).eq('run_id', agent_run_id).execute()
-        raise HTTPException(status_code=500, detail=f"Failed to queue background task: {str(e)}")
+        await (
+            client.table("agent_runs")
+            .update(
+                {
+                    "status": "failed",
+                    "error": f"Failed to trigger agent run: {e!s}",
+                    "completed_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            .eq("run_id", agent_run_id)
+            .execute()
+        )
+        raise HTTPException(status_code=500, detail=f"Failed to trigger agent run: {e!s}") from e
 
     return {"agent_run_id": agent_run_id, "status": "queued"}
 
+
 @router.get("/agent-run/{agent_run_id}/stream")
-async def stream_agent_run(
-    agent_run_id: str,
-    token: Optional[str] = None,
-    request: Request = None
-):
+@limiter.limit("30/minute")
+async def stream_agent_run(request: Request, agent_run_id: str, token: str | None = None):
     """Stream the responses of an agent run using Server-Sent Events (SSE)."""
     logger.info(f"Starting SSE stream for agent run: {agent_run_id}")
     client = await db.client
 
     user_id = await get_user_id_from_stream_auth(request, token)
-    agent_run_data = await get_agent_run_with_access_check(client, agent_run_id, user_id)
+    await get_agent_run_with_access_check(client, agent_run_id, user_id)
 
     structlog.contextvars.bind_contextvars(
         agent_run_id=agent_run_id,
@@ -476,11 +546,18 @@ async def stream_agent_run(
     control_channel = f"agent_run:{agent_run_id}:control"
 
     async def stream_generator():
-        logger.debug(f"Streaming responses for {agent_run_id} using Redis list {response_list_key} and channel {response_channel}")
+        logger.debug(
+            f"Streaming responses for {agent_run_id} using Redis list {response_list_key} and channel {response_channel}"
+        )
         last_processed_index = -1
         pubsub_response = None
         pubsub_control = None
         listener_task = None
+
+        # Tail-poll guardrails (Phase 4a): prevent excessive lrange on idle streams
+        _last_tail_poll_time = 0.0  # monotonic time of last tail-poll
+        _tail_poll_min_interval = 30.0  # seconds between tail-polls
+        _consecutive_empty_polls = 0  # backoff counter
         terminate_stream = False
         initial_yield_complete = False
 
@@ -501,16 +578,22 @@ async def stream_agent_run(
             initial_yield_complete = True
 
             # 2. Check run status *after* yielding initial data
-            run_status = await client.table('agent_runs').select('status', 'thread_id').eq("run_id", agent_run_id).maybe_single().execute()
-            current_status = run_status.data.get('status') if run_status.data else None
+            run_status = (
+                await client.table("agent_runs")
+                .select("status", "thread_id")
+                .eq("run_id", agent_run_id)
+                .maybe_single()
+                .execute()
+            )
+            current_status = run_status.data.get("status") if run_status.data else None
 
-            if current_status != 'running':
+            if current_status != "running":
                 logger.info(f"Agent run {agent_run_id} is not running (status: {current_status}). Ending stream.")
                 yield f"data: {json.dumps({'type': 'status', 'status': 'completed'})}\n\n"
                 return
-          
+
             structlog.contextvars.bind_contextvars(
-                thread_id=run_status.data.get('thread_id'),
+                thread_id=run_status.data.get("thread_id"),
             )
 
             # 3. Set up Pub/Sub listeners for new responses and control signals
@@ -520,10 +603,7 @@ async def stream_agent_run(
                 logger.debug(f"Subscribed to response channel: {response_channel}")
             except Exception as e:
                 logger.error(f"Failed to create/subscribe to response pubsub for {agent_run_id}: {e}", exc_info=True)
-                raise HTTPException(
-                    status_code=503, 
-                    detail=f"Failed to set up response streaming: {str(e)}"
-                )
+                raise HTTPException(status_code=503, detail=f"Failed to set up response streaming: {e!s}") from e
 
             try:
                 pubsub_control = await redis.create_pubsub()
@@ -538,10 +618,7 @@ async def stream_agent_run(
                         await pubsub_response.close()
                 except Exception as cleanup_e:
                     logger.error(f"Failed to cleanup response pubsub after control setup failure: {cleanup_e}")
-                raise HTTPException(
-                    status_code=503, 
-                    detail=f"Failed to set up control streaming: {str(e)}"
-                )
+                raise HTTPException(status_code=503, detail=f"Failed to set up control streaming: {e!s}") from e
 
             # Queue to communicate between listeners and the main generator loop
             message_queue = asyncio.Queue()
@@ -550,24 +627,29 @@ async def stream_agent_run(
                 response_reader = None
                 control_reader = None
                 tasks = []
-                
+
                 try:
                     response_reader = pubsub_response.listen()
                     control_reader = pubsub_control.listen()
-                    tasks = [asyncio.create_task(response_reader.__anext__()), asyncio.create_task(control_reader.__anext__())]
+                    tasks = [
+                        asyncio.create_task(response_reader.__anext__()),
+                        asyncio.create_task(control_reader.__anext__()),
+                    ]
                 except Exception as setup_error:
                     logger.error(f"Failed to set up listeners for {agent_run_id}: {setup_error}", exc_info=True)
-                    await message_queue.put({
-                        "type": "error", 
-                        "data": f"Listener setup failed: {str(setup_error)}",
-                        "error_type": "setup_failure",
-                        "recoverable": False
-                    })
+                    await message_queue.put(
+                        {
+                            "type": "error",
+                            "data": f"Listener setup failed: {setup_error!s}",
+                            "error_type": "setup_failure",
+                            "recoverable": False,
+                        }
+                    )
                     return
 
                 listener_failure_count = 0
                 max_listener_failures = 3
-                
+
                 while not terminate_stream and listener_failure_count < max_listener_failures:
                     try:
                         # Timeout reduced from 30s to 15s for more aggressive heartbeats
@@ -576,46 +658,74 @@ async def stream_agent_run(
 
                         # Handle timeout case
                         if not done:
+                            # DB-polling fallback: if control signal was never published,
+                            # check DB status to terminate the stream
+                            try:
+                                run_status = (
+                                    await client.table("agent_runs")
+                                    .select("status")
+                                    .eq("run_id", agent_run_id)
+                                    .execute()
+                                )
+                                if run_status.data:
+                                    db_status = run_status.data[0]["status"]
+                                    if db_status in ("completed", "failed", "stopped"):
+                                        signal = {"completed": "END_STREAM", "failed": "ERROR", "stopped": "STOP"}[
+                                            db_status
+                                        ]
+                                        logger.info(
+                                            f"DB fallback: run {agent_run_id} is '{db_status}', sending {signal}"
+                                        )
+                                        await message_queue.put({"type": "control", "data": signal})
+                                        continue
+                            except Exception as e:
+                                logger.debug(f"DB fallback check failed: {e}")
+
                             logger.debug(f"Listener timeout after 15s for {agent_run_id}, sending heartbeat")
                             await message_queue.put({"type": "heartbeat"})
                             continue
-                            
+
                         for task in done:
                             try:
                                 message = task.result()
                                 if message and isinstance(message, dict) and message.get("type") == "message":
                                     channel = message.get("channel")
                                     data = message.get("data")
-                                    if isinstance(data, bytes): data = data.decode('utf-8')
+                                    if isinstance(data, bytes):
+                                        data = data.decode("utf-8")
 
                                     if channel == response_channel and data == "new":
                                         await message_queue.put({"type": "new_response"})
                                     elif channel == control_channel and data in ["STOP", "END_STREAM", "ERROR"]:
                                         logger.info(f"Received control signal '{data}' for {agent_run_id}")
                                         await message_queue.put({"type": "control", "data": data})
-                                        return # Stop listening on control signal
+                                        return  # Stop listening on control signal
 
                             except StopAsyncIteration:
                                 logger.warning(f"Listener {task} stopped for {agent_run_id}")
                                 listener_failure_count += 1
-                                await message_queue.put({
-                                    "type": "error", 
-                                    "data": f"Redis connection lost (attempt {listener_failure_count}/{max_listener_failures})",
-                                    "error_type": "connection_lost",
-                                    "recoverable": listener_failure_count < max_listener_failures
-                                })
+                                await message_queue.put(
+                                    {
+                                        "type": "error",
+                                        "data": f"Redis connection lost (attempt {listener_failure_count}/{max_listener_failures})",
+                                        "error_type": "connection_lost",
+                                        "recoverable": listener_failure_count < max_listener_failures,
+                                    }
+                                )
                                 if listener_failure_count >= max_listener_failures:
                                     return
                             except Exception as task_error:
                                 listener_failure_count += 1
-                                error_msg = f"Listener task failed: {str(task_error)} (attempt {listener_failure_count}/{max_listener_failures})"
+                                error_msg = f"Listener task failed: {task_error!s} (attempt {listener_failure_count}/{max_listener_failures})"
                                 logger.error(f"Error in listener task for {agent_run_id}: {task_error}", exc_info=True)
-                                await message_queue.put({
-                                    "type": "error", 
-                                    "data": error_msg,
-                                    "error_type": "task_failure",
-                                    "recoverable": listener_failure_count < max_listener_failures
-                                })
+                                await message_queue.put(
+                                    {
+                                        "type": "error",
+                                        "data": error_msg,
+                                        "error_type": "task_failure",
+                                        "recoverable": listener_failure_count < max_listener_failures,
+                                    }
+                                )
                                 if listener_failure_count >= max_listener_failures:
                                     return
                             finally:
@@ -629,47 +739,53 @@ async def stream_agent_run(
                                             elif message.get("channel") == control_channel:
                                                 tasks.append(asyncio.create_task(control_reader.__anext__()))
                                     except Exception as reschedule_error:
-                                        logger.error(f"Failed to reschedule listener task for {agent_run_id}: {reschedule_error}")
+                                        logger.error(
+                                            f"Failed to reschedule listener task for {agent_run_id}: {reschedule_error}"
+                                        )
                                         listener_failure_count += 1
                                         if listener_failure_count >= max_listener_failures:
-                                            await message_queue.put({
-                                                "type": "error",
-                                                "data": f"Failed to reschedule listener: {str(reschedule_error)}",
-                                                "error_type": "reschedule_failure", 
-                                                "recoverable": False
-                                            })
+                                            await message_queue.put(
+                                                {
+                                                    "type": "error",
+                                                    "data": f"Failed to reschedule listener: {reschedule_error!s}",
+                                                    "error_type": "reschedule_failure",
+                                                    "recoverable": False,
+                                                }
+                                            )
                                             return
-                                        
+
                     except asyncio.CancelledError:
                         logger.info(f"Listener cancelled for {agent_run_id}")
                         break
                     except Exception as listener_error:
                         listener_failure_count += 1
-                        error_msg = f"Listener loop failed: {str(listener_error)} (attempt {listener_failure_count}/{max_listener_failures})"
+                        error_msg = f"Listener loop failed: {listener_error!s} (attempt {listener_failure_count}/{max_listener_failures})"
                         logger.error(f"Error in listener loop for {agent_run_id}: {listener_error}", exc_info=True)
-                        await message_queue.put({
-                            "type": "error",
-                            "data": error_msg,
-                            "error_type": "loop_failure",
-                            "recoverable": listener_failure_count < max_listener_failures
-                        })
+                        await message_queue.put(
+                            {
+                                "type": "error",
+                                "data": error_msg,
+                                "error_type": "loop_failure",
+                                "recoverable": listener_failure_count < max_listener_failures,
+                            }
+                        )
                         if listener_failure_count >= max_listener_failures:
                             break
                         # Brief delay before retry
                         await asyncio.sleep(1.0)
-                
+
                 # Cleanup on exit
                 try:
                     # Cancel pending listener tasks on exit
-                    for p_task in pending: 
+                    for p_task in pending:
                         if not p_task.done():
                             p_task.cancel()
-                    for task in tasks: 
+                    for task in tasks:
                         if not task.done():
                             task.cancel()
                 except Exception as cleanup_error:
                     logger.error(f"Error during listener task cleanup for {agent_run_id}: {cleanup_error}")
-                    
+
                 logger.debug(f"Listener task completed for {agent_run_id}")
 
             listener_task = asyncio.create_task(listen_messages())
@@ -686,19 +802,27 @@ async def stream_agent_run(
 
                         if new_responses_json:
                             new_responses = [json.loads(r) for r in new_responses_json]
-                            num_new = len(new_responses)
+                            len(new_responses)
 
                             # Check for completion signals in responses
                             completion_index = -1
                             for idx, response in enumerate(new_responses):
-                                if response.get('type') == 'status' and response.get('status') in ['completed', 'failed', 'stopped']:
-                                    logger.info(f"Detected run completion via status message in stream: {response.get('status')}")
+                                if response.get("type") == "status" and response.get("status") in [
+                                    "completed",
+                                    "failed",
+                                    "stopped",
+                                ]:
+                                    logger.info(
+                                        f"Detected run completion via status message in stream: {response.get('status')}"
+                                    )
                                     completion_index = idx
                                     terminate_stream = True
                                     break
 
                             # If completion found, only batch up to and including it
-                            responses_to_send = new_responses[:completion_index + 1] if completion_index >= 0 else new_responses
+                            responses_to_send = (
+                                new_responses[: completion_index + 1] if completion_index >= 0 else new_responses
+                            )
 
                             # Batch and yield responses for efficiency
                             batches = chunk_responses(responses_to_send, SSE_BATCH_SIZE)
@@ -706,11 +830,23 @@ async def stream_agent_run(
                                 yield format_sse_batch(batch)
 
                             last_processed_index += len(responses_to_send)
-                        if terminate_stream: break
+                        if terminate_stream:
+                            break
 
                     elif queue_item["type"] == "control":
                         control_signal = queue_item["data"]
-                        terminate_stream = True # Stop the stream on any control signal
+                        terminate_stream = True  # Stop the stream on any control signal
+
+                        # Drain any remaining responses that were rpush'd but not
+                        # yet consumed (possible due to publish debouncing).
+                        drain_start = last_processed_index + 1
+                        drain_json = await redis.lrange(response_list_key, drain_start, -1)
+                        if drain_json:
+                            drain_responses = [json.loads(r) for r in drain_json]
+                            for batch in chunk_responses(drain_responses, SSE_BATCH_SIZE):
+                                yield format_sse_batch(batch)
+                            last_processed_index += len(drain_responses)
+
                         yield f"data: {json.dumps({'type': 'status', 'status': control_signal})}\n\n"
                         break
 
@@ -718,38 +854,57 @@ async def stream_agent_run(
                         error_data = queue_item.get("data", "Unknown error")
                         error_type = queue_item.get("error_type", "general")
                         is_recoverable = queue_item.get("recoverable", False)
-                        
-                        logger.error(f"Listener error for {agent_run_id}: {error_data} (type: {error_type}, recoverable: {is_recoverable})")
-                        
+
+                        logger.error(
+                            f"Listener error for {agent_run_id}: {error_data} (type: {error_type}, recoverable: {is_recoverable})"
+                        )
+
                         # For non-recoverable errors, terminate the stream
                         if not is_recoverable:
                             terminate_stream = True
                             payload = {
-                                'type': 'status',
-                                'status': 'error',
-                                'message': error_data,
-                                'error_type': error_type
+                                "type": "status",
+                                "status": "error",
+                                "message": error_data,
+                                "error_type": error_type,
                             }
                             yield f"data: {json.dumps(payload)}\n\n"
                             break
                         else:
                             # For recoverable errors, send a warning but continue
                             warning_message = f"Stream issue (recovering): {error_data}"
-                            payload = {
-                                'type': 'warning',
-                                'message': warning_message,
-                                'error_type': error_type
-                            }
+                            payload = {"type": "warning", "message": warning_message, "error_type": error_type}
                             yield f"data: {json.dumps(payload)}\n\n"
-                    
+
                     elif queue_item["type"] == "heartbeat":
+                        # Guarded tail-poll: check for responses that may have been
+                        # rpush'd but whose publish notification was debounced.
+                        # Guardrails prevent command growth on idle streams.
+                        now_mono = asyncio.get_event_loop().time()
+                        effective_interval = min(
+                            _tail_poll_min_interval * (2 ** _consecutive_empty_polls),
+                            120.0,  # cap at 2 minutes
+                        )
+                        if (now_mono - _last_tail_poll_time) >= effective_interval:
+                            _last_tail_poll_time = now_mono
+                            tail_start = last_processed_index + 1
+                            tail_json = await redis.lrange(response_list_key, tail_start, -1)
+                            if tail_json:
+                                tail_responses = [json.loads(r) for r in tail_json]
+                                for batch in chunk_responses(tail_responses, SSE_BATCH_SIZE):
+                                    yield format_sse_batch(batch)
+                                last_processed_index += len(tail_responses)
+                                _consecutive_empty_polls = 0  # reset backoff
+                            else:
+                                _consecutive_empty_polls += 1
+
                         # Send heartbeat to keep connection alive
                         yield f"data: {json.dumps({'type': 'ping'})}\n\n"
 
                 except asyncio.CancelledError:
-                     logger.info(f"Stream generator main loop cancelled for {agent_run_id}")
-                     terminate_stream = True
-                     break
+                    logger.info(f"Stream generator main loop cancelled for {agent_run_id}")
+                    terminate_stream = True
+                    break
                 except Exception as loop_err:
                     logger.error(f"Error in stream generator main loop for {agent_run_id}: {loop_err}", exc_info=True)
                     terminate_stream = True
@@ -760,15 +915,15 @@ async def stream_agent_run(
             logger.error(f"Error setting up stream for agent run {agent_run_id}: {e}", exc_info=True)
             # Only yield error if initial yield didn't happen
             if not initial_yield_complete:
-                 yield f"data: {json.dumps({'type': 'status', 'status': 'error', 'message': f'Failed to start stream: {e}'})}\n\n"
+                yield f"data: {json.dumps({'type': 'status', 'status': 'error', 'message': f'Failed to start stream: {e}'})}\n\n"
         finally:
             terminate_stream = True
             logger.debug(f"Starting cleanup for agent run: {agent_run_id}")
-            
+
             # Graceful shutdown order: unsubscribe → close → cancel
             # Step 1: Unsubscribe from channels (prevents new messages)
             cleanup_errors = []
-            
+
             try:
                 if pubsub_response:
                     await pubsub_response.unsubscribe(response_channel)
@@ -776,7 +931,7 @@ async def stream_agent_run(
             except Exception as e:
                 cleanup_errors.append(f"Failed to unsubscribe from response channel: {e}")
                 logger.warning(f"Error unsubscribing from response channel for {agent_run_id}: {e}")
-            
+
             try:
                 if pubsub_control:
                     await pubsub_control.unsubscribe(control_channel)
@@ -784,7 +939,7 @@ async def stream_agent_run(
             except Exception as e:
                 cleanup_errors.append(f"Failed to unsubscribe from control channel: {e}")
                 logger.warning(f"Error unsubscribing from control channel for {agent_run_id}: {e}")
-            
+
             # Step 2: Close pub/sub connections
             try:
                 if pubsub_response:
@@ -793,7 +948,7 @@ async def stream_agent_run(
             except Exception as e:
                 cleanup_errors.append(f"Failed to close response pubsub: {e}")
                 logger.warning(f"Error closing response pubsub for {agent_run_id}: {e}")
-            
+
             try:
                 if pubsub_control:
                     await pubsub_control.close()
@@ -807,81 +962,100 @@ async def stream_agent_run(
                 try:
                     listener_task.cancel()
                     logger.debug(f"Cancelled listener task for {agent_run_id}")
-                    
+
                     # Wait for cancellation with timeout
                     try:
                         await asyncio.wait_for(listener_task, timeout=5.0)
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         logger.warning(f"Listener task cancellation timed out for {agent_run_id}")
                         cleanup_errors.append("Listener task cancellation timeout")
                     except asyncio.CancelledError:
                         logger.debug(f"Listener task cancelled successfully for {agent_run_id}")
-                        pass
                     except Exception as e:
                         logger.debug(f"Listener task ended with exception for {agent_run_id}: {e}")
                         # Not necessarily an error - task may have completed normally
-                        
+
                 except Exception as e:
                     cleanup_errors.append(f"Failed to cancel listener task: {e}")
                     logger.error(f"Error cancelling listener task for {agent_run_id}: {e}")
-            
+
             # Brief wait for any remaining async operations to complete
             try:
                 await asyncio.sleep(0.1)
             except Exception as e:
                 logger.debug(f"Error during final sleep for {agent_run_id}: {e}")
-            
+
             # Log cleanup completion
             if cleanup_errors:
-                logger.warning(f"SSE streaming cleanup completed with {len(cleanup_errors)} errors for {agent_run_id}: {'; '.join(cleanup_errors)}")
+                logger.warning(
+                    f"SSE streaming cleanup completed with {len(cleanup_errors)} errors for {agent_run_id}: {'; '.join(cleanup_errors)}"
+                )
             else:
                 logger.debug(f"SSE streaming cleanup completed successfully for agent run: {agent_run_id}")
 
-    return StreamingResponse(stream_generator(), media_type="text/event-stream", headers={
-        "Cache-Control": "no-cache, no-transform", "Connection": "keep-alive",
-        "X-Accel-Buffering": "no", "Content-Type": "text/event-stream",
-        "Access-Control-Allow-Origin": "*"
-    })
+    return StreamingResponse(
+        stream_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+            "Content-Type": "text/event-stream",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
 
 @router.post("/agent-run/{agent_run_id}/stop")
-async def stop_agent(agent_run_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
+@limiter.limit("10/minute")
+async def stop_agent(request: Request, agent_run_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
     """Stop a running agent."""
     structlog.contextvars.bind_contextvars(agent_run_id=agent_run_id)
     logger.info(f"Stop request received for agent run {agent_run_id}")
-    
+
     try:
         # Verify user has access to this agent run
         client = await db.client
         agent_run_data = await get_agent_run_with_access_check(client, agent_run_id, user_id)
-        
+
         # Check if agent run is in a stoppable state
-        current_status = agent_run_data.get('status')
-        if current_status not in ['running', 'queued']:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Cannot stop agent run with status: {current_status}"
-            )
-        
+        current_status = agent_run_data.get("status")
+        if current_status not in ["running", "queued"]:
+            raise HTTPException(status_code=400, detail=f"Cannot stop agent run with status: {current_status}")
+
         # Send STOP signal via Redis pub/sub
-        success = await run_agent_background.stop_agent_run(agent_run_id)
-        
+        success = await stop_agent_run(agent_run_id)
+
+        # Also send Inngest cancellation event for durable function cleanup
+        try:
+            await inngest_client.send(
+                inngest_lib.Event(
+                    name="agent/run.stop",
+                    data={"agent_run_id": agent_run_id},
+                )
+            )
+        except Exception as inngest_err:
+            logger.warning(f"Failed to send Inngest cancel event: {inngest_err}")
+
         if success:
             # Update database status to stopping
-            await client.table('agent_runs').update({
-                "status": "stopping",
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }).eq('run_id', agent_run_id).execute()
-            
+            await (
+                client.table("agent_runs")
+                .update({"status": "stopping", "updated_at": datetime.now(UTC).isoformat()})
+                .eq("run_id", agent_run_id)
+                .execute()
+            )
+
             logger.info(f"Successfully sent STOP signal for agent run {agent_run_id}")
             return {"message": "Stop signal sent", "agent_run_id": agent_run_id, "status": "stopping"}
-        else:
-            raise HTTPException(status_code=500, detail="Failed to send stop signal")
-            
+        raise HTTPException(status_code=500, detail=error_detail("Failed to send stop signal", "STOP_SIGNAL_FAILED"))
+
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error stopping agent run {agent_run_id}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to stop agent run: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to stop agent run: {e!s}") from e
+
 
 @router.get("/thread/{thread_id}/agent-runs")
 async def get_agent_runs(thread_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
@@ -892,9 +1066,16 @@ async def get_agent_runs(thread_id: str, user_id: str = Depends(get_current_user
     logger.info(f"Fetching agent runs for thread: {thread_id}")
     client = await db.client
     await verify_thread_access(client, thread_id, user_id)
-    agent_runs = await client.table('agent_runs').select('run_id, thread_id, status, started_at, completed_at, error, created_at, updated_at').eq("thread_id", thread_id).order('created_at', desc=True).execute()
+    agent_runs = (
+        await client.table("agent_runs")
+        .select("run_id, thread_id, status, started_at, completed_at, error, created_at, updated_at")
+        .eq("thread_id", thread_id)
+        .order("created_at", desc=True)
+        .execute()
+    )
     logger.debug(f"Found {len(agent_runs.data)} agent runs for thread: {thread_id}")
     return {"agent_runs": agent_runs.data}
+
 
 @router.get("/agent-run/{agent_run_id}")
 async def get_agent_run(agent_run_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
@@ -907,13 +1088,14 @@ async def get_agent_run(agent_run_id: str, user_id: str = Depends(get_current_us
     agent_run_data = await get_agent_run_with_access_check(client, agent_run_id, user_id)
     # Note: Responses are not included here by default, they are in the stream or DB
     return {
-                    "id": agent_run_data['run_id'],
-        "threadId": agent_run_data['thread_id'],
-        "status": agent_run_data['status'],
-        "startedAt": agent_run_data['started_at'],
-        "completedAt": agent_run_data['completed_at'],
-        "error": agent_run_data['error']
+        "id": agent_run_data["run_id"],
+        "threadId": agent_run_data["thread_id"],
+        "status": agent_run_data["status"],
+        "startedAt": agent_run_data["started_at"],
+        "completedAt": agent_run_data["completed_at"],
+        "error": agent_run_data["error"],
     }
+
 
 @router.get("/agent-run/{agent_run_id}/status")
 async def get_agent_run_status(agent_run_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
@@ -924,34 +1106,33 @@ async def get_agent_run_status(agent_run_id: str, user_id: str = Depends(get_cur
     logger.info(f"Fetching agent run status: {agent_run_id}")
     client = await db.client
     agent_run_data = await get_agent_run_with_access_check(client, agent_run_id, user_id)
-    
+
     # Get task status from Redis
-    task_status = await run_agent_background.get_task_status(agent_run_id)
-    
+    task_status = await get_task_status(agent_run_id)
+
     if task_status:
         return {
             "agent_run_id": agent_run_id,
             "status": task_status["status"],
             "timestamp": task_status["timestamp"],
             "data": task_status.get("data", {}),
-            "db_status": agent_run_data.get("status")
+            "db_status": agent_run_data.get("status"),
         }
-    else:
-        # Fallback to database status if Redis status not found
-        return {
-            "agent_run_id": agent_run_id,
-            "status": agent_run_data.get("status", "unknown"),
-            "timestamp": agent_run_data.get("started_at"),
-            "data": {},
-            "db_status": agent_run_data.get("status")
+    # Fallback to database status if Redis status not found
+    return {
+        "agent_run_id": agent_run_id,
+        "status": agent_run_data.get("status", "unknown"),
+        "timestamp": agent_run_data.get("started_at"),
+        "data": {},
+        "db_status": agent_run_data.get("status"),
     }
+
 
 # Removed GET /thread/{thread_id}/agent endpoint - no longer needed for hardcoded agent display
 
 
-
 async def generate_and_update_project_name(project_id: str, prompt: str):
-    """Generates a project name using an LLM and updates the database."""
+    """Generate a project name using an LLM (Instructor) and update the database."""
     logger.info(f"Starting background task to generate name for project: {project_id}")
     try:
         db_conn = DBConnection()
@@ -959,32 +1140,28 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
 
         # Use the configured model and resolve to full OpenRouter ID
         model_name = resolve_model_id(config.MODEL_TO_USE)
-        system_prompt = "You are a helpful assistant that generates extremely concise titles (2-4 words maximum) for chat threads based on the user's message. Respond with only the title, no other text or punctuation."
-        user_message = f"Generate an extremely brief title (2-4 words only) for a chat thread that starts with this message: \"{prompt}\""
+        system_prompt = "You are a helpful assistant that generates extremely concise titles (2-4 words maximum) for chat threads based on the user's message."
+        user_message = f'Generate an extremely brief title (2-4 words only) for a chat thread that starts with this message: "{prompt}"'
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
 
-        logger.debug(f"Calling LLM ({model_name}) for project {project_id} naming.")
-        response = await make_llm_api_call(messages=messages, model_name=model_name, max_tokens=50, temperature=0.7)
+        logger.debug(f"Calling structured LLM ({model_name}) for project {project_id} naming.")
+        result = await make_structured_llm_call(
+            response_model=ProjectName,
+            messages=messages,
+            model_name=model_name,
+            max_tokens=50,
+            temperature=0.7,
+            max_retries=2,
+        )
 
-        logger.debug(f"🔍 Project naming LLM response: {response}")
-        
-        generated_name = None
-        if response and response.get('choices') and response['choices'][0].get('message'):
-            raw_name = response['choices'][0]['message'].get('content', '').strip()
-            logger.debug(f"🔍 Raw name from LLM: '{raw_name}' (length: {len(raw_name)})")
-            cleaned_name = raw_name.strip('\'" \n\t')
-            logger.debug(f"🔍 Cleaned name: '{cleaned_name}' (length: {len(cleaned_name)})")
-            if cleaned_name:
-                generated_name = cleaned_name
-                logger.info(f"LLM generated name for project {project_id}: '{generated_name}'")
-            else:
-                logger.warning(f"LLM returned an empty name for project {project_id}. Raw: '{raw_name}', Cleaned: '{cleaned_name}'")
-        else:
-            logger.warning(f"Failed to get valid response from LLM for project {project_id} naming. Response: {response}")
+        generated_name = result.name.strip("'\" \n\t")
+        logger.info(f"LLM generated name for project {project_id}: '{generated_name}'")
 
         if generated_name:
-            update_result = await client.table('projects').update({"name": generated_name}).eq("project_id", project_id).execute()
-            if hasattr(update_result, 'data') and update_result.data:
+            update_result = (
+                await client.table("projects").update({"name": generated_name}).eq("project_id", project_id).execute()
+            )
+            if hasattr(update_result, "data") and update_result.data:
                 logger.info(f"Successfully updated project {project_id} name to '{generated_name}'")
             else:
                 logger.error(f"Failed to update project {project_id} name in database. Update result: {update_result}")
@@ -992,33 +1169,37 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
             logger.warning(f"No generated name, skipping database update for project {project_id}.")
 
     except Exception as e:
-        logger.error(f"Error in background naming task for project {project_id}: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Error in background naming task for project {project_id}: {e!s}\n{traceback.format_exc()}")
     finally:
-        # No need to disconnect DBConnection singleton instance here
         logger.info(f"Finished background naming task for project: {project_id}")
 
+
 @router.post("/agent/initiate", response_model=InitiateAgentResponse)
+@limiter.limit("5/minute")
 async def initiate_agent_with_files(
+    request: Request,  # noqa: ARG001 — required by slowapi limiter
     prompt: str = Form(...),
-    model_name: Optional[str] = Form(None),  # Default to None to use config.MODEL_TO_USE
-    enable_thinking: Optional[bool] = Form(False),
-    reasoning_effort: Optional[str] = Form("low"),
-    stream: Optional[bool] = Form(True),
-    enable_context_manager: Optional[bool] = Form(True),
-    files: List[UploadFile] = File(default=[]),
-    app_type: Optional[str] = Form('web'),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    model_name: str | None = Form(None),  # Default to None to use config.MODEL_TO_USE
+    enable_thinking: bool | None = Form(False),
+    reasoning_effort: str | None = Form("low"),
+    stream: bool | None = Form(True),
+    enable_context_manager: bool | None = Form(True),
+    files: list[UploadFile] = File(default=[]),
+    app_type: str | None = Form("web"),
+    user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Initiate a new agent session with optional file attachments."""
-    global instance_id # Ensure instance_id is accessible
+    global instance_id  # Ensure instance_id is accessible
     if not instance_id:
-        raise HTTPException(status_code=500, detail="Agent API not initialized with instance ID")
+        raise HTTPException(
+            status_code=500, detail=error_detail("Agent API not initialized with instance ID", "NOT_INITIALIZED")
+        )
 
     # Validate app_type parameter for type safety
-    if app_type not in ['web', 'mobile']:
+    if app_type not in ["web", "mobile"]:
         logger.warning(f"Invalid app_type '{app_type}' received, defaulting to 'web'")
-        app_type = 'web'
-    
+        app_type = "web"
+
     logger.info(f"Initiating agent with app_type: {app_type}")
 
     # Use model from config if not specified in the request
@@ -1038,7 +1219,9 @@ async def initiate_agent_with_files(
     # Use resolved version for API calls
     model_name = resolved_model
 
-    logger.info(f"[\033[91mDEBUG\033[0m] Initiating new coding agent with prompt and {len(files)} files (Instance: {instance_id}), model: {model_name}, ui_model: {ui_model_name}, enable_thinking: {enable_thinking}")
+    logger.info(
+        f"[\033[91mDEBUG\033[0m] Initiating new coding agent with prompt and {len(files)} files (Instance: {instance_id}), model: {model_name}, ui_model: {ui_model_name}, enable_thinking: {enable_thinking}"
+    )
     client = await db.client
 
     # Get the account ID for this Clerk user using centralized helper
@@ -1048,14 +1231,14 @@ async def initiate_agent_with_files(
     try:
         from services.token_billing import get_user_token_status
         from utils.constants import TOKENS_PER_CONVERSATION_ESTIMATE, get_credits_from_tokens
-        
+
         token_status = await get_user_token_status(client, account_id)
-        
+
         # Check if user has enough tokens for a conversation
-        if token_status['plan'] != 'byok' and token_status['tokens_remaining'] < TOKENS_PER_CONVERSATION_ESTIMATE:
-            remaining_credits = token_status['credits_remaining']
+        if token_status["plan"] != "byok" and token_status["tokens_remaining"] < TOKENS_PER_CONVERSATION_ESTIMATE:
+            remaining_credits = token_status["credits_remaining"]
             needed_credits = get_credits_from_tokens(TOKENS_PER_CONVERSATION_ESTIMATE)
-            
+
             raise HTTPException(
                 status_code=402,  # Payment Required
                 detail={
@@ -1063,86 +1246,103 @@ async def initiate_agent_with_files(
                     "message": f"Insufficient credits to start conversation. You have {remaining_credits} credits remaining, but need at least {needed_credits} credits.",
                     "credits_remaining": remaining_credits,
                     "credits_needed": needed_credits,
-                    "current_plan": token_status['plan_name'],
-                    "upgrade_required": True
-                }
+                    "current_plan": token_status["plan_name"],
+                    "upgrade_required": True,
+                },
             )
-            
-        logger.info(f"✅ Token quota check passed for account {account_id}. Remaining: {token_status['tokens_remaining']} tokens ({token_status['credits_remaining']} credits)")
-        
+
+        logger.info(
+            f"✅ Token quota check passed for account {account_id}. Remaining: {token_status['tokens_remaining']} tokens ({token_status['credits_remaining']} credits)"
+        )
+
     except HTTPException:
-        raise  # Re-raise HTTP exceptions  
+        raise  # Re-raise HTTP exceptions
     except Exception as e:
-        logger.error(f"Error checking token quota for account {account_id}: {str(e)}")
+        logger.error(f"Error checking token quota for account {account_id}: {e!s}")
         # Don't block execution for quota check errors in case of system issues
-    
+
     # This is now a coding-only system - always use coding agent configuration
     agent_config = {
-        'name': 'Coding Agent',
-        'description': 'Specialized agent for webapp development with 100+ UI components',
-        'system_prompt': '',  # Will use get_coding_agent_prompt() from run.py
-        'configured_mcps': [],
+        "name": "Coding Agent",
+        "description": "Specialized agent for webapp development with 100+ UI components",
+        "system_prompt": "",  # Will use get_coding_agent_prompt() from run.py
+        "configured_mcps": [],
         # No agentpress_tools specified so all tools are enabled by default
-        'account_id': account_id
+        "account_id": account_id,
     }
-    logger.info(f"Using coding agent configuration with all development tools enabled")
+    logger.info("Using coding agent configuration with all development tools enabled")
 
     # Load and merge dashboard MCP preferences
     logger.info(f"Loading dashboard MCP preferences for account {account_id}")
+    mcp_profile_ids = []  # Capture profile IDs for Inngest (credentials decrypted at runtime)
     try:
         # Get user's MCP credential profiles that are set as default for dashboard
-        cred_profiles_result = await client.table('user_mcp_credential_profiles').select(
-            'profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard'
-        ).eq('user_id', account_id).eq('is_active', True).eq('is_default_for_dashboard', True).execute()
+        cred_profiles_result = (
+            await client.table("user_mcp_credential_profiles")
+            .select("profile_id, mcp_qualified_name, display_name, encrypted_config, is_default_for_dashboard")
+            .eq("user_id", account_id)
+            .eq("is_active", True)
+            .eq("is_default_for_dashboard", True)
+            .execute()
+        )
 
-        logger.info(f"[MCP DEBUG initiate] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}")
+        logger.info(
+            f"[MCP DEBUG initiate] Credential profiles query result: {len(cred_profiles_result.data) if cred_profiles_result.data else 0} profiles found for account {account_id}"
+        )
 
         if cred_profiles_result.data:
+            mcp_profile_ids = [p["profile_id"] for p in cred_profiles_result.data]
             dashboard_configured_mcps = []
 
             for profile in cred_profiles_result.data:
-                logger.info(f"[MCP DEBUG initiate] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}")
+                logger.info(
+                    f"[MCP DEBUG initiate] Processing profile: {profile['profile_id']}, qualified_name: {profile['mcp_qualified_name']}"
+                )
 
                 # Decrypt and parse the configuration
                 try:
-                    decrypted_config = await asyncio.to_thread(
-                        decrypt_data, profile['encrypted_config']
-                    )
+                    decrypted_config = await asyncio.to_thread(decrypt_data, profile["encrypted_config"])
                     config_data = json.loads(decrypted_config)
                     logger.info(f"[MCP DEBUG initiate] Decrypted config keys: {list(config_data.keys())}")
-                    logger.info(f"[MCP DEBUG initiate] connected_account_id present: {'connected_account_id' in config_data}")
+                    logger.info(
+                        f"[MCP DEBUG initiate] connected_account_id present: {'connected_account_id' in config_data}"
+                    )
                 except Exception as e:
                     logger.error(f"Failed to decrypt config for profile {profile['profile_id']}: {e}")
                     config_data = {}
 
                 # Remove provider prefix (e.g., "composio:") for the server key used in tool names
-                clean_server_name = profile['mcp_qualified_name']
-                if ':' in clean_server_name:
-                    clean_server_name = clean_server_name.split(':', 1)[1]
+                clean_server_name = profile["mcp_qualified_name"]
+                if ":" in clean_server_name:
+                    clean_server_name = clean_server_name.split(":", 1)[1]
 
                 # Add each credential profile as a configured MCP
                 mcp_config = {
-                    'name': clean_server_name,
-                    'qualifiedName': clean_server_name,
-                    'provider': 'composio',
-                    'config': config_data,
-                    'enabledTools': [],  # Enable all tools by default
-                    'instructions': f"Use {profile['display_name']} integration",
-                    'isCustom': False
+                    "name": clean_server_name,
+                    "qualifiedName": clean_server_name,
+                    "provider": "composio",
+                    "config": config_data,
+                    "enabledTools": [],  # Enable all tools by default
+                    "instructions": f"Use {profile['display_name']} integration",
+                    "isCustom": False,
                 }
                 logger.info(f"[MCP DEBUG initiate] Created MCP config for {clean_server_name}")
                 dashboard_configured_mcps.append(mcp_config)
 
             # Merge dashboard MCPs with coding agent configuration
-            logger.info(f"[MCP DEBUG initiate] Merging {len(dashboard_configured_mcps)} dashboard MCPs with coding agent config")
-            agent_config['configured_mcps'] = dashboard_configured_mcps
-            logger.info(f"[MCP DEBUG initiate] Final agent_config['configured_mcps'] has {len(dashboard_configured_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in dashboard_configured_mcps]}")
+            logger.info(
+                f"[MCP DEBUG initiate] Merging {len(dashboard_configured_mcps)} dashboard MCPs with coding agent config"
+            )
+            agent_config["configured_mcps"] = dashboard_configured_mcps
+            logger.info(
+                f"[MCP DEBUG initiate] Final agent_config['configured_mcps'] has {len(dashboard_configured_mcps)} MCPs: {[mcp.get('qualifiedName') for mcp in dashboard_configured_mcps]}"
+            )
         else:
             logger.info(f"No dashboard MCP credentials found for account {account_id}")
     except Exception as e:
-        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {str(e)}")
+        logger.error(f"Error loading dashboard MCP preferences for account {account_id}: {e!s}")
         # Continue without MCPs if there's an error
-    
+
     can_use, model_message, allowed_models = await can_use_model(client, account_id, model_name)
     if not can_use:
         raise HTTPException(status_code=403, detail={"message": model_message, "allowed_models": allowed_models})
@@ -1154,72 +1354,98 @@ async def initiate_agent_with_files(
     try:
         # 1. Create Project
         placeholder_name = f"{prompt[:30]}..." if len(prompt) > 30 else prompt
-        project = await client.table('projects').insert({
-            "project_id": str(uuid.uuid4()), "user_id": account_id, "name": placeholder_name,
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "app_type": app_type,  # Store app_type in project for later retrieval
-            "model_name": ui_model_name  # Store short model ID for UI persistence (not resolved ID)
-        }).execute()
-        project_id = project.data[0]['project_id']
+        project = (
+            await client.table("projects")
+            .insert(
+                {
+                    "project_id": str(uuid.uuid4()),
+                    "user_id": account_id,
+                    "name": placeholder_name,
+                    "created_at": datetime.now(UTC).isoformat(),
+                    "app_type": app_type,  # Store app_type in project for later retrieval
+                    "model_name": ui_model_name,  # Store short model ID for UI persistence (not resolved ID)
+                }
+            )
+            .execute()
+        )
+        project_id = project.data[0]["project_id"]
         logger.info(f"Created new project: {project_id}")
 
         # 2. Create Sandbox
         sandbox_id = None
         try:
-          # Select appropriate snapshot based on app_type
-          if app_type == 'mobile':
-              snapshot_name = config.MOBILE_SANDBOX_SNAPSHOT_NAME
-              logger.info(f"Using mobile snapshot for app_type: {app_type}")
-          else:
-              snapshot_name = config.SANDBOX_SNAPSHOT_NAME
-              logger.info(f"Using web snapshot for app_type: {app_type}")
-          
-          sandbox = await create_sandbox_from_snapshot(
-              project_id,
-              snapshot=snapshot_name,
-              account_id=account_id,
-          )
-          sandbox_id = sandbox.id
-          logger.info(f"Created new sandbox {sandbox_id} for project {project_id} with snapshot {snapshot_name}")
-          
-          # Get preview links - use appropriate port based on app_type
-          if app_type == 'mobile':
-              dev_server_link = await sandbox.get_preview_link(8081)  # Expo Metro bundler
-              logger.info(f"Using mobile dev server port 8081 for app_type: {app_type}")
-          else:
-              dev_server_link = await sandbox.get_preview_link(3000)  # Next.js dev server
-              logger.info(f"Using web dev server port 3000 for app_type: {app_type}")
-          
-          api_server_link = await sandbox.get_preview_link(8000)  # FastAPI/Django server
-          dev_server_url = dev_server_link.url if hasattr(dev_server_link, 'url') else str(dev_server_link).split("url='")[1].split("'")[0]
-          api_server_url = api_server_link.url if hasattr(api_server_link, 'url') else str(api_server_link).split("url='")[1].split("'")[0]
-          token = None
-          if hasattr(dev_server_link, 'token'):
-              token = dev_server_link.token
-          elif "token='" in str(dev_server_link):
-              token = str(dev_server_link).split("token='")[1].split("'")[0]
-        except Exception as e:
-            logger.error(f"Error creating sandbox: {str(e)}")
-            await client.table('projects').delete().eq('project_id', project_id).execute()
-            if sandbox_id:
-              try: await delete_sandbox(sandbox_id)
-              except Exception as e: pass
-            raise Exception("Failed to create sandbox")
+            # Select appropriate snapshot based on app_type
+            if app_type == "mobile":
+                snapshot_name = config.MOBILE_SANDBOX_SNAPSHOT_NAME
+                logger.info(f"Using mobile snapshot for app_type: {app_type}")
+            else:
+                snapshot_name = config.SANDBOX_SNAPSHOT_NAME
+                logger.info(f"Using web snapshot for app_type: {app_type}")
 
+            sandbox = await create_sandbox_from_snapshot(
+                project_id,
+                snapshot=snapshot_name,
+                account_id=account_id,
+            )
+            sandbox_id = sandbox.id
+            logger.info(f"Created new sandbox {sandbox_id} for project {project_id} with snapshot {snapshot_name}")
+
+            # Get preview links - use appropriate port based on app_type
+            if app_type == "mobile":
+                dev_server_link = await sandbox.get_preview_link(8081)  # Expo Metro bundler
+                logger.info(f"Using mobile dev server port 8081 for app_type: {app_type}")
+            else:
+                dev_server_link = await sandbox.get_preview_link(3000)  # Next.js dev server
+                logger.info(f"Using web dev server port 3000 for app_type: {app_type}")
+
+            api_server_link = await sandbox.get_preview_link(8000)  # FastAPI/Django server
+            dev_server_url = (
+                dev_server_link.url
+                if hasattr(dev_server_link, "url")
+                else str(dev_server_link).split("url='")[1].split("'")[0]
+            )
+            api_server_url = (
+                api_server_link.url
+                if hasattr(api_server_link, "url")
+                else str(api_server_link).split("url='")[1].split("'")[0]
+            )
+            token = None
+            if hasattr(dev_server_link, "token"):
+                token = dev_server_link.token
+            elif "token='" in str(dev_server_link):
+                token = str(dev_server_link).split("token='")[1].split("'")[0]
+        except Exception as e:
+            logger.error(f"Error creating sandbox: {e!s}")
+            await client.table("projects").delete().eq("project_id", project_id).execute()
+            if sandbox_id:
+                with contextlib.suppress(Exception):
+                    await delete_sandbox(sandbox_id)
+            raise Exception("Failed to create sandbox") from e
 
         # Update project with sandbox info
-        update_result = await client.table('projects').update({
-            'sandbox': {
-                'id': sandbox_id, 'dev_server_url': dev_server_url,
-                'api_server_url': api_server_url, 'token': token
-            }
-        }).eq('project_id', project_id).execute()
+        update_result = (
+            await client.table("projects")
+            .update(
+                {
+                    "sandbox": {
+                        "id": sandbox_id,
+                        "dev_server_url": dev_server_url,
+                        "api_server_url": api_server_url,
+                        "token": token,
+                    }
+                }
+            )
+            .eq("project_id", project_id)
+            .execute()
+        )
 
         if not update_result.data:
             logger.error(f"Failed to update project {project_id} with new sandbox {sandbox_id}")
             if sandbox_id:
-              try: await delete_sandbox(sandbox_id)
-              except Exception as e: logger.error(f"Error deleting sandbox: {str(e)}")
+                try:
+                    await delete_sandbox(sandbox_id)
+                except Exception as e:
+                    logger.error(f"Error deleting sandbox: {e!s}")
             raise Exception("Database update failed")
 
         # 3. Create Thread
@@ -1227,7 +1453,7 @@ async def initiate_agent_with_files(
             "thread_id": str(uuid.uuid4()),
             "project_id": project_id,
             "user_id": account_id,
-            "created_at": datetime.now(timezone.utc).isoformat()
+            "created_at": datetime.now(UTC).isoformat(),
         }
 
         structlog.contextvars.bind_contextvars(
@@ -1236,8 +1462,8 @@ async def initiate_agent_with_files(
             account_id=account_id,
         )
 
-        thread = await client.table('threads').insert(thread_data).execute()
-        thread_id = thread.data[0]['thread_id']
+        thread = await client.table("threads").insert(thread_data).execute()
+        thread_id = thread.data[0]["thread_id"]
         logger.info(f"Created new thread: {thread_id}")
 
         # Trigger Background Naming Task
@@ -1251,32 +1477,34 @@ async def initiate_agent_with_files(
                 if file.filename and not is_image_file(file):
                     raise HTTPException(
                         status_code=400,
-                        detail=f"Only image files are allowed. Received file: {file.filename} with content type: {file.content_type}"
+                        detail=f"Only image files are allowed. Received file: {file.filename} with content type: {file.content_type}",
                     )
-            
+
             async def upload_and_verify_file(file):
-                """Helper function to handle one file's upload and verification."""
+                """Handle one file's upload and verification."""
                 if not file.filename:
                     return None, file.filename or "unnamed_file"
-                
+
                 try:
-                    safe_filename = file.filename.replace('/', '_').replace('\\', '_')
+                    safe_filename = file.filename.replace("/", "_").replace("\\", "_")
                     # Use correct workspace path based on app_type
-                    workspace_dir = "cheatcode-mobile" if app_type == 'mobile' else "cheatcode-app"
+                    workspace_dir = "cheatcode-mobile" if app_type == "mobile" else "cheatcode-app"
                     target_path = f"/workspace/{workspace_dir}/{safe_filename}"
                     logger.info(f"Attempting to upload {safe_filename} to {target_path} in sandbox {sandbox_id}")
                     content = await file.read()
                     upload_successful = False
-                    
+
                     try:
-                        if hasattr(sandbox, 'fs') and hasattr(sandbox.fs, 'upload_file'):
+                        if hasattr(sandbox, "fs") and hasattr(sandbox.fs, "upload_file"):
                             await sandbox.fs.upload_file(content, target_path)
                             logger.debug(f"Called sandbox.fs.upload_file for {target_path}")
                             upload_successful = True
                         else:
                             raise NotImplementedError("Suitable upload method not found on sandbox object.")
                     except Exception as upload_error:
-                        logger.error(f"Error during sandbox upload call for {safe_filename}: {str(upload_error)}", exc_info=True)
+                        logger.error(
+                            f"Error during sandbox upload call for {safe_filename}: {upload_error!s}", exc_info=True
+                        )
                         return None, safe_filename
 
                     if upload_successful:
@@ -1285,28 +1513,34 @@ async def initiate_agent_with_files(
                             await asyncio.sleep(0.2)
                             try:
                                 await sandbox.fs.stat(target_path)
-                                logger.info(f"Successfully uploaded and verified file {safe_filename} to sandbox path {target_path}")
+                                logger.info(
+                                    f"Successfully uploaded and verified file {safe_filename} to sandbox path {target_path}"
+                                )
                                 return target_path, None
-                            except Exception as stat_error:
+                            except Exception:
                                 # File doesn't exist or stat failed
-                                logger.error(f"Verification failed for {safe_filename}: File not found in {parent_dir} after upload attempt.")
+                                logger.error(
+                                    f"Verification failed for {safe_filename}: File not found in {target_path} after upload attempt."
+                                )
                                 return None, safe_filename
                         except Exception as verify_error:
-                            logger.error(f"Error verifying file {safe_filename} after upload: {str(verify_error)}", exc_info=True)
+                            logger.error(
+                                f"Error verifying file {safe_filename} after upload: {verify_error!s}", exc_info=True
+                            )
                             return None, safe_filename
                     else:
                         return None, safe_filename
-                        
+
                 except Exception as file_error:
-                    logger.error(f"Error processing file {file.filename}: {str(file_error)}", exc_info=True)
+                    logger.error(f"Error processing file {file.filename}: {file_error!s}", exc_info=True)
                     return None, file.filename
                 finally:
                     await file.close()
-            
+
             # Create upload tasks for all files and run them in parallel
             upload_tasks = [upload_and_verify_file(file) for file in files]
             results = await asyncio.gather(*upload_tasks, return_exceptions=True)
-            
+
             # Process results
             successful_uploads = []
             failed_uploads = []
@@ -1323,35 +1557,59 @@ async def initiate_agent_with_files(
 
             if successful_uploads:
                 message_content += "\n\n" if message_content else ""
-                for file_path in successful_uploads: message_content += f"[Uploaded File: {file_path}]\n"
+                for file_path in successful_uploads:
+                    message_content += f"[Uploaded File: {file_path}]\n"
             if failed_uploads:
                 message_content += "\n\nThe following files failed to upload:\n"
-                for failed_file in failed_uploads: message_content += f"- {failed_file}\n"
+                for failed_file in failed_uploads:
+                    message_content += f"- {failed_file}\n"
 
         # 5. Add initial user message to thread
         message_id = str(uuid.uuid4())
         message_payload = {"role": "user", "content": message_content}
-        await client.table('messages').insert({
-            "message_id": message_id, "thread_id": thread_id, "type": "user",
-            "is_llm_message": True, "content": json.dumps(message_payload),
-            "created_at": datetime.now(timezone.utc).isoformat()
-        }).execute()
+        await (
+            client.table("messages")
+            .insert(
+                {
+                    "message_id": message_id,
+                    "thread_id": thread_id,
+                    "type": "user",
+                    "is_llm_message": True,
+                    "content": json.dumps(message_payload),
+                    "created_at": datetime.now(UTC).isoformat(),
+                }
+            )
+            .execute()
+        )
 
         # Message usage tracking now handled by real-time token consumption in response_processor
 
         # 6. Start Agent Run
-        agent_run = await client.table('agent_runs').insert({
-            "thread_id": thread_id, "status": "running",
-            "started_at": datetime.now(timezone.utc).isoformat(),
-            "metadata": {
-                "model_name": model_name,
-                "enable_thinking": enable_thinking,
-                "reasoning_effort": reasoning_effort,
-                "enable_context_manager": enable_context_manager,
-                "triggering_message_id": message_id
-            }
-        }).execute()
-        agent_run_id = agent_run.data[0]['run_id']
+        request_id = str(uuid.uuid4())
+
+        agent_run = (
+            await client.table("agent_runs")
+            .insert(
+                {
+                    "thread_id": thread_id,
+                    "status": "running",
+                    "started_at": datetime.now(UTC).isoformat(),
+                    "metadata": {
+                        "model_name": model_name,
+                        "enable_thinking": enable_thinking,
+                        "reasoning_effort": reasoning_effort,
+                        "enable_context_manager": enable_context_manager,
+                        "triggering_message_id": message_id,
+                        "stream": stream,
+                        "app_type": app_type,
+                        "request_id": request_id,
+                        "mcp_profile_ids": mcp_profile_ids,
+                    },
+                }
+            )
+            .execute()
+        )
+        agent_run_id = agent_run.data[0]["run_id"]
         logger.info(f"Created new agent run: {agent_run_id}")
         structlog.contextvars.bind_contextvars(
             agent_run_id=agent_run_id,
@@ -1362,44 +1620,59 @@ async def initiate_agent_with_files(
         try:
             await redis.set(instance_key, "running", ex=redis.REDIS_KEY_TTL)
         except Exception as e:
-            logger.warning(f"Failed to register agent run in Redis ({instance_key}): {str(e)}")
+            logger.warning(f"Failed to register agent run in Redis ({instance_key}): {e!s}")
 
-        # Queue background task for this agent run too
-        request_id = str(uuid.uuid4())
-        logger.info(f"Queuing background task for agent run {agent_run_id} from initiate endpoint")
-        
+        # Resolve priority based on user plan for queue ordering
+        plan_priority = 0
         try:
-            run_agent_background.run_agent_background.send(
-                agent_run_id=agent_run_id,
-                thread_id=thread_id,
-                instance_id=instance_id,
-                project_id=project_id,
-                model_name=model_name,
-                enable_thinking=enable_thinking,
-                reasoning_effort=reasoning_effort,
-                stream=stream,
-                enable_context_manager=enable_context_manager,
-                agent_config=agent_config,
-                request_id=request_id,
-                app_type=app_type
+            user_plan_data = await client.table("users").select("plan_id").eq("id", account_id).single().execute()
+            plan_id = (user_plan_data.data or {}).get("plan_id", "free")
+            priority_map = {"premium": 300, "pro": 100, "byok": 200, "free": 0}
+            plan_priority = priority_map.get(plan_id, 0)
+        except Exception:
+            plan_priority = 0
+
+        # Send Inngest event to trigger agent execution
+        logger.info(f"Sending Inngest event for agent run {agent_run_id} from initiate endpoint")
+
+        try:
+            await inngest_client.send(
+                inngest_lib.Event(
+                    name="agent/run.requested",
+                    data={
+                        "agent_run_id": agent_run_id,
+                        "thread_id": thread_id,
+                        "project_id": project_id,
+                        "instance_id": instance_id,
+                        "priority": plan_priority,
+                    },
+                )
             )
-            logger.info(f"Successfully queued background task for agent run {agent_run_id}")
+            logger.info(f"Successfully sent Inngest event for agent run {agent_run_id}")
         except Exception as e:
-            logger.error(f"Failed to queue background task for agent run {agent_run_id}: {e}")
+            logger.error(f"Failed to send Inngest event for agent run {agent_run_id}: {e}")
             # Update agent run status to failed
-            await client.table('agent_runs').update({
-                "status": "failed",
-                "error": f"Failed to queue background task: {str(e)}",
-                "completed_at": datetime.now(timezone.utc).isoformat()
-            }).eq('run_id', agent_run_id).execute()
-            raise HTTPException(status_code=500, detail=f"Failed to queue background task: {str(e)}")
+            await (
+                client.table("agent_runs")
+                .update(
+                    {
+                        "status": "failed",
+                        "error": f"Failed to trigger agent run: {e!s}",
+                        "completed_at": datetime.now(UTC).isoformat(),
+                    }
+                )
+                .eq("run_id", agent_run_id)
+                .execute()
+            )
+            raise HTTPException(status_code=500, detail=f"Failed to trigger agent run: {e!s}") from e
 
         return {"thread_id": thread_id, "agent_run_id": agent_run_id}
 
     except Exception as e:
-        logger.error(f"Error in agent initiation: {str(e)}\n{traceback.format_exc()}")
+        logger.error(f"Error in agent initiation: {e!s}\n{traceback.format_exc()}")
         # TODO: Clean up created project/thread if initiation fails mid-way
-        raise HTTPException(status_code=500, detail=f"Failed to initiate agent session: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to initiate agent session: {e!s}") from e
+
 
 # Custom agents
 

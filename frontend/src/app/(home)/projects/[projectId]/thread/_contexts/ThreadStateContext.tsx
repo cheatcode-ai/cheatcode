@@ -1,8 +1,12 @@
 'use client';
 
 import React, { createContext, useContext } from 'react';
-import { UnifiedMessage, Project, AgentStatus } from '../_types';
+import { type UnifiedMessage, type Project, type AgentStatus } from '../_types';
 import { useThreadData } from '../_hooks';
+import { type useThreadQuery } from '@/hooks/react-query/threads/use-threads';
+import { type useMessagesQuery } from '@/hooks/react-query/threads/use-messages';
+import { type useProjectQuery } from '@/hooks/react-query/threads/use-project';
+import { type useAgentRunsQuery } from '@/hooks/react-query/threads/use-agent-run';
 
 interface ThreadStateContextValue {
   // Core data
@@ -26,10 +30,10 @@ interface ThreadStateContextValue {
   initialLoadCompleted: boolean;
 
   // React Query objects for refetching
-  threadQuery: any;
-  messagesQuery: any;
-  projectQuery: any;
-  agentRunsQuery: any;
+  threadQuery: ReturnType<typeof useThreadQuery>;
+  messagesQuery: ReturnType<typeof useMessagesQuery>;
+  projectQuery: ReturnType<typeof useProjectQuery>;
+  agentRunsQuery: ReturnType<typeof useAgentRunsQuery>;
 }
 
 const ThreadStateContext = createContext<ThreadStateContextValue | null>(null);
@@ -48,7 +52,11 @@ interface ThreadStateProviderProps {
   projectId: string;
 }
 
-export function ThreadStateProvider({ children, threadId, projectId }: ThreadStateProviderProps) {
+export function ThreadStateProvider({
+  children,
+  threadId,
+  projectId,
+}: ThreadStateProviderProps) {
   const {
     messages,
     setMessages,

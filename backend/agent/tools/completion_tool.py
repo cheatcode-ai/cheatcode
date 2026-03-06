@@ -1,24 +1,23 @@
-from agentpress.tool import Tool, ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
 from agentpress.thread_manager import ThreadManager
-from typing import Dict, List
+from agentpress.tool import SchemaType, Tool, ToolResult, ToolSchema, XMLNodeMapping, XMLTagSchema
+
 
 class CompletionTool(Tool):
     """Tool for signaling task completion."""
 
-    def __init__(self, thread_manager: ThreadManager, app_type: str = 'web'):
+    def __init__(self, thread_manager: ThreadManager, app_type: str = "web"):
         super().__init__()
         self.thread_manager = thread_manager
         self.app_type = app_type
 
-    def get_schemas(self) -> Dict[str, List[ToolSchema]]:
+    def get_schemas(self) -> dict[str, list[ToolSchema]]:
         """Override base class to provide dynamic schemas based on app_type."""
         return self.get_tool_schemas()
-    
-    def get_tool_schemas(self) -> Dict[str, List[ToolSchema]]:
+
+    def get_tool_schemas(self) -> dict[str, list[ToolSchema]]:
         """Generate dynamic tool schemas based on app_type context."""
-        
         # Determine context-appropriate examples and descriptions
-        if self.app_type == 'mobile':
+        if self.app_type == "mobile":
             # Mobile React Native examples
             completion_example = "Successfully built the mobile fitness tracker app with navigation tabs"
             description_context = "Signal that the current mobile app task has been completed successfully. Use this when all requested Expo/React Native work is finished and the app is ready for preview."
@@ -44,39 +43,33 @@ class CompletionTool(Tool):
                                 "message": {
                                     "type": "string",
                                     "description": "Optional completion message summarizing what was accomplished",
-                                    "default": "Task completed successfully"
+                                    "default": "Task completed successfully",
                                 }
                             },
-                            "required": []
-                        }
-                    }
-                }
+                            "required": [],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
                 schema={},
                 xml_schema=XMLTagSchema(
                     tag_name="complete",
-                    mappings=[
-                        XMLNodeMapping(param_name="message", node_type="content", path=".", required=False)
-                    ],
-                    example=f'''
+                    mappings=[XMLNodeMapping(param_name="message", node_type="content", path=".", required=False)],
+                    example=f"""
 <function_calls>
 <invoke name="complete">
 <parameter name="message">{completion_example}</parameter>
 </invoke>
 </function_calls>
-'''
-                )
-            )
+""",
+                ),
+            ),
         ]
 
         return schemas
 
-
     async def complete(self, message: str = "Task completed successfully") -> ToolResult:
         """Signal task completion."""
-        return ToolResult(
-            success=True,
-            output=f"Task completion signaled: {message}"
-        ) 
+        return ToolResult(success=True, output=f"Task completion signaled: {message}")

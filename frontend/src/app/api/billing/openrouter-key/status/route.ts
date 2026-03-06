@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { auth } from '@clerk/nextjs/server';
 import { BACKEND_URL } from '@/lib/api/server-config';
 
@@ -6,18 +6,21 @@ export async function GET(_request: NextRequest) {
   try {
     // Get user authentication from Clerk
     const { userId } = await auth();
-    
+
     if (!userId) {
       return NextResponse.json(
         { error: 'Authentication required' },
-        { status: 401 }
+        { status: 401 },
       );
     }
 
     // Forward request to backend with account_id as query param
-    const backendUrl = new URL('/api/billing/openrouter-key/status', BACKEND_URL);
+    const backendUrl = new URL(
+      '/api/billing/openrouter-key/status',
+      BACKEND_URL,
+    );
     backendUrl.searchParams.set('account_id', userId);
-    
+
     const response = await fetch(backendUrl.toString(), {
       method: 'GET',
       headers: {
@@ -26,17 +29,18 @@ export async function GET(_request: NextRequest) {
     });
 
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({ error: 'Backend error' }));
+      const errorData = await response
+        .json()
+        .catch(() => ({ error: 'Backend error' }));
       return NextResponse.json(errorData, { status: response.status });
     }
 
     const data = await response.json();
     return NextResponse.json(data);
-
-  } catch (error) {
+  } catch {
     return NextResponse.json(
       { error: 'Internal server error' },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

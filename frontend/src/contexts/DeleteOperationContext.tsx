@@ -164,7 +164,7 @@ export function DeleteOperationProvider({
           }, 100);
         }
       }, 50);
-    } catch (error) {
+    } catch {
       // Reset states on error
       document.body.style.pointerEvents = 'auto';
       isOperationInProgress.current = false;

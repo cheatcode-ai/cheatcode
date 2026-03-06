@@ -1,9 +1,10 @@
 import asyncio
+
 import redis.asyncio as redis_py
-from utils.logger import logger
-from typing import List, Any, Optional
-from utils.retry import retry
+
 from utils.config import config
+from utils.logger import logger
+from utils.retry import retry
 
 # Simple Redis setup using redis-py for all operations with connection pooling
 redis_client: redis_py.Redis | None = None
@@ -12,13 +13,8 @@ _initialized = False
 _init_lock = asyncio.Lock()
 
 
-
-
 # Constants
 REDIS_KEY_TTL = 3600 * 24  # 24 hour TTL as safety mechanism
-
-
-
 
 
 async def initialize_async():
@@ -31,32 +27,33 @@ async def initialize_async():
 
         # Get Redis configuration from centralized config
         redis_url = config.REDIS_URL
-        
+
         if not redis_url:
             raise ValueError("REDIS_URL environment variable is required")
 
-        logger.info(f"Initializing Redis client...")
+        logger.info("Initializing Redis client...")
         logger.info(f"- Redis URL: {redis_url[:25]}...")
 
         # Handle Upstash Redis URLs specially
         if "upstash.io" in redis_url:
             logger.info("Detected Upstash Redis - using direct redis-py connection")
-            
+
             # Parse Redis URL to extract connection parameters
             # Format: rediss://default:password@host:port
             import urllib.parse
+
             parsed = urllib.parse.urlparse(redis_url)
-            
+
             host = parsed.hostname
             port = parsed.port or 6379
             password = parsed.password
             use_ssl = parsed.scheme == "rediss"
-            
+
             logger.info(f"- Host: {host}")
             logger.info(f"- Port: {port}")
             logger.info(f"- SSL: {use_ssl}")
-            logger.info(f"- Using password-only authentication (no username)")
-            
+            logger.info("- Using password-only authentication (no username)")
+
             # Create redis-py client with explicit parameters (no username for Upstash)
             # NOTE: Do NOT pass username parameter to Redis client for Upstash
             # Even though URL contains "default" username, Upstash only supports password auth
@@ -65,38 +62,38 @@ async def initialize_async():
                 port=port,
                 password=password,  # Only password - no username parameter
                 ssl=use_ssl,
-                ssl_cert_reqs=None,  # Don't verify SSL certificates for Upstash
+                ssl_cert_reqs="required",  # Verify SSL certificates (Upstash uses publicly trusted certs)
                 decode_responses=True,  # Enable for easier string handling
-                socket_connect_timeout=10,   # 10 seconds (optimized from 120)
-                socket_timeout=15,           # 15 seconds (optimized from 120)
-                retry_on_timeout=True,       # Retry on timeout
-                health_check_interval=30,    # Health check every 30 seconds (optimized from 60)
-                max_connections=128,         # Connection pool size (increased from 50)
-                socket_keepalive=True,       # Enable TCP keepalive
-                socket_keepalive_options={   # TCP keepalive options
-                    'TCP_KEEPIDLE': 60,
-                    'TCP_KEEPINTVL': 10,
-                    'TCP_KEEPCNT': 3
-                }
+                socket_connect_timeout=10,  # 10 seconds (optimized from 120)
+                socket_timeout=15,  # 15 seconds (optimized from 120)
+                retry_on_timeout=True,  # Retry on timeout
+                health_check_interval=30,  # Health check every 30 seconds (optimized from 60)
+                max_connections=128,  # Connection pool size (increased from 50)
+                socket_keepalive=True,  # Enable TCP keepalive
+                socket_keepalive_options={  # TCP keepalive options
+                    "TCP_KEEPIDLE": 60,
+                    "TCP_KEEPINTVL": 10,
+                    "TCP_KEEPCNT": 3,
+                },
             )
-            
 
         else:
             # Create explicit connection pool for better control (following Suna pattern)
             import urllib.parse
+
             parsed = urllib.parse.urlparse(redis_url)
 
             connection_pool = redis_py.ConnectionPool(
-                host=parsed.hostname or 'redis',
+                host=parsed.hostname or "redis",
                 port=parsed.port or 6379,
                 password=parsed.password,
-                decode_responses=True,       # Decode bytes to strings automatically
-                socket_timeout=15,           # 15 seconds socket timeout
-                socket_connect_timeout=10,   # 10 seconds connection timeout
-                socket_keepalive=True,       # Enable TCP keepalive
-                retry_on_timeout=True,       # Retry on timeout
-                health_check_interval=30,    # Health check every 30 seconds
-                max_connections=128          # Connection pool size
+                decode_responses=True,  # Decode bytes to strings automatically
+                socket_timeout=15,  # 15 seconds socket timeout
+                socket_connect_timeout=10,  # 10 seconds connection timeout
+                socket_keepalive=True,  # Enable TCP keepalive
+                retry_on_timeout=True,  # Retry on timeout
+                health_check_interval=30,  # Health check every 30 seconds
+                max_connections=128,  # Connection pool size
             )
 
             # Create Redis client from connection pool
@@ -121,7 +118,7 @@ async def close():
         try:
             logger.info("Closing Redis connection")
             await asyncio.wait_for(redis_client.aclose(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Redis client close timeout, forcing close")
         except Exception as e:
             logger.warning(f"Error closing Redis client: {e}")
@@ -131,7 +128,7 @@ async def close():
     if connection_pool:
         try:
             await asyncio.wait_for(connection_pool.aclose(), timeout=5.0)
-        except asyncio.TimeoutError:
+        except TimeoutError:
             logger.warning("Redis pool close timeout, forcing close")
         except Exception as e:
             logger.warning(f"Error closing Redis pool: {e}")
@@ -147,6 +144,8 @@ async def get_client():
     global redis_client, _initialized
     if not _initialized:
         await retry(lambda: initialize_async())
+    if redis_client is None:
+        raise RuntimeError("Redis client is None after initialization — check REDIS_URL and connectivity")
     return redis_client
 
 
@@ -162,18 +161,17 @@ async def set_value(key: str, value: str, ttl: int = REDIS_KEY_TTL):
     return await client.set(key, value, ex=ttl)
 
 
-async def set(key: str, value: str, ex: int = None, nx: bool = False):
+async def set(key: str, value: str, ex: int | None = None, nx: bool = False):  # noqa: A001
     """Set a value in Redis with Redis-style parameters for compatibility."""
     client = await get_client()
     ttl = ex if ex is not None else REDIS_KEY_TTL
     return await client.set(key, value, ex=ttl, nx=nx)
 
 
-async def get_value(key: str) -> Optional[str]:
+async def get_value(key: str) -> str | None:
     """Get a value from Redis."""
     client = await get_client()
-    result = await client.get(key)
-    return result  # Already decoded since decode_responses=True
+    return await client.get(key)
 
 
 async def delete_key(key: str) -> bool:
@@ -216,7 +214,7 @@ async def add_to_list(key: str, value: str, ttl: int = REDIS_KEY_TTL):
         await client.expire(key, ttl)
 
 
-async def get_list(key: str, start: int = 0, end: int = -1) -> List[str]:
+async def get_list(key: str, start: int = 0, end: int = -1) -> list[str]:
     """Get values from a Redis list."""
     client = await get_client()
     return await client.lrange(key, start, end)
@@ -258,28 +256,36 @@ async def subscribe(channel: str):
 
 
 # Additional Redis operations used throughout the codebase
-async def keys(pattern: str) -> List[str]:
-    """Get keys matching a pattern. Use with caution in production."""
-    client = await get_client()
-    return await client.keys(pattern)
+async def keys(pattern: str) -> list[str]:
+    """Get keys matching a pattern. Delegates to scan_keys() for Upstash compatibility.
+
+    KEYS command errors on Upstash with 100K+ entries. This function
+    internally uses SCAN to avoid that issue.
+    """
+    if "upstash.io" in config.REDIS_URL:
+        logger.warning(
+            f"keys() called with pattern '{pattern}' on Upstash — "
+            "delegating to scan_keys(). Use scan_keys() directly for clarity."
+        )
+    return await scan_keys(pattern)
 
 
-async def scan_keys(pattern: str, count: int = 1000) -> List[str]:
+async def scan_keys(pattern: str, count: int = 1000) -> list[str]:
     """Efficiently scan for keys matching a pattern using SCAN instead of blocking KEYS."""
     client = await get_client()
     keys = []
     cursor = 0
-    
+
     while True:
         cursor, partial_keys = await client.scan(cursor=cursor, match=pattern, count=count)
         keys.extend(partial_keys)
         if cursor == 0:
             break
-    
+
     return keys
 
 
-async def lrange(key: str, start: int, end: int) -> List[str]:
+async def lrange(key: str, start: int, end: int) -> list[str]:
     """Get a range of elements from a list."""
     client = await get_client()
     return await client.lrange(key, start, end)
@@ -303,7 +309,7 @@ async def delete(key: str) -> int:
     return await client.delete(key)
 
 
-async def get(key: str) -> Optional[str]:
+async def get(key: str) -> str | None:
     """Get a value from Redis (alias for get_value)."""
     return await get_value(key)
 
@@ -321,12 +327,39 @@ async def create_pubsub():
 # Cache TTL for account_id lookups (1 hour)
 ACCOUNT_ID_CACHE_TTL = 3600
 
-async def get_account_id_cached(client, user_id: str) -> Optional[str]:
-    """
-    Get account_id for a Clerk user with Redis caching.
+# Process-local LRU cache for account_id lookups.
+# Avoids Redis GET on repeated requests within the same process.
+# TTL entries are stored as (value, expiry_monotonic).
+_local_account_id_cache: dict[str, tuple[str, float]] = {}
+_LOCAL_ACCOUNT_ID_TTL = 300  # 5 minutes local TTL
+_LOCAL_ACCOUNT_ID_MAX = 256  # max entries before eviction
 
-    This eliminates repeated RPC calls to get_account_id_for_clerk_user
-    which was identified as a critical N+1 query performance issue.
+
+def _local_cache_get(user_id: str) -> str | None:
+    """Get from local cache if present and not expired."""
+    import time
+
+    entry = _local_account_id_cache.get(user_id)
+    if entry and entry[1] > time.monotonic():
+        return entry[0]
+    if entry:
+        _local_account_id_cache.pop(user_id, None)
+    return None
+
+
+def _local_cache_set(user_id: str, account_id: str) -> None:
+    """Store in local cache with TTL. Evicts oldest if full."""
+    import time
+
+    if len(_local_account_id_cache) >= _LOCAL_ACCOUNT_ID_MAX:
+        # Evict the oldest entry (first inserted)
+        oldest_key = next(iter(_local_account_id_cache))
+        _local_account_id_cache.pop(oldest_key, None)
+    _local_account_id_cache[user_id] = (account_id, time.monotonic() + _LOCAL_ACCOUNT_ID_TTL)
+
+
+async def get_account_id_cached(client, user_id: str) -> str | None:
+    """Get account_id for a Clerk user with two-tier caching (local → Redis → DB).
 
     Args:
         client: Supabase client for RPC calls
@@ -334,46 +367,54 @@ async def get_account_id_cached(client, user_id: str) -> Optional[str]:
 
     Returns:
         Account ID string or None if not found
+
     """
     if not user_id:
         return None
 
+    # Tier 1: process-local cache (0 Redis commands)
+    local_hit = _local_cache_get(user_id)
+    if local_hit:
+        return local_hit
+
     cache_key = f"account_id:{user_id}"
 
     try:
-        # Try to get from cache first
+        # Tier 2: Redis cache (1 command)
         cached_account_id = await get_value(cache_key)
         if cached_account_id:
             logger.debug(f"Cache HIT for account_id: {user_id}")
+            _local_cache_set(user_id, cached_account_id)
             return cached_account_id
     except Exception as cache_error:
-        logger.debug(f"Cache miss or error for account_id {user_id}: {str(cache_error)}")
+        logger.debug(f"Cache miss or error for account_id {user_id}: {cache_error!s}")
 
     # Cache miss - fetch from database using centralized helper
     try:
         from utils.auth_utils import get_account_id_for_clerk_user
+
         account_id = await get_account_id_for_clerk_user(client, user_id)
         if not account_id:
             logger.debug(f"No account_id found for user {user_id}")
             return None
 
-        # Cache the result
+        # Populate both caches
+        _local_cache_set(user_id, account_id)
         try:
             await set_value(cache_key, account_id, ttl=ACCOUNT_ID_CACHE_TTL)
             logger.debug(f"Cached account_id for user {user_id}")
         except Exception as cache_set_error:
-            logger.warning(f"Failed to cache account_id: {str(cache_set_error)}")
+            logger.warning(f"Failed to cache account_id: {cache_set_error!s}")
 
         return account_id
 
     except Exception as e:
-        logger.error(f"Error fetching account_id for user {user_id}: {str(e)}")
+        logger.error(f"Error fetching account_id for user {user_id}: {e!s}")
         return None
 
 
 async def invalidate_account_id_cache(user_id: str) -> bool:
-    """
-    Invalidate the account_id cache for a user.
+    """Invalidate the account_id cache for a user.
 
     Call this when user-account mappings change.
 
@@ -382,14 +423,18 @@ async def invalidate_account_id_cache(user_id: str) -> bool:
 
     Returns:
         True if cache was invalidated, False otherwise
+
     """
+    # Clear local cache first (always succeeds)
+    _local_account_id_cache.pop(user_id, None)
+
     try:
         cache_key = f"account_id:{user_id}"
         await delete_key(cache_key)
         logger.debug(f"Invalidated account_id cache for user {user_id}")
         return True
     except Exception as e:
-        logger.warning(f"Failed to invalidate account_id cache for {user_id}: {str(e)}")
+        logger.warning(f"Failed to invalidate account_id cache for {user_id}: {e!s}")
         return False
 
 
@@ -402,8 +447,7 @@ MAX_RESPONSE_LIST_SIZE = 5000
 
 
 async def prune_response_list(response_list_key: str, max_size: int = MAX_RESPONSE_LIST_SIZE) -> int:
-    """
-    Prune a response list to keep only the most recent entries.
+    """Prune a response list to keep only the most recent entries.
 
     This prevents memory bloat for long-running agent sessions that
     generate many responses.
@@ -414,6 +458,7 @@ async def prune_response_list(response_list_key: str, max_size: int = MAX_RESPON
 
     Returns:
         Number of responses removed
+
     """
     try:
         client = await get_client()
@@ -432,19 +477,19 @@ async def prune_response_list(response_list_key: str, max_size: int = MAX_RESPON
         return trim_count
 
     except Exception as e:
-        logger.warning(f"Failed to prune response list {response_list_key}: {str(e)}")
+        logger.warning(f"Failed to prune response list {response_list_key}: {e!s}")
         return 0
 
 
 async def get_response_list_stats(response_list_key: str) -> dict:
-    """
-    Get statistics about a response list.
+    """Get statistics about a response list.
 
     Args:
         response_list_key: The Redis list key
 
     Returns:
         Dict with list statistics
+
     """
     try:
         client = await get_client()
@@ -455,16 +500,15 @@ async def get_response_list_stats(response_list_key: str) -> dict:
             "key": response_list_key,
             "length": list_length,
             "ttl_seconds": ttl,
-            "exceeds_max": list_length > MAX_RESPONSE_LIST_SIZE
+            "exceeds_max": list_length > MAX_RESPONSE_LIST_SIZE,
         }
     except Exception as e:
-        logger.warning(f"Failed to get stats for {response_list_key}: {str(e)}")
+        logger.warning(f"Failed to get stats for {response_list_key}: {e!s}")
         return {"key": response_list_key, "error": str(e)}
 
 
-async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:
-    """
-    Clean up orphaned agent run keys that may have been left behind.
+async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:  # noqa: ARG001
+    """Clean up orphaned agent run keys that may have been left behind.
 
     Scans for agent_run:* keys and removes those that:
     - Have no TTL set (orphaned)
@@ -475,6 +519,7 @@ async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:
 
     Returns:
         Dict with cleanup statistics
+
     """
     try:
         client = await get_client()
@@ -502,12 +547,12 @@ async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:
                         await client.expire(key, 3600 * 24)  # 24 hours
                         logger.debug(f"Set TTL on orphaned key: {key}")
             except Exception as key_error:
-                errors.append(f"{key}: {str(key_error)}")
+                errors.append(f"{key}: {key_error!s}")
 
         result = {
             "scanned_keys": scanned_count,
             "cleaned_keys": cleaned_count,
-            "errors": errors[:10] if errors else []  # Limit errors in response
+            "errors": errors[:10] if errors else [],  # Limit errors in response
         }
 
         if cleaned_count > 0:
@@ -516,19 +561,32 @@ async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:
         return result
 
     except Exception as e:
-        logger.error(f"Error during orphaned key cleanup: {str(e)}")
+        logger.error(f"Error during orphaned key cleanup: {e!s}")
         return {"error": str(e)}
 
 
 async def get_redis_memory_stats() -> dict:
-    """
-    Get Redis memory statistics for monitoring.
+    """Get Redis memory statistics for monitoring.
 
     Returns:
         Dict with memory usage information
+
     """
     try:
         client = await get_client()
+
+        # Upstash does not support INFO command — use DBSIZE as fallback
+        if "upstash.io" in config.REDIS_URL:
+            db_size = await client.dbsize()
+            return {
+                "provider": "upstash",
+                "db_size": db_size,
+                "used_memory_human": "N/A (Upstash serverless)",
+                "used_memory_peak_human": "N/A",
+                "maxmemory_human": "256MB (free tier)",
+                "mem_fragmentation_ratio": 0,
+            }
+
         info = await client.info("memory")
 
         return {
@@ -538,5 +596,5 @@ async def get_redis_memory_stats() -> dict:
             "mem_fragmentation_ratio": info.get("mem_fragmentation_ratio", 0),
         }
     except Exception as e:
-        logger.warning(f"Failed to get Redis memory stats: {str(e)}")
+        logger.warning(f"Failed to get Redis memory stats: {e!s}")
         return {"error": str(e)}

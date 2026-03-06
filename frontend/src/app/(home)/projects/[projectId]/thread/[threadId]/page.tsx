@@ -9,7 +9,7 @@ import {
   ThreadChatInput,
   ThreadBillingAlerts,
   ThreadDebugIndicator,
-  ThreadError
+  ThreadError,
 } from '../_components';
 import { useLayout } from '../_contexts/LayoutContext';
 import { Button } from '@/components/ui/button';
@@ -18,20 +18,26 @@ import { AgentLoader } from '@/components/thread/content/loader';
 
 // Dynamic imports for heavy components - improves initial load time
 const ThreadContentWrapper = dynamic(
-  () => import('../_components/ThreadContentWrapper').then(mod => ({ default: mod.ThreadContentWrapper })),
+  () =>
+    import('../_components/ThreadContentWrapper').then((mod) => ({
+      default: mod.ThreadContentWrapper,
+    })),
   {
     loading: () => (
       <div className="flex-1 flex items-center justify-center">
         <AgentLoader />
       </div>
     ),
-    ssr: false
-  }
+    ssr: false,
+  },
 );
 
 const ThreadAppPreview = dynamic(
-  () => import('../_components/ThreadAppPreview').then(mod => ({ default: mod.ThreadAppPreview })),
-  { ssr: false }
+  () =>
+    import('../_components/ThreadAppPreview').then((mod) => ({
+      default: mod.ThreadAppPreview,
+    })),
+  { ssr: false },
 );
 
 // SEO metadata is handled by Next.js metadata API in layout.tsx
@@ -56,7 +62,8 @@ export default function ThreadPage({
 }
 
 function ThreadPageContent() {
-  const { isLoading, error, initialLoadCompleted, messagesQuery } = useThreadState();
+  const { isLoading, error, initialLoadCompleted, messagesQuery } =
+    useThreadState();
   const { isSidePanelOpen, isMobile, toggleSidePanel } = useLayout();
 
   // Show content as soon as messages are available (progressive loading)
@@ -128,4 +135,3 @@ function ThreadPageContent() {
     </>
   );
 }
- 

@@ -2,7 +2,8 @@ import { useState, useCallback, useEffect, useMemo } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '@clerk/nextjs';
 import { getSandboxFileTree, getSandboxFileContent } from '@/lib/api';
-import { FileTreeNode, FileTreeResponse } from '@/lib/api/types';
+import { type FileTreeNode, type FileTreeResponse } from '@/lib/api/types';
+import { type FileTreeItem } from '../types/app-preview';
 
 interface UseFileExplorerProps {
   sandboxId?: string;
@@ -28,15 +29,20 @@ interface UseFileExplorerProps {
 export const useFileExplorer = ({
   sandboxId,
   isCodeTabActive,
-  appType = 'web'
+  appType = 'web',
 }: UseFileExplorerProps) => {
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(new Set());
+  const [expandedDirectories, setExpandedDirectories] = useState<Set<string>>(
+    new Set(),
+  );
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
 
   // Determine workspace path based on app type
-  const workspacePath = appType === 'mobile' ? '/workspace/cheatcode-mobile' : '/workspace/cheatcode-app';
+  const workspacePath =
+    appType === 'mobile'
+      ? '/workspace/cheatcode-mobile'
+      : '/workspace/cheatcode-app';
 
   // Main file tree query - single optimized API call
   const {
@@ -62,8 +68,11 @@ export const useFileExplorer = ({
     retry: 2,
   });
 
-  // Extract tree from response
-  const fileTree = fileTreeData?.tree ?? [];
+  // Extract tree from response - memoize to prevent new array reference on each render
+  const fileTree = useMemo(
+    () => fileTreeData?.tree ?? [],
+    [fileTreeData?.tree],
+  );
 
   // File content query
   const {
@@ -90,63 +99,78 @@ export const useFileExplorer = ({
   });
 
   // Prefetch adjacent files for faster navigation
-  const prefetchAdjacentFiles = useCallback(async (currentFile: string) => {
-    if (!sandboxId || !fileTree.length) return;
+  const prefetchAdjacentFiles = useCallback(
+    async (currentFile: string) => {
+      if (!sandboxId || !fileTree.length) return;
 
-    const token = await getToken();
-    if (!token) return;
+      const token = await getToken();
+      if (!token) return;
 
-    // Find siblings of the current file
-    const findSiblings = (nodes: FileTreeNode[], targetPath: string): FileTreeNode[] => {
-      for (const node of nodes) {
-        if (node.type === 'directory' && node.children) {
-          // Check if target is in this directory
-          const childPaths = node.children.map(c => c.path);
-          if (childPaths.includes(targetPath)) {
-            // Return sibling files (not directories)
-            return node.children.filter(c => c.type === 'file' && c.path !== targetPath);
+      // Find siblings of the current file
+      const findSiblings = (
+        nodes: FileTreeNode[],
+        targetPath: string,
+      ): FileTreeNode[] => {
+        for (const node of nodes) {
+          if (node.type === 'directory' && node.children) {
+            // Check if target is in this directory
+            const childPaths = node.children.map((c) => c.path);
+            if (childPaths.includes(targetPath)) {
+              // Return sibling files (not directories)
+              return node.children.filter(
+                (c) => c.type === 'file' && c.path !== targetPath,
+              );
+            }
+            // Recurse into subdirectories
+            const found = findSiblings(node.children, targetPath);
+            if (found.length) return found;
           }
-          // Recurse into subdirectories
-          const found = findSiblings(node.children, targetPath);
-          if (found.length) return found;
         }
+        // Check root level
+        const rootFiles = nodes.filter((n) => n.type === 'file');
+        if (rootFiles.some((f) => f.path === targetPath)) {
+          return rootFiles.filter((f) => f.path !== targetPath);
+        }
+        return [];
+      };
+
+      const siblings = findSiblings(fileTree, currentFile);
+
+      // Prefetch up to 3 sibling files
+      const filesToPrefetch = siblings.slice(0, 3);
+
+      for (const file of filesToPrefetch) {
+        queryClient.prefetchQuery({
+          queryKey: ['file-content-optimized', sandboxId, file.path, appType],
+          queryFn: async () => {
+            const fullPath = `${workspacePath}/${file.path}`;
+            const content = await getSandboxFileContent(
+              sandboxId,
+              fullPath,
+              token,
+            );
+            return typeof content === 'string' ? content : '[Binary file]';
+          },
+          staleTime: 2 * 60 * 1000,
+        });
       }
-      // Check root level
-      const rootFiles = nodes.filter(n => n.type === 'file');
-      if (rootFiles.some(f => f.path === targetPath)) {
-        return rootFiles.filter(f => f.path !== targetPath);
-      }
-      return [];
-    };
-
-    const siblings = findSiblings(fileTree, currentFile);
-
-    // Prefetch up to 3 sibling files
-    const filesToPrefetch = siblings.slice(0, 3);
-
-    for (const file of filesToPrefetch) {
-      queryClient.prefetchQuery({
-        queryKey: ['file-content-optimized', sandboxId, file.path, appType],
-        queryFn: async () => {
-          const fullPath = `${workspacePath}/${file.path}`;
-          const content = await getSandboxFileContent(sandboxId, fullPath, token);
-          return typeof content === 'string' ? content : '[Binary file]';
-        },
-        staleTime: 2 * 60 * 1000,
-      });
-    }
-  }, [sandboxId, fileTree, workspacePath, getToken, queryClient, appType]);
+    },
+    [sandboxId, fileTree, workspacePath, getToken, queryClient, appType],
+  );
 
   // Handle file selection with prefetching
-  const handleFileSelect = useCallback((filePath: string) => {
-    setSelectedFile(filePath);
-    // Prefetch adjacent files in the background
-    prefetchAdjacentFiles(filePath);
-  }, [prefetchAdjacentFiles]);
+  const handleFileSelect = useCallback(
+    (filePath: string) => {
+      setSelectedFile(filePath);
+      // Prefetch adjacent files in the background
+      prefetchAdjacentFiles(filePath);
+    },
+    [prefetchAdjacentFiles],
+  );
 
   // Handle directory toggle (expand/collapse)
   const handleDirectoryToggle = useCallback((directoryPath: string) => {
-    setExpandedDirectories(prev => {
+    setExpandedDirectories((prev) => {
       const newSet = new Set(prev);
       if (newSet.has(directoryPath)) {
         newSet.delete(directoryPath);
@@ -158,18 +182,22 @@ export const useFileExplorer = ({
   }, []);
 
   // Find first selectable file for auto-selection
-  const findFirstSelectableFile = useCallback((nodes: FileTreeNode[]): string | null => {
-    for (const node of nodes) {
-      if (node.type === 'file') {
-        return node.path;
+  const findFirstSelectableFile = useCallback(
+    (nodes: FileTreeNode[]): string | null => {
+      for (const node of nodes) {
+        if (node.type === 'file') {
+          return node.path;
+        }
+        if (node.type === 'directory' && node.children) {
+          // eslint-disable-next-line react-hooks/immutability
+          const found = findFirstSelectableFile(node.children);
+          if (found) return found;
+        }
       }
-      if (node.type === 'directory' && node.children) {
-        const found = findFirstSelectableFile(node.children);
-        if (found) return found;
-      }
-    }
-    return null;
-  }, []);
+      return null;
+    },
+    [],
+  );
 
   // Auto-select first file when tree loads
   useEffect(() => {
@@ -191,20 +219,26 @@ export const useFileExplorer = ({
 
   // Force refresh function
   const forceRefresh = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['file-tree-optimized', sandboxId] });
-    queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
+    queryClient.invalidateQueries({
+      queryKey: ['file-tree-optimized', sandboxId],
+    });
+    queryClient.invalidateQueries({
+      queryKey: ['file-content-optimized', sandboxId],
+    });
     setSelectedFile(null);
     setExpandedDirectories(new Set());
   }, [queryClient, sandboxId]);
 
   // Invalidate just file content (for when files are modified by agents)
   const invalidateFileContent = useCallback(() => {
-    queryClient.invalidateQueries({ queryKey: ['file-content-optimized', sandboxId] });
+    queryClient.invalidateQueries({
+      queryKey: ['file-content-optimized', sandboxId],
+    });
   }, [queryClient, sandboxId]);
 
   // Convert FileTreeNode[] to the format expected by the FileTree component
-  const processedFiles = useMemo(() => {
-    const convertNode = (node: FileTreeNode): any => ({
+  const processedFiles: FileTreeItem[] = useMemo(() => {
+    const convertNode = (node: FileTreeNode): FileTreeItem => ({
       name: node.name,
       type: node.type,
       path: node.path,
@@ -218,7 +252,8 @@ export const useFileExplorer = ({
   const displayContent = useMemo(() => {
     if (!fileContent) return '';
     if (typeof fileContent === 'string') return fileContent;
-    if (typeof fileContent === 'object') return JSON.stringify(fileContent, null, 2);
+    if (typeof fileContent === 'object')
+      return JSON.stringify(fileContent, null, 2);
     return '[Binary file - cannot display]';
   }, [fileContent]);
 

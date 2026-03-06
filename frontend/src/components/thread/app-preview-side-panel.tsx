@@ -1,11 +1,25 @@
 'use client';
 
 import { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Input } from "@/components/ui/input";
-import { X, Monitor, Tablet, Smartphone, RefreshCw, ExternalLink, Loader2, Download } from 'lucide-react';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { m, AnimatePresence } from 'motion/react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Input } from '@/components/ui/input';
+import {
+  X,
+  Monitor,
+  Tablet,
+  Smartphone,
+  RefreshCw,
+  ExternalLink,
+  Loader2,
+  Download,
+} from 'lucide-react';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAuth } from '@clerk/nextjs';
@@ -17,7 +31,10 @@ import { useModal } from '@/hooks/use-modal-store';
 import { threadStyles } from '@/lib/theme/thread-colors';
 
 // Import types
-import { AppPreviewSidePanelProps, MainTab } from './types/app-preview';
+import {
+  type AppPreviewSidePanelProps,
+  type MainTab,
+} from './types/app-preview';
 
 // Import hooks
 import { useDevServer } from './hooks/use-dev-server';
@@ -34,17 +51,19 @@ export function AppPreviewSidePanel({
   isOpen,
   onClose,
   project,
-  agentStatus
+  agentStatus,
 }: AppPreviewSidePanelProps) {
   const [activeMainTab, setActiveMainTab] = useState<MainTab>('preview');
   const [isDownloading, setIsDownloading] = useState(false);
-  const [selectedPlatform, setSelectedPlatform] = useState<'ios' | 'android'>('ios');
+  const [selectedPlatform, setSelectedPlatform] = useState<'ios' | 'android'>(
+    'ios',
+  );
   const isMobile = useIsMobile();
   const { getToken } = useAuth();
 
   // Custom hooks
   const previewUrl = usePreviewUrl({
-    sandboxId: project?.sandbox?.id
+    sandboxId: project?.sandbox?.id,
   });
 
   const devServer = useDevServer({
@@ -52,27 +71,28 @@ export function AppPreviewSidePanel({
     appType: project?.app_type || 'web',
     previewUrl: previewUrl.previewUrl,
     autoStart: true, // Dev server will auto-start when sandbox is available
-    onPreviewUrlRetry: previewUrl.retryPreviewUrl // Coordinate preview URL retries with dev server status
+    onPreviewUrlRetry: previewUrl.retryPreviewUrl, // Coordinate preview URL retries with dev server status
   });
 
   const fileExplorer = useFileExplorer({
     sandboxId: project?.sandbox?.id,
     isCodeTabActive: activeMainTab === 'code',
-    appType: project?.app_type || 'web'
+    appType: project?.app_type || 'web',
   });
 
   const { planName, billingStatus } = useBilling();
-  const isFreePlan = (planName || '').toLowerCase() === 'free' || billingStatus?.plan_id === 'free';
+  const isFreePlan =
+    (planName || '').toLowerCase() === 'free' ||
+    billingStatus?.plan_id === 'free';
   const { onOpen } = useModal();
-
 
   // Show loading screen when agent is actively building OR no preview URL available
   // But prioritize showing preview if URL exists and agent isn't actively modifying code
-  const shouldShowLoadingScreen = (
-    !previewUrl.previewUrl || 
-    agentStatus === 'running' || 
-    agentStatus === 'connecting'
-  ) && (activeMainTab === 'preview' || !previewUrl.previewUrl);
+  const shouldShowLoadingScreen =
+    (!previewUrl.previewUrl ||
+      agentStatus === 'running' ||
+      agentStatus === 'connecting') &&
+    (activeMainTab === 'preview' || !previewUrl.previewUrl);
 
   // Switch to preview tab when loading starts if user is on code tab
   useEffect(() => {
@@ -106,15 +126,22 @@ export function AppPreviewSidePanel({
         project.sandbox.id,
         project.name || 'project',
         token ?? undefined,
-        project.app_type || 'web'
+        project.app_type || 'web',
       );
       toast.success('Code downloaded successfully!');
-    } catch (err) {
+    } catch {
       toast.error('Failed to download code. Please try again.');
     } finally {
       setIsDownloading(false);
     }
-  }, [project?.sandbox?.id, project?.name, project?.app_type, getToken, isFreePlan, onOpen]);
+  }, [
+    project?.sandbox?.id,
+    project?.name,
+    project?.app_type,
+    getToken,
+    isFreePlan,
+    onOpen,
+  ]);
 
   // Keyboard shortcut for closing
   useEffect(() => {
@@ -134,9 +161,12 @@ export function AppPreviewSidePanel({
   // Helper functions for preview controls
   const getCurrentViewIcon = () => {
     switch (previewUrl.currentView) {
-      case 'tablet': return <Tablet className="h-3.5 w-3.5" />;
-      case 'mobile': return <Smartphone className="h-3.5 w-3.5" />;
-      default: return <Monitor className="h-3.5 w-3.5" />;
+      case 'tablet':
+        return <Tablet className="h-3.5 w-3.5" />;
+      case 'mobile':
+        return <Smartphone className="h-3.5 w-3.5" />;
+      default:
+        return <Monitor className="h-3.5 w-3.5" />;
     }
   };
 
@@ -149,16 +179,25 @@ export function AppPreviewSidePanel({
 
   const renderContent = () => {
     return (
-      <Tabs value={activeMainTab} onValueChange={(v) => setActiveMainTab(v as MainTab)} className="flex flex-col h-full">
+      <Tabs
+        value={activeMainTab}
+        onValueChange={(v) => setActiveMainTab(v as MainTab)}
+        className="flex flex-col h-full"
+      >
         {/* Tab Header with Controls - Polarity/Frontier Style */}
-        <div className={cn("pl-2 pr-4 h-9 flex items-center justify-between sticky top-0 z-20", threadStyles.header)}>
+        <div
+          className={cn(
+            'pl-2 pr-4 h-9 flex items-center justify-between sticky top-0 z-20',
+            threadStyles.header,
+          )}
+        >
           <div className="flex items-center h-full">
             <TabsList className="h-full bg-transparent p-0 rounded-none border-none flex gap-0">
               <TabsTrigger
                 value="preview"
                 className={cn(
-                  "h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none uppercase font-mono shadow-none",
-                  "data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary"
+                  'h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none uppercase font-mono shadow-none',
+                  'data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary',
                 )}
               >
                 Preview
@@ -167,8 +206,8 @@ export function AppPreviewSidePanel({
                 value="code"
                 disabled={isCodeTabDisabled}
                 className={cn(
-                  "h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none disabled:opacity-30 disabled:cursor-not-allowed uppercase font-mono shadow-none",
-                  "data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary"
+                  'h-full rounded-none !bg-transparent px-4 text-[10px] font-bold tracking-[0.2em] transition-all duration-200 border-none disabled:opacity-30 disabled:cursor-not-allowed uppercase font-mono shadow-none',
+                  'data-[state=active]:text-thread-text-primary text-thread-text-tertiary hover:text-thread-text-secondary',
                 )}
               >
                 Code
@@ -197,10 +236,15 @@ export function AppPreviewSidePanel({
                         value={previewUrl.urlInput}
                         onChange={(e) => previewUrl.setUrlInput(e.target.value)}
                         className={cn(
-                          "h-7 w-[220px] text-[11px] px-3 transition-all rounded-md font-mono shadow-none focus-visible:ring-0",
-                          threadStyles.input
+                          'h-7 w-[220px] text-[11px] px-3 transition-all rounded-md font-mono shadow-none focus-visible:ring-0',
+                          threadStyles.input,
                         )}
-                        onKeyDown={(e) => e.key === 'Enter' && previewUrl.handleUrlSubmit(e as any)}
+                        onKeyDown={(e) =>
+                          e.key === 'Enter' &&
+                          previewUrl.handleUrlSubmit(
+                            e as unknown as React.FormEvent,
+                          )
+                        }
                       />
                     </div>
 
@@ -210,12 +254,23 @@ export function AppPreviewSidePanel({
                           <TooltipTrigger asChild>
                             <button
                               onClick={previewUrl.cycleView}
-                              className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                              className={cn(
+                                'h-7 w-7 flex items-center justify-center rounded-md transition-all',
+                                threadStyles.buttonGhost,
+                              )}
                             >
                               {getCurrentViewIcon()}
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>VIEWPORT</TooltipContent>
+                          <TooltipContent
+                            side="bottom"
+                            className={cn(
+                              'text-[10px] rounded-sm font-mono px-2 py-1',
+                              threadStyles.tooltip,
+                            )}
+                          >
+                            VIEWPORT
+                          </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
 
@@ -224,12 +279,23 @@ export function AppPreviewSidePanel({
                           <TooltipTrigger asChild>
                             <button
                               onClick={previewUrl.handleRefresh}
-                              className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                              className={cn(
+                                'h-7 w-7 flex items-center justify-center rounded-md transition-all',
+                                threadStyles.buttonGhost,
+                              )}
                             >
                               <RefreshCw className="h-3 w-3" />
                             </button>
                           </TooltipTrigger>
-                          <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>REFRESH</TooltipContent>
+                          <TooltipContent
+                            side="bottom"
+                            className={cn(
+                              'text-[10px] rounded-sm font-mono px-2 py-1',
+                              threadStyles.tooltip,
+                            )}
+                          >
+                            REFRESH
+                          </TooltipContent>
                         </Tooltip>
                       </TooltipProvider>
 
@@ -239,12 +305,23 @@ export function AppPreviewSidePanel({
                             <TooltipTrigger asChild>
                               <button
                                 onClick={previewUrl.openInNewTab}
-                                className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                                className={cn(
+                                  'h-7 w-7 flex items-center justify-center rounded-md transition-all',
+                                  threadStyles.buttonGhost,
+                                )}
                               >
                                 <ExternalLink className="h-3 w-3" />
                               </button>
                             </TooltipTrigger>
-                            <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>OPEN IN NEW TAB</TooltipContent>
+                            <TooltipContent
+                              side="bottom"
+                              className={cn(
+                                'text-[10px] rounded-sm font-mono px-2 py-1',
+                                threadStyles.tooltip,
+                              )}
+                            >
+                              OPEN IN NEW TAB
+                            </TooltipContent>
                           </Tooltip>
                         </TooltipProvider>
                       )}
@@ -261,7 +338,7 @@ export function AppPreviewSidePanel({
                         'px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all rounded-[3px]',
                         selectedPlatform === 'ios'
                           ? 'bg-thread-text-primary text-thread-panel shadow-sm'
-                          : 'text-thread-text-tertiary hover:text-thread-text-secondary'
+                          : 'text-thread-text-tertiary hover:text-thread-text-secondary',
                       )}
                     >
                       iOS
@@ -272,7 +349,7 @@ export function AppPreviewSidePanel({
                         'px-2 py-0.5 text-[9px] font-bold uppercase tracking-wider transition-all rounded-[3px]',
                         selectedPlatform === 'android'
                           ? 'bg-thread-text-primary text-thread-panel shadow-sm'
-                          : 'text-thread-text-tertiary hover:text-thread-text-secondary'
+                          : 'text-thread-text-tertiary hover:text-thread-text-secondary',
                       )}
                     >
                       Android
@@ -292,9 +369,10 @@ export function AppPreviewSidePanel({
                         onClick={handleDownloadCode}
                         disabled={isDownloading || !project?.sandbox?.id}
                         className={cn(
-                          "h-7 w-7 flex items-center justify-center rounded-md transition-all",
+                          'h-7 w-7 flex items-center justify-center rounded-md transition-all',
                           threadStyles.buttonGhost,
-                          (isDownloading || !project?.sandbox?.id) && "opacity-50 cursor-not-allowed"
+                          (isDownloading || !project?.sandbox?.id) &&
+                            'opacity-50 cursor-not-allowed',
                         )}
                       >
                         {isDownloading ? (
@@ -304,7 +382,15 @@ export function AppPreviewSidePanel({
                         )}
                       </button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom" className={cn("text-[10px] rounded-sm font-mono px-2 py-1", threadStyles.tooltip)}>DOWNLOAD CODE</TooltipContent>
+                    <TooltipContent
+                      side="bottom"
+                      className={cn(
+                        'text-[10px] rounded-sm font-mono px-2 py-1',
+                        threadStyles.tooltip,
+                      )}
+                    >
+                      DOWNLOAD CODE
+                    </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
               </div>
@@ -314,7 +400,10 @@ export function AppPreviewSidePanel({
             <div className="pl-1">
               <button
                 onClick={handleClose}
-                className={cn("h-7 w-7 flex items-center justify-center rounded-md transition-all", threadStyles.buttonGhost)}
+                className={cn(
+                  'h-7 w-7 flex items-center justify-center rounded-md transition-all',
+                  threadStyles.buttonGhost,
+                )}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -326,10 +415,7 @@ export function AppPreviewSidePanel({
         <div className="flex-1 overflow-hidden bg-[var(--background)]">
           <TabsContent value="preview" className="h-full mt-0">
             {shouldShowLoadingScreen ? (
-              <LoadingScreen
-                agentStatus={agentStatus}
-                onClose={handleClose}
-              />
+              <LoadingScreen agentStatus={agentStatus} onClose={handleClose} />
             ) : (
               <PreviewTab
                 previewUrl={previewUrl.previewUrl}
@@ -382,26 +468,24 @@ export function AppPreviewSidePanel({
   return (
     <AnimatePresence mode="wait">
       {isOpen && (
-        <motion.div
+        <m.div
           key="preview-panel"
           initial={{ opacity: 0, x: 20 }}
           animate={{ opacity: 1, x: 0 }}
           exit={{ opacity: 0, x: 20 }}
           transition={{
-            type: "spring",
+            type: 'spring',
             stiffness: 400,
-            damping: 40
+            damping: 40,
           }}
           className={cn(
             'fixed top-14 right-0 bottom-0 flex flex-col z-30 shadow-none overflow-hidden',
             threadStyles.sidePanel,
-            isMobile
-              ? 'left-0 right-0 bottom-14'
-              : 'w-[65vw]',
+            isMobile ? 'left-0 right-0 bottom-14' : 'w-[65vw]',
           )}
         >
-            {renderContent()}
-        </motion.div>
+          {renderContent()}
+        </m.div>
       )}
     </AnimatePresence>
   );

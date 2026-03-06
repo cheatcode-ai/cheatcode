@@ -12,7 +12,6 @@ import { MessageInput } from './message-input';
 import { AttachmentGroup } from '../attachment-group';
 import { cn } from '@/lib/utils';
 
-
 import { useFileDelete } from '@/hooks/react-query/files';
 import { useQueryClient } from '@tanstack/react-query';
 
@@ -21,8 +20,12 @@ export interface ChatInputHandles {
   clearPendingFiles: () => void;
 }
 
-export interface ChatInputProps {
-  onSubmit: (message: string, attachments?: Array<{ name: string; path: string; }>, appType?: 'web' | 'mobile') => void;
+interface ChatInputProps {
+  onSubmit: (
+    message: string,
+    attachments?: Array<{ name: string; path: string }>,
+    appType?: 'web' | 'mobile',
+  ) => void;
   placeholder?: string;
   loading?: boolean;
   disabled?: boolean;
@@ -36,9 +39,9 @@ export interface ChatInputProps {
   selectedAgentId?: string;
   onAgentSelect?: (agentId: string | undefined) => void;
   // Removed unused agentName prop - custom agents no longer supported
-  messages?: any[];
+  messages?: Record<string, unknown>[];
   bgColor?: string;
-  toolCalls?: any[];
+  toolCalls?: Record<string, unknown>[];
   toolCallIndex?: number;
   showToolPreview?: boolean;
   onExpandToolPreview?: () => void;
@@ -101,8 +104,6 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
     const [isUploading, setIsUploading] = useState(false);
     const [isDraggingOver, setIsDraggingOver] = useState(false);
 
-
-
     const deleteFileMutation = useFileDelete();
     const queryClient = useQueryClient();
 
@@ -145,7 +146,10 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
 
       // Frontend no longer dictates model selection; backend decides based on configuration.
       // Convert uploadedFiles to the expected attachments format
-      const attachments = uploadedFiles.map(file => ({ name: file.name, path: file.path }));
+      const attachments = uploadedFiles.map((file) => ({
+        name: file.name,
+        path: file.path,
+      }));
       onSubmit(message, attachments, appType);
 
       if (!isControlled) {
@@ -188,21 +192,25 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
       }
 
       // Check if file is referenced in existing chat messages before deleting from server
-      const isFileUsedInChat = messages.some(message => {
-        const content = typeof message.content === 'string' ? message.content : '';
+      const isFileUsedInChat = messages.some((message) => {
+        const content =
+          typeof message.content === 'string' ? message.content : '';
         return content.includes(`[Uploaded File: ${fileToRemove.path}]`);
       });
 
       // Only delete from server if file is not referenced in chat history
       if (sandboxId && fileToRemove.path && !isFileUsedInChat) {
-        deleteFileMutation.mutate({
-          sandboxId,
-          filePath: fileToRemove.path,
-        }, {
-          onError: () => {
-            // Failed to delete file from server
-          }
-        });
+        deleteFileMutation.mutate(
+          {
+            sandboxId,
+            filePath: fileToRemove.path,
+          },
+          {
+            onError: () => {
+              // Failed to delete file from server
+            },
+          },
+        );
       }
     };
 
@@ -245,13 +253,19 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
           }}
         >
           <div className="w-full text-sm flex flex-col justify-between items-start">
-            <div className={cn(
-              "w-full transition-colors duration-200 overflow-hidden",
-              variant === 'home' ? "rounded-none border border-white/5 shadow-[0_20px_50px_-12px_rgba(0,0,0,1),inset_0_1px_0_rgba(255,255,255,0.15)] bg-[#09090b]" : "rounded-2xl",
-              bgColor,
-              isDraggingOver && "bg-zinc-900"
-            )}>
-              <div className={cn(variant === 'home' ? "px-4 pt-2" : "px-2 pt-2")}>
+            <div
+              className={cn(
+                'w-full transition-colors duration-200 overflow-hidden',
+                variant === 'home'
+                  ? 'rounded-none border border-white/5 shadow-[0_20px_50px_-12px_rgba(0,0,0,1),inset_0_1px_0_rgba(255,255,255,0.15)] bg-[#09090b]'
+                  : 'rounded-2xl',
+                bgColor,
+                isDraggingOver && 'bg-zinc-900',
+              )}
+            >
+              <div
+                className={cn(variant === 'home' ? 'px-4 pt-2' : 'px-2 pt-2')}
+              >
                 <AttachmentGroup
                   files={uploadedFiles || []}
                   sandboxId={sandboxId}
@@ -274,7 +288,6 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 onStopAgent={onStopAgent}
                 isDraggingOver={isDraggingOver}
                 uploadedFiles={uploadedFiles}
-
                 fileInputRef={fileInputRef as React.RefObject<HTMLInputElement>}
                 isUploading={isUploading}
                 sandboxId={sandboxId}
@@ -284,7 +297,6 @@ export const ChatInput = forwardRef<ChatInputHandles, ChatInputProps>(
                 hideAttachments={hideAttachments}
                 messages={messages}
                 isLoggedIn={isLoggedIn}
-
                 selectedAgentId={selectedAgentId}
                 onAgentSelect={onAgentSelect}
                 disableAnimation={disableAnimation}

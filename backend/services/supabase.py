@@ -1,23 +1,24 @@
-"""
-Centralized database connection management for AgentPress using Supabase.
-"""
+"""Centralized database connection management for AgentPress using Supabase."""
 
-from typing import Optional
-from supabase import create_async_client, AsyncClient
-from utils.logger import logger
-from utils.config import config
 import asyncio
+from contextlib import asynccontextmanager, suppress
+from typing import Optional
+
 import httpx
-from contextlib import asynccontextmanager
+
+from supabase import AsyncClient, create_async_client
+from utils.config import config
+from utils.logger import logger
+
 
 class DBConnection:
     """Thread-safe singleton database connection manager using Supabase."""
-    
-    _instance: Optional['DBConnection'] = None
+
+    _instance: Optional["DBConnection"] = None
     _initialized: bool = False
-    _client: Optional[AsyncClient] = None
-    _keepalive_task: Optional[asyncio.Task] = None
-    _initialization_lock: Optional[asyncio.Lock] = None
+    _client: AsyncClient | None = None
+    _keepalive_task: asyncio.Task | None = None
+    _initialization_lock: asyncio.Lock | None = None
     _creation_lock = asyncio.Lock()  # Class-level lock for instance creation
 
     def __new__(cls):
@@ -28,39 +29,40 @@ class DBConnection:
         return cls._instance
 
     def __init__(self):
-        """No initialization needed in __init__ as it's handled in __new__"""
-        pass
+        """No initialization needed in __init__ as it's handled in __new__."""
 
     async def initialize(self):
         """Thread-safe database connection initialization."""
         # Double-checked locking pattern for performance
         if self.__class__._initialized:
             return
-            
+
         # Create initialization lock atomically if it doesn't exist
         if self.__class__._initialization_lock is None:
             async with self.__class__._creation_lock:
                 if self.__class__._initialization_lock is None:
                     self.__class__._initialization_lock = asyncio.Lock()
-        
+
         # Use lock to prevent concurrent initialization
         async with self.__class__._initialization_lock:
             # Double-check after acquiring lock
             if self.__class__._initialized:
                 return
-                    
+
             try:
                 supabase_url = config.SUPABASE_URL
                 # Use service role key preferentially for backend operations
                 supabase_key = config.SUPABASE_SERVICE_ROLE_KEY or config.SUPABASE_ANON_KEY
-                
+
                 if not supabase_url or not supabase_key:
                     logger.error("Missing required environment variables for Supabase connection")
-                    raise RuntimeError("SUPABASE_URL and a key (SERVICE_ROLE_KEY or ANON_KEY) environment variables must be set.")
+                    raise RuntimeError(
+                        "SUPABASE_URL and a key (SERVICE_ROLE_KEY or ANON_KEY) environment variables must be set."
+                    )
 
                 logger.debug("Initializing Supabase connection")
                 new_client = await create_async_client(supabase_url, supabase_key)
-                
+
                 # Test the connection before marking as initialized
                 try:
                     # Simple connectivity test
@@ -68,19 +70,18 @@ class DBConnection:
                 except Exception as test_error:
                     logger.debug(f"Connection test failed (expected for service role): {test_error}")
                     # For service role keys, auth check might fail - that's normal
-                    pass
-                
+
                 # Only set these after successful initialization
                 self.__class__._client = new_client
                 self.__class__._initialized = True
-                
+
                 key_type = "SERVICE_ROLE_KEY" if config.SUPABASE_SERVICE_ROLE_KEY else "ANON_KEY"
                 logger.debug(f"Database connection initialized with Supabase using {key_type}")
 
                 # Start a background keep-alive task to prevent idle disconnects
                 if self.__class__._keepalive_task is None or self.__class__._keepalive_task.done():
                     self.__class__._keepalive_task = asyncio.create_task(self._keepalive_loop())
-                    
+
             except Exception as e:
                 logger.error(f"Database initialization error: {e}")
                 # Reset state on error - be very careful with cleanup order
@@ -91,20 +92,18 @@ class DBConnection:
                         logger.warning(f"Error during client cleanup: {cleanup_error}")
                     self.__class__._client = None
                 self.__class__._initialized = False
-                raise RuntimeError(f"Failed to initialize database connection: {str(e)}")
+                raise RuntimeError(f"Failed to initialize database connection: {e!s}") from e
 
     @classmethod
-    async def disconnect(cls):
+    async def disconnect(cls) -> None:
         """Disconnect from the database."""
         # Cancel keep-alive task first
         if cls._keepalive_task and not cls._keepalive_task.done():
             cls._keepalive_task.cancel()
-            try:
+            with suppress(asyncio.CancelledError):
                 await cls._keepalive_task
-            except asyncio.CancelledError:
-                pass
             cls._keepalive_task = None
-        
+
         if cls._client:
             logger.info("Disconnecting from Supabase database")
             # Supabase AsyncClient doesn't require explicit close - httpx clients are managed internally
@@ -117,12 +116,12 @@ class DBConnection:
         if not self.__class__._initialized or self.__class__._client is None:
             logger.debug("Supabase client not initialized, initializing now")
             await self.initialize()
-            
+
         # Double-check after initialization
         if not self.__class__._client:
             logger.error("Database client is None after initialization")
             raise RuntimeError("Database initialization failed - client is None")
-            
+
         return self.__class__._client
 
     @property
@@ -140,46 +139,59 @@ class DBConnection:
             # No cleanup needed for Supabase client - it's managed by the singleton
             pass
 
+    async def _safe_reset_client(self):
+        """Safely reset the client behind the initialization lock."""
+        try:
+            if self.__class__._initialization_lock is not None:
+                async with self.__class__._initialization_lock:
+                    if self.__class__._client:
+                        await self.__class__._client.close()
+                    self.__class__._client = None
+                    self.__class__._initialized = False
+            else:
+                if self.__class__._client:
+                    await self.__class__._client.close()
+                self.__class__._client = None
+                self.__class__._initialized = False
+        except Exception as e:
+            logger.warning(f"Error during safe client reset: {e}")
+            # Force reset even if close() fails
+            self.__class__._client = None
+            self.__class__._initialized = False
+
     async def _keepalive_loop(self, interval_seconds: int = 1800):  # 30 minutes (optimized from 5 minutes)
         """Periodically perform a lightweight query to keep the HTTP/2 channel warm.
 
         If the ping fails (e.g., because Supabase closed the idle connection), we
         close the client so the next real query re-opens a fresh socket.
+
+        This loop never terminates except via CancelledError (clean shutdown).
         """
         logger.info(f"Starting Supabase keep-alive loop with {interval_seconds}s interval")
+        consecutive_errors = 0
         try:
             while True:
-                await asyncio.sleep(interval_seconds)
+                backoff = min(interval_seconds * (2**consecutive_errors), 300)  # max 5min backoff
+                await asyncio.sleep(backoff if consecutive_errors > 0 else interval_seconds)
+
                 if not self.__class__._initialized:
                     continue
                 try:
                     # Use direct client access to avoid recursive initialization
                     if self.__class__._client is None:
                         continue
-                    
+
                     # Lightweight query: just hit any known column (project_id) to keep socket alive
                     await self.__class__._client.table("projects").select("project_id").limit(1).execute()
                     logger.debug("Supabase keep-alive ping succeeded")
+                    consecutive_errors = 0
                 except (httpx.RemoteProtocolError, httpx.ReadError) as e:
-                    logger.warning(f"Supabase keep-alive failed, resetting client: {e}")
-                    # Use the class lock to safely reset the client
-                    if self.__class__._initialization_lock is not None:
-                        async with self.__class__._initialization_lock:
-                            if self.__class__._client:
-                                await self.__class__._client.close()
-                            self.__class__._client = None
-                            self.__class__._initialized = False
-                    else:
-                        # No lock available, reset without protection (fallback)
-                        if self.__class__._client:
-                            await self.__class__._client.close()
-                        self.__class__._client = None
-                        self.__class__._initialized = False
+                    consecutive_errors += 1
+                    logger.warning(f"Supabase keep-alive failed (attempt {consecutive_errors}), resetting client: {e}")
+                    await self._safe_reset_client()
                 except Exception as e:
-                    logger.warning(f"Supabase keep-alive error: {e}")
+                    consecutive_errors += 1
+                    logger.warning(f"Supabase keep-alive error (attempt {consecutive_errors}): {e}")
         except asyncio.CancelledError:
             logger.info("Supabase keep-alive loop cancelled")
-            raise
-        except Exception as e:
-            logger.error(f"Supabase keep-alive loop terminated with error: {e}")
             raise

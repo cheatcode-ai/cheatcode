@@ -19,47 +19,47 @@ import type {
 } from '@/types/composio-profiles';
 
 // Response types
-export interface HealthCheckResponse {
+interface HealthCheckResponse {
   status: string;
   api_key_configured: boolean;
   error?: string;
 }
 
-export interface CategoriesResponse {
+interface CategoriesResponse {
   success: boolean;
   categories: string[];
 }
 
-export interface ToolkitsResponse {
+interface ToolkitsResponse {
   success: boolean;
   toolkits: ComposioToolkit[];
   next_cursor?: string;
   total: number;
 }
 
-export interface ToolkitDetailsResponse {
+interface ToolkitDetailsResponse {
   success: boolean;
   toolkit: ComposioToolkit;
 }
 
-export interface ProfilesListResponse {
+interface ProfilesListResponse {
   success: boolean;
   profiles: ComposioProfile[];
   count: number;
 }
 
-export interface ProfileResponse {
+interface ProfileResponse {
   success: boolean;
   profile: ComposioProfile;
 }
 
-export interface ToolsResponse {
+interface ToolsResponse {
   success: boolean;
   tools: ComposioTool[];
   count: number;
 }
 
-export interface ConnectionsResponse {
+interface ConnectionsResponse {
   success: boolean;
   connections: Array<{
     id: string;
@@ -70,7 +70,7 @@ export interface ConnectionsResponse {
   count: number;
 }
 
-export interface DiscoverToolsResponse {
+interface DiscoverToolsResponse {
   success: boolean;
   tools: ComposioTool[];
   count: number;
@@ -88,7 +88,10 @@ export const useComposioApi = () => {
     // Health & Status
     async getHealthCheck(): Promise<HealthCheckResponse> {
       const result = await api.get<HealthCheckResponse>('/composio/health', {
-        errorContext: { operation: 'health check', resource: 'Composio service' },
+        errorContext: {
+          operation: 'health check',
+          resource: 'Composio service',
+        },
       });
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get health status');
@@ -99,7 +102,10 @@ export const useComposioApi = () => {
     // Categories
     async getCategories(): Promise<CategoriesResponse> {
       const result = await api.get<CategoriesResponse>('/composio/categories', {
-        errorContext: { operation: 'get categories', resource: 'Composio categories' },
+        errorContext: {
+          operation: 'get categories',
+          resource: 'Composio categories',
+        },
       });
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get categories');
@@ -123,8 +129,11 @@ export const useComposioApi = () => {
       const result = await api.get<ToolkitsResponse>(
         `/composio/toolkits${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
         {
-          errorContext: { operation: 'get toolkits', resource: 'Composio toolkits' },
-        }
+          errorContext: {
+            operation: 'get toolkits',
+            resource: 'Composio toolkits',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get toolkits');
@@ -133,21 +142,34 @@ export const useComposioApi = () => {
     },
 
     async getToolkitDetails(slug: string): Promise<ToolkitDetailsResponse> {
-      const result = await api.get<ToolkitDetailsResponse>(`/composio/toolkits/${slug}/details`, {
-        errorContext: { operation: 'get toolkit details', resource: 'Composio toolkit' },
-      });
+      const result = await api.get<ToolkitDetailsResponse>(
+        `/composio/toolkits/${slug}/details`,
+        {
+          errorContext: {
+            operation: 'get toolkit details',
+            resource: 'Composio toolkit',
+          },
+        },
+      );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get toolkit details');
+        throw new Error(
+          result.error?.message || 'Failed to get toolkit details',
+        );
       }
       return result.data!;
     },
 
-    async getToolkitIcon(slug: string): Promise<{ success: boolean; icon_url: string }> {
+    async getToolkitIcon(
+      slug: string,
+    ): Promise<{ success: boolean; icon_url: string }> {
       const result = await api.get<{ success: boolean; icon_url: string }>(
         `/composio/toolkits/${slug}/icon`,
         {
-          errorContext: { operation: 'get toolkit icon', resource: 'Composio toolkit icon' },
-        }
+          errorContext: {
+            operation: 'get toolkit icon',
+            resource: 'Composio toolkit icon',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get toolkit icon');
@@ -156,15 +178,21 @@ export const useComposioApi = () => {
     },
 
     // Profiles
-    async getProfiles(params?: { toolkit_slug?: string }): Promise<ComposioProfile[]> {
+    async getProfiles(params?: {
+      toolkit_slug?: string;
+    }): Promise<ComposioProfile[]> {
       const queryParams = new URLSearchParams();
-      if (params?.toolkit_slug) queryParams.append('toolkit_slug', params.toolkit_slug);
+      if (params?.toolkit_slug)
+        queryParams.append('toolkit_slug', params.toolkit_slug);
 
       const result = await api.get<ProfilesListResponse>(
         `/composio/profiles${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
         {
-          errorContext: { operation: 'get profiles', resource: 'Composio profiles' },
-        }
+          errorContext: {
+            operation: 'get profiles',
+            resource: 'Composio profiles',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get profiles');
@@ -173,9 +201,15 @@ export const useComposioApi = () => {
     },
 
     async getProfile(profileId: string): Promise<ComposioProfile> {
-      const result = await api.get<ProfileResponse>(`/composio/profiles/${profileId}`, {
-        errorContext: { operation: 'get profile', resource: 'Composio profile' },
-      });
+      const result = await api.get<ProfileResponse>(
+        `/composio/profiles/${profileId}`,
+        {
+          errorContext: {
+            operation: 'get profile',
+            resource: 'Composio profile',
+          },
+        },
+      );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get profile');
       }
@@ -184,7 +218,7 @@ export const useComposioApi = () => {
 
     async checkNameAvailability(
       toolkitSlug: string,
-      profileName: string
+      profileName: string,
     ): Promise<{ success: boolean; available: boolean }> {
       const queryParams = new URLSearchParams({
         toolkit_slug: toolkitSlug,
@@ -193,21 +227,33 @@ export const useComposioApi = () => {
       const result = await api.get<{ success: boolean; available: boolean }>(
         `/composio/profiles/check-name-availability?${queryParams.toString()}`,
         {
-          errorContext: { operation: 'check name availability', resource: 'Composio profile name' },
-        }
+          errorContext: {
+            operation: 'check name availability',
+            resource: 'Composio profile name',
+          },
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to check name availability');
+        throw new Error(
+          result.error?.message || 'Failed to check name availability',
+        );
       }
       return result.data!;
     },
 
     async createProfile(
-      request: CreateComposioProfileRequest
+      request: CreateComposioProfileRequest,
     ): Promise<CreateComposioProfileResponse> {
-      const result = await api.post<CreateComposioProfileResponse>('/composio/profiles', request, {
-        errorContext: { operation: 'create profile', resource: 'Composio profile' },
-      });
+      const result = await api.post<CreateComposioProfileResponse>(
+        '/composio/profiles',
+        request,
+        {
+          errorContext: {
+            operation: 'create profile',
+            resource: 'Composio profile',
+          },
+        },
+      );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to create profile');
       }
@@ -216,27 +262,34 @@ export const useComposioApi = () => {
 
     async updateProfile(
       profileId: string,
-      request: UpdateComposioProfileRequest
+      request: UpdateComposioProfileRequest,
     ): Promise<ComposioProfile> {
-      const result = await api.put<{ success: boolean; profile: ComposioProfile }>(
-        `/composio/profiles/${profileId}`,
-        request,
-        {
-          errorContext: { operation: 'update profile', resource: 'Composio profile' },
-        }
-      );
+      const result = await api.put<{
+        success: boolean;
+        profile: ComposioProfile;
+      }>(`/composio/profiles/${profileId}`, request, {
+        errorContext: {
+          operation: 'update profile',
+          resource: 'Composio profile',
+        },
+      });
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to update profile');
       }
       return result.data!.profile;
     },
 
-    async deleteProfile(profileId: string): Promise<{ success: boolean; message: string }> {
+    async deleteProfile(
+      profileId: string,
+    ): Promise<{ success: boolean; message: string }> {
       const result = await api.delete<{ success: boolean; message: string }>(
         `/composio/profiles/${profileId}`,
         {
-          errorContext: { operation: 'delete profile', resource: 'Composio profile' },
-        }
+          errorContext: {
+            operation: 'delete profile',
+            resource: 'Composio profile',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to delete profile');
@@ -248,8 +301,11 @@ export const useComposioApi = () => {
       const result = await api.get<{ success: boolean } & ComposioMCPConfig>(
         `/composio/profiles/${profileId}/mcp-config`,
         {
-          errorContext: { operation: 'get MCP config', resource: 'Composio MCP config' },
-        }
+          errorContext: {
+            operation: 'get MCP config',
+            resource: 'Composio MCP config',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get MCP config');
@@ -258,13 +314,19 @@ export const useComposioApi = () => {
     },
 
     // Tools
-    async getTools(toolkitSlug: string, limit?: number): Promise<ComposioTool[]> {
+    async getTools(
+      toolkitSlug: string,
+      limit?: number,
+    ): Promise<ComposioTool[]> {
       const queryParams = new URLSearchParams({ toolkit_slug: toolkitSlug });
       if (limit) queryParams.append('limit', limit.toString());
 
-      const result = await api.get<ToolsResponse>(`/composio/tools/list?${queryParams.toString()}`, {
-        errorContext: { operation: 'get tools', resource: 'Composio tools' },
-      });
+      const result = await api.get<ToolsResponse>(
+        `/composio/tools/list?${queryParams.toString()}`,
+        {
+          errorContext: { operation: 'get tools', resource: 'Composio tools' },
+        },
+      );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get tools');
       }
@@ -276,8 +338,11 @@ export const useComposioApi = () => {
         `/composio/discover-tools/${profileId}`,
         {},
         {
-          errorContext: { operation: 'discover tools', resource: 'Composio tools' },
-        }
+          errorContext: {
+            operation: 'discover tools',
+            resource: 'Composio tools',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to discover tools');
@@ -287,52 +352,75 @@ export const useComposioApi = () => {
 
     async updateEnabledTools(
       profileId: string,
-      enabledTools: string[]
+      enabledTools: string[],
     ): Promise<{ success: boolean; enabled_tools: string[] }> {
-      const result = await api.put<{ success: boolean; enabled_tools: string[] }>(
-        `/composio/profiles/${profileId}/tools`,
-        enabledTools,
-        {
-          errorContext: { operation: 'update enabled tools', resource: 'Composio profile tools' },
-        }
-      );
+      const result = await api.put<{
+        success: boolean;
+        enabled_tools: string[];
+      }>(`/composio/profiles/${profileId}/tools`, enabledTools, {
+        errorContext: {
+          operation: 'update enabled tools',
+          resource: 'Composio profile tools',
+        },
+      });
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to update enabled tools');
+        throw new Error(
+          result.error?.message || 'Failed to update enabled tools',
+        );
       }
       return result.data!;
     },
 
     // Connections
-    async getConnectionStatus(connectionId: string): Promise<ComposioConnectionStatus> {
-      const result = await api.get<{ success: boolean } & ComposioConnectionStatus>(
-        `/composio/connections/status/${connectionId}`,
-        {
-          errorContext: { operation: 'get connection status', resource: 'Composio connection' },
-        }
-      );
+    async getConnectionStatus(
+      connectionId: string,
+    ): Promise<ComposioConnectionStatus> {
+      const result = await api.get<
+        { success: boolean } & ComposioConnectionStatus
+      >(`/composio/connections/status/${connectionId}`, {
+        errorContext: {
+          operation: 'get connection status',
+          resource: 'Composio connection',
+        },
+      });
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get connection status');
+        throw new Error(
+          result.error?.message || 'Failed to get connection status',
+        );
       }
       return result.data!;
     },
 
     async getConnections(appName?: string): Promise<ConnectionsResponse> {
-      const queryParams = appName ? `?app_name=${encodeURIComponent(appName)}` : '';
-      const result = await api.get<ConnectionsResponse>(`/composio/connections${queryParams}`, {
-        errorContext: { operation: 'get connections', resource: 'Composio connections' },
-      });
+      const queryParams = appName
+        ? `?app_name=${encodeURIComponent(appName)}`
+        : '';
+      const result = await api.get<ConnectionsResponse>(
+        `/composio/connections${queryParams}`,
+        {
+          errorContext: {
+            operation: 'get connections',
+            resource: 'Composio connections',
+          },
+        },
+      );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to get connections');
       }
       return result.data!;
     },
 
-    async deleteConnection(connectionId: string): Promise<{ success: boolean; message: string }> {
+    async deleteConnection(
+      connectionId: string,
+    ): Promise<{ success: boolean; message: string }> {
       const result = await api.delete<{ success: boolean; message: string }>(
         `/composio/connections/${connectionId}`,
         {
-          errorContext: { operation: 'delete connection', resource: 'Composio connection' },
-        }
+          errorContext: {
+            operation: 'delete connection',
+            resource: 'Composio connection',
+          },
+        },
       );
       if (!result.success) {
         throw new Error(result.error?.message || 'Failed to delete connection');
@@ -342,11 +430,19 @@ export const useComposioApi = () => {
 
     // Secure MCP API
     async getComposioProfiles(): Promise<CredentialProfilesResponse> {
-      const result = await api.get<CredentialProfilesResponse>('/composio-secure/composio-profiles', {
-        errorContext: { operation: 'get composio profiles', resource: 'Secure MCP profiles' },
-      });
+      const result = await api.get<CredentialProfilesResponse>(
+        '/composio-secure/composio-profiles',
+        {
+          errorContext: {
+            operation: 'get composio profiles',
+            resource: 'Secure MCP profiles',
+          },
+        },
+      );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get composio profiles');
+        throw new Error(
+          result.error?.message || 'Failed to get composio profiles',
+        );
       }
       return result.data!;
     },
@@ -355,62 +451,90 @@ export const useComposioApi = () => {
       const result = await api.get<MCPUrlResponse>(
         `/composio-secure/composio-profiles/${profileId}/mcp-url`,
         {
-          errorContext: { operation: 'get profile MCP URL', resource: 'Secure MCP URL' },
-        }
+          errorContext: {
+            operation: 'get profile MCP URL',
+            resource: 'Secure MCP URL',
+          },
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get profile MCP URL');
+        throw new Error(
+          result.error?.message || 'Failed to get profile MCP URL',
+        );
       }
       return result.data!;
     },
 
     async deleteCredentialProfile(
-      profileId: string
+      profileId: string,
     ): Promise<{ success: boolean; message: string }> {
       const result = await api.delete<{ success: boolean; message: string }>(
         `/composio-secure/credential-profiles/${profileId}`,
         {
-          errorContext: { operation: 'delete credential profile', resource: 'Secure MCP profile' },
-        }
+          errorContext: {
+            operation: 'delete credential profile',
+            resource: 'Secure MCP profile',
+          },
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to delete credential profile');
+        throw new Error(
+          result.error?.message || 'Failed to delete credential profile',
+        );
       }
       return result.data!;
     },
 
-    async bulkDeleteProfiles(
-      profileIds: string[]
-    ): Promise<{ success: boolean; deleted_count: number; requested_count: number }> {
+    async bulkDeleteProfiles(profileIds: string[]): Promise<{
+      success: boolean;
+      deleted_count: number;
+      requested_count: number;
+    }> {
       const result = await api.post<{
         success: boolean;
         deleted_count: number;
         requested_count: number;
-      }>('/composio-secure/credential-profiles/bulk-delete', { profile_ids: profileIds }, {
-        errorContext: { operation: 'bulk delete profiles', resource: 'Secure MCP profiles' },
-      });
+      }>(
+        '/composio-secure/credential-profiles/bulk-delete',
+        { profile_ids: profileIds },
+        {
+          errorContext: {
+            operation: 'bulk delete profiles',
+            resource: 'Secure MCP profiles',
+          },
+        },
+      );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to bulk delete profiles');
+        throw new Error(
+          result.error?.message || 'Failed to bulk delete profiles',
+        );
       }
       return result.data!;
     },
 
-    async setDefaultProfile(profileId: string): Promise<{ success: boolean; message: string }> {
+    async setDefaultProfile(
+      profileId: string,
+    ): Promise<{ success: boolean; message: string }> {
       const result = await api.put<{ success: boolean; message: string }>(
         `/composio-secure/credential-profiles/${profileId}/set-default`,
         {},
         {
-          errorContext: { operation: 'set default profile', resource: 'Secure MCP profile' },
-        }
+          errorContext: {
+            operation: 'set default profile',
+            resource: 'Secure MCP profile',
+          },
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to set default profile');
+        throw new Error(
+          result.error?.message || 'Failed to set default profile',
+        );
       }
       return result.data!;
     },
 
     async setDashboardDefaultProfile(
-      profileId: string
+      profileId: string,
     ): Promise<{ success: boolean; message: string }> {
       const result = await api.put<{ success: boolean; message: string }>(
         `/composio-secure/credential-profiles/${profileId}/set-dashboard-default`,
@@ -420,27 +544,38 @@ export const useComposioApi = () => {
             operation: 'set dashboard default profile',
             resource: 'Secure MCP profile',
           },
-        }
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to set dashboard default profile');
+        throw new Error(
+          result.error?.message || 'Failed to set dashboard default profile',
+        );
       }
       return result.data!;
     },
 
     async toggleProfileActive(
       profileId: string,
-      isActive: boolean
+      isActive: boolean,
     ): Promise<{ success: boolean; profile_id: string; is_active: boolean }> {
-      const result = await api.put<{ success: boolean; profile_id: string; is_active: boolean }>(
+      const result = await api.put<{
+        success: boolean;
+        profile_id: string;
+        is_active: boolean;
+      }>(
         `/composio-secure/credential-profiles/${profileId}/toggle-active?is_active=${isActive}`,
         {},
         {
-          errorContext: { operation: 'toggle profile active', resource: 'Secure MCP profile' },
-        }
+          errorContext: {
+            operation: 'toggle profile active',
+            resource: 'Secure MCP profile',
+          },
+        },
       );
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to toggle profile active status');
+        throw new Error(
+          result.error?.message || 'Failed to toggle profile active status',
+        );
       }
       return result.data!;
     },
@@ -455,10 +590,15 @@ export const useComposioApi = () => {
         profiles: ComposioProfile[];
         count: number;
       }>('/composio-secure/dashboard-profiles', {
-        errorContext: { operation: 'get dashboard profiles', resource: 'Secure MCP profiles' },
+        errorContext: {
+          operation: 'get dashboard profiles',
+          resource: 'Secure MCP profiles',
+        },
       });
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get dashboard profiles');
+        throw new Error(
+          result.error?.message || 'Failed to get dashboard profiles',
+        );
       }
       return result.data!;
     },
@@ -485,10 +625,15 @@ export const useComposioApi = () => {
         }>;
         count: number;
       }>('/composio-secure/dashboard-mcp-urls', {
-        errorContext: { operation: 'get dashboard MCP URLs', resource: 'Secure MCP URLs' },
+        errorContext: {
+          operation: 'get dashboard MCP URLs',
+          resource: 'Secure MCP URLs',
+        },
       });
       if (!result.success) {
-        throw new Error(result.error?.message || 'Failed to get dashboard MCP URLs');
+        throw new Error(
+          result.error?.message || 'Failed to get dashboard MCP URLs',
+        );
       }
       return result.data!;
     },

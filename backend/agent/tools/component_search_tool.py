@@ -1,10 +1,9 @@
-import json
-from typing import List, Dict, Any, Optional
-from agentpress.tool import Tool, ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
 from agentpress.thread_manager import ThreadManager
+from agentpress.tool import SchemaType, Tool, ToolResult, ToolSchema, XMLNodeMapping, XMLTagSchema
 from services.supabase import DBConnection
-from utils.logger import logger
 from utils.config import config
+from utils.logger import logger
+
 
 class ComponentSearchTool(Tool):
     """Tool for searching components using embedding-based semantic search.
@@ -13,7 +12,7 @@ class ComponentSearchTool(Tool):
     the most relevant components for a given user request or description.
     """
 
-    def __init__(self, thread_manager: ThreadManager, app_type: str = 'web'):
+    def __init__(self, thread_manager: ThreadManager, app_type: str = "web"):
         super().__init__()
         self.thread_manager = thread_manager
         self.db = DBConnection()
@@ -42,28 +41,52 @@ class ComponentSearchTool(Tool):
         self._client_initialized = True
         return self._client
 
-    def get_schemas(self) -> Dict[str, List[ToolSchema]]:
+    def get_schemas(self) -> dict[str, list[ToolSchema]]:
         """Override base class to provide dynamic schemas based on app_type."""
         return self.get_tool_schemas()
-    
-    def get_tool_schemas(self) -> Dict[str, List[ToolSchema]]:
+
+    def get_tool_schemas(self) -> dict[str, list[ToolSchema]]:
         """Generate dynamic tool schemas based on app_type context."""
-        
         # Determine context-appropriate examples and descriptions based on actual database content
-        if self.app_type == 'mobile':
+        if self.app_type == "mobile":
             # Mobile React Native examples - based on 182 components in mobile_component_index
             search_example = "tab navigation with icons and animations"
             search_description = "Search through 182+ React Native mobile components using semantic similarity. This tool finds mobile UI components optimized for React Native/Expo apps, including navigation (tabs, headers), modals (dialogs, popups), icons (Lucide for React Native), typography (mobile-optimized text), cards, buttons, and toggles. Returns complete component code ready for mobile integration."
             search_query_examples = "'tab navigation', 'modal dialog', 'Lucide icons', 'mobile card component', 'toggle switch', 'mobile typography', 'navigation header'"
             suggestions_section = "navigation"
-            suggestions_sections = ["navigation", "modals", "icons", "typography", "cards", "buttons", "toggles", "tooltips", "screens", "layouts"]
+            suggestions_sections = [
+                "navigation",
+                "modals",
+                "icons",
+                "typography",
+                "cards",
+                "buttons",
+                "toggles",
+                "tooltips",
+                "screens",
+                "layouts",
+            ]
         else:
-            # Web React examples - based on 632 components in component_index  
+            # Web React examples - based on 632 components in component_index
             search_example = "animated hero section with text effects"
             search_description = "Search through 632+ React web components using semantic similarity. This extensive library includes 236 UI effects (animations, backgrounds, text effects like WobbleCard, Vortex, TypewriterEffect), 45 cards, 36 navigation components, plus hero sections, features, testimonials, forms, footers, pricing tables, and more. Returns complete component code ready for web integration."
             search_query_examples = "'animated hero section', 'pricing table with effects', 'testimonial cards', 'navigation header', 'contact form', 'text animation effects', 'background animations'"
             suggestions_section = "hero"
-            suggestions_sections = ["hero", "features", "pricing", "testimonials", "contact", "navigation", "footer", "cta", "cards", "ui-effects", "forms", "modals", "buttons"]
+            suggestions_sections = [
+                "hero",
+                "features",
+                "pricing",
+                "testimonials",
+                "contact",
+                "navigation",
+                "footer",
+                "cta",
+                "cards",
+                "ui-effects",
+                "forms",
+                "modals",
+                "buttons",
+            ]
 
         schemas = {}
 
@@ -81,32 +104,32 @@ class ComponentSearchTool(Tool):
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": f"Natural language description of what kind of component you're looking for. Examples: {search_query_examples}"
+                                    "description": f"Natural language description of what kind of component you're looking for. Examples: {search_query_examples}",
                                 },
                                 "match_threshold": {
                                     "type": "number",
                                     "description": "Minimum similarity score (0.0 to 1.0). Higher values return only very similar components. Default: 0.7",
                                     "minimum": 0.0,
                                     "maximum": 1.0,
-                                    "default": 0.7
+                                    "default": 0.7,
                                 },
                                 "match_count": {
                                     "type": "integer",
                                     "description": "Maximum number of components to return. Default: 5",
                                     "minimum": 1,
                                     "maximum": 20,
-                                    "default": 5
+                                    "default": 5,
                                 },
                                 "include_full_code": {
                                     "type": "boolean",
                                     "description": "Whether to include the complete component source code in results for direct editing. Default: true",
-                                    "default": True
-                                }
+                                    "default": True,
+                                },
                             },
-                            "required": ["query"]
-                        }
-                    }
-                }
+                            "required": ["query"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -117,9 +140,9 @@ class ComponentSearchTool(Tool):
                         XMLNodeMapping(param_name="query", node_type="element", path="query", required=True),
                         XMLNodeMapping(param_name="match_threshold", node_type="attribute", path=".", required=False),
                         XMLNodeMapping(param_name="match_count", node_type="attribute", path=".", required=False),
-                        XMLNodeMapping(param_name="include_full_code", node_type="attribute", path=".", required=False)
+                        XMLNodeMapping(param_name="include_full_code", node_type="attribute", path=".", required=False),
                     ],
-                    example=f'''
+                    example=f"""
 <function_calls>
 <invoke name="search_components">
 <parameter name="query">{search_example}</parameter>
@@ -128,9 +151,9 @@ class ComponentSearchTool(Tool):
 <parameter name="include_full_code">true</parameter>
 </invoke>
 </function_calls>
-'''
-                )
-            )
+""",
+                ),
+            ),
         ]
 
         # get_component_suggestions schema
@@ -138,7 +161,7 @@ class ComponentSearchTool(Tool):
             ToolSchema(
                 schema_type=SchemaType.OPENAPI,
                 schema={
-                    "type": "function", 
+                    "type": "function",
                     "function": {
                         "name": "get_component_suggestions",
                         "description": f"Get component suggestions for common {'mobile app' if self.app_type == 'mobile' else 'website'} sections. Based on actual component database with {'182+ mobile components' if self.app_type == 'mobile' else '632+ web components'}. Useful when you need ideas for what components are available.",
@@ -148,40 +171,40 @@ class ComponentSearchTool(Tool):
                                 "section_type": {
                                     "type": "string",
                                     "description": "Type of section to get suggestions for",
-                                    "enum": suggestions_sections
+                                    "enum": suggestions_sections,
                                 }
                             },
-                            "required": ["section_type"]
-                        }
-                    }
-                }
+                            "required": ["section_type"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
                 schema={},
                 xml_schema=XMLTagSchema(
-                    tag_name="get-component-suggestions", 
+                    tag_name="get-component-suggestions",
                     mappings=[
                         XMLNodeMapping(param_name="section_type", node_type="attribute", path=".", required=True)
                     ],
-                    example=f'''
+                    example=f"""
 <function_calls>
 <invoke name="get_component_suggestions">
 <parameter name="section_type">{suggestions_section}</parameter>
 </invoke>
 </function_calls>
-'''
-                )
-            )
+""",
+                ),
+            ),
         ]
 
         return schemas
 
-    async def _generate_embedding(self, text: str) -> List[float]:
+    async def _generate_embedding(self, text: str) -> list[float]:
         """Generate embedding for the given text using Gemini."""
         try:
-            from google.genai import types  # Lazy load - only needed for embedding
             import numpy as np  # Lazy load - only needed for normalization
+            from google.genai import types  # Lazy load - only needed for embedding
 
             client = self._get_client()
             if not client:
@@ -190,12 +213,12 @@ class ComponentSearchTool(Tool):
 
             # Use the latest Gemini embedding API
             response = client.models.embed_content(
-                model='gemini-embedding-001',
+                model="gemini-embedding-001",
                 contents=text,
                 config=types.EmbedContentConfig(
                     task_type="CODE_RETRIEVAL_QUERY",  # Optimized for code queries
-                    output_dimensionality=1536
-                )
+                    output_dimensionality=1536,
+                ),
             )
 
             if response and response.embeddings:
@@ -209,67 +232,54 @@ class ComponentSearchTool(Tool):
                 normalized_embedding = embedding_array / np.linalg.norm(embedding_array)
 
                 return normalized_embedding.tolist()
-            else:
-                logger.error("No embeddings returned from Gemini API")
-                return []
+            logger.error("No embeddings returned from Gemini API")
+            return []
 
         except Exception as e:
             logger.error(f"Error generating embedding: {e}")
             return []
 
-
     async def search_components(
-        self, 
-        query: str, 
-        match_threshold: float = 0.7, 
-        match_count: int = 5,
-        include_full_code: bool = True
+        self, query: str, match_threshold: float = 0.7, match_count: int = 5, include_full_code: bool = True
     ) -> ToolResult:
         """Search for components based on user description or requirements and return complete code for direct editing."""
         try:
             logger.info(f"Searching for components with query: {query}")
-            
+
             # Generate embedding for the query
             query_embedding = await self._generate_embedding(query)
-            
+
             if not query_embedding:
-                return ToolResult(
-                    success=False,
-                    output="Failed to generate embedding for query"
-                )
-            
+                return ToolResult(success=False, output="Failed to generate embedding for query")
+
             logger.info(f"Generated {len(query_embedding)} dimensional embedding for query")
-            
+
             # Initialize database connection
             await self.db.initialize()
             client = await self.db.client
-            
+
             # Call the appropriate RPC function based on app_type
-            if self.app_type == 'mobile':
-                rpc_function = 'match_mobile_components'
+            if self.app_type == "mobile":
+                rpc_function = "match_mobile_components"
                 logger.info(f"🔍 Using mobile component search (RPC: {rpc_function}) for app_type: {self.app_type}")
             else:
-                rpc_function = 'match_components'
+                rpc_function = "match_components"
                 logger.info(f"🔍 Using web component search (RPC: {rpc_function}) for app_type: {self.app_type}")
-            
+
             result = await client.rpc(
                 rpc_function,
-                {
-                    'query_embedding': query_embedding,
-                    'match_threshold': match_threshold,
-                    'match_count': match_count
-                }
+                {"query_embedding": query_embedding, "match_threshold": match_threshold, "match_count": match_count},
             ).execute()
-            
+
             if result.data is None:
                 return ToolResult(
                     success=True,
-                    output="No matching components found. Try lowering the match_threshold or using different search terms."
+                    output="No matching components found. Try lowering the match_threshold or using different search terms.",
                 )
-            
+
             components = result.data
             logger.info(f"Found {len(components)} matching components")
-            
+
             # Format the results for the agent
             formatted_results = []
             for comp in components:
@@ -279,84 +289,74 @@ class ComponentSearchTool(Tool):
                     "route": comp.get("route"),
                     "summary": comp["summary"],
                     "props": comp.get("props", ""),
-                    "similarity_score": round(comp["score"], 3)
+                    "similarity_score": round(comp["score"], 3),
                 }
-                
+
                 # Include full code if requested
                 if include_full_code and comp.get("full_code"):
                     formatted_comp["full_code"] = comp["full_code"]
-                
+
                 formatted_results.append(formatted_comp)
-            
+
             # Create a detailed response for the agent
-            content_lines = [
-                f"Found {len(components)} matching components for: '{query}'",
-                ""
-            ]
-            
+            content_lines = [f"Found {len(components)} matching components for: '{query}'", ""]
+
             if formatted_results:
                 content_lines.append("Components found (with complete source code):")
                 content_lines.append("")
-                
+
                 for i, comp in enumerate(formatted_results, 1):
                     score_pct = comp["similarity_score"] * 100
-                    content_lines.extend([
-                        f"{i}. PATH: `{comp['path']}` ({score_pct:.1f}% match)",
-                        f"   Component: {comp['component']}",
-                        f"   {comp['summary']}",
-                        f"   Props: {comp['props']}" if comp.get('props') else "",
-                        ""
-                    ])
-                    
+                    content_lines.extend(
+                        [
+                            f"{i}. PATH: `{comp['path']}` ({score_pct:.1f}% match)",
+                            f"   Component: {comp['component']}",
+                            f"   {comp['summary']}",
+                            f"   Props: {comp['props']}" if comp.get("props") else "",
+                            "",
+                        ]
+                    )
+
                     # Include the full source code for direct editing
                     if include_full_code and comp.get("full_code"):
-                        content_lines.extend([
-                            f"   COMPLETE SOURCE CODE:",
-                            "   ```tsx",
-                            f"   {comp['full_code']}",
-                            "   ```",
-                            ""
-                        ])
-                
+                        content_lines.extend(
+                            ["   COMPLETE SOURCE CODE:", "   ```tsx", f"   {comp['full_code']}", "   ```", ""]
+                        )
+
                 # Add workflow instructions based on app_type
-                if self.app_type == 'mobile':
-                    content_lines.extend([
-                        "MOBILE WORKFLOW:",
-                        "1. Copy component code and integrate into your app/index.tsx",
-                        "2. Use proper React Native imports and mobile-optimized styling",
-                        "3. Available: React Native, Expo, Lucide React Native, NativeWind"
-                    ])
+                if self.app_type == "mobile":
+                    content_lines.extend(
+                        [
+                            "MOBILE WORKFLOW:",
+                            "1. Copy component code and integrate into your app/index.tsx",
+                            "2. Use proper React Native imports and mobile-optimized styling",
+                            "3. Available: React Native, Expo, Lucide React Native, NativeWind",
+                        ]
+                    )
                 else:
-                    content_lines.extend([
-                        "WEB WORKFLOW:",
-                        "1. Copy component code into src/app/page.tsx as internal functions",
-                        "2. Replace 'framer-motion' imports with 'motion'",
-                        "3. Available: React, lucide-react, motion, @/components/ui/*"
-                    ])
+                    content_lines.extend(
+                        [
+                            "WEB WORKFLOW:",
+                            "1. Copy component code into src/app/page.tsx as internal functions",
+                            "2. Replace 'framer-motion' imports with 'motion'",
+                            "3. Available: React, lucide-react, motion, @/components/ui/*",
+                        ]
+                    )
             else:
-                content_lines.extend([
-                    "No matches found.",
-                    "Try lowering the match_threshold or using different search terms."
-                ])
-            
-            return ToolResult(
-                success=True,
-                output="\n".join(content_lines)
-            )
-            
+                content_lines.extend(
+                    ["No matches found.", "Try lowering the match_threshold or using different search terms."]
+                )
+
+            return ToolResult(success=True, output="\n".join(content_lines))
+
         except Exception as e:
             logger.error(f"Error in component search: {e}")
-            return ToolResult(
-                success=False,
-                output=f"Component search failed: {str(e)}"
-            )
-
+            return ToolResult(success=False, output=f"Component search failed: {e!s}")
 
     async def get_component_suggestions(self, section_type: str) -> ToolResult:
         """Get suggestions for common component types based on actual component database content."""
-        
         # Dynamic suggestions based on app_type and actual database content
-        if self.app_type == 'mobile':
+        if self.app_type == "mobile":
             suggestions_map = {
                 "navigation": "tab navigation with icons and mobile header",
                 "modals": "mobile dialog and popup components",
@@ -367,12 +367,12 @@ class ComponentSearchTool(Tool):
                 "toggles": "toggle switches and mobile controls",
                 "tooltips": "mobile tooltip and hint components",
                 "screens": "full mobile screen layouts",
-                "layouts": "mobile app layout and structure components"
+                "layouts": "mobile app layout and structure components",
             }
         else:
             suggestions_map = {
                 "hero": "animated hero section with background effects and call to action",
-                "features": "feature section with icons, animations and descriptions", 
+                "features": "feature section with icons, animations and descriptions",
                 "pricing": "pricing table with multiple tiers and effects",
                 "testimonials": "customer testimonials with animations and photos",
                 "contact": "contact form with validation and effects",
@@ -383,15 +383,15 @@ class ComponentSearchTool(Tool):
                 "ui-effects": "animations, backgrounds, text effects like WobbleCard, Vortex, TypewriterEffect",
                 "forms": "form components with validation and styling",
                 "modals": "modal dialogs and popup components",
-                "buttons": "interactive button components with effects"
+                "buttons": "interactive button components with effects",
             }
-        
+
         if section_type not in suggestions_map:
             return ToolResult(
                 success=False,
-                output=f"Unknown section type: {section_type}. Available types: {', '.join(suggestions_map.keys())}"
+                output=f"Unknown section type: {section_type}. Available types: {', '.join(suggestions_map.keys())}",
             )
-        
+
         # Search for components of this type
         query = suggestions_map[section_type]
-        return await self.search_components(query, match_threshold=0.65, match_count=6) 
+        return await self.search_components(query, match_threshold=0.65, match_count=6)

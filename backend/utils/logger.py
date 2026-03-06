@@ -1,9 +1,10 @@
-import structlog, logging, os
+import logging
+import os
+
+import structlog
 
 ENV_MODE = os.getenv("ENV_MODE", "LOCAL")
-LOGGING_LEVEL = logging.getLevelNamesMapping().get(
-    os.getenv("LOGGING_LEVEL", "DEBUG").upper(), logging.DEBUG
-)
+LOGGING_LEVEL = logging.getLevelNamesMapping().get(os.getenv("LOGGING_LEVEL", "DEBUG").upper(), logging.DEBUG)
 
 renderer = [structlog.processors.JSONRenderer()]
 if ENV_MODE.lower() == "local".lower() or ENV_MODE.lower() == "staging".lower():

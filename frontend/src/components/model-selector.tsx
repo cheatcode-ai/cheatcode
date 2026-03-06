@@ -22,11 +22,11 @@ interface ModelSelectorProps {
 const ProviderLogo = ({
   logoUrl,
   provider,
-  className
+  className,
 }: {
   logoUrl?: string;
   provider: string;
-  className?: string
+  className?: string;
 }) => {
   if (!logoUrl) {
     return <Bot className={cn(className, 'text-gray-500')} />;
@@ -63,7 +63,12 @@ export function ModelSelector({
 
   if (isLoading || models.length === 0) {
     return (
-      <div className={cn('flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground', className)}>
+      <div
+        className={cn(
+          'flex items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground',
+          className,
+        )}
+      >
         <Bot className="h-3.5 w-3.5" />
         <span>Loading...</span>
       </div>
@@ -74,8 +79,8 @@ export function ModelSelector({
     <Select value={selectedValue} onValueChange={onChange} disabled={disabled}>
       <SelectTrigger
         className={cn(
-          'h-7 w-auto gap-1.5 border-none bg-transparent px-2 py-1 text-[10px] shadow-none hover:bg-zinc-800/50 focus:ring-0 focus-visible:ring-0 rounded-md font-mono text-zinc-400 hover:text-zinc-200 transition-all uppercase tracking-wide',
-          className
+          'h-8 w-auto gap-1.5 border-none bg-transparent px-2 py-1 text-[10px] shadow-none hover:bg-zinc-800/50 focus:ring-0 focus-visible:ring-0 rounded-md font-mono text-zinc-400 hover:text-zinc-200 transition-all uppercase tracking-wide',
+          className,
         )}
         size="sm"
       >
@@ -86,11 +91,16 @@ export function ModelSelector({
               provider={selectedModel?.provider || ''}
               className="h-3.5 w-3.5 opacity-80"
             />
-            <span className="uppercase">{selectedModel?.name || 'Select model'}</span>
+            <span className="uppercase">
+              {selectedModel?.name || 'Select model'}
+            </span>
           </div>
         </SelectValue>
       </SelectTrigger>
-      <SelectContent align="end" className="min-w-[240px] rounded-md bg-popover border border-zinc-800 p-0 font-mono shadow-2xl">
+      <SelectContent
+        align="end"
+        className="min-w-[240px] rounded-md bg-popover border border-zinc-800 p-0 font-mono shadow-2xl"
+      >
         {models.map((model) => (
           <SelectItem
             key={model.id}

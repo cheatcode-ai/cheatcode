@@ -1,8 +1,4 @@
-"""
-Polar.sh SDK integration service for subscription management.
-"""
-
-from typing import Dict, Optional
+"""Polar.sh SDK integration service for subscription management."""
 
 from utils.config import config
 from utils.logger import logger
@@ -12,7 +8,7 @@ class PolarService:
     """Service for managing Polar subscriptions."""
 
     # Product ID mapping - these are set from config
-    PRODUCT_MAPPING: Dict[str, str] = {}
+    PRODUCT_MAPPING: dict[str, str] = {}
 
     def __init__(self):
         self.access_token = config.POLAR_ACCESS_TOKEN
@@ -22,9 +18,9 @@ class PolarService:
 
         # Build product mapping from config
         self.PRODUCT_MAPPING = {
-            'pro': config.POLAR_PRODUCT_ID_PRO,
-            'premium': config.POLAR_PRODUCT_ID_PREMIUM,
-            'byok': config.POLAR_PRODUCT_ID_BYOK
+            "pro": config.POLAR_PRODUCT_ID_PRO,
+            "premium": config.POLAR_PRODUCT_ID_PREMIUM,
+            "byok": config.POLAR_PRODUCT_ID_BYOK,
         }
 
     @property
@@ -38,6 +34,7 @@ class PolarService:
             self._client = None
         else:
             from polar_sdk import Polar  # Lazy load - only needed when payments are used
+
             self._client = Polar(access_token=self.access_token)
             logger.info("Polar SDK initialized successfully")
 
@@ -48,7 +45,7 @@ class PolarService:
         """Check if Polar is properly configured."""
         return self.client is not None
 
-    def get_product_id(self, plan_id: str) -> Optional[str]:
+    def get_product_id(self, plan_id: str) -> str | None:
         """Get Polar product ID for a plan."""
         return self.PRODUCT_MAPPING.get(plan_id)
 
@@ -57,7 +54,7 @@ class PolarService:
         for plan, pid in self.PRODUCT_MAPPING.items():
             if pid == product_id:
                 return plan
-        return 'free'
+        return "free"
 
     def create_checkout_session(
         self,
@@ -65,7 +62,7 @@ class PolarService:
         customer_email: str,
         account_id: str,
         success_url: str,
-        cancel_url: Optional[str] = None
+        cancel_url: str | None = None,  # noqa: ARG002
     ) -> str:
         """Create Polar checkout session for subscription."""
         if not self.client:
@@ -76,24 +73,22 @@ class PolarService:
             raise ValueError(f"Unknown plan: {plan_id}. Available plans: {list(self.PRODUCT_MAPPING.keys())}")
 
         try:
-            checkout = self.client.checkouts.create(request={
-                "products": [product_id],
-                "customer_email": customer_email,
-                "customer_external_id": account_id,
-                "success_url": success_url,
-                "metadata": {
-                    "account_id": account_id,
-                    "plan_id": plan_id,
-                    "source": "cheatcode"
+            checkout = self.client.checkouts.create(
+                request={
+                    "products": [product_id],
+                    "customer_email": customer_email,
+                    "customer_external_id": account_id,
+                    "success_url": success_url,
+                    "metadata": {"account_id": account_id, "plan_id": plan_id, "source": "cheatcode"},
                 }
-            })
+            )
 
             logger.info(f"Created Polar checkout for {customer_email}, plan {plan_id}")
             return checkout.url
 
         except Exception as e:
-            logger.error(f"Error creating Polar checkout: {str(e)}")
-            raise Exception(f"Failed to create checkout session: {str(e)}")
+            logger.error(f"Error creating Polar checkout: {e!s}")
+            raise Exception(f"Failed to create checkout session: {e!s}") from e
 
     def get_subscription(self, subscription_id: str):
         """Get subscription details."""
@@ -105,10 +100,7 @@ class PolarService:
         """Cancel a subscription."""
         if not self.client:
             raise Exception("Polar SDK not configured")
-        return self.client.subscriptions.update(
-            id=subscription_id,
-            body={"cancel_at_period_end": at_period_end}
-        )
+        return self.client.subscriptions.update(id=subscription_id, body={"cancel_at_period_end": at_period_end})
 
     def get_customer_by_external_id(self, account_id: str):
         """Get Polar customer by external ID (our account_id)."""
@@ -128,10 +120,9 @@ async def create_polar_checkout_session(
     plan_id: str,
     account_id: str,
     user_email: str,
-    success_url: Optional[str] = None,
+    success_url: str | None = None,
 ) -> str:
-    """
-    Create Polar checkout session.
+    """Create Polar checkout session.
 
     Args:
         plan_id: The plan to subscribe to ('pro', 'premium', 'byok')
@@ -141,6 +132,7 @@ async def create_polar_checkout_session(
 
     Returns:
         The checkout URL to redirect the user to
+
     """
     from utils.constants import get_plan_by_id
 
@@ -159,14 +151,16 @@ async def create_polar_checkout_session(
             plan_id=plan_id,
             customer_email=user_email,
             account_id=account_id,
-            success_url=success_url or "https://trycheatcode.com/dashboard?upgrade=success"
+            success_url=success_url or "https://trycheatcode.com/dashboard?upgrade=success",
         )
 
         logger.info(f"Created Polar checkout for user {account_id}, plan {plan_id}")
         return checkout_url
 
     except Exception as e:
-        logger.error(f"Error creating Polar checkout: {str(e)}")
+        logger.error(f"Error creating Polar checkout: {e!s}")
         if "not configured" in str(e).lower():
-            raise Exception("Payment processing is currently unavailable. Please contact support to upgrade your plan.")
-        raise Exception(f"Failed to create checkout session: {str(e)}")
+            raise Exception(
+                "Payment processing is currently unavailable. Please contact support to upgrade your plan."
+            ) from e
+        raise Exception(f"Failed to create checkout session: {e!s}") from e

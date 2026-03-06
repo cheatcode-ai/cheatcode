@@ -33,51 +33,6 @@ const noop = () => {};
 /**
  * Create a prefixed log function
  */
-const createLogFn = (level: LogLevel) => {
-  if (!isDevelopment) return noop;
-
-  return (...args: unknown[]) => {
-    const timestamp = new Date().toISOString().slice(11, 23);
-    const prefix = `[${timestamp}] [${level.toUpperCase()}]`;
-
-    switch (level) {
-      case 'debug':
-        console.debug(prefix, ...args);
-        break;
-      case 'info':
-        console.info(prefix, ...args);
-        break;
-      case 'warn':
-        console.warn(prefix, ...args);
-        break;
-      case 'error':
-        // Always log errors, even in production
-        console.error(prefix, ...args);
-        break;
-      default:
-        console.log(prefix, ...args);
-    }
-  };
-};
-
-/**
- * Logger instance with conditional logging based on environment
- *
- * - In development: All logs are shown with timestamps
- * - In production: Only errors are logged
- */
-export const logger: Logger = {
-  debug: createLogFn('debug'),
-  info: createLogFn('info'),
-  warn: createLogFn('warn'),
-  error: (...args: unknown[]) => {
-    // Always log errors
-    const timestamp = new Date().toISOString().slice(11, 23);
-    console.error(`[${timestamp}] [ERROR]`, ...args);
-  },
-  log: isDevelopment ? console.log.bind(console) : noop,
-};
-
 /**
  * Create a namespaced logger for a specific module
  *
@@ -123,5 +78,3 @@ export const createLogger = (namespace: string): Logger => {
       : noop,
   };
 };
-
-export default logger;

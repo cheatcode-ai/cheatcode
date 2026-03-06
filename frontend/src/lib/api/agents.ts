@@ -1,8 +1,17 @@
 // Agent API Functions
 import { handleApiError } from '../error-handler';
 import { API_URL } from './config';
-import { BillingError, ProjectInitiationError, SandboxCreationError, InitiationAuthError } from './errors';
-import { AgentRun, InitiateAgentResponse, HealthCheckResponse } from './types';
+import {
+  BillingError,
+  ProjectInitiationError,
+  SandboxCreationError,
+  InitiationAuthError,
+} from './errors';
+import {
+  type AgentRun,
+  type InitiateAgentResponse,
+  type HealthCheckResponse,
+} from './types';
 
 export const startAgent = async (
   threadId: string,
@@ -39,7 +48,7 @@ export const startAgent = async (
 
       const finalOptions = { ...defaultOptions, ...options };
 
-      const body: any = {
+      const body: Record<string, unknown> = {
         enable_thinking: finalOptions.enable_thinking,
         reasoning_effort: finalOptions.reasoning_effort,
         stream: finalOptions.stream,
@@ -50,14 +59,17 @@ export const startAgent = async (
         body.model_name = finalOptions.model_name;
       }
 
-      const response = await fetch(`${API_URL}/thread/${threadId}/agent/start`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${clerkToken}`,
+      const response = await fetch(
+        `${API_URL}/thread/${threadId}/agent/start`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${clerkToken}`,
+          },
+          body: JSON.stringify(body),
         },
-        body: JSON.stringify(body),
-      });
+      );
 
       if (!response.ok) {
         if (response.status === 402) {
@@ -83,12 +95,13 @@ export const startAgent = async (
           .catch(() => 'No error details available');
 
         // Check for transient sandbox lock errors - retry silently
-        const isSandboxLockError = response.status === 500 &&
+        const isSandboxLockError =
+          response.status === 500 &&
           errorText.includes('Cannot acquire lock for sandbox');
 
         if (isSandboxLockError && attempt < maxRetries) {
           const delay = baseDelay * Math.pow(2, attempt); // Exponential backoff
-          await new Promise(resolve => setTimeout(resolve, delay));
+          await new Promise((resolve) => setTimeout(resolve, delay));
           continue; // Retry
         }
 
@@ -105,10 +118,13 @@ export const startAgent = async (
       }
 
       // Don't handle transient errors during retry attempts
-      if (attempt < maxRetries && error instanceof Error &&
-          error.message.includes('500')) {
+      if (
+        attempt < maxRetries &&
+        error instanceof Error &&
+        error.message.includes('500')
+      ) {
         const delay = baseDelay * Math.pow(2, attempt);
-        await new Promise(resolve => setTimeout(resolve, delay));
+        await new Promise((resolve) => setTimeout(resolve, delay));
         continue;
       }
 
@@ -119,11 +135,17 @@ export const startAgent = async (
         const networkError = new Error(
           `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
         );
-        handleApiError(networkError, { operation: 'start agent', resource: 'AI assistant' });
+        handleApiError(networkError, {
+          operation: 'start agent',
+          resource: 'AI assistant',
+        });
         throw networkError;
       }
 
-      handleApiError(error, { operation: 'start agent', resource: 'AI assistant' });
+      handleApiError(error, {
+        operation: 'start agent',
+        resource: 'AI assistant',
+      });
       throw error;
     }
   }
@@ -132,7 +154,10 @@ export const startAgent = async (
   throw new Error('Failed to start agent after retries');
 };
 
-export const stopAgent = async (agentRunId: string, clerkToken?: string): Promise<void> => {
+export const stopAgent = async (
+  agentRunId: string,
+  clerkToken?: string,
+): Promise<void> => {
   if (!clerkToken) {
     throw new Error('Authentication required. Please sign in to continue.');
   }
@@ -148,12 +173,18 @@ export const stopAgent = async (agentRunId: string, clerkToken?: string): Promis
 
   if (!response.ok) {
     const stopError = new Error(`Error stopping agent: ${response.statusText}`);
-    handleApiError(stopError, { operation: 'stop agent', resource: 'AI assistant' });
+    handleApiError(stopError, {
+      operation: 'stop agent',
+      resource: 'AI assistant',
+    });
     throw stopError;
   }
 };
 
-export const getAgentStatus = async (agentRunId: string, clerkToken?: string): Promise<AgentRun> => {
+export const getAgentStatus = async (
+  agentRunId: string,
+  clerkToken?: string,
+): Promise<AgentRun> => {
   try {
     if (!clerkToken) {
       throw new Error('Authentication required. Please sign in to continue.');
@@ -181,7 +212,10 @@ export const getAgentStatus = async (agentRunId: string, clerkToken?: string): P
   }
 };
 
-export const getAgentRuns = async (threadId: string, clerkToken?: string): Promise<AgentRun[]> => {
+export const getAgentRuns = async (
+  threadId: string,
+  clerkToken?: string,
+): Promise<AgentRun[]> => {
   try {
     if (!clerkToken) {
       throw new Error('Authentication required. Please sign in to continue.');
@@ -201,7 +235,10 @@ export const getAgentRuns = async (threadId: string, clerkToken?: string): Promi
     const data = await response.json();
     return data.agent_runs || [];
   } catch (error) {
-    handleApiError(error, { operation: 'load agent runs', resource: 'conversation history' });
+    handleApiError(error, {
+      operation: 'load agent runs',
+      resource: 'conversation history',
+    });
     throw error;
   }
 };
@@ -209,9 +246,9 @@ export const getAgentRuns = async (threadId: string, clerkToken?: string): Promi
 // Stream connection configuration
 const STREAM_CONFIG = {
   maxRetries: 5,
-  baseDelayMs: 1000,           // Initial retry delay (1 second)
-  maxDelayMs: 30000,           // Max retry delay (30 seconds)
-  heartbeatTimeoutMs: 45000,   // No message timeout (45 seconds - backend sends pings every 15s)
+  baseDelayMs: 1000, // Initial retry delay (1 second)
+  maxDelayMs: 30000, // Max retry delay (30 seconds)
+  heartbeatTimeoutMs: 45000, // No message timeout (45 seconds - backend sends pings every 15s)
   errorResetWindowMs: 5 * 60 * 1000, // Reset error count after 5 min of stability
 };
 
@@ -226,7 +263,9 @@ export const streamAgent = (
   clerkToken?: string,
 ): (() => void) => {
   if (!clerkToken) {
-    const authError = new Error('Authentication required. Please sign in to continue.');
+    const authError = new Error(
+      'Authentication required. Please sign in to continue.',
+    );
     callbacks.onError(authError);
     callbacks.onClose();
     return () => {};
@@ -317,7 +356,7 @@ export const streamAgent = (
               callbacks.onError(jsonData.message || 'Unknown error occurred');
               return;
             }
-          } catch (jsonError) {
+          } catch {
             // Not JSON or invalid JSON, continue with normal processing
           }
 
@@ -389,7 +428,8 @@ export const streamAgent = (
 
           // Check for persistent connection failures
           if (eventSourceState === EventSource.CONNECTING && errorCount >= 3) {
-            errorMessage = 'Persistent connection failure - checking authentication...';
+            errorMessage =
+              'Persistent connection failure - checking authentication...';
             isAuthError = true;
           }
 
@@ -397,7 +437,8 @@ export const streamAgent = (
             if ('status' in event && event.status) {
               switch (event.status) {
                 case 401:
-                  errorMessage = 'Authentication failed - please refresh and try again';
+                  errorMessage =
+                    'Authentication failed - please refresh and try again';
                   shouldAttemptReconnect = false;
                   isAuthError = true;
                   break;
@@ -407,7 +448,8 @@ export const streamAgent = (
                   isAuthError = true;
                   break;
                 case 404:
-                  errorMessage = 'Stream endpoint not found - agent may have completed';
+                  errorMessage =
+                    'Stream endpoint not found - agent may have completed';
                   shouldAttemptReconnect = false;
                   break;
                 case 500:
@@ -420,7 +462,7 @@ export const streamAgent = (
                   errorMessage = `Connection error (HTTP ${event.status}, attempt ${errorCount}/${STREAM_CONFIG.maxRetries})`;
               }
             }
-          } catch (inspectionError) {
+          } catch {
             // Could not extract detailed error info
           }
         }
@@ -460,20 +502,20 @@ export const streamAgent = (
           callbacks.onError(errorMessage);
         }
       };
-
     } catch (error) {
-
       let errorMessage = 'Failed to start stream';
 
       if (error instanceof Error) {
         if (error.name === 'SecurityError') {
-          errorMessage = 'Security error - unable to connect to stream (check CORS settings)';
+          errorMessage =
+            'Security error - unable to connect to stream (check CORS settings)';
         } else if (error.name === 'TypeError') {
           errorMessage = 'Invalid stream URL or network configuration error';
         } else if (error.message.includes('fetch')) {
           errorMessage = 'Network error - unable to reach streaming endpoint';
         } else if (error.message.includes('token')) {
-          errorMessage = 'Authentication token error - please refresh and try again';
+          errorMessage =
+            'Authentication token error - please refresh and try again';
         } else {
           errorMessage = `Stream setup failed: ${error.message}`;
         }
@@ -508,7 +550,6 @@ export const streamAgent = (
       const timeSinceLastMessage = Date.now() - lastMessageTime;
 
       if (timeSinceLastMessage > STREAM_CONFIG.heartbeatTimeoutMs) {
-
         // Trigger reconnection
         if (!isReconnecting && eventSource) {
           errorCount++;
@@ -522,10 +563,14 @@ export const streamAgent = (
                 createConnection();
               }
             }, delay);
-            callbacks.onError(`Connection stale - reconnecting (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})...`);
+            callbacks.onError(
+              `Connection stale - reconnecting (attempt ${errorCount}/${STREAM_CONFIG.maxRetries})...`,
+            );
           } else {
             cleanup();
-            callbacks.onError('Stream connection timed out - please refresh the page');
+            callbacks.onError(
+              'Stream connection timed out - please refresh the page',
+            );
             callbacks.onClose();
           }
         }
@@ -565,56 +610,68 @@ export const initiateAgent = async (
     });
 
     if (!response.ok) {
-      let errorDetail: any;
+      let errorDetail: Record<string, unknown>;
       try {
         errorDetail = await response.json();
       } catch {
-        const errorText = await response.text().catch(() => 'No error details available');
+        const errorText = await response
+          .text()
+          .catch(() => 'No error details available');
         errorDetail = { message: errorText };
       }
 
+      const errMsg =
+        typeof errorDetail.message === 'string' ? errorDetail.message : '';
+
       if (response.status === 402) {
         throw new BillingError(response.status, {
-          message: errorDetail.message || 'Payment required to create new project',
-          ...errorDetail
+          message: errMsg || 'Payment required to create new project',
+          ...errorDetail,
         });
       } else if (response.status === 401 || response.status === 403) {
         throw new InitiationAuthError(response.status, {
-          message: errorDetail.message || 'Authentication failed. Please sign in again and try again.',
-          errorType: 'authentication'
+          message:
+            errMsg ||
+            'Authentication failed. Please sign in again and try again.',
+          errorType: 'authentication',
         });
       } else if (response.status === 400) {
         throw new ProjectInitiationError(response.status, {
-          message: errorDetail.message || 'Invalid request. Please check your inputs and try again.',
-          errorType: 'validation'
+          message:
+            errMsg ||
+            'Invalid request. Please check your inputs and try again.',
+          errorType: 'validation',
         });
       } else if (response.status === 409) {
         throw new ProjectInitiationError(response.status, {
-          message: errorDetail.message || 'A project with this configuration already exists.',
-          errorType: 'conflict'
+          message:
+            errMsg || 'A project with this configuration already exists.',
+          errorType: 'conflict',
         });
       } else if (response.status === 503 || response.status === 502) {
         throw new SandboxCreationError(response.status, {
-          message: errorDetail.message || 'Failed to create development environment. Please try again.',
-          sandboxType: 'daytona'
+          message:
+            errMsg ||
+            'Failed to create development environment. Please try again.',
+          sandboxType: 'daytona',
         });
       } else if (response.status >= 500) {
         throw new ProjectInitiationError(response.status, {
-          message: errorDetail.message || 'Server error occurred. Please try again in a moment.',
-          errorType: 'server'
+          message:
+            errMsg || 'Server error occurred. Please try again in a moment.',
+          errorType: 'server',
         });
       }
 
       throw new ProjectInitiationError(response.status, {
-        message: errorDetail.message || `Failed to create project: ${response.statusText}`,
-        errorType: 'unknown'
+        message: errMsg || `Failed to create project: ${response.statusText}`,
+        errorType: 'unknown',
       });
     }
 
     const result = await response.json();
     return result;
   } catch (error) {
-
     if (
       error instanceof TypeError &&
       error.message.includes('Failed to fetch')
@@ -622,7 +679,10 @@ export const initiateAgent = async (
       const networkError = new Error(
         `Cannot connect to backend server. Please check your internet connection and make sure the backend is running.`,
       );
-      handleApiError(networkError, { operation: 'initiate agent', resource: 'AI assistant' });
+      handleApiError(networkError, {
+        operation: 'initiate agent',
+        resource: 'AI assistant',
+      });
       throw networkError;
     }
     handleApiError(error, { operation: 'initiate agent' });

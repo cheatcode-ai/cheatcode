@@ -1,11 +1,12 @@
-"""
-Langfuse integration service using v3 SDK.
+"""Langfuse integration service using v3 SDK.
+
 Clean implementation without backwards compatibility wrappers.
 """
+
 from langfuse import Langfuse
-from typing import Optional, Any
-from utils.logger import logger
+
 from utils.config import config
+from utils.logger import logger
 
 # Configuration
 public_key = config.LANGFUSE_PUBLIC_KEY
@@ -18,44 +19,38 @@ enabled = bool(public_key and secret_key)
 class MockObservation:
     """Mock observation for when Langfuse is disabled."""
 
-    def update(self, **kwargs) -> "MockObservation":
+    def update(self, **_kwargs) -> "MockObservation":
         return self
 
     def end(self, **kwargs) -> None:
         pass
 
-    def start_span(self, name: str, **kwargs) -> "MockObservation":
+    def start_span(self, _name: str, **_kwargs) -> "MockObservation":
         return MockObservation()
 
-    def start_generation(self, name: str, **kwargs) -> "MockObservation":
+    def start_generation(self, _name: str, **_kwargs) -> "MockObservation":
         return MockObservation()
 
     def event(self, name: str, **kwargs) -> None:
         """Log an event (no-op for mock)."""
-        pass
 
 
 # Initialize Langfuse client
-langfuse: Optional[Langfuse] = None
+langfuse: Langfuse | None = None
 
 try:
     if enabled:
-        langfuse = Langfuse(
-            public_key=public_key,
-            secret_key=secret_key,
-            host=host
-        )
+        langfuse = Langfuse(public_key=public_key, secret_key=secret_key, host=host)
         logger.info("Langfuse v3 initialized successfully (enabled=True)")
     else:
         logger.info("Langfuse v3 disabled (no credentials)")
 except Exception as e:
-    logger.warning(f"Failed to initialize Langfuse: {str(e)}")
+    logger.warning(f"Failed to initialize Langfuse: {e!s}")
     langfuse = None
 
 
 def log_event(trace, name: str, **kwargs) -> None:
-    """
-    Log an event to a trace as a short-lived span (v3 pattern).
+    """Log an event to a trace as a short-lived span (v3 pattern).
 
     In Langfuse v3, events are represented as spans that are immediately ended.
     """
@@ -78,12 +73,11 @@ def log_event(trace, name: str, **kwargs) -> None:
             span.update(**update_kwargs)
         span.end()
     except Exception as e:
-        logger.debug(f"Failed to log event '{name}': {str(e)}")
+        logger.debug(f"Failed to log event '{name}': {e!s}")
 
 
 def safe_trace(name: str, **kwargs):
-    """
-    Create a Langfuse trace/span with error handling.
+    """Create a Langfuse trace/span with error handling.
 
     Returns the root span observation object that supports:
     - .start_span(name, **kwargs) -> child span
@@ -109,8 +103,7 @@ def safe_trace(name: str, **kwargs):
                 span_kwargs["tags"] = kwargs["tags"]
 
             return langfuse.start_span(**span_kwargs)
-        else:
-            return MockObservation()
+        return MockObservation()
     except Exception as e:
-        logger.warning(f"Failed to create Langfuse trace '{name}': {str(e)}")
+        logger.warning(f"Failed to create Langfuse trace '{name}': {e!s}")
         return MockObservation()

@@ -1,11 +1,10 @@
-"""
-Available AI models configuration - SINGLE SOURCE OF TRUTH.
+"""Available AI models configuration - SINGLE SOURCE OF TRUTH.
 
 All model-related data should be defined here and imported elsewhere.
 This eliminates duplication across constants.py, llm.py, run.py, etc.
 """
 
-from typing import List, Dict, Any, Optional
+from typing import Any
 
 # Base CDN URL for provider logos from LobeHub icons
 ICON_CDN_BASE = "https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/dark"
@@ -29,7 +28,7 @@ ICON_CDN_BASE = "https://raw.githubusercontent.com/lobehub/lobe-icons/master/pac
 #   - logo_url: URL to provider logo
 # =============================================================================
 
-AVAILABLE_MODELS: List[Dict[str, Any]] = [
+AVAILABLE_MODELS: list[dict[str, Any]] = [
     # xAI Grok models
     {
         "id": "grok-4.1-fast",
@@ -146,12 +145,13 @@ AVAILABLE_MODELS: List[Dict[str, Any]] = [
 # Basic model lookup functions
 # =============================================================================
 
-def get_available_models() -> List[Dict[str, Any]]:
+
+def get_available_models() -> list[dict[str, Any]]:
     """Return list of available models for frontend display."""
     return AVAILABLE_MODELS
 
 
-def get_default_model() -> Dict[str, Any]:
+def get_default_model() -> dict[str, Any]:
     """Return the default model configuration."""
     for model in AVAILABLE_MODELS:
         if model.get("default"):
@@ -159,7 +159,7 @@ def get_default_model() -> Dict[str, Any]:
     return AVAILABLE_MODELS[0]
 
 
-def get_model_by_id(model_id: str) -> Optional[Dict[str, Any]]:
+def get_model_by_id(model_id: str) -> dict[str, Any] | None:
     """Get model configuration by its short ID."""
     for model in AVAILABLE_MODELS:
         if model["id"] == model_id:
@@ -167,7 +167,7 @@ def get_model_by_id(model_id: str) -> Optional[Dict[str, Any]]:
     return None
 
 
-def get_model_by_openrouter_id(openrouter_id: str) -> Optional[Dict[str, Any]]:
+def get_model_by_openrouter_id(openrouter_id: str) -> dict[str, Any] | None:
     """Get model configuration by its OpenRouter ID."""
     for model in AVAILABLE_MODELS:
         if model["openrouter_id"] == openrouter_id:
@@ -176,8 +176,8 @@ def get_model_by_openrouter_id(openrouter_id: str) -> Optional[Dict[str, Any]]:
 
 
 def resolve_model_id(model_id: str) -> str:
-    """
-    Resolve a short model ID to the full OpenRouter model ID.
+    """Resolve a short model ID to the full OpenRouter model ID.
+
     Returns the original ID if not found (for backwards compatibility).
     """
     model = get_model_by_id(model_id)
@@ -191,9 +191,9 @@ def resolve_model_id(model_id: str) -> str:
 # Max tokens functions (replaces hardcoded if/elif in run.py)
 # =============================================================================
 
+
 def get_max_tokens_for_model(model_id: str) -> int:
-    """
-    Get the max OUTPUT tokens for a model, with fallback default.
+    """Get the max OUTPUT tokens for a model, with fallback default.
 
     Args:
         model_id: Either short ID (e.g., "claude-sonnet-4.5") or
@@ -201,6 +201,7 @@ def get_max_tokens_for_model(model_id: str) -> int:
 
     Returns:
         Maximum output tokens the model can generate
+
     """
     # Try short ID first
     model = get_model_by_id(model_id)
@@ -217,14 +218,14 @@ def get_max_tokens_for_model(model_id: str) -> int:
 
 
 def get_context_window_for_model(model_id: str) -> int:
-    """
-    Get the context window (max INPUT tokens) for a model.
+    """Get the context window (max INPUT tokens) for a model.
 
     Args:
         model_id: Either short ID or full OpenRouter ID
 
     Returns:
         Maximum input context window size
+
     """
     model = get_model_by_id(model_id) or get_model_by_openrouter_id(model_id)
     if model:
@@ -236,29 +237,28 @@ def get_context_window_for_model(model_id: str) -> int:
 # Cost calculation functions (replaces hardcoded dict in constants.py)
 # =============================================================================
 
+
 def get_model_costs(model_id: str) -> tuple:
-    """
-    Get the cost per 1K tokens for a model.
+    """Get the cost per 1K tokens for a model.
 
     Args:
         model_id: Either short ID or full OpenRouter ID
 
     Returns:
         Tuple of (input_cost_per_1k, output_cost_per_1k) in USD
+
     """
     model = get_model_by_id(model_id) or get_model_by_openrouter_id(model_id)
     if model:
-        return (
-            model.get("cost_input_per_1k", 0.002),
-            model.get("cost_output_per_1k", 0.006)
-        )
+        return (model.get("cost_input_per_1k", 0.002), model.get("cost_output_per_1k", 0.006))
     # Default fallback
     return (0.002, 0.006)
 
 
 def calculate_token_cost(prompt_tokens: int, completion_tokens: int, model: str) -> float:
-    """
-    Calculate estimated cost in USD for token usage.
+    """Calculate estimated cost in USD using LiteLLM's pricing database.
+
+    Falls back to hardcoded AVAILABLE_MODELS pricing if the model is not in LiteLLM's DB.
 
     Args:
         prompt_tokens: Number of input/prompt tokens
@@ -267,51 +267,64 @@ def calculate_token_cost(prompt_tokens: int, completion_tokens: int, model: str)
 
     Returns:
         Estimated cost in USD
+
     """
-    input_cost, output_cost = get_model_costs(model)
-    total_cost = (prompt_tokens / 1000 * input_cost) + (completion_tokens / 1000 * output_cost)
-    return round(total_cost, 6)
+    import litellm as _litellm
+
+    from utils.logger import logger as _logger
+
+    try:
+        prompt_cost, completion_cost = _litellm.cost_per_token(
+            model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+        )
+        return round(prompt_cost + completion_cost, 6)
+    except Exception:
+        _logger.warning(f"Model {model} not found in LiteLLM pricing DB, using hardcoded fallback")
+        # Fallback to hardcoded pricing for models not in LiteLLM DB
+        input_cost, output_cost = get_model_costs(model)
+        return round((prompt_tokens / 1000 * input_cost) + (completion_tokens / 1000 * output_cost), 6)
 
 
 # =============================================================================
 # LiteLLM Router configuration (replaces hardcoded list in llm.py)
 # =============================================================================
 
-def get_router_model_list(openrouter_key: str) -> List[Dict[str, Any]]:
-    """
-    Generate LiteLLM Router model configuration from AVAILABLE_MODELS.
+
+def get_router_model_list(openrouter_key: str) -> list[dict[str, Any]]:
+    """Generate LiteLLM Router model configuration from AVAILABLE_MODELS.
 
     Args:
         openrouter_key: OpenRouter API key
 
     Returns:
         List of model configurations for LiteLLM Router
+
     """
     if not openrouter_key:
         return []
 
-    model_list = []
-    for model in AVAILABLE_MODELS:
-        model_list.append({
+    return [
+        {
             "model_name": model["id"],
             "litellm_params": {
                 "model": model["openrouter_id"],
                 "api_key": openrouter_key,
             },
-            "model_info": {"id": 1}
-        })
-    return model_list
+            "model_info": {"id": 1},
+        }
+        for model in AVAILABLE_MODELS
+    ]
 
 
-def get_router_model_name(model_name: str) -> Optional[str]:
-    """
-    Map an OpenRouter model ID to the router group name (short ID).
+def get_router_model_name(model_name: str) -> str | None:
+    """Map an OpenRouter model ID to the router group name (short ID).
 
     Args:
         model_name: Full OpenRouter model ID
 
     Returns:
         Short model ID if found, None otherwise
+
     """
     model = get_model_by_openrouter_id(model_name)
     if model:
@@ -323,9 +336,10 @@ def get_router_model_name(model_name: str) -> Optional[str]:
 # Context compression helper (for context_manager.py)
 # =============================================================================
 
+
 def get_context_compression_limit(model_id: str) -> int:
-    """
-    Get the safe context compression limit for a model.
+    """Get the safe context compression limit for a model.
+
     This accounts for output token reservation and safety margin.
 
     Args:
@@ -333,6 +347,7 @@ def get_context_compression_limit(model_id: str) -> int:
 
     Returns:
         Maximum tokens to use for compressed context
+
     """
     model = get_model_by_id(model_id) or get_model_by_openrouter_id(model_id)
 
@@ -345,11 +360,10 @@ def get_context_compression_limit(model_id: str) -> int:
 
     # Fallback based on provider pattern matching (for unknown models)
     model_lower = model_id.lower()
-    if 'sonnet' in model_lower or 'claude' in model_lower:
+    if "sonnet" in model_lower or "claude" in model_lower:
         return 200000 - 64000 - 28000  # ~108K
-    elif 'gpt' in model_lower:
+    if "gpt" in model_lower:
         return 128000 - 28000  # 100K
-    elif 'gemini' in model_lower:
+    if "gemini" in model_lower:
         return 1000000 - 300000  # 700K
-    else:
-        return 41000 - 10000  # 31K default
+    return 41000 - 10000  # 31K default

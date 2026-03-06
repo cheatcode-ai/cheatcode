@@ -1,25 +1,25 @@
-from typing import Optional
+from daytona import AsyncSandbox
 
 from agentpress.thread_manager import ThreadManager
 from agentpress.tool import Tool
-from daytona import AsyncSandbox
 from sandbox.sandbox import get_or_start_sandbox
-from utils.logger import logger
 from utils.files_utils import clean_path
+from utils.logger import logger
+
 
 class SandboxToolsBase(Tool):
     """Base class for all sandbox tools that provides project-based sandbox access."""
-    
+
     # Class variable to track if sandbox URLs have been printed
     _urls_printed = False
-    
-    def __init__(self, project_id: str, thread_manager: Optional[ThreadManager] = None, app_type: str = 'web'):
+
+    def __init__(self, project_id: str, thread_manager: ThreadManager | None = None, app_type: str = "web"):
         super().__init__()
         self.project_id = project_id
         self.thread_manager = thread_manager
         self.app_type = app_type
         # Set workspace path dynamically based on app_type
-        self.workspace_path = "/workspace/cheatcode-mobile" if app_type == 'mobile' else "/workspace/cheatcode-app"
+        self.workspace_path = "/workspace/cheatcode-mobile" if app_type == "mobile" else "/workspace/cheatcode-app"
         self._sandbox = None
         self._sandbox_id = None
         self._sandbox_token = None
@@ -30,31 +30,29 @@ class SandboxToolsBase(Tool):
             try:
                 # Get database client
                 client = await self.thread_manager.db.client
-                
+
                 # Get project data
-                project = await client.table('projects').select('*').eq('project_id', self.project_id).execute()
+                project = await client.table("projects").select("*").eq("project_id", self.project_id).execute()
                 if not project.data or len(project.data) == 0:
                     raise ValueError(f"Project {self.project_id} not found")
-                
+
                 project_data = project.data[0]
-                sandbox_info = project_data.get('sandbox', {})
-                
-                if not sandbox_info.get('id'):
+                sandbox_info = project_data.get("sandbox", {})
+
+                if not sandbox_info.get("id"):
                     raise ValueError(f"No sandbox found for project {self.project_id}")
-                
+
                 # Store sandbox info
-                self._sandbox_id = sandbox_info['id']
-                self._sandbox_token = sandbox_info.get('token')
-                
+                self._sandbox_id = sandbox_info["id"]
+                self._sandbox_token = sandbox_info.get("token")
+
                 # Get or start the sandbox
                 self._sandbox = await get_or_start_sandbox(self._sandbox_id)
-                
 
-                
             except Exception as e:
-                logger.error(f"Error retrieving sandbox for project {self.project_id}: {str(e)}", exc_info=True)
-                raise e
-        
+                logger.error(f"Error retrieving sandbox for project {self.project_id}: {e!s}", exc_info=True)
+                raise
+
         return self._sandbox
 
     @property

@@ -1,25 +1,27 @@
-"""
-FastAPI routes for Composio integration.
+"""FastAPI routes for Composio integration.
+
 Main API endpoints for toolkit discovery, profile management, and OAuth flows.
 """
 
-from fastapi import APIRouter, HTTPException, Depends, Query, Request
-from typing import List, Dict, Any, Optional
+from typing import Any
+
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from utils.logger import logger
-from utils.auth_utils import get_current_user_id_from_jwt
 from services.supabase import DBConnection
-from .toolkit_service import ToolkitService, ToolkitInfo
+from utils.auth_utils import get_current_user_id_from_jwt
+from utils.logger import logger
+
+from .client import verify_composio_connection
 from .connected_account_service import ConnectedAccountService
 from .mcp_server_service import MCPServerService
-from .profile_service import ProfileService, CreateProfileRequest, UpdateProfileRequest
-from .client import verify_composio_connection
+from .profile_service import CreateProfileRequest, ProfileService, UpdateProfileRequest
+from .toolkit_service import ToolkitService
 
 router = APIRouter(prefix="/composio", tags=["composio"])
 
 # Database connection singleton
-_db: Optional[DBConnection] = None
+_db: DBConnection | None = None
 
 
 def get_db() -> DBConnection:
@@ -40,59 +42,67 @@ def initialize(database: DBConnection):
 # Request/Response Models
 # ============================================================================
 
+
 class CreateOAuthProfileRequest(BaseModel):
     """Request to create a profile with OAuth flow."""
+
     toolkit_slug: str
     profile_name: str
-    display_name: Optional[str] = None
-    redirect_url: Optional[str] = None
-    initiation_params: Optional[Dict[str, Any]] = None
+    display_name: str | None = None
+    redirect_url: str | None = None
+    initiation_params: dict[str, Any] | None = None
     use_custom_auth: bool = False
-    custom_auth_config: Optional[Dict[str, Any]] = None
+    custom_auth_config: dict[str, Any] | None = None
 
 
 class CreateOAuthProfileResponse(BaseModel):
     """Response from creating a profile with OAuth."""
+
     success: bool
     profile_id: str
-    redirect_url: Optional[str] = None
-    connection_id: Optional[str] = None
+    redirect_url: str | None = None
+    connection_id: str | None = None
     message: str
 
 
 class ProfileResponse(BaseModel):
     """Single profile response."""
+
     success: bool
-    profile: Dict[str, Any]
+    profile: dict[str, Any]
 
 
 class ProfilesListResponse(BaseModel):
     """List of profiles response."""
+
     success: bool
-    profiles: List[Dict[str, Any]]
+    profiles: list[dict[str, Any]]
     count: int
 
 
 class ToolkitsResponse(BaseModel):
     """List of toolkits response."""
+
     success: bool
-    toolkits: List[Dict[str, Any]]
-    next_cursor: Optional[str] = None
+    toolkits: list[dict[str, Any]]
+    next_cursor: str | None = None
     total: int
 
 
 class MCPConfigResponse(BaseModel):
     """MCP configuration response."""
+
     success: bool
     mcp_url: str
     app_name: str
-    enabled_tools: List[str] = Field(default_factory=list)
+    enabled_tools: list[str] = Field(default_factory=list)
 
 
 class ToolsResponse(BaseModel):
     """Tools list response."""
+
     success: bool
-    tools: List[Dict[str, Any]]
+    tools: list[dict[str, Any]]
     count: int
 
 
@@ -100,16 +110,17 @@ class ToolsResponse(BaseModel):
 # Health & Status Endpoints
 # ============================================================================
 
+
 @router.get("/health")
 async def health_check():
     """Check Composio integration health."""
-    status = await verify_composio_connection()
-    return status
+    return await verify_composio_connection()
 
 
 # ============================================================================
 # Category Endpoints
 # ============================================================================
+
 
 @router.get("/categories")
 async def list_categories():
@@ -123,36 +134,31 @@ async def list_categories():
 # Toolkit Endpoints
 # ============================================================================
 
+
 @router.get("/toolkits", response_model=ToolkitsResponse)
 async def list_toolkits(
-    category: Optional[str] = Query(None, description="Filter by category"),
-    search: Optional[str] = Query(None, description="Search term"),
-    cursor: Optional[str] = Query(None, description="Pagination cursor"),
-    limit: int = Query(50, le=100, description="Max results per page")
+    category: str | None = Query(None, description="Filter by category"),
+    search: str | None = Query(None, description="Search term"),
+    cursor: str | None = Query(None, description="Pagination cursor"),
+    limit: int = Query(50, le=100, description="Max results per page"),
 ):
-    """
-    List available toolkits with optional filtering.
+    """List available toolkits with optional filtering.
 
     Returns toolkits that support OAuth/API key authentication.
     """
     try:
         service = ToolkitService()
-        result = await service.list_toolkits(
-            category=category,
-            search=search,
-            cursor=cursor,
-            limit=limit
-        )
+        result = await service.list_toolkits(category=category, search=search, cursor=cursor, limit=limit)
 
         return ToolkitsResponse(
             success=True,
             toolkits=[t.model_dump() for t in result.toolkits],
             next_cursor=result.next_cursor,
-            total=result.total
+            total=result.total,
         )
     except Exception as e:
         logger.error(f"Failed to list toolkits: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.get("/toolkits/{slug}/icon")
@@ -179,10 +185,11 @@ async def get_toolkit_details(slug: str):
 # Profile Endpoints
 # ============================================================================
 
+
 @router.get("/profiles", response_model=ProfilesListResponse)
 async def list_profiles(
-    toolkit_slug: Optional[str] = Query(None, description="Filter by toolkit"),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    toolkit_slug: str | None = Query(None, description="Filter by toolkit"),
+    user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """List user's Composio profiles."""
     try:
@@ -190,14 +197,10 @@ async def list_profiles(
         service = ProfileService(db)
         profiles = await service.list_profiles(user_id, toolkit_slug)
 
-        return ProfilesListResponse(
-            success=True,
-            profiles=[p.model_dump() for p in profiles],
-            count=len(profiles)
-        )
+        return ProfilesListResponse(success=True, profiles=[p.model_dump() for p in profiles], count=len(profiles))
     except Exception as e:
         logger.error(f"Failed to list profiles: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 # IMPORTANT: Static routes must be defined BEFORE dynamic routes
@@ -205,22 +208,17 @@ async def list_profiles(
 async def check_profile_name(
     toolkit_slug: str = Query(..., description="Toolkit slug"),
     profile_name: str = Query(..., description="Proposed profile name"),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Check if a profile name is available."""
     db = get_db()
     service = ProfileService(db)
-    is_available = await service.check_name_availability(
-        user_id, toolkit_slug, profile_name
-    )
+    is_available = await service.check_name_availability(user_id, toolkit_slug, profile_name)
     return {"success": True, "available": is_available}
 
 
 @router.get("/profiles/{profile_id}", response_model=ProfileResponse)
-async def get_profile(
-    profile_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def get_profile(profile_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
     """Get a specific profile."""
     db = get_db()
     service = ProfileService(db)
@@ -233,12 +231,8 @@ async def get_profile(
 
 
 @router.post("/profiles", response_model=CreateOAuthProfileResponse)
-async def create_profile(
-    request: CreateOAuthProfileRequest,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
-    """
-    Create a new Composio profile with OAuth flow.
+async def create_profile(request: CreateOAuthProfileRequest, user_id: str = Depends(get_current_user_id_from_jwt)):
+    """Create a new Composio profile with OAuth flow.
 
     This initiates an OAuth connection with Composio and creates a local profile.
     Returns a redirect_url for the OAuth flow.
@@ -256,7 +250,7 @@ async def create_profile(
         if not is_available:
             raise HTTPException(
                 status_code=400,
-                detail=f"Profile name '{request.profile_name}' already exists for {request.toolkit_slug}"
+                detail=f"Profile name '{request.profile_name}' already exists for {request.toolkit_slug}",
             )
 
         # Initiate OAuth connection with Composio
@@ -266,7 +260,7 @@ async def create_profile(
             app_name=request.toolkit_slug,
             redirect_url=request.redirect_url,
             initiation_params=request.initiation_params,
-            auth_config=request.custom_auth_config if request.use_custom_auth else None
+            auth_config=request.custom_auth_config if request.use_custom_auth else None,
         )
 
         # Create profile with connection ID
@@ -274,7 +268,7 @@ async def create_profile(
             toolkit_slug=request.toolkit_slug,
             profile_name=request.profile_name,
             display_name=request.display_name,
-            connected_account_id=connection.id
+            connected_account_id=connection.id,
         )
         profile = await profile_service.create_profile(user_id, profile_request)
 
@@ -283,21 +277,19 @@ async def create_profile(
             profile_id=profile.profile_id,
             redirect_url=connection.redirect_url,
             connection_id=connection.id,
-            message="Profile created. Complete OAuth to activate."
+            message="Profile created. Complete OAuth to activate.",
         )
 
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Failed to create profile: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.put("/profiles/{profile_id}")
 async def update_profile(
-    profile_id: str,
-    request: UpdateProfileRequest,
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    profile_id: str, request: UpdateProfileRequest, user_id: str = Depends(get_current_user_id_from_jwt)
 ):
     """Update a profile."""
     db = get_db()
@@ -311,10 +303,7 @@ async def update_profile(
 
 
 @router.delete("/profiles/{profile_id}")
-async def delete_profile(
-    profile_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def delete_profile(profile_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
     """Delete a profile."""
     db = get_db()
     service = ProfileService(db)
@@ -327,10 +316,7 @@ async def delete_profile(
 
 
 @router.get("/profiles/{profile_id}/mcp-config", response_model=MCPConfigResponse)
-async def get_mcp_config(
-    profile_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def get_mcp_config(profile_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
     """Get MCP configuration for a profile."""
     db = get_db()
     profile_service = ProfileService(db)
@@ -340,19 +326,13 @@ async def get_mcp_config(
         raise HTTPException(status_code=404, detail="Profile not found")
 
     mcp_service = MCPServerService()
-    mcp_url = await mcp_service.generate_mcp_url(
-        profile.connected_account_id,
-        user_id
-    )
+    mcp_url = await mcp_service.generate_mcp_url(profile.connected_account_id, user_id)
 
     # Update last used timestamp
     await profile_service.update_last_used(profile_id, user_id)
 
     return MCPConfigResponse(
-        success=True,
-        mcp_url=mcp_url,
-        app_name=profile.toolkit_slug,
-        enabled_tools=profile.enabled_tools
+        success=True, mcp_url=mcp_url, app_name=profile.toolkit_slug, enabled_tools=profile.enabled_tools
     )
 
 
@@ -360,32 +340,26 @@ async def get_mcp_config(
 # Tools Endpoints
 # ============================================================================
 
+
 @router.get("/tools/list", response_model=ToolsResponse)
 async def list_tools(
     toolkit_slug: str = Query(..., description="Toolkit slug"),
     limit: int = Query(100, le=200, description="Max tools to return"),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    _user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """List available tools for a toolkit (before connection)."""
     try:
         mcp_service = MCPServerService()
         tools = await mcp_service.list_tools_for_app(toolkit_slug, limit)
 
-        return ToolsResponse(
-            success=True,
-            tools=[t.model_dump() for t in tools],
-            count=len(tools)
-        )
+        return ToolsResponse(success=True, tools=[t.model_dump() for t in tools], count=len(tools))
     except Exception as e:
         logger.error(f"Failed to list tools: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e)) from e
 
 
 @router.post("/discover-tools/{profile_id}")
-async def discover_tools(
-    profile_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def discover_tools(profile_id: str, user_id: str = Depends(get_current_user_id_from_jwt)):
     """Discover available tools for a connected profile."""
     db = get_db()
     profile_service = ProfileService(db)
@@ -397,32 +371,19 @@ async def discover_tools(
     mcp_service = MCPServerService()
 
     # Try MCP discovery first
-    mcp_url = await mcp_service.generate_mcp_url(
-        profile.connected_account_id,
-        user_id
-    )
+    mcp_url = await mcp_service.generate_mcp_url(profile.connected_account_id, user_id)
     tools = await mcp_service.discover_tools(mcp_url, profile.connected_account_id)
 
     # Fallback to REST API if MCP discovery fails
     if not tools:
-        tools = await mcp_service.discover_tools_via_api(
-            profile.connected_account_id,
-            profile.toolkit_slug
-        )
+        tools = await mcp_service.discover_tools_via_api(profile.connected_account_id, profile.toolkit_slug)
 
-    return {
-        "success": True,
-        "tools": [t.model_dump() for t in tools],
-        "count": len(tools),
-        "mcp_url": mcp_url
-    }
+    return {"success": True, "tools": [t.model_dump() for t in tools], "count": len(tools), "mcp_url": mcp_url}
 
 
 @router.put("/profiles/{profile_id}/tools")
 async def update_enabled_tools(
-    profile_id: str,
-    enabled_tools: List[str],
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    profile_id: str, enabled_tools: list[str], user_id: str = Depends(get_current_user_id_from_jwt)
 ):
     """Update the enabled tools for a profile."""
     db = get_db()
@@ -441,11 +402,9 @@ async def update_enabled_tools(
 # Connection Status Endpoints
 # ============================================================================
 
+
 @router.get("/connections/status/{connection_id}")
-async def get_connection_status(
-    connection_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def get_connection_status(connection_id: str, _user_id: str = Depends(get_current_user_id_from_jwt)):
     """Check the status of an OAuth connection."""
     account_service = ConnectedAccountService()
     status = await account_service.get_connection_status(connection_id)
@@ -455,14 +414,14 @@ async def get_connection_status(
         "connection_id": connection_id,
         "status": status.status,
         "connected_account_id": status.connected_account_id,
-        "error": status.error
+        "error": status.error,
     }
 
 
 @router.get("/connections")
 async def list_connections(
-    app_name: Optional[str] = Query(None, description="Filter by app"),
-    user_id: str = Depends(get_current_user_id_from_jwt)
+    app_name: str | None = Query(None, description="Filter by app"),
+    user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """List all OAuth connections for the user."""
     account_service = ConnectedAccountService()
@@ -471,23 +430,14 @@ async def list_connections(
     return {
         "success": True,
         "connections": [
-            {
-                "id": c.id,
-                "app_name": c.app_name,
-                "status": c.status,
-                "created_at": c.created_at
-            }
-            for c in connections
+            {"id": c.id, "app_name": c.app_name, "status": c.status, "created_at": c.created_at} for c in connections
         ],
-        "count": len(connections)
+        "count": len(connections),
     }
 
 
 @router.delete("/connections/{connection_id}")
-async def delete_connection(
-    connection_id: str,
-    user_id: str = Depends(get_current_user_id_from_jwt)
-):
+async def delete_connection(connection_id: str, _user_id: str = Depends(get_current_user_id_from_jwt)):
     """Delete an OAuth connection."""
     account_service = ConnectedAccountService()
     success = await account_service.delete_connection(connection_id)

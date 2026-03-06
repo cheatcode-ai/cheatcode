@@ -1,17 +1,17 @@
 // Environment mode types
-export enum EnvMode {
+enum EnvMode {
   LOCAL = 'local',
   PRODUCTION = 'production',
 }
 
 // Subscription tier structure
-export interface SubscriptionTierData {
+interface SubscriptionTierData {
   priceId: string;
   name: string;
 }
 
 // Subscription tiers structure
-export interface SubscriptionTiers {
+interface SubscriptionTiers {
   FREE: SubscriptionTierData;
   TIER_2_20: SubscriptionTierData;
   TIER_6_50: SubscriptionTierData;
@@ -128,7 +128,7 @@ const getEnvironmentMode = (): EnvMode => {
 const currentEnvMode = getEnvironmentMode();
 
 // Create the config object
-export const config: Config = {
+const config: Config = {
   ENV_MODE: currentEnvMode,
   IS_LOCAL: currentEnvMode === EnvMode.LOCAL,
   SUBSCRIPTION_TIERS: PROD_TIERS,
@@ -138,6 +138,3 @@ export const config: Config = {
 export const isLocalMode = (): boolean => {
   return config.IS_LOCAL;
 };
-
-// Export subscription tier type for typing elsewhere
-export type SubscriptionTier = keyof typeof PROD_TIERS;

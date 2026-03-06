@@ -13,7 +13,7 @@ export function CheatcodeLogo({ size = 24, className }: CheatcodeLogoProps) {
       alt="Cheatcode"
       width={size}
       height={size}
-      className={cn("flex-shrink-0", className)}
+      className={cn('flex-shrink-0', className)}
     />
   );
-} 
+}

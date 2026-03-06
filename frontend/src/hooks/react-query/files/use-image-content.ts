@@ -11,7 +11,7 @@ export function useImageContent(
   options: {
     enabled?: boolean;
     staleTime?: number;
-  } = {}
+  } = {},
 ) {
   const [blobUrl, setBlobUrl] = React.useState<string | null>(null);
 
@@ -48,4 +48,4 @@ export function useImageContent(
     isLoading,
     error,
   };
-} 
+}

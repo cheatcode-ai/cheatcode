@@ -7,9 +7,11 @@ An open-source, production-ready AI coding agent for apps and websites.
 Build, run, and ship full-stack applications with an agent that codes, executes, deploys, and integrates with your stack.
 
 [![License](https://img.shields.io/badge/License-Apache--2.0-blue)](./LICENSE-Apache-2.0)
-[![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)](#backend)
-[![Frontend](https://img.shields.io/badge/Frontend-Next.js_16-000000)](#frontend)
-[![DB](https://img.shields.io/badge/DB-Supabase-3FCF8E)](#database)
+[![Backend](https://img.shields.io/badge/Backend-FastAPI-009688)](#backend-technologies)
+[![Frontend](https://img.shields.io/badge/Frontend-Next.js_16-000000)](#frontend-technologies)
+[![DB](https://img.shields.io/badge/DB-Supabase-3FCF8E)](#infrastructure)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB)](#backend-technologies)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6)](#frontend-technologies)
 
 ![Cheatcode AI](frontend/public/cheatcode-github-hero.png)
 
@@ -19,13 +21,16 @@ Build, run, and ship full-stack applications with an agent that codes, executes,
 
 - [Overview](#overview)
 - [Architecture](#architecture)
+- [Agent System](#agent-system)
 - [Prerequisites](#prerequisites)
 - [Quick Start](#quick-start)
 - [Local Development](#local-development)
 - [Environment Variables](#environment-variables)
 - [Repository Structure](#repository-structure)
-- [API Documentation](#api-documentation)
+- [API Reference](#api-reference)
+- [Streaming & Real-Time](#streaming--real-time)
 - [Self-Hosting](#self-hosting)
+- [CI/CD & Deployment](#cicd--deployment)
 - [Technology Stack](#technology-stack)
 - [Troubleshooting](#troubleshooting)
 - [Contributing](#contributing)
@@ -33,19 +38,20 @@ Build, run, and ship full-stack applications with an agent that codes, executes,
 
 ## Overview
 
-Cheatcode is a full-stack application that pairs a Next.js dashboard with a FastAPI backend to provide an AI agent capable of:
+Cheatcode is a full-stack application that pairs a Next.js dashboard with a FastAPI backend to provide an AI coding agent capable of:
 
-- Creating and modifying projects and threads with a collaborative chat interface
-- Executing code inside isolated Daytona sandboxes with live app previews
-- Multi-model support with model selector - works with OpenAI, Anthropic, OpenRouter via LiteLLM
-- Web search (Tavily) and web scraping (Firecrawl) for research capabilities
-- Managing authentication via Clerk and data through Supabase with Redis for queues
+- **Conversational coding** - Create and modify projects through a collaborative chat interface with threaded conversations
+- **Sandboxed execution** - Run code inside isolated Daytona sandboxes with live web and mobile (Expo) app previews
+- **Multi-model support** - Works with 100+ models via OpenRouter (Google Gemini, Claude, GPT, Grok, Llama, etc.) through LiteLLM
+- **Rich tool ecosystem** - File editing, shell execution, grep search, LSP integration, screenshots, vision analysis, and web search
+- **Real-time streaming** - SSE-based agent response streaming with batched chunks via Redis pub/sub
+- **Authentication & billing** - Clerk authentication with Supabase RLS, token-based billing via Polar.sh, and BYOK (Bring Your Own Key) support
 
-**Optional features:**
+**Optional integrations:**
 - Fast code editing with Relace API for rapid inline modifications
 - One-click deployments to Vercel for instant production sites
 - Third-party app integrations via Composio MCP (GitHub, Slack, Gmail, Notion, etc.)
-- Token-based billing with Polar.sh and BYOK (Bring Your Own Key) for OpenRouter
+- LLM observability with Langfuse and error tracking with Sentry
 
 The platform is designed to run locally via Docker Compose or be self-hosted on your own infrastructure.
 
@@ -58,18 +64,19 @@ graph TD
   end
   subgraph Backend
     API["FastAPI: /api/* (projects, threads, agent, sandbox, deployments, billing, composio)"]
-    Worker["Dramatiq workers"]
-    Redis[("Redis")]
+    Worker["Dramatiq workers (agent execution)"]
+    Inngest["Inngest (durable workflows)"]
+    Redis[("Redis (pub/sub, cache, locks)")]
   end
   subgraph Data_Infra["Data / Infrastructure"]
-    SUP["Supabase (DB, Storage, Realtime)"]
+    SUP["Supabase (PostgreSQL + RLS)"]
     DAY["Daytona Sandboxes"]
   end
   subgraph External_Services["External Services"]
     LLM["LiteLLM Router"]
     OpenAI["OpenAI"]
     Anthropic["Anthropic"]
-    OpenRouter["OpenRouter"]
+    OpenRouter["OpenRouter (100+ models)"]
     Relace["Relace (Fast Code Edits)"]
     Vercel["Vercel (Deployments)"]
     Tav["Tavily (Search)"]
@@ -82,10 +89,12 @@ graph TD
   end
 
   FE -->|"REST + Clerk JWT"| API
+  FE -->|"SSE EventSource"| API
   FE -->|"Supabase JS"| SUP
-  API -->|"Service role or anon (server)"| SUP
+  API -->|"Service role (server)"| SUP
   API --> Redis
   Redis --> Worker
+  API --> Inngest
   API -->|"Sandbox mgmt"| DAY
   API -->|"MCP integrations"| MCP
   API -->|"Billing webhooks"| Polar
@@ -104,11 +113,67 @@ graph TD
 
 ### Core Components
 
-- **Backend API (FastAPI, Python 3.11)**: REST endpoints, thread/project/message management, LLM orchestration with async background jobs
-- **Worker (Dramatiq)**: Processes background jobs including agent runs and long tasks
-- **Frontend (Next.js 16 + React 19)**: Authentication via Clerk, data via Supabase and backend REST, UI with Tailwind CSS v4
-- **Redis**: Caching, queues, and rate-limiting
-- **Supabase**: Database, storage, Realtime, and Row Level Security (RLS) with Clerk integration
+| Component | Technology | Purpose |
+|-----------|-----------|---------|
+| **Backend API** | FastAPI, Python 3.11 | REST endpoints, thread/project management, LLM orchestration |
+| **Worker** | Dramatiq (Redis-backed) | Background agent execution with distributed locks |
+| **Durable Workflows** | Inngest | Retryable workflows for deployments, webhooks, scheduled cleanup |
+| **Frontend** | Next.js 16, React 19 | Dashboard UI, auth via Clerk, streaming via custom EventSource |
+| **Cache/PubSub** | Redis (Upstash in prod) | Response streaming, distributed locks, caching |
+| **Database** | Supabase (PostgreSQL) | Persistent storage with Row Level Security |
+| **Sandboxes** | Daytona SDK | Isolated code execution environments with live previews |
+
+## Agent System
+
+### How the Agent Works
+
+The agent follows an iterative loop that processes user messages, calls LLM providers, executes tools in sandboxed environments, and streams results back in real-time:
+
+```
+1. User sends message → POST /api/thread/{threadId}/agent/start
+2. Backend creates agent_run record, queues Dramatiq actor
+3. Frontend opens EventSource → GET /api/agent-run/{runId}/stream
+
+4. Agent Loop (up to 100 iterations):
+   a) Fetch conversation history from database
+   b) Make streaming LLM API call via LiteLLM
+   c) Parse response for tool calls (XML or native format)
+   d) Execute tools concurrently (max 5 parallel)
+   e) Add results to thread, continue if needed
+   f) Stream all responses to frontend via Redis pub/sub
+
+5. Completion → agent marks run as finished, cleans up
+```
+
+### Available Tools
+
+The agent has access to these tools during execution:
+
+| Tool | File | Capabilities |
+|------|------|-------------|
+| **Shell** | `sb_shell_tool.py` | Execute commands in sandbox, session management, blocking/non-blocking modes |
+| **Files** | `sb_files_tool.py` | Read, write, delete, copy, move files and directories |
+| **Grep** | `sb_grep_tool.py` | Full-text search and semantic (embedding-based) search across files |
+| **Screenshot** | `sb_screenshot_tool.py` | Capture browser screenshots for visual verification |
+| **Vision** | `sb_vision_tool.py` | AI-powered screenshot analysis, design system analysis |
+| **LSP** | `sb_lsp_tool.py` | Find definitions, references, and hover info via Language Server Protocol |
+| **Web Search** | `web_search_tool.py` | Search the web via Tavily API for docs, libraries, best practices |
+| **Components** | `component_search_tool.py` | Embedding-based component discovery for code reuse |
+| **Completion** | `completion_tool.py` | Mark task as complete, gracefully stop agent |
+| **MCP Wrapper** | `mcp_tool_wrapper.py` | Dynamic integration of Composio MCP tools (GitHub, Slack, etc.) |
+
+### Supported Models
+
+The default model is `openrouter/google/gemini-2.5-pro`. Through OpenRouter + LiteLLM, the agent supports 100+ models including:
+
+- Google Gemini 2.5 Pro / Flash
+- Anthropic Claude Sonnet 4 / Opus
+- OpenAI GPT-4o / GPT-4.1
+- xAI Grok-2
+- Meta Llama 3.3 70B
+- And many more via OpenRouter
+
+Extended thinking is supported for Claude models via `enable_thinking` and `reasoning_effort` parameters.
 
 ## Prerequisites
 
@@ -123,6 +188,7 @@ graph TD
 - **Docker 24.0+** and **Docker Compose 2.0+**
 - **Node.js 20+** (for local development without Docker)
 - **Python 3.11+** (for local development without Docker)
+- **[uv](https://github.com/astral-sh/uv)** (Python package manager)
 - **Git 2.30+**
 
 ### Required Accounts
@@ -132,15 +198,16 @@ graph TD
 - **At least one LLM provider**: OpenAI, Anthropic, or OpenRouter API key
 - **Daytona account** for sandbox code execution and app previews
 - **Tavily API key** for web search capabilities
-- **Firecrawl API key** for web scraping capabilities
 
 ### Optional Integrations
 
+- **Firecrawl API key** for web scraping capabilities
 - **Vercel account** for one-click deployments
 - **Relace API key** for fast inline code edits
 - **Composio account** for third-party app integrations (GitHub, Slack, etc.)
+- **Polar.sh account** for billing/subscription management
 - **Sentry** for error monitoring
-- **Langfuse** for LLM observability
+- **Langfuse** for LLM observability and tracing
 
 ## Quick Start
 
@@ -173,14 +240,16 @@ DAYTONA_API_KEY=YOUR_DAYTONA_API_KEY
 DAYTONA_SERVER_URL=YOUR_DAYTONA_SERVER_URL
 DAYTONA_TARGET=YOUR_DAYTONA_TARGET
 
-# Web Search & Scraping (required)
+# Web Search (required)
 TAVILY_API_KEY=YOUR_TAVILY_API_KEY
-FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY
 
 # LLM Providers (at least one required)
 OPENAI_API_KEY=YOUR_OPENAI_API_KEY
 ANTHROPIC_API_KEY=YOUR_ANTHROPIC_API_KEY
 OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
+
+# Optional: Web Scraping
+FIRECRAWL_API_KEY=YOUR_FIRECRAWL_API_KEY
 
 # Optional: Deployment (Vercel)
 VERCEL_BEARER_TOKEN=YOUR_VERCEL_BEARER_TOKEN
@@ -195,6 +264,14 @@ COMPOSIO_API_KEY=YOUR_COMPOSIO_API_KEY
 # Optional: Observability
 LANGFUSE_PUBLIC_KEY=YOUR_LANGFUSE_PUBLIC_KEY
 LANGFUSE_SECRET_KEY=YOUR_LANGFUSE_SECRET_KEY
+LANGFUSE_HOST=https://us.cloud.langfuse.com
+
+# Optional: Error Tracking
+SENTRY_DSN=YOUR_SENTRY_DSN
+
+# Optional: Billing (Polar.sh)
+POLAR_ACCESS_TOKEN=YOUR_POLAR_ACCESS_TOKEN
+POLAR_WEBHOOK_SECRET=YOUR_POLAR_WEBHOOK_SECRET
 ```
 
 ### 3. Frontend Configuration
@@ -228,15 +305,17 @@ docker compose up --build
 
 ### 5. Access the Application
 
-- **Frontend**: http://localhost:3001 (Docker) or http://localhost:3000 (local dev)
-- **Backend API**: http://localhost:8000
-- **API Health Check**: http://localhost:8000/api/health
-- **Redis**: localhost:6380 (Docker) or localhost:6379 (local dev)
+| Service | Docker URL | Local Dev URL |
+|---------|-----------|---------------|
+| **Frontend** | http://localhost:3003 | http://localhost:3000 |
+| **Backend API** | http://localhost:8000 | http://localhost:8000 |
+| **API Health** | http://localhost:8000/api/health | http://localhost:8000/api/health |
+| **Redis** | localhost:6380 | localhost:6379 |
 
 ### 6. First-Run Verification
 
 1. **API Health**: Visit http://localhost:8000/api/health (expect `{ "status": "ok" }`)
-2. **Frontend Access**: Visit http://localhost:3001 (Docker) and sign in with Clerk
+2. **Frontend Access**: Visit http://localhost:3003 (Docker) and sign in with Clerk
 3. **Create Project**: Create a new project and thread
 4. **Test Agent**: Send a message and start the agent
 
@@ -244,7 +323,7 @@ docker compose up --build
 
 For development without Docker:
 
-### Backend Development
+### Backend
 
 ```bash
 cd backend
@@ -255,31 +334,58 @@ uv sync
 # Start the API server
 uv run uvicorn main:app --reload --host 0.0.0.0 --port 8000
 
-# In a separate terminal, start the worker
+# In a separate terminal, start the Dramatiq worker
 uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
 ```
 
-### Frontend Development
+### Frontend
 
 ```bash
 cd frontend
 
-# Install dependencies (uses pnpm)
-pnpm install
+# Install dependencies
+npm install
 
 # Start development server
-pnpm run dev
+npm run dev
 ```
 
-### Development Workflow
+### Docker Compose (Development)
 
-1. Fork the repository
-2. Create a feature branch (`git checkout -b feature/amazing-feature`)
-3. Make your changes
-4. Test locally using the development setup above
-5. Commit your changes (`git commit -m 'Add amazing feature'`)
-6. Push to your branch (`git push origin feature/amazing-feature`)
-7. Open a Pull Request
+The `docker-compose.dev.yml` provides hot-reload for both backend and frontend:
+
+```bash
+docker compose -f docker-compose.dev.yml up
+```
+
+This starts:
+- **Backend** (port 8000) - uvicorn with `--reload`
+- **Worker** - Dramatiq with 1 process, 2 threads
+- **Frontend** (port 3000) - Next.js dev server with Turbopack
+- **Redis** (port 6380 → 6379) - Redis 8 Alpine with append-only persistence
+
+### Code Quality
+
+```bash
+# Backend linting & formatting
+cd backend
+uv run ruff check .                    # Lint
+uv run ruff format .                   # Format
+
+# Frontend linting & formatting
+cd frontend
+npx eslint src/ --max-warnings=0       # Lint (strict)
+npx prettier --check "src/**/*.{ts,tsx,css,json}"  # Format check
+npx knip                               # Detect unused code/deps
+```
+
+### Running Tests
+
+```bash
+cd backend
+uv run pytest                          # Run all tests
+uv run pytest --asyncio-mode=auto      # Run async tests
+```
 
 ## Environment Variables
 
@@ -287,29 +393,38 @@ pnpm run dev
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `ENV_MODE` | Yes | Set to `local` for development, `production` for production |
-| `SUPABASE_URL` | Yes | Your Supabase project URL |
-| `SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
-| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key |
-| `CLERK_SECRET_KEY` | Yes | Clerk secret key for authentication |
-| `REDIS_URL` | Yes | Redis connection URL (`redis://redis:6379` for Docker Compose) |
+| `ENV_MODE` | Yes | `local` for development, `production` for production |
+| `SUPABASE_URL` | Yes | Supabase project URL |
+| `SUPABASE_ANON_KEY` | Yes | Supabase anonymous/public key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes | Supabase service role key (server-side) |
+| `CLERK_SECRET_KEY` | Yes | Clerk backend secret key |
+| `REDIS_URL` | Yes | Redis connection URL (`redis://redis:6379` for Docker) |
 | `DAYTONA_API_KEY` | Yes | Daytona API key for sandboxes |
 | `DAYTONA_SERVER_URL` | Yes | Daytona server URL |
-| `DAYTONA_TARGET` | Yes | Daytona target environment |
+| `DAYTONA_TARGET` | Yes | Daytona target region (e.g., `us`) |
 | `TAVILY_API_KEY` | Yes | Tavily API key for web search |
-| `FIRECRAWL_API_KEY` | Yes | Firecrawl API key for web scraping |
 | `OPENAI_API_KEY` | * | OpenAI API key |
 | `ANTHROPIC_API_KEY` | * | Anthropic API key |
 | `OPENROUTER_API_KEY` | * | OpenRouter API key |
-| `VERCEL_BEARER_TOKEN` | No | Vercel API token for deployments (optional) |
-| `VERCEL_TEAM_ID` | No | Vercel team ID for team deployments (optional) |
-| `RELACE_API_KEY` | No | Relace API key for fast code edits (optional) |
-| `COMPOSIO_API_KEY` | No | Composio API key for third-party integrations (optional) |
+| `FIRECRAWL_API_KEY` | No | Firecrawl API key for web scraping |
+| `FIRECRAWL_URL` | No | Firecrawl endpoint URL |
+| `VERCEL_BEARER_TOKEN` | No | Vercel API token for deployments |
+| `VERCEL_TEAM_ID` | No | Vercel team ID |
+| `RELACE_API_KEY` | No | Relace API key for fast code edits |
+| `COMPOSIO_API_KEY` | No | Composio API key for third-party integrations |
 | `LANGFUSE_PUBLIC_KEY` | No | Langfuse public key for LLM observability |
 | `LANGFUSE_SECRET_KEY` | No | Langfuse secret key |
+| `LANGFUSE_HOST` | No | Langfuse endpoint URL |
 | `SENTRY_DSN` | No | Sentry DSN for error monitoring |
+| `POLAR_ACCESS_TOKEN` | No | Polar.sh access token for billing |
+| `POLAR_WEBHOOK_SECRET` | No | Polar webhook verification secret |
+| `MODEL_TO_USE` | No | Default LLM model name |
+| `MCP_CREDENTIAL_ENCRYPTION_KEY` | No | Encryption key for MCP credentials |
+| `INNGEST_EVENT_KEY` | No | Inngest event key |
+| `INNGEST_SIGNING_KEY` | No | Inngest signing key |
+| `FEATURE_FLAGS_ENABLED` | No | Enable feature flag system |
 
-*At least one LLM provider key is required.
+\* At least one LLM provider key is required.
 
 ### Frontend Variables (`frontend/.env.local`)
 
@@ -319,101 +434,290 @@ pnpm run dev
 | `NEXT_PUBLIC_SUPABASE_URL` | Yes | Supabase project URL |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Yes | Supabase anonymous key |
 | `NEXT_PUBLIC_APP_URL` | Yes | Frontend application URL |
-| `NEXT_PUBLIC_URL` | Yes | Frontend application URL (duplicate) |
+| `NEXT_PUBLIC_URL` | Yes | Frontend URL (for redirects) |
 | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` | Yes | Clerk publishable key |
-| `NEXT_PUBLIC_FEATURE_FLAGS_ENABLED` | No | Enable feature flags (default: false) |
+| `NEXT_PUBLIC_ENV_MODE` | No | `local` or `production` |
+| `NEXT_PUBLIC_FEATURE_FLAGS_ENABLED` | No | Enable feature flags (default: `false`) |
 | `EDGE_CONFIG` | No | Vercel Edge Config (if using Vercel) |
 
 ## Repository Structure
 
 ```
 cheatcode/
-├── backend/                     # FastAPI service, workers, agents, services
-│   ├── agent/                   # Agent runtime, tools and prompts
-│   ├── agentpress/              # Agent framework for orchestration
-│   ├── services/                # Integrations (billing, llm, vercel_deploy, redis, etc.)
-│   ├── composio_integration/    # Composio MCP integrations and OAuth flows
-│   ├── sandbox/                 # Sandbox APIs and Daytona integration
-│   ├── deployments/             # Vercel deployment APIs
-│   ├── utils/                   # Configuration, logging, auth, models
-│   ├── main.py                  # FastAPI application entry point
-│   └── pyproject.toml           # Python dependencies managed by uv
-├── frontend/                    # Next.js 16 application
-│   ├── src/app/                 # App Router pages (home, projects, settings, API routes)
-│   ├── src/components/          # UI components (model-selector, integrations, thread, etc.)
-│   ├── src/hooks/               # React Query and custom hooks
-│   ├── src/lib/                 # API clients, configuration, Supabase helpers
-│   ├── src/types/               # Shared TypeScript types
-│   └── package.json             # Node.js dependencies (pnpm)
-├── api-worker/                  # Cloudflare API worker
-├── preview-worker/              # Cloudflare preview proxy worker
-├── docker-compose.yaml          # Multi-service Docker orchestration
-├── README.md                    # This file
-├── LICENSE-Apache-2.0           # Apache 2.0 license
-└── NOTICE                       # Attribution notices for third-party components
+├── backend/                          # FastAPI backend service
+│   ├── agent/                        # Agent runtime & orchestration
+│   │   ├── api.py                    # Agent REST endpoints
+│   │   ├── run.py                    # Agent execution loop (LLM + tools)
+│   │   ├── schemas.py                # Pydantic models for agent I/O
+│   │   └── tools/                    # Agent tool implementations
+│   │       ├── sb_shell_tool.py      #   Shell command execution
+│   │       ├── sb_files_tool.py      #   File read/write/delete
+│   │       ├── sb_grep_tool.py       #   Text & semantic search
+│   │       ├── sb_screenshot_tool.py #   Browser screenshots
+│   │       ├── sb_vision_tool.py     #   Vision model analysis
+│   │       ├── sb_lsp_tool.py        #   Language Server Protocol
+│   │       ├── web_search_tool.py    #   Tavily web search
+│   │       ├── component_search_tool.py # Component discovery
+│   │       ├── completion_tool.py    #   Task completion signal
+│   │       └── mcp_tool_wrapper.py   #   Dynamic MCP tool integration
+│   ├── agentpress/                   # Agent framework (threads, tools, context)
+│   │   ├── thread_manager.py         # Conversation thread management
+│   │   ├── response_processor.py     # LLM response parsing & tool execution
+│   │   ├── tool_registry.py          # Tool registration & discovery
+│   │   ├── tool.py                   # Base Tool class & schemas
+│   │   └── context_manager.py        # Token limit & context management
+│   ├── services/                     # Core service integrations
+│   │   ├── llm.py                    # LiteLLM wrapper with circuit breaker
+│   │   ├── structured_llm.py         # Instructor-based structured outputs
+│   │   ├── redis.py                  # Redis client, pub/sub, helpers
+│   │   ├── supabase.py               # Supabase DB client (singleton)
+│   │   ├── billing.py                # Billing endpoints & plan management
+│   │   ├── token_billing.py          # Token usage tracking & deduction
+│   │   ├── openrouter_pricing.py     # Model cost calculation
+│   │   ├── polar_service.py          # Polar.sh checkout & webhooks
+│   │   ├── vercel_deploy.py          # Vercel deployment service
+│   │   ├── langfuse.py               # LangFuse observability
+│   │   ├── email.py                  # Mailtrap email service
+│   │   ├── inngest_client.py         # Inngest client setup
+│   │   └── user_openrouter_keys.py   # BYOK key management
+│   ├── composio_integration/         # Composio MCP integrations & OAuth
+│   │   ├── api.py                    # Composio REST endpoints
+│   │   └── secure_mcp_api.py         # Secure MCP server management
+│   ├── inngest_functions/            # Durable workflow functions
+│   ├── sandbox/                      # Daytona sandbox management
+│   │   └── api.py                    # Sandbox REST endpoints
+│   ├── deployments/                  # Vercel deployment API
+│   │   └── api.py                    # Deployment endpoints
+│   ├── api/webhooks/                 # Webhook handlers
+│   │   └── polar.py                  # Polar billing webhooks
+│   ├── flags/                        # Feature flag system
+│   ├── utils/                        # Utilities
+│   │   ├── config.py                 # Environment & config singleton
+│   │   ├── auth_utils.py             # Clerk JWT verification
+│   │   ├── models.py                 # Model configs & token limits
+│   │   └── logger.py                 # Structured logging setup
+│   ├── supabase/                     # Database migrations & config
+│   │   └── migrations/               # SQL migration files
+│   ├── tests/                        # Test suite (pytest)
+│   ├── main.py                       # FastAPI app entry point
+│   ├── run_agent_background.py       # Dramatiq actor for background execution
+│   ├── projects_threads_api.py       # Projects & threads endpoints
+│   ├── pyproject.toml                # Python dependencies (uv)
+│   ├── Dockerfile                    # Production API image
+│   ├── Dockerfile.dev                # Development API image
+│   └── Dockerfile.worker             # Production worker image
+│
+├── frontend/                         # Next.js 16 application
+│   ├── src/
+│   │   ├── app/                      # App Router pages & layouts
+│   │   │   ├── (home)/               # Main app group route
+│   │   │   │   ├── projects/[projectId]/thread/  # Thread UI
+│   │   │   │   │   ├── _contexts/    # ThreadState, Actions, Billing, Layout
+│   │   │   │   │   ├── _components/  # Thread page components
+│   │   │   │   │   └── [threadId]/page.tsx  # Main chat page
+│   │   │   │   └── (personalAccount)/settings/  # Settings pages
+│   │   │   ├── sign-in/              # Clerk sign-in
+│   │   │   ├── sign-up/              # Clerk sign-up
+│   │   │   ├── providers.tsx         # Provider composition (Clerk, Query, Auth)
+│   │   │   └── layout.tsx            # Root layout (dark theme, fonts, analytics)
+│   │   ├── components/               # React components
+│   │   │   ├── thread/               # Chat interface
+│   │   │   │   ├── content/          # Message rendering (ThreadContent, StreamingContent)
+│   │   │   │   ├── chat-input/       # Message input with file upload
+│   │   │   │   ├── preview-renderers/ # CodeEditor, FileTree, PreviewTab, MobilePreview
+│   │   │   │   └── thread-site-header.tsx  # Header with model selector
+│   │   │   ├── ui/                   # shadcn/ui + custom components
+│   │   │   ├── billing/              # Billing UI
+│   │   │   ├── integrations/         # Composio integration UI
+│   │   │   └── sidebar/              # Navigation sidebar
+│   │   ├── hooks/                    # Custom React hooks
+│   │   │   ├── useAgentStream.ts     # SSE streaming with reconnection
+│   │   │   ├── useAgentStateMachine.ts # Agent state machine
+│   │   │   └── react-query/          # React Query hooks
+│   │   ├── lib/                      # Utilities & API clients
+│   │   │   ├── api/                  # API client functions
+│   │   │   │   ├── agents.ts         # Agent start/stop/stream
+│   │   │   │   ├── projects.ts       # CRUD projects
+│   │   │   │   ├── threads.ts        # CRUD threads & messages
+│   │   │   │   ├── billing.ts        # Billing status & checkout
+│   │   │   │   └── sandbox.ts        # Sandbox file management
+│   │   │   ├── api-client.ts         # Generic HTTP client
+│   │   │   └── error-handler.ts      # Error handling utilities
+│   │   ├── contexts/                 # React Context providers
+│   │   │   ├── AuthTokenContext.tsx   # Clerk token caching (5 min)
+│   │   │   └── BillingContext.tsx     # Global billing state
+│   │   └── providers/                # Provider wrappers
+│   ├── public/                       # Static assets
+│   ├── package.json                  # npm dependencies
+│   ├── next.config.ts                # Next.js config (Turbopack)
+│   ├── tailwind.config.ts            # Tailwind CSS 4 config
+│   ├── vercel.json                   # Vercel deployment config
+│   └── Dockerfile                    # Multi-stage (dev/production)
+│
+├── api-worker/                       # Cloudflare Worker - API proxy
+│   ├── src/index.ts                  # Proxies api.trycheatcode.com → Cloud Run
+│   └── wrangler.toml                 # Cloudflare config
+│
+├── preview-worker/                   # Cloudflare Worker - Preview proxy
+│   ├── src/index.ts                  # Proxies preview.trycheatcode.com → Daytona
+│   └── wrangler.toml                 # Cloudflare config (HTTP + WebSocket)
+│
+├── docker-compose.yaml               # Production Docker orchestration
+├── docker-compose.dev.yml            # Development Docker orchestration
+├── .github/workflows/                # CI/CD pipelines
+│   ├── docker-build.yml              # Build & deploy to Google Cloud Run
+│   ├── cloudflare-workers.yml        # Deploy Cloudflare Workers
+│   └── lint.yml                      # Ruff (backend) + ESLint/Prettier/Knip (frontend)
+├── LICENSE-Apache-2.0                # Apache 2.0 license
+├── NOTICE                            # Third-party attribution
+└── README.md                         # This file
 ```
 
-## API Documentation
-
-### Core Endpoints
+## API Reference
 
 All backend endpoints are prefixed with `/api`.
 
-#### Health & Status
-- `GET /health` - API health check
+### Health & Status
 
-#### Projects & Threads
-- `GET /projects` - List user projects
-- `POST /projects` - Create new project
-- `GET /projects/{project_id}` - Get project details
-- `GET /threads` - List user threads
-- `POST /threads` - Create new thread
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/health` | Health check - returns `{ status, timestamp, instance_id }` |
 
-#### Agent Management
-- `POST /thread/{thread_id}/agent/start` - Start agent run
-- `GET /agent-run/{agent_run_id}/status` - Get agent run status
-- `POST /agent-run/{agent_run_id}/stop` - Stop agent run
-- `GET /thread/{thread_id}/agent-runs` - List thread agent runs
+### Projects & Threads
 
-#### Sandbox Operations
-- `POST /project/{project_id}/sandbox/ensure-active` - Ensure sandbox is running
-- `POST /sandboxes/{sandbox_id}/files` - Upload files to sandbox
-- `GET /sandboxes/{sandbox_id}/files` - List sandbox files
-- `GET /sandboxes/{sandbox_id}/files/content` - Get file content
-- `POST /sandboxes/{sandbox_id}/execute` - Execute command in sandbox
-- `GET /sandboxes/{sandbox_id}/preview-url` - Get preview URL
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/projects` | List all projects for authenticated user |
+| POST | `/api/projects` | Create a new project |
+| GET | `/api/projects/{project_id}` | Get project details |
+| GET | `/api/threads` | List threads (optionally filtered by project) |
+| POST | `/api/threads` | Create a new thread in a project |
 
-#### Deployment
-- `POST /project/{project_id}/deploy/git` - Deploy project to Git
-- `POST /project/{project_id}/deploy/git/update` - Update Git deployment
-- `GET /project/{project_id}/deployment/status` - Get deployment status
-- `GET /project/{project_id}/git/files` - List Git repository files
-- `GET /project/{project_id}/git/file-content` - Get Git file content
+### Agent Management
 
-#### Billing & Usage
-- `GET /billing/status` - Get billing status
-- `GET /billing/subscription` - Get subscription details
-- `GET /billing/usage-history` - Get usage history
-- `GET /billing/plans` - List available plans
-- `POST /billing/create-checkout-session` - Create checkout session
-- `POST /billing/upgrade-plan` - Upgrade subscription plan
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/models/available` | List available LLM models |
+| POST | `/api/thread/{thread_id}/agent/start` | Start an agent run (accepts `model_name`, `enable_thinking`, `reasoning_effort`, `app_type`) |
+| GET | `/api/agent-run/{agent_run_id}/stream` | Stream agent responses via SSE (supports `?token=` query param) |
+| POST | `/api/agent-run/{agent_run_id}/stop` | Stop an active agent run |
+| GET | `/api/agent-run/{agent_run_id}/status` | Get agent run status |
+| GET | `/api/agent-run/{agent_run_id}` | Get agent run details |
+| GET | `/api/thread/{thread_id}/agent-runs` | List all agent runs for a thread |
+| POST | `/api/agent/initiate` | Create project + thread and initiate agent with files |
 
-#### Models & Integrations
-- `GET /agent/models` - List available AI models
-- `/composio/*` - Composio integration endpoints (connect third-party apps)
+### Sandbox Operations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/project/{project_id}/sandbox/ensure-active` | Ensure sandbox is running |
+| POST | `/api/sandboxes/{sandbox_id}/files` | Upload files to sandbox |
+| GET | `/api/sandboxes/{sandbox_id}/files` | List files in directory |
+| GET | `/api/sandboxes/{sandbox_id}/files/tree` | Get hierarchical file tree |
+| GET | `/api/sandboxes/{sandbox_id}/files/content` | Get file content |
+| GET | `/api/sandboxes/{sandbox_id}/download-archive` | Download files as archive |
+| DELETE | `/api/sandboxes/{sandbox_id}/files` | Delete files |
+| DELETE | `/api/sandboxes/{sandbox_id}` | Delete entire sandbox |
+| POST | `/api/sandboxes/{sandbox_id}/execute` | Execute shell command |
+| GET | `/api/sandboxes/{sandbox_id}/sessions/{session_name}/status` | Check command status |
+| GET | `/api/sandboxes/{sandbox_id}/preview-url` | Get web preview URL |
+| GET | `/api/sandboxes/{sandbox_id}/expo-url` | Get Expo preview URL (mobile) |
+| GET | `/api/sandboxes/{sandbox_id}/dev-server/stream` | Stream dev server output |
+
+### Deployments
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/project/{project_id}/deploy/git` | Deploy project to Vercel |
+| POST | `/api/project/{project_id}/deploy/git/update` | Update existing deployment |
+| GET | `/api/project/{project_id}/deployment/status` | Get deployment status |
+| GET | `/api/project/{project_id}/deployment/live-status` | Get live deployment status |
+
+### Billing & Usage
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/billing/status` | Get billing/subscription status |
+| GET | `/api/billing/subscription` | Get subscription details |
+| GET | `/api/billing/usage-history` | Get token usage history |
+| GET | `/api/billing/plans` | List available plans |
+| POST | `/api/billing/create-checkout-session` | Create Polar checkout session |
+| POST | `/api/billing/upgrade-plan` | Upgrade subscription plan |
+| POST | `/api/billing/openrouter-key` | Store custom OpenRouter API key (BYOK) |
+| GET | `/api/billing/openrouter-key/status` | Check BYOK key status |
+| DELETE | `/api/billing/openrouter-key` | Remove custom key |
+| POST | `/api/billing/openrouter-key/test` | Test OpenRouter key validity |
+
+### Composio Integrations
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/api/composio/health` | Composio health check |
+| GET | `/api/composio/categories` | List tool categories |
+| GET | `/api/composio/toolkits` | List available toolkits |
+| GET/POST/PUT/DELETE | `/api/composio/profiles/*` | Manage OAuth profiles |
+| GET | `/api/composio/connections` | List connections |
+| POST | `/api/composio/discover-tools/{profile_id}` | Discover profile tools |
+
+### Webhooks
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | `/api/webhooks/polar` | Polar billing webhook (subscription events) |
+| POST | `/api/inngest` | Inngest event webhook (internal) |
+
+## Streaming & Real-Time
+
+### SSE Architecture
+
+The agent streams responses to the frontend using Server-Sent Events (SSE) through Redis pub/sub:
+
+```
+Frontend                          Backend                         Redis
+═══════════════════════════════════════════════════════════════════════
+EventSource(/stream/{runId})  →   SSE endpoint subscribes    →   Subscribe to
+                                  to Redis channel                agent_run:{id}:new_response
+
+                              ←   Batched JSON responses     ←   Agent pushes to
+                                  (25 chunks or 75ms)             agent_run:{id}:responses
+
+                              ←   Control signals            ←   agent_run:{id}:control
+                                  (END_STREAM, STOP, ERROR)       (STOP, END_STREAM, ERROR)
+```
+
+### Redis Key Patterns
+
+```
+agent_run:{id}:responses      # FIFO list of JSON response objects (24h TTL)
+agent_run:{id}:new_response   # Pub/sub channel for new response notifications
+agent_run:{id}:control        # Pub/sub channel for control signals
+agent_run_lock:{id}           # Distributed lock for idempotent execution
+```
+
+### Frontend Streaming Hook
+
+The `useAgentStream` hook manages the EventSource connection with:
+- Exponential backoff reconnection (1s → 30s max, 5 retries)
+- Jitter to prevent thundering herd
+- 45-second heartbeat timeout (backend pings every 15s)
+- Ordered chunk aggregation by sequence number
+- Message deduplication by `message_id`
+- Automatic status transitions via `useAgentStateMachine`
+
+### Agent State Machine
+
+States: `idle` → `connecting` → `running` → `completed` | `stopped` | `failed` | `error`
 
 ## Self-Hosting
 
-### Production Deployment Options
-
-#### Option 1: Docker Compose (Self-hosted)
+### Option 1: Docker Compose (Recommended for Self-Hosting)
 
 1. **Provision Infrastructure**
    - Deploy on any Docker-compatible host (VPS, cloud instance, etc.)
    - Ensure adequate resources (4GB+ RAM recommended)
 
 2. **Configuration**
-   - Set `ENV_MODE=production` in `backend/.env`
+   - Set `ENV_MODE=production` in `backend/.env.local`
    - Configure proper domain names and TLS certificates
    - Update CORS settings in `backend/main.py` to include your domain
 
@@ -427,70 +731,130 @@ All backend endpoints are prefixed with `/api`.
    docker compose up -d --build
    ```
 
-#### Option 2: Cloud Deployment (Recommended for Production)
+### Option 2: Cloud Deployment
 
-**Frontend (Vercel)**
+**Frontend → Vercel**
 - Connect your GitHub repo to Vercel
 - Auto-deploys on push to main branch
 - Configure environment variables in Vercel dashboard
 
-**Backend (Google Cloud Run)**
+**Backend → Google Cloud Run**
 - Use the included GitHub Actions workflow (`.github/workflows/docker-build.yml`)
-- Automatically builds and deploys on push to main
+- Automatically builds and deploys API + Worker on push to main
 - Configure secrets in GitHub repository settings
 
-**Preview Proxy (Cloudflare Workers)**
-- Deploy `preview-worker/` to Cloudflare Workers
-- Handles sandbox preview proxying with proper CORS
-
-### Security Considerations
-
-- Use strong passwords and API keys
-- Configure firewall rules
-- Enable HTTPS/TLS encryption
-- Regular security updates for dependencies
+**Workers → Cloudflare**
+- Deploy `api-worker/` and `preview-worker/` to Cloudflare Workers
+- API Worker proxies requests to Cloud Run backend
+- Preview Worker proxies sandbox previews from Daytona with WebSocket support
 
 ### Docker Compose Services
 
-The application consists of four main services:
+**Production** (`docker-compose.yaml`):
 
-- **api**: FastAPI backend server
-- **worker**: Dramatiq background worker
-- **frontend**: Next.js frontend application
-- **redis**: Redis cache and message broker
+| Service | Image | Port | Description |
+|---------|-------|------|-------------|
+| `api` | `backend/Dockerfile` | 8000 | FastAPI with Gunicorn + Uvicorn workers |
+| `worker` | `backend/Dockerfile` | - | Dramatiq (2 processes, 4 threads) |
+| `frontend` | `frontend/Dockerfile` | 3003→3000 | Next.js production build |
+| `redis` | `redis:8-alpine` | 6380→6379 | Redis with append-only, 8GB max memory |
+
+**Development** (`docker-compose.dev.yml`):
+
+| Service | Image | Port | Description |
+|---------|-------|------|-------------|
+| `backend` | `backend/Dockerfile.dev` | 8000 | uvicorn with hot reload |
+| `worker` | `backend/Dockerfile.dev` | - | Dramatiq (1 process, 2 threads) |
+| `frontend` | `frontend/Dockerfile` (dev target) | 3000 | Next.js dev server with Turbopack |
+| `redis` | `redis:8-alpine` | 6380→6379 | Redis with append-only |
+
+## CI/CD & Deployment
+
+### GitHub Actions Workflows
+
+| Workflow | Trigger | Purpose |
+|----------|---------|---------|
+| `docker-build.yml` | Push to `main` (backend changes) | Build Docker images, deploy API + Worker to Google Cloud Run |
+| `cloudflare-workers.yml` | Push to `main` (worker changes) | Deploy API Worker and Preview Worker to Cloudflare |
+| `lint.yml` | PRs to `main` + pushes | Ruff (backend), ESLint + Prettier + Knip (frontend) |
+
+### Required GitHub Secrets
+
+- `GCP_SA_KEY` - Google Cloud service account JSON key
+- `CLOUDFLARE_API_TOKEN` - Cloudflare API token
+
+### Production Infrastructure
+
+- **Backend**: Google Cloud Run (asia-south1), 2 CPU / 4GB RAM, 0-10 instances
+- **Worker**: Google Cloud Run, 2 CPU / 4GB RAM, 1-3 instances (always-on)
+- **Frontend**: Vercel (auto-deploy from main)
+- **API Proxy**: Cloudflare Worker at `api.trycheatcode.com`
+- **Preview Proxy**: Cloudflare Worker at `preview.trycheatcode.com`
+- **Database**: Supabase (managed PostgreSQL)
+- **Cache**: Upstash Redis
 
 ## Technology Stack
 
 ### Frontend Technologies
-- **Framework**: Next.js 16.0.7 with App Router and Turbopack
-- **UI Library**: React 19.2.1 with TypeScript 5.9.3
-- **Styling**: Tailwind CSS 4.1.17, Radix UI, shadcn/ui components
-- **State Management**: TanStack Query 5, Zustand 5
-- **Code Editor**: CodeMirror 6 with syntax highlighting
-- **Authentication**: Clerk
-- **Icons**: Lucide React
-- **Animations**: Motion (Framer Motion)
+
+| Category | Technology | Version |
+|----------|-----------|---------|
+| Framework | Next.js (App Router + Turbopack) | 16.0.7 |
+| UI Library | React | 19.2.1 |
+| Language | TypeScript | 5.9.3 |
+| Styling | Tailwind CSS | 4.1.17 |
+| UI Components | Radix UI + shadcn/ui | Various |
+| State (server) | TanStack React Query | 5.90.12 |
+| State (client) | Zustand | 5.0.9 |
+| Auth | Clerk | 6.35.6 |
+| Code Editor | CodeMirror | 6.38.8 |
+| Markdown | react-markdown + remark-gfm | 10.1.0 |
+| Animations | Motion (Framer Motion) | 12.23.25 |
+| Icons | Lucide React | 0.555.0 |
+| Toasts | Sonner | 2.0.3 |
+| Analytics | Vercel Analytics + Speed Insights | - |
+| Package Manager | npm | - |
 
 ### Backend Technologies
-- **Framework**: FastAPI 0.123.7 with Python 3.11
-- **Server**: uvicorn 0.38.0 (development), Gunicorn 23 (production)
-- **Task Queue**: Dramatiq 2.0.0 with Redis
-- **AI/LLM**: LiteLLM 1.80.7 with OpenAI, Anthropic, OpenRouter support
-- **Fast Code Edits**: Relace API (optional) for rapid inline modifications
-- **Database**: Supabase (PostgreSQL) with Clerk RLS integration
-- **Sandboxing**: Daytona SDK for cloud development environments
-- **Deployments**: Vercel API (optional) for one-click deployments
-- **Integrations**: Composio (optional) for third-party app connections
-- **Observability**: Sentry, Langfuse 3.10.5, Structlog 25.5.0
-- **Payments**: Polar SDK 0.28.0 for token-based billing
-- **External APIs**: Tavily (search), Firecrawl (web scraping)
 
-### Infrastructure & DevOps
-- **Containerization**: Docker and Docker Compose
-- **Package Management**: uv (Python), pnpm (Node.js)
-- **CI/CD**: GitHub Actions for automated deployments
-- **Hosting**: Vercel (frontend), Google Cloud Run (backend), Cloudflare Workers (preview proxy)
-- **Version Control**: Git
+| Category | Technology | Version |
+|----------|-----------|---------|
+| Framework | FastAPI | 0.123.7 |
+| Server | uvicorn (dev) / Gunicorn (prod) | 0.38.0 / 23+ |
+| Language | Python | 3.11+ |
+| LLM Router | LiteLLM | 1.80.7 |
+| Structured LLM | Instructor | 1.7.0 |
+| Task Queue | Dramatiq (Redis-backed) | 2.0.0 |
+| Durable Workflows | Inngest | 0.5.15 |
+| Database | Supabase (PostgreSQL) | 2.25.0+ |
+| Cache/PubSub | Redis | 7.1.0+ |
+| Auth | Clerk (clerk-backend-api) | 4.1.2 |
+| Sandboxing | Daytona SDK | 0.121.0+ |
+| Integrations | Composio + MCP | 0.9.4 / 1.23.1 |
+| Billing | Polar SDK | 0.28.0+ |
+| Observability | Langfuse | 3.10.5 |
+| Error Tracking | Sentry | 2.47.0 |
+| Logging | structlog | 25.5.0 |
+| Web Search | Tavily | 0.7.13 |
+| Email | Mailtrap | 2.3.0 |
+| HTTP Client | httpx | 0.28.1+ |
+| Retry Logic | tenacity | 8.2.0+ |
+| Package Manager | uv | - |
+| Linting | Ruff | 0.11.12 |
+
+### Infrastructure
+
+| Category | Technology | Purpose |
+|----------|-----------|---------|
+| Containerization | Docker + Docker Compose | Local dev & production orchestration |
+| Backend Hosting | Google Cloud Run | Auto-scaling container deployment |
+| Frontend Hosting | Vercel | Edge deployment with auto-deploy |
+| API Proxy | Cloudflare Workers | Request proxying with CORS |
+| Preview Proxy | Cloudflare Workers | Sandbox preview with WebSocket support |
+| Database | Supabase (PostgreSQL) | Persistent storage with RLS |
+| Cache | Redis / Upstash | Streaming, locks, caching |
+| CI/CD | GitHub Actions | Automated builds, deploys, linting |
+| Tool Manager | mise | Python 3.11.10 + Node 20 + uv 0.6.5 |
 
 ## Troubleshooting
 
@@ -500,7 +864,6 @@ The application consists of four main services:
 
 ```bash
 # Fix file permissions
-sudo chmod +x docker-compose.yaml
 sudo chown -R $USER:$USER .
 
 # Add user to docker group (requires logout/login)
@@ -522,16 +885,12 @@ sudo usermod -aG docker $USER
 
 3. **Check Redis Connectivity**
    ```bash
-   # Check Redis container logs
-   docker logs cheatcode-production-redis-1
-   
-   # Test Redis connection
-   docker exec -it cheatcode-production-redis-1 redis-cli ping
+   docker compose logs redis
+   docker exec -it $(docker compose ps -q redis) redis-cli ping
    ```
 
 4. **Verify LLM Provider Keys**
    ```bash
-   # Test OpenAI key (replace with your key)
    curl -H "Authorization: Bearer YOUR_OPENAI_KEY" https://api.openai.com/v1/models
    ```
 
@@ -546,31 +905,11 @@ sudo usermod -aG docker $USER
    - Ensure your frontend URL is in `allowed_origins` in `backend/main.py`
    - For custom domains, add them to the CORS configuration
 
-3. **Middleware Issues**
-   ```bash
-   # Check middleware logs
-   docker logs cheatcode-production-frontend-1
-   ```
-
-#### Database Issues
-
-1. **Missing Tables**
-   - Ensure all required Supabase tables exist
-   - Check RLS (Row Level Security) policies
-   - Verify service role key has proper permissions
-
-2. **Migration Issues**
-   ```bash
-   # Check backend logs for database errors
-   docker logs cheatcode-production-api-1
-   ```
-
 #### Agent Not Responding
 
 1. **Check Worker Status**
    ```bash
-   # Verify worker is running
-   docker logs cheatcode-production-worker-1
+   docker compose logs worker
    ```
 
 2. **LLM Provider Issues**
@@ -581,78 +920,67 @@ sudo usermod -aG docker $USER
 3. **Sandbox Issues**
    - Ensure Daytona credentials are configured
    - Check Daytona service status
-   - Verify network connectivity to Daytona servers
+
+#### Database Issues
+
+1. **Missing Tables** - Ensure all Supabase migrations have been applied
+2. **RLS Errors** - Verify service role key has proper permissions
+3. **Check logs**: `docker compose logs api`
 
 ### Getting Help
 
-1. **Check Logs**
-   ```bash
-   # View all service logs
-   docker compose logs
-   
-   # View specific service logs
-   docker compose logs api
-   docker compose logs frontend
-   docker compose logs worker
-   docker compose logs redis
-   ```
+```bash
+# View all service logs
+docker compose logs
 
-2. **Health Checks**
-   - API: http://localhost:8000/api/health
-   - Frontend: http://localhost:3001 (Docker) or http://localhost:3000 (local dev)
-   - Redis: `docker exec -it cheatcode-production-redis-1 redis-cli ping`
+# View specific service logs
+docker compose logs api
+docker compose logs worker
+docker compose logs frontend
+docker compose logs redis
 
-3. **Common Solutions**
-   - Restart services: `docker compose restart`
-   - Rebuild containers: `docker compose up --build`
-   - Clear Redis cache: `docker exec -it cheatcode-production-redis-1 redis-cli flushall`
-   - Reset Docker: `docker compose down && docker compose up --build`
+# Restart services
+docker compose restart
+
+# Rebuild containers
+docker compose up --build
+
+# Full reset
+docker compose down && docker compose up --build
+```
 
 ## Contributing
 
-We welcome contributions from the community! Please follow these guidelines:
+We welcome contributions from the community!
 
 ### How to Contribute
 
-1. **Fork the Repository**
-   - Click the "Fork" button on the GitHub repository page
-   - Clone your fork locally: `git clone https://github.com/YOUR_USERNAME/cheatcode.git`
-
-2. **Set Up Development Environment**
-   - Follow the [Local Development](#local-development) instructions
-   - Ensure all tests pass before making changes
-
-3. **Make Your Changes**
-   - Create a feature branch: `git checkout -b feature/your-feature-name`
-   - Make your changes with clear, descriptive commits
-   - Follow existing code style and conventions
-   - Add tests for new functionality
-
-4. **Submit Your Contribution**
-   - Push your branch: `git push origin feature/your-feature-name`
-   - Open a Pull Request with a clear title and description
-   - Link any related issues in the PR description
+1. **Fork** the repository
+2. **Clone** your fork: `git clone https://github.com/YOUR_USERNAME/cheatcode.git`
+3. **Set up** the development environment (see [Local Development](#local-development))
+4. **Create** a feature branch: `git checkout -b feature/your-feature-name`
+5. **Make** your changes with clear, descriptive commits
+6. **Test** locally and ensure linting passes
+7. **Push** to your branch: `git push origin feature/your-feature-name`
+8. **Open** a Pull Request with a clear title and description
 
 ### Development Guidelines
 
-- **Code Style**: Follow existing patterns in the codebase
-- **Testing**: Add tests for new features and ensure existing tests pass
-- **Documentation**: Update relevant documentation for any changes
-- **Commit Messages**: Use clear, descriptive commit messages
-- **Pull Requests**: Keep PRs focused and reasonably sized
+- **Code Style**: Ruff (backend) and ESLint + Prettier (frontend) enforce style automatically
+- **Testing**: Add tests for new features (`pytest` for backend)
+- **Documentation**: Update relevant docs for any changes
+- **Commits**: Use clear, descriptive commit messages
+- **PRs**: Keep PRs focused and reasonably sized
 
 ### Areas for Contribution
 
-- **Bug Fixes**: Help resolve issues in the GitHub issue tracker
-- **Features**: Implement new functionality or improve existing features
-- **Documentation**: Improve or expand documentation
-- **Testing**: Add test coverage or improve existing tests
-- **Performance**: Optimize performance bottlenecks
-- **Integration**: Add support for new LLM providers or external services
-
-### Code of Conduct
-
-This project follows a code of conduct to ensure a welcoming environment for all contributors. Please be respectful and professional in all interactions.
+- Bug fixes and issue resolution
+- New agent tools and capabilities
+- Additional LLM provider support
+- Documentation improvements
+- Test coverage
+- Performance optimization
+- New third-party integrations
 
 ### Security
 
@@ -662,7 +990,7 @@ If you discover a security vulnerability, please report it responsibly by emaili
 
 Copyright 2025 Cheatcode AI
 
-Portions of this software are derived from [Suna by Kortix AI](https://github.com/kortix-ai/suna), 
+Portions of this software are derived from [Suna by Kortix AI](https://github.com/kortix-ai/suna),
 which is licensed under the Apache License 2.0. See `NOTICE` file for details.
 
 Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in compliance with the License. You may obtain a copy of the License at:

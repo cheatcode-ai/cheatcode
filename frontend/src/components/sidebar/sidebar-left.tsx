@@ -28,7 +28,11 @@ export function SidebarLeft({
   // Consolidated event handlers - single useEffect for better performance
   React.useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
-      if (state === 'expanded' && sidebarRef.current && !sidebarRef.current.contains(event.target as Node)) {
+      if (
+        state === 'expanded' &&
+        sidebarRef.current &&
+        !sidebarRef.current.contains(event.target as Node)
+      ) {
         setOpen(false);
       }
     };
@@ -56,12 +60,15 @@ export function SidebarLeft({
     <>
       {/* Backdrop */}
       {state === 'expanded' && (
-        <div 
+        <div
           className="fixed inset-0 bg-background/20 backdrop-blur-sm z-40"
+          role="button"
+          tabIndex={0}
           onClick={() => setOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(false); } }}
         />
       )}
-      
+
       <Sidebar
         ref={sidebarRef}
         collapsible="offcanvas"
@@ -106,20 +113,18 @@ export function SidebarLeft({
           {/* New Project Control Cell */}
           <div className="p-4 border-b border-zinc-800 flex justify-center">
             <Link href="/" className="w-full max-w-[200px]">
-              <button 
-                className="group relative w-full flex items-center justify-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 transition-all duration-200 py-2 px-3 text-xs font-bold tracking-widest uppercase shadow-sm border border-transparent rounded-sm"
-              >
+              <button className="group relative w-full flex items-center justify-center gap-2 bg-white text-zinc-950 hover:bg-zinc-200 transition-all duration-200 py-2 px-3 text-xs font-bold tracking-widest uppercase shadow-sm border border-transparent rounded-sm">
                 <Plus className="h-3.5 w-3.5" />
                 <span>New Project</span>
               </button>
             </Link>
           </div>
-          
+
           <div className="flex-1">
             <NavProjects />
           </div>
         </SidebarContent>
-        
+
         {/* Footer Cell */}
         <SidebarFooter className="border-t border-zinc-800 p-4 bg-zinc-950">
           {/* Footer content */}

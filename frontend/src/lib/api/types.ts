@@ -16,7 +16,7 @@ export type Project = {
   is_public?: boolean;
   app_type?: 'web' | 'mobile';
   model_name?: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type Thread = {
@@ -24,10 +24,10 @@ export type Thread = {
   account_id: string | null;
   project_id?: string | null;
   is_public?: boolean;
-  metadata?: { name?: string; [key: string]: any };
+  metadata?: { name?: string; [key: string]: unknown };
   created_at: string;
   updated_at: string;
-  [key: string]: any;
+  [key: string]: unknown;
 };
 
 export type Message = {
@@ -37,18 +37,14 @@ export type Message = {
 };
 
 export type AgentRun = {
-  id: string;
+  run_id: string;
   thread_id: string;
-  status: 'running' | 'completed' | 'stopped' | 'error';
+  status: 'running' | 'completed' | 'stopped' | 'error' | 'queued';
   started_at: string;
   completed_at: string | null;
-  responses: Message[];
   error: string | null;
-};
-
-export type ToolCall = {
-  name: string;
-  arguments: Record<string, unknown>;
+  created_at?: string;
+  updated_at?: string;
 };
 
 export interface InitiateAgentResponse {
@@ -60,15 +56,6 @@ export interface HealthCheckResponse {
   status: string;
   timestamp: string;
   instance_id: string;
-}
-
-export interface FileInfo {
-  name: string;
-  path: string;
-  is_dir: boolean;
-  size: number;
-  mod_time: string;
-  permissions?: string;
 }
 
 // Billing API Types
@@ -115,28 +102,6 @@ export interface BillingStatusResponse {
   deployments_total: number;
 }
 
-export interface UsageLogEntry {
-  message_id: string;
-  thread_id: string;
-  created_at: string;
-  content: {
-    usage: {
-      prompt_tokens: number;
-      completion_tokens: number;
-    };
-    model: string;
-  };
-  total_tokens: number;
-  estimated_cost: number;
-  project_id: string;
-}
-
-export interface UsageLogsResponse {
-  logs: UsageLogEntry[];
-  has_more: boolean;
-  message?: string;
-}
-
 export interface TokenUsageEntry {
   id: string;
   account_id: string;
@@ -167,11 +132,6 @@ export interface PlanDetails {
   display_credits: number;
   features: string[];
   description: string;
-}
-
-export interface PlanListResponse {
-  plans: PlanDetails[];
-  current_plan: string;
 }
 
 export interface CheckoutSessionResponse {

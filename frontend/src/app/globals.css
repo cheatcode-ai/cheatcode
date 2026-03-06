@@ -293,49 +293,49 @@
    * ============================================ */
 
   /* Thread Panel Backgrounds */
-  --thread-panel-bg: #09090b;                    /* zinc-950 */
-  --thread-panel-bg-translucent: rgba(9, 9, 11, 0.8);  /* zinc-950/80 */
-  --thread-surface: #131112;                     
-  --thread-surface-hover: #1c1a1b;               
-  --thread-surface-subtle: rgba(19, 17, 18, 0.5); 
+  --thread-panel-bg: #09090b; /* zinc-950 */
+  --thread-panel-bg-translucent: rgba(9, 9, 11, 0.8); /* zinc-950/80 */
+  --thread-surface: #131112;
+  --thread-surface-hover: #1c1a1b;
+  --thread-surface-subtle: rgba(19, 17, 18, 0.5);
 
   /* Thread Borders */
-  --thread-border: #27272a;                      /* zinc-800 */
+  --thread-border: #27272a; /* zinc-800 */
   --thread-border-subtle: rgba(39, 39, 42, 0.5); /* zinc-800/50 */
-  --thread-border-hover: #3f3f46;                /* zinc-700 */
-  --thread-divider: #52525b;                     /* zinc-600 */
+  --thread-border-hover: #3f3f46; /* zinc-700 */
+  --thread-divider: #52525b; /* zinc-600 */
 
   /* Thread Text Colors */
-  --thread-text-primary: #ffffff;                /* white */
-  --thread-text-secondary: #a1a1aa;              /* zinc-400 */
-  --thread-text-tertiary: #71717a;               /* zinc-500 */
-  --thread-text-muted: #52525b;                  /* zinc-600 */
-  --thread-text-placeholder: #71717a;            /* zinc-500 */
+  --thread-text-primary: #ffffff; /* white */
+  --thread-text-secondary: #a1a1aa; /* zinc-400 */
+  --thread-text-tertiary: #71717a; /* zinc-500 */
+  --thread-text-muted: #52525b; /* zinc-600 */
+  --thread-text-placeholder: #71717a; /* zinc-500 */
 
   /* Thread Interactive States */
-  --thread-hover-bg: #1c1a1b;                    
-  --thread-active-bg: #27272a;                   
-  --thread-focus-ring: #52525b;                  /* zinc-600 */
+  --thread-hover-bg: #1c1a1b;
+  --thread-active-bg: #27272a;
+  --thread-focus-ring: #52525b; /* zinc-600 */
 
   /* Thread Status Colors */
-  --thread-status-success: #10b981;              /* emerald-500 */
+  --thread-status-success: #10b981; /* emerald-500 */
   --thread-status-success-bg: rgba(16, 185, 129, 0.1);
   --thread-status-success-border: rgba(16, 185, 129, 0.2);
   --thread-status-success-glow: rgba(16, 185, 129, 0.4);
 
-  --thread-status-warning: #f59e0b;              /* amber-500 */
+  --thread-status-warning: #f59e0b; /* amber-500 */
   --thread-status-warning-bg: rgba(245, 158, 11, 0.1);
   --thread-status-warning-border: rgba(245, 158, 11, 0.2);
 
-  --thread-status-error: #ef4444;                /* red-500 */
+  --thread-status-error: #ef4444; /* red-500 */
   --thread-status-error-bg: rgba(239, 68, 68, 0.1);
   --thread-status-error-border: rgba(127, 29, 29, 0.3); /* red-900/30 */
-  --thread-status-error-text: #f87171;           /* red-400 */
+  --thread-status-error-text: #f87171; /* red-400 */
 
-  --thread-status-info: #3b82f6;                 /* blue-500 */
+  --thread-status-info: #3b82f6; /* blue-500 */
 
   /* Thread Accent Colors */
-  --thread-accent-purple: #a855f7;               /* purple-500 */
+  --thread-accent-purple: #a855f7; /* purple-500 */
   --thread-accent-purple-glow: rgba(168, 85, 247, 0.2);
 
   /* Thread Message Bubbles */
@@ -348,8 +348,8 @@
   --thread-tool-border: #27272a;
 
   /* Thread Skeleton/Loading */
-  --thread-skeleton-bg: rgba(39, 39, 42, 0.5);   /* zinc-800/50 */
-  --thread-loading-dot: #a855f7;                 /* purple-500 */
+  --thread-skeleton-bg: rgba(39, 39, 42, 0.5); /* zinc-800/50 */
+  --thread-loading-dot: #a855f7; /* purple-500 */
 }
 
 .dark {
@@ -650,7 +650,12 @@
 
 /* Home page gradient background - extracted from inline styles */
 .gradient-home-bg {
-  background-image: linear-gradient(156.2deg, rgba(0,0,0,1) 14.8%, rgba(32,104,177,1) 68.1%, rgba(222,229,237,1) 129%);
+  background-image: linear-gradient(
+    156.2deg,
+    rgba(0, 0, 0, 1) 14.8%,
+    rgba(32, 104, 177, 1) 68.1%,
+    rgba(222, 229, 237, 1) 129%
+  );
 }
 
 .bg-pattern-grid {
@@ -661,41 +666,61 @@
 }
 
 .dark .bg-pattern-grid {
-  background-image: 
+  background-image:
     linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
     linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
   background-size: 20px 20px;
 }
 
 .bg-checker-pattern {
-  background-image: linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
+  background-image:
+    linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
     linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
     linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
   background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0px;
   background-color: #ffffff;
 }
 
 .dark .bg-checker-pattern-dark {
-  background-image: linear-gradient(45deg, rgba(39, 39, 42, 0.7) 25%, transparent 25%),
+  background-image:
+    linear-gradient(45deg, rgba(39, 39, 42, 0.7) 25%, transparent 25%),
     linear-gradient(-45deg, rgba(39, 39, 42, 0.7) 25%, transparent 25%),
     linear-gradient(45deg, transparent 75%, rgba(39, 39, 42, 0.7) 75%),
     linear-gradient(-45deg, transparent 75%, rgba(39, 39, 42, 0.7) 75%);
   background-size: 20px 20px;
-  background-position: 0 0, 0 10px, 10px -10px, -10px 0px;
+  background-position:
+    0 0,
+    0 10px,
+    10px -10px,
+    -10px 0px;
   background-color: rgba(24, 24, 27, 0.7);
 }
 
 @keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(200%); }
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(200%);
+  }
 }
 
 @keyframes gradient-shift {
-  0% { background-position: 0% 50%; }
-  50% { background-position: 100% 50%; }
-  100% { background-position: 0% 50%; }
+  0% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
 }
 
 @theme {
@@ -735,8 +760,7 @@
   content: '';
   @apply absolute top-0 left-0 w-full h-full;
   background: linear-gradient(
-    140deg
-    rgba(255, 255, 255, 0) 0%,
+    140deg rgba(255, 255, 255, 0) 0%,
     rgba(255, 255, 255, 0.8) 50%,
     rgba(255, 255, 255, 0) 100%
   );

@@ -39,14 +39,23 @@ export function IntegrationsDropdown({
   triggerVariant = 'button',
   enabled = true,
 }: IntegrationsDropdownProps) {
-  const { mcpProfiles: _mcpProfiles, activeCount, isLoading: _isLoading } = useMCPProfilesWithToggle(enabled);
+  const {
+    mcpProfiles: _mcpProfiles,
+    activeCount,
+    isLoading: _isLoading,
+  } = useMCPProfilesWithToggle(enabled);
 
   const TriggerContent = (
     <>
       <Zap className="w-3 h-3 mr-2 text-zinc-500 group-hover:text-zinc-300 transition-colors" />
-      <span className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-200 transition-colors uppercase tracking-wider">Integrations</span>
+      <span className="text-[11px] font-mono text-zinc-400 group-hover:text-zinc-200 transition-colors uppercase tracking-wider">
+        Integrations
+      </span>
       {activeCount > 0 && (
-        <Badge variant="secondary" className="ml-2 h-4 min-w-[16px] px-1 text-[9px] rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700 font-mono group-hover:border-zinc-600 transition-colors flex items-center justify-center">
+        <Badge
+          variant="secondary"
+          className="ml-2 h-4 min-w-[16px] px-1 text-[9px] rounded-sm bg-zinc-800 text-zinc-300 border border-zinc-700 font-mono group-hover:border-zinc-600 transition-colors flex items-center justify-center"
+        >
           {activeCount}
         </Badge>
       )}
@@ -67,8 +76,8 @@ export function IntegrationsDropdown({
         ) : triggerVariant === 'ghost' ? (
           <button
             className={cn(
-              "h-8 pl-2.5 pr-3 flex items-center justify-center rounded-md transition-all group shadow-sm",
-              threadStyles.buttonOutline
+              'h-8 pl-2.5 pr-3 flex items-center justify-center rounded-md transition-all group shadow-sm',
+              threadStyles.buttonOutline,
             )}
           >
             {TriggerContent}
@@ -90,15 +99,22 @@ export function IntegrationsDropdown({
       >
         <div className="p-5 space-y-4">
           <div>
-            <h4 className="text-xs font-medium text-white uppercase tracking-wide mb-1.5">Integrations</h4>
+            <h4 className="text-xs font-medium text-white uppercase tracking-wide mb-1.5">
+              Integrations
+            </h4>
             <p className="text-[10px] text-zinc-500 leading-normal">
               Connect and enable tools for your dashboard chats.
             </p>
           </div>
 
-          <LiquidMetalButton href="/settings/integrations" className="w-full h-8 no-underline">
+          <LiquidMetalButton
+            href="/settings/integrations"
+            className="w-full h-8 no-underline"
+          >
             <Zap className="h-3 w-3 text-zinc-300 group-hover:text-white transition-colors" />
-            <span className="whitespace-nowrap text-zinc-300 group-hover:text-white transition-colors">MANAGE INTEGRATIONS</span>
+            <span className="whitespace-nowrap text-zinc-300 group-hover:text-white transition-colors">
+              MANAGE INTEGRATIONS
+            </span>
           </LiquidMetalButton>
         </div>
       </DropdownMenuContent>

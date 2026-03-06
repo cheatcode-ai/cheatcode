@@ -2,7 +2,10 @@
 
 import CodeMirror from '@uiw/react-codemirror';
 import { vscodeDark } from '@uiw/codemirror-theme-vscode';
-import { loadLanguage } from '@uiw/codemirror-extensions-langs';
+import {
+  loadLanguage,
+  type LanguageName,
+} from '@uiw/codemirror-extensions-langs';
 import { cn } from '@/lib/utils';
 import { ScrollArea } from '@/components/ui/scroll-area';
 
@@ -48,7 +51,9 @@ export function CodeRenderer({
 }: CodeRendererProps) {
   // Determine the language extension to use
   const langName = languageAliases[language] || language;
-  const langExtension = langName ? loadLanguage(langName as any) : null;
+  const langExtension = langName
+    ? loadLanguage(langName as LanguageName)
+    : null;
 
   // Add line wrapping extension
   const extensions = langExtension
@@ -80,7 +85,7 @@ export function CodeRenderer({
             view.contentDOM.style.backgroundColor = 'transparent';
           }}
         />
-        <style jsx global>{`
+        <style>{`
           .cm-editor {
             background-color: transparent !important;
           }
@@ -88,7 +93,8 @@ export function CodeRenderer({
             background-color: transparent !important;
             border-right: 1px solid var(--border) !important;
           }
-          .cm-activeLine, .cm-activeLineGutter {
+          .cm-activeLine,
+          .cm-activeLineGutter {
             background-color: rgba(255, 255, 255, 0.03) !important;
           }
         `}</style>

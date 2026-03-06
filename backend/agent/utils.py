@@ -1,8 +1,8 @@
 import json
-from typing import Optional
-from utils.logger import logger
-from services import redis
+
 from agent.run_agent import update_agent_run_status
+from services import redis
+from utils.logger import logger
 
 
 async def _cleanup_redis_response_list(agent_run_id: str):
@@ -11,21 +11,27 @@ async def _cleanup_redis_response_list(agent_run_id: str):
         await redis.delete(response_list_key)
         logger.debug(f"Cleaned up Redis response list for agent run {agent_run_id}")
     except Exception as e:
-        logger.warning(f"Failed to clean up Redis response list for {agent_run_id}: {str(e)}")
+        logger.warning(f"Failed to clean up Redis response list for {agent_run_id}: {e!s}")
 
 
 async def check_for_active_project_agent_run(client, project_id: str):
-    project_threads = await client.table('threads').select('thread_id').eq('project_id', project_id).execute()
-    project_thread_ids = [t['thread_id'] for t in project_threads.data]
+    project_threads = await client.table("threads").select("thread_id").eq("project_id", project_id).execute()
+    project_thread_ids = [t["thread_id"] for t in project_threads.data]
 
     if project_thread_ids:
-        active_runs = await client.table('agent_runs').select('run_id').in_('thread_id', project_thread_ids).eq('status', 'running').execute()
+        active_runs = (
+            await client.table("agent_runs")
+            .select("run_id")
+            .in_("thread_id", project_thread_ids)
+            .eq("status", "running")
+            .execute()
+        )
         if active_runs.data and len(active_runs.data) > 0:
-            return active_runs.data[0]['run_id']
+            return active_runs.data[0]["run_id"]
     return None
 
 
-async def stop_agent_run(db, agent_run_id: str, error_message: Optional[str] = None):
+async def stop_agent_run(db, agent_run_id: str, error_message: str | None = None):
     logger.info(f"Stopping agent run: {agent_run_id}")
     client = await db.client
     final_status = "failed" if error_message else "stopped"
@@ -51,7 +57,7 @@ async def stop_agent_run(db, agent_run_id: str, error_message: Optional[str] = N
         await redis.publish(global_control_channel, "STOP")
         logger.debug(f"Published STOP signal to global channel {global_control_channel}")
     except Exception as e:
-        logger.error(f"Failed to publish STOP signal to global channel {global_control_channel}: {str(e)}")
+        logger.error(f"Failed to publish STOP signal to global channel {global_control_channel}: {e!s}")
 
     try:
         instance_keys = await redis.scan_keys(f"active_run:*:{agent_run_id}")
@@ -66,13 +72,15 @@ async def stop_agent_run(db, agent_run_id: str, error_message: Optional[str] = N
                     await redis.publish(instance_control_channel, "STOP")
                     logger.debug(f"Published STOP signal to instance channel {instance_control_channel}")
                 except Exception as e:
-                    logger.warning(f"Failed to publish STOP signal to instance channel {instance_control_channel}: {str(e)}")
+                    logger.warning(
+                        f"Failed to publish STOP signal to instance channel {instance_control_channel}: {e!s}"
+                    )
             else:
-                 logger.warning(f"Unexpected key format found: {key}")
+                logger.warning(f"Unexpected key format found: {key}")
 
         await _cleanup_redis_response_list(agent_run_id)
 
     except Exception as e:
-        logger.error(f"Failed to find or signal active instances for {agent_run_id}: {str(e)}")
+        logger.error(f"Failed to find or signal active instances for {agent_run_id}: {e!s}")
 
-    logger.info(f"Successfully initiated stop process for agent run: {agent_run_id}") 
+    logger.info(f"Successfully initiated stop process for agent run: {agent_run_id}")

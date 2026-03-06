@@ -31,9 +31,7 @@ interface HomeLayoutProps {
   children: React.ReactNode;
 }
 
-export default function HomeLayout({
-  children,
-}: HomeLayoutProps) {
+export default function HomeLayout({ children }: HomeLayoutProps) {
   const { user, isLoaded } = useUser();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isClient, setIsClient] = useState(false);
@@ -41,32 +39,38 @@ export default function HomeLayout({
   const pathname = usePathname();
 
   // TODO: Implement maintenance notice fetching from API or server component
-  const [currentMaintenanceNotice] = useState<IMaintenanceNotice>({ enabled: false });
+  const [currentMaintenanceNotice] = useState<IMaintenanceNotice>({
+    enabled: false,
+  });
   useAccounts();
 
-
-
   // Enhanced: Smart API Health Monitoring with React Query
-  const { data: healthData, isLoading: isCheckingHealth, isError: isApiUnhealthy } = useApiHealth();
+  const {
+    data: healthData,
+    isLoading: isCheckingHealth,
+    isError: isApiUnhealthy,
+  } = useApiHealth();
   const isApiHealthy = healthData?.status === 'ok' && !isApiUnhealthy;
 
   // Check if we're on a thread page (hide home navbar on thread pages)
-  const isThreadPage = pathname?.includes('/projects/') && pathname?.includes('/thread/');
+  const isThreadPage =
+    pathname?.includes('/projects/') && pathname?.includes('/thread/');
 
   // Ensure we only render after hydration to prevent SSR/client mismatch
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsClient(true);
   }, []);
-
 
   // Listen for sidebar toggle events from navbar
   useEffect(() => {
     const handleToggleSidebar = () => {
-      setSidebarOpen(prev => !prev);
+      setSidebarOpen((prev) => !prev);
     };
 
     window.addEventListener('toggleHomeSidebar', handleToggleSidebar);
-    return () => window.removeEventListener('toggleHomeSidebar', handleToggleSidebar);
+    return () =>
+      window.removeEventListener('toggleHomeSidebar', handleToggleSidebar);
   }, []);
 
   // Enhanced: Smart Maintenance System
@@ -99,9 +103,10 @@ export default function HomeLayout({
   }
 
   // Health banner shown when API is unhealthy (non-blocking)
-  const healthBanner = !isApiHealthy && !isCheckingHealth && showHealthBanner ? (
-    <ApiHealthBanner onDismiss={() => setShowHealthBanner(false)} />
-  ) : null;
+  const healthBanner =
+    !isApiHealthy && !isCheckingHealth && showHealthBanner ? (
+      <ApiHealthBanner onDismiss={() => setShowHealthBanner(false)} />
+    ) : null;
 
   // Show loading state while checking auth (health check runs in background)
   if (!isClient || !isLoaded) {
@@ -121,14 +126,20 @@ export default function HomeLayout({
       >
         {healthBanner}
         {!isThreadPage && <Navbar sidebarOpen={false} />}
-        <div className={isThreadPage ? "pt-0" : "pt-6"}>
-          <Suspense fallback={<PageLoadingFallback />}>
-            {children}
-          </Suspense>
+        <div className={isThreadPage ? 'pt-0' : 'pt-6'}>
+          <Suspense fallback={<PageLoadingFallback />}>{children}</Suspense>
         </div>
         {!isThreadPage && (
           <footer className="w-full py-6 text-center text-xs text-white/70">
-            Built by <a href="https://jigyansurout.com/" target="_blank" rel="noreferrer" className="no-underline hover:text-white">Jigyansu Rout</a>
+            Built by{' '}
+            <a
+              href="https://jigyansurout.com/"
+              target="_blank"
+              rel="noreferrer"
+              className="no-underline hover:text-white"
+            >
+              Jigyansu Rout
+            </a>
           </footer>
         )}
       </div>
@@ -140,33 +151,41 @@ export default function HomeLayout({
     <DeleteOperationProvider>
       <BillingProvider>
         <SidebarProvider open={sidebarOpen} onOpenChange={setSidebarOpen}>
-        <SidebarLeft />
-        <SidebarInset>
-          {/* Enhanced: Maintenance banner */}
-          {maintenanceBanner}
-          {/* Health banner when API is unhealthy */}
-          {healthBanner}
+          <SidebarLeft />
+          <SidebarInset>
+            {/* Enhanced: Maintenance banner */}
+            {maintenanceBanner}
+            {/* Health banner when API is unhealthy */}
+            {healthBanner}
 
-          <div
-            className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
-          >
-            {!isThreadPage && <Navbar sidebarOpen={sidebarOpen} />}
-            <div className={isThreadPage ? "pt-0" : "pt-6"}>
-              <Suspense fallback={<PageLoadingFallback />}>
-                {children}
-              </Suspense>
+            <div
+              className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
+            >
+              {!isThreadPage && <Navbar sidebarOpen={sidebarOpen} />}
+              <div className={isThreadPage ? 'pt-0' : 'pt-6'}>
+                <Suspense fallback={<PageLoadingFallback />}>
+                  {children}
+                </Suspense>
+              </div>
+              {!isThreadPage && (
+                <footer className="w-full py-6 text-center text-xs text-white/70">
+                  Built by{' '}
+                  <a
+                    href="https://jigyansurout.com/"
+                    target="_blank"
+                    rel="noreferrer"
+                    className="no-underline hover:text-white"
+                  >
+                    Jigyansu Rout
+                  </a>
+                </footer>
+              )}
             </div>
-            {!isThreadPage && (
-              <footer className="w-full py-6 text-center text-xs text-white/70">
-                Built by <a href="https://jigyansurout.com/" target="_blank" rel="noreferrer" className="no-underline hover:text-white">Jigyansu Rout</a>
-              </footer>
-            )}
-          </div>
-        </SidebarInset>
+          </SidebarInset>
 
-        {/* Enhanced: Status overlay for deletion operations and async tasks */}
-        <StatusOverlay />
-      </SidebarProvider>
+          {/* Enhanced: Status overlay for deletion operations and async tasks */}
+          <StatusOverlay />
+        </SidebarProvider>
       </BillingProvider>
     </DeleteOperationProvider>
   );

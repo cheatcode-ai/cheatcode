@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Project } from '@/lib/api';
+import { type Project } from '@/lib/api';
 import { useThreadQuery } from '@/hooks/react-query/threads/use-threads';
 import { useProjectQuery } from '@/hooks/react-query/threads/use-project';
 
@@ -17,7 +17,10 @@ interface UseThreadMetadataReturn {
  * Hook for thread and project metadata
  * Handles project data fetching and sandbox ID extraction
  */
-export function useThreadMetadata(threadId: string, projectId: string): UseThreadMetadataReturn {
+export function useThreadMetadata(
+  threadId: string,
+  projectId: string,
+): UseThreadMetadataReturn {
   const [project, setProject] = useState<Project | null>(null);
   const [sandboxId, setSandboxId] = useState<string | null>(null);
   const [projectName, setProjectName] = useState<string>('');
@@ -32,9 +35,11 @@ export function useThreadMetadata(threadId: string, projectId: string): UseThrea
   // Handle thread error
   useEffect(() => {
     if (threadQuery.isError) {
-      const errorMessage = threadQuery.error instanceof Error
-        ? threadQuery.error.message
-        : JSON.stringify(threadQuery.error);
+      const errorMessage =
+        threadQuery.error instanceof Error
+          ? threadQuery.error.message
+          : JSON.stringify(threadQuery.error);
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setError('Failed to load thread data: ' + errorMessage);
       setIsLoading(false);
     }
@@ -45,8 +50,12 @@ export function useThreadMetadata(threadId: string, projectId: string): UseThrea
     if (projectQuery.data) {
       const projectData = {
         ...projectQuery.data,
-        id: projectQuery.data.project_id || (projectQuery.data as { id?: string }).id || projectId
+        id:
+          projectQuery.data.project_id ||
+          (projectQuery.data as { id?: string }).id ||
+          projectId,
       };
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setProject(projectData);
 
       // Extract sandbox ID
@@ -69,13 +78,22 @@ export function useThreadMetadata(threadId: string, projectId: string): UseThrea
   // Update loading state - handle both success and error cases
   useEffect(() => {
     const threadDone = threadQuery.data || threadIsError || !threadIsLoading;
-    const projectDone = projectQuery.data || projectIsError || !projectIsLoading;
+    const projectDone =
+      projectQuery.data || projectIsError || !projectIsLoading;
 
     if (threadDone && projectDone && !initialLoadCompleted.current) {
       initialLoadCompleted.current = true;
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsLoading(false);
     }
-  }, [threadQuery.data, threadIsError, threadIsLoading, projectQuery.data, projectIsError, projectIsLoading]);
+  }, [
+    threadQuery.data,
+    threadIsError,
+    threadIsLoading,
+    projectQuery.data,
+    projectIsError,
+    projectIsLoading,
+  ]);
 
   return {
     project,

@@ -1,21 +1,26 @@
-import { createQueryHook } from "@/hooks/use-query";
-import { threadKeys } from "./keys";
-import { checkBillingStatus, BillingStatusResponse } from "@/lib/api";
+import { createQueryHook } from '@/hooks/use-query';
+import { threadKeys } from './keys';
+import { checkBillingStatus, type BillingStatusResponse } from '@/lib/api';
 import { useAuth } from '@clerk/nextjs';
-import { useRefetchControl } from "@/hooks/use-refetch-control";
+import { useRefetchControl } from '@/hooks/use-refetch-control';
 import { useRef } from 'react';
 
 // Exponential backoff configuration
 const BACKOFF_CONFIG = {
-  baseInterval: 30 * 1000,     // 30 seconds initial
-  maxInterval: 5 * 60 * 1000,  // 5 minutes max
-  multiplier: 1.5,             // Increase by 50% each time
+  baseInterval: 30 * 1000, // 30 seconds initial
+  maxInterval: 5 * 60 * 1000, // 5 minutes max
+  multiplier: 1.5, // Increase by 50% each time
   normalInterval: 2 * 60 * 1000, // 2 minutes when credits available
 };
 
 export const useBillingStatusQuery = (enabled = true) => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  const { disableWindowFocus, disableMount, disableReconnect, disableInterval } = useRefetchControl();
+  const {
+    disableWindowFocus,
+    disableMount,
+    disableReconnect,
+    disableInterval,
+  } = useRefetchControl();
 
   // Track consecutive "at limit" polls for exponential backoff
   const consecutiveLimitPollsRef = useRef(0);
@@ -35,12 +40,15 @@ export const useBillingStatusQuery = (enabled = true) => {
 
       return checkBillingStatus(token);
     },
+    // eslint-disable-next-line react-hooks/refs
     {
       enabled: enabled && isLoaded && isSignedIn,
       retry: (failureCount, error) => {
         // Only retry for certain types of errors, not authentication errors
-        if (error?.message?.includes('Authentication required') ||
-            error?.message?.includes('Failed to get authentication token')) {
+        if (
+          error?.message?.includes('Authentication required') ||
+          error?.message?.includes('Failed to get authentication token')
+        ) {
           return false;
         }
         return failureCount < 3;
@@ -50,27 +58,33 @@ export const useBillingStatusQuery = (enabled = true) => {
       refetchOnWindowFocus: !disableWindowFocus, // Controlled by context
       refetchOnMount: !disableMount, // Controlled by context
       refetchOnReconnect: !disableReconnect, // Controlled by context
-      refetchInterval: disableInterval ? false : (query: { state: { data?: BillingStatusResponse } }) => {
-        // Exponential backoff when at limit
-        if (query.state.data && !query.state.data.can_run) {
-          // Increment consecutive limit polls
-          consecutiveLimitPollsRef.current += 1;
+      refetchInterval: disableInterval
+        ? false
+        : (query: { state: { data?: BillingStatusResponse } }) => {
+            // Exponential backoff when at limit
+            if (query.state.data && !query.state.data.can_run) {
+              // Increment consecutive limit polls
+              consecutiveLimitPollsRef.current += 1;
 
-          // Calculate exponential backoff interval
-          const backoffInterval = Math.min(
-            BACKOFF_CONFIG.baseInterval * Math.pow(BACKOFF_CONFIG.multiplier, consecutiveLimitPollsRef.current - 1),
-            BACKOFF_CONFIG.maxInterval
-          );
+              // Calculate exponential backoff interval
+              const backoffInterval = Math.min(
+                BACKOFF_CONFIG.baseInterval *
+                  Math.pow(
+                    BACKOFF_CONFIG.multiplier,
+                    consecutiveLimitPollsRef.current - 1,
+                  ),
+                BACKOFF_CONFIG.maxInterval,
+              );
 
-          return backoffInterval;
-        }
+              return backoffInterval;
+            }
 
-        // Reset backoff counter when credits become available
-        consecutiveLimitPollsRef.current = 0;
+            // Reset backoff counter when credits become available
+            consecutiveLimitPollsRef.current = 0;
 
-        // Normal polling when credits available
-        return BACKOFF_CONFIG.normalInterval;
-      },
-    }
+            // Normal polling when credits available
+            return BACKOFF_CONFIG.normalInterval;
+          },
+    },
   )();
 };

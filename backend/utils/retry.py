@@ -1,5 +1,4 @@
-"""
-Retry utilities for handling transient failures.
+"""Retry utilities for handling transient failures.
 
 This module provides a centralized, single source of truth for retry logic
 across the application. Use these functions instead of implementing
@@ -22,8 +21,11 @@ Usage:
 """
 
 import asyncio
+import contextlib
 import random
-from typing import TypeVar, Callable, Awaitable, Optional, Type, Tuple, Union
+from collections.abc import Awaitable, Callable
+from typing import TypeVar
+
 from utils.logger import logger
 
 T = TypeVar("T")
@@ -34,8 +36,7 @@ async def retry(
     max_attempts: int = 3,
     delay_seconds: float = 1,
 ) -> T:
-    """
-    Retry an async function with fixed delay between attempts.
+    """Retry an async function with fixed delay between attempts.
 
     Args:
         fn: The async function to retry (takes no arguments)
@@ -58,11 +59,12 @@ async def retry(
             print(f"Success: {result}")
         except Exception as e:
             print(f"Failed after all retries: {e}")
+
     """
     if max_attempts <= 0:
         raise ValueError("max_attempts must be greater than zero")
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -88,11 +90,10 @@ async def retry_with_backoff(
     max_delay: float = 60.0,
     exponential_base: float = 2.0,
     jitter: bool = True,
-    retryable_exceptions: Optional[Tuple[Type[Exception], ...]] = None,
-    on_retry: Optional[Callable[[Exception, int, float], None]] = None,
+    retryable_exceptions: tuple[type[Exception], ...] | None = None,
+    on_retry: Callable[[Exception, int, float], None] | None = None,
 ) -> T:
-    """
-    Retry an async function with exponential backoff.
+    """Retry an async function with exponential backoff.
 
     This is the recommended retry function for most use cases as it
     implements best practices for handling transient failures:
@@ -135,20 +136,20 @@ async def retry_with_backoff(
             jitter=True,
             on_retry=log_retry
         )
+
     """
     if max_attempts <= 0:
         raise ValueError("max_attempts must be greater than zero")
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:
             return await fn()
         except Exception as error:
             # Check if this exception type should be retried
-            if retryable_exceptions is not None:
-                if not isinstance(error, retryable_exceptions):
-                    raise
+            if retryable_exceptions is not None and not isinstance(error, retryable_exceptions):
+                raise
 
             last_error = error
 
@@ -164,10 +165,8 @@ async def retry_with_backoff(
 
             # Call retry callback if provided
             if on_retry:
-                try:
+                with contextlib.suppress(Exception):
                     on_retry(error, attempt, delay)
-                except Exception:
-                    pass  # Don't let callback errors break the retry loop
 
             await asyncio.sleep(delay)
 
@@ -185,8 +184,7 @@ async def retry_operation(
     max_delay: float = 30.0,
     log_retries: bool = True,
 ) -> T:
-    """
-    Convenience wrapper that includes logging for retry attempts.
+    """Wrap retry with automatic logging of retry attempts.
 
     This is a simpler interface for common retry scenarios where you
     want automatic logging without setting up callbacks.
@@ -208,7 +206,9 @@ async def retry_operation(
             lambda: api.get_user(user_id),
             max_attempts=3
         )
+
     """
+
     def on_retry(error: Exception, attempt: int, delay: float):
         if log_retries:
             logger.warning(
@@ -227,10 +227,7 @@ async def retry_operation(
         )
     except Exception as e:
         if log_retries:
-            logger.error(
-                f"Operation '{operation_name}' failed after {max_attempts} attempts: "
-                f"{type(e).__name__}: {e}"
-            )
+            logger.error(f"Operation '{operation_name}' failed after {max_attempts} attempts: {type(e).__name__}: {e}")
         raise
 
 
@@ -238,13 +235,13 @@ async def retry_operation(
 # Synchronous retry utilities (for non-async contexts)
 # =============================================================================
 
+
 def retry_sync(
     fn: Callable[[], T],
     max_attempts: int = 3,
     delay_seconds: float = 1,
 ) -> T:
-    """
-    Retry a synchronous function with fixed delay between attempts.
+    """Retry a synchronous function with fixed delay between attempts.
 
     Args:
         fn: The function to retry (takes no arguments)
@@ -256,13 +253,14 @@ def retry_sync(
 
     Raises:
         The last exception if all attempts fail
+
     """
     import time
 
     if max_attempts <= 0:
         raise ValueError("max_attempts must be greater than zero")
 
-    last_error: Optional[Exception] = None
+    last_error: Exception | None = None
 
     for attempt in range(1, max_attempts + 1):
         try:

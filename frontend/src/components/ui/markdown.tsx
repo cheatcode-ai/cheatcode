@@ -1,7 +1,6 @@
- 
 import { cn } from '@/lib/utils';
 import { memo, useId } from 'react';
-import ReactMarkdown, { Components } from 'react-markdown';
+import ReactMarkdown, { type Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock, CodeBlockCode } from '@/components/ui/code-block';
 
@@ -19,7 +18,13 @@ function extractLanguage(className?: string): string {
 }
 
 const INITIAL_COMPONENTS: Partial<Components> = {
-  code: function CodeComponent({ className, children, ...props }: any) {
+  code: function CodeComponent({
+    className,
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'code'> & {
+    node?: { position?: { start: { line: number }; end: { line: number } } };
+  }) {
     const isInline =
       !props.node?.position?.start.line ||
       props.node?.position?.start.line === props.node?.position?.end.line;
@@ -31,7 +36,6 @@ const INITIAL_COMPONENTS: Partial<Components> = {
             'bg-primary-foreground dark:bg-zinc-800 dark:border dark:border-zinc-700 rounded-sm px-1 font-mono text-sm',
             className,
           )}
-          {...props}
         >
           {children}
         </span>
@@ -50,52 +54,75 @@ const INITIAL_COMPONENTS: Partial<Components> = {
       </CodeBlock>
     );
   },
-  pre: function PreComponent({ children }: any) {
+  pre: function PreComponent({
+    children,
+  }: React.ComponentPropsWithoutRef<'pre'>) {
     return <>{children}</>;
   },
-  ul: function UnorderedList({ children, ...props }: any) {
+  ul: function UnorderedList({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'ul'>) {
     return (
       <ul className="list-disc pl-5 my-2" {...props}>
         {children}
       </ul>
     );
   },
-  ol: function OrderedList({ children, ...props }: any) {
+  ol: function OrderedList({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'ol'>) {
     return (
       <ol className="list-decimal pl-5 my-2" {...props}>
         {children}
       </ol>
     );
   },
-  li: function ListItem({ children, ...props }: any) {
+  li: function ListItem({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'li'>) {
     return (
       <li className="my-1" {...props}>
         {children}
       </li>
     );
   },
-  h1: function H1({ children, ...props }: any) {
+  h1: function H1({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'h1'>) {
     return (
       <h1 className="text-2xl font-bold my-3" {...props}>
         {children}
       </h1>
     );
   },
-  h2: function H2({ children, ...props }: any) {
+  h2: function H2({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'h2'>) {
     return (
       <h2 className="text-xl font-bold my-2" {...props}>
         {children}
       </h2>
     );
   },
-  h3: function H3({ children, ...props }: any) {
+  h3: function H3({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'h3'>) {
     return (
       <h3 className="text-lg font-bold my-2" {...props}>
         {children}
       </h3>
     );
   },
-  blockquote: function Blockquote({ children, ...props }: any) {
+  blockquote: function Blockquote({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'blockquote'>) {
     return (
       <blockquote
         className="border-l-4 border-muted pl-4 italic my-2 dark:text-zinc-400 dark:border-zinc-600"
@@ -105,7 +132,11 @@ const INITIAL_COMPONENTS: Partial<Components> = {
       </blockquote>
     );
   },
-  a: function Anchor({ children, href, ...props }: any) {
+  a: function Anchor({
+    children,
+    href,
+    ...props
+  }: React.ComponentPropsWithoutRef<'a'>) {
     return (
       <a
         href={href}
@@ -118,14 +149,20 @@ const INITIAL_COMPONENTS: Partial<Components> = {
       </a>
     );
   },
-  table: function Table({ children, ...props }: any) {
+  table: function Table({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'table'>) {
     return (
       <table className="w-full border-collapse my-3 text-sm" {...props}>
         {children}
       </table>
     );
   },
-  th: function TableHeader({ children, ...props }: any) {
+  th: function TableHeader({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'th'>) {
     return (
       <th
         className="border border-slate-300 dark:border-zinc-700 px-3 py-2 text-left font-semibold bg-slate-100 dark:bg-zinc-800"
@@ -135,7 +172,10 @@ const INITIAL_COMPONENTS: Partial<Components> = {
       </th>
     );
   },
-  td: function TableCell({ children, ...props }: any) {
+  td: function TableCell({
+    children,
+    ...props
+  }: React.ComponentPropsWithoutRef<'td'>) {
     return (
       <td
         className="border border-slate-300 dark:border-zinc-700 px-3 py-2"

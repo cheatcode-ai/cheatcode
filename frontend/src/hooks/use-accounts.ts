@@ -1,4 +1,4 @@
-import useSWR, { SWRConfiguration } from 'swr';
+import useSWR, { type SWRConfiguration } from 'swr';
 import { useClerkSupabaseClient } from './use-clerk-supabase-client';
 import { useAuth } from '@clerk/nextjs';
 
@@ -11,8 +11,8 @@ type Account = {
   created_at: string;
   updated_at: string;
   primary_owner_user_id: string;
-  public_metadata?: any;
-  private_metadata?: any;
+  public_metadata?: Record<string, unknown>;
+  private_metadata?: Record<string, unknown>;
 };
 
 type GetAccountsResponse = Account[];
@@ -20,7 +20,7 @@ type GetAccountsResponse = Account[];
 export const useAccounts = (options?: SWRConfiguration) => {
   const { isLoaded, isSignedIn } = useAuth();
   const supabaseClient = useClerkSupabaseClient();
-  
+
   return useSWR<GetAccountsResponse>(
     isLoaded && isSignedIn ? ['accounts'] : null,
     async () => {

@@ -11,7 +11,7 @@ import { useAuth } from '@clerk/nextjs';
 import { createClerkBackendApi } from '@/lib/api-client';
 import { toast } from 'sonner';
 
-export interface MCPCredentialProfile {
+interface MCPCredentialProfile {
   profile_id: string;
   mcp_qualified_name: string;
   display_name: string;
@@ -19,14 +19,14 @@ export interface MCPCredentialProfile {
   is_active: boolean;
 }
 
-export const mcpProfileKeys = {
+const mcpProfileKeys = {
   all: ['mcp-credential-profiles'] as const,
 };
 
 /**
  * Hook to fetch MCP credential profiles
  */
-export function useMCPProfiles(enabled = true) {
+function useMCPProfiles(enabled = true) {
   const { getToken } = useAuth();
 
   return useQuery({
@@ -34,8 +34,12 @@ export function useMCPProfiles(enabled = true) {
     queryFn: async () => {
       const apiClient = createClerkBackendApi(getToken);
       const response = await apiClient.get('/composio/profiles');
-      const profiles = response.data?.profiles;
-      return Array.isArray(profiles) ? profiles : [];
+      const profiles = (
+        response.data as { profiles?: MCPCredentialProfile[] } | undefined
+      )?.profiles;
+      return Array.isArray(profiles)
+        ? profiles
+        : ([] as MCPCredentialProfile[]);
     },
     enabled,
     staleTime: 5 * 60 * 1000, // 5 minutes
@@ -46,13 +50,21 @@ export function useMCPProfiles(enabled = true) {
  * Hook to toggle integration dashboard default status
  * Provides mutation and local loading state management
  */
-export function useIntegrationToggle() {
+function useIntegrationToggle() {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const [updatingProfileId, setUpdatingProfileId] = useState<string | null>(null);
+  const [updatingProfileId, setUpdatingProfileId] = useState<string | null>(
+    null,
+  );
 
   const mutation = useMutation({
-    mutationFn: async ({ profileId, isDefault }: { profileId: string; isDefault: boolean }) => {
+    mutationFn: async ({
+      profileId,
+      isDefault,
+    }: {
+      profileId: string;
+      isDefault: boolean;
+    }) => {
       const apiClient = createClerkBackendApi(getToken);
       await apiClient.put(`/composio/profiles/${profileId}`, {
         is_default_for_dashboard: isDefault,
@@ -60,15 +72,22 @@ export function useIntegrationToggle() {
       return { profileId, isDefault };
     },
     onSuccess: (data) => {
-      queryClient.setQueryData(mcpProfileKeys.all, (old: MCPCredentialProfile[] | undefined) => {
-        return old?.map(profile =>
-          profile.profile_id === data.profileId
-            ? { ...profile, is_default_for_dashboard: data.isDefault }
-            : profile
-        ) || [];
-      });
+      queryClient.setQueryData(
+        mcpProfileKeys.all,
+        (old: MCPCredentialProfile[] | undefined) => {
+          return (
+            old?.map((profile) =>
+              profile.profile_id === data.profileId
+                ? { ...profile, is_default_for_dashboard: data.isDefault }
+                : profile,
+            ) || []
+          );
+        },
+      );
       const action = data.isDefault ? 'enabled' : 'disabled';
-      toast.success(`${action.charAt(0).toUpperCase() + action.slice(1)} integration for chats`);
+      toast.success(
+        `${action.charAt(0).toUpperCase() + action.slice(1)} integration for chats`,
+      );
     },
     onError: () => {
       toast.error('Failed to update integration setting');
@@ -78,13 +97,16 @@ export function useIntegrationToggle() {
     },
   });
 
-  const toggleIntegration = useCallback(async (profileId: string, currentValue: boolean) => {
-    setUpdatingProfileId(profileId);
-    await mutation.mutateAsync({
-      profileId,
-      isDefault: !currentValue,
-    });
-  }, [mutation]);
+  const toggleIntegration = useCallback(
+    async (profileId: string, currentValue: boolean) => {
+      setUpdatingProfileId(profileId);
+      await mutation.mutateAsync({
+        profileId,
+        isDefault: !currentValue,
+      });
+    },
+    [mutation],
+  );
 
   return {
     toggleIntegration,
@@ -102,10 +124,14 @@ export function useMCPProfilesWithToggle(enabled = true) {
   const toggle = useIntegrationToggle();
 
   // Ensure mcpProfiles is always an array
-  const mcpProfiles = Array.isArray(profilesQuery.data) ? profilesQuery.data : [];
+  const mcpProfiles = Array.isArray(profilesQuery.data)
+    ? profilesQuery.data
+    : [];
 
   // Count of active dashboard integrations
-  const activeCount = mcpProfiles.filter(p => p.is_default_for_dashboard).length;
+  const activeCount = mcpProfiles.filter(
+    (p) => p.is_default_for_dashboard,
+  ).length;
 
   return {
     mcpProfiles,

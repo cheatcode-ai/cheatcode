@@ -1,7 +1,7 @@
 'use client';
 
 import { siteConfig } from '@/lib/home';
-import { motion } from 'motion/react';
+import { m } from 'motion/react';
 import React, { useRef, useState } from 'react';
 
 interface NavItem {
@@ -36,7 +36,7 @@ export function NavMenu() {
 
   React.useEffect(() => {
     if (navs.length === 0) return;
-    
+
     const handleScroll = () => {
       // Skip scroll handling during manual click scrolling
       if (isManualScroll) return;
@@ -71,7 +71,7 @@ export function NavMenu() {
       }
     };
 
-    window.addEventListener('scroll', handleScroll);
+    window.addEventListener('scroll', handleScroll, { passive: true });
     handleScroll(); // Initial check
     return () => window.removeEventListener('scroll', handleScroll);
   }, [isManualScroll]);
@@ -141,7 +141,7 @@ export function NavMenu() {
           </li>
         ))}
         {isReady && (
-          <motion.li
+          <m.li
             animate={{ left, width }}
             transition={{ type: 'spring', stiffness: 400, damping: 30 }}
             className="absolute inset-0 my-1.5 rounded-full bg-accent/60 border border-border"

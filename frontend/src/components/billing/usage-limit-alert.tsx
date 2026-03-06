@@ -34,7 +34,9 @@ export function BillingErrorAlert({
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-start justify-between gap-2">
-              <h3 className="text-sm font-medium text-red-400">Usage limit reached</h3>
+              <h3 className="text-sm font-medium text-red-400">
+                Usage limit reached
+              </h3>
               <Button
                 variant="ghost"
                 size="icon"
@@ -44,7 +46,9 @@ export function BillingErrorAlert({
                 <X className="h-4 w-4" />
               </Button>
             </div>
-            <p className="text-xs text-zinc-400 mt-2 mb-4 break-words font-normal">{message || 'Please upgrade your plan to continue.'}</p>
+            <p className="text-xs text-zinc-400 mt-2 mb-4 break-words font-normal">
+              {message || 'Please upgrade your plan to continue.'}
+            </p>
             <div className="flex gap-2">
               <Button
                 variant="outline"

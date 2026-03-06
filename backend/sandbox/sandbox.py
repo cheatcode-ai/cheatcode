@@ -1,27 +1,28 @@
+import asyncio
+import time
+from typing import Any
+
 from daytona import (
     AsyncDaytona,
-    DaytonaConfig,
-    CreateSandboxFromSnapshotParams,
     AsyncSandbox,
-    SessionExecuteRequest,
+    CreateSandboxFromSnapshotParams,
+    DaytonaConfig,
     Resources,
     SandboxState,
+    SessionExecuteRequest,
 )
-import asyncio
-from typing import Optional, Dict, Any, List
 from dotenv import load_dotenv
-from utils.logger import logger
+
 from utils.config import config
-from utils.config import Configuration
-import time
+from utils.logger import logger
 
 load_dotenv()
 
 # Resource tier configurations for different workload types
 RESOURCE_TIERS = {
-    "light": Resources(cpu=1, memory=2, disk=10),      # Light workloads, basic testing
-    "standard": Resources(cpu=2, memory=4, disk=20),   # Standard development
-    "heavy": Resources(cpu=4, memory=8, disk=40),      # Heavy builds, large projects
+    "light": Resources(cpu=1, memory=2, disk=10),  # Light workloads, basic testing
+    "standard": Resources(cpu=2, memory=4, disk=20),  # Standard development
+    "heavy": Resources(cpu=4, memory=8, disk=40),  # Heavy builds, large projects
 }
 
 logger.debug("Initializing Daytona sandbox configuration")
@@ -48,6 +49,7 @@ else:
 
 daytona = AsyncDaytona(daytona_config)
 
+
 async def get_sandbox(sandbox_id: str) -> AsyncSandbox:
     """Retrieve a sandbox by ID without locking.
 
@@ -62,24 +64,23 @@ async def get_sandbox(sandbox_id: str) -> AsyncSandbox:
 
     Raises:
         Exception if sandbox cannot be retrieved
+
     """
     logger.debug(f"Getting sandbox (no lock): {sandbox_id}")
     try:
-        sandbox = await daytona.get(sandbox_id)
-        return sandbox
+        return await daytona.get(sandbox_id)
     except Exception as e:
         logger.error(f"Error retrieving sandbox {sandbox_id}: {e}")
-        raise e
+        raise
 
 
 async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
     """Retrieve a sandbox by ID, check its state, and start it if needed with distributed locking."""
-
     # Import Redis here to avoid circular imports
     from services import redis
 
     logger.info(f"Getting or starting sandbox with ID: {sandbox_id}")
-    
+
     # Use distributed lock to prevent concurrent start/stop operations on the same sandbox
     lock_key = f"sandbox_state_lock:{sandbox_id}"
     lock_value = f"start_operation:{asyncio.current_task().get_name() if asyncio.current_task() else 'unknown'}:{int(time.time())}"
@@ -93,13 +94,15 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
 
         if attempt < 3:  # Don't wait on last attempt
             # Exponential backoff: 0.1s, 0.2s, 0.4s
-            delay = 0.1 * (2 ** attempt)
+            delay = 0.1 * (2**attempt)
             existing_lock = await redis.get(lock_key)
             if existing_lock:
                 # Decode bytes to string if needed
                 if isinstance(existing_lock, bytes):
-                    existing_lock = existing_lock.decode('utf-8')
-                logger.debug(f"Sandbox {sandbox_id} locked by: {existing_lock}, waiting {delay}s (attempt {attempt + 1}/4)")
+                    existing_lock = existing_lock.decode("utf-8")
+                logger.debug(
+                    f"Sandbox {sandbox_id} locked by: {existing_lock}, waiting {delay}s (attempt {attempt + 1}/4)"
+                )
             await asyncio.sleep(delay)
 
     if not lock_acquired:
@@ -107,15 +110,15 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
 
     try:
         sandbox = await daytona.get(sandbox_id)
-        
+
         # Check if sandbox needs to be started
-        if sandbox.state == SandboxState.ARCHIVED or sandbox.state == SandboxState.STOPPED:
+        if sandbox.state in (SandboxState.ARCHIVED, SandboxState.STOPPED):
             logger.info(f"Sandbox is in {sandbox.state} state. Starting...")
-            
+
             # Update lock to indicate start in progress
             start_lock_value = f"starting:{lock_value}"
             await redis.set(lock_key, start_lock_value, ex=30)  # 30s timeout for start operation (reduced from 120)
-            
+
             try:
                 await daytona.start(sandbox)
 
@@ -140,31 +143,38 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
                 except Exception as supervisord_error:
                     logger.debug(f"Supervisord not available (likely snapshot-based sandbox): {supervisord_error}")
                     # This is expected for snapshot-based sandboxes, continue normally
-                    pass
-                    
+
             except Exception as e:
                 # If the Daytona Cloud returns a memory quota error, try to free up
                 # memory by stopping the oldest running sandbox and retry once.
                 error_msg = str(e)
                 if "Total memory quota exceeded" in error_msg:
-                    logger.warning("Daytona memory quota exceeded – attempting to stop the oldest running sandbox and retry")
+                    logger.warning(
+                        "Daytona memory quota exceeded – attempting to stop the oldest running sandbox and retry"
+                    )
                     try:
                         # Extend lock timeout for retry operation
                         await redis.set(lock_key, f"retrying_memory:{lock_value}", ex=180)
-                        
+
                         # List all sandboxes and find running ones
                         sandboxes = await daytona.list()
                         # Filter RUNNING sandboxes that are not the one we're trying to start
-                        running = [s for s in sandboxes if getattr(s, 'state', None) == SandboxState.RUNNING and s.id != sandbox_id]
+                        running = [
+                            s
+                            for s in sandboxes
+                            if getattr(s, "state", None) == SandboxState.RUNNING and s.id != sandbox_id
+                        ]
                         if running:
                             # Sort by updated_at if available; fall back to created_at
-                            running.sort(key=lambda s: getattr(s, 'updated_at', getattr(s, 'created_at', 0)))
+                            running.sort(key=lambda s: getattr(s, "updated_at", getattr(s, "created_at", 0)))
                             oldest = running[0]
                             logger.info(f"Stopping oldest running sandbox {oldest.id} to free memory")
                             try:
                                 # Use distributed lock for the sandbox we're stopping too
                                 stop_lock_key = f"sandbox_state_lock:{oldest.id}"
-                                stop_acquired = await redis.set(stop_lock_key, f"emergency_stop:{lock_value}", nx=True, ex=60)
+                                stop_acquired = await redis.set(
+                                    stop_lock_key, f"emergency_stop:{lock_value}", nx=True, ex=60
+                                )
                                 if stop_acquired:
                                     try:
                                         await daytona.stop(oldest)
@@ -187,28 +197,27 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
                         await daytona.start(sandbox)
                     except Exception as retry_err:
                         logger.error(f"Retry after freeing memory failed: {retry_err}")
-                        raise e  # Raise original error
+                        raise e from retry_err  # Raise original error
                 elif "RUNNING" in error_msg or "already running" in error_msg.lower():
                     # Sandbox is already running - this is fine, just continue
                     logger.debug(f"Sandbox {sandbox_id} is already running, continuing...")
-                    pass
                 else:
                     logger.error(f"Error starting sandbox: {e}")
-                    raise e
-        
+                    raise
+
         logger.info(f"Sandbox {sandbox_id} is ready")
         return sandbox
-        
+
     except Exception as e:
-        logger.error(f"Error retrieving or starting sandbox: {str(e)}")
-        raise e
+        logger.error(f"Error retrieving or starting sandbox: {e!s}")
+        raise
     finally:
         # Always release the distributed lock
         try:
             current_lock = await redis.get(lock_key)
             # Decode bytes to string if needed
             if isinstance(current_lock, bytes):
-                current_lock = current_lock.decode('utf-8')
+                current_lock = current_lock.decode("utf-8")
             # Only delete if we still own the lock (check partial match since we may have updated the value)
             if current_lock and (lock_value in current_lock):
                 await redis.delete(lock_key)
@@ -218,31 +227,33 @@ async def get_or_start_sandbox(sandbox_id: str) -> AsyncSandbox:
         except Exception as lock_cleanup_error:
             logger.warning(f"Failed to release sandbox state lock for {sandbox_id}: {lock_cleanup_error}")
 
+
 async def start_supervisord_session(sandbox: AsyncSandbox):
     """Start supervisord in a session."""
     session_id = "supervisord-session"
     try:
         logger.info(f"Creating session {session_id} for supervisord")
         await sandbox.process.create_session(session_id)
-        
+
         # Execute supervisord command
-        await sandbox.process.execute_session_command(session_id, SessionExecuteRequest(
-            command="exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf",
-            var_async=True
-        ))
+        await sandbox.process.execute_session_command(
+            session_id,
+            SessionExecuteRequest(
+                command="exec /usr/bin/supervisord -n -c /etc/supervisor/conf.d/supervisord.conf", var_async=True
+            ),
+        )
         logger.info(f"Supervisord started in session {session_id}")
     except Exception as e:
-        logger.error(f"Error starting supervisord session: {str(e)}")
-        raise e
-
+        logger.error(f"Error starting supervisord session: {e!s}")
+        raise
 
 
 async def create_sandbox_from_snapshot(
-    project_id: str = None,
+    project_id: str | None = None,
     snapshot: str = config.SANDBOX_SNAPSHOT_NAME,
-    account_id: str = None,
+    account_id: str | None = None,
     resource_tier: str = "standard",
-    custom_labels: Optional[Dict[str, str]] = None,
+    custom_labels: dict[str, str] | None = None,
     auto_stop_interval: int = 15,
     auto_archive_interval: int = 24 * 60,
 ) -> AsyncSandbox:
@@ -259,29 +270,29 @@ async def create_sandbox_from_snapshot(
 
     Returns:
         AsyncSandbox instance
-    """
 
+    """
     logger.debug(f"Creating new Daytona sandbox from snapshot: {snapshot}")
 
     # Infer app_type from snapshot name
-    is_mobile = 'mobile' in snapshot.lower()
-    workspace_dir = 'cheatcode-mobile' if is_mobile else 'cheatcode-app'
-    app_type = 'mobile' if is_mobile else 'web'
+    is_mobile = "mobile" in snapshot.lower()
+    workspace_dir = "cheatcode-mobile" if is_mobile else "cheatcode-app"
+    app_type = "mobile" if is_mobile else "web"
 
     logger.debug(f"Detected {app_type} app type from snapshot: {snapshot}")
 
     # Build comprehensive labels for better sandbox organization and discovery
     labels = {
-        'created_by': 'cheatcode',
-        'app_type': app_type,
-        'environment': 'development',
+        "created_by": "cheatcode",
+        "app_type": app_type,
+        "environment": "development",
     }
 
     if project_id:
-        labels['project_id'] = project_id
+        labels["project_id"] = project_id
 
     if account_id:
-        labels['account_id'] = account_id
+        labels["account_id"] = account_id
 
     # Merge custom labels if provided
     if custom_labels:
@@ -291,7 +302,9 @@ async def create_sandbox_from_snapshot(
 
     # Get resource configuration based on tier
     resources = RESOURCE_TIERS.get(resource_tier, RESOURCE_TIERS["standard"])
-    logger.debug(f"Using resource tier '{resource_tier}': cpu={resources.cpu}, memory={resources.memory}GB, disk={resources.disk}GB")
+    logger.debug(
+        f"Using resource tier '{resource_tier}': cpu={resources.cpu}, memory={resources.memory}GB, disk={resources.disk}GB"
+    )
 
     params = CreateSandboxFromSnapshotParams(
         snapshot=snapshot,
@@ -302,60 +315,67 @@ async def create_sandbox_from_snapshot(
             # Development environment variables
             "NODE_ENV": "development",
             "PNPM_HOME": "/usr/local/bin",
-            "PATH": f"/workspace/{workspace_dir}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin"
+            "PATH": f"/workspace/{workspace_dir}/node_modules/.bin:/usr/local/bin:/usr/bin:/bin",
         },
         auto_stop_interval=auto_stop_interval,
         auto_archive_interval=auto_archive_interval,
     )
-    
+
     # Create the sandbox with extended timeout and retry for Daytona server timeouts
     max_retries = 2
     base_delay = 10  # seconds
-    
+
     for attempt in range(max_retries + 1):
         try:
             if attempt > 0:
                 delay = base_delay * (2 ** (attempt - 1))  # Exponential backoff: 10s, 20s
                 logger.info(f"Retrying sandbox creation after {delay}s delay (attempt {attempt + 1}/{max_retries + 1})")
                 await asyncio.sleep(delay)
-            
+
             logger.info(f"Starting sandbox creation with 300s timeout for snapshot: {snapshot}")
             sandbox = await daytona.create(params, timeout=300)
             logger.info(f"Sandbox created successfully with ID: {sandbox.id}")
             return sandbox
-            
-        except asyncio.TimeoutError as e:
+
+        except TimeoutError as e:
             logger.error(f"Sandbox creation timed out after 300 seconds for snapshot: {snapshot}")
             if attempt == max_retries:
-                raise Exception(f"Sandbox creation timed out after {max_retries + 1} attempts. The snapshot '{snapshot}' may be too large or the Daytona server is overloaded.") from e
+                raise Exception(
+                    f"Sandbox creation timed out after {max_retries + 1} attempts. The snapshot '{snapshot}' may be too large or the Daytona server is overloaded."
+                ) from e
             continue
-            
+
         except Exception as e:
             error_msg = str(e)
             logger.error(f"Sandbox creation failed for snapshot {snapshot} (attempt {attempt + 1}): {error_msg}")
-            
+
             # Check for Daytona server-side timeout (retryable)
             if "400" in error_msg and "Timeout after 60 seconds" in error_msg:
-                logger.warning(f"Daytona server timeout during sandbox startup - this is often due to resource contention")
+                logger.warning(
+                    "Daytona server timeout during sandbox startup - this is often due to resource contention"
+                )
                 if attempt < max_retries:
                     logger.info(f"Will retry sandbox creation (attempt {attempt + 2}/{max_retries + 1})")
                     continue
-                else:
-                    raise Exception(f"Sandbox creation failed after {max_retries + 1} attempts due to Daytona server timeouts. Try again later or contact support.") from e
-            
+                raise Exception(
+                    f"Sandbox creation failed after {max_retries + 1} attempts due to Daytona server timeouts. Try again later or contact support."
+                ) from e
+
             # Log details for other 400 errors (non-retryable)
-            elif "400" in error_msg or "Bad Request" in error_msg:
-                logger.error(f"400 Bad Request details - Check if snapshot '{snapshot}' exists and parameters are valid")
+            if "400" in error_msg or "Bad Request" in error_msg:
+                logger.error(
+                    f"400 Bad Request details - Check if snapshot '{snapshot}' exists and parameters are valid"
+                )
                 logger.error(f"Request parameters: snapshot={snapshot}, public=True, labels={labels}")
                 logger.warning(f"Snapshot '{snapshot}' may not exist or have invalid parameters.")
                 raise Exception(f"Failed to create sandbox from snapshot '{snapshot}': {error_msg}") from e
-            
+
             # For other errors, don't retry
-            else:
-                raise Exception(f"Failed to create sandbox from snapshot '{snapshot}': {error_msg}") from e
-    
-    logger.debug(f"Sandbox environment successfully initialized from snapshot")
+            raise Exception(f"Failed to create sandbox from snapshot '{snapshot}': {error_msg}") from e
+
+    logger.debug("Sandbox environment successfully initialized from snapshot")
     return sandbox
+
 
 async def list_available_snapshots() -> list:
     """List all available snapshots in the Daytona instance."""
@@ -364,7 +384,7 @@ async def list_available_snapshots() -> list:
         logger.info(f"Available snapshots: {[s.name for s in snapshots]}")
         return snapshots
     except Exception as e:
-        logger.error(f"Failed to list snapshots: {str(e)}")
+        logger.error(f"Failed to list snapshots: {e!s}")
         return []
 
 
@@ -377,6 +397,7 @@ async def delete_sandbox(sandbox_id: str, timeout: int = 60) -> bool:
 
     Returns:
         True if deleted successfully
+
     """
     logger.info(f"Deleting sandbox with ID: {sandbox_id}")
 
@@ -390,15 +411,16 @@ async def delete_sandbox(sandbox_id: str, timeout: int = 60) -> bool:
         logger.info(f"Successfully deleted sandbox {sandbox_id}")
         return True
     except Exception as e:
-        logger.error(f"Error deleting sandbox {sandbox_id}: {str(e)}")
-        raise e
+        logger.error(f"Error deleting sandbox {sandbox_id}: {e!s}")
+        raise
 
 
 # ============================================================================
 # Label-based Sandbox Discovery Functions
 # ============================================================================
 
-async def find_sandbox_by_project(project_id: str) -> Optional[AsyncSandbox]:
+
+async def find_sandbox_by_project(project_id: str) -> AsyncSandbox | None:
     """Find a sandbox by its project ID using labels.
 
     Args:
@@ -406,9 +428,10 @@ async def find_sandbox_by_project(project_id: str) -> Optional[AsyncSandbox]:
 
     Returns:
         AsyncSandbox if found, None otherwise
+
     """
     try:
-        sandboxes = await daytona.list(labels={'project_id': project_id})
+        sandboxes = await daytona.list(labels={"project_id": project_id})
         if sandboxes:
             logger.debug(f"Found sandbox for project {project_id}: {sandboxes[0].id}")
             return sandboxes[0]
@@ -418,7 +441,7 @@ async def find_sandbox_by_project(project_id: str) -> Optional[AsyncSandbox]:
         return None
 
 
-async def find_sandboxes_by_account(account_id: str) -> List[AsyncSandbox]:
+async def find_sandboxes_by_account(account_id: str) -> list[AsyncSandbox]:
     """Find all sandboxes belonging to a user account.
 
     Args:
@@ -426,9 +449,10 @@ async def find_sandboxes_by_account(account_id: str) -> List[AsyncSandbox]:
 
     Returns:
         List of AsyncSandbox instances
+
     """
     try:
-        sandboxes = await daytona.list(labels={'account_id': account_id})
+        sandboxes = await daytona.list(labels={"account_id": account_id})
         logger.debug(f"Found {len(sandboxes)} sandboxes for account {account_id}")
         return sandboxes
     except Exception as e:
@@ -436,7 +460,7 @@ async def find_sandboxes_by_account(account_id: str) -> List[AsyncSandbox]:
         return []
 
 
-async def find_sandboxes_by_labels(labels: Dict[str, str]) -> List[AsyncSandbox]:
+async def find_sandboxes_by_labels(labels: dict[str, str]) -> list[AsyncSandbox]:
     """Find sandboxes matching the specified labels.
 
     Args:
@@ -444,6 +468,7 @@ async def find_sandboxes_by_labels(labels: Dict[str, str]) -> List[AsyncSandbox]
 
     Returns:
         List of matching AsyncSandbox instances
+
     """
     try:
         sandboxes = await daytona.list(labels=labels)
@@ -463,6 +488,7 @@ async def stop_sandbox(sandbox_id: str, timeout: int = 60) -> bool:
 
     Returns:
         True if stopped successfully
+
     """
     logger.info(f"Stopping sandbox {sandbox_id}")
 
@@ -488,11 +514,11 @@ async def stop_sandbox(sandbox_id: str, timeout: int = 60) -> bool:
 
         return True
     except Exception as e:
-        logger.error(f"Error stopping sandbox {sandbox_id}: {str(e)}")
-        raise e
+        logger.error(f"Error stopping sandbox {sandbox_id}: {e!s}")
+        raise
 
 
-async def get_sandbox_info(sandbox_id: str) -> Optional[Dict[str, Any]]:
+async def get_sandbox_info(sandbox_id: str) -> dict[str, Any] | None:
     """Get detailed information about a sandbox.
 
     Args:
@@ -500,19 +526,20 @@ async def get_sandbox_info(sandbox_id: str) -> Optional[Dict[str, Any]]:
 
     Returns:
         Dictionary with sandbox information
+
     """
     try:
         sandbox = await daytona.get(sandbox_id)
         await sandbox.refresh_data()
 
         return {
-            'id': sandbox.id,
-            'state': str(sandbox.state),
-            'cpu': getattr(sandbox, 'cpu', None),
-            'memory': getattr(sandbox, 'memory', None),
-            'labels': getattr(sandbox, 'labels', {}),
-            'created_at': getattr(sandbox, 'created_at', None),
-            'updated_at': getattr(sandbox, 'updated_at', None),
+            "id": sandbox.id,
+            "state": str(sandbox.state),
+            "cpu": getattr(sandbox, "cpu", None),
+            "memory": getattr(sandbox, "memory", None),
+            "labels": getattr(sandbox, "labels", {}),
+            "created_at": getattr(sandbox, "created_at", None),
+            "updated_at": getattr(sandbox, "updated_at", None),
         }
     except Exception as e:
         logger.error(f"Failed to get sandbox info for {sandbox_id}: {e}")
@@ -520,9 +547,7 @@ async def get_sandbox_info(sandbox_id: str) -> Optional[Dict[str, Any]]:
 
 
 async def set_sandbox_auto_intervals(
-    sandbox_id: str,
-    auto_stop_interval: Optional[int] = None,
-    auto_archive_interval: Optional[int] = None
+    sandbox_id: str, auto_stop_interval: int | None = None, auto_archive_interval: int | None = None
 ) -> bool:
     """Update auto-stop and auto-archive intervals for a sandbox.
 
@@ -533,6 +558,7 @@ async def set_sandbox_auto_intervals(
 
     Returns:
         True if updated successfully
+
     """
     try:
         sandbox = await daytona.get(sandbox_id)

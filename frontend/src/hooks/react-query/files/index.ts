@@ -1,23 +1,9 @@
 // Core React Query file hooks
-export {
-  useFileContentQuery,
-  useDirectoryQuery,
-  useFilePreloader,
-  fileQueryKeys,
-} from './use-file-queries';
-
 // Specialized content hooks
 export { useFileContent } from './use-file-content';
 export { useImageContent } from './use-image-content';
 
 // File mutation hooks
-export {
-  useFileUpload,
-  useFileDelete,
-  useFileCreate,
-} from './use-file-mutations';
+export { useFileDelete } from './use-file-mutations';
 
 // Utility functions
-export {
-  fetchFileContent,
-} from './use-file-queries'; 

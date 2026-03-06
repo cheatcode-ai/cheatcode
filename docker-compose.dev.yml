@@ -12,9 +12,10 @@ services:
       - ./backend:/app
       - /app/.venv
     environment:
-      - ENV_MODE=development
+      - ENV_MODE=local
       - REDIS_URL=redis://redis:6379
       - PYTHONUNBUFFERED=1
+      - INNGEST_DEV=1
     depends_on:
       redis:
         condition: service_healthy
@@ -23,31 +24,6 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-
-  # Dramatiq worker for background tasks
-  worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile.dev
-    command: uv run dramatiq --skip-logging --processes 1 --threads 2 run_agent_background
-    env_file:
-      - ./backend/.env
-    volumes:
-      - ./backend:/app
-      - /app/.venv
-    environment:
-      - ENV_MODE=development
-      - REDIS_URL=redis://redis:6379
-      - PYTHONUNBUFFERED=1
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - dev-network
-    dns:
-      - 8.8.8.8
-      - 8.8.4.4
-    restart: unless-stopped
 
   # Frontend with hot reload
   frontend:

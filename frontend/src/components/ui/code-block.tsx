@@ -4,7 +4,6 @@ import { cn } from '@/lib/utils';
 import React, { useEffect, useState } from 'react';
 import { codeToHtml } from 'shiki';
 
-
 export type CodeBlockProps = {
   children?: React.ReactNode;
   className?: string;
@@ -12,7 +11,10 @@ export type CodeBlockProps = {
 
 function CodeBlock({ children, className, ...props }: CodeBlockProps) {
   return (
-    <div className={cn('w-px flex-grow min-w-0 overflow-hidden flex', className)} {...props}>
+    <div
+      className={cn('w-px flex-grow min-w-0 overflow-hidden flex', className)}
+      {...props}
+    >
       {children}
     </div>
   );
@@ -50,21 +52,28 @@ function CodeBlockCode({
           {
             pre(node) {
               if (node.properties.style) {
-                node.properties.style = (node.properties.style as string)
-                  .replace(/background-color:[^;]+;?/g, '');
+                node.properties.style = (
+                  node.properties.style as string
+                ).replace(/background-color:[^;]+;?/g, '');
               }
-            }
-          }
-        ]
+            },
+          },
+        ],
       });
       setHighlightedHtml(html);
     }
     highlight();
   }, [code, language, theme]);
 
-  const classNames = cn('[&_pre]:!bg-background/95 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:!overflow-x-auto [&_pre]:!w-px [&_pre]:!flex-grow [&_pre]:!min-w-0 [&_pre]:!box-border [&_.shiki]:!overflow-x-auto [&_.shiki]:!w-px [&_.shiki]:!flex-grow [&_.shiki]:!min-w-0 [&_code]:!min-w-0 [&_code]:!whitespace-pre', 'w-px flex-grow min-w-0 overflow-hidden flex w-full', className);
+  const classNames = cn(
+    '[&_pre]:!bg-background/95 [&_pre]:rounded-lg [&_pre]:p-4 [&_pre]:!overflow-x-auto [&_pre]:!w-px [&_pre]:!flex-grow [&_pre]:!min-w-0 [&_pre]:!box-border [&_.shiki]:!overflow-x-auto [&_.shiki]:!w-px [&_.shiki]:!flex-grow [&_.shiki]:!min-w-0 [&_code]:!min-w-0 [&_code]:!whitespace-pre',
+    'w-px flex-grow min-w-0 overflow-hidden flex w-full',
+    className,
+  );
 
   // SSR fallback: render plain code if not hydrated yet
+  // Safety: dangerouslySetInnerHTML is safe here — highlightedHtml is generated
+  // by shiki's codeToHtml(), a trusted syntax highlighting library, not user input.
   return highlightedHtml ? (
     <div
       className={classNames}

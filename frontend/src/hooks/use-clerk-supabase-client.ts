@@ -23,6 +23,7 @@ export const useClerkSupabaseClient = () => {
       supabaseUrl = `http://${supabaseUrl}`;
     }
 
+    // eslint-disable-next-line react-hooks/globals
     globalSupabaseClient = createBrowserClient(supabaseUrl, SUPABASE_ANON_KEY, {
       auth: {
         // Disable Supabase's built-in auth for third-party auth
@@ -33,7 +34,7 @@ export const useClerkSupabaseClient = () => {
       global: {
         fetch: async (url, options: RequestInit = {}) => {
           const clerkToken = await getToken();
-          
+
           return fetch(url, {
             ...options,
             headers: {
@@ -43,7 +44,7 @@ export const useClerkSupabaseClient = () => {
               // Ensure JSON so 0-arg RPCs are resolved correctly.
               'Content-Type': 'application/json',
               // Remove any existing authorization header that might conflict
-              'apikey': SUPABASE_ANON_KEY,
+              apikey: SUPABASE_ANON_KEY,
             },
           });
         },
@@ -54,4 +55,4 @@ export const useClerkSupabaseClient = () => {
   }, []); // eslint-disable-line react-hooks/exhaustive-deps -- Using singleton pattern to prevent multiple Supabase clients
 
   return supabaseClient;
-}; 
+};

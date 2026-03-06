@@ -1,10 +1,17 @@
-import { Metadata } from 'next';
+import { type Metadata } from 'next';
 import { siteConfig } from '@/lib/home';
 
 export const metadata: Metadata = {
   title: siteConfig.name,
   description: siteConfig.description,
-  keywords: ['Cheatcode', 'AI', 'Agent', 'Lovable', 'bolt.new', 'build apps with AI'],
+  keywords: [
+    'Cheatcode',
+    'AI',
+    'Agent',
+    'Lovable',
+    'bolt.new',
+    'build apps with AI',
+  ],
   authors: [
     {
       name: 'Cheatcode AI',

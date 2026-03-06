@@ -1,4 +1,4 @@
-import { Project } from '@/lib/api';
+import { type Project } from '@/lib/api';
 
 export interface AppPreviewSidePanelProps {
   isOpen: boolean;
@@ -24,23 +24,3 @@ export interface ViewportDimensions {
   width: string;
   height: string;
 }
-
-export interface DevServerState {
-  status: DevServerStatus;
-  error: string | null;
-}
-
-export interface PreviewState {
-  isLoading: boolean;
-  hasError: boolean;
-  currentUrl: string;
-  urlInput: string;
-  refreshKey: number;
-  currentView: ViewMode;
-}
-
-export interface CodeEditorState {
-  selectedFile: string | null;
-  isLoadingContent: boolean;
-  contentError: string | null;
-} 

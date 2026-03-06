@@ -2,7 +2,7 @@ import { forwardRef, useEffect, useState, useRef, useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Square, Loader2, ArrowUp, Globe, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { UploadedFile } from './chat-input';
+import { type UploadedFile } from './chat-input';
 import { FileUploadHandler } from './file-upload-handler';
 import { VoiceRecorder } from './voice-recorder';
 import { ModelSelector } from '@/components/model-selector';
@@ -28,7 +28,7 @@ interface MessageInputProps {
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>;
   hideAttachments?: boolean;
-  messages?: any[]; // Add messages prop
+  messages?: Record<string, unknown>[]; // Add messages prop
   isLoggedIn?: boolean;
 
   selectedAgentId?: string;
@@ -86,7 +86,9 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
     const [charIndex, setCharIndex] = useState(0);
     const [isDeleting, setIsDeleting] = useState(false);
     const [displayPlaceholder, setDisplayPlaceholder] = useState(
-      disableAnimation ? 'ask cheatcode to build anything ...' : typewriterSentences[0]
+      disableAnimation
+        ? 'ask cheatcode to build anything ...'
+        : typewriterSentences[0],
     );
 
     useEffect(() => {
@@ -97,32 +99,36 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
 
       const currentSentence = typewriterSentences[sentenceIndex];
 
-      const timeout = setTimeout(() => {
-        if (!isDeleting) {
-          // typing characters
-          const next = currentSentence.substring(0, charIndex + 1);
-          setDisplayPlaceholder(next);
-          setCharIndex(charIndex + 1);
-          if (next.length === currentSentence.length) {
-            // pause before deleting
-            setTimeout(() => setIsDeleting(true), 600);
+      const timeout = setTimeout(
+        () => {
+          if (!isDeleting) {
+            // typing characters
+            const next = currentSentence.substring(0, charIndex + 1);
+            setDisplayPlaceholder(next);
+            setCharIndex(prev => prev + 1);
+            if (next.length === currentSentence.length) {
+              // pause before deleting
+              setTimeout(() => setIsDeleting(true), 600);
+            }
+          } else {
+            // deleting characters
+            const next = currentSentence.substring(0, charIndex - 1);
+            setDisplayPlaceholder(next || ' ');
+            setCharIndex(prev => prev - 1);
+            if (next.length === 0) {
+              setIsDeleting(false);
+              setSentenceIndex(
+                (sentenceIndex + 1) % typewriterSentences.length,
+              );
+            }
           }
-        } else {
-          // deleting characters
-          const next = currentSentence.substring(0, charIndex - 1);
-          setDisplayPlaceholder(next || ' ');
-          setCharIndex(charIndex - 1);
-          if (next.length === 0) {
-            setIsDeleting(false);
-            setSentenceIndex((sentenceIndex + 1) % typewriterSentences.length);
-          }
-        }
-      }, isDeleting ? 30 : 70);
+        },
+        isDeleting ? 30 : 70,
+      );
 
       return () => clearTimeout(timeout);
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [charIndex, isDeleting, sentenceIndex, disableAnimation]);
-
-
 
     // Ref for debounce timeout
     const resizeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -177,29 +183,31 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       }
     };
 
-
-
     return (
       <div className="relative flex flex-col w-full h-full justify-between">
-
         <div className="flex flex-col gap-1 px-4 flex-1">
-          <div className={cn("flex items-start gap-2", variant === 'home' ? "pt-6" : "pt-4")}>
-             <Textarea
-                ref={ref}
-                value={value}
-                onChange={onChange}
-                onKeyDown={handleKeyDown}
-                placeholder={displayPlaceholder}
-                className={cn(
-                  'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0 pt-0 overflow-y-auto resize-none font-mono text-white/90 placeholder:text-zinc-600',
-                  variant === 'home' 
-                    ? 'pb-4 !text-[16px] min-h-[48px] max-h-[200px] caret-blue-500' 
-                    : 'pb-6 !text-[15px] min-h-[36px] max-h-[200px]',
-                  isDraggingOver ? 'opacity-40' : '',
-                )}
-                disabled={loading || (disabled && !isAgentRunning)}
-                rows={1}
-              />
+          <div
+            className={cn(
+              'flex items-start gap-2',
+              variant === 'home' ? 'pt-6' : 'pt-4',
+            )}
+          >
+            <Textarea
+              ref={ref}
+              value={value}
+              onChange={onChange}
+              onKeyDown={handleKeyDown}
+              placeholder={displayPlaceholder}
+              className={cn(
+                'w-full bg-transparent dark:bg-transparent border-none shadow-none focus-visible:ring-0 px-0 pt-0 overflow-y-auto resize-none font-mono text-white/90 placeholder:text-zinc-600',
+                variant === 'home'
+                  ? 'pb-4 !text-[16px] min-h-[48px] max-h-[200px] caret-blue-500'
+                  : 'pb-6 !text-[15px] min-h-[36px] max-h-[200px]',
+                isDraggingOver ? 'opacity-40' : '',
+              )}
+              disabled={loading || (disabled && !isAgentRunning)}
+              rows={1}
+            />
           </div>
         </div>
 
@@ -223,15 +231,15 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                     isLoggedIn={isLoggedIn}
                     appType={appType}
                     className={cn(
-                      "h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all",
-                      "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
-                      "border border-white/5",
-                      "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-                      "hover:from-[#3a3a3a] hover:to-[#222]"
+                      'h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all',
+                      'bg-gradient-to-b from-[#333] to-[#1a1a1a]',
+                      'border border-white/5',
+                      'shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]',
+                      'hover:from-[#3a3a3a] hover:to-[#222]',
                     )}
                   />
                 )}
-                
+
                 {/* App Type Selector */}
                 {onAppTypeChange && (
                   <div className="flex items-center gap-1 p-1 border border-white/10 bg-black/40 backdrop-blur-sm">
@@ -239,10 +247,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                       type="button"
                       onClick={() => onAppTypeChange('web')}
                       className={cn(
-                        "h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent",
+                        'h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent',
                         appType === 'web'
-                          ? "bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]"
-                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/5"
+                          ? 'bg-orange-500/10 text-orange-400 border-orange-500/20 shadow-[0_0_10px_rgba(249,115,22,0.1)]'
+                          : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/5',
                       )}
                     >
                       <Globe className="h-3.5 w-3.5" />
@@ -252,10 +260,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                       type="button"
                       onClick={() => onAppTypeChange('mobile')}
                       className={cn(
-                        "h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent",
+                        'h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent',
                         appType === 'mobile'
-                          ? "bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]"
-                          : "text-zinc-600 hover:text-zinc-400 hover:bg-white/5"
+                          ? 'bg-blue-500/10 text-blue-400 border-blue-500/20 shadow-[0_0_10px_rgba(59,130,246,0.1)]'
+                          : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/5',
                       )}
                     >
                       <Smartphone className="h-3.5 w-3.5" />
@@ -265,7 +273,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 )}
               </div>
 
-              <div className='flex items-center gap-2'>
+              <div className="flex items-center gap-2">
                 {/* ModelSelector */}
                 {onModelChange && (
                   <div className="mr-2">
@@ -274,12 +282,12 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                       onChange={onModelChange}
                       disabled={loading || isAgentRunning}
                       className={cn(
-                        "h-10 px-3 rounded-none text-zinc-400 hover:text-white transition-all",
-                        "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
-                        "border border-white/5",
-                        "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-                        "hover:from-[#3a3a3a] hover:to-[#222]",
-                        "font-mono text-[10px] uppercase tracking-widest"
+                        '!h-10 px-3 rounded-none text-zinc-400 hover:text-white transition-all',
+                        'bg-gradient-to-b from-[#333] to-[#1a1a1a]',
+                        'border border-white/5',
+                        'shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]',
+                        'hover:from-[#3a3a3a] hover:to-[#222]',
+                        'font-mono text-[10px] uppercase tracking-widest',
                       )}
                     />
                   </div>
@@ -291,11 +299,11 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                     currentValue={value}
                     disabled={loading || (disabled && !isAgentRunning)}
                     className={cn(
-                      "h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all",
-                      "bg-gradient-to-b from-[#333] to-[#1a1a1a]",
-                      "border border-white/5",
-                      "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-                      "hover:from-[#3a3a3a] hover:to-[#222]"
+                      'h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all',
+                      'bg-gradient-to-b from-[#333] to-[#1a1a1a]',
+                      'border border-white/5',
+                      'shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]',
+                      'hover:from-[#3a3a3a] hover:to-[#222]',
                     )}
                   />
                 )}
@@ -303,17 +311,23 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 <LiquidMetalButton
                   type="submit"
                   variant="circular"
-                  onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
+                  onClick={
+                    isAgentRunning && onStopAgent ? onStopAgent : onSubmit
+                  }
                   className={cn(
                     'h-10 w-10 flex-shrink-0 text-zinc-400 hover:text-white transition-all',
-                    (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                    (!value.trim() &&
+                      uploadedFiles.length === 0 &&
+                      !isAgentRunning) ||
                       loading ||
                       (disabled && !isAgentRunning)
                       ? 'opacity-50 cursor-not-allowed'
                       : '',
                   )}
                   disabled={
-                    (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                    (!value.trim() &&
+                      uploadedFiles.length === 0 &&
+                      !isAgentRunning) ||
                     loading ||
                     (disabled && !isAgentRunning)
                   }
@@ -328,7 +342,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 </LiquidMetalButton>
               </div>
             </div>
-            
+
             {/* Decorative dotted pattern footer */}
             <div className="h-10 w-full bg-[#121212] bg-[radial-gradient(rgba(255,255,255,0.08)_1px,transparent_1px)] [background-size:4px_4px] rounded-none border-t border-white/[0.05]" />
           </div>
@@ -358,10 +372,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                     type="button"
                     onClick={() => onAppTypeChange('web')}
                     className={cn(
-                      "p-1.5 rounded-full transition-all",
+                      'p-1.5 rounded-full transition-all',
                       appType === 'web'
-                        ? "bg-zinc-700 text-white"
-                        : "text-zinc-500 hover:text-zinc-300"
+                        ? 'bg-zinc-700 text-white'
+                        : 'text-zinc-500 hover:text-zinc-300',
                     )}
                     title="Web App"
                   >
@@ -371,10 +385,10 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                     type="button"
                     onClick={() => onAppTypeChange('mobile')}
                     className={cn(
-                      "p-1.5 rounded-full transition-all",
+                      'p-1.5 rounded-full transition-all',
                       appType === 'mobile'
-                        ? "bg-zinc-700 text-white"
-                        : "text-zinc-500 hover:text-zinc-300"
+                        ? 'bg-zinc-700 text-white'
+                        : 'text-zinc-500 hover:text-zinc-300',
                     )}
                     title="Mobile App"
                   >
@@ -384,7 +398,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
               )}
             </div>
 
-            <div className='flex items-center gap-2 z-10'>
+            <div className="flex items-center gap-2 z-10">
               {/* Model Selector - right aligned next to mic */}
               {onModelChange && (
                 <ModelSelector
@@ -394,11 +408,13 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 />
               )}
 
-              {isLoggedIn && <VoiceRecorder
-                onTranscription={onTranscription}
-                currentValue={value}
-                disabled={loading || (disabled && !isAgentRunning)}
-              />}
+              {isLoggedIn && (
+                <VoiceRecorder
+                  onTranscription={onTranscription}
+                  currentValue={value}
+                  disabled={loading || (disabled && !isAgentRunning)}
+                />
+              )}
 
               <LiquidMetalButton
                 type="submit"
@@ -406,14 +422,18 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
                 className={cn(
                   'h-8 w-8 flex-shrink-0 self-end rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all',
-                  (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                  (!value.trim() &&
+                    uploadedFiles.length === 0 &&
+                    !isAgentRunning) ||
                     loading ||
                     (disabled && !isAgentRunning)
                     ? 'opacity-50 cursor-not-allowed'
                     : '',
                 )}
                 disabled={
-                  (!value.trim() && uploadedFiles.length === 0 && !isAgentRunning) ||
+                  (!value.trim() &&
+                    uploadedFiles.length === 0 &&
+                    !isAgentRunning) ||
                   loading ||
                   (disabled && !isAgentRunning)
                 }
@@ -429,7 +449,6 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
             </div>
           </div>
         )}
-
       </div>
     );
   },

@@ -4,14 +4,9 @@ import Link from 'next/link';
 import { ArrowLeft } from 'lucide-react';
 
 export default function NotFound() {
-
   return (
     <section className="w-full relative overflow-hidden min-h-screen flex items-center justify-center">
       <div className="relative flex flex-col items-center w-full px-6">
-
-
-
-
         {/* Center content background with rounded bottom */}
         <div className="absolute inset-x-1/4 top-0 h-full -z-20 bg-background rounded-b-xl"></div>
 

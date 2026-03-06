@@ -1,6 +1,5 @@
 import { useState, useCallback } from 'react';
 
-
 interface BillingErrorState {
   message: string;
   currentUsage?: number;
@@ -18,31 +17,42 @@ export function useBillingError() {
     null,
   );
 
-  const handleBillingError = useCallback((error: any) => {
+  const handleBillingError = useCallback((error: Record<string, unknown>) => {
+    const sub = error.subscription as Record<string, unknown> | undefined;
 
     // Case 1: Error is already a formatted billing error detail object
-    if (error && (error.message || error.subscription)) {
+    if (error && (error.message || sub)) {
       setBillingError({
-        message: error.message || "You've reached your monthly usage limit.",
-        currentUsage: error.currentUsage || error.subscription?.current_usage,
-        limit: error.limit || error.subscription?.limit,
-        subscription: error.subscription || {},
+        message:
+          (error.message as string) ||
+          "You've reached your monthly usage limit.",
+        currentUsage:
+          (error.currentUsage as number | undefined) ||
+          (sub?.current_usage as number | undefined),
+        limit:
+          (error.limit as number | undefined) ||
+          (sub?.limit as number | undefined),
+        subscription: (sub as BillingErrorState['subscription']) || {},
       });
       return true;
     }
 
     // Case 2: Error is an HTTP error response
+    const errMsg = error.message as string | undefined;
     if (
       error.status === 402 ||
-      (error.message && error.message.includes('Payment Required'))
+      (errMsg && errMsg.includes('Payment Required'))
     ) {
       // Try to get details from error.data.detail (common API pattern)
-      const errorDetail = error.data?.detail || {};
-      const subscription = errorDetail.subscription || {};
+      const errorData = error.data as Record<string, unknown> | undefined;
+      const errorDetail = (errorData?.detail as Record<string, unknown>) || {};
+      const subscription =
+        (errorDetail.subscription as BillingErrorState['subscription']) || {};
 
       setBillingError({
         message:
-          errorDetail.message || "You've reached your monthly usage limit.",
+          (errorDetail.message as string) ||
+          "You've reached your monthly usage limit.",
         currentUsage: subscription.current_usage,
         limit: subscription.limit,
         subscription,

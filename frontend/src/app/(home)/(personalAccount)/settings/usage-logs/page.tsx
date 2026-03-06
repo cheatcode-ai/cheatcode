@@ -14,13 +14,14 @@ export default async function UsageLogsPage() {
       <div className="space-y-6">
         <div className="text-center py-8">
           <h2 className="text-lg font-semibold text-red-600">
-            {error.includes('Authentication') ? 'Authentication Required' : 'Error Loading Account'}
+            {error.includes('Authentication')
+              ? 'Authentication Required'
+              : 'Error Loading Account'}
           </h2>
           <p className="text-sm text-muted-foreground mt-2">
-            {error.includes('Authentication') 
+            {error.includes('Authentication')
               ? 'Please sign in to view your usage logs.'
-              : error
-            }
+              : error}
           </p>
         </div>
       </div>
@@ -31,7 +32,9 @@ export default async function UsageLogsPage() {
     return (
       <div className="space-y-6">
         <div className="text-center py-8">
-          <h2 className="text-lg font-semibold text-orange-600">Account Not Found</h2>
+          <h2 className="text-lg font-semibold text-orange-600">
+            Account Not Found
+          </h2>
           <p className="text-sm text-muted-foreground mt-2">
             No personal account found.
           </p>

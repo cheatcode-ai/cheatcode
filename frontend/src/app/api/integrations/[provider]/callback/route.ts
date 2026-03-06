@@ -1,9 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { type NextRequest, NextResponse } from 'next/server';
 import { BACKEND_URL } from '@/lib/api/server-config';
 
 export async function GET(
   request: NextRequest,
-  { params }: { params: Promise<{ provider: string }> }
+  { params }: { params: Promise<{ provider: string }> },
 ) {
   try {
     const { provider } = await params;
@@ -14,33 +14,36 @@ export async function GET(
     const validProviders = ['slack', 'discord', 'teams'];
     if (!validProviders.includes(provider)) {
       return NextResponse.redirect(
-        new URL(`/agents?${provider}_error=invalid_provider`, request.url)
+        new URL(`/agents?${provider}_error=invalid_provider`, request.url),
       );
     }
 
     if (error) {
       return NextResponse.redirect(
-        new URL(`/agents?${provider}_error=${error}`, request.url)
+        new URL(`/agents?${provider}_error=${error}`, request.url),
       );
     }
-    
+
     if (!code || !state) {
       return NextResponse.redirect(
-        new URL(`/agents?${provider}_error=missing_parameters`, request.url)
+        new URL(`/agents?${provider}_error=missing_parameters`, request.url),
       );
     }
-    
-    const backendUrl = new URL(`/api/integrations/${provider}/callback`, BACKEND_URL);
+
+    const backendUrl = new URL(
+      `/api/integrations/${provider}/callback`,
+      BACKEND_URL,
+    );
     backendUrl.searchParams.set('code', code);
     backendUrl.searchParams.set('state', state);
-    
+
     const response = await fetch(backendUrl.toString(), {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json',
       },
     });
-    
+
     if (response.redirected) {
       const backendRedirectUrl = new URL(response.url);
       const redirectParams = backendRedirectUrl.searchParams;
@@ -48,22 +51,21 @@ export async function GET(
       redirectParams.forEach((value, key) => {
         frontendRedirectUrl.searchParams.set(key, value);
       });
-      
+
       return NextResponse.redirect(frontendRedirectUrl);
     }
     if (!response.ok) {
       return NextResponse.redirect(
-        new URL(`/agents?${provider}_error=backend_error`, request.url)
+        new URL(`/agents?${provider}_error=backend_error`, request.url),
       );
     }
     return NextResponse.redirect(
-      new URL(`/agents?${provider}_success=true`, request.url)
+      new URL(`/agents?${provider}_success=true`, request.url),
     );
-    
-  } catch (error) {
+  } catch {
     const { provider } = await params;
     return NextResponse.redirect(
-      new URL(`/agents?${provider}_error=callback_failed`, request.url)
+      new URL(`/agents?${provider}_error=callback_failed`, request.url),
     );
   }
-} 
+}

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AgentStatus } from '../_types';
+import { type AgentStatus } from '../_types';
 
 interface UseAppPreviewReturn {
   isSidePanelOpen: boolean;
@@ -13,15 +13,15 @@ interface UseAppPreviewReturn {
 export function useAppPreview(
   _messages: unknown[],
   setLeftSidebarOpen: (open: boolean) => void,
-  agentStatus?: AgentStatus
+  agentStatus?: AgentStatus,
 ): UseAppPreviewReturn {
   const [isSidePanelOpen, setIsSidePanelOpen] = useState(false);
   const [autoOpenedPanel, setAutoOpenedPanel] = useState(false);
-  
+
   const userClosedPanelRef = useRef(false);
 
   const toggleSidePanel = useCallback(() => {
-    setIsSidePanelOpen(prev => {
+    setIsSidePanelOpen((prev) => {
       const newState = !prev;
       if (!newState) {
         userClosedPanelRef.current = true;
@@ -37,6 +37,7 @@ export function useAppPreview(
   // Auto-open panel when agent starts running if user hasn't closed it
   useEffect(() => {
     if (agentStatus === 'running' && !userClosedPanelRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setIsSidePanelOpen(true);
       setAutoOpenedPanel(false);
     }
@@ -50,4 +51,4 @@ export function useAppPreview(
     toggleSidePanel,
     userClosedPanelRef,
   };
-} 
+}

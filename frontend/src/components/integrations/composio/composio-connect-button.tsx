@@ -8,7 +8,12 @@ import React, { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog';
+import {
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from '@/components/ui/dialog';
 import { Loader2, Check, Info } from 'lucide-react';
 import { useCreateComposioProfile } from '@/hooks/react-query/composio';
 import type { ComposioToolkit } from '@/types/composio-profiles';
@@ -46,10 +51,13 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
           // Polling logic would go here if needed
         }, 2000);
 
-        setTimeout(() => {
-          clearInterval(checkInterval);
-          if (!connectionComplete) setIsConnecting(false);
-        }, 5 * 60 * 1000);
+        setTimeout(
+          () => {
+            clearInterval(checkInterval);
+            if (!connectionComplete) setIsConnecting(false);
+          },
+          5 * 60 * 1000,
+        );
 
         const handleMessage = (event: MessageEvent) => {
           if (event.data?.type === 'composio-oauth-success') {
@@ -72,7 +80,7 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
         setIsConnecting(false);
         setTimeout(() => onSuccess(), 1000);
       }
-    } catch (error) {
+    } catch {
       setIsConnecting(false);
     }
   };
@@ -81,7 +89,7 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
     return (
       <div className="py-8 flex flex-col items-center justify-center text-center animate-in fade-in zoom-in duration-300">
         <div className="h-12 w-12 bg-emerald-500/10 rounded-full flex items-center justify-center mb-4">
-            <Check className="h-6 w-6 text-emerald-500" />
+          <Check className="h-6 w-6 text-emerald-500" />
         </div>
         <h3 className="text-lg font-medium text-white mb-1">Connected</h3>
         <p className="text-zinc-500 text-sm">
@@ -102,7 +110,12 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
 
       <div className="space-y-4">
         <div className="space-y-2">
-          <Label htmlFor="profile-name" className="text-zinc-400 text-xs uppercase tracking-wider font-semibold">Connection Name</Label>
+          <Label
+            htmlFor="profile-name"
+            className="text-zinc-400 text-xs uppercase tracking-wider font-semibold"
+          >
+            Connection Name
+          </Label>
           <Input
             id="profile-name"
             value={profileName}
@@ -117,20 +130,24 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
           <div className="flex items-start gap-3 p-3 rounded-md bg-zinc-900/50 border border-zinc-800 text-sm text-zinc-400">
             <Info className="h-4 w-4 shrink-0 mt-0.5 text-zinc-500" />
             <div className="space-y-1">
-                <p className="text-xs leading-relaxed">
-                    You will be redirected to <span className="text-zinc-200 font-medium">{toolkit.name}</span> to authorize access.
-                </p>
+              <p className="text-xs leading-relaxed">
+                You will be redirected to{' '}
+                <span className="text-zinc-200 font-medium">
+                  {toolkit.name}
+                </span>{' '}
+                to authorize access.
+              </p>
             </div>
           </div>
         )}
       </div>
 
       <DialogFooter>
-        <Button 
-            variant="ghost" 
-            onClick={onCancel} 
-            disabled={isConnecting}
-            className="text-zinc-400 hover:text-white"
+        <Button
+          variant="ghost"
+          onClick={onCancel}
+          disabled={isConnecting}
+          className="text-zinc-400 hover:text-white"
         >
           Cancel
         </Button>
@@ -145,9 +162,7 @@ export const ComposioConnectButton: React.FC<ComposioConnectButtonProps> = ({
               Connecting...
             </>
           ) : (
-            <>
-              Connect Account
-            </>
+            <>Connect Account</>
           )}
         </Button>
       </DialogFooter>

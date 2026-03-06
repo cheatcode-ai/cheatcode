@@ -1,16 +1,16 @@
 'use client';
 
-import { createMutationHook } from "@/hooks/use-query";
-import { getProjects, getThreads, Project, Thread } from "@/lib/api";
+import { createMutationHook } from '@/hooks/use-query';
+import { getProjects, getThreads, type Project, type Thread } from '@/lib/api';
 import { createQueryHook } from '@/hooks/use-query';
-import { threadKeys, projectKeys } from "./keys";
-import { deleteThread } from "../threads/utils";
+import { threadKeys, projectKeys } from './keys';
+import { deleteThread } from '../threads/utils';
 import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
 
 export const useProjects = () => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  
+
   return createQueryHook(
     projectKeys.lists(),
     async () => {
@@ -22,13 +22,13 @@ export const useProjects = () => {
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
       enabled: isLoaded && isSignedIn, // Only run query when auth is loaded and user is signed in
-    }
+    },
   )();
 };
 
 export const useThreads = () => {
   const { getToken, isLoaded, isSignedIn } = useAuth();
-  
+
   return createQueryHook(
     threadKeys.lists(),
     async () => {
@@ -40,7 +40,7 @@ export const useThreads = () => {
       staleTime: 5 * 60 * 1000,
       refetchOnWindowFocus: false,
       enabled: isLoaded && isSignedIn, // Only run query when auth is loaded and user is signed in
-    }
+    },
   )();
 };
 
@@ -60,9 +60,8 @@ export const useDeleteThread = () => {
       return await deleteThread(threadId, sandboxId, token || undefined);
     },
     {
-      onSuccess: () => {
-      },
-    }
+      onSuccess: () => {},
+    },
   )({
     // Optimistic update: immediately remove thread from UI
     onMutate: async ({ threadId }) => {
@@ -70,13 +69,15 @@ export const useDeleteThread = () => {
       await queryClient.cancelQueries({ queryKey: threadKeys.lists() });
 
       // Snapshot the previous value
-      const previousThreads = queryClient.getQueryData<Thread[]>(threadKeys.lists());
+      const previousThreads = queryClient.getQueryData<Thread[]>(
+        threadKeys.lists(),
+      );
 
       // Optimistically update to remove the thread
       if (previousThreads) {
         queryClient.setQueryData<Thread[]>(
           threadKeys.lists(),
-          previousThreads.filter(thread => thread.thread_id !== threadId)
+          previousThreads.filter((thread) => thread.thread_id !== threadId),
         );
       }
 
@@ -85,7 +86,9 @@ export const useDeleteThread = () => {
     },
     // Rollback on error
     onError: (_error, _variables, onMutateResult, _context) => {
-      const result = onMutateResult as { previousThreads?: Thread[] } | undefined;
+      const result = onMutateResult as
+        | { previousThreads?: Thread[] }
+        | undefined;
       if (result?.previousThreads) {
         queryClient.setQueryData(threadKeys.lists(), result.previousThreads);
       }
@@ -108,7 +111,11 @@ export const useDeleteMultipleThreads = () => {
   const queryClient = useQueryClient();
 
   return createMutationHook(
-    async ({ threadIds, threadSandboxMap, onProgress }: DeleteMultipleThreadsVariables) => {
+    async ({
+      threadIds,
+      threadSandboxMap,
+      onProgress,
+    }: DeleteMultipleThreadsVariables) => {
       const token = await getToken();
       let completedCount = 0;
       const results = await Promise.all(
@@ -122,37 +129,42 @@ export const useDeleteMultipleThreads = () => {
           } catch (error) {
             return { success: false, threadId, error };
           }
-        })
+        }),
       );
 
       return {
-        successful: results.filter(r => r.success).map(r => r.threadId),
-        failed: results.filter(r => !r.success).map(r => r.threadId),
+        successful: results.filter((r) => r.success).map((r) => r.threadId),
+        failed: results.filter((r) => !r.success).map((r) => r.threadId),
       };
     },
     {
-      onSuccess: () => {
-      },
-    }
+      onSuccess: () => {},
+    },
   )({
     // Optimistic update: immediately remove all threads from UI
     onMutate: async ({ threadIds }) => {
       await queryClient.cancelQueries({ queryKey: threadKeys.lists() });
 
-      const previousThreads = queryClient.getQueryData<Thread[]>(threadKeys.lists());
+      const previousThreads = queryClient.getQueryData<Thread[]>(
+        threadKeys.lists(),
+      );
 
       if (previousThreads) {
         const threadIdsSet = new Set(threadIds);
         queryClient.setQueryData<Thread[]>(
           threadKeys.lists(),
-          previousThreads.filter(thread => !threadIdsSet.has(thread.thread_id))
+          previousThreads.filter(
+            (thread) => !threadIdsSet.has(thread.thread_id),
+          ),
         );
       }
 
       return { previousThreads };
     },
     onError: (_error, _variables, onMutateResult, _context) => {
-      const result = onMutateResult as { previousThreads?: Thread[] } | undefined;
+      const result = onMutateResult as
+        | { previousThreads?: Thread[] }
+        | undefined;
       if (result?.previousThreads) {
         queryClient.setQueryData(threadKeys.lists(), result.previousThreads);
       }
@@ -174,7 +186,7 @@ export type ThreadWithProject = {
 
 export const processThreadsWithProjects = (
   threads: Thread[],
-  projects: Project[]
+  projects: Project[],
 ): ThreadWithProject[] => {
   const projectsById = new Map<string, Project>();
   projects.forEach((project) => {
@@ -191,15 +203,16 @@ export const processThreadsWithProjects = (
     if (!project) {
       continue;
     }
-    
+
     // For project listings, prioritize project name over thread name
-    // This ensures users see meaningful project titles like "Bakery Landing Page" 
+    // This ensures users see meaningful project titles like "Bakery Landing Page"
     // rather than thread names derived from prompts
-    const displayName = project.name || thread.metadata?.name || 'Unnamed Project';
+    const displayName =
+      project.name || thread.metadata?.name || 'Unnamed Project';
 
     threadsWithProjects.push({
       threadId: thread.thread_id,
-      projectId: projectId,
+      projectId,
       projectName: displayName,
       appType: project.app_type || 'web',
       url: `/projects/${projectId}/thread/${thread.thread_id}`,
@@ -211,9 +224,7 @@ export const processThreadsWithProjects = (
   return sortThreads(threadsWithProjects);
 };
 
-export const sortThreads = (
-  threadsList: ThreadWithProject[],
-): ThreadWithProject[] => {
+const sortThreads = (threadsList: ThreadWithProject[]): ThreadWithProject[] => {
   return [...threadsList].sort((a, b) => {
     return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
   });

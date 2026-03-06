@@ -1,3 +1,1 @@
-"""
-Webhook handlers for external service integrations.
-"""
+"""Webhook handlers for external service integrations."""

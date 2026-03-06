@@ -1,7 +1,11 @@
 import { useRef, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { ViewMode, DevServerStatus, ViewportDimensions } from '../types/app-preview';
+import {
+  type ViewMode,
+  type DevServerStatus,
+  type ViewportDimensions,
+} from '../types/app-preview';
 import { MobilePreviewTab } from './MobilePreviewTab';
 
 interface PreviewTabProps {
@@ -51,7 +55,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   onOpenInNewTab,
   onCycleView,
   setIframeRef,
-  onRefreshExpoUrl
+  onRefreshExpoUrl,
 }) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -92,14 +96,19 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
   }
 
   return (
-    <div className={cn(
-      "h-full overflow-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent p-2 pt-0",
-      currentView !== 'desktop' && "flex items-center justify-center"
-    )}>
-      <div className={cn(
-        "relative bg-white dark:bg-zinc-900 rounded-lg border shadow-lg overflow-hidden",
-        currentView === 'desktop' ? "w-full h-full" : "flex-shrink-0"
-      )} style={currentView !== 'desktop' ? viewportDimensions : undefined}>
+    <div
+      className={cn(
+        'h-full overflow-auto scrollbar-thin scrollbar-thumb-zinc-300 dark:scrollbar-thumb-zinc-700 scrollbar-track-transparent p-2 pt-0',
+        currentView !== 'desktop' && 'flex items-center justify-center',
+      )}
+    >
+      <div
+        className={cn(
+          'relative bg-white dark:bg-zinc-900 rounded-lg border shadow-lg overflow-hidden',
+          currentView === 'desktop' ? 'w-full h-full' : 'flex-shrink-0',
+        )}
+        style={currentView !== 'desktop' ? viewportDimensions : undefined}
+      >
         {/* Only show loading overlay if we don't have a preview URL yet */}
         {/* Once we have a preview URL, show the iframe even if status is 'starting' */}
         {!previewUrl && (isLoading || devServerStatus === 'starting') && (
@@ -107,7 +116,9 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
             <div className="flex flex-col items-center space-y-2">
               <Loader2 className="h-6 w-6 animate-spin text-blue-500" />
               <span className="text-sm text-zinc-500 dark:text-zinc-400">
-                {devServerStatus === 'starting' ? 'Starting development server...' : 'Loading preview...'}
+                {devServerStatus === 'starting'
+                  ? 'Starting development server...'
+                  : 'Loading preview...'}
               </span>
             </div>
           </div>
@@ -118,6 +129,7 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
             ref={iframeRef}
             key={`${currentView}-${refreshKey}`}
             src={previewUrl}
+            title="App Preview"
             className="w-full h-full border-0"
             onLoad={onIframeLoad}
             onError={onIframeError}
@@ -127,4 +139,4 @@ export const PreviewTab: React.FC<PreviewTabProps> = ({
       </div>
     </div>
   );
-}; 
+};

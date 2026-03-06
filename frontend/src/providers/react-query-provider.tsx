@@ -5,7 +5,7 @@ import {
   HydrationBoundary,
   QueryClient,
   QueryClientProvider,
-  DehydratedState,
+  type DehydratedState,
 } from '@tanstack/react-query';
 import { handleApiError } from '@/lib/error-handler';
 
@@ -25,11 +25,13 @@ export function ReactQueryProvider({
             staleTime: 5 * 60 * 1000,
             // Keep data in cache for 30 minutes
             gcTime: 30 * 60 * 1000,
-            retry: (failureCount, error: any) => {
+            retry: (failureCount, error: unknown) => {
+              const err = error as Record<string, unknown> | null;
               // Don't retry on authentication or permission errors
-              if (error?.status === 401 || error?.status === 403) return false;
+              if (err?.status === 401 || err?.status === 403) return false;
               // Don't retry on real 404s (but allow retries for network errors that appear as 404s)
-              if (error?.status === 404 && !isNetworkError(error)) return false;
+              // eslint-disable-next-line react-hooks/immutability
+              if (err?.status === 404 && !isNetworkError(err)) return false;
               // Retry up to 3 times for network errors
               return failureCount < 3;
             },
@@ -40,12 +42,18 @@ export function ReactQueryProvider({
             // React Query serves cached data while refetching by default
           },
           mutations: {
-            retry: (failureCount, error: any) => {
+            retry: (failureCount, error: unknown) => {
+              const err = error as Record<string, unknown> | null;
               // Don't retry client errors except network issues
-              if (error?.status >= 400 && error?.status < 500 && !isNetworkError(error)) return false;
+              if (
+                (err?.status as number) >= 400 &&
+                (err?.status as number) < 500 &&
+                !isNetworkError(err)
+              )
+                return false;
               return failureCount < 2;
             },
-            onError: (error: any, _variables: unknown, _context: unknown) => {
+            onError: (error: Error, _variables: unknown, _context: unknown) => {
               // Only show error toasts for non-network errors
               if (!isNetworkError(error)) {
                 handleApiError(error, {
@@ -60,13 +68,16 @@ export function ReactQueryProvider({
   );
 
   // Helper function to detect network errors vs real API errors
-  function isNetworkError(error: any): boolean {
+  function isNetworkError(error: unknown): boolean {
+    const err = error as Record<string, unknown> | null;
     return (
-      !error?.status ||
-      error?.message?.includes('Network error') ||
-      error?.message?.includes('Failed to fetch') ||
-      error?.name === 'NetworkError' ||
-      error?.code === 'NETWORK_ERROR'
+      !err?.status ||
+      (typeof err?.message === 'string' &&
+        err.message.includes('Network error')) ||
+      (typeof err?.message === 'string' &&
+        err.message.includes('Failed to fetch')) ||
+      err?.name === 'NetworkError' ||
+      err?.code === 'NETWORK_ERROR'
     );
   }
 

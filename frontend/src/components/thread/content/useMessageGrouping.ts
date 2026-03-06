@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { UnifiedMessage } from '@/components/thread/types';
+import { type UnifiedMessage } from '@/components/thread/types';
 
 export type MessageGroup = {
   type: 'user' | 'assistant_group';
@@ -12,7 +12,10 @@ interface UseMessageGroupingOptions {
   streamingTextContent?: string;
 }
 
-export function useMessageGrouping({ messages, streamingTextContent }: UseMessageGroupingOptions): MessageGroup[] {
+export function useMessageGrouping({
+  messages,
+  streamingTextContent,
+}: UseMessageGroupingOptions): MessageGroup[] {
   return useMemo(() => {
     const groupedMessages: MessageGroup[] = [];
     let currentGroup: MessageGroup | null = null;
@@ -32,8 +35,8 @@ export function useMessageGrouping({ messages, streamingTextContent }: UseMessag
         groupedMessages.push({ type: 'user', messages: [message], key });
       } else if (messageType === 'assistant' || messageType === 'tool') {
         // Check if we can add to existing assistant group
-        const canAddToExistingGroup = currentGroup &&
-          currentGroup.type === 'assistant_group';
+        const canAddToExistingGroup =
+          currentGroup && currentGroup.type === 'assistant_group';
 
         if (canAddToExistingGroup && currentGroup) {
           // Add to existing assistant group
@@ -48,7 +51,7 @@ export function useMessageGrouping({ messages, streamingTextContent }: UseMessag
           currentGroup = {
             type: 'assistant_group',
             messages: [message],
-            key: `assistant-group-${assistantGroupCounter}`
+            key: `assistant-group-${assistantGroupCounter}`,
           };
         }
       } else if (messageType !== 'status') {
@@ -71,7 +74,10 @@ export function useMessageGrouping({ messages, streamingTextContent }: UseMessag
 
     groupedMessages.forEach((group) => {
       if (group.type === 'assistant_group') {
-        if (currentMergedGroup && currentMergedGroup.type === 'assistant_group') {
+        if (
+          currentMergedGroup &&
+          currentMergedGroup.type === 'assistant_group'
+        ) {
           // Merge with the current group
           currentMergedGroup.messages.push(...group.messages);
         } else {
@@ -106,18 +112,20 @@ export function useMessageGrouping({ messages, streamingTextContent }: UseMessag
         assistantGroupCounter++;
         mergedGroups.push({
           type: 'assistant_group',
-          messages: [{
-            content: streamingTextContent,
-            type: 'assistant',
-            message_id: 'streamingTextContent',
-            metadata: 'streamingTextContent',
-            created_at: new Date().toISOString(),
-            updated_at: new Date().toISOString(),
-            is_llm_message: true,
-            thread_id: 'streamingTextContent',
-            sequence: Infinity,
-          }],
-          key: `assistant-group-${assistantGroupCounter}-streaming`
+          messages: [
+            {
+              content: streamingTextContent,
+              type: 'assistant',
+              message_id: 'streamingTextContent',
+              metadata: 'streamingTextContent',
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+              is_llm_message: true,
+              thread_id: 'streamingTextContent',
+              sequence: Infinity,
+            },
+          ],
+          key: `assistant-group-${assistantGroupCounter}-streaming`,
         });
       } else if (lastGroup.type === 'assistant_group') {
         // Only add streaming content if not already represented

@@ -18,9 +18,6 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 
-// Flag to control whether tool result messages are rendered
-export const SHOULD_RENDER_TOOL_RESULTS = false;
-
 // Helper function to safely parse JSON strings from content/metadata
 export function safeJsonParse<T>(
   jsonString: string | undefined | null,
@@ -29,30 +26,32 @@ export function safeJsonParse<T>(
   if (!jsonString) {
     return fallback;
   }
-  
+
   try {
     // First attempt: Parse as normal JSON
     const parsed = JSON.parse(jsonString);
-    
+
     // Check if the result is a string that looks like JSON (double-escaped case)
-    if (typeof parsed === 'string' && 
-        (parsed.startsWith('{') || parsed.startsWith('['))) {
+    if (
+      typeof parsed === 'string' &&
+      (parsed.startsWith('{') || parsed.startsWith('['))
+    ) {
       try {
         // Second attempt: Parse the string result as JSON (handles double-escaped)
         return JSON.parse(parsed) as T;
-      } catch (innerError) {
+      } catch {
         // If inner parse fails, return the first parse result
         return parsed as unknown as T;
       }
     }
-    
+
     return parsed as T;
-  } catch (outerError) {
+  } catch {
     // If the input is already an object/array (shouldn't happen but just in case)
     if (typeof jsonString === 'object') {
       return jsonString as T;
     }
-    
+
     // Try one more time in case it's a plain string that should be returned as-is
     if (typeof jsonString === 'string') {
       // Check if it's a string representation of a simple value
@@ -60,13 +59,13 @@ export function safeJsonParse<T>(
       if (jsonString === 'false') return false as unknown as T;
       if (jsonString === 'null') return null as unknown as T;
       if (!isNaN(Number(jsonString))) return Number(jsonString) as unknown as T;
-      
+
       // Return as string if it doesn't look like JSON
       if (!jsonString.startsWith('{') && !jsonString.startsWith('[')) {
         return jsonString as unknown as T;
       }
     }
-    
+
     // console.warn('Failed to parse JSON string:', jsonString, outerError); // Optional: log errors
     return fallback;
   }
@@ -75,8 +74,6 @@ export function safeJsonParse<T>(
 // Helper function to get an icon based on tool name
 export const getToolIcon = (toolName: string): ElementType => {
   switch (toolName?.toLowerCase()) {
-
-
     // File operations
     case 'create-file':
       return FileEdit;
@@ -101,7 +98,7 @@ export const getToolIcon = (toolName: string): ElementType => {
     case 'crawl-webpage':
       return Globe;
     case 'scrape-webpage':
-        return Globe;
+      return Globe;
 
     // API and data operations
     case 'call-data-provider':
@@ -140,17 +137,20 @@ export const getToolIcon = (toolName: string): ElementType => {
       if (toolName?.toLowerCase().includes('search')) {
         return Search;
       }
-      
+
       if (toolName?.startsWith('mcp_')) {
         const parts = toolName.split('_');
         if (parts.length >= 3) {
           const serverName = parts[1];
           const toolNamePart = parts.slice(2).join('_');
-          
+
           // Map specific MCP tools to appropriate icons
           if (toolNamePart.includes('search') || toolNamePart.includes('web')) {
             return Search;
-          } else if (toolNamePart.includes('research') || toolNamePart.includes('paper')) {
+          } else if (
+            toolNamePart.includes('research') ||
+            toolNamePart.includes('paper')
+          ) {
             return BookOpen;
           } else if (serverName === 'exa') {
             return Search; // Exa is primarily a search service
@@ -158,7 +158,7 @@ export const getToolIcon = (toolName: string): ElementType => {
         }
         return PlugIcon; // Default icon for MCP tools
       }
-      
+
       return Wrench; // Default icon for tools
   }
 };
@@ -248,7 +248,7 @@ export const extractPrimaryParam = (
     }
 
     return null;
-  } catch (e) {
+  } catch {
     return null;
   }
 };
@@ -258,17 +258,15 @@ const TOOL_DISPLAY_NAMES = new Map([
   ['check-command-output', 'Checking Command Output'],
   ['terminate-command', 'Terminating Command'],
   ['list-commands', 'Listing Commands'],
-  
+
   ['create-file', 'Creating File'],
   ['delete-file', 'Deleting File'],
   ['full-file-rewrite', 'Rewriting File'],
-  
-
 
   ['execute-data-provider-call', 'Calling data provider'],
   ['execute_data_provider_call', 'Calling data provider'],
   ['get-data-provider-endpoints', 'Getting endpoints'],
-  
+
   ['deploy', 'Deploying'],
   ['ask', 'Ask'],
   ['complete', 'Completing Task'],
@@ -277,7 +275,7 @@ const TOOL_DISPLAY_NAMES = new Map([
   ['scrape-webpage', 'Scraping Website'],
   ['web-search', 'Searching Web'],
   ['see-image', 'Viewing Image'],
-  
+
   ['call-mcp-tool', 'External Tool'],
 
   ['update-agent', 'Updating Agent'],
@@ -288,25 +286,22 @@ const TOOL_DISPLAY_NAMES = new Map([
   ['get-popular-mcp-servers', 'Getting Popular MCP Servers'],
   ['test-mcp-server-connection', 'Testing MCP Server Connection'],
 
-
   //V2
 
   ['execute_command', 'Executing Command'],
   ['check_command_output', 'Checking Command Output'],
   ['terminate_command', 'Terminating Command'],
   ['list_commands', 'Listing Commands'],
-  
+
   ['create_file', 'Creating File'],
   ['delete_file', 'Deleting File'],
   ['full_file_rewrite', 'Rewriting File'],
   ['edit_file', 'Editing File'],
   ['edit-file', 'Editing File'],
-  
-
 
   ['execute_data_provider_call', 'Calling data provider'],
   ['get_data_provider_endpoints', 'Getting endpoints'],
-  
+
   ['deploy', 'Deploying'],
   ['ask', 'Ask'],
   ['complete', 'Completing Task'],
@@ -315,7 +310,7 @@ const TOOL_DISPLAY_NAMES = new Map([
   ['scrape_webpage', 'Scraping Website'],
   ['web_search', 'Searching Web'],
   ['see_image', 'Viewing Image'],
-  
+
   ['call_mcp_tool', 'External Tool'],
 
   ['update_agent', 'Updating Agent'],
@@ -325,55 +320,50 @@ const TOOL_DISPLAY_NAMES = new Map([
   ['configure_mcp_server', 'Configuring MCP Server'],
   ['get_popular_mcp_servers', 'Getting Popular MCP Servers'],
   ['test_mcp_server_connection', 'Testing MCP Server Connection'],
-
 ]);
-
-
 
 function formatMCPToolName(serverName: string, toolName: string): string {
   const serverMappings: Record<string, string> = {
-    'exa': 'Exa Search',
-    'github': 'GitHub',
-    'notion': 'Notion', 
-    'slack': 'Slack',
-    'filesystem': 'File System',
-    'memory': 'Memory',
-    'anthropic': 'Anthropic',
-    'openai': 'OpenAI',
-    'composio': 'Composio',
-    'langchain': 'LangChain',
-    'llamaindex': 'LlamaIndex',
-    'search': 'Searching',
+    exa: 'Exa Search',
+    github: 'GitHub',
+    notion: 'Notion',
+    slack: 'Slack',
+    filesystem: 'File System',
+    memory: 'Memory',
+    anthropic: 'Anthropic',
+    openai: 'OpenAI',
+    composio: 'Composio',
+    langchain: 'LangChain',
+    llamaindex: 'LlamaIndex',
+    search: 'Searching',
   };
-  
-  const formattedServerName = serverMappings[serverName.toLowerCase()] || 
+
+  const formattedServerName =
+    serverMappings[serverName.toLowerCase()] ||
     serverName.charAt(0).toUpperCase() + serverName.slice(1);
-  
+
   let formattedToolName = toolName;
-  
+
   if (toolName.includes('-')) {
     formattedToolName = toolName
       .split('-')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-  else if (toolName.includes('_')) {
+  } else if (toolName.includes('_')) {
     formattedToolName = toolName
       .split('_')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-  else if (/[a-z][A-Z]/.test(toolName)) {
+  } else if (/[a-z][A-Z]/.test(toolName)) {
     formattedToolName = toolName
       .replace(/([a-z])([A-Z])/g, '$1 $2')
       .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1))
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
       .join(' ');
-  }
-  else {
+  } else {
     formattedToolName = toolName.charAt(0).toUpperCase() + toolName.slice(1);
   }
-  
+
   return `${formattedServerName} ${formattedToolName}`;
 }
 

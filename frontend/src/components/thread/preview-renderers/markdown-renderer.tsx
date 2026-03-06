@@ -5,28 +5,26 @@ import { Markdown } from '@/components/ui/markdown';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
-    content: string;
-    className?: string;
+  content: string;
+  className?: string;
 }
 
 /**
  * Renderer for Markdown content with scrollable container
  */
 export function MarkdownRenderer({
-    content,
-    className
+  content,
+  className,
 }: MarkdownRendererProps) {
-    return (
-        <div className={cn('w-full h-full overflow-hidden', className)}>
-            <ScrollArea className="w-full h-full">
-                <div className="p-4">
-                    <Markdown
-                        className="prose prose-sm dark:prose-invert max-w-none [&>:first-child]:mt-0"
-                    >
-                        {content}
-                    </Markdown>
-                </div>
-            </ScrollArea>
+  return (
+    <div className={cn('w-full h-full overflow-hidden', className)}>
+      <ScrollArea className="w-full h-full">
+        <div className="p-4">
+          <Markdown className="prose prose-sm dark:prose-invert max-w-none [&>:first-child]:mt-0">
+            {content}
+          </Markdown>
         </div>
-    );
-} 
+      </ScrollArea>
+    </div>
+  );
+}

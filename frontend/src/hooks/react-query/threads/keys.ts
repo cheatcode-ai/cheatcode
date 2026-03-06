@@ -1,4 +1,4 @@
-import { createQueryKeys } from "@/hooks/use-query";
+import { createQueryKeys } from '@/hooks/use-query';
 
 export const threadKeys = createQueryKeys({
   all: ['threads'] as const,
@@ -10,12 +10,4 @@ export const threadKeys = createQueryKeys({
   billingStatus: ['billing', 'status'] as const,
   byProject: (projectId: string) => ['project', projectId, 'threads'] as const,
   clerkAccount: (userId: string) => ['clerk-account', userId] as const,
-});
-
-// New billing-specific keys
-export const billingKeys = createQueryKeys({
-  all: ['billing'] as const,
-  status: ['billing', 'status'] as const,
-  plans: ['billing', 'plans'] as const,
-  usageHistory: (days: number) => ['billing', 'usage-history', days] as const,
 });

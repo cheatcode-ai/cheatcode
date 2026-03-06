@@ -4,7 +4,7 @@ import { BillingError } from './api';
 export interface ApiError extends Error {
   status?: number;
   code?: string;
-  details?: any;
+  details?: unknown;
   response?: Response;
 }
 
@@ -21,7 +21,7 @@ const getStatusMessage = (status: number): string => {
     case 401:
       return 'Authentication required. Please sign in again.';
     case 403:
-      return 'Access denied. You don\'t have permission to perform this action.';
+      return "Access denied. You don't have permission to perform this action.";
     case 404:
       return 'The requested resource was not found.';
     case 408:
@@ -45,7 +45,7 @@ const getStatusMessage = (status: number): string => {
   }
 };
 
-const extractErrorMessage = (error: any): string => {
+const extractErrorMessage = (error: unknown): string => {
   if (error instanceof BillingError) {
     return error.detail?.message || error.message || 'Billing issue detected';
   }
@@ -54,31 +54,40 @@ const extractErrorMessage = (error: any): string => {
     return error.message;
   }
 
-  if (error?.response) {
-    const status = error.response.status;
-    return getStatusMessage(status);
-  }
-
-  if (error?.status) {
-    return getStatusMessage(error.status);
-  }
-
   if (typeof error === 'string') {
     return error;
   }
 
-  if (error?.message) {
-    return error.message;
+  const err = error as Record<string, unknown> | null | undefined;
+
+  if (
+    err?.response &&
+    typeof (err.response as Record<string, unknown>)?.status === 'number'
+  ) {
+    return getStatusMessage(
+      (err.response as Record<string, unknown>).status as number,
+    );
   }
 
-  if (error?.error) {
-    return typeof error.error === 'string' ? error.error : error.error.message || 'Unknown error';
+  if (typeof err?.status === 'number') {
+    return getStatusMessage(err.status);
+  }
+
+  if (typeof err?.message === 'string') {
+    return err.message;
+  }
+
+  if (err?.error) {
+    return typeof err.error === 'string'
+      ? err.error
+      : ((err.error as Record<string, unknown>)?.message as string) ||
+          'Unknown error';
   }
 
   return 'An unexpected error occurred';
 };
 
-const shouldShowError = (error: any, context?: ErrorContext): boolean => {
+const shouldShowError = (error: unknown, context?: ErrorContext): boolean => {
   if (context?.silent) {
     return false;
   }
@@ -86,30 +95,34 @@ const shouldShowError = (error: any, context?: ErrorContext): boolean => {
     return false;
   }
 
-  if (error?.status === 404 && context?.resource) {
+  const err = error as Record<string, unknown> | null | undefined;
+  if (err?.status === 404 && context?.resource) {
     return false;
   }
 
   return true;
 };
 
-const formatErrorMessage = (message: string, context?: ErrorContext): string => {
+const formatErrorMessage = (
+  message: string,
+  context?: ErrorContext,
+): string => {
   if (!context?.operation && !context?.resource) {
     return message;
   }
 
   const parts = [];
-  
+
   if (context.operation) {
     parts.push(`Failed to ${context.operation}`);
   }
-  
+
   if (context.resource) {
     parts.push(context.resource);
   }
 
   const prefix = parts.join(' ');
-  
+
   if (message.toLowerCase().includes(context.operation?.toLowerCase() || '')) {
     return message;
   }
@@ -117,8 +130,10 @@ const formatErrorMessage = (message: string, context?: ErrorContext): string => 
   return `${prefix}: ${message}`;
 };
 
-
-export const handleApiError = (error: any, context?: ErrorContext): void => {
+export const handleApiError = (
+  error: unknown,
+  context?: ErrorContext,
+): void => {
   if (!shouldShowError(error, context)) {
     return;
   }
@@ -133,15 +148,21 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
     try {
       // Use dynamic import with promise to avoid async requirement
       const msg = extractErrorMessage(error).toLowerCase();
-      if (msg.includes('payment required') || msg.includes('upgrade required') || msg.includes('insufficient credits')) {
-        import('@/hooks/use-modal-store').then(({ useModal }) => {
-          const { onOpen } = useModal.getState();
-          onOpen('paymentRequiredDialog');
-        }).catch(() => {
-          // Fallback to regular toast if dynamic import fails
-          const message = extractErrorMessage(error);
-          toast.error(message, { duration: 5000 });
-        });
+      if (
+        msg.includes('payment required') ||
+        msg.includes('upgrade required') ||
+        msg.includes('insufficient credits')
+      ) {
+        import('@/hooks/use-modal-store')
+          .then(({ useModal }) => {
+            const { onOpen } = useModal.getState();
+            onOpen('paymentRequiredDialog');
+          })
+          .catch(() => {
+            // Fallback to regular toast if dynamic import fails
+            const message = extractErrorMessage(error);
+            toast.error(message, { duration: 5000 });
+          });
         return; // Return early to prevent showing regular toast
       }
     } catch {}
@@ -149,23 +170,25 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
 
   const rawMessage = extractErrorMessage(error);
   const formattedMessage = formatErrorMessage(rawMessage, context);
+  const errStatus = (error as Record<string, unknown> | null | undefined)
+    ?.status as number | undefined;
 
-  if (error?.status >= 500) {
+  if (errStatus && errStatus >= 500) {
     toast.error(formattedMessage, {
       description: 'Our team has been notified and is working on a fix.',
       duration: 6000,
     });
-  } else if (error?.status === 401) {
+  } else if (errStatus === 401) {
     toast.error(formattedMessage, {
       description: 'Please refresh the page and sign in again.',
       duration: 8000,
     });
-  } else if (error?.status === 403) {
+  } else if (errStatus === 403) {
     toast.error(formattedMessage, {
       description: 'Contact support if you believe this is an error.',
       duration: 6000,
     });
-  } else if (error?.status === 429) {
+  } else if (errStatus === 429) {
     toast.warning(formattedMessage, {
       description: 'Please wait a moment before trying again.',
       duration: 5000,
@@ -177,12 +200,17 @@ export const handleApiError = (error: any, context?: ErrorContext): void => {
   }
 };
 
-export const handleNetworkError = (error: any, context?: ErrorContext): void => {
-  const isNetworkError = 
-    error?.message?.includes('fetch') ||
-    error?.message?.includes('network') ||
-    error?.message?.includes('connection') ||
-    error?.code === 'NETWORK_ERROR' ||
+export const handleNetworkError = (
+  error: unknown,
+  context?: ErrorContext,
+): void => {
+  const errObj = error as Record<string, unknown> | null | undefined;
+  const errMessage = typeof errObj?.message === 'string' ? errObj.message : '';
+  const isNetworkError =
+    errMessage.includes('fetch') ||
+    errMessage.includes('network') ||
+    errMessage.includes('connection') ||
+    errObj?.code === 'NETWORK_ERROR' ||
     !navigator.onLine;
 
   if (isNetworkError) {
@@ -195,23 +223,12 @@ export const handleNetworkError = (error: any, context?: ErrorContext): void => 
   }
 };
 
-export const handleApiSuccess = (message: string, description?: string): void => {
+export const handleApiSuccess = (
+  message: string,
+  description?: string,
+): void => {
   toast.success(message, {
     description,
     duration: 3000,
   });
 };
-
-export const handleApiWarning = (message: string, description?: string): void => {
-  toast.warning(message, {
-    description,
-    duration: 4000,
-  });
-};
-
-export const handleApiInfo = (message: string, description?: string): void => {
-  toast.info(message, {
-    description,
-    duration: 3000,
-  });
-}; 

@@ -13,46 +13,46 @@ export function AuthModal() {
 
   return (
     <Dialog open={isAuthModalOpen} onOpenChange={onClose}>
-       <DialogContent className="p-0 border-0 max-w-md !bg-[unset] [&>button]:hidden">
-         <DialogTitle className="sr-only">
-           {isSignInModalOpen ? 'Sign In' : 'Sign Up'}
-         </DialogTitle>
-         <div className="relative">
-           {/* Custom close button */}
-           <button
-             onClick={onClose}
-             className="absolute top-4 right-8 z-10 p-2 rounded-full bg-transparent hover:bg-white/10 text-white transition-colors"
-             aria-label="Close"
-           >
-             <X className="h-5 w-5" />
-           </button>
+      <DialogContent className="p-0 border-0 max-w-md !bg-[unset] [&>button]:hidden">
+        <DialogTitle className="sr-only">
+          {isSignInModalOpen ? 'Sign In' : 'Sign Up'}
+        </DialogTitle>
+        <div className="relative">
+          {/* Custom close button */}
+          <button
+            onClick={onClose}
+            className="absolute top-4 right-8 z-10 p-2 rounded-full bg-transparent hover:bg-white/10 text-white transition-colors"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" />
+          </button>
 
-           {isSignInModalOpen && (
-             <SignIn
-               routing="hash"
-               appearance={{
-                 baseTheme: dark,
-                 elements: {
-                   rootBox: "mx-auto",
-                   card: "shadow-none border-0"
-                 }
-               }}
-             />
-           )}
-           {isSignUpModalOpen && (
-             <SignUp
-               routing="hash"
-               appearance={{
-                 baseTheme: dark,
-                 elements: {
-                   rootBox: "mx-auto",
-                   card: "shadow-none border-0"
-                 }
-               }}
-             />
-           )}
-         </div>
-       </DialogContent>
+          {isSignInModalOpen && (
+            <SignIn
+              routing="hash"
+              appearance={{
+                baseTheme: dark,
+                elements: {
+                  rootBox: 'mx-auto',
+                  card: 'shadow-none border-0',
+                },
+              }}
+            />
+          )}
+          {isSignUpModalOpen && (
+            <SignUp
+              routing="hash"
+              appearance={{
+                baseTheme: dark,
+                elements: {
+                  rootBox: 'mx-auto',
+                  card: 'shadow-none border-0',
+                },
+              }}
+            />
+          )}
+        </div>
+      </DialogContent>
     </Dialog>
   );
-} 
+}

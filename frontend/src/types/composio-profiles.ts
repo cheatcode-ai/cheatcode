@@ -14,7 +14,7 @@ export interface ComposioProfile {
   is_active: boolean;
   is_default: boolean;
   is_default_for_dashboard: boolean;
-  is_connected: boolean;  // Mirrors is_active - Composio manages actual connection state
+  is_connected: boolean; // Mirrors is_active - Composio manages actual connection state
   enabled_tools: string[];
   created_at?: string | null;
   updated_at?: string | null;
@@ -26,9 +26,9 @@ export interface CreateComposioProfileRequest {
   profile_name: string;
   display_name?: string;
   redirect_url?: string;
-  initiation_params?: Record<string, any>;
+  initiation_params?: Record<string, unknown>;
   use_custom_auth?: boolean;
-  custom_auth_config?: Record<string, any>;
+  custom_auth_config?: Record<string, unknown>;
 }
 
 export interface CreateComposioProfileResponse {
@@ -74,7 +74,7 @@ export interface ComposioInitiationField {
 export interface ComposioTool {
   name: string;
   description?: string;
-  input_schema: Record<string, any>;
+  input_schema: Record<string, unknown>;
   enabled: boolean;
 }
 

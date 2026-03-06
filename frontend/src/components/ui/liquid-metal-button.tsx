@@ -5,7 +5,9 @@ import { cn } from '@/lib/utils';
 import { Slot } from '@radix-ui/react-slot';
 import { LiquidMetal } from '@paper-design/shaders-react';
 
-interface LiquidMetalButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement | HTMLAnchorElement> {
+interface LiquidMetalButtonProps extends React.ButtonHTMLAttributes<
+  HTMLButtonElement | HTMLAnchorElement
+> {
   children: React.ReactNode;
   className?: string;
   variant?: 'default' | 'circular';
@@ -65,14 +67,13 @@ export function LiquidMetalButton({
     return () => resizeObserver.disconnect();
   }, []);
 
-  const Comp = asChild ? Slot : (href ? 'a' : 'button');
+  const Comp = asChild ? Slot : href ? 'a' : 'button';
   const elementProps = href ? { ...props, href } : props;
 
   if (variant === 'circular') {
     return (
-      <div className={cn("relative group", className)}>
+      <div className={cn('relative group', className)}>
         {/* Outer container for the button */}
-        {/* @ts-ignore - Dynamic component props typing */}
         <Comp
           className="relative w-full h-full flex items-center justify-center rounded-full overflow-hidden cursor-pointer"
           {...elementProps}
@@ -107,7 +108,8 @@ export function LiquidMetalButton({
             style={{
               width: 'calc(100% - 6px)',
               height: 'calc(100% - 6px)',
-              boxShadow: 'inset 0 2px 4px rgba(255,255,255,0.05), inset 0 -2px 4px rgba(0,0,0,0.3)'
+              boxShadow:
+                'inset 0 2px 4px rgba(255,255,255,0.05), inset 0 -2px 4px rgba(0,0,0,0.3)',
             }}
           />
 
@@ -125,15 +127,14 @@ export function LiquidMetalButton({
   const isFullWidth = className?.includes('w-full');
 
   return (
-    <div className={cn("relative group", className)}>
-      {/* @ts-ignore - Dynamic component props typing */}
+    <div className={cn('relative group', className)}>
       <Comp
         className={cn(
-          "relative overflow-hidden rounded-lg transition-all duration-300",
-          "font-mono text-[11px] font-medium tracking-wide text-zinc-100 uppercase",
-          "h-8 px-4 flex items-center justify-center",
-          "cursor-pointer",
-          isFullWidth && "w-full"
+          'relative overflow-hidden rounded-lg transition-all duration-300',
+          'font-mono text-[11px] font-medium tracking-wide text-zinc-100 uppercase',
+          'h-8 px-4 flex items-center justify-center',
+          'cursor-pointer',
+          isFullWidth && 'w-full',
         )}
         {...elementProps}
       >
@@ -166,7 +167,7 @@ export function LiquidMetalButton({
           className="absolute rounded-md bg-gradient-to-b from-zinc-900 via-black to-zinc-950"
           style={{
             inset: '2px',
-            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.05)'
+            boxShadow: 'inset 0 1px 2px rgba(255,255,255,0.05)',
           }}
         />
 

@@ -7,14 +7,14 @@ interface CodeEditorProps {
   selectedFile: string | null;
   content: string;
   isLoading?: boolean;
-  error?: any;
+  error?: Error | null;
 }
 
-export const CodeEditor: React.FC<CodeEditorProps> = ({ 
-  selectedFile, 
-  content, 
+export const CodeEditor: React.FC<CodeEditorProps> = ({
+  selectedFile,
+  content,
   isLoading,
-  error 
+  error,
 }) => {
   if (!selectedFile) {
     return (
@@ -29,7 +29,9 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       <div className="flex items-center justify-center h-full bg-zinc-50 dark:bg-transparent">
         <div className="flex flex-col items-center space-y-3">
           <Loader2 className="h-5 w-5 animate-spin text-zinc-400" />
-          <span className="text-xs font-mono text-zinc-500 dark:text-zinc-300">Loading content...</span>
+          <span className="text-xs font-mono text-zinc-500 dark:text-zinc-300">
+            Loading content...
+          </span>
         </div>
       </div>
     );
@@ -62,4 +64,4 @@ export const CodeEditor: React.FC<CodeEditorProps> = ({
       </div>
     </div>
   );
-}; 
+};

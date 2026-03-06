@@ -1,51 +1,46 @@
 import logging
-from typing import Optional
+
 import mailtrap as mt
+
 from utils.config import config
 
 logger = logging.getLogger(__name__)
+
 
 class EmailService:
     def __init__(self):
         # Use centralized config for environment variables
         self.api_token = config.MAILTRAP_API_TOKEN
-        self.sender_email = getattr(config, 'MAILTRAP_SENDER_EMAIL', None) or 'hello@cheatcode.ai'
-        self.sender_name = getattr(config, 'MAILTRAP_SENDER_NAME', None) or 'CheatCode AI Team'
-        
+        self.sender_email = getattr(config, "MAILTRAP_SENDER_EMAIL", None) or "hello@cheatcode.ai"
+        self.sender_name = getattr(config, "MAILTRAP_SENDER_NAME", None) or "CheatCode AI Team"
+
         if not self.api_token:
             logger.warning("MAILTRAP_API_TOKEN not found in environment variables")
             self.client = None
         else:
             self.client = mt.MailtrapClient(token=self.api_token)
-    
-    def send_welcome_email(self, user_email: str, user_name: Optional[str] = None) -> bool:
+
+    def send_welcome_email(self, user_email: str, user_name: str | None = None) -> bool:
         if not self.client:
             logger.error("Cannot send email: MAILTRAP_API_TOKEN not configured")
             return False
-    
+
         if not user_name:
-            user_name = user_email.split('@')[0].title()
-        
+            user_name = user_email.split("@")[0].title()
+
         subject = "Welcome to Cheatcode AI — Build Apps & Websites Seamlessly!"
         html_content = self._get_welcome_email_template(user_name)
         text_content = self._get_welcome_email_text(user_name)
-        
+
         return self._send_email(
             to_email=user_email,
             to_name=user_name,
             subject=subject,
             html_content=html_content,
-            text_content=text_content
+            text_content=text_content,
         )
-    
-    def _send_email(
-        self, 
-        to_email: str, 
-        to_name: str, 
-        subject: str, 
-        html_content: str, 
-        text_content: str
-    ) -> bool:
+
+    def _send_email(self, to_email: str, to_name: str, subject: str, html_content: str, text_content: str) -> bool:
         try:
             mail = mt.Mail(
                 sender=mt.Address(email=self.sender_email, name=self.sender_name),
@@ -53,20 +48,20 @@ class EmailService:
                 subject=subject,
                 text=text_content,
                 html=html_content,
-                category="welcome"
+                category="welcome",
             )
-            
+
             response = self.client.send(mail)
-            
+
             logger.info(f"Welcome email sent to {to_email}. Response: {response}")
             return True
-                
-        except Exception as e:
-            logger.error(f"Error sending email to {to_email}: {str(e)}")
+
+        except Exception:
+            logger.exception(f"Error sending email to {to_email}")
             return False
-    
-    def _get_welcome_email_template(self, user_name: str) -> str:
-        return f"""<!DOCTYPE html>
+
+    def _get_welcome_email_template(self, user_name: str) -> str:  # noqa: ARG002
+        return """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -78,16 +73,16 @@ class EmailService:
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     /* Using a modern font for better aesthetics */
-    body {{
+    body {
       font-family: 'Inter', sans-serif;
       -webkit-font-smoothing: antialiased;
       -moz-osx-font-smoothing: grayscale;
-    }}
+    }
   </style>
 </head>
 <body class="bg-[#111827] text-gray-300">
   <div class="max-w-2xl mx-auto my-12 px-6 sm:px-8">
-    
+
     <!-- Header Section -->
     <header class="text-center mb-12">
       <img src="https://i.ibb.co/bjYvDhmj/favicon.png" alt="Cheatcode AI Logo" class="mx-auto h-20 w-auto mb-6">
@@ -99,7 +94,7 @@ class EmailService:
 
     <!-- Main Content -->
     <main class="bg-[#1f2937]/50 ring-1 ring-white/10 rounded-2xl p-8 sm:p-10">
-      
+
       <p class="text-lg mb-4">Hey there,</p>
       <p class="mb-6"><strong>We're thrilled to have you join the Cheatcode AI community!</strong></p>
       <p class="text-gray-400 mb-8">
@@ -156,11 +151,11 @@ class EmailService:
       </div>
 
       <p class="text-gray-400 mb-6">Ready to start building? Jump right in. If you have any questions or feedback, we're always here to help!</p>
-      
+
       <p class="mb-8">Happy coding! <span class="emoji">💻</span></p>
 
       <p class="text-gray-500">— The Cheatcode AI Team</p>
-      
+
       <!-- Call to Action Buttons -->
       <div class="mt-10 text-center">
         <a href="https://www.trycheatcode.com/" class="bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 px-6 rounded-lg transition-colors shadow-lg shadow-blue-500/20">
@@ -172,9 +167,9 @@ class EmailService:
   </div>
 </body>
 </html>"""
-    
-    def _get_welcome_email_text(self, user_name: str) -> str:
-        return f"""CHEATCODE AI
+
+    def _get_welcome_email_text(self, user_name: str) -> str:  # noqa: ARG002
+        return """CHEATCODE AI
 Welcome to the future of development!
 
 Hey there,
@@ -188,7 +183,7 @@ FEATURES:
 🔧 Build Anything
 Create full-stack websites, mobile apps, APIs, and more with natural language.
 
-⚡ Seamless Development  
+⚡ Seamless Development
 From frontend to deployment, we handle the complexity.
 
 🎯 Intelligent Automation
@@ -211,4 +206,5 @@ Happy coding! 💻
 © 2025 CheatCode AI. All rights reserved.
 You received this email because you signed up for a CheatCode AI account."""
 
-email_service = EmailService() 
+
+email_service = EmailService()

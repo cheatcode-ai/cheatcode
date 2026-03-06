@@ -40,12 +40,15 @@ dependencies = [
   "structlog==25.5.0",
   "google-genai>=1.53.0",
   "numpy>=1.24.0",
-  "dramatiq==2.0.0",
   "langfuse==3.10.5",
   "polar-sdk>=0.28.0",
   "clerk-backend-api==4.1.2",
   "composio>=0.9.4",
   "email-validator>=2.0.0",
+  "instructor>=1.7.0",
+  "tenacity>=8.2.0",
+  "inngest>=0.5.15",
+  "slowapi>=0.1.9",
 ]
 
 [project.urls]
@@ -55,3 +58,108 @@ homepage = "https://www.trycheatcode.com/"
 package = false
 
 [tool.uv.sources]
+
+[dependency-groups]
+dev = [
+    "ruff==0.11.12",
+]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 120
+exclude = [".venv", "__pycache__", "*.egg-info", "supabase/migrations"]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    # Formatter-managed (ruff format handles these)
+    "W191", "E111", "E114", "E117", "D206", "D300",
+    "Q000", "Q001", "Q002", "Q003",
+    "COM812", "COM819", "ISC001", "ISC002",
+
+    # Docstrings — app code, not a library
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+    "D203", "D213",
+
+    # Annotations — codebase has good hints but not 100% coverage
+    "ANN001", "ANN002", "ANN003",
+    "ANN201", "ANN202", "ANN204", "ANN401",
+
+    # FastAPI/project pattern conflicts
+    "FBT001", "FBT002",  # boolean positional args (FastAPI query params)
+    "EM101", "EM102",     # raw/f-string in exception
+    "TRY003", "TRY301",   # exception message patterns
+    "S101",               # assert (per-file-ignores for tests)
+    "INP001",             # implicit namespace package
+    "TC001", "TC002", "TC003",  # TYPE_CHECKING moves (breaks runtime)
+
+    # FastAPI-specific patterns
+    "FAST002",            # non-annotated dependency (FastAPI Depends() pattern)
+    "B008",               # function call in default arg (FastAPI Depends())
+    "FBT003",             # boolean positional value in call (library calls)
+
+    # Exception handling patterns (intentional broad catching in API handlers)
+    "BLE001",             # blind except (FastAPI error handlers catch broadly)
+    "TRY300",             # try-consider-else (semantic change risk)
+    "TRY002",             # raise vanilla class (stdlib exceptions are fine)
+
+    # Import ordering (intentional in this codebase)
+    "E402",               # module import not at top (env setup before imports)
+
+    # Logging patterns
+    "G004",               # logging f-string (conscious choice)
+    "LOG015",             # root logger call (existing logging pattern)
+
+    # Global state (architectural, needs separate refactor)
+    "PLW0603",            # global statement
+    "PLW0602",            # global variable not assigned
+
+    # Async patterns (architectural)
+    "ASYNC109",           # async function with timeout
+    "RUF006",             # asyncio dangling task
+    "ASYNC230",           # blocking open in async function
+
+    # Security (intentional patterns)
+    "S104",               # hardcoded bind all interfaces (dev servers)
+    "S110",               # try-except-pass (intentional silence)
+    "S112",               # try-except-continue (intentional skip)
+    "S311",               # non-cryptographic random (not security-sensitive)
+    "S603",               # subprocess without shell=True
+    "S607",               # start process with partial path
+    "S608",               # SQL injection in string (false positive on prompt templates)
+    "S108",               # hardcoded temp file
+
+    # Line length (120 is already generous; remaining are long strings/URLs)
+    "E501",
+
+    # Too pedantic
+    "TD002", "TD003", "FIX002",    # TODO formatting
+    "ERA001",             # commented-out code
+    "PLR0913",            # too many function args
+    "PLR2004",            # magic value comparison
+    "C901",               # function complexity
+    "PLR0911", "PLR0912", "PLR0915",  # too many returns/branches/statements
+    "SLF001",             # private member access
+    "RUF012",             # mutable class var without ClassVar
+    "PLW2901",            # redefined loop name
+    "RUF001",             # ambiguous unicode character string
+    "EXE001",             # shebang not executable
+    "N806",               # non-lowercase variable in function
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "D", "ANN", "PLR2004", "ARG001", "ARG002"]
+"agent/tools/**/*.py" = ["PLR0913", "ARG002"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["agent", "agentpress", "services", "utils", "sandbox", "flags", "composio_integration", "deployments", "inngest_functions"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
+docstring-code-format = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

@@ -18,11 +18,13 @@ import { useAccounts } from '@/hooks/use-accounts';
 import { isLocalMode } from '@/lib/config';
 import { toast } from 'sonner';
 import { useModal } from '@/hooks/use-modal-store';
-import { ChatInput, ChatInputHandles } from '@/components/thread/chat-input/chat-input';
+import {
+  ChatInput,
+  type ChatInputHandles,
+} from '@/components/thread/chat-input/chat-input';
 import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
 import { Examples } from '@/components/suggestions/examples';
 import { ThreadSkeleton } from '@/components/thread/content/ThreadSkeleton';
-
 
 // BlurredDialogOverlay removed - no longer needed with global modal system
 
@@ -34,18 +36,20 @@ export function HeroSection() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [inputValue, setInputValue] = useState('');
   const [appType, setAppType] = useState<'web' | 'mobile'>('web');
-  const [selectedModel, setSelectedModel] = useState<string>('claude-sonnet-4.5');
+  const [selectedModel, setSelectedModel] =
+    useState<string>('claude-sonnet-4.5');
   // This is now a coding-only system - no agent selection needed
   const router = useRouter();
   const { user, isLoaded } = useUser();
   const isLoading = !isLoaded;
-  const { billingError, clearBillingError } =
-    useBillingError();
+  const { billingError, clearBillingError } = useBillingError();
   const { data: accounts } = useAccounts();
   const personalAccount = accounts?.find((account) => account.personal_account);
   const { onOpen } = useModal();
   const initiateAgentMutation = useInitiateAgentMutation();
-  const [initiatedThreadId, setInitiatedThreadId] = useState<string | null>(null);
+  const [initiatedThreadId, setInitiatedThreadId] = useState<string | null>(
+    null,
+  );
   const threadQuery = useThreadQuery(initiatedThreadId || '');
   const chatInputRef = useRef<ChatInputHandles>(null);
 
@@ -59,9 +63,11 @@ export function HeroSection() {
     if (threadQuery.data && initiatedThreadId) {
       const thread = threadQuery.data;
       if (thread.project_id) {
-        router.push(`/projects/${thread.project_id}/thread/${initiatedThreadId}`);
+        router.replace(
+          `/projects/${thread.project_id}/thread/${initiatedThreadId}`,
+        );
       } else {
-        router.push(`/agents/${initiatedThreadId}`);
+        router.replace(`/agents/${initiatedThreadId}`);
       }
       setInitiatedThreadId(null);
     }
@@ -70,10 +76,14 @@ export function HeroSection() {
   // Handle ChatInput submission
   const handleChatInputSubmit = async (
     message: string,
-    _attachments?: Array<{ name: string; path: string; }>,
-    appType?: 'web' | 'mobile'
+    _attachments?: Array<{ name: string; path: string }>,
+    appType?: 'web' | 'mobile',
   ) => {
-    if ((!message.trim() && !chatInputRef.current?.getPendingFiles().length) || isSubmitting) return;
+    if (
+      (!message.trim() && !chatInputRef.current?.getPendingFiles().length) ||
+      isSubmitting
+    )
+      return;
 
     // If user is not logged in, save prompt and show auth modal
     if (!user && !isLoading) {
@@ -102,7 +112,7 @@ export function HeroSection() {
 
       // Validate app_type for type safety
       const validatedAppType = appType === 'mobile' ? 'mobile' : 'web';
-      
+
       // Pass selected model to backend
       formData.append('model_name', selectedModel);
       formData.append('enable_thinking', String(false));
@@ -115,43 +125,43 @@ export function HeroSection() {
 
       if (result.thread_id) {
         setInitiatedThreadId(result.thread_id);
-        
+
         // Generate and update thread name in the background
-        generateAndUpdateThreadName(result.thread_id, message)
-          .catch(() => {
-            // Failed to generate thread name - non-critical
-          });
+        generateAndUpdateThreadName(result.thread_id, message).catch(() => {
+          // Failed to generate thread name - non-critical
+        });
       } else {
         throw new Error('Agent initiation did not return a thread_id.');
       }
 
       chatInputRef.current?.clearPendingFiles();
       setInputValue('');
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof BillingError) {
-        onOpen("paymentRequiredDialog");
+        onOpen('paymentRequiredDialog');
       } else if (error instanceof InitiationAuthError) {
         toast.error(
           'Authentication failed. Please sign in again and try creating your project.',
-          { duration: 5000 }
+          { duration: 5000 },
         );
       } else if (error instanceof SandboxCreationError) {
         toast.error(
           `Failed to create development environment${error.detail.sandboxType ? ` (${error.detail.sandboxType})` : ''}. Please try again in a moment.`,
-          { duration: 5000 }
+          { duration: 5000 },
         );
       } else if (error instanceof ProjectInitiationError) {
         let errorMessage = error.message;
-        
+
         // Provide more specific messaging based on error type
         if (error.detail.errorType === 'validation') {
           errorMessage = 'Please check your inputs and try again.';
         } else if (error.detail.errorType === 'conflict') {
-          errorMessage = 'A project with this configuration already exists. Please try with different settings.';
+          errorMessage =
+            'A project with this configuration already exists. Please try with different settings.';
         } else if (error.detail.errorType === 'server') {
           errorMessage = 'Server error occurred. Please try again in a moment.';
         }
-        
+
         toast.error(errorMessage, { duration: 5000 });
       } else {
         const isConnectionError =
@@ -159,8 +169,10 @@ export function HeroSection() {
           error.message.includes('Failed to fetch');
         if (!isLocalMode() || isConnectionError) {
           toast.error(
-            error.message || 'Failed to create project. Please try again.',
-            { duration: 4000 }
+            error instanceof Error
+              ? error.message
+              : 'Failed to create project. Please try again.',
+            { duration: 4000 },
           );
         }
       }
@@ -177,10 +189,6 @@ export function HeroSection() {
   return (
     <section id="hero" className="w-full relative overflow-hidden">
       <div className="relative flex flex-col items-center w-full px-6">
-
-
-
-
         {/* Center content background with rounded bottom - removed to show gradient */}
 
         <div className="relative z-10 pt-16 max-w-3xl mx-auto h-full w-full flex flex-col gap-10 items-center justify-center">
@@ -217,7 +225,11 @@ export function HeroSection() {
 
           {/* Example prompts */}
           <div className="w-full max-w-4xl">
-            <Examples key={appType} onSelectPrompt={setInputValue} appType={appType} />
+            <Examples
+              key={appType}
+              onSelectPrompt={setInputValue}
+              appType={appType}
+            />
           </div>
         </div>
       </div>

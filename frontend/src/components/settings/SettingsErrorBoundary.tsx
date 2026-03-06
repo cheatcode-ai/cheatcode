@@ -1,7 +1,13 @@
 'use client';
 
 import React from 'react';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { AlertTriangle, RefreshCw, Home, Bug } from 'lucide-react';
@@ -41,7 +47,9 @@ export class SettingsErrorBoundary extends React.Component<
     };
   }
 
-  static getDerivedStateFromError(error: Error): Partial<SettingsErrorBoundaryState> {
+  static getDerivedStateFromError(
+    error: Error,
+  ): Partial<SettingsErrorBoundaryState> {
     return {
       hasError: true,
       error,
@@ -60,8 +68,18 @@ export class SettingsErrorBoundary extends React.Component<
     }
 
     // Log to monitoring service (if available)
-    if (typeof window !== 'undefined' && (window as any).Sentry) {
-      (window as any).Sentry.captureException(error, {
+    if (
+      typeof window !== 'undefined' &&
+      (window as unknown as Record<string, unknown>).Sentry
+    ) {
+      (
+        (window as unknown as Record<string, unknown>).Sentry as {
+          captureException: (
+            error: Error,
+            options: Record<string, unknown>,
+          ) => void;
+        }
+      ).captureException(error, {
         contexts: {
           errorBoundary: {
             componentStack: errorInfo.componentStack,
@@ -88,15 +106,20 @@ export class SettingsErrorBoundary extends React.Component<
       if (this.props.fallback) {
         const FallbackComponent = this.props.fallback;
         return (
-          <FallbackComponent 
-            error={this.state.error!} 
+          <FallbackComponent
+            error={this.state.error!}
             retry={this.handleRetry}
           />
         );
       }
 
       // Default error UI
-      return <DefaultSettingsErrorFallback error={this.state.error!} retry={this.handleRetry} />;
+      return (
+        <DefaultSettingsErrorFallback
+          error={this.state.error!}
+          retry={this.handleRetry}
+        />
+      );
     }
 
     return this.props.children;
@@ -106,19 +129,18 @@ export class SettingsErrorBoundary extends React.Component<
 /**
  * Default error fallback component for settings
  */
-function DefaultSettingsErrorFallback({ 
-  error, 
-  retry 
-}: ErrorFallbackProps) {
+function DefaultSettingsErrorFallback({ error, retry }: ErrorFallbackProps) {
   const router = useRouter();
 
-  const isNetworkError = error.message?.includes('fetch') || 
-                         error.message?.includes('network') ||
-                         error.message?.includes('Failed to');
+  const isNetworkError =
+    error.message?.includes('fetch') ||
+    error.message?.includes('network') ||
+    error.message?.includes('Failed to');
 
-  const isAuthError = error.message?.includes('auth') || 
-                      error.message?.includes('token') ||
-                      error.message?.includes('unauthorized');
+  const isAuthError =
+    error.message?.includes('auth') ||
+    error.message?.includes('token') ||
+    error.message?.includes('unauthorized');
 
   const handleGoHome = () => {
     router.push('/');
@@ -134,15 +156,17 @@ function DefaultSettingsErrorFallback({
     const subject = encodeURIComponent('Settings Error Report');
     const body = encodeURIComponent(
       `Error occurred in settings page:\n\n` +
-      `Error: ${error.message}\n` +
-      `Stack: ${error.stack || 'Not available'}\n` +
-      `URL: ${typeof window !== 'undefined' ? window.location.href : 'Unknown'}\n` +
-      `User Agent: ${typeof window !== 'undefined' ? window.navigator.userAgent : 'Unknown'}\n` +
-      `Timestamp: ${new Date().toISOString()}`
+        `Error: ${error.message}\n` +
+        `Stack: ${error.stack || 'Not available'}\n` +
+        `URL: ${typeof window !== 'undefined' ? window.location.href : 'Unknown'}\n` +
+        `User Agent: ${typeof window !== 'undefined' ? window.navigator.userAgent : 'Unknown'}\n` +
+        `Timestamp: ${new Date().toISOString()}`,
     );
-    
+
     if (typeof window !== 'undefined') {
-      window.open(`mailto:support@cheatcode.ai?subject=${subject}&body=${body}`);
+      window.open(
+        `mailto:support@cheatcode.ai?subject=${subject}&body=${body}`,
+      );
     }
   };
 
@@ -162,37 +186,35 @@ function DefaultSettingsErrorFallback({
           <Alert variant="destructive">
             <AlertTriangle className="h-4 w-4" />
             <AlertDescription>
-              {isNetworkError ? (
-                "Network connection error. Please check your internet connection and try again."
-              ) : isAuthError ? (
-                "Authentication error. Please sign in again to continue."
-              ) : (
-                `Error: ${error.message || 'An unexpected error occurred'}`
-              )}
+              {isNetworkError
+                ? 'Network connection error. Please check your internet connection and try again.'
+                : isAuthError
+                  ? 'Authentication error. Please sign in again to continue.'
+                  : `Error: ${error.message || 'An unexpected error occurred'}`}
             </AlertDescription>
           </Alert>
 
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <Button 
-              onClick={retry} 
+            <Button
+              onClick={retry}
               variant="default"
               className="flex items-center gap-2"
             >
               <RefreshCw className="h-4 w-4" />
               Try Again
             </Button>
-            
-            <Button 
-              onClick={handleRefreshPage} 
+
+            <Button
+              onClick={handleRefreshPage}
               variant="outline"
               className="flex items-center gap-2"
             >
               <RefreshCw className="h-4 w-4" />
               Refresh Page
             </Button>
-            
-            <Button 
-              onClick={handleGoHome} 
+
+            <Button
+              onClick={handleGoHome}
               variant="secondary"
               className="flex items-center gap-2"
             >
@@ -211,9 +233,9 @@ function DefaultSettingsErrorFallback({
                   {error.stack || error.message}
                 </pre>
               </div>
-              <Button 
-                onClick={handleReportBug} 
-                variant="ghost" 
+              <Button
+                onClick={handleReportBug}
+                variant="ghost"
                 size="sm"
                 className="flex items-center gap-2 text-muted-foreground"
               >
@@ -227,31 +249,3 @@ function DefaultSettingsErrorFallback({
     </div>
   );
 }
-
-/**
- * Hook to wrap components with error boundary
- */
-export function useSettingsErrorHandler() {
-  return React.useCallback((_error: Error, _errorInfo: React.ErrorInfo) => {
-    // Could dispatch to global error store here
-    // or send to analytics
-  }, []);
-}
-
-/**
- * HOC to wrap components with settings error boundary
- */
-export function withSettingsErrorBoundary<P extends object>(
-  Component: React.ComponentType<P>,
-  fallback?: React.ComponentType<ErrorFallbackProps>
-) {
-  return function WrappedComponent(props: P) {
-    return (
-      <SettingsErrorBoundary fallback={fallback}>
-        <Component {...props} />
-      </SettingsErrorBoundary>
-    );
-  };
-}
-
-export default SettingsErrorBoundary;

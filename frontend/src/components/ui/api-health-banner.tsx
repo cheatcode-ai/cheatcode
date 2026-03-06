@@ -28,7 +28,9 @@ export function ApiHealthBanner({ onDismiss }: ApiHealthBannerProps) {
             disabled={isLoading}
             className="text-yellow-200 hover:text-yellow-100"
           >
-            <RefreshCw className={`h-4 w-4 mr-1 ${isLoading ? 'animate-spin' : ''}`} />
+            <RefreshCw
+              className={`h-4 w-4 mr-1 ${isLoading ? 'animate-spin' : ''}`}
+            />
             Retry
           </Button>
           <Button

@@ -1,6 +1,14 @@
 'use client';
 
-import React, { createContext, useContext, useState, useCallback, useEffect, useRef } from 'react';
+import React, {
+  createContext,
+  useContext,
+  useState,
+  useCallback,
+  useEffect,
+  useRef,
+  Suspense,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useIsMobile } from '@/hooks/use-mobile';
 import { useAppPreview, useKeyboardShortcuts } from '../_hooks';
@@ -10,7 +18,7 @@ interface LayoutContextValue {
   // Mobile/responsive
   isMobile: boolean;
   debugMode: boolean;
-  
+
   // App preview & layout
   isSidePanelOpen: boolean;
   setIsSidePanelOpen: React.Dispatch<React.SetStateAction<boolean>>;
@@ -18,7 +26,7 @@ interface LayoutContextValue {
   userClosedPanelRef: React.MutableRefObject<boolean>;
   autoOpenedPanel: boolean;
   setAutoOpenedPanel: React.Dispatch<React.SetStateAction<boolean>>;
-  
+
   // Project rename
   handleProjectRenamed: (newName: string) => void;
 }
@@ -37,14 +45,35 @@ interface LayoutProviderProps {
   children: React.ReactNode;
 }
 
-export function LayoutProvider({ children }: LayoutProviderProps) {
-  const { messages, initialLoadCompleted, messagesQuery, agentStatus } = useThreadState();
-  const isMobile = useIsMobile();
+/**
+ * Inner component that reads useSearchParams and syncs debug mode.
+ * Extracted so it can be wrapped in a Suspense boundary (Next.js requirement).
+ */
+function SearchParamsSync({
+  setDebugMode,
+}: {
+  setDebugMode: React.Dispatch<React.SetStateAction<boolean>>;
+}) {
   const searchParams = useSearchParams();
+
+  useEffect(() => {
+    const debugParam = searchParams.get('debug');
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setDebugMode(debugParam === 'true');
+  }, [searchParams, setDebugMode]);
+
+  return null;
+}
+
+export function LayoutProvider({ children }: LayoutProviderProps) {
+  const { messages, initialLoadCompleted, messagesQuery, agentStatus } =
+    useThreadState();
+  const isMobile = useIsMobile();
 
   const [debugMode, setDebugMode] = useState(false);
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(false);
-  const [initialPanelOpenAttempted, setInitialPanelOpenAttempted] = useState(false);
+  const [initialPanelOpenAttempted, setInitialPanelOpenAttempted] =
+    useState(false);
   const initialLayoutAppliedRef = useRef(false);
 
   const leftSidebarState = leftSidebarOpen ? 'expanded' : 'collapsed';
@@ -74,6 +103,7 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
   // Initialize layout
   useEffect(() => {
     if (!initialLayoutAppliedRef.current) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setLeftSidebarOpen(false);
       initialLayoutAppliedRef.current = true;
     }
@@ -83,19 +113,20 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
   const hasMessages = messagesQuery?.data !== undefined;
   useEffect(() => {
     if ((initialLoadCompleted || hasMessages) && !initialPanelOpenAttempted) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setInitialPanelOpenAttempted(true);
 
       if (messages.length > 0) {
         setIsSidePanelOpen(true);
       }
     }
-  }, [initialPanelOpenAttempted, messages, initialLoadCompleted, hasMessages, setIsSidePanelOpen]);
-
-  // Debug mode from URL params
-  useEffect(() => {
-    const debugParam = searchParams.get('debug');
-    setDebugMode(debugParam === 'true');
-  }, [searchParams]);
+  }, [
+    initialPanelOpenAttempted,
+    messages,
+    initialLoadCompleted,
+    hasMessages,
+    setIsSidePanelOpen,
+  ]);
 
   const value: LayoutContextValue = {
     isMobile,
@@ -111,6 +142,9 @@ export function LayoutProvider({ children }: LayoutProviderProps) {
 
   return (
     <LayoutContext.Provider value={value}>
+      <Suspense fallback={null}>
+        <SearchParamsSync setDebugMode={setDebugMode} />
+      </Suspense>
       {children}
     </LayoutContext.Provider>
   );

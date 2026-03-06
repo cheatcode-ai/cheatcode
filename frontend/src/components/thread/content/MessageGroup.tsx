@@ -2,9 +2,12 @@
 
 import React from 'react';
 import { Markdown } from '@/components/ui/markdown';
-import { UnifiedMessage, ParsedContent } from '@/components/thread/types';
+import {
+  type UnifiedMessage,
+  type ParsedContent,
+} from '@/components/thread/types';
 import { FileAttachmentGrid } from '@/components/thread/file-attachment';
-import { Project } from '@/lib/api';
+import { type Project } from '@/lib/api';
 import { safeJsonParse } from '@/components/thread/utils';
 import { renderMarkdownContent } from './ThreadContent';
 import type { MessageGroup as MessageGroupType } from './useMessageGrouping';
@@ -13,7 +16,10 @@ interface MessageGroupProps {
   group: MessageGroupType;
   groupIndex: number;
   totalGroups: number;
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void;
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void;
   sandboxId?: string;
   project?: Project;
   debugMode?: boolean;
@@ -35,7 +41,14 @@ export function MessageGroup({
   const isLastGroup = groupIndex === totalGroups - 1;
 
   if (group.type === 'user') {
-    return <UserMessage group={group} sandboxId={sandboxId} project={project} debugMode={debugMode} />;
+    return (
+      <UserMessage
+        group={group}
+        sandboxId={sandboxId}
+        project={project}
+        debugMode={debugMode}
+      />
+    );
   }
 
   if (group.type === 'assistant_group') {
@@ -62,12 +75,20 @@ interface UserMessageProps {
   debugMode?: boolean;
 }
 
-function UserMessage({ group, sandboxId, project, debugMode }: UserMessageProps) {
+function UserMessage({
+  group,
+  sandboxId,
+  project,
+  debugMode,
+}: UserMessageProps) {
   const message = group.messages[0];
-  const messageContent = (() => {
+  const messageContent: string = (() => {
     try {
-      const parsed = safeJsonParse<ParsedContent>(message.content, { content: message.content });
-      return parsed.content || message.content;
+      const parsed = safeJsonParse<ParsedContent>(message.content, {
+        content: message.content,
+      });
+      const c = parsed.content;
+      return typeof c === 'string' ? c : message.content;
     } catch {
       return message.content;
     }
@@ -88,17 +109,24 @@ function UserMessage({ group, sandboxId, project, debugMode }: UserMessageProps)
   // Extract attachments from the message content
   const attachmentsMatch = messageContent.match(/\[Uploaded File: (.*?)\]/g);
   const attachments = attachmentsMatch
-    ? attachmentsMatch.map((m: string) => {
-        const pathMatch = m.match(/\[Uploaded File: (.*?)\]/);
-        return pathMatch ? pathMatch[1] : null;
-      }).filter(Boolean) as string[]
+    ? (attachmentsMatch
+        .map((m: string) => {
+          const pathMatch = m.match(/\[Uploaded File: (.*?)\]/);
+          return pathMatch ? pathMatch[1] : null;
+        })
+        .filter(Boolean) as string[])
     : [];
 
   // Remove attachment info from the message content
-  const cleanContent = messageContent.replace(/\[Uploaded File: .*?\]/g, '').trim();
+  const cleanContent = messageContent
+    .replace(/\[Uploaded File: .*?\]/g, '')
+    .trim();
 
   return (
-    <div key={group.key} className="flex flex-col mt-4 mb-2 relative group px-2">
+    <div
+      key={group.key}
+      className="flex flex-col mt-4 mb-2 relative group px-2"
+    >
       <div className="relative bg-[var(--thread-user-message-bg)] border border-zinc-800/50 rounded-lg p-4 backdrop-blur-sm">
         <div className="prose prose-sm dark:prose-invert chat-markdown max-w-none break-words overflow-wrap-anywhere text-zinc-300 font-mono tracking-wide leading-normal text-xs [&>p]:text-xs [&>pre]:text-xs [&>code]:text-xs">
           {cleanContent && <Markdown>{cleanContent}</Markdown>}
@@ -120,7 +148,10 @@ function UserMessage({ group, sandboxId, project, debugMode }: UserMessageProps)
 
 interface AssistantGroupProps {
   group: MessageGroupType;
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void;
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void;
   sandboxId?: string;
   project?: Project;
   debugMode?: boolean;
@@ -163,7 +194,10 @@ function AssistantGroup({
 
 interface AssistantMessagesProps {
   messages: UnifiedMessage[];
-  handleToolClick: (assistantMessageId: string | null, toolName: string) => void;
+  handleToolClick: (
+    assistantMessageId: string | null,
+    toolName: string,
+  ) => void;
   sandboxId?: string;
   project?: Project;
   debugMode?: boolean;
@@ -206,14 +240,18 @@ function AssistantMessages({
       const parsedContent = safeJsonParse<ParsedContent>(message.content, {});
 
       if (!parsedContent.content) return;
+      const contentStr =
+        typeof parsedContent.content === 'string'
+          ? parsedContent.content
+          : JSON.stringify(parsedContent.content);
 
       const renderedContent = renderMarkdownContent(
-        parsedContent.content,
+        contentStr,
         handleToolClick,
         message.message_id,
         sandboxId,
         project,
-        debugMode
+        debugMode,
       );
 
       elements.push(
@@ -221,7 +259,7 @@ function AssistantMessages({
           <div className="prose prose-sm dark:prose-invert chat-markdown max-w-none [&>:first-child]:mt-0 prose-headings:mt-4 break-words overflow-hidden text-zinc-100/90 leading-relaxed tracking-wide">
             {renderedContent}
           </div>
-        </div>
+        </div>,
       );
 
       assistantMessageCount++;
@@ -256,7 +294,7 @@ function AssistantMessages({
           <div className="text-[12px] text-zinc-500 font-mono overflow-x-auto bg-white/[0.01] border-l border-zinc-800 pl-4 py-2 leading-relaxed">
             {output}
           </div>
-        </div>
+        </div>,
       );
     } else if (message.type === 'status') {
       const content = message.content;
@@ -264,7 +302,8 @@ function AssistantMessages({
 
       let statusData;
       try {
-        statusData = typeof content === 'object' ? content : JSON.parse(content);
+        statusData =
+          typeof content === 'object' ? content : JSON.parse(content);
       } catch {
         return;
       }
@@ -281,7 +320,7 @@ function AssistantMessages({
                 {statusMessage}
               </span>
             </div>
-          </div>
+          </div>,
         );
       }
     }

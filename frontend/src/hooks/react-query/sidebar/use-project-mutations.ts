@@ -1,39 +1,11 @@
 'use client';
 
 import { createMutationHook } from '@/hooks/use-query';
-import {
-  createProject,
-  updateProject,
-  deleteProject,
-  Project
-} from '@/lib/api';
+import { updateProject, deleteProject, type Project } from '@/lib/api';
 import { toast } from 'sonner';
 import { projectKeys, threadKeys } from './keys';
 import { useAuth } from '@clerk/nextjs';
 import { useQueryClient } from '@tanstack/react-query';
-
-export const useCreateProject = () => {
-  const queryClient = useQueryClient();
-
-  return createMutationHook(
-    (data: { name: string; description: string; accountId?: string }) =>
-      createProject(data, data.accountId),
-    {
-      onSuccess: () => {
-        toast.success('Project created successfully');
-      },
-      errorContext: {
-        operation: 'create project',
-        resource: 'project'
-      }
-    }
-  )({
-    // Invalidate projects list after successful creation
-    onSettled: () => {
-      queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-    },
-  });
-};
 
 interface UpdateProjectVariables {
   projectId: string;
@@ -52,54 +24,71 @@ export const useUpdateProject = () => {
       },
       errorContext: {
         operation: 'update project',
-        resource: 'project'
-      }
-    }
+        resource: 'project',
+      },
+    },
   )({
     // Optimistic update for project
     onMutate: async ({ projectId, data }) => {
       // Cancel outgoing refetches
       await queryClient.cancelQueries({ queryKey: projectKeys.lists() });
-      await queryClient.cancelQueries({ queryKey: projectKeys.details(projectId) });
+      await queryClient.cancelQueries({
+        queryKey: projectKeys.details(projectId),
+      });
 
       // Snapshot previous values
-      const previousProjects = queryClient.getQueryData<Project[]>(projectKeys.lists());
-      const previousProject = queryClient.getQueryData<Project>(projectKeys.details(projectId));
+      const previousProjects = queryClient.getQueryData<Project[]>(
+        projectKeys.lists(),
+      );
+      const previousProject = queryClient.getQueryData<Project>(
+        projectKeys.details(projectId),
+      );
 
       // Optimistically update the projects list
       if (previousProjects) {
         queryClient.setQueryData<Project[]>(
           projectKeys.lists(),
-          previousProjects.map(project =>
-            project.id === projectId ? { ...project, ...data } : project
-          )
+          previousProjects.map((project) =>
+            project.id === projectId ? { ...project, ...data } : project,
+          ),
         );
       }
 
       // Optimistically update the project detail
       if (previousProject) {
-        queryClient.setQueryData<Project>(
-          projectKeys.details(projectId),
-          { ...previousProject, ...data }
-        );
+        queryClient.setQueryData<Project>(projectKeys.details(projectId), {
+          ...previousProject,
+          ...data,
+        });
       }
 
       return { previousProjects, previousProject, projectId };
     },
     // Rollback on error
     onError: (_error, _variables, onMutateResult, _context) => {
-      const result = onMutateResult as { previousProjects?: Project[]; previousProject?: Project; projectId?: string } | undefined;
+      const result = onMutateResult as
+        | {
+            previousProjects?: Project[];
+            previousProject?: Project;
+            projectId?: string;
+          }
+        | undefined;
       if (result?.previousProjects) {
         queryClient.setQueryData(projectKeys.lists(), result.previousProjects);
       }
       if (result?.previousProject && result?.projectId) {
-        queryClient.setQueryData(projectKeys.details(result.projectId), result.previousProject);
+        queryClient.setQueryData(
+          projectKeys.details(result.projectId),
+          result.previousProject,
+        );
       }
     },
     // Always refetch after error or success
     onSettled: (_data, _error, variables) => {
       queryClient.invalidateQueries({ queryKey: projectKeys.lists() });
-      queryClient.invalidateQueries({ queryKey: projectKeys.details(variables.projectId) });
+      queryClient.invalidateQueries({
+        queryKey: projectKeys.details(variables.projectId),
+      });
     },
   });
 };
@@ -119,9 +108,9 @@ export const useDeleteProject = () => {
       },
       errorContext: {
         operation: 'delete project',
-        resource: 'project'
-      }
-    }
+        resource: 'project',
+      },
+    },
   )({
     // Optimistic update: immediately remove project from UI
     onMutate: async ({ projectId }) => {
@@ -130,13 +119,15 @@ export const useDeleteProject = () => {
       await queryClient.cancelQueries({ queryKey: threadKeys.lists() });
 
       // Snapshot previous values
-      const previousProjects = queryClient.getQueryData<Project[]>(projectKeys.lists());
+      const previousProjects = queryClient.getQueryData<Project[]>(
+        projectKeys.lists(),
+      );
 
       // Optimistically update to remove the project
       if (previousProjects) {
         queryClient.setQueryData<Project[]>(
           projectKeys.lists(),
-          previousProjects.filter(project => project.id !== projectId)
+          previousProjects.filter((project) => project.id !== projectId),
         );
       }
 
@@ -144,7 +135,9 @@ export const useDeleteProject = () => {
     },
     // Rollback on error
     onError: (_error, _variables, onMutateResult, _context) => {
-      const result = onMutateResult as { previousProjects?: Project[] } | undefined;
+      const result = onMutateResult as
+        | { previousProjects?: Project[] }
+        | undefined;
       if (result?.previousProjects) {
         queryClient.setQueryData(projectKeys.lists(), result.previousProjects);
       }
@@ -155,4 +148,4 @@ export const useDeleteProject = () => {
       queryClient.invalidateQueries({ queryKey: threadKeys.lists() });
     },
   });
-}; 
+};

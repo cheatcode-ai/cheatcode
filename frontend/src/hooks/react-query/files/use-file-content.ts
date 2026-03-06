@@ -11,11 +11,11 @@ export function useFileContent(
   options: {
     enabled?: boolean;
     staleTime?: number;
-  } = {}
+  } = {},
 ) {
   return useFileContentQuery(sandboxId, filePath, {
     // Auto-detect content type for consistency across all hooks
     enabled: options.enabled,
     staleTime: options.staleTime,
   });
-} 
+}

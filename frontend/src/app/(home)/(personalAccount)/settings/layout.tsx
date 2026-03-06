@@ -24,9 +24,7 @@ export default async function PersonalAccountSettingsLayout({
 
           {/* Content */}
           <div className="w-full">
-            <SettingsErrorBoundary>
-              {children}
-            </SettingsErrorBoundary>
+            <SettingsErrorBoundary>{children}</SettingsErrorBoundary>
           </div>
         </div>
       </div>

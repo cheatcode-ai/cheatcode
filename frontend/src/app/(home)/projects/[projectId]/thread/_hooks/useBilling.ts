@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useBillingStatusQuery } from '@/hooks/react-query/threads/use-billing-status';
-import { BillingData, AgentStatus } from '../_types';
+import { type BillingData, type AgentStatus } from '../_types';
 
 interface UseBillingReturn {
   showBillingAlert: boolean;
@@ -18,7 +18,7 @@ interface UseBillingReturn {
 export function useBilling(
   projectAccountId: string | null | undefined,
   agentStatus: AgentStatus,
-  initialLoadCompleted: boolean
+  initialLoadCompleted: boolean,
 ): UseBillingReturn {
   const [showBillingAlert, setShowBillingAlert] = useState(false);
   const [billingData, setBillingData] = useState<BillingData>({});
@@ -41,14 +41,16 @@ export function useBilling(
         setBillingData({
           currentUsage: result.credits_total - result.credits_remaining,
           limit: result.credits_total,
-          message: result.message || `You have ${result.credits_remaining} credits remaining`,
+          message:
+            result.message ||
+            `You have ${result.credits_remaining} credits remaining`,
           accountId: projectAccountId || null,
         });
         setShowBillingAlert(true);
         return true;
       }
       return false;
-    } catch (err) {
+    } catch {
       return false;
     }
   }, [projectAccountId, billingStatusQuery]);
@@ -56,6 +58,7 @@ export function useBilling(
   useEffect(() => {
     const previousStatus = previousAgentStatus.current;
     if (previousStatus === 'running' && agentStatus === 'idle') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       checkBillingLimits();
     }
     previousAgentStatus.current = agentStatus;
@@ -63,14 +66,21 @@ export function useBilling(
 
   useEffect(() => {
     if (projectAccountId && initialLoadCompleted && !billingStatusQuery.data) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       checkBillingLimits();
     }
-  }, [projectAccountId, checkBillingLimits, initialLoadCompleted, billingStatusQuery.data]);
+  }, [
+    projectAccountId,
+    checkBillingLimits,
+    initialLoadCompleted,
+    billingStatusQuery.data,
+  ]);
 
   // Calculate credit information
   const creditsRemaining = billingStatusQuery.data?.credits_remaining || 0;
   const creditsTotal = billingStatusQuery.data?.credits_total || 0;
-  const isUpgradeRequired = creditsRemaining <= 0 && billingStatusQuery.data?.plan_id !== 'byok';
+  const isUpgradeRequired =
+    creditsRemaining <= 0 && billingStatusQuery.data?.plan_id !== 'byok';
 
   return {
     showBillingAlert,
@@ -83,4 +93,4 @@ export function useBilling(
     creditsTotal,
     isUpgradeRequired,
   };
-} 
+}

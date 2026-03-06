@@ -12,14 +12,16 @@ interface ThreadProvidersProps {
   projectId: string;
 }
 
-export function ThreadProviders({ children, threadId, projectId }: ThreadProvidersProps) {
+export function ThreadProviders({
+  children,
+  threadId,
+  projectId,
+}: ThreadProvidersProps) {
   return (
     <ThreadStateProvider threadId={threadId} projectId={projectId}>
       <ThreadBillingProvider>
         <LayoutProvider>
-          <ThreadActionsProvider>
-            {children}
-          </ThreadActionsProvider>
+          <ThreadActionsProvider>{children}</ThreadActionsProvider>
         </LayoutProvider>
       </ThreadBillingProvider>
     </ThreadStateProvider>
@@ -29,5 +31,3 @@ export function ThreadProviders({ children, threadId, projectId }: ThreadProvide
 // Export all hooks for easy consumption
 export { useThreadState } from './ThreadStateContext';
 export { useThreadActions } from './ThreadActionsContext';
-export { useThreadBilling } from './BillingContext';
-export { useLayout } from './LayoutContext';

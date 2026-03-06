@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useAgentRunsQuery } from '@/hooks/react-query/threads/use-agent-run';
-import { AgentStatus } from '../_types';
+import { type AgentStatus } from '../_types';
 
 interface UseAgentRunStateReturn {
   agentRunId: string | null;
@@ -35,9 +35,12 @@ export function useAgentRunState(threadId: string): UseAgentRunStateReturn {
       if (agentRunsQuery.data) {
         agentRunsCheckedRef.current = true;
 
-        const activeRun = agentRunsQuery.data.find((run) => run.status === 'running');
+        const activeRun = agentRunsQuery.data.find(
+          (run) => run.status === 'running',
+        );
         if (activeRun) {
-          setAgentRunId(activeRun.id);
+          // eslint-disable-next-line react-hooks/set-state-in-effect
+          setAgentRunId(activeRun.run_id);
           setAgentStatus('running');
         } else {
           setAgentStatus('idle');
@@ -57,6 +60,7 @@ export function useAgentRunState(threadId: string): UseAgentRunStateReturn {
   // Reset checked ref when threadId changes
   useEffect(() => {
     agentRunsCheckedRef.current = false;
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setAgentRunId(null);
     setAgentStatus('idle');
     setIsLoading(true);

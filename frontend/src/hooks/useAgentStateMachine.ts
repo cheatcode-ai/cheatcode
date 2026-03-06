@@ -3,27 +3,27 @@
 import { useReducer, useCallback, useMemo } from 'react';
 
 // Agent State Types
-export type AgentStatus = 
-  | 'idle' 
-  | 'connecting' 
-  | 'running' 
-  | 'completed' 
-  | 'stopped' 
-  | 'failed' 
+export type AgentStatus =
+  | 'idle'
+  | 'connecting'
+  | 'running'
+  | 'completed'
+  | 'stopped'
+  | 'failed'
   | 'error';
 
-export interface AgentState {
+interface AgentState {
   status: AgentStatus;
   runId: string | null;
   isSending: boolean;
   autoStartedRun: boolean;
   error: string | null;
   streamingTextContent: string;
-  streamingToolCall: any | null;
+  streamingToolCall: Record<string, unknown> | null;
 }
 
 // Agent Actions
-export type AgentAction =
+type AgentAction =
   | { type: 'START_SENDING' }
   | { type: 'STOP_SENDING' }
   | { type: 'CONNECT'; runId: string }
@@ -35,7 +35,7 @@ export type AgentAction =
   | { type: 'RESET' }
   | { type: 'SET_AUTO_STARTED'; autoStarted: boolean }
   | { type: 'UPDATE_STREAMING_TEXT'; content: string }
-  | { type: 'UPDATE_STREAMING_TOOL'; toolCall: any }
+  | { type: 'UPDATE_STREAMING_TOOL'; toolCall: Record<string, unknown> | null }
   | { type: 'CLEAR_STREAMING_CONTENT' };
 
 // Initial State
@@ -160,69 +160,84 @@ export function useAgentStateMachine() {
   const [state, dispatch] = useReducer(agentReducer, initialAgentState);
 
   // Action creators
-  const actions = useMemo(() => ({
-    startSending: () => dispatch({ type: 'START_SENDING' }),
-    stopSending: () => dispatch({ type: 'STOP_SENDING' }),
-    connect: (runId: string) => dispatch({ type: 'CONNECT', runId }),
-    startStreaming: () => dispatch({ type: 'START_STREAMING' }),
-    complete: () => dispatch({ type: 'COMPLETE' }),
-    stop: () => dispatch({ type: 'STOP' }),
-    fail: (error: string) => dispatch({ type: 'FAIL', error }),
-    error: (error: string) => dispatch({ type: 'ERROR', error }),
-    reset: () => dispatch({ type: 'RESET' }),
-    setAutoStarted: (autoStarted: boolean) => dispatch({ type: 'SET_AUTO_STARTED', autoStarted }),
-    updateStreamingText: (content: string) => dispatch({ type: 'UPDATE_STREAMING_TEXT', content }),
-    updateStreamingTool: (toolCall: any) => dispatch({ type: 'UPDATE_STREAMING_TOOL', toolCall }),
-    clearStreamingContent: () => dispatch({ type: 'CLEAR_STREAMING_CONTENT' }),
-  }), []);
+  const actions = useMemo(
+    () => ({
+      startSending: () => dispatch({ type: 'START_SENDING' }),
+      stopSending: () => dispatch({ type: 'STOP_SENDING' }),
+      connect: (runId: string) => dispatch({ type: 'CONNECT', runId }),
+      startStreaming: () => dispatch({ type: 'START_STREAMING' }),
+      complete: () => dispatch({ type: 'COMPLETE' }),
+      stop: () => dispatch({ type: 'STOP' }),
+      fail: (error: string) => dispatch({ type: 'FAIL', error }),
+      error: (error: string) => dispatch({ type: 'ERROR', error }),
+      reset: () => dispatch({ type: 'RESET' }),
+      setAutoStarted: (autoStarted: boolean) =>
+        dispatch({ type: 'SET_AUTO_STARTED', autoStarted }),
+      updateStreamingText: (content: string) =>
+        dispatch({ type: 'UPDATE_STREAMING_TEXT', content }),
+      updateStreamingTool: (toolCall: Record<string, unknown> | null) =>
+        dispatch({ type: 'UPDATE_STREAMING_TOOL', toolCall }),
+      clearStreamingContent: () =>
+        dispatch({ type: 'CLEAR_STREAMING_CONTENT' }),
+    }),
+    [],
+  );
 
   // Derived state getters
-  const getters = useMemo(() => ({
-    isIdle: state.status === 'idle',
-    isConnecting: state.status === 'connecting',
-    isRunning: state.status === 'running',
-    isCompleted: state.status === 'completed',
-    isStopped: state.status === 'stopped',
-    isFailed: state.status === 'failed',
-    isError: state.status === 'error',
-    isActive: state.status === 'connecting' || state.status === 'running',
-    isTerminal: ['completed', 'stopped', 'failed', 'error'].includes(state.status),
-    canStart: state.status === 'idle' && !state.isSending,
-    canStop: state.status === 'connecting' || state.status === 'running',
-  }), [state.status, state.isSending]);
+  const getters = useMemo(
+    () => ({
+      isIdle: state.status === 'idle',
+      isConnecting: state.status === 'connecting',
+      isRunning: state.status === 'running',
+      isCompleted: state.status === 'completed',
+      isStopped: state.status === 'stopped',
+      isFailed: state.status === 'failed',
+      isError: state.status === 'error',
+      isActive: state.status === 'connecting' || state.status === 'running',
+      isTerminal: ['completed', 'stopped', 'failed', 'error'].includes(
+        state.status,
+      ),
+      canStart: state.status === 'idle' && !state.isSending,
+      canStop: state.status === 'connecting' || state.status === 'running',
+    }),
+    [state.status, state.isSending],
+  );
 
   // Handle external status updates (from useAgentStream)
-  const handleStatusUpdate = useCallback((hookStatus: string) => {
-    switch (hookStatus) {
-      case 'idle':
-        dispatch({ type: 'RESET' });
-        break;
-      case 'connecting':
-        // Don't override connecting state if we already have a runId
-        if (state.status === 'idle') {
-          dispatch({ type: 'CONNECT', runId: state.runId || '' });
-        }
-        break;
-      case 'streaming':
-        dispatch({ type: 'START_STREAMING' });
-        break;
-      case 'completed':
-        dispatch({ type: 'COMPLETE' });
-        break;
-      case 'stopped':
-        dispatch({ type: 'STOP' });
-        break;
-      case 'failed':
-        dispatch({ type: 'FAIL', error: 'Agent run failed' });
-        break;
-      case 'error':
-        dispatch({ type: 'ERROR', error: 'Agent run error' });
-        break;
-      case 'agent_not_running':
-        dispatch({ type: 'RESET' });
-        break;
-    }
-  }, [state.status, state.runId]);
+  const handleStatusUpdate = useCallback(
+    (hookStatus: string) => {
+      switch (hookStatus) {
+        case 'idle':
+          dispatch({ type: 'RESET' });
+          break;
+        case 'connecting':
+          // Don't override connecting state if we already have a runId
+          if (state.status === 'idle') {
+            dispatch({ type: 'CONNECT', runId: state.runId || '' });
+          }
+          break;
+        case 'streaming':
+          dispatch({ type: 'START_STREAMING' });
+          break;
+        case 'completed':
+          dispatch({ type: 'COMPLETE' });
+          break;
+        case 'stopped':
+          dispatch({ type: 'STOP' });
+          break;
+        case 'failed':
+          dispatch({ type: 'FAIL', error: 'Agent run failed' });
+          break;
+        case 'error':
+          dispatch({ type: 'ERROR', error: 'Agent run error' });
+          break;
+        case 'agent_not_running':
+          dispatch({ type: 'RESET' });
+          break;
+      }
+    },
+    [state.status, state.runId],
+  );
 
   return {
     state,
@@ -230,4 +245,4 @@ export function useAgentStateMachine() {
     getters,
     handleStatusUpdate,
   };
-} 
+}

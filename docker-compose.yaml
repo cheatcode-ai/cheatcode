@@ -34,39 +34,6 @@ services:
       retries: 3
       start_period: 40s
 
-  worker:
-    platform: linux/amd64
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
-    command: uv run dramatiq --skip-logging --processes 2 --threads 4 run_agent_background
-    env_file:
-      - ./backend/.env.local
-    volumes:
-      - ./backend:/app
-      - /app/.venv
-      - ./backend/worker-logs:/app/logs
-    restart: unless-stopped
-    depends_on:
-      redis:
-        condition: service_healthy
-    networks:
-      - app-network
-    environment:
-      - ENV_MODE=local
-      - REDIS_URL=redis://redis:6379
-      - LOG_LEVEL=INFO
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "10m"
-        max-file: "3"
-    healthcheck:
-      test: ["CMD", "uv", "run", "worker_health.py"]
-      timeout: 20s
-      interval: 30s
-      start_period: 40s
-
   redis:
     image: redis:8-alpine
     ports:
@@ -97,7 +64,7 @@ services:
       dockerfile: Dockerfile
       target: development
     ports:
-      - "3001:3000"
+      - "3003:3000"
     volumes:
       - ./frontend:/app
       - /app/node_modules

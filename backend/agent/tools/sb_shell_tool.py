@@ -1,47 +1,43 @@
 import asyncio
-from typing import Optional, Dict, Any, List
 from uuid import uuid4
-from agentpress.tool import ToolResult, ToolSchema, SchemaType, XMLTagSchema, XMLNodeMapping
-from sandbox.tool_base import SandboxToolsBase
+
 from agentpress.thread_manager import ThreadManager
+from agentpress.tool import SchemaType, ToolResult, ToolSchema, XMLNodeMapping, XMLTagSchema
+from sandbox.tool_base import SandboxToolsBase
 from utils.logger import logger
 
-class SandboxShellTool(SandboxToolsBase):
-    """Tool for executing tasks in a Daytona sandbox using the Daytona SDK process APIs. 
-    Uses Daytona sessions for maintaining state between commands and provides comprehensive process management."""
 
-    def __init__(self, project_id: str, thread_manager: ThreadManager, app_type: str = 'web'):
+class SandboxShellTool(SandboxToolsBase):
+    """Tool for executing tasks in a Daytona sandbox using the Daytona SDK process APIs.
+
+    Uses Daytona sessions for maintaining state between commands and provides comprehensive process management.
+    """
+
+    def __init__(self, project_id: str, thread_manager: ThreadManager, app_type: str = "web"):
         super().__init__(project_id, thread_manager, app_type)
-        self._sessions: Dict[str, str] = {}  # Maps session names to session IDs
+        self._sessions: dict[str, str] = {}  # Maps session names to session IDs
         # workspace_path is inherited from base class and points to the correct workspace directory
 
-    def get_schemas(self) -> Dict[str, List[ToolSchema]]:
+    def get_schemas(self) -> dict[str, list[ToolSchema]]:
         """Override base class to provide dynamic schemas based on app_type."""
         return self.get_tool_schemas()
-    
-    def get_tool_schemas(self) -> Dict[str, List[ToolSchema]]:
+
+    def get_tool_schemas(self) -> dict[str, list[ToolSchema]]:
         """Generate dynamic tool schemas based on app_type context."""
-        
         # Determine context-appropriate examples and descriptions
-        if self.app_type == 'mobile':
+        if self.app_type == "mobile":
             # Expo React Native examples from official documentation
-            dev_command_example = "npx expo start"
             install_command_example = "npx expo install expo-camera"
-            build_command_example = "npx expo prebuild"
-            test_command_example = "npx expo run:ios"
+            typecheck_command_example = "npx tsc --noEmit --pretty false 2>&1 | head -50"
             folder_example = "components"
-            dev_session_name = "expo_dev"
         else:
             # React/Next.js examples with pnpm (preferred package manager)
-            dev_command_example = "npm run dev"
-            install_command_example = "pnpm install axios"
-            build_command_example = "pnpm run build"
-            test_command_example = "pnpm test"
+            install_command_example = "pnpm add axios"
+            typecheck_command_example = "npx tsc --noEmit --pretty false 2>&1 | head -50"
             folder_example = "src/components"
-            dev_session_name = "dev_server"
 
         schemas = {}
-        
+
         # execute_command schema
         schemas["execute_command"] = [
             ToolSchema(
@@ -56,31 +52,31 @@ class SandboxShellTool(SandboxToolsBase):
                             "properties": {
                                 "command": {
                                     "type": "string",
-                                    "description": "The shell command to execute. Use this for running CLI tools or system operations. Commands can be chained using &&, ||, and | operators."
+                                    "description": "The shell command to execute. Use this for running CLI tools or system operations. Commands can be chained using &&, ||, and | operators.",
                                 },
                                 "folder": {
                                     "type": "string",
-                                    "description": f"Optional relative path to a subdirectory of the workspace where the command should be executed. Example: '{folder_example}'"
+                                    "description": f"Optional relative path to a subdirectory of the workspace where the command should be executed. Example: '{folder_example}'",
                                 },
                                 "session_name": {
                                     "type": "string",
-                                    "description": "Optional name of the Daytona session to use. Use named sessions for related commands that need to maintain state. Defaults to a random session name."
+                                    "description": "Optional name of the Daytona session to use. Use named sessions for related commands that need to maintain state. Defaults to a random session name.",
                                 },
                                 "blocking": {
                                     "type": "boolean",
                                     "description": "Whether to wait for the command to complete. Defaults to false for non-blocking execution.",
-                                    "default": False
+                                    "default": False,
                                 },
                                 "timeout": {
                                     "type": "integer",
                                     "description": "Optional timeout in seconds for blocking commands. Defaults to 60. Ignored for non-blocking commands.",
-                                    "default": 60
-                                }
+                                    "default": 60,
+                                },
                             },
-                            "required": ["command"]
-                        }
-                    }
-                }
+                            "required": ["command"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -92,25 +88,25 @@ class SandboxShellTool(SandboxToolsBase):
                         XMLNodeMapping(param_name="folder", node_type="attribute", path=".", required=False),
                         XMLNodeMapping(param_name="session_name", node_type="attribute", path=".", required=False),
                         XMLNodeMapping(param_name="blocking", node_type="attribute", path=".", required=False),
-                        XMLNodeMapping(param_name="timeout", node_type="attribute", path=".", required=False)
+                        XMLNodeMapping(param_name="timeout", node_type="attribute", path=".", required=False),
                     ],
-                    example=f'''
-        <function_calls>
-        <invoke name="execute_command">
-        <parameter name="command">{dev_command_example}</parameter>
-        <parameter name="session_name">{dev_session_name}</parameter>
-        </invoke>
-        </function_calls>
-
-        <!-- Example 2: Install Package -->
+                    example=f"""
+        <!-- Example 1: Install Package -->
         <function_calls>
         <invoke name="execute_command">
         <parameter name="command">{install_command_example}</parameter>
         </invoke>
         </function_calls>
-        '''
-                )
-            )
+
+        <!-- Example 2: TypeScript Check -->
+        <function_calls>
+        <invoke name="execute_command">
+        <parameter name="command">{typecheck_command_example}</parameter>
+        </invoke>
+        </function_calls>
+        """,
+                ),
+            ),
         ]
 
         # check_command_output schema
@@ -125,20 +121,17 @@ class SandboxShellTool(SandboxToolsBase):
                         "parameters": {
                             "type": "object",
                             "properties": {
-                                "session_name": {
-                                    "type": "string",
-                                    "description": "The name of the session to check."
-                                },
+                                "session_name": {"type": "string", "description": "The name of the session to check."},
                                 "kill_session": {
                                     "type": "boolean",
                                     "description": "Whether to terminate the session after checking. Set to true when you're done with the command.",
-                                    "default": False
-                                }
+                                    "default": False,
+                                },
                             },
-                            "required": ["session_name"]
-                        }
-                    }
-                }
+                            "required": ["session_name"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -147,25 +140,25 @@ class SandboxShellTool(SandboxToolsBase):
                     tag_name="check-command-output",
                     mappings=[
                         XMLNodeMapping(param_name="session_name", node_type="attribute", path=".", required=True),
-                        XMLNodeMapping(param_name="kill_session", node_type="attribute", path=".", required=False)
+                        XMLNodeMapping(param_name="kill_session", node_type="attribute", path=".", required=False),
                     ],
-                    example=f'''
+                    example=f"""
         <function_calls>
         <invoke name="check_command_output">
-        <parameter name="session_name">{dev_session_name}</parameter>
+        <parameter name="session_name">my_session</parameter>
         </invoke>
         </function_calls>
-        
+
         <!-- Example 2: Check final output and kill session -->
         <function_calls>
         <invoke name="check_command_output">
-        <parameter name="session_name">{dev_session_name}</parameter>
+        <parameter name="session_name">my_session</parameter>
         <parameter name="kill_session">true</parameter>
         </invoke>
         </function_calls>
-        '''
-                )
-            )
+        """,
+                ),
+            ),
         ]
 
         # terminate_command schema
@@ -182,13 +175,13 @@ class SandboxShellTool(SandboxToolsBase):
                             "properties": {
                                 "session_name": {
                                     "type": "string",
-                                    "description": "The name of the session to terminate."
+                                    "description": "The name of the session to terminate.",
                                 }
                             },
-                            "required": ["session_name"]
-                        }
-                    }
-                }
+                            "required": ["session_name"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -198,15 +191,15 @@ class SandboxShellTool(SandboxToolsBase):
                     mappings=[
                         XMLNodeMapping(param_name="session_name", node_type="attribute", path=".", required=True)
                     ],
-                    example=f'''
+                    example=f"""
         <function_calls>
         <invoke name="terminate_command">
-        <parameter name="session_name">{dev_session_name}</parameter>
+        <parameter name="session_name">my_session</parameter>
         </invoke>
         </function_calls>
-        '''
-                )
-            )
+        """,
+                ),
+            ),
         ]
 
         # list_commands schema
@@ -218,12 +211,9 @@ class SandboxShellTool(SandboxToolsBase):
                     "function": {
                         "name": "list_commands",
                         "description": "List all active Daytona sessions managed by this tool.",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {}
-                        }
-                    }
-                }
+                        "parameters": {"type": "object", "properties": {}},
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -231,19 +221,19 @@ class SandboxShellTool(SandboxToolsBase):
                 xml_schema=XMLTagSchema(
                     tag_name="list-commands",
                     mappings=[],
-                    example='''
+                    example="""
         <function_calls>
         <invoke name="list_commands">
         </invoke>
         </function_calls>
-        '''
-                )
-            )
+        """,
+                ),
+            ),
         ]
 
         # run_code schema - Direct code execution using Daytona SDK's code_run
-        code_example = 'print("Hello World!")' if self.app_type == 'mobile' else 'console.log("Hello World!");'
-        code_language = "Python" if self.app_type == 'mobile' else "TypeScript/JavaScript"
+        code_example = 'print("Hello World!")' if self.app_type == "mobile" else 'console.log("Hello World!");'
+        code_language = "Python" if self.app_type == "mobile" else "TypeScript/JavaScript"
 
         schemas["run_code"] = [
             ToolSchema(
@@ -258,18 +248,18 @@ class SandboxShellTool(SandboxToolsBase):
                             "properties": {
                                 "code": {
                                     "type": "string",
-                                    "description": f"The {code_language} code to execute directly. The code will be run in an isolated environment within the sandbox."
+                                    "description": f"The {code_language} code to execute directly. The code will be run in an isolated environment within the sandbox.",
                                 },
                                 "timeout": {
                                     "type": "integer",
                                     "description": "Optional timeout in seconds for code execution. Defaults to 30 seconds.",
-                                    "default": 30
-                                }
+                                    "default": 30,
+                                },
                             },
-                            "required": ["code"]
-                        }
-                    }
-                }
+                            "required": ["code"],
+                        },
+                    },
+                },
             ),
             ToolSchema(
                 schema_type=SchemaType.XML,
@@ -278,17 +268,17 @@ class SandboxShellTool(SandboxToolsBase):
                     tag_name="run-code",
                     mappings=[
                         XMLNodeMapping(param_name="code", node_type="content", path="."),
-                        XMLNodeMapping(param_name="timeout", node_type="attribute", path=".", required=False)
+                        XMLNodeMapping(param_name="timeout", node_type="attribute", path=".", required=False),
                     ],
-                    example=f'''
+                    example=f"""
         <function_calls>
         <invoke name="run_code">
         <parameter name="code">{code_example}</parameter>
         </invoke>
         </function_calls>
-        '''
-                )
-            )
+        """,
+                ),
+            ),
         ]
 
         return schemas
@@ -304,8 +294,8 @@ class SandboxShellTool(SandboxToolsBase):
                 self._sessions[session_name] = session_id
                 logger.debug(f"Created new session: {session_name} -> {session_id}")
             except Exception as e:
-                raise RuntimeError(f"Failed to create session: {str(e)}")
-                    
+                raise RuntimeError(f"Failed to create session: {e!s}") from e
+
         return self._sessions[session_name]
 
     async def _cleanup_session(self, session_name: str):
@@ -313,128 +303,115 @@ class SandboxShellTool(SandboxToolsBase):
         if session_name in self._sessions:
             try:
                 await self._ensure_sandbox()
-                
-                
+
                 # Delete the session
                 await self.sandbox.process.delete_session(self._sessions[session_name])
                 del self._sessions[session_name]
                 logger.debug(f"Cleaned up session: {session_name}")
-                
+
             except Exception as e:
-                logger.warning(f"Failed to cleanup session {session_name}: {str(e)}")
+                logger.warning(f"Failed to cleanup session {session_name}: {e!s}")
                 # Remove from tracking even if cleanup failed
                 if session_name in self._sessions:
                     del self._sessions[session_name]
 
-
     async def execute_command(
-        self, 
-        command: str, 
-        folder: Optional[str] = None,
-        session_name: Optional[str] = None,
+        self,
+        command: str,
+        folder: str | None = None,
+        session_name: str | None = None,
         blocking: bool = False,
-        timeout: int = 60
+        timeout: int = 60,
     ) -> ToolResult:
         try:
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
-            
-            
+
             # Set up working directory
             cwd = self.workspace_path
             if folder:
-                folder = folder.strip('/')
+                folder = folder.strip("/")
                 cwd = f"{self.workspace_path}/{folder}"
-            
+
             if blocking:
                 # For blocking execution, use direct process.exec
                 try:
-                    response = await self.sandbox.process.exec(
-                        command=command,
-                        cwd=cwd,
-                        timeout=timeout
+                    response = await self.sandbox.process.exec(command=command, cwd=cwd, timeout=timeout)
+
+                    return self.success_response(
+                        {
+                            "output": response.result,
+                            "exit_code": response.exit_code,
+                            "cwd": cwd,
+                            "completed": True,
+                            "success": response.exit_code == 0,
+                        }
                     )
-                    
-                    return self.success_response({
-                        "output": response.result,
-                        "exit_code": response.exit_code,
-                        "cwd": cwd,
-                        "completed": True,
-                        "success": response.exit_code == 0
-                    })
-                    
+
                 except Exception as e:
-                    return self.fail_response(f"Error executing blocking command: {str(e)}")
+                    return self.fail_response(f"Error executing blocking command: {e!s}")
             else:
                 # For non-blocking execution, use session-based approach
                 if not session_name:
                     session_name = f"session_{str(uuid4())[:8]}"
-                
+
                 # Ensure session exists
                 session_id = await self._ensure_session(session_name)
-                
+
                 # Execute command in session (non-blocking)
                 from daytona import SessionExecuteRequest
+
                 req = SessionExecuteRequest(
                     command=command,
                     var_async=True,  # Non-blocking
-                    cwd=cwd
+                    cwd=cwd,
                 )
-                
-                response = await self.sandbox.process.execute_session_command(
-                    session_id=session_id,
-                    req=req
+
+                response = await self.sandbox.process.execute_session_command(session_id=session_id, req=req)
+
+                return self.success_response(
+                    {
+                        "session_name": session_name,
+                        "session_id": session_id,
+                        "command_id": response.cmd_id,
+                        "cwd": cwd,
+                        "message": f"Command started in session '{session_name}'. Use check_command_output to view results.",
+                        "completed": False,
+                    }
                 )
-                
-                return self.success_response({
-                    "session_name": session_name,
-                    "session_id": session_id,
-                    "command_id": response.cmd_id,
-                    "cwd": cwd,
-                    "message": f"Command started in session '{session_name}'. Use check_command_output to view results.",
-                    "completed": False
-                })
-                
+
         except Exception as e:
-            return self.fail_response(f"Error executing command: {str(e)}")
+            return self.fail_response(f"Error executing command: {e!s}")
 
-
-
-
-    async def check_command_output(
-        self,
-        session_name: str,
-        kill_session: bool = False
-    ) -> ToolResult:
+    async def check_command_output(self, session_name: str, kill_session: bool = False) -> ToolResult:
         try:
             # Ensure sandbox is initialized
             await self._ensure_sandbox()
-            
+
             # Check if session exists in our tracking
             if session_name not in self._sessions:
                 return self.fail_response(f"Session '{session_name}' does not exist or was not created by this tool.")
-            
+
             session_id = self._sessions[session_name]
-            
+
             # Get session information and command logs
             try:
                 session = await self.sandbox.process.get_session(session_id)
-            
+
                 # Get logs for all commands in the session
                 all_output = []
                 for command in session.commands:
                     try:
                         logs = await self.sandbox.process.get_session_command_logs(
-                            session_id=session_id,
-                            command_id=command.id
+                            session_id=session_id, command_id=command.id
                         )
                         all_output.append(f"Command: {command.command}")
                         all_output.append(f"Exit Code: {command.exit_code}")
                         all_output.append(f"Output: {logs}")
                         all_output.append("---")
                     except Exception as e:
-                        all_output.append(f"Error getting logs for command {command.id}: {str(e)}")
-                
+                        all_output.append(f"Error getting logs for command {command.id}: {e!s}")
+
                 output = "\n".join(all_output)
 
                 # Kill session if requested
@@ -444,40 +421,35 @@ class SandboxShellTool(SandboxToolsBase):
                 else:
                     termination_status = "Session still running."
 
-                return self.success_response({
-                    "output": output,
-                    "session_name": session_name,
-                    "session_id": session_id,
-                    "status": termination_status,
-                    "commands_count": len(session.commands)
-                })
+                return self.success_response(
+                    {
+                        "output": output,
+                        "session_name": session_name,
+                        "session_id": session_id,
+                        "status": termination_status,
+                        "commands_count": len(session.commands),
+                    }
+                )
 
             except Exception as e:
-                return self.fail_response(f"Error getting session logs: {str(e)}")
-                
+                return self.fail_response(f"Error getting session logs: {e!s}")
+
         except Exception as e:
-            return self.fail_response(f"Error checking command output: {str(e)}")
+            return self.fail_response(f"Error checking command output: {e!s}")
 
-
-    async def terminate_command(
-        self,
-        session_name: str
-    ) -> ToolResult:
+    async def terminate_command(self, session_name: str) -> ToolResult:
         try:
             # Check if session exists in our tracking
             if session_name not in self._sessions:
                 return self.fail_response(f"Session '{session_name}' does not exist or was not created by this tool.")
-            
+
             # Clean up the session
             await self._cleanup_session(session_name)
-            
-            return self.success_response({
-                "message": f"Session '{session_name}' terminated successfully."
-            })
-                
-        except Exception as e:
-            return self.fail_response(f"Error terminating command: {str(e)}")
 
+            return self.success_response({"message": f"Session '{session_name}' terminated successfully."})
+
+        except Exception as e:
+            return self.fail_response(f"Error terminating command: {e!s}")
 
     async def list_commands(self) -> ToolResult:
         try:
@@ -485,42 +457,36 @@ class SandboxShellTool(SandboxToolsBase):
             await self._ensure_sandbox()
 
             if not self._sessions:
-                return self.success_response({
-                    "message": "No active sessions found.",
-                    "sessions": []
-                })
+                return self.success_response({"message": "No active sessions found.", "sessions": []})
 
             # Get detailed session information
             sessions_info = []
             for session_name, session_id in self._sessions.items():
                 try:
                     session = await self.sandbox.process.get_session(session_id)
-                    sessions_info.append({
-                        "name": session_name,
-                        "id": session_id,
-                        "commands_count": len(session.commands),
-                        "commands": [{"command": cmd.command, "exit_code": cmd.exit_code} for cmd in session.commands]
-                    })
+                    sessions_info.append(
+                        {
+                            "name": session_name,
+                            "id": session_id,
+                            "commands_count": len(session.commands),
+                            "commands": [
+                                {"command": cmd.command, "exit_code": cmd.exit_code} for cmd in session.commands
+                            ],
+                        }
+                    )
                 except Exception as e:
-                    sessions_info.append({
-                        "name": session_name,
-                        "id": session_id,
-                        "error": f"Failed to get session info: {str(e)}"
-                    })
+                    sessions_info.append(
+                        {"name": session_name, "id": session_id, "error": f"Failed to get session info: {e!s}"}
+                    )
 
-            return self.success_response({
-                "message": f"Found {len(sessions_info)} active sessions.",
-                "sessions": sessions_info
-            })
+            return self.success_response(
+                {"message": f"Found {len(sessions_info)} active sessions.", "sessions": sessions_info}
+            )
 
         except Exception as e:
-            return self.fail_response(f"Error listing commands: {str(e)}")
+            return self.fail_response(f"Error listing commands: {e!s}")
 
-    async def run_code(
-        self,
-        code: str,
-        timeout: int = 30
-    ) -> ToolResult:
+    async def run_code(self, code: str, timeout: int = 30) -> ToolResult:
         """Execute code directly in the sandbox using Daytona SDK's native code_run method.
 
         This provides structured output including stdout, stderr, and any generated
@@ -532,6 +498,7 @@ class SandboxShellTool(SandboxToolsBase):
 
         Returns:
             ToolResult with execution results including output and any artifacts
+
         """
         try:
             # Ensure sandbox is initialized
@@ -540,10 +507,7 @@ class SandboxShellTool(SandboxToolsBase):
             logger.info(f"Running code directly in sandbox (timeout: {timeout}s)")
 
             # Use Daytona SDK's native code_run method
-            response = await self.sandbox.process.code_run(
-                code=code,
-                timeout=timeout
-            )
+            response = await self.sandbox.process.code_run(code=code, timeout=timeout)
 
             # Build result structure
             result = {
@@ -552,33 +516,33 @@ class SandboxShellTool(SandboxToolsBase):
             }
 
             # Extract output from result or artifacts
-            if hasattr(response, 'result') and response.result:
+            if hasattr(response, "result") and response.result:
                 result["output"] = response.result
 
             # Handle artifacts if present (stdout, stderr, charts, etc.)
-            if hasattr(response, 'artifacts') and response.artifacts:
+            if hasattr(response, "artifacts") and response.artifacts:
                 artifacts = response.artifacts
 
                 # Extract stdout
-                if hasattr(artifacts, 'stdout') and artifacts.stdout:
+                if hasattr(artifacts, "stdout") and artifacts.stdout:
                     result["stdout"] = artifacts.stdout
                     if "output" not in result:
                         result["output"] = artifacts.stdout
 
                 # Extract stderr
-                if hasattr(artifacts, 'stderr') and artifacts.stderr:
+                if hasattr(artifacts, "stderr") and artifacts.stderr:
                     result["stderr"] = artifacts.stderr
 
                 # Extract charts (for matplotlib, etc.)
-                if hasattr(artifacts, 'charts') and artifacts.charts:
+                if hasattr(artifacts, "charts") and artifacts.charts:
                     result["charts"] = []
                     for chart in artifacts.charts:
                         chart_info = {
-                            "type": str(chart.type) if hasattr(chart, 'type') else "unknown",
-                            "title": getattr(chart, 'title', None),
+                            "type": str(chart.type) if hasattr(chart, "type") else "unknown",
+                            "title": getattr(chart, "title", None),
                         }
                         # Include PNG data if available (base64 encoded)
-                        if hasattr(chart, 'png') and chart.png:
+                        if hasattr(chart, "png") and chart.png:
                             chart_info["png_base64"] = chart.png
                         result["charts"].append(chart_info)
 
@@ -586,36 +550,32 @@ class SandboxShellTool(SandboxToolsBase):
 
             # Log execution result
             if result["success"]:
-                logger.info(f"Code execution completed successfully")
+                logger.info("Code execution completed successfully")
             else:
                 logger.warning(f"Code execution failed with exit code: {response.exit_code}")
 
             return self.success_response(result)
 
-        except asyncio.TimeoutError:
+        except TimeoutError:
             return self.fail_response(f"Code execution timed out after {timeout} seconds")
         except Exception as e:
-            logger.error(f"Error executing code: {str(e)}")
-            return self.fail_response(f"Error executing code: {str(e)}")
-
+            logger.error(f"Error executing code: {e!s}")
+            return self.fail_response(f"Error executing code: {e!s}")
 
     async def cleanup(self):
         """Clean up all sessions with improved error handling."""
         cleanup_tasks = []
-        
+
         for session_name in list(self._sessions.keys()):
             task = asyncio.create_task(self._cleanup_session(session_name))
             cleanup_tasks.append(task)
-        
+
         if cleanup_tasks:
             try:
                 # Wait for all cleanup tasks with timeout
-                await asyncio.wait_for(
-                    asyncio.gather(*cleanup_tasks, return_exceptions=True),
-                    timeout=30
-                )
+                await asyncio.wait_for(asyncio.gather(*cleanup_tasks, return_exceptions=True), timeout=30)
                 logger.debug(f"Cleaned up {len(cleanup_tasks)} sessions")
-            except asyncio.TimeoutError:
-                logger.warning(f"Session cleanup timed out, some sessions may not be properly terminated")
+            except TimeoutError:
+                logger.warning("Session cleanup timed out, some sessions may not be properly terminated")
             except Exception as e:
                 logger.error(f"Error during session cleanup: {e}")

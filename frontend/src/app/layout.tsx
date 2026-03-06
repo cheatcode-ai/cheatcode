@@ -96,10 +96,11 @@ export default function RootLayout({
         <noscript>
           <iframe
             src="https://www.googletagmanager.com/ns.html?id=GTM-MB8GJRLK"
+            title="Google Tag Manager"
             height="0"
             width="0"
-            style={{ 
-              display: 'none', 
+            style={{
+              display: 'none',
               visibility: 'hidden',
               position: 'absolute',
               top: '-9999px',
@@ -107,7 +108,7 @@ export default function RootLayout({
               border: 'none',
               outline: 'none',
               margin: '0',
-              padding: '0'
+              padding: '0',
             }}
           />
         </noscript>

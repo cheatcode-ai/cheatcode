@@ -1,13 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { Barcode, LogOut, User } from 'lucide-react';
+import { LogOut, User } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuTrigger,
-  DropdownMenuItem,
 } from '@/components/ui/dropdown-menu';
 import { useBilling } from '@/contexts/BillingContext';
 import { useSignOut } from '@/hooks/use-sign-out';
@@ -18,7 +17,17 @@ import { cn } from '@/lib/utils';
  * Segmented Progress Bar Component
  * Renders a technical-looking progress bar made of individual segments
  */
-function SegmentedProgress({ value, max = 100, segments = 40, color = 'bg-emerald-500' }: { value: number; max?: number; segments?: number; color?: string }) {
+function SegmentedProgress({
+  value,
+  max = 100,
+  segments = 40,
+  color = 'bg-emerald-500',
+}: {
+  value: number;
+  max?: number;
+  segments?: number;
+  color?: string;
+}) {
   const percentage = Math.min(100, Math.max(0, (value / max) * 100));
   const activeSegments = Math.ceil((percentage / 100) * segments);
 
@@ -28,8 +37,8 @@ function SegmentedProgress({ value, max = 100, segments = 40, color = 'bg-emeral
         <div
           key={i}
           className={cn(
-            "flex-1 rounded-[1px] transition-all duration-300",
-            i < activeSegments ? color : "bg-zinc-900"
+            'flex-1 rounded-[1px] transition-all duration-300',
+            i < activeSegments ? color : 'bg-zinc-900',
           )}
         />
       ))}
@@ -40,8 +49,18 @@ function SegmentedProgress({ value, max = 100, segments = 40, color = 'bg-emeral
 /**
  * Header section with user info in a technical layout
  */
-export function ProfileHeader({ user }: { user: { imageUrl?: string; fullName?: string | null; firstName?: string | null; email?: string } }) {
-  const displayName = user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
+function ProfileHeader({
+  user,
+}: {
+  user: {
+    imageUrl?: string;
+    fullName?: string | null;
+    firstName?: string | null;
+    email?: string;
+  };
+}) {
+  const displayName =
+    user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
   const displayEmail = user.email || 'No email';
   const { planName } = useBilling();
 
@@ -55,10 +74,16 @@ export function ProfileHeader({ user }: { user: { imageUrl?: string; fullName?: 
       </Avatar>
       <div className="flex flex-col min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-[13px] font-bold text-white truncate font-mono tracking-tight">{displayName}</span>
-          <span className="text-[9px] px-1.5 py-0.5 rounded-[2px] bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono font-bold uppercase">{planName || 'Free'}</span>
+          <span className="text-[13px] font-bold text-white truncate font-mono tracking-tight">
+            {displayName}
+          </span>
+          <span className="text-[9px] px-1.5 py-0.5 rounded-[2px] bg-zinc-900 border border-zinc-800 text-zinc-400 font-mono font-bold uppercase">
+            {planName || 'Free'}
+          </span>
         </div>
-        <span className="text-[10px] text-zinc-500 truncate font-mono">{displayEmail}</span>
+        <span className="text-[10px] text-zinc-500 truncate font-mono">
+          {displayEmail}
+        </span>
       </div>
       <div className="ml-auto">
         <div className="h-1.5 w-1.5 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
@@ -70,7 +95,7 @@ export function ProfileHeader({ user }: { user: { imageUrl?: string; fullName?: 
 /**
  * Usage stats with "Credit Usage" aesthetic
  */
-export function ProfileUsage() {
+function ProfileUsage() {
   const {
     creditsRemaining,
     rawCreditsTotal,
@@ -98,21 +123,36 @@ export function ProfileUsage() {
       <div className="space-y-2">
         <div className="flex justify-between items-start">
           <div className="flex flex-col items-start">
-            <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-mono mb-0.5">Usage</span>
+            <span className="text-[9px] uppercase tracking-wider text-zinc-500 font-mono mb-0.5">
+              Usage
+            </span>
             <span className="text-xl font-bold text-white tabular-nums tracking-tighter">
               {percentage.toFixed(1)}%
             </span>
           </div>
           <div className="flex flex-col items-end text-right">
-             <span className="text-[9px] text-zinc-500 font-mono mb-0.5 tracking-wider uppercase">Left</span>
-             <span className="text-xl font-bold text-white tabular-nums tracking-tighter">
-               {billingLoading ? '...' : (creditsRemaining !== undefined ? (creditsRemaining >= 1000 ? `${(creditsRemaining / 1000).toFixed(1)}K` : creditsRemaining.toFixed(0)) : '0')}
-             </span>
+            <span className="text-[9px] text-zinc-500 font-mono mb-0.5 tracking-wider uppercase">
+              Left
+            </span>
+            <span className="text-xl font-bold text-white tabular-nums tracking-tighter">
+              {billingLoading
+                ? '...'
+                : creditsRemaining !== undefined
+                  ? creditsRemaining >= 1000
+                    ? `${(creditsRemaining / 1000).toFixed(1)}K`
+                    : creditsRemaining.toFixed(0)
+                  : '0'}
+            </span>
           </div>
         </div>
 
         <div className="relative pt-1">
-          <SegmentedProgress value={used} max={total} color="bg-amber-500" segments={40} />
+          <SegmentedProgress
+            value={used}
+            max={total}
+            color="bg-amber-500"
+            segments={40}
+          />
         </div>
       </div>
 
@@ -121,20 +161,38 @@ export function ProfileUsage() {
         {/* Deployments */}
         <div className="space-y-1.5">
           <div className="flex justify-between items-center text-[9px] font-mono">
-            <span className="text-zinc-500 uppercase tracking-wider">Deployments</span>
-            <span className="text-zinc-300">{deploymentsUsed}/{deploymentsTotal}</span>
+            <span className="text-zinc-500 uppercase tracking-wider">
+              Deployments
+            </span>
+            <span className="text-zinc-300">
+              {deploymentsUsed}/{deploymentsTotal}
+            </span>
           </div>
-          <SegmentedProgress value={deploymentsUsed || 0} max={deploymentsTotal || 1} segments={40} color="bg-emerald-500" />
+          <SegmentedProgress
+            value={deploymentsUsed || 0}
+            max={deploymentsTotal || 1}
+            segments={40}
+            color="bg-emerald-500"
+          />
         </div>
 
         {/* Refills / Daily Usage */}
         {isFreeUser && (
           <div className="space-y-1.5">
             <div className="flex justify-between items-center text-[9px] font-mono">
-              <span className="text-zinc-500 uppercase tracking-wider">Refills</span>
-              <span className="text-zinc-300">{refillsUsed}/{maxRefills}</span>
+              <span className="text-zinc-500 uppercase tracking-wider">
+                Refills
+              </span>
+              <span className="text-zinc-300">
+                {refillsUsed}/{maxRefills}
+              </span>
             </div>
-            <SegmentedProgress value={refillsUsed} max={maxRefills} segments={40} color="bg-blue-500" />
+            <SegmentedProgress
+              value={refillsUsed}
+              max={maxRefills}
+              segments={40}
+              color="bg-blue-500"
+            />
           </div>
         )}
       </div>
@@ -145,14 +203,19 @@ export function ProfileUsage() {
 /**
  * Action buttons grid
  */
-export function ProfileActions() {
+function ProfileActions() {
   const { signOut } = useSignOut();
 
   return (
     <div className="grid grid-cols-2 gap-px bg-zinc-800 border-t border-zinc-800">
-      <Link href="/settings/account" className="group relative bg-zinc-950 hover:bg-zinc-900 transition-colors p-2 flex flex-col items-center justify-center gap-1.5 text-center h-14">
+      <Link
+        href="/settings/account"
+        className="group relative bg-zinc-950 hover:bg-zinc-900 transition-colors p-2 flex flex-col items-center justify-center gap-1.5 text-center h-14"
+      >
         <User className="h-3.5 w-3.5 text-zinc-600 group-hover:text-white transition-colors" />
-        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-white transition-colors leading-tight">Profile</span>
+        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-white transition-colors leading-tight">
+          Profile
+        </span>
       </Link>
 
       <button
@@ -160,7 +223,9 @@ export function ProfileActions() {
         className="group relative bg-zinc-950 hover:bg-zinc-900 transition-colors p-2 flex flex-col items-center justify-center gap-1.5 text-center h-14"
       >
         <LogOut className="h-3.5 w-3.5 text-zinc-600 group-hover:text-red-400 transition-colors" />
-        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-red-400 transition-colors leading-tight">Logout</span>
+        <span className="text-[8px] font-mono uppercase tracking-widest text-zinc-500 group-hover:text-red-400 transition-colors leading-tight">
+          Logout
+        </span>
       </button>
     </div>
   );
@@ -179,7 +244,8 @@ interface ProfileDropdownProps {
  * Complete profile dropdown component
  */
 export function ProfileDropdown({ user }: ProfileDropdownProps) {
-  const displayName = user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
+  const displayName =
+    user.fullName || user.firstName || user.email?.split('@')[0] || 'User';
 
   return (
     <DropdownMenu>
@@ -203,48 +269,5 @@ export function ProfileDropdown({ user }: ProfileDropdownProps) {
         <ProfileActions />
       </DropdownMenuContent>
     </DropdownMenu>
-  );
-}
-
-// Re-export individual components for compatibility if they are used standalone elsewhere
-export function ProfilePlanHeader() {
-  const { planName } = useBilling();
-  return (
-    <div className="flex items-center justify-between px-4 py-2 border-b border-zinc-800 bg-zinc-950">
-      <div className="flex items-center gap-2">
-        <Barcode className="h-3.5 w-3.5 text-zinc-500" />
-        <span className="text-[10px] font-mono font-bold text-white uppercase tracking-wide">
-          {planName || 'Standard'}
-        </span>
-      </div>
-      <Link
-        href="/settings/account"
-        className="text-[9px] font-mono uppercase tracking-wider text-zinc-500 hover:text-white transition-colors"
-      >
-        Manage
-      </Link>
-    </div>
-  );
-}
-
-export function ProfileStats() {
-  // Re-use the main usage component content
-  return <ProfileUsage />;
-}
-
-export function ProfileLogoutButton() {
-  const { signOut } = useSignOut();
-  return (
-    <div className="p-1 border-t border-zinc-800 bg-zinc-950">
-      <DropdownMenuItem asChild className="cursor-pointer focus:bg-zinc-900 rounded-none">
-        <button
-          onClick={signOut}
-          className="flex items-center gap-2.5 w-full px-3 py-1.5 text-left text-[10px] font-mono uppercase tracking-wide text-zinc-400 hover:text-red-400 transition-colors"
-        >
-          <LogOut className="h-3 w-3" />
-          <span>Logout</span>
-        </button>
-      </DropdownMenuItem>
-    </div>
   );
 }

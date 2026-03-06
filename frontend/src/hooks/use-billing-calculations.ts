@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import { BillingStatusResponse } from '@/lib/api';
+import { type BillingStatusResponse } from '@/lib/api';
 
-export interface BillingCalculations {
+interface BillingCalculations {
   // Display credits (adjusted for free tier daily limits)
   creditsRemaining: number;
   creditsTotal: number;
@@ -29,7 +29,7 @@ export interface BillingCalculations {
  * Separates calculation logic from data fetching concerns
  */
 export function useBillingCalculations(
-  billingStatus: BillingStatusResponse | null | undefined
+  billingStatus: BillingStatusResponse | null | undefined,
 ): BillingCalculations {
   return useMemo(() => {
     // Raw values from API
@@ -39,17 +39,21 @@ export function useBillingCalculations(
     const quotaResetsAt = billingStatus?.quota_resets_at ?? null;
 
     // Plan type detection
-    const isFreeUser = planName?.toLowerCase() === 'free' || billingStatus?.plan_id === 'free';
+    const isFreeUser =
+      planName?.toLowerCase() === 'free' || billingStatus?.plan_id === 'free';
     const isByokUser = billingStatus?.plan_id === 'byok';
 
     // For free users, show daily credits (5/5) instead of monthly total (20/20)
-    const creditsRemaining = isFreeUser ? Math.min(rawCreditsRemaining, 5) : rawCreditsRemaining;
+    const creditsRemaining = isFreeUser
+      ? Math.min(rawCreditsRemaining, 5)
+      : rawCreditsRemaining;
     const creditsTotal = isFreeUser ? 5 : rawCreditsTotal;
 
     // Calculate usage percentage (0-100)
-    const creditsUsagePercentage = creditsTotal > 0
-      ? ((creditsTotal - creditsRemaining) / creditsTotal) * 100
-      : 0;
+    const creditsUsagePercentage =
+      creditsTotal > 0
+        ? ((creditsTotal - creditsRemaining) / creditsTotal) * 100
+        : 0;
 
     // Upgrade required if no credits and not on BYOK plan
     const isUpgradeRequired = rawCreditsRemaining <= 0 && !isByokUser;
@@ -57,9 +61,8 @@ export function useBillingCalculations(
     // Deployment calculations
     const deploymentsUsed = billingStatus?.deployments_used ?? 0;
     const deploymentsTotal = billingStatus?.deployments_total ?? 0;
-    const deploymentUsagePercentage = deploymentsTotal > 0
-      ? (deploymentsUsed / deploymentsTotal) * 100
-      : 0;
+    const deploymentUsagePercentage =
+      deploymentsTotal > 0 ? (deploymentsUsed / deploymentsTotal) * 100 : 0;
 
     return {
       creditsRemaining,
@@ -77,22 +80,4 @@ export function useBillingCalculations(
       deploymentUsagePercentage,
     };
   }, [billingStatus]);
-}
-
-/**
- * Helper to check if user can perform actions
- */
-export function canUserRun(billingStatus: BillingStatusResponse | null | undefined): boolean {
-  if (!billingStatus) return false;
-  return billingStatus.can_run === true;
-}
-
-/**
- * Helper to check if user is near credit limit
- */
-export function isNearCreditLimit(
-  calculations: BillingCalculations,
-  threshold = 80
-): boolean {
-  return calculations.creditsUsagePercentage >= threshold;
 }

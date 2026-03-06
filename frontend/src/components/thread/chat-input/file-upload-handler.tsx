@@ -9,7 +9,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { cn } from '@/lib/utils';
 import { fileQueryKeys } from '@/hooks/react-query/files/use-file-queries';
 // Tooltip removed to prevent ref compose loops
-import { UploadedFile } from './chat-input';
+import { type UploadedFile } from './chat-input';
 import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
 import { API_URL } from '@/lib/api/config';
 
@@ -18,11 +18,22 @@ const isImageFile = (file: File): boolean => {
   if (file.type && file.type.startsWith('image/')) {
     return true;
   }
-  
+
   // Check file extension as fallback
   const fileName = file.name.toLowerCase();
-  const imageExtensions = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.ico', '.tiff', '.tif'];
-  return imageExtensions.some(ext => fileName.endsWith(ext));
+  const imageExtensions = [
+    '.jpg',
+    '.jpeg',
+    '.png',
+    '.gif',
+    '.webp',
+    '.svg',
+    '.bmp',
+    '.ico',
+    '.tiff',
+    '.tif',
+  ];
+  return imageExtensions.some((ext) => fileName.endsWith(ext));
 };
 
 const handleLocalFiles = (
@@ -45,8 +56,11 @@ const handleLocalFiles = (
 
   setPendingFiles((prevFiles) => [...prevFiles, ...filteredFiles]);
 
-  const workspacePath = appType === 'mobile' ? '/workspace/cheatcode-mobile' : '/workspace/cheatcode-app';
-  
+  const workspacePath =
+    appType === 'mobile'
+      ? '/workspace/cheatcode-mobile'
+      : '/workspace/cheatcode-app';
+
   const newUploadedFiles: UploadedFile[] = filteredFiles.map((file) => {
     // Normalize filename to NFC
     const normalizedName = normalizeFilenameToNFC(file.name);
@@ -56,7 +70,7 @@ const handleLocalFiles = (
       path: `${workspacePath}/${normalizedName}`,
       size: file.size,
       type: file.type || 'application/octet-stream',
-      localUrl: URL.createObjectURL(file)
+      localUrl: URL.createObjectURL(file),
     };
   });
 
@@ -72,8 +86,11 @@ const uploadFiles = async (
   sandboxId: string,
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>,
-  messages: any[] = [], // Add messages parameter to check for existing files
-  queryClient?: any, // Add queryClient parameter for cache invalidation
+  messages: Record<string, unknown>[] = [], // Add messages parameter to check for existing files
+  queryClient?: {
+    invalidateQueries: (options: Record<string, unknown>) => void;
+    removeQueries: (options: Record<string, unknown>) => void;
+  }, // Add queryClient parameter for cache invalidation
   getToken?: () => Promise<string | null>, // Add getToken function parameter
   appType: 'web' | 'mobile' = 'web',
 ) => {
@@ -94,12 +111,16 @@ const uploadFiles = async (
 
       // Normalize filename to NFC
       const normalizedName = normalizeFilenameToNFC(file.name);
-      const workspacePath = appType === 'mobile' ? '/workspace/cheatcode-mobile' : '/workspace/cheatcode-app';
+      const workspacePath =
+        appType === 'mobile'
+          ? '/workspace/cheatcode-mobile'
+          : '/workspace/cheatcode-app';
       const uploadPath = `${workspacePath}/${normalizedName}`;
 
       // Check if this filename already exists in chat messages
-      const isFileInChat = messages.some(message => {
-        const content = typeof message.content === 'string' ? message.content : '';
+      const isFileInChat = messages.some((message) => {
+        const content =
+          typeof message.content === 'string' ? message.content : '';
         return content.includes(`[Uploaded File: ${uploadPath}]`);
       });
 
@@ -111,9 +132,11 @@ const uploadFiles = async (
 
       // Get Clerk token from the passed function
       if (!getToken) {
-        throw new Error('Authentication not available. Please sign in to continue.');
+        throw new Error(
+          'Authentication not available. Please sign in to continue.',
+        );
       }
-      
+
       const clerkToken = await getToken();
       if (!clerkToken) {
         throw new Error('Authentication required. Please sign in to continue.');
@@ -134,13 +157,20 @@ const uploadFiles = async (
       // If file was already in chat and we have queryClient, invalidate its cache
       if (isFileInChat && queryClient) {
         // Invalidate all content types for this file
-        ['text', 'blob', 'json'].forEach(contentType => {
-          const queryKey = fileQueryKeys.content(sandboxId, uploadPath, contentType);
+        ['text', 'blob', 'json'].forEach((contentType) => {
+          const queryKey = fileQueryKeys.content(
+            sandboxId,
+            uploadPath,
+            contentType,
+          );
           queryClient.removeQueries({ queryKey });
         });
 
         // Also invalidate directory listing
-        const directoryPath = uploadPath.substring(0, uploadPath.lastIndexOf('/'));
+        const directoryPath = uploadPath.substring(
+          0,
+          uploadPath.lastIndexOf('/'),
+        );
         queryClient.invalidateQueries({
           queryKey: fileQueryKeys.directory(sandboxId, directoryPath),
         });
@@ -176,14 +206,26 @@ const handleFiles = async (
   setPendingFiles: React.Dispatch<React.SetStateAction<File[]>>,
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>,
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>,
-  messages: any[] = [], // Add messages parameter
-  queryClient?: any, // Add queryClient parameter
+  messages: Record<string, unknown>[] = [], // Add messages parameter
+  queryClient?: {
+    invalidateQueries: (options: Record<string, unknown>) => void;
+    removeQueries: (options: Record<string, unknown>) => void;
+  }, // Add queryClient parameter
   getToken?: () => Promise<string | null>, // Add getToken function parameter
   appType: 'web' | 'mobile' = 'web',
 ) => {
   if (sandboxId) {
     // If we have a sandboxId, upload files directly
-    await uploadFiles(files, sandboxId, setUploadedFiles, setIsUploading, messages, queryClient, getToken, appType);
+    await uploadFiles(
+      files,
+      sandboxId,
+      setUploadedFiles,
+      setIsUploading,
+      messages,
+      queryClient,
+      getToken,
+      appType,
+    );
   } else {
     // Otherwise, store files locally
     handleLocalFiles(files, setPendingFiles, setUploadedFiles, appType);
@@ -199,7 +241,7 @@ interface FileUploadHandlerProps {
   setPendingFiles: React.Dispatch<React.SetStateAction<File[]>>;
   setUploadedFiles: React.Dispatch<React.SetStateAction<UploadedFile[]>>;
   setIsUploading: React.Dispatch<React.SetStateAction<boolean>>;
-  messages?: any[]; // Add messages prop
+  messages?: Record<string, unknown>[]; // Add messages prop
   isLoggedIn?: boolean;
   appType?: 'web' | 'mobile';
   className?: string;
@@ -228,13 +270,13 @@ export const FileUploadHandler = forwardRef<
   ) => {
     const queryClient = useQueryClient();
     const { getToken } = useAuth();
-    
+
     // Clean up object URLs when component unmounts
     useEffect(() => {
       return () => {
         // Clean up any object URLs to avoid memory leaks
-        setUploadedFiles(prev => {
-          prev.forEach(file => {
+        setUploadedFiles((prev) => {
+          prev.forEach((file) => {
             if (file.localUrl) {
               URL.revokeObjectURL(file.localUrl);
             }
@@ -242,6 +284,7 @@ export const FileUploadHandler = forwardRef<
           return prev;
         });
       };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleFileUpload = () => {
@@ -281,17 +324,25 @@ export const FileUploadHandler = forwardRef<
             variant="ghost"
             size="sm"
             className={cn(
-              "h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors",
-              className
+              'h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors',
+              className,
             )}
             disabled={
-              !isLoggedIn || loading || (disabled && !isAgentRunning) || isUploading
+              !isLoggedIn ||
+              loading ||
+              (disabled && !isAgentRunning) ||
+              isUploading
             }
           >
             {isUploading ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
-              <Paperclip className={cn("h-4 w-4", className?.includes("h-9") && "h-5 w-5")} />
+              <Paperclip
+                className={cn(
+                  'h-4 w-4',
+                  className?.includes('h-9') && 'h-5 w-5',
+                )}
+              />
             )}
           </Button>
         </span>

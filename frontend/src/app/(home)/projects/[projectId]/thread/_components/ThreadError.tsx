@@ -11,19 +11,16 @@ export function ThreadError({ error }: ThreadErrorProps) {
         <div className="p-3">
           <AlertTriangle className="h-6 w-6 text-red-500/80" />
         </div>
-        <h2 className="text-sm font-medium text-red-400">
-          Error
-        </h2>
+        <h2 className="text-sm font-medium text-red-400">Error</h2>
         <div className="w-full h-px bg-red-900/20" />
         <p className="text-xs text-zinc-400 font-mono">
           {error.includes(
             'JSON object requested, multiple (or no) rows returned',
           )
             ? 'Thread not found or access denied.'
-            : error
-          }
+            : error}
         </p>
       </div>
     </div>
   );
-} 
+}

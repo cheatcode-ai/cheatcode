@@ -1,22 +1,23 @@
-"""
-Profile Service for Composio.
+"""Profile Service for Composio.
+
 Manages credential profiles with encrypted storage in the database.
 """
 
-from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field
-from datetime import datetime
-from uuid import UUID
-import json
 import hashlib
+import json
+from datetime import UTC, datetime
+from typing import Any
 
-from utils.logger import logger
+from pydantic import BaseModel, Field
+
 from services.supabase import DBConnection
-from utils.encryption import encrypt_data, decrypt_data
+from utils.encryption import decrypt_data, encrypt_data
+from utils.logger import logger
 
 
 class ComposioProfile(BaseModel):
     """Represents a Composio credential profile stored in the database."""
+
     profile_id: str
     user_id: str  # Clerk user ID
     toolkit_slug: str  # e.g., 'github', 'slack'
@@ -28,31 +29,33 @@ class ComposioProfile(BaseModel):
     is_default: bool = False
     is_default_for_dashboard: bool = False
     is_connected: bool = True  # Mirrors is_active - Composio manages actual connection state
-    enabled_tools: List[str] = Field(default_factory=list)
-    created_at: Optional[str] = None
-    updated_at: Optional[str] = None
-    last_used_at: Optional[str] = None
+    enabled_tools: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+    updated_at: str | None = None
+    last_used_at: str | None = None
 
 
 class CreateProfileRequest(BaseModel):
     """Request to create a new profile."""
+
     toolkit_slug: str
     profile_name: str
-    display_name: Optional[str] = None
+    display_name: str | None = None
     connected_account_id: str
-    enabled_tools: List[str] = Field(default_factory=list)
+    enabled_tools: list[str] = Field(default_factory=list)
     is_default: bool = False
     is_default_for_dashboard: bool = False
 
 
 class UpdateProfileRequest(BaseModel):
     """Request to update a profile."""
-    profile_name: Optional[str] = None
-    display_name: Optional[str] = None
-    is_active: Optional[bool] = None
-    is_default: Optional[bool] = None
-    is_default_for_dashboard: Optional[bool] = None
-    enabled_tools: Optional[List[str]] = None
+
+    profile_name: str | None = None
+    display_name: str | None = None
+    is_active: bool | None = None
+    is_default: bool | None = None
+    is_default_for_dashboard: bool | None = None
+    enabled_tools: list[str] | None = None
 
 
 class ProfileService:
@@ -69,13 +72,9 @@ class ProfileService:
         return f"{self.PROVIDER_PREFIX}:{toolkit_slug}"
 
     def _create_encrypted_config(
-        self,
-        connected_account_id: str,
-        enabled_tools: List[str],
-        additional_data: Dict[str, Any] = None
+        self, connected_account_id: str, enabled_tools: list[str], additional_data: dict[str, Any] | None = None
     ) -> tuple[str, str]:
-        """
-        Create encrypted config and its hash.
+        """Create encrypted config and its hash.
 
         Args:
             connected_account_id: The Composio connected account ID
@@ -84,11 +83,12 @@ class ProfileService:
 
         Returns:
             Tuple of (encrypted_config, config_hash)
+
         """
         config = {
             "connected_account_id": connected_account_id,
             "enabled_tools": enabled_tools,
-            "provider": self.PROVIDER_PREFIX
+            "provider": self.PROVIDER_PREFIX,
         }
 
         if additional_data:
@@ -100,7 +100,7 @@ class ProfileService:
 
         return encrypted_config, config_hash
 
-    def _decrypt_config(self, encrypted_config: str) -> Dict[str, Any]:
+    def _decrypt_config(self, encrypted_config: str) -> dict[str, Any]:
         """Decrypt profile config."""
         try:
             config_json = decrypt_data(encrypted_config)
@@ -109,7 +109,7 @@ class ProfileService:
             logger.error(f"Failed to decrypt config: {e}")
             return {}
 
-    def _db_row_to_profile(self, row: Dict[str, Any]) -> ComposioProfile:
+    def _db_row_to_profile(self, row: dict[str, Any]) -> ComposioProfile:
         """Convert database row to ComposioProfile object."""
         # Decrypt config to get connection details
         decrypted = self._decrypt_config(row.get("encrypted_config", ""))
@@ -136,16 +136,11 @@ class ProfileService:
             enabled_tools=decrypted.get("enabled_tools", []),
             created_at=str(row.get("created_at")) if row.get("created_at") else None,
             updated_at=str(row.get("updated_at")) if row.get("updated_at") else None,
-            last_used_at=str(row.get("last_used_at")) if row.get("last_used_at") else None
+            last_used_at=str(row.get("last_used_at")) if row.get("last_used_at") else None,
         )
 
-    async def create_profile(
-        self,
-        user_id: str,
-        request: CreateProfileRequest
-    ) -> ComposioProfile:
-        """
-        Create a new Composio credential profile.
+    async def create_profile(self, user_id: str, request: CreateProfileRequest) -> ComposioProfile:
+        """Create a new Composio credential profile.
 
         Args:
             user_id: The Clerk user ID
@@ -156,25 +151,33 @@ class ProfileService:
 
         Raises:
             ValueError: If profile name already exists
+
         """
         try:
             client = await self.db.client
             mcp_qualified_name = self._get_mcp_qualified_name(request.toolkit_slug)
 
             # Check for existing profiles with same name
-            existing = await client.table(self.TABLE_NAME).select(
-                "profile_id"
-            ).eq("user_id", user_id).eq(
-                "mcp_qualified_name", mcp_qualified_name
-            ).eq("profile_name", request.profile_name).execute()
+            existing = (
+                await client.table(self.TABLE_NAME)
+                .select("profile_id")
+                .eq("user_id", user_id)
+                .eq("mcp_qualified_name", mcp_qualified_name)
+                .eq("profile_name", request.profile_name)
+                .execute()
+            )
 
             if existing.data:
                 raise ValueError(f"Profile '{request.profile_name}' already exists for {request.toolkit_slug}")
 
             # Check if this is the first profile for this toolkit
-            all_profiles = await client.table(self.TABLE_NAME).select(
-                "profile_id"
-            ).eq("user_id", user_id).eq("mcp_qualified_name", mcp_qualified_name).execute()
+            all_profiles = (
+                await client.table(self.TABLE_NAME)
+                .select("profile_id")
+                .eq("user_id", user_id)
+                .eq("mcp_qualified_name", mcp_qualified_name)
+                .execute()
+            )
 
             is_first_profile = len(all_profiles.data or []) == 0
 
@@ -184,23 +187,30 @@ class ProfileService:
 
             # If setting as default, unset other defaults
             if is_default:
-                await client.table(self.TABLE_NAME).update({
-                    "is_default": False
-                }).eq("user_id", user_id).eq("mcp_qualified_name", mcp_qualified_name).execute()
+                await (
+                    client.table(self.TABLE_NAME)
+                    .update({"is_default": False})
+                    .eq("user_id", user_id)
+                    .eq("mcp_qualified_name", mcp_qualified_name)
+                    .execute()
+                )
 
             if is_default_for_dashboard:
-                await client.table(self.TABLE_NAME).update({
-                    "is_default_for_dashboard": False
-                }).eq("user_id", user_id).eq("mcp_qualified_name", mcp_qualified_name).execute()
+                await (
+                    client.table(self.TABLE_NAME)
+                    .update({"is_default_for_dashboard": False})
+                    .eq("user_id", user_id)
+                    .eq("mcp_qualified_name", mcp_qualified_name)
+                    .execute()
+                )
 
             # Create encrypted config
             encrypted_config, config_hash = self._create_encrypted_config(
-                connected_account_id=request.connected_account_id,
-                enabled_tools=request.enabled_tools
+                connected_account_id=request.connected_account_id, enabled_tools=request.enabled_tools
             )
 
             display_name = request.display_name or f"{request.toolkit_slug.title()} - {request.profile_name}"
-            now = datetime.utcnow().isoformat()
+            now = datetime.now(tz=UTC).isoformat()
 
             # Insert profile
             profile_data = {
@@ -214,7 +224,7 @@ class ProfileService:
                 "is_default": is_default,
                 "is_default_for_dashboard": is_default_for_dashboard,
                 "created_at": now,
-                "updated_at": now
+                "updated_at": now,
             }
 
             result = await client.table(self.TABLE_NAME).insert(profile_data).execute()
@@ -231,9 +241,8 @@ class ProfileService:
             logger.error(f"Failed to create profile: {e}")
             raise
 
-    async def get_profile(self, profile_id: str, user_id: str) -> Optional[ComposioProfile]:
-        """
-        Get a profile by ID.
+    async def get_profile(self, profile_id: str, user_id: str) -> ComposioProfile | None:
+        """Get a profile by ID.
 
         Args:
             profile_id: The profile ID
@@ -241,15 +250,20 @@ class ProfileService:
 
         Returns:
             ComposioProfile if found and authorized, None otherwise
+
         """
         try:
             client = await self.db.client
 
-            result = await client.table(self.TABLE_NAME).select("*").eq(
-                "profile_id", profile_id
-            ).eq("user_id", user_id).like(
-                "mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%"
-            ).single().execute()
+            result = (
+                await client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("profile_id", profile_id)
+                .eq("user_id", user_id)
+                .like("mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%")
+                .single()
+                .execute()
+            )
 
             if not result.data:
                 return None
@@ -266,13 +280,9 @@ class ProfileService:
             return None
 
     async def list_profiles(
-        self,
-        user_id: str,
-        toolkit_slug: Optional[str] = None,
-        active_only: bool = False
-    ) -> List[ComposioProfile]:
-        """
-        List all Composio profiles for a user.
+        self, user_id: str, toolkit_slug: str | None = None, active_only: bool = False
+    ) -> list[ComposioProfile]:
+        """List all Composio profiles for a user.
 
         Args:
             user_id: The Clerk user ID
@@ -281,13 +291,17 @@ class ProfileService:
 
         Returns:
             List of ComposioProfile objects
+
         """
         try:
             client = await self.db.client
 
-            query = client.table(self.TABLE_NAME).select("*").eq(
-                "user_id", user_id
-            ).like("mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%")
+            query = (
+                client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", user_id)
+                .like("mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%")
+            )
 
             if toolkit_slug:
                 mcp_qualified_name = self._get_mcp_qualified_name(toolkit_slug)
@@ -313,13 +327,9 @@ class ProfileService:
             return []
 
     async def update_profile(
-        self,
-        profile_id: str,
-        user_id: str,
-        request: UpdateProfileRequest
-    ) -> Optional[ComposioProfile]:
-        """
-        Update a profile.
+        self, profile_id: str, user_id: str, request: UpdateProfileRequest
+    ) -> ComposioProfile | None:
+        """Update a profile.
 
         Args:
             profile_id: The profile ID
@@ -328,6 +338,7 @@ class ProfileService:
 
         Returns:
             Updated ComposioProfile if successful
+
         """
         try:
             client = await self.db.client
@@ -338,7 +349,7 @@ class ProfileService:
                 return None
 
             mcp_qualified_name = self._get_mcp_qualified_name(existing.toolkit_slug)
-            update_data: Dict[str, Any] = {"updated_at": datetime.utcnow().isoformat()}
+            update_data: dict[str, Any] = {"updated_at": datetime.now(tz=UTC).isoformat()}
 
             if request.profile_name is not None:
                 update_data["profile_name"] = request.profile_name
@@ -352,17 +363,25 @@ class ProfileService:
             # Handle default flags
             if request.is_default is True:
                 # Unset other defaults first
-                await client.table(self.TABLE_NAME).update({
-                    "is_default": False
-                }).eq("user_id", user_id).eq("mcp_qualified_name", mcp_qualified_name).execute()
+                await (
+                    client.table(self.TABLE_NAME)
+                    .update({"is_default": False})
+                    .eq("user_id", user_id)
+                    .eq("mcp_qualified_name", mcp_qualified_name)
+                    .execute()
+                )
                 update_data["is_default"] = True
             elif request.is_default is False:
                 update_data["is_default"] = False
 
             if request.is_default_for_dashboard is True:
-                await client.table(self.TABLE_NAME).update({
-                    "is_default_for_dashboard": False
-                }).eq("user_id", user_id).eq("mcp_qualified_name", mcp_qualified_name).execute()
+                await (
+                    client.table(self.TABLE_NAME)
+                    .update({"is_default_for_dashboard": False})
+                    .eq("user_id", user_id)
+                    .eq("mcp_qualified_name", mcp_qualified_name)
+                    .execute()
+                )
                 update_data["is_default_for_dashboard"] = True
             elif request.is_default_for_dashboard is False:
                 update_data["is_default_for_dashboard"] = False
@@ -370,15 +389,18 @@ class ProfileService:
             # Handle enabled_tools update (requires re-encryption)
             if request.enabled_tools is not None:
                 encrypted_config, config_hash = self._create_encrypted_config(
-                    connected_account_id=existing.connected_account_id,
-                    enabled_tools=request.enabled_tools
+                    connected_account_id=existing.connected_account_id, enabled_tools=request.enabled_tools
                 )
                 update_data["encrypted_config"] = encrypted_config
                 update_data["config_hash"] = config_hash
 
-            result = await client.table(self.TABLE_NAME).update(
-                update_data
-            ).eq("profile_id", profile_id).eq("user_id", user_id).execute()
+            result = (
+                await client.table(self.TABLE_NAME)
+                .update(update_data)
+                .eq("profile_id", profile_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
 
             if not result.data:
                 return None
@@ -390,8 +412,7 @@ class ProfileService:
             return None
 
     async def delete_profile(self, profile_id: str, user_id: str) -> bool:
-        """
-        Delete a profile.
+        """Delete a profile.
 
         Args:
             profile_id: The profile ID
@@ -399,15 +420,19 @@ class ProfileService:
 
         Returns:
             True if deletion succeeded
+
         """
         try:
             client = await self.db.client
 
-            result = await client.table(self.TABLE_NAME).delete().eq(
-                "profile_id", profile_id
-            ).eq("user_id", user_id).like(
-                "mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%"
-            ).execute()
+            result = (
+                await client.table(self.TABLE_NAME)
+                .delete()
+                .eq("profile_id", profile_id)
+                .eq("user_id", user_id)
+                .like("mcp_qualified_name", f"{self.PROVIDER_PREFIX}:%")
+                .execute()
+            )
 
             success = bool(result.data)
             if success:
@@ -419,9 +444,8 @@ class ProfileService:
             logger.error(f"Failed to delete profile {profile_id}: {e}")
             return False
 
-    async def bulk_delete_profiles(self, profile_ids: List[str], user_id: str) -> int:
-        """
-        Bulk delete profiles.
+    async def bulk_delete_profiles(self, profile_ids: list[str], user_id: str) -> int:
+        """Bulk delete profiles.
 
         Args:
             profile_ids: List of profile IDs to delete
@@ -429,6 +453,7 @@ class ProfileService:
 
         Returns:
             Number of profiles deleted
+
         """
         deleted = 0
         for profile_id in profile_ids:
@@ -437,8 +462,7 @@ class ProfileService:
         return deleted
 
     async def set_default_profile(self, profile_id: str, user_id: str) -> bool:
-        """
-        Set a profile as default for its toolkit.
+        """Set a profile as default for its toolkit.
 
         Args:
             profile_id: The profile ID
@@ -446,6 +470,7 @@ class ProfileService:
 
         Returns:
             True if successful
+
         """
         profile = await self.get_profile(profile_id, user_id)
         if not profile:
@@ -456,8 +481,7 @@ class ProfileService:
         return updated is not None
 
     async def set_dashboard_default_profile(self, profile_id: str, user_id: str) -> bool:
-        """
-        Set a profile as default for dashboard MCP access.
+        """Set a profile as default for dashboard MCP access.
 
         Args:
             profile_id: The profile ID
@@ -465,6 +489,7 @@ class ProfileService:
 
         Returns:
             True if successful
+
         """
         profile = await self.get_profile(profile_id, user_id)
         if not profile:
@@ -474,14 +499,8 @@ class ProfileService:
         updated = await self.update_profile(profile_id, user_id, request)
         return updated is not None
 
-    async def check_name_availability(
-        self,
-        user_id: str,
-        toolkit_slug: str,
-        profile_name: str
-    ) -> bool:
-        """
-        Check if a profile name is available.
+    async def check_name_availability(self, user_id: str, toolkit_slug: str, profile_name: str) -> bool:
+        """Check if a profile name is available.
 
         Args:
             user_id: The Clerk user ID
@@ -490,16 +509,20 @@ class ProfileService:
 
         Returns:
             True if the name is available
+
         """
         try:
             client = await self.db.client
             mcp_qualified_name = self._get_mcp_qualified_name(toolkit_slug)
 
-            result = await client.table(self.TABLE_NAME).select(
-                "profile_id"
-            ).eq("user_id", user_id).eq(
-                "mcp_qualified_name", mcp_qualified_name
-            ).eq("profile_name", profile_name).execute()
+            result = (
+                await client.table(self.TABLE_NAME)
+                .select("profile_id")
+                .eq("user_id", user_id)
+                .eq("mcp_qualified_name", mcp_qualified_name)
+                .eq("profile_name", profile_name)
+                .execute()
+            )
 
             return len(result.data or []) == 0
 
@@ -507,13 +530,8 @@ class ProfileService:
             logger.error(f"Failed to check name availability: {e}")
             return False
 
-    async def get_default_profile(
-        self,
-        user_id: str,
-        toolkit_slug: str
-    ) -> Optional[ComposioProfile]:
-        """
-        Get the default profile for a toolkit.
+    async def get_default_profile(self, user_id: str, toolkit_slug: str) -> ComposioProfile | None:
+        """Get the default profile for a toolkit.
 
         Args:
             user_id: The Clerk user ID
@@ -521,16 +539,21 @@ class ProfileService:
 
         Returns:
             Default ComposioProfile if exists
+
         """
         try:
             client = await self.db.client
             mcp_qualified_name = self._get_mcp_qualified_name(toolkit_slug)
 
-            result = await client.table(self.TABLE_NAME).select("*").eq(
-                "user_id", user_id
-            ).eq("mcp_qualified_name", mcp_qualified_name).eq(
-                "is_default", True
-            ).single().execute()
+            result = (
+                await client.table(self.TABLE_NAME)
+                .select("*")
+                .eq("user_id", user_id)
+                .eq("mcp_qualified_name", mcp_qualified_name)
+                .eq("is_default", True)
+                .single()
+                .execute()
+            )
 
             if not result.data:
                 return None
@@ -545,32 +568,32 @@ class ProfileService:
         """Update the last_used_at timestamp for a profile."""
         try:
             client = await self.db.client
-            await client.table(self.TABLE_NAME).update({
-                "last_used_at": datetime.utcnow().isoformat()
-            }).eq("profile_id", profile_id).eq("user_id", user_id).execute()
+            await (
+                client.table(self.TABLE_NAME)
+                .update({"last_used_at": datetime.now(tz=UTC).isoformat()})
+                .eq("profile_id", profile_id)
+                .eq("user_id", user_id)
+                .execute()
+            )
         except Exception as e:
             logger.warning(f"Failed to update last_used_at for profile {profile_id}: {e}")
 
-    async def get_profiles_grouped_by_toolkit(
-        self,
-        user_id: str
-    ) -> Dict[str, List[ComposioProfile]]:
-        """
-        Get all profiles grouped by toolkit.
+    async def get_profiles_grouped_by_toolkit(self, user_id: str) -> dict[str, list[ComposioProfile]]:
+        """Get all profiles grouped by toolkit.
 
         Args:
             user_id: The Clerk user ID
 
         Returns:
             Dict mapping toolkit_slug to list of profiles
+
         """
         profiles = await self.list_profiles(user_id)
 
-        grouped: Dict[str, List[ComposioProfile]] = {}
+        grouped: dict[str, list[ComposioProfile]] = {}
         for profile in profiles:
             if profile.toolkit_slug not in grouped:
                 grouped[profile.toolkit_slug] = []
             grouped[profile.toolkit_slug].append(profile)
 
         return grouped
-

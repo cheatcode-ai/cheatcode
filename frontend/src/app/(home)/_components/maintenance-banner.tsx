@@ -28,6 +28,7 @@ export function MaintenanceBanner({
   const maintenanceKey = `maintenance-dismissed-${startTime}-${endTime}`;
 
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     setIsMounted(true);
     // Check if this maintenance has been dismissed
     const dismissed = localStorage.getItem(maintenanceKey);

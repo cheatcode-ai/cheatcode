@@ -1,0 +1,29 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+
+  "entry": [
+    "src/app/**/metadata.{ts,tsx}",
+    "src/app/providers.tsx"
+  ],
+
+  "project": ["src/**/*.{ts,tsx}"],
+
+  "ignoreDependencies": [
+    "tw-animate-css",
+    "tailwind-scrollbar",
+    "tailwind-scrollbar-hide",
+    "tailwindcss-animate",
+    "autoprefixer",
+    "@tailwindcss/typography",
+    "tailwindcss",
+    "cmdk",
+    "rehype-raw",
+    "rehype-sanitize"
+  ],
+
+  "ignore": ["src/components/ui/**", "src/lib/stubs/**"],
+
+  "postcss": {
+    "config": ["postcss.config.mjs"]
+  }
+}

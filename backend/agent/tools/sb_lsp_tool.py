@@ -1,14 +1,14 @@
-"""
-Sandbox LSP Tool - Language Server Protocol integration for Daytona sandboxes.
+"""Sandbox LSP Tool - Language Server Protocol integration for Daytona sandboxes.
 
 This tool provides code intelligence features like completions, symbols, and diagnostics
 using the Daytona SDK's built-in LSP support.
 """
 
-from typing import Optional, Dict, Any, List
-from agentpress.tool import ToolResult, ToolSchema, SchemaType
-from sandbox.tool_base import SandboxToolsBase
+from typing import Any
+
 from agentpress.thread_manager import ThreadManager
+from agentpress.tool import SchemaType, ToolResult, ToolSchema
+from sandbox.tool_base import SandboxToolsBase
 from utils.logger import logger
 
 
@@ -19,11 +19,11 @@ class SandboxLSPTool(SandboxToolsBase):
     and workspace-wide symbol search using the Daytona SDK's native LSP support.
     """
 
-    def __init__(self, project_id: str, thread_manager: ThreadManager, app_type: str = 'web'):
+    def __init__(self, project_id: str, thread_manager: ThreadManager, app_type: str = "web"):
         super().__init__(project_id, thread_manager, app_type)
-        self._lsp_servers: Dict[str, Any] = {}
+        self._lsp_servers: dict[str, Any] = {}
 
-    def get_schemas(self) -> Dict[str, List[ToolSchema]]:
+    def get_schemas(self) -> dict[str, list[ToolSchema]]:
         """Return tool schemas for LSP operations."""
         schemas = {}
 
@@ -41,21 +41,18 @@ class SandboxLSPTool(SandboxToolsBase):
                             "properties": {
                                 "file_path": {
                                     "type": "string",
-                                    "description": "Path to the file relative to workspace root"
+                                    "description": "Path to the file relative to workspace root",
                                 },
-                                "line": {
-                                    "type": "integer",
-                                    "description": "Zero-based line number"
-                                },
+                                "line": {"type": "integer", "description": "Zero-based line number"},
                                 "character": {
                                     "type": "integer",
-                                    "description": "Zero-based character position on the line"
-                                }
+                                    "description": "Zero-based character position on the line",
+                                },
                             },
-                            "required": ["file_path", "line", "character"]
-                        }
-                    }
-                }
+                            "required": ["file_path", "line", "character"],
+                        },
+                    },
+                },
             )
         ]
 
@@ -73,13 +70,13 @@ class SandboxLSPTool(SandboxToolsBase):
                             "properties": {
                                 "file_path": {
                                     "type": "string",
-                                    "description": "Path to the file relative to workspace root"
+                                    "description": "Path to the file relative to workspace root",
                                 }
                             },
-                            "required": ["file_path"]
-                        }
-                    }
-                }
+                            "required": ["file_path"],
+                        },
+                    },
+                },
             )
         ]
 
@@ -97,13 +94,13 @@ class SandboxLSPTool(SandboxToolsBase):
                             "properties": {
                                 "query": {
                                     "type": "string",
-                                    "description": "Search query (partial symbol name to search for)"
+                                    "description": "Search query (partial symbol name to search for)",
                                 }
                             },
-                            "required": ["query"]
-                        }
-                    }
-                }
+                            "required": ["query"],
+                        },
+                    },
+                },
             )
         ]
 
@@ -111,28 +108,28 @@ class SandboxLSPTool(SandboxToolsBase):
 
     def _get_language_from_extension(self, file_path: str) -> str:
         """Determine the LSP language ID from file extension."""
-        ext = file_path.split('.')[-1].lower() if '.' in file_path else ''
+        ext = file_path.split(".")[-1].lower() if "." in file_path else ""
 
         language_map = {
             # TypeScript/JavaScript
-            'ts': 'typescript',
-            'tsx': 'typescript',
-            'js': 'typescript',  # Use TS server for JS too
-            'jsx': 'typescript',
-            'mjs': 'typescript',
-            'cjs': 'typescript',
+            "ts": "typescript",
+            "tsx": "typescript",
+            "js": "typescript",  # Use TS server for JS too
+            "jsx": "typescript",
+            "mjs": "typescript",
+            "cjs": "typescript",
             # Python
-            'py': 'python',
-            'pyw': 'python',
+            "py": "python",
+            "pyw": "python",
             # Others that could be added later
-            'go': 'go',
-            'rs': 'rust',
-            'java': 'java',
-            'rb': 'ruby',
-            'php': 'php',
+            "go": "go",
+            "rs": "rust",
+            "java": "java",
+            "rb": "ruby",
+            "php": "php",
         }
 
-        return language_map.get(ext, 'typescript')  # Default to typescript
+        return language_map.get(ext, "typescript")  # Default to typescript
 
     async def _ensure_lsp_server(self, language: str) -> Any:
         """Ensure LSP server is started for the given language."""
@@ -152,12 +149,7 @@ class SandboxLSPTool(SandboxToolsBase):
             logger.error(f"Failed to start LSP server for {language}: {e}")
             raise
 
-    async def get_completions(
-        self,
-        file_path: str,
-        line: int,
-        character: int
-    ) -> ToolResult:
+    async def get_completions(self, file_path: str, line: int, character: int) -> ToolResult:
         """Get code completions at a specific position.
 
         Args:
@@ -167,6 +159,7 @@ class SandboxLSPTool(SandboxToolsBase):
 
         Returns:
             ToolResult with completion items
+
         """
         try:
             await self._ensure_sandbox()
@@ -188,26 +181,29 @@ class SandboxLSPTool(SandboxToolsBase):
             # Get completions
             completions = await lsp.completions(full_path, {"line": line, "character": character})
 
-            items = []
-            for item in (completions.items or [])[:30]:  # Limit to 30 items
-                items.append({
+            items = [
+                {
                     "label": item.label,
-                    "kind": str(item.kind) if hasattr(item, 'kind') else None,
-                    "detail": getattr(item, 'detail', None) or "",
-                    "documentation": getattr(item, 'documentation', None) or "",
-                })
+                    "kind": str(item.kind) if hasattr(item, "kind") else None,
+                    "detail": getattr(item, "detail", None) or "",
+                    "documentation": getattr(item, "documentation", None) or "",
+                }
+                for item in (completions.items or [])[:30]  # Limit to 30 items
+            ]
 
-            return self.success_response({
-                "file": file_path,
-                "position": {"line": line, "character": character},
-                "completions": items,
-                "count": len(items),
-                "is_incomplete": getattr(completions, 'is_incomplete', False)
-            })
+            return self.success_response(
+                {
+                    "file": file_path,
+                    "position": {"line": line, "character": character},
+                    "completions": items,
+                    "count": len(items),
+                    "is_incomplete": getattr(completions, "is_incomplete", False),
+                }
+            )
 
         except Exception as e:
             logger.error(f"Failed to get completions for {file_path}: {e}")
-            return self.fail_response(f"Failed to get completions: {str(e)}")
+            return self.fail_response(f"Failed to get completions: {e!s}")
 
     async def get_document_symbols(self, file_path: str) -> ToolResult:
         """Get all symbols defined in a document.
@@ -217,6 +213,7 @@ class SandboxLSPTool(SandboxToolsBase):
 
         Returns:
             ToolResult with document symbols
+
         """
         try:
             await self._ensure_sandbox()
@@ -240,37 +237,27 @@ class SandboxLSPTool(SandboxToolsBase):
             for symbol in symbols:
                 symbol_info = {
                     "name": symbol.name,
-                    "kind": str(symbol.kind) if hasattr(symbol, 'kind') else "unknown",
+                    "kind": str(symbol.kind) if hasattr(symbol, "kind") else "unknown",
                 }
 
                 # Add range if available
-                if hasattr(symbol, 'range') and symbol.range:
+                if hasattr(symbol, "range") and symbol.range:
                     symbol_info["range"] = {
-                        "start": {
-                            "line": symbol.range.start.line,
-                            "character": symbol.range.start.character
-                        },
-                        "end": {
-                            "line": symbol.range.end.line,
-                            "character": symbol.range.end.character
-                        }
+                        "start": {"line": symbol.range.start.line, "character": symbol.range.start.character},
+                        "end": {"line": symbol.range.end.line, "character": symbol.range.end.character},
                     }
 
                 # Add container name if available
-                if hasattr(symbol, 'container_name') and symbol.container_name:
+                if hasattr(symbol, "container_name") and symbol.container_name:
                     symbol_info["container"] = symbol.container_name
 
                 symbol_list.append(symbol_info)
 
-            return self.success_response({
-                "file": file_path,
-                "symbols": symbol_list,
-                "count": len(symbol_list)
-            })
+            return self.success_response({"file": file_path, "symbols": symbol_list, "count": len(symbol_list)})
 
         except Exception as e:
             logger.error(f"Failed to get document symbols for {file_path}: {e}")
-            return self.fail_response(f"Failed to get document symbols: {str(e)}")
+            return self.fail_response(f"Failed to get document symbols: {e!s}")
 
     async def search_workspace_symbols(self, query: str) -> ToolResult:
         """Search for symbols across the entire workspace.
@@ -280,12 +267,13 @@ class SandboxLSPTool(SandboxToolsBase):
 
         Returns:
             ToolResult with matching symbols
+
         """
         try:
             await self._ensure_sandbox()
 
             # Use TypeScript LSP for workspace search (covers most frontend code)
-            lsp = await self._ensure_lsp_server('typescript')
+            lsp = await self._ensure_lsp_server("typescript")
 
             # Search symbols
             symbols = await lsp.workspace_symbols(query)
@@ -294,37 +282,33 @@ class SandboxLSPTool(SandboxToolsBase):
             for symbol in symbols[:50]:  # Limit results
                 result = {
                     "name": symbol.name,
-                    "kind": str(symbol.kind) if hasattr(symbol, 'kind') else "unknown",
+                    "kind": str(symbol.kind) if hasattr(symbol, "kind") else "unknown",
                 }
 
                 # Add location if available
-                if hasattr(symbol, 'location') and symbol.location:
-                    if hasattr(symbol.location, 'uri'):
+                if hasattr(symbol, "location") and symbol.location:
+                    if hasattr(symbol.location, "uri"):
                         # Extract relative path from URI
                         uri = str(symbol.location.uri)
                         if self.workspace_path in uri:
-                            result["file"] = uri.split(self.workspace_path)[-1].lstrip('/')
+                            result["file"] = uri.split(self.workspace_path)[-1].lstrip("/")
                         else:
                             result["file"] = uri
 
-                    if hasattr(symbol.location, 'range') and symbol.location.range:
+                    if hasattr(symbol.location, "range") and symbol.location.range:
                         result["line"] = symbol.location.range.start.line
 
                 # Add container name if available
-                if hasattr(symbol, 'container_name') and symbol.container_name:
+                if hasattr(symbol, "container_name") and symbol.container_name:
                     result["container"] = symbol.container_name
 
                 results.append(result)
 
-            return self.success_response({
-                "query": query,
-                "results": results,
-                "count": len(results)
-            })
+            return self.success_response({"query": query, "results": results, "count": len(results)})
 
         except Exception as e:
             logger.error(f"Failed to search workspace symbols for '{query}': {e}")
-            return self.fail_response(f"Failed to search workspace symbols: {str(e)}")
+            return self.fail_response(f"Failed to search workspace symbols: {e!s}")
 
     async def cleanup(self):
         """Stop all LSP servers and clean up resources."""

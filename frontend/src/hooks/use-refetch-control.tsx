@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, ReactNode } from 'react';
+import { createContext, useContext, type ReactNode } from 'react';
 
 interface RefetchControlContextType {
   disableRefetching?: boolean;
@@ -12,15 +12,15 @@ interface RefetchControlContextType {
 
 const RefetchControlContext = createContext<RefetchControlContextType>({});
 
-export function RefetchControlProvider({ 
-  children, 
+export function RefetchControlProvider({
+  children,
   disableRefetching = false,
   disableWindowFocus = false,
   disableInterval = false,
   disableMount = false,
-  disableReconnect = false
-}: { 
-  children: ReactNode; 
+  disableReconnect = false,
+}: {
+  children: ReactNode;
   disableRefetching?: boolean;
   disableWindowFocus?: boolean;
   disableInterval?: boolean;

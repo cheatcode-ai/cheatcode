@@ -1,6 +1,6 @@
 import { AppPreviewSidePanel } from '@/components/thread/app-preview-side-panel';
 import { useThreadState } from '../_contexts/ThreadStateContext';
-import { useThreadActions } from '../_contexts/ThreadActionsContext';
+import { useThreadActions } from '../_contexts/ThreadProviders';
 import { useLayout } from '../_contexts/LayoutContext';
 
 export function ThreadAppPreview() {
@@ -10,7 +10,7 @@ export function ThreadAppPreview() {
     isSidePanelOpen,
     userClosedPanelRef,
     setIsSidePanelOpen,
-    setAutoOpenedPanel
+    setAutoOpenedPanel,
   } = useLayout();
 
   // Show panel when messages are available (progressive loading)

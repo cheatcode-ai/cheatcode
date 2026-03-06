@@ -65,8 +65,12 @@ export function StreamingContent({
   }
 
   const textToRender = streamingTextContent || '';
-  const textBeforeTag = detectedTag ? textToRender.substring(0, tagStartIndex) : textToRender;
-  const showCursor = (streamHookStatus === 'streaming' || streamHookStatus === 'connecting') && !detectedTag;
+  const textBeforeTag = detectedTag
+    ? textToRender.substring(0, tagStartIndex)
+    : textToRender;
+  const showCursor =
+    (streamHookStatus === 'streaming' || streamHookStatus === 'connecting') &&
+    !detectedTag;
 
   return (
     <>
@@ -83,8 +87,10 @@ export function StreamingContent({
           <div className="inline-flex items-center gap-2 text-zinc-500">
             <span className="font-mono text-[10px] uppercase tracking-widest">
               {detectedTag === 'function_calls'
-                ? (extractToolNameFromStream(streamingTextContent) || 'PROCESSING...')
-                : getUserFriendlyToolName(detectedTag)}...
+                ? extractToolNameFromStream(streamingTextContent) ||
+                  'PROCESSING...'
+                : getUserFriendlyToolName(detectedTag)}
+              ...
             </span>
           </div>
         </div>

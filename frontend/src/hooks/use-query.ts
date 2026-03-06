@@ -3,15 +3,15 @@
 import {
   useQuery,
   useMutation,
-  UseQueryOptions,
-  UseMutationOptions,
-  QueryKey,
+  type UseQueryOptions,
+  type UseMutationOptions,
+  type QueryKey,
 } from '@tanstack/react-query';
-import { handleApiError, ErrorContext } from '@/lib/error-handler';
+import { handleApiError, type ErrorContext } from '@/lib/error-handler';
 
-type QueryKeyValue = readonly unknown[];
-type QueryKeyFunction = (...args: any[]) => QueryKeyValue;
-type QueryKeyItem = QueryKeyValue | QueryKeyFunction;
+type QueryKeyItem =
+  | readonly unknown[]
+  | ((...args: never[]) => readonly unknown[]);
 
 export const createQueryKeys = <T extends Record<string, QueryKeyItem>>(
   keys: T,
@@ -67,8 +67,9 @@ export function createMutationHook<
     },
   ) => {
     const { errorContext: baseErrorContext, ...baseOptions } = options || {};
-    const { errorContext: customErrorContext, ...customMutationOptions } = customOptions || {};
-    
+    const { errorContext: customErrorContext, ...customMutationOptions } =
+      customOptions || {};
+
     return useMutation<TData, TError, TVariables, TContext>({
       mutationFn,
       onError: (error, variables, context, mutation) => {

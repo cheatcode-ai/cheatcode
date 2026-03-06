@@ -1,9 +1,9 @@
-"use client";
+'use client';
 
-import * as React from "react";
-import { motion } from "motion/react";
-import { cn } from "@/lib/utils";
-import { LucideIcon } from "lucide-react";
+import * as React from 'react';
+import { m } from 'motion/react';
+import { cn } from '@/lib/utils';
+import { type LucideIcon } from 'lucide-react';
 
 interface Tab {
   title: string;
@@ -13,7 +13,7 @@ interface Tab {
 }
 
 interface Separator {
-  type: "separator";
+  type: 'separator';
   title?: never;
   icon?: never;
 }
@@ -30,32 +30,34 @@ interface ExpandableTabsProps {
 const buttonVariants = {
   initial: {
     gap: 0,
-    paddingLeft: "0",
-    paddingRight: "0",
+    paddingLeft: '0',
+    paddingRight: '0',
   },
   animate: (isSelected: boolean) => ({
-    gap: isSelected ? "0.25rem" : 0,
-    paddingLeft: "0",
-    paddingRight: isSelected ? "0.5rem" : "0",
+    gap: isSelected ? '0.25rem' : 0,
+    paddingLeft: '0',
+    paddingRight: isSelected ? '0.5rem' : '0',
   }),
 };
 
-const transition = { type: "spring" as const, bounce: 0, duration: 0.4 };
+const transition = { type: 'spring' as const, bounce: 0, duration: 0.4 };
+
+const SeparatorComponent = () => (
+  <div className="mx-1 h-[24px] w-[1px] bg-zinc-800" aria-hidden="true" />
+);
 
 export function ExpandableTabs({
   tabs,
   className,
-  activeColor: _activeColor = "text-primary",
+  activeColor: _activeColor = 'text-primary',
   onChange,
 }: ExpandableTabsProps) {
   const [selected, setSelected] = React.useState<number | null>(0);
 
-
-
   React.useEffect(() => {
     // Ensure web app is selected by default on mount (only once)
     onChange?.(0);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []); // Remove onChange dependency to prevent race condition
 
   const handleSelect = (index: number) => {
@@ -63,20 +65,11 @@ export function ExpandableTabs({
     onChange?.(index);
   };
 
-  const Separator = () => (
-    <div className="mx-1 h-[24px] w-[1px] bg-zinc-800" aria-hidden="true" />
-  );
-
   return (
-    <div
-      className={cn(
-        "flex items-center gap-1 rounded-full p-1",
-        className
-      )}
-    >
+    <div className={cn('flex items-center gap-1 rounded-full p-1', className)}>
       {tabs.map((tab, index) => {
-        if (tab.type === "separator") {
-          return <Separator key={`separator-${index}`} />;
+        if (tab.type === 'separator') {
+          return <SeparatorComponent key={`separator-${index}`} />;
         }
 
         const tabItem = tab as Tab;
@@ -84,7 +77,7 @@ export function ExpandableTabs({
         const isSelected = selected === index;
 
         return (
-          <motion.button
+          <m.button
             key={tabItem.title}
             variants={buttonVariants}
             initial={false}
@@ -93,17 +86,21 @@ export function ExpandableTabs({
             onClick={() => handleSelect(index)}
             transition={transition}
             className={cn(
-              "relative flex items-center justify-center rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors duration-200 outline-none",
-              isSelected
-                ? "text-white"
-                : "text-zinc-500 hover:text-zinc-300"
+              'relative flex items-center justify-center rounded-full px-4 py-1.5 text-[13px] font-medium transition-colors duration-200 outline-none',
+              isSelected ? 'text-white' : 'text-zinc-500 hover:text-zinc-300',
             )}
           >
-            <Icon size={16} className={cn("mr-2 transition-colors", isSelected ? "text-white" : "text-zinc-500 group-hover:text-zinc-400")} />
-            <span className="whitespace-nowrap">
-              {tabItem.title}
-            </span>
-          </motion.button>
+            <Icon
+              size={16}
+              className={cn(
+                'mr-2 transition-colors',
+                isSelected
+                  ? 'text-white'
+                  : 'text-zinc-500 group-hover:text-zinc-400',
+              )}
+            />
+            <span className="whitespace-nowrap">{tabItem.title}</span>
+          </m.button>
         );
       })}
     </div>

@@ -1,0 +1,13 @@
+-- BASELINE: Do not apply to existing databases.
+--
+-- This file represents the initial database schema as of the baseline date.
+-- It exists to establish a migration history starting point. All future schema
+-- changes should be added as new migration files with incrementing timestamps.
+--
+-- To export the current schema, run:
+--   pg_dump --schema-only --no-owner --no-privileges $DATABASE_URL > baseline.sql
+--
+-- WARNING: Before running any real migration, ensure you have a backup:
+--   pg_dump $DATABASE_URL > backup_$(date +%Y%m%d_%H%M%S).sql
+
+-- Placeholder: Export and paste current schema here when DB access is available.

@@ -18,11 +18,13 @@ interface TokenCacheEntry {
   expiresAt: number;
 }
 
-const AuthTokenContext = createContext<AuthTokenContextType | undefined>(undefined);
+const AuthTokenContext = createContext<AuthTokenContextType | undefined>(
+  undefined,
+);
 
-// Token cache configuration
-const TOKEN_CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
-const TOKEN_REFRESH_THRESHOLD = 60 * 1000;   // Refresh if expires within 1 minute
+// Token cache configuration — aligned with Clerk's ~60s token lifetime
+const TOKEN_CACHE_DURATION = 50 * 1000; // 50 seconds
+const TOKEN_REFRESH_THRESHOLD = 15 * 1000; // Refresh if expires within 15 seconds
 
 interface AuthTokenProviderProps {
   children: React.ReactNode;
@@ -53,7 +55,11 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
 
         // If token is still valid and not close to expiring, return it
         if (timeUntilExpiry > TOKEN_REFRESH_THRESHOLD) {
-          logger.debug('Returning cached token (expires in', Math.round(timeUntilExpiry / 1000), 'seconds)');
+          logger.debug(
+            'Returning cached token (expires in',
+            Math.round(timeUntilExpiry / 1000),
+            'seconds)',
+          );
           return cached.token;
         }
 
@@ -109,7 +115,7 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
 
     const now = Date.now();
     const isValid = cached.expiresAt > now;
-    
+
     return isValid;
   }, []);
 
@@ -137,7 +143,7 @@ export function AuthTokenProvider({ children }: AuthTokenProviderProps) {
  * Hook to use the cached auth token
  * Provides smart token caching and automatic refresh
  */
-export function useCachedAuth() {
+function useCachedAuth() {
   const context = useContext(AuthTokenContext);
   if (context === undefined) {
     throw new Error('useCachedAuth must be used within an AuthTokenProvider');
@@ -152,7 +158,8 @@ export function useCachedAuth() {
 export function useOptimizedAuth() {
   const { isLoaded, isSignedIn, ...clerkAuth } = useAuth();
   const { user } = useUser();
-  const { getCachedToken, invalidateTokenCache, isTokenCached } = useCachedAuth();
+  const { getCachedToken, invalidateTokenCache, isTokenCached } =
+    useCachedAuth();
 
   return {
     ...clerkAuth,
@@ -164,20 +171,3 @@ export function useOptimizedAuth() {
     isTokenCached,
   };
 }
-
-/**
- * Higher-order component to wrap components that need cached auth
- */
-export function withCachedAuth<P extends object>(
-  Component: React.ComponentType<P>
-) {
-  return function CachedAuthWrapper(props: P) {
-    return (
-      <AuthTokenProvider>
-        <Component {...props} />
-      </AuthTokenProvider>
-    );
-  };
-}
-
-export default AuthTokenContext;

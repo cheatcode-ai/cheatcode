@@ -11,6 +11,17 @@
 
 const DAYTONA_PROXY_DOMAIN = 'proxy.daytona.works';
 
+function isAllowedOrigin(origin: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    return hostname === 'trycheatcode.com'
+      || hostname === 'www.trycheatcode.com'
+      || hostname === 'localhost';
+  } catch {
+    return false;
+  }
+}
+
 interface Env {
   // Add any environment variables here if needed
 }
@@ -168,7 +179,7 @@ export default {
 
       // Add CORS headers for iframe embedding from trycheatcode.com
       const origin = request.headers.get('origin');
-      if (origin && (origin.includes('trycheatcode.com') || origin.includes('localhost'))) {
+      if (origin && isAllowedOrigin(origin)) {
         responseHeaders.set('Access-Control-Allow-Origin', origin);
         responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
         responseHeaders.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
