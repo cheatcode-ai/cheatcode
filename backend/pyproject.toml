@@ -92,6 +92,7 @@ ignore = [
     "S101",               # assert (per-file-ignores for tests)
     "INP001",             # implicit namespace package
     "TC001", "TC002", "TC003",  # TYPE_CHECKING moves (breaks runtime)
+    "ARG001",             # unused function arg (slowapi @limiter requires `request: Request`)
 
     # FastAPI-specific patterns
     "FAST002",            # non-annotated dependency (FastAPI Depends() pattern)
@@ -149,6 +150,7 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**/*.py" = ["S101", "D", "ANN", "PLR2004", "ARG001", "ARG002"]
+"test_*.py" = ["T201", "F401", "I001", "PTH100", "PTH113", "PTH118", "PTH120", "PTH123", "RUF010", "S101", "D", "ANN"]
 "agent/tools/**/*.py" = ["PLR0913", "ARG002"]
 
 [tool.ruff.lint.isort]

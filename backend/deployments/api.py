@@ -247,7 +247,7 @@ async def _execute_vercel_deployment(
 @router.post("/project/{project_id}/deploy/git")
 @limiter.limit("5/minute")
 async def deploy_to_vercel(
-    request: Request,  # noqa: ARG001 — required by slowapi limiter
+    request: Request,
     project_data: tuple[dict[str, Any], str, str] = Depends(get_validated_project_with_quota_check),
 ):
     """Deploy project to Vercel via durable Inngest pipeline.
@@ -258,7 +258,7 @@ async def deploy_to_vercel(
     if not config.VERCEL_BEARER_TOKEN:
         raise HTTPException(status_code=500, detail="Vercel API not configured")
 
-    project, account_id, user_id = project_data  # noqa: F841 — account_id kept for signature compat
+    project, _, user_id = project_data
 
     import inngest as inngest_lib
 

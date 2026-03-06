@@ -710,7 +710,7 @@ print("11. RUN.PY IMPORT CHAIN TEST")
 print("=" * 72)
 
 try:
-    from agent.run import run_agent  # noqa: F811
+    from agent.run import run_agent
     assert_test("Import agent.run.run_agent succeeds", True)
 except ImportError as e:
     error_str = str(e)

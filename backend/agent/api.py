@@ -179,7 +179,7 @@ async def get_agent_run_with_access_check(client, agent_run_id: str, user_id: st
 @router.post("/thread/{thread_id}/agent/start")
 @limiter.limit("10/minute")
 async def start_agent(
-    request: Request,  # noqa: ARG001 — required by slowapi limiter
+    request: Request,
     thread_id: str,
     body: AgentStartRequest = Body(...),
     user_id: str = Depends(get_current_user_id_from_jwt),
@@ -1177,7 +1177,7 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
 @router.post("/agent/initiate", response_model=InitiateAgentResponse)
 @limiter.limit("5/minute")
 async def initiate_agent_with_files(
-    request: Request,  # noqa: ARG001 — required by slowapi limiter
+    request: Request,
     prompt: str = Form(...),
     model_name: str | None = Form(None),  # Default to None to use config.MODEL_TO_USE
     enable_thinking: bool | None = Form(False),

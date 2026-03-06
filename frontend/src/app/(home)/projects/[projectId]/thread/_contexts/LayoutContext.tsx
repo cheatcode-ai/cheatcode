@@ -58,7 +58,6 @@ function SearchParamsSync({
 
   useEffect(() => {
     const debugParam = searchParams.get('debug');
-    // eslint-disable-next-line react-hooks/set-state-in-effect
     setDebugMode(debugParam === 'true');
   }, [searchParams, setDebugMode]);
 

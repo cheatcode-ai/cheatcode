@@ -6,7 +6,7 @@ from utils.config import config
 _SENSITIVE_HEADERS = {"authorization", "cookie", "x-api-key", "x-clerk-auth-token"}
 
 
-def _before_send(event, hint):  # noqa: ARG001 — hint required by Sentry callback signature
+def _before_send(event, hint):
     """Scrub sensitive data before sending to Sentry."""
     if "request" in event:
         req = event["request"]

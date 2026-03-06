@@ -130,16 +130,16 @@ const Tree = forwardRef<HTMLDivElement, TreeViewProps>(
     );
 
     // Expand ancestors of the selected element whenever initialSelectedId or elements change.
-    // Using a ref to track previous values so we only expand when inputs actually change,
-    // avoiding the need for a useEffect that simulates an event handler.
     const prevInitRef = React.useRef<{ id: string | undefined; elements: TreeViewElement[] | undefined }>({ id: undefined, elements: undefined });
-    if (
-      initialSelectedId &&
-      (prevInitRef.current.id !== initialSelectedId || prevInitRef.current.elements !== elements)
-    ) {
-      prevInitRef.current = { id: initialSelectedId, elements };
-      expandSpecificTargetedElements(elements, initialSelectedId);
-    }
+    React.useEffect(() => {
+      if (
+        initialSelectedId &&
+        (prevInitRef.current.id !== initialSelectedId || prevInitRef.current.elements !== elements)
+      ) {
+        prevInitRef.current = { id: initialSelectedId, elements };
+        expandSpecificTargetedElements(elements, initialSelectedId);
+      }
+    }, [initialSelectedId, elements, expandSpecificTargetedElements]);
 
     const direction = dir === 'rtl' ? 'rtl' : 'ltr';
 
@@ -394,15 +394,16 @@ const CollapseButton = forwardRef<
     }, [setExpandedItems]);
 
     // Expand all tree nodes when expandAll prop becomes true or elements change.
-    // Computed during render with a ref guard instead of useEffect.
     const prevExpandAllRef = React.useRef<{ expandAll: boolean; elements: TreeViewElement[] }>({ expandAll: false, elements: [] });
-    if (
-      expandAll &&
-      (prevExpandAllRef.current.expandAll !== expandAll || prevExpandAllRef.current.elements !== elements)
-    ) {
-      prevExpandAllRef.current = { expandAll, elements };
-      expendAllTree(elements);
-    }
+    React.useEffect(() => {
+      if (
+        expandAll &&
+        (prevExpandAllRef.current.expandAll !== expandAll || prevExpandAllRef.current.elements !== elements)
+      ) {
+        prevExpandAllRef.current = { expandAll, elements };
+        expendAllTree(elements);
+      }
+    }, [expandAll, elements, expendAllTree]);
 
     return (
       <Button

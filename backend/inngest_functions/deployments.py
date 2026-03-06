@@ -193,7 +193,7 @@ async def _create_vercel_deployment(project_id: str, project_name: str, files: l
     }
 
 
-async def _save_deployment_record(project_id: str, user_id: str, deployment: dict) -> None:  # noqa: ARG001
+async def _save_deployment_record(project_id: str, user_id: str, deployment: dict) -> None:
     """Save deployment info to Supabase projects table."""
     from services.supabase import DBConnection
 

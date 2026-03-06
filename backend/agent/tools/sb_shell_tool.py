@@ -142,7 +142,7 @@ class SandboxShellTool(SandboxToolsBase):
                         XMLNodeMapping(param_name="session_name", node_type="attribute", path=".", required=True),
                         XMLNodeMapping(param_name="kill_session", node_type="attribute", path=".", required=False),
                     ],
-                    example=f"""
+                    example="""
         <function_calls>
         <invoke name="check_command_output">
         <parameter name="session_name">my_session</parameter>
@@ -191,7 +191,7 @@ class SandboxShellTool(SandboxToolsBase):
                     mappings=[
                         XMLNodeMapping(param_name="session_name", node_type="attribute", path=".", required=True)
                     ],
-                    example=f"""
+                    example="""
         <function_calls>
         <invoke name="terminate_command">
         <parameter name="session_name">my_session</parameter>

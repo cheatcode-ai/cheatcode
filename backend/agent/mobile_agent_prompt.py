@@ -1,7 +1,7 @@
 from agent.base_prompt import get_base_prompt_sections
 
 
-def get_mobile_agent_prompt(preview_url: str = "https://localhost:8081") -> str:  # noqa: ARG001 — preview_url injected separately via auto-preview context in run.py
+def get_mobile_agent_prompt(preview_url: str = "https://localhost:8081") -> str:
     base = get_base_prompt_sections()
     return f"""
 <identity>

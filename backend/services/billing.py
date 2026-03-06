@@ -635,7 +635,7 @@ async def get_payment_methods_for_region(country_code: str, is_subscription: boo
 @router.post("/payment-methods/validate")
 @limiter.limit("10/minute")
 async def validate_payment_methods_endpoint(
-    request: Request, country_code: str = "", payment_methods: list[str] = None, is_subscription: bool = True
+    request: Request, country_code: str = "", payment_methods: list[str] | None = None, is_subscription: bool = True
 ):
     """Validate payment methods for a specific region and transaction type."""
     try:

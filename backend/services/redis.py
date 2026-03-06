@@ -507,7 +507,7 @@ async def get_response_list_stats(response_list_key: str) -> dict:
         return {"key": response_list_key, "error": str(e)}
 
 
-async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:  # noqa: ARG001
+async def cleanup_orphaned_agent_keys(max_age_hours: int = 48) -> dict:
     """Clean up orphaned agent run keys that may have been left behind.
 
     Scans for agent_run:* keys and removes those that:
