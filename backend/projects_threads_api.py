@@ -270,7 +270,9 @@ async def create_project(
 
 @router.post("/threads", response_model=Thread)
 @limiter.limit("20/minute")
-async def create_thread(request: Request, thread_data: CreateThreadRequest, current_user_id: str = Depends(get_current_user_id_from_jwt)):
+async def create_thread(
+    request: Request, thread_data: CreateThreadRequest, current_user_id: str = Depends(get_current_user_id_from_jwt)
+):
     """Create a new thread for the authenticated user."""
     try:
         client = await db.client

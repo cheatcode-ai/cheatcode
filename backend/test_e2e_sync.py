@@ -70,11 +70,13 @@ for k, v in _DUMMY_ENV.items():
 
 # Suppress noisy logging during tests
 import logging
+
 logging.disable(logging.CRITICAL)
 
 # Suppress structlog output by configuring it to filter everything
 try:
     import structlog
+
     structlog.configure(
         wrapper_class=structlog.make_filtering_bound_logger(logging.CRITICAL),
     )
@@ -178,9 +180,11 @@ if get_coding_agent_prompt:
     try:
         web_prompt = get_coding_agent_prompt()
         assert_test("Web prompt generates without error", True)
-        assert_test("Web prompt is non-empty string",
-                    isinstance(web_prompt, str) and len(web_prompt) > 0,
-                    f"type={type(web_prompt)}, len={len(web_prompt) if web_prompt else 0}")
+        assert_test(
+            "Web prompt is non-empty string",
+            isinstance(web_prompt, str) and len(web_prompt) > 0,
+            f"type={type(web_prompt)}, len={len(web_prompt) if web_prompt else 0}",
+        )
     except Exception as e:
         record("Web prompt generates without error", False, str(e))
 
@@ -188,28 +192,37 @@ if get_mobile_agent_prompt:
     try:
         mobile_prompt = get_mobile_agent_prompt()
         assert_test("Mobile prompt generates without error", True)
-        assert_test("Mobile prompt is non-empty string",
-                    isinstance(mobile_prompt, str) and len(mobile_prompt) > 0,
-                    f"type={type(mobile_prompt)}, len={len(mobile_prompt) if mobile_prompt else 0}")
+        assert_test(
+            "Mobile prompt is non-empty string",
+            isinstance(mobile_prompt, str) and len(mobile_prompt) > 0,
+            f"type={type(mobile_prompt)}, len={len(mobile_prompt) if mobile_prompt else 0}",
+        )
     except Exception as e:
         record("Mobile prompt generates without error", False, str(e))
 
 # Key section checks for both prompts
 if web_prompt and mobile_prompt:
     for section_name in [
-        "identity", "environment", "template-structure", "critical-rules",
-        "workflow", "styling", "best-practices", "dependency-management",
-        "component-rules", "tool-reference"
+        "identity",
+        "environment",
+        "template-structure",
+        "critical-rules",
+        "workflow",
+        "styling",
+        "best-practices",
+        "dependency-management",
+        "component-rules",
+        "tool-reference",
     ]:
         assert_test(
             f"Web prompt contains <{section_name}>",
             f"<{section_name}>" in web_prompt,
-            f"Missing <{section_name}> in web prompt"
+            f"Missing <{section_name}> in web prompt",
         )
         assert_test(
             f"Mobile prompt contains <{section_name}>",
             f"<{section_name}>" in mobile_prompt,
-            f"Missing <{section_name}> in mobile prompt"
+            f"Missing <{section_name}> in mobile prompt",
         )
 
 # Web-specific content checks
@@ -256,38 +269,58 @@ if get_base_prompt_sections:
         record("get_base_prompt_sections() returns a dict", False, str(e))
 
 expected_keys = [
-    "tool_rules", "tool_parallelization", "file_editing", "code_quality",
-    "error_handling", "security", "accessibility", "communication",
-    "image_handling", "preservation_principle", "navigation_principle"
+    "tool_rules",
+    "tool_parallelization",
+    "file_editing",
+    "code_quality",
+    "error_handling",
+    "security",
+    "accessibility",
+    "communication",
+    "image_handling",
+    "preservation_principle",
+    "navigation_principle",
 ]
 
 if base_sections:
-    assert_test("Base sections has all 11 keys",
-                set(expected_keys) == set(base_sections.keys()),
-                f"Expected {sorted(expected_keys)}, got {sorted(base_sections.keys())}")
+    assert_test(
+        "Base sections has all 11 keys",
+        set(expected_keys) == set(base_sections.keys()),
+        f"Expected {sorted(expected_keys)}, got {sorted(base_sections.keys())}",
+    )
 
     for key in expected_keys:
         val = base_sections.get(key, "")
-        assert_test(f"base['{key}'] is non-empty string",
-                    isinstance(val, str) and len(val) > 0,
-                    f"type={type(val)}, len={len(val) if val else 0}")
-        assert_test(f"base['{key}'] starts with '<'",
-                    val.strip().startswith("<"),
-                    f"Starts with: {repr(val.strip()[:20])}")
+        assert_test(
+            f"base['{key}'] is non-empty string",
+            isinstance(val, str) and len(val) > 0,
+            f"type={type(val)}, len={len(val) if val else 0}",
+        )
+        assert_test(
+            f"base['{key}'] starts with '<'", val.strip().startswith("<"), f"Starts with: {repr(val.strip()[:20])}"
+        )
 
     # Specific content checks
-    assert_test("tool_rules contains 'read a file before editing'",
-                "read a file before editing" in base_sections.get("tool_rules", "").lower(),
-                f"Content snippet: {base_sections.get('tool_rules', '')[:200]}")
-    assert_test("error_handling contains '3 retry'",
-                "3 retry" in base_sections.get("error_handling", ""),
-                f"Content snippet: {base_sections.get('error_handling', '')[:200]}")
-    assert_test("code_quality contains 'NEVER output code'",
-                "NEVER output code" in base_sections.get("code_quality", ""),
-                f"Content snippet: {base_sections.get('code_quality', '')[:200]}")
-    assert_test("file_editing contains 'edit_file'",
-                "edit_file" in base_sections.get("file_editing", ""),
-                f"Content snippet: {base_sections.get('file_editing', '')[:200]}")
+    assert_test(
+        "tool_rules contains 'read a file before editing'",
+        "read a file before editing" in base_sections.get("tool_rules", "").lower(),
+        f"Content snippet: {base_sections.get('tool_rules', '')[:200]}",
+    )
+    assert_test(
+        "error_handling contains '3 retry'",
+        "3 retry" in base_sections.get("error_handling", ""),
+        f"Content snippet: {base_sections.get('error_handling', '')[:200]}",
+    )
+    assert_test(
+        "code_quality contains 'NEVER output code'",
+        "NEVER output code" in base_sections.get("code_quality", ""),
+        f"Content snippet: {base_sections.get('code_quality', '')[:200]}",
+    )
+    assert_test(
+        "file_editing contains 'edit_file'",
+        "edit_file" in base_sections.get("file_editing", ""),
+        f"Content snippet: {base_sections.get('file_editing', '')[:200]}",
+    )
 
 # ===========================================================================
 # 4. XML BALANCE TESTS
@@ -344,6 +377,7 @@ mock_tm.db.client = MagicMock()
 def make_tool_instance(tool_cls, **extra_kwargs):
     """Create a tool instance with mocked dependencies."""
     import inspect
+
     sig = inspect.signature(tool_cls.__init__)
     params = list(sig.parameters.keys())
 
@@ -365,7 +399,15 @@ def make_tool_instance(tool_cls, **extra_kwargs):
 
 # Expected methods per tool
 expected_tool_methods = {
-    "SandboxFilesTool": ["create_file", "read_file", "write_file", "edit_file", "delete_file", "list_files", "full_file_rewrite"],
+    "SandboxFilesTool": [
+        "create_file",
+        "read_file",
+        "write_file",
+        "edit_file",
+        "delete_file",
+        "list_files",
+        "full_file_rewrite",
+    ],
     "SandboxShellTool": ["execute_command", "check_command_output", "terminate_command", "list_commands", "run_code"],
     "SandboxGrepTool": ["grep_workspace", "find_relevant_files"],
     "SandboxScreenshotTool": ["take_screenshot"],
@@ -400,40 +442,48 @@ for tool_name, tool_cls in tool_classes.items():
         instance = make_tool_instance(tool_cls)
         schemas = instance.get_schemas()
 
-        assert_test(f"{tool_name}: get_schemas() returns non-empty dict",
-                    isinstance(schemas, dict) and len(schemas) > 0,
-                    f"Got {type(schemas)}, len={len(schemas) if schemas else 0}")
+        assert_test(
+            f"{tool_name}: get_schemas() returns non-empty dict",
+            isinstance(schemas, dict) and len(schemas) > 0,
+            f"Got {type(schemas)}, len={len(schemas) if schemas else 0}",
+        )
 
         all_tool_schemas[tool_name] = schemas
 
         # Verify each method has at least one ToolSchema
         for method_name, schema_list in schemas.items():
-            assert_test(f"{tool_name}.{method_name}: has ToolSchema(s)",
-                        isinstance(schema_list, list) and len(schema_list) > 0,
-                        f"Got {type(schema_list)}, len={len(schema_list) if schema_list else 0}")
+            assert_test(
+                f"{tool_name}.{method_name}: has ToolSchema(s)",
+                isinstance(schema_list, list) and len(schema_list) > 0,
+                f"Got {type(schema_list)}, len={len(schema_list) if schema_list else 0}",
+            )
 
             for ts in schema_list:
                 if ts.schema_type == SchemaType.OPENAPI:
                     fn_name = ts.schema.get("function", {}).get("name", "")
-                    assert_test(f"{tool_name}.{method_name}: OPENAPI function name matches key",
-                                fn_name == method_name,
-                                f"Expected '{method_name}', got '{fn_name}'")
+                    assert_test(
+                        f"{tool_name}.{method_name}: OPENAPI function name matches key",
+                        fn_name == method_name,
+                        f"Expected '{method_name}', got '{fn_name}'",
+                    )
 
                 if ts.schema_type == SchemaType.XML and ts.xml_schema:
-                    assert_test(f"{tool_name}.{method_name}: XML tag_name exists",
-                                ts.xml_schema.tag_name is not None and len(ts.xml_schema.tag_name) > 0,
-                                f"tag_name={ts.xml_schema.tag_name}")
-                    assert_test(f"{tool_name}.{method_name}: XML mappings is a list",
-                                isinstance(ts.xml_schema.mappings, list),
-                                f"mappings type={type(ts.xml_schema.mappings)}")
+                    assert_test(
+                        f"{tool_name}.{method_name}: XML tag_name exists",
+                        ts.xml_schema.tag_name is not None and len(ts.xml_schema.tag_name) > 0,
+                        f"tag_name={ts.xml_schema.tag_name}",
+                    )
+                    assert_test(
+                        f"{tool_name}.{method_name}: XML mappings is a list",
+                        isinstance(ts.xml_schema.mappings, list),
+                        f"mappings type={type(ts.xml_schema.mappings)}",
+                    )
 
         # Verify all expected methods present
         expected = expected_tool_methods.get(tool_name, [])
         actual = set(schemas.keys())
         for method in expected:
-            assert_test(f"{tool_name}: has method '{method}'",
-                        method in actual,
-                        f"Available: {sorted(actual)}")
+            assert_test(f"{tool_name}: has method '{method}'", method in actual, f"Available: {sorted(actual)}")
 
     except Exception as e:
         record(f"Schema test: {tool_name}", False, f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
@@ -453,16 +503,21 @@ if ToolRegistry and all(tool_classes.get(n) is not None for n in tool_classes):
         registry.register_tool(SandboxShellTool, project_id="test", thread_manager=mock_tm, app_type="web")
         registry.register_tool(SandboxFilesTool, project_id="test", thread_manager=mock_tm, app_type="web")
         registry.register_tool(SandboxGrepTool, project_id="test", thread_manager=mock_tm, app_type="web")
-        registry.register_tool(SandboxScreenshotTool, project_id="test", thread_id="test-tid", thread_manager=mock_tm, app_type="web")
-        registry.register_tool(SandboxVisionTool, project_id="test", thread_id="test-tid", thread_manager=mock_tm, app_type="web")
+        registry.register_tool(
+            SandboxScreenshotTool, project_id="test", thread_id="test-tid", thread_manager=mock_tm, app_type="web"
+        )
+        registry.register_tool(
+            SandboxVisionTool, project_id="test", thread_id="test-tid", thread_manager=mock_tm, app_type="web"
+        )
         registry.register_tool(SandboxLSPTool, project_id="test", thread_manager=mock_tm, app_type="web")
         registry.register_tool(SandboxWebSearchTool, project_id="test", thread_manager=mock_tm, app_type="web")
         registry.register_tool(ComponentSearchTool, thread_manager=mock_tm, app_type="web")
         registry.register_tool(CompletionTool, thread_manager=mock_tm, app_type="web")
 
         available = registry.get_available_functions()
-        assert_test("Registry: get_available_functions() is non-empty",
-                    len(available) > 0, f"Got {len(available)} functions")
+        assert_test(
+            "Registry: get_available_functions() is non-empty", len(available) > 0, f"Got {len(available)} functions"
+        )
 
         # Check all expected methods
         all_expected_methods = set()
@@ -470,25 +525,31 @@ if ToolRegistry and all(tool_classes.get(n) is not None for n in tool_classes):
             all_expected_methods.update(methods)
 
         for method_name in sorted(all_expected_methods):
-            assert_test(f"Registry contains '{method_name}'",
-                        method_name in available,
-                        f"Available: {sorted(available.keys())}")
+            assert_test(
+                f"Registry contains '{method_name}'", method_name in available, f"Available: {sorted(available.keys())}"
+            )
 
-        assert_test("Registry: expected 23+ methods",
-                    len(available) >= 23,
-                    f"Got {len(available)}, expected >= 23. Available: {sorted(available.keys())}")
+        assert_test(
+            "Registry: expected 23+ methods",
+            len(available) >= 23,
+            f"Got {len(available)}, expected >= 23. Available: {sorted(available.keys())}",
+        )
 
         # OpenAPI schemas
         openapi_schemas = registry.get_openapi_schemas()
-        assert_test("Registry: get_openapi_schemas() returns non-empty list",
-                    isinstance(openapi_schemas, list) and len(openapi_schemas) > 0,
-                    f"Got {len(openapi_schemas)}")
+        assert_test(
+            "Registry: get_openapi_schemas() returns non-empty list",
+            isinstance(openapi_schemas, list) and len(openapi_schemas) > 0,
+            f"Got {len(openapi_schemas)}",
+        )
 
         # XML examples
         xml_examples = registry.get_xml_examples()
-        assert_test("Registry: get_xml_examples() returns non-empty dict",
-                    isinstance(xml_examples, dict) and len(xml_examples) > 0,
-                    f"Got {len(xml_examples)}")
+        assert_test(
+            "Registry: get_xml_examples() returns non-empty dict",
+            isinstance(xml_examples, dict) and len(xml_examples) > 0,
+            f"Got {len(xml_examples)}",
+        )
 
     except Exception as e:
         record("Tool Registry simulation", False, f"{type(e).__name__}: {e}\n{traceback.format_exc()}")
@@ -523,9 +584,11 @@ if SandboxGrepTool and SchemaType:
             if ts.schema_type == SchemaType.XML and ts.xml_schema and ts.xml_schema.example:
                 mobile_grep_example = ts.xml_schema.example
 
-        assert_test("GrepTool: web vs mobile examples differ",
-                    web_grep_example != mobile_grep_example and len(web_grep_example) > 0,
-                    f"web='{web_grep_example[:80]}' mobile='{mobile_grep_example[:80]}'")
+        assert_test(
+            "GrepTool: web vs mobile examples differ",
+            web_grep_example != mobile_grep_example and len(web_grep_example) > 0,
+            f"web='{web_grep_example[:80]}' mobile='{mobile_grep_example[:80]}'",
+        )
     except Exception as e:
         record("GrepTool app_type routing", False, str(e))
 else:
@@ -572,9 +635,11 @@ if CompletionTool and SchemaType:
             if ts.schema_type == SchemaType.OPENAPI:
                 mobile_desc = ts.schema.get("function", {}).get("description", "")
 
-        assert_test("CompletionTool: web vs mobile descriptions differ",
-                    web_desc != mobile_desc and len(web_desc) > 0,
-                    f"web='{web_desc[:60]}' mobile='{mobile_desc[:60]}'")
+        assert_test(
+            "CompletionTool: web vs mobile descriptions differ",
+            web_desc != mobile_desc and len(web_desc) > 0,
+            f"web='{web_desc[:60]}' mobile='{mobile_desc[:60]}'",
+        )
     except Exception as e:
         record("CompletionTool app_type routing", False, str(e))
 else:
@@ -600,13 +665,15 @@ if SandboxShellTool and SchemaType:
 
         dangerous_patterns = ["npm run dev", "pnpm dev", "expo start"]
         for pattern in dangerous_patterns:
-            assert_test(f"Shell examples do NOT contain '{pattern}'",
-                        pattern not in exec_examples,
-                        f"Found '{pattern}' in execute_command examples")
+            assert_test(
+                f"Shell examples do NOT contain '{pattern}'",
+                pattern not in exec_examples,
+                f"Found '{pattern}' in execute_command examples",
+            )
 
-        assert_test("Shell web examples use 'pnpm add'",
-                    "pnpm add" in exec_examples,
-                    f"Examples: {exec_examples[:200]}")
+        assert_test(
+            "Shell web examples use 'pnpm add'", "pnpm add" in exec_examples, f"Examples: {exec_examples[:200]}"
+        )
 
     except Exception as e:
         record("Shell tool safety tests", False, str(e))
@@ -631,10 +698,29 @@ def extract_tool_names_from_prompt(prompt_text: str) -> set[str]:
     section = match.group(1)
     tokens = re.findall(r"\b([a-z][a-z0-9_]+)\b", section)
     non_tool_words = {
-        "also", "for", "deps", "optional", "exact", "pattern", "match",
-        "via", "semantic", "dynamic", "listed", "if", "configured",
-        "pnpm", "add", "diagnostics", "npx", "tsc", "noEmit",
-        "expo", "install", "verification", "visual",
+        "also",
+        "for",
+        "deps",
+        "optional",
+        "exact",
+        "pattern",
+        "match",
+        "via",
+        "semantic",
+        "dynamic",
+        "listed",
+        "if",
+        "configured",
+        "pnpm",
+        "add",
+        "diagnostics",
+        "npx",
+        "tsc",
+        "noEmit",
+        "expo",
+        "install",
+        "verification",
+        "visual",
     }
     return {t for t in tokens if t not in non_tool_words and len(t) > 2}
 
@@ -649,18 +735,22 @@ if web_prompt and actual_method_names:
     for tool_name in sorted(web_tool_names):
         if tool_name in ("mcp",):
             continue
-        assert_test(f"Web prompt tool '{tool_name}' exists in schemas",
-                    tool_name in actual_method_names,
-                    f"Not in: {sorted(actual_method_names)}")
+        assert_test(
+            f"Web prompt tool '{tool_name}' exists in schemas",
+            tool_name in actual_method_names,
+            f"Not in: {sorted(actual_method_names)}",
+        )
 
 if mobile_prompt and actual_method_names:
     mobile_tool_names = extract_tool_names_from_prompt(mobile_prompt)
     for tool_name in sorted(mobile_tool_names):
         if tool_name in ("mcp",):
             continue
-        assert_test(f"Mobile prompt tool '{tool_name}' exists in schemas",
-                    tool_name in actual_method_names,
-                    f"Not in: {sorted(actual_method_names)}")
+        assert_test(
+            f"Mobile prompt tool '{tool_name}' exists in schemas",
+            tool_name in actual_method_names,
+            f"Not in: {sorted(actual_method_names)}",
+        )
 
 
 # ===========================================================================
@@ -689,9 +779,7 @@ if os.path.isfile(mobile_sample_path):
 
 if web_sample:
     sc_count = web_sample.count("search_components")
-    assert_test("Web sample: search_components calls <= 2",
-                sc_count <= 2,
-                f"Found {sc_count} occurrences (max 2)")
+    assert_test("Web sample: search_components calls <= 2", sc_count <= 2, f"Found {sc_count} occurrences (max 2)")
     assert_test("Web sample contains 'edit_file'", "edit_file" in web_sample)
     assert_test("Web sample contains 'complete'", "complete" in web_sample)
     assert_test("Web sample does NOT contain 'npm run dev'", "npm run dev" not in web_sample)
@@ -711,19 +799,29 @@ print("=" * 72)
 
 try:
     from agent.run import run_agent
+
     assert_test("Import agent.run.run_agent succeeds", True)
 except ImportError as e:
     error_str = str(e)
-    is_tool_error = any(tool in error_str for tool in [
-        "sb_files_tool", "sb_shell_tool", "sb_grep_tool", "sb_screenshot_tool",
-        "sb_vision_tool", "sb_lsp_tool", "web_search_tool", "completion_tool",
-        "component_search_tool", "mcp_tool_wrapper"
-    ])
+    is_tool_error = any(
+        tool in error_str
+        for tool in [
+            "sb_files_tool",
+            "sb_shell_tool",
+            "sb_grep_tool",
+            "sb_screenshot_tool",
+            "sb_vision_tool",
+            "sb_lsp_tool",
+            "web_search_tool",
+            "completion_tool",
+            "component_search_tool",
+            "mcp_tool_wrapper",
+        ]
+    )
     if is_tool_error:
         record("Import agent.run.run_agent", False, f"Tool import failed: {e}")
     else:
-        record("Import agent.run.run_agent (external dep issue only)", True,
-               f"External dep error (OK): {e}")
+        record("Import agent.run.run_agent (external dep issue only)", True, f"External dep error (OK): {e}")
 except Exception as e:
     error_str = str(e)
     if "Missing required configuration" in error_str:

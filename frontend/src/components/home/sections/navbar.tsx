@@ -122,7 +122,9 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
   const { data: starCount } = useQuery({
     queryKey: ['github-stars'],
     queryFn: async () => {
-      const res = await fetch('https://api.github.com/repos/cheatcode-ai/cheatcode');
+      const res = await fetch(
+        'https://api.github.com/repos/cheatcode-ai/cheatcode',
+      );
       if (!res.ok) return null;
       const data = await res.json();
       return data?.stargazers_count ?? null;

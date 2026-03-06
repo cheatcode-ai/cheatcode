@@ -313,7 +313,12 @@ export function SiteHeader() {
                 role="button"
                 tabIndex={0}
                 onClick={startEditing}
-                onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); startEditing(); } }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    startEditing();
+                  }
+                }}
                 title="Click to rename project"
               >
                 <div className="text-[11px] font-mono text-thread-text-secondary group-hover/name-edit:text-thread-text-primary transition-colors tracking-[0.2em] uppercase font-bold">

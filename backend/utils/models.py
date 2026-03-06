@@ -275,7 +275,9 @@ def calculate_token_cost(prompt_tokens: int, completion_tokens: int, model: str)
 
     try:
         prompt_cost, completion_cost = _litellm.cost_per_token(
-            model=model, prompt_tokens=prompt_tokens, completion_tokens=completion_tokens,
+            model=model,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
         )
         return round(prompt_cost + completion_cost, 6)
     except Exception:

@@ -256,7 +256,9 @@ async def get_available_plans(current_user_id: str = Depends(get_current_user_id
 @router.post("/create-checkout-session", response_model=CheckoutSessionResponse)
 @limiter.limit("5/minute")
 async def create_checkout_session(
-    request: Request, checkout_request: CreateCheckoutSessionRequest, current_user_id: str = Depends(get_current_user_id_from_jwt)
+    request: Request,
+    checkout_request: CreateCheckoutSessionRequest,
+    current_user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Create Polar checkout session for plan upgrade."""
     try:
@@ -330,7 +332,11 @@ async def create_checkout_session(
 
 @router.post("/upgrade-plan")
 @limiter.limit("5/minute")
-async def upgrade_plan(request: Request, upgrade_request: PlanUpgradeRequest = None, current_user_id: str = Depends(get_current_user_id_from_jwt)):
+async def upgrade_plan(
+    request: Request,
+    upgrade_request: PlanUpgradeRequest = None,
+    current_user_id: str = Depends(get_current_user_id_from_jwt),
+):
     """Direct plan upgrade for free tiers or admin actions."""
     try:
         plan_config = get_plan_by_id(upgrade_request.new_plan_id)
@@ -703,7 +709,9 @@ async def detect_user_region(http_request: Request):
 @router.post("/openrouter-key", response_model=dict)
 @limiter.limit("5/minute")
 async def store_openrouter_key(
-    request: Request, key_request: StoreOpenRouterKeyRequest, current_user_id: str = Depends(get_current_user_id_from_jwt)
+    request: Request,
+    key_request: StoreOpenRouterKeyRequest,
+    current_user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Store user's OpenRouter API key for BYOK functionality."""
     try:
@@ -803,7 +811,9 @@ async def delete_openrouter_key(current_user_id: str = Depends(get_current_user_
 @router.post("/openrouter-key/test", response_model=TestOpenRouterKeyResponse)
 @limiter.limit("5/minute")
 async def test_openrouter_key(
-    request: Request, test_request: TestOpenRouterKeyRequest, current_user_id: str = Depends(get_current_user_id_from_jwt)
+    request: Request,
+    test_request: TestOpenRouterKeyRequest,
+    current_user_id: str = Depends(get_current_user_id_from_jwt),
 ):
     """Test OpenRouter API key connection."""
     try:

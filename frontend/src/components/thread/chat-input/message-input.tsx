@@ -105,7 +105,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
             // typing characters
             const next = currentSentence.substring(0, charIndex + 1);
             setDisplayPlaceholder(next);
-            setCharIndex(prev => prev + 1);
+            setCharIndex((prev) => prev + 1);
             if (next.length === currentSentence.length) {
               // pause before deleting
               setTimeout(() => setIsDeleting(true), 600);
@@ -114,7 +114,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
             // deleting characters
             const next = currentSentence.substring(0, charIndex - 1);
             setDisplayPlaceholder(next || ' ');
-            setCharIndex(prev => prev - 1);
+            setCharIndex((prev) => prev - 1);
             if (next.length === 0) {
               setIsDeleting(false);
               setSentenceIndex(

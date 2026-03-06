@@ -308,7 +308,12 @@ export function AttachmentGroup({
                   role="button"
                   tabIndex={0}
                   onClick={() => onRemove(index)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRemove(index); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRemove(index);
+                    }
+                  }}
                 >
                   <TooltipProvider>
                     <Tooltip>
@@ -355,7 +360,12 @@ export function AttachmentGroup({
                   role="button"
                   tabIndex={0}
                   onClick={() => onRemove(index)}
-                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onRemove(index); } }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      onRemove(index);
+                    }
+                  }}
                 >
                   <TooltipProvider>
                     <Tooltip>

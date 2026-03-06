@@ -65,7 +65,12 @@ export function SidebarLeft({
           role="button"
           tabIndex={0}
           onClick={() => setOpen(false)}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setOpen(false); } }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault();
+              setOpen(false);
+            }
+          }}
         />
       )}
 

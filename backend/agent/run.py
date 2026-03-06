@@ -240,23 +240,36 @@ async def run_agent(
                     builtin_methods = {
                         "call_mcp_tool",
                         # SandboxFilesTool methods
-                        "create_file", "read_file", "write_file", "edit_file",
-                        "delete_file", "list_files", "full_file_rewrite",
+                        "create_file",
+                        "read_file",
+                        "write_file",
+                        "edit_file",
+                        "delete_file",
+                        "list_files",
+                        "full_file_rewrite",
                         # SandboxShellTool methods
-                        "execute_command", "check_command_output", "terminate_command",
-                        "list_commands", "run_code",
+                        "execute_command",
+                        "check_command_output",
+                        "terminate_command",
+                        "list_commands",
+                        "run_code",
                         # SandboxWebSearchTool methods
-                        "web_search", "scrape_webpage",
+                        "web_search",
+                        "scrape_webpage",
                         # SandboxVisionTool methods
                         "see_image",
                         # SandboxGrepTool methods
-                        "grep_workspace", "find_relevant_files",
+                        "grep_workspace",
+                        "find_relevant_files",
                         # SandboxScreenshotTool methods
                         "take_screenshot",
                         # SandboxLSPTool methods
-                        "get_completions", "get_document_symbols", "search_workspace_symbols",
+                        "get_completions",
+                        "get_document_symbols",
+                        "search_workspace_symbols",
                         # ComponentSearchTool methods
-                        "search_components", "get_component_suggestions",
+                        "search_components",
+                        "get_component_suggestions",
                         # CompletionTool methods
                         "complete",
                     }

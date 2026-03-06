@@ -882,7 +882,7 @@ async def stream_agent_run(request: Request, agent_run_id: str, token: str | Non
                         # Guardrails prevent command growth on idle streams.
                         now_mono = asyncio.get_event_loop().time()
                         effective_interval = min(
-                            _tail_poll_min_interval * (2 ** _consecutive_empty_polls),
+                            _tail_poll_min_interval * (2**_consecutive_empty_polls),
                             120.0,  # cap at 2 minutes
                         )
                         if (now_mono - _last_tail_poll_time) >= effective_interval:

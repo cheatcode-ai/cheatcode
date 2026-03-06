@@ -130,11 +130,15 @@ const Tree = forwardRef<HTMLDivElement, TreeViewProps>(
     );
 
     // Expand ancestors of the selected element whenever initialSelectedId or elements change.
-    const prevInitRef = React.useRef<{ id: string | undefined; elements: TreeViewElement[] | undefined }>({ id: undefined, elements: undefined });
+    const prevInitRef = React.useRef<{
+      id: string | undefined;
+      elements: TreeViewElement[] | undefined;
+    }>({ id: undefined, elements: undefined });
     React.useEffect(() => {
       if (
         initialSelectedId &&
-        (prevInitRef.current.id !== initialSelectedId || prevInitRef.current.elements !== elements)
+        (prevInitRef.current.id !== initialSelectedId ||
+          prevInitRef.current.elements !== elements)
       ) {
         prevInitRef.current = { id: initialSelectedId, elements };
         expandSpecificTargetedElements(elements, initialSelectedId);
@@ -394,11 +398,15 @@ const CollapseButton = forwardRef<
     }, [setExpandedItems]);
 
     // Expand all tree nodes when expandAll prop becomes true or elements change.
-    const prevExpandAllRef = React.useRef<{ expandAll: boolean; elements: TreeViewElement[] }>({ expandAll: false, elements: [] });
+    const prevExpandAllRef = React.useRef<{
+      expandAll: boolean;
+      elements: TreeViewElement[];
+    }>({ expandAll: false, elements: [] });
     React.useEffect(() => {
       if (
         expandAll &&
-        (prevExpandAllRef.current.expandAll !== expandAll || prevExpandAllRef.current.elements !== elements)
+        (prevExpandAllRef.current.expandAll !== expandAll ||
+          prevExpandAllRef.current.elements !== elements)
       ) {
         prevExpandAllRef.current = { expandAll, elements };
         expendAllTree(elements);

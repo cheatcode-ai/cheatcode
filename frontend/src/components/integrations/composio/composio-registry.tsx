@@ -18,7 +18,11 @@ interface ToolkitCardProps {
   onConnect: (toolkit: ComposioToolkit) => void;
 }
 
-const ToolkitCard: React.FC<ToolkitCardProps> = ({ toolkit, isConnected, onConnect }) => {
+const ToolkitCard: React.FC<ToolkitCardProps> = ({
+  toolkit,
+  isConnected,
+  onConnect,
+}) => {
   return (
     <button
       onClick={() => !isConnected && onConnect(toolkit)}
@@ -124,9 +128,11 @@ export const ComposioRegistry: React.FC = () => {
             <ToolkitCard
               key={t.slug}
               toolkit={t}
-              isConnected={!!profiles?.some(
-                (p) => p.toolkit_slug === t.slug && p.is_active,
-              )}
+              isConnected={
+                !!profiles?.some(
+                  (p) => p.toolkit_slug === t.slug && p.is_active,
+                )
+              }
               onConnect={handleConnectToolkit}
             />
           ))}

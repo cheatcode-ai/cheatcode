@@ -660,7 +660,7 @@ class ResponseProcessor:
             if cached > 0:
                 prompt = streaming_metadata["usage"]["prompt_tokens"]
                 if prompt > 0:
-                    logger.info(f"Cache hit: {cached}/{prompt} prompt tokens cached ({cached/prompt*100:.0f}%)")
+                    logger.info(f"Cache hit: {cached}/{prompt} prompt tokens cached ({cached / prompt * 100:.0f}%)")
 
             # 🔥 CONSUME TOKENS IMMEDIATELY AFTER USAGE IS KNOWN
             if streaming_metadata.get("usage", {}).get("total_tokens", 0) > 0:

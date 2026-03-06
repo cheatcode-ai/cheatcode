@@ -47,9 +47,15 @@ import { useDeleteProject } from '@/hooks/react-query/sidebar/use-project-mutati
 
 export function NavProjects() {
   const { isMobile, state, setOpen } = useSidebar();
-  const [loadingThread, setLoadingThread] = useState<{ threadId: string; targetPath: string } | null>(null);
+  const [loadingThread, setLoadingThread] = useState<{
+    threadId: string;
+    targetPath: string;
+  } | null>(null);
   const pathname = usePathname();
-  const loadingThreadId = loadingThread && loadingThread.targetPath !== pathname ? loadingThread.threadId : null;
+  const loadingThreadId =
+    loadingThread && loadingThread.targetPath !== pathname
+      ? loadingThread.threadId
+      : null;
   const router = useRouter();
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false);
   const [threadToDelete, setThreadToDelete] = useState<{

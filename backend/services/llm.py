@@ -217,9 +217,7 @@ def prepare_params(
 
     # Add Claude-specific headers
     if "claude" in model_name.lower() or "anthropic" in model_name.lower():
-        params["extra_headers"] = {
-            "anthropic-beta": "output-128k-2025-02-19"
-        }
+        params["extra_headers"] = {"anthropic-beta": "output-128k-2025-02-19"}
         logger.debug("Added Claude-specific headers")
 
     # Add OpenRouter-specific parameters: response healing + provider routing
@@ -228,10 +226,10 @@ def prepare_params(
         extra_body = params.get("extra_body", {})
         extra_body["plugins"] = [{"id": "response-healing"}]
         extra_body["provider"] = {
-            "sort": "latency",              # Route to fastest provider
-            "allow_fallbacks": True,        # Provider-level failover (same model, different host)
-            "require_parameters": True,     # Only providers supporting all params
-            "data_collection": "deny",      # Protect user code privacy
+            "sort": "latency",  # Route to fastest provider
+            "allow_fallbacks": True,  # Provider-level failover (same model, different host)
+            "require_parameters": True,  # Only providers supporting all params
+            "data_collection": "deny",  # Protect user code privacy
         }
         params["extra_body"] = extra_body
 
@@ -266,7 +264,9 @@ def prepare_params(
             content = message.get("content")
 
             if isinstance(content, str):
-                message["content"] = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral", "ttl": "1h"}}]
+                message["content"] = [
+                    {"type": "text", "text": content, "cache_control": {"type": "ephemeral", "ttl": "1h"}}
+                ]
                 cache_control_count += 1
             elif isinstance(content, list):
                 for item in content:
@@ -419,9 +419,7 @@ async def make_llm_api_call(
         logger.info(f"Using LiteLLM Router for model group: {router_model}")
         router_params = _build_router_params(params, router_model)
         try:
-            return await asyncio.wait_for(
-                router.acompletion(**router_params), timeout=LLM_CALL_TIMEOUT
-            )
+            return await asyncio.wait_for(router.acompletion(**router_params), timeout=LLM_CALL_TIMEOUT)
         except Exception as router_error:
             # Fallback: try direct litellm.acompletion with system key (same model)
             logger.warning(f"Router failed for {router_model}: {router_error}. Falling back to direct call.")

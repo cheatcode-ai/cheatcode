@@ -21,7 +21,9 @@ class EmailResponse(BaseModel):
 
 @router.post("/send-welcome-email", response_model=EmailResponse)
 @limiter.limit("3/minute")
-async def send_welcome_email(request: Request, email_request: SendWelcomeEmailRequest, _: bool = Depends(verify_admin_api_key)):
+async def send_welcome_email(
+    request: Request, email_request: SendWelcomeEmailRequest, _: bool = Depends(verify_admin_api_key)
+):
     try:
 
         def send_email():
