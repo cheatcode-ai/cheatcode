@@ -63,8 +63,25 @@ export const metadata: Metadata = {
   icons: {
     icon: [{ url: '/favicon.png', sizes: 'any' }],
     shortcut: '/favicon.png',
+    apple: '/favicon.png',
   },
-  // manifest: "/manifest.json",
+  manifest: '/manifest.json',
+  openGraph: {
+    type: 'website',
+    locale: 'en_US',
+    url: siteConfig.url,
+    siteName: siteConfig.name,
+    title: siteConfig.name,
+    description:
+      'Cheatcode is an AI agent that designs, builds and deploys full-stack web and mobile applications in minutes.',
+  },
+  twitter: {
+    card: 'summary',
+    title: siteConfig.name,
+    description:
+      'AI agent that builds web and mobile apps from natural-language prompts.',
+    creator: '@trycheatcode',
+  },
   alternates: {
     canonical: siteConfig.url,
   },
@@ -78,16 +95,21 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        {/* Google Tag Manager */}
-        <Script id="google-tag-manager" strategy="afterInteractive">
+        <link rel="dns-prefetch" href="https://www.googletagmanager.com" />
+        <link rel="dns-prefetch" href="https://www.google-analytics.com" />
+        <link
+          rel="preconnect"
+          href="https://fonts.googleapis.com"
+          crossOrigin="anonymous"
+        />
+        {/* Google Tag Manager - lazy loaded for better LCP */}
+        <Script id="google-tag-manager" strategy="lazyOnload">
           {`(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
           new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
           j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
           'https://www.googletagmanager.com/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
           })(window,document,'script','dataLayer','GTM-MB8GJRLK');`}
         </Script>
-        {/* Temporarily disabled to remove top line */}
-        {/* <Script async src="https://cdn.tolt.io/tolt.js" data-tolt={process.env.NEXT_PUBLIC_TOLT_REFERRAL_ID}></Script> */}
       </head>
 
       <body

@@ -306,6 +306,7 @@ export function AttachmentGroup({
                                     text-white dark:text-black flex items-center justify-center
                                     z-30 cursor-pointer"
                   role="button"
+                  aria-label="Remove attachment"
                   tabIndex={0}
                   onClick={() => onRemove(index)}
                   onKeyDown={(e) => {
@@ -358,6 +359,7 @@ export function AttachmentGroup({
                                         text-white dark:text-black flex items-center justify-center
                                         z-30 cursor-pointer"
                   role="button"
+                  aria-label="Remove attachment"
                   tabIndex={0}
                   onClick={() => onRemove(index)}
                   onKeyDown={(e) => {

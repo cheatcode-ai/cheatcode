@@ -83,6 +83,7 @@ export function ModelSelector({
           className,
         )}
         size="sm"
+        aria-label="Select AI model"
       >
         <SelectValue>
           <div className="flex items-center gap-1.5">

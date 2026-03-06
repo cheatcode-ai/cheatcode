@@ -111,8 +111,9 @@ export default function HomeLayout({ children }: HomeLayoutProps) {
   // Show loading state while checking auth (health check runs in background)
   if (!isClient || !isLoaded) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      <div className="flex items-center justify-center min-h-screen" role="status" aria-label="Loading">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" aria-hidden="true" />
+        <span className="sr-only">Loading application...</span>
       </div>
     );
   }
@@ -124,11 +125,14 @@ export default function HomeLayout({ children }: HomeLayoutProps) {
       <div
         className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
       >
+        <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-white focus:text-black focus:rounded-md focus:text-sm focus:font-medium">
+          Skip to main content
+        </a>
         {healthBanner}
         {!isThreadPage && <Navbar sidebarOpen={false} />}
-        <div className={isThreadPage ? 'pt-0' : 'pt-6'}>
+        <main id="main-content" className={isThreadPage ? 'pt-0' : 'pt-6'}>
           <Suspense fallback={<PageLoadingFallback />}>{children}</Suspense>
-        </div>
+        </main>
         {!isThreadPage && (
           <footer className="w-full py-6 text-center text-xs text-white/70">
             Built by{' '}
@@ -161,12 +165,15 @@ export default function HomeLayout({ children }: HomeLayoutProps) {
             <div
               className={`w-full relative min-h-screen ${!isThreadPage ? 'gradient-home-bg' : 'bg-thread-panel'}`}
             >
+              <a href="#main-content" className="sr-only focus:not-sr-only focus:absolute focus:z-[100] focus:top-2 focus:left-2 focus:px-4 focus:py-2 focus:bg-white focus:text-black focus:rounded-md focus:text-sm focus:font-medium">
+                Skip to main content
+              </a>
               {!isThreadPage && <Navbar sidebarOpen={sidebarOpen} />}
-              <div className={isThreadPage ? 'pt-0' : 'pt-6'}>
+              <main id="main-content" className={isThreadPage ? 'pt-0' : 'pt-6'}>
                 <Suspense fallback={<PageLoadingFallback />}>
                   {children}
                 </Suspense>
-              </div>
+              </main>
               {!isThreadPage && (
                 <footer className="w-full py-6 text-center text-xs text-white/70">
                   Built by{' '}

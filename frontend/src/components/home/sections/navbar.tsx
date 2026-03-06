@@ -330,8 +330,9 @@ export function Navbar({ sidebarOpen = false }: { sidebarOpen?: boolean }) {
             <button
               className="md:hidden border border-border size-8 rounded-md cursor-pointer flex items-center justify-center"
               onClick={toggleDrawer}
+              aria-label={isDrawerOpen ? 'Close menu' : 'Open menu'}
             >
-              {isDrawerOpen ? <X size={20} /> : <Menu size={20} />}
+              {isDrawerOpen ? <X size={20} aria-hidden="true" /> : <Menu size={20} aria-hidden="true" />}
             </button>
           </div>
         </div>

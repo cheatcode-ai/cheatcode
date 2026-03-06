@@ -323,6 +323,7 @@ export const FileUploadHandler = forwardRef<
             onClick={handleFileUpload}
             variant="ghost"
             size="sm"
+            aria-label="Attach file"
             className={cn(
               'h-8 w-8 p-0 bg-transparent hover:bg-zinc-800/50 rounded-full text-zinc-400 hover:text-zinc-200 flex items-center justify-center transition-colors',
               className,

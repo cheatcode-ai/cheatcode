@@ -246,6 +246,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                     <button
                       type="button"
                       onClick={() => onAppTypeChange('web')}
+                      aria-label="Web"
                       className={cn(
                         'h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent',
                         appType === 'web'
@@ -253,12 +254,13 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                           : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/5',
                       )}
                     >
-                      <Globe className="h-3.5 w-3.5" />
+                      <Globe className="h-3.5 w-3.5" aria-hidden="true" />
                       <span className="hidden sm:inline">Web</span>
                     </button>
                     <button
                       type="button"
                       onClick={() => onAppTypeChange('mobile')}
+                      aria-label="Mobile"
                       className={cn(
                         'h-8 px-3 flex items-center gap-2 transition-all duration-300 font-mono text-[10px] uppercase tracking-widest border border-transparent',
                         appType === 'mobile'
@@ -266,7 +268,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                           : 'text-zinc-600 hover:text-zinc-400 hover:bg-white/5',
                       )}
                     >
-                      <Smartphone className="h-3.5 w-3.5" />
+                      <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
                       <span className="hidden sm:inline">Mobile</span>
                     </button>
                   </div>
@@ -311,6 +313,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 <LiquidMetalButton
                   type="submit"
                   variant="circular"
+                  aria-label={loading ? 'Sending...' : isAgentRunning ? 'Stop agent' : 'Send message'}
                   onClick={
                     isAgentRunning && onStopAgent ? onStopAgent : onSubmit
                   }
@@ -333,11 +336,11 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                   }
                 >
                   {loading ? (
-                    <Loader2 className="h-5 w-5 animate-spin" />
+                    <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
                   ) : isAgentRunning ? (
-                    <Square className="h-4 w-4 fill-current" />
+                    <Square className="h-4 w-4 fill-current" aria-hidden="true" />
                   ) : (
-                    <ArrowUp className="h-5 w-5" />
+                    <ArrowUp className="h-5 w-5" aria-hidden="true" />
                   )}
                 </LiquidMetalButton>
               </div>
@@ -378,8 +381,9 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                         : 'text-zinc-500 hover:text-zinc-300',
                     )}
                     title="Web App"
+                    aria-label="Web App"
                   >
-                    <Globe className="h-3.5 w-3.5" />
+                    <Globe className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                   <button
                     type="button"
@@ -391,8 +395,9 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                         : 'text-zinc-500 hover:text-zinc-300',
                     )}
                     title="Mobile App"
+                    aria-label="Mobile App"
                   >
-                    <Smartphone className="h-3.5 w-3.5" />
+                    <Smartphone className="h-3.5 w-3.5" aria-hidden="true" />
                   </button>
                 </div>
               )}
@@ -419,6 +424,7 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
               <LiquidMetalButton
                 type="submit"
                 variant="circular"
+                aria-label={loading ? 'Sending...' : isAgentRunning ? 'Stop agent' : 'Send message'}
                 onClick={isAgentRunning && onStopAgent ? onStopAgent : onSubmit}
                 className={cn(
                   'h-8 w-8 flex-shrink-0 self-end rounded-full bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-all',
@@ -439,11 +445,11 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                 }
               >
                 {loading ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
                 ) : isAgentRunning ? (
-                  <Square className="h-3.5 w-3.5 fill-current" />
+                  <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
                 ) : (
-                  <ArrowUp className="h-4 w-4" />
+                  <ArrowUp className="h-4 w-4" aria-hidden="true" />
                 )}
               </LiquidMetalButton>
             </div>

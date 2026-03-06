@@ -182,8 +182,9 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         disabled
         className={cn('h-8 w-8 p-0 opacity-50', className)}
         title="Speech recognition not supported in this browser"
+        aria-label="Voice input unavailable"
       >
-        <Mic className="h-4 w-4" />
+        <Mic className="h-4 w-4" aria-hidden="true" />
       </Button>
     );
   }
@@ -203,11 +204,12 @@ export const VoiceRecorder: React.FC<VoiceRecorderProps> = ({
         className,
       )}
       title={isListening ? 'Click to stop' : 'Click to start voice input'}
+      aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
     >
       {isListening ? (
-        <Square className="h-4 w-4" />
+        <Square className="h-4 w-4" aria-hidden="true" />
       ) : (
-        <Mic className="h-4 w-4" />
+        <Mic className="h-4 w-4" aria-hidden="true" />
       )}
     </Button>
   );

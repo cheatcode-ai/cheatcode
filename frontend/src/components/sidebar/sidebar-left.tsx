@@ -64,6 +64,7 @@ export function SidebarLeft({
           className="fixed inset-0 bg-background/20 backdrop-blur-sm z-40"
           role="button"
           tabIndex={0}
+          aria-label="Close sidebar"
           onClick={() => setOpen(false)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
