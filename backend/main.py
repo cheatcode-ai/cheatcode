@@ -61,17 +61,32 @@ async def lifespan(_app: FastAPI):
         composio_api.initialize(db)
         composio_secure_mcp_api.initialize(db)
 
+        # Load dynamic models from OpenRouter (cached in Redis)
+        from services.openrouter_models import refresh_models, start_periodic_refresh
+
+        try:
+            await refresh_models()
+            logger.info("Dynamic model list loaded from OpenRouter")
+        except Exception as e:
+            logger.warning(f"Failed to load dynamic models (using fallback): {e}")
+
         # Start background health monitoring
         from utils.health_check import start_health_monitoring
 
         health_task = asyncio.create_task(start_health_monitoring(instance_id, interval=600))
 
+        # Start periodic model refresh (every hour)
+        model_refresh_task = asyncio.create_task(start_periodic_refresh())
+
         yield
 
-        # Shutdown: cancel health monitoring
+        # Shutdown: cancel background tasks
         health_task.cancel()
+        model_refresh_task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await health_task
+        with contextlib.suppress(asyncio.CancelledError):
+            await model_refresh_task
 
         # Clean up agent resources
         logger.info("Cleaning up agent resources")

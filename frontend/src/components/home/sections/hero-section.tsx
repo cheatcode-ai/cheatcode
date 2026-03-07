@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { useRouter } from 'next/navigation';
+import { useReducer, useEffect, useRef } from 'react';
+import { redirect } from 'next/navigation';
 import { useUser } from '@clerk/nextjs';
 import {
   BillingError,
@@ -25,21 +25,56 @@ import {
 import { normalizeFilenameToNFC } from '@/lib/utils/unicode';
 import { Examples } from '@/components/suggestions/examples';
 import { ThreadSkeleton } from '@/components/thread/content/ThreadSkeleton';
-
-// BlurredDialogOverlay removed - no longer needed with global modal system
+import { useAvailableModelsQuery } from '@/hooks/react-query/models';
 
 // Constant for localStorage key to ensure consistency
 const PENDING_PROMPT_KEY = 'pendingAgentPrompt';
 
+interface HeroState {
+  isSubmitting: boolean;
+  inputValue: string;
+  appType: 'web' | 'mobile';
+  selectedModel: string;
+  initiatedThreadId: string | null;
+}
+
+type HeroAction =
+  | { type: 'SET_SUBMITTING'; payload: boolean }
+  | { type: 'SET_INPUT'; payload: string }
+  | { type: 'SET_APP_TYPE'; payload: 'web' | 'mobile' }
+  | { type: 'SET_MODEL'; payload: string }
+  | { type: 'SET_THREAD_ID'; payload: string | null }
+  | { type: 'RESET_INPUT' };
+
+function heroReducer(state: HeroState, action: HeroAction): HeroState {
+  switch (action.type) {
+    case 'SET_SUBMITTING':
+      return { ...state, isSubmitting: action.payload };
+    case 'SET_INPUT':
+      return { ...state, inputValue: action.payload };
+    case 'SET_APP_TYPE':
+      return { ...state, appType: action.payload };
+    case 'SET_MODEL':
+      return { ...state, selectedModel: action.payload };
+    case 'SET_THREAD_ID':
+      return { ...state, initiatedThreadId: action.payload };
+    case 'RESET_INPUT':
+      return { ...state, inputValue: '' };
+  }
+}
+
+const initialHeroState: HeroState = {
+  isSubmitting: false,
+  inputValue: '',
+  appType: 'web',
+  selectedModel: '',
+  initiatedThreadId: null,
+};
+
 export function HeroSection() {
-  const [_mounted, setMounted] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [inputValue, setInputValue] = useState('');
-  const [appType, setAppType] = useState<'web' | 'mobile'>('web');
-  const [selectedModel, setSelectedModel] =
-    useState<string>('claude-sonnet-4.5');
-  // This is now a coding-only system - no agent selection needed
-  const router = useRouter();
+  const [state, dispatch] = useReducer(heroReducer, initialHeroState);
+  const { isSubmitting, inputValue, appType, selectedModel, initiatedThreadId } = state;
+  const { data: modelsData } = useAvailableModelsQuery();
   const { user, isLoaded } = useUser();
   const isLoading = !isLoaded;
   const { billingError, clearBillingError } = useBillingError();
@@ -47,31 +82,25 @@ export function HeroSection() {
   const personalAccount = accounts?.find((account) => account.personal_account);
   const { onOpen } = useModal();
   const initiateAgentMutation = useInitiateAgentMutation();
-  const [initiatedThreadId, setInitiatedThreadId] = useState<string | null>(
-    null,
-  );
   const threadQuery = useThreadQuery(initiatedThreadId || '');
   const chatInputRef = useRef<ChatInputHandles>(null);
 
-  // No longer need auth dialog state - using global modal system
-
+  // Sync default model from API when available
   useEffect(() => {
-    setMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (threadQuery.data && initiatedThreadId) {
-      const thread = threadQuery.data;
-      if (thread.project_id) {
-        router.replace(
-          `/projects/${thread.project_id}/thread/${initiatedThreadId}`,
-        );
-      } else {
-        router.replace(`/agents/${initiatedThreadId}`);
-      }
-      setInitiatedThreadId(null);
+    if (!selectedModel && modelsData?.default_model_id) {
+      dispatch({ type: 'SET_MODEL', payload: modelsData.default_model_id });
     }
-  }, [threadQuery.data, initiatedThreadId, router]);
+  }, [selectedModel, modelsData?.default_model_id]);
+
+  // Render-time redirect when thread is initiated and data is available
+  if (threadQuery.data && initiatedThreadId) {
+    const thread = threadQuery.data;
+    if (thread.project_id) {
+      redirect(`/projects/${thread.project_id}/thread/${initiatedThreadId}`);
+    } else {
+      redirect(`/agents/${initiatedThreadId}`);
+    }
+  }
 
   // Handle ChatInput submission
   const handleChatInputSubmit = async (
@@ -93,7 +122,7 @@ export function HeroSection() {
     }
 
     // User is logged in, create the agent with files
-    setIsSubmitting(true);
+    dispatch({ type: 'SET_SUBMITTING', payload: true });
     try {
       const files = chatInputRef.current?.getPendingFiles() || [];
       localStorage.removeItem(PENDING_PROMPT_KEY);
@@ -124,7 +153,7 @@ export function HeroSection() {
       const result = await initiateAgentMutation.mutateAsync(formData);
 
       if (result.thread_id) {
-        setInitiatedThreadId(result.thread_id);
+        dispatch({ type: 'SET_THREAD_ID', payload: result.thread_id });
 
         // Generate and update thread name in the background
         generateAndUpdateThreadName(result.thread_id, message).catch(() => {
@@ -135,7 +164,7 @@ export function HeroSection() {
       }
 
       chatInputRef.current?.clearPendingFiles();
-      setInputValue('');
+      dispatch({ type: 'RESET_INPUT' });
     } catch (error: unknown) {
       if (error instanceof BillingError) {
         onOpen('paymentRequiredDialog');
@@ -177,7 +206,7 @@ export function HeroSection() {
         }
       }
     } finally {
-      setIsSubmitting(false);
+      dispatch({ type: 'SET_SUBMITTING', payload: false });
     }
   };
 
@@ -207,13 +236,12 @@ export function HeroSection() {
                 loading={isSubmitting}
                 disabled={isSubmitting}
                 value={inputValue}
-                onChange={setInputValue}
+                onChange={(v: string) => dispatch({ type: 'SET_INPUT', payload: v })}
                 isLoggedIn={!!user}
-                autoFocus={false}
                 appType={appType}
-                onAppTypeChange={setAppType}
+                onAppTypeChange={(v: 'web' | 'mobile') => dispatch({ type: 'SET_APP_TYPE', payload: v })}
                 selectedModel={selectedModel}
-                onModelChange={setSelectedModel}
+                onModelChange={(v: string) => dispatch({ type: 'SET_MODEL', payload: v })}
                 bgColor="bg-[#121212]"
                 variant="home"
               />
@@ -227,7 +255,7 @@ export function HeroSection() {
           <div className="w-full max-w-4xl">
             <Examples
               key={appType}
-              onSelectPrompt={setInputValue}
+              onSelectPrompt={(v: string) => dispatch({ type: 'SET_INPUT', payload: v })}
               appType={appType}
             />
           </div>

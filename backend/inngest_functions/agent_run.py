@@ -112,6 +112,7 @@ async def process_agent_run(ctx: inngest.Context) -> dict:
     from services.supabase import DBConnection
     from utils.config import config
     from utils.encryption import decrypt_data
+    from utils.models import get_default_model_id
     from utils.retry import retry
 
     # Self-initialize: ensure Redis and DB are ready
@@ -127,7 +128,7 @@ async def process_agent_run(ctx: inngest.Context) -> dict:
         raise RuntimeError(f"Agent run {agent_run_id} not found in database")
 
     metadata = run_result.data[0].get("metadata", {})
-    model_name = metadata.get("model_name", config.MODEL_TO_USE)
+    model_name = metadata.get("model_name") or get_default_model_id()
     enable_thinking = metadata.get("enable_thinking")
     reasoning_effort = metadata.get("reasoning_effort")
     enable_context_manager = metadata.get("enable_context_manager", False)

@@ -8,6 +8,7 @@ import { useThreadActions } from '../_contexts/ThreadProviders';
 import { useLayout } from '../_contexts/LayoutContext';
 import { useUpdateProjectMutation } from '@/hooks/react-query/threads/use-project';
 import { threadStyles } from '@/lib/theme/thread-colors';
+import { useAvailableModelsQuery } from '@/hooks/react-query/models';
 
 export function ThreadChatInput() {
   const { sandboxId, project, projectId } = useThreadState();
@@ -15,11 +16,12 @@ export function ThreadChatInput() {
     useThreadActions();
   const { isSidePanelOpen } = useLayout();
   const updateProjectMutation = useUpdateProjectMutation();
+  const { data: modelsData } = useAvailableModelsQuery();
 
   const [newMessage, setNewMessage] = useState('');
-  // Initialize with project's model or default to claude-sonnet-4.5
+  // Initialize with project's model or empty (model-selector picks API default)
   const [selectedModel, setSelectedModel] = useState<string>(
-    project?.model_name || 'claude-sonnet-4.5',
+    project?.model_name || '',
   );
 
   // Sync model state when project loads/changes
@@ -29,6 +31,14 @@ export function ThreadChatInput() {
       setSelectedModel(project.model_name);
     }
   }, [project?.model_name]);
+
+  // Sync default model from API when no project model is set
+  useEffect(() => {
+    if (!selectedModel && modelsData?.default_model_id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSelectedModel(modelsData.default_model_id);
+    }
+  }, [selectedModel, modelsData?.default_model_id]);
 
   // Use the project's app_type since it can't be changed after creation
   const projectAppType = project?.app_type || 'web';
@@ -81,7 +91,6 @@ export function ThreadChatInput() {
             disabled={agentState.isSending || agentGetters.isActive}
             isAgentRunning={agentGetters.isActive}
             onStopAgent={stopAgent}
-            autoFocus={false}
             sandboxId={sandboxId || undefined}
             messages={[]}
             isLoggedIn={true}

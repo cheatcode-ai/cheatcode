@@ -16,11 +16,10 @@ export const useAvailableModelsQuery = (enabled = true) => {
     },
     {
       enabled,
-      retry: 1,
+      retry: 2,
       staleTime: 1000 * 60 * 30, // 30 minutes (models don't change often)
       gcTime: 1000 * 60 * 60, // 1 hour
       refetchOnWindowFocus: false,
-      refetchOnMount: false,
       refetchOnReconnect: false,
     },
   )();

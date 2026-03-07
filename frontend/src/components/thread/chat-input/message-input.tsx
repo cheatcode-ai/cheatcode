@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useState, useRef, useMemo } from 'react';
+import { forwardRef, useEffect, useReducer, useRef, useMemo } from 'react';
 import { Textarea } from '@/components/ui/textarea';
 import { Square, Loader2, ArrowUp, Globe, Smartphone } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -82,18 +82,52 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       'Create a mobile app',
       'Fix a bug',
     ];
-    const [sentenceIndex, setSentenceIndex] = useState(0);
-    const [charIndex, setCharIndex] = useState(0);
-    const [isDeleting, setIsDeleting] = useState(false);
-    const [displayPlaceholder, setDisplayPlaceholder] = useState(
-      disableAnimation
-        ? 'ask cheatcode to build anything ...'
-        : typewriterSentences[0],
-    );
+
+    interface TypewriterState {
+      sentenceIndex: number;
+      charIndex: number;
+      isDeleting: boolean;
+      displayPlaceholder: string;
+    }
+
+    type TypewriterAction =
+      | { type: 'TYPE_CHAR'; sentence: string }
+      | { type: 'START_DELETING' }
+      | { type: 'DELETE_CHAR'; sentence: string }
+      | { type: 'NEXT_SENTENCE'; totalSentences: number }
+      | { type: 'SET_STATIC'; placeholder: string };
+
+    function typewriterReducer(state: TypewriterState, action: TypewriterAction): TypewriterState {
+      switch (action.type) {
+        case 'TYPE_CHAR': {
+          const next = action.sentence.substring(0, state.charIndex + 1);
+          return { ...state, charIndex: state.charIndex + 1, displayPlaceholder: next };
+        }
+        case 'START_DELETING':
+          return { ...state, isDeleting: true };
+        case 'DELETE_CHAR': {
+          const next = action.sentence.substring(0, state.charIndex - 1);
+          return { ...state, charIndex: state.charIndex - 1, displayPlaceholder: next || ' ' };
+        }
+        case 'NEXT_SENTENCE':
+          return { ...state, isDeleting: false, sentenceIndex: (state.sentenceIndex + 1) % action.totalSentences };
+        case 'SET_STATIC':
+          return { ...state, displayPlaceholder: action.placeholder };
+      }
+    }
+
+    const [tw, twDispatch] = useReducer(typewriterReducer, {
+      sentenceIndex: 0,
+      charIndex: 0,
+      isDeleting: false,
+      displayPlaceholder: disableAnimation ? 'ask cheatcode to build anything ...' : typewriterSentences[0],
+    });
+
+    const { sentenceIndex, charIndex, isDeleting, displayPlaceholder } = tw;
 
     useEffect(() => {
       if (disableAnimation) {
-        setDisplayPlaceholder('ask cheatcode to build anything ...');
+        twDispatch({ type: 'SET_STATIC', placeholder: 'ask cheatcode to build anything ...' });
         return;
       }
 
@@ -102,24 +136,16 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
       const timeout = setTimeout(
         () => {
           if (!isDeleting) {
-            // typing characters
             const next = currentSentence.substring(0, charIndex + 1);
-            setDisplayPlaceholder(next);
-            setCharIndex((prev) => prev + 1);
+            twDispatch({ type: 'TYPE_CHAR', sentence: currentSentence });
             if (next.length === currentSentence.length) {
-              // pause before deleting
-              setTimeout(() => setIsDeleting(true), 600);
+              setTimeout(() => twDispatch({ type: 'START_DELETING' }), 600);
             }
           } else {
-            // deleting characters
             const next = currentSentence.substring(0, charIndex - 1);
-            setDisplayPlaceholder(next || ' ');
-            setCharIndex((prev) => prev - 1);
+            twDispatch({ type: 'DELETE_CHAR', sentence: currentSentence });
             if (next.length === 0) {
-              setIsDeleting(false);
-              setSentenceIndex(
-                (sentenceIndex + 1) % typewriterSentences.length,
-              );
+              twDispatch({ type: 'NEXT_SENTENCE', totalSentences: typewriterSentences.length });
             }
           }
         },
@@ -293,21 +319,6 @@ export const MessageInput = forwardRef<HTMLTextAreaElement, MessageInputProps>(
                       )}
                     />
                   </div>
-                )}
-
-                {isLoggedIn && (
-                  <VoiceRecorder
-                    onTranscription={onTranscription}
-                    currentValue={value}
-                    disabled={loading || (disabled && !isAgentRunning)}
-                    className={cn(
-                      'h-10 w-10 rounded-none text-zinc-400 hover:text-white transition-all',
-                      'bg-gradient-to-b from-[#333] to-[#1a1a1a]',
-                      'border border-white/5',
-                      'shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]',
-                      'hover:from-[#3a3a3a] hover:to-[#222]',
-                    )}
-                  />
                 )}
 
                 <LiquidMetalButton

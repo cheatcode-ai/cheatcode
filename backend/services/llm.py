@@ -128,6 +128,16 @@ def get_llm_router() -> Router | None:
     return _llm_router
 
 
+def refresh_router() -> None:
+    """Rebuild the Router with the current model store.
+
+    Called by services.openrouter_models after dynamic model refresh.
+    """
+    global _llm_router
+    _llm_router = create_llm_router()
+    logger.info("LiteLLM Router rebuilt with refreshed model list")
+
+
 def get_router_model_name(model_name: str) -> str | None:
     """Map an OpenRouter model ID to the router group name (short ID).
 

@@ -51,9 +51,9 @@ class Configuration:
     OR_APP_NAME: str | None = "Cheatcode AI"
 
     # Model configuration
-    # Default model: claude-sonnet-4.5 (will be resolved by models registry)
-    # Users can select from available models via the UI
-    MODEL_TO_USE: str | None = "claude-sonnet-4.5"
+    # Default model: auto-detected as the latest Anthropic Sonnet from OpenRouter.
+    # Set MODEL_TO_USE env var to override with a specific model ID.
+    MODEL_TO_USE: str | None = None
 
     # Supabase configuration
     SUPABASE_URL: str
@@ -162,7 +162,7 @@ class Configuration:
         for key, expected_type in get_type_hints(self.__class__).items():
             env_val = os.getenv(key)
 
-            if env_val is not None and key != "MODEL_TO_USE":
+            if env_val is not None:
                 # Convert environment variable to the expected type
                 if expected_type is bool:
                     # Handle boolean conversion

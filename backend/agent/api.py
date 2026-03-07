@@ -29,7 +29,7 @@ from utils.constants import SSE_BATCH_SIZE
 from utils.encryption import decrypt_data
 from utils.file_utils import is_image_file
 from utils.logger import logger, structlog
-from utils.models import get_available_models, get_default_model, resolve_model_id
+from utils.models import get_default_model_id, resolve_model_id
 from utils.rate_limit import limiter
 
 from .utils import check_for_active_project_agent_run
@@ -89,7 +89,7 @@ def chunk_responses(responses: list, chunk_size: int = SSE_BATCH_SIZE) -> list:
 
 
 class AgentStartRequest(BaseModel):
-    model_name: str | None = None  # Will be set from config.MODEL_TO_USE in the endpoint
+    model_name: str | None = None  # Defaults to latest Anthropic Sonnet if not specified
     enable_thinking: bool | None = False
     reasoning_effort: str | None = "low"
     stream: bool | None = True
@@ -123,11 +123,15 @@ def initialize(_db: DBConnection, _instance_id: str | None = None):
 async def get_models_available():
     """Get list of available AI models for user selection.
 
-    Returns models with their display names, providers, and descriptions.
+    Models are dynamically fetched from OpenRouter and cached (1h TTL).
+    Falls back to hardcoded list if the API is unavailable.
     """
-    models = get_available_models()
-    default_model = get_default_model()
-    return {"models": models, "default_model_id": default_model["id"] if default_model else "claude-sonnet-4.5"}
+    from services.openrouter_models import get_available_models_cached
+
+    models = await get_available_models_cached()
+    default_model = next((m for m in models if m.get("default")), None)
+    default_id = default_model["id"] if default_model else (models[0]["id"] if models else get_default_model_id())
+    return {"models": models, "default_model_id": default_id}
 
 
 async def cleanup():
@@ -402,7 +406,7 @@ async def start_agent(
 
         # Model selection: request > project (single source of truth) > config default
         stored_model = project_data.get("model_name")
-        model_name = body.model_name or stored_model or config.MODEL_TO_USE
+        model_name = body.model_name or stored_model or get_default_model_id()
 
         # Resolve to full OpenRouter ID for API calls
         model_name = resolve_model_id(model_name)
@@ -1138,8 +1142,8 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
         db_conn = DBConnection()
         client = await db_conn.client
 
-        # Use the configured model and resolve to full OpenRouter ID
-        model_name = resolve_model_id(config.MODEL_TO_USE)
+        # Use the default model and resolve to full OpenRouter ID
+        model_name = resolve_model_id(get_default_model_id())
         system_prompt = "You are a helpful assistant that generates extremely concise titles (2-4 words maximum) for chat threads based on the user's message."
         user_message = f'Generate an extremely brief title (2-4 words only) for a chat thread that starts with this message: "{prompt}"'
         messages = [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_message}]
@@ -1179,7 +1183,7 @@ async def generate_and_update_project_name(project_id: str, prompt: str):
 async def initiate_agent_with_files(
     request: Request,
     prompt: str = Form(...),
-    model_name: str | None = Form(None),  # Default to None to use config.MODEL_TO_USE
+    model_name: str | None = Form(None),  # Defaults to latest Anthropic Sonnet if not specified
     enable_thinking: bool | None = Form(False),
     reasoning_effort: str | None = Form("low"),
     stream: bool | None = Form(True),
@@ -1205,9 +1209,9 @@ async def initiate_agent_with_files(
     # Use model from config if not specified in the request
     logger.info(f"Original model_name from request: {model_name}")
 
-    if model_name is None:
-        model_name = config.MODEL_TO_USE
-        logger.info(f"Using model from config: {model_name}")
+    if not model_name:
+        model_name = get_default_model_id()
+        logger.info(f"Using default model: {model_name}")
 
     # Keep the original short model ID for UI persistence
     ui_model_name = model_name

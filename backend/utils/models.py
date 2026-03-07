@@ -1,167 +1,56 @@
-"""Available AI models configuration - SINGLE SOURCE OF TRUTH.
+"""Available AI models configuration.
 
-All model-related data should be defined here and imported elsewhere.
-This eliminates duplication across constants.py, llm.py, run.py, etc.
+Models are dynamically fetched from OpenRouter API (programming category)
+and cached. All lookup functions read from an in-memory store that is
+updated by services.openrouter_models on startup and periodically.
 """
 
 from typing import Any
 
-# Base CDN URL for provider logos from LobeHub icons
-ICON_CDN_BASE = "https://raw.githubusercontent.com/lobehub/lobe-icons/master/packages/static-png/dark"
-
 # =============================================================================
-# SINGLE SOURCE OF TRUTH: All model configurations
-# =============================================================================
-# When adding/removing models, ONLY edit this list. Everything else is derived.
-#
-# Fields:
-#   - id: Short identifier used in frontend/API
-#   - openrouter_id: Full OpenRouter model ID for API calls
-#   - name: Display name
-#   - provider: Provider name (for UI grouping)
-#   - description: Short description for UI
-#   - max_tokens: Maximum OUTPUT tokens the model can generate
-#   - context_window: Maximum INPUT context window size
-#   - cost_input_per_1k: Cost per 1K input tokens (USD)
-#   - cost_output_per_1k: Cost per 1K output tokens (USD)
-#   - default: Whether this is the default model
-#   - logo_url: URL to provider logo
+# Dynamic model store: updated by services.openrouter_models
+# Starts empty, populated from OpenRouter on startup.
 # =============================================================================
 
-AVAILABLE_MODELS: list[dict[str, Any]] = [
-    # xAI Grok models
-    {
-        "id": "grok-4.1-fast",
-        "openrouter_id": "openrouter/x-ai/grok-4.1-fast",
-        "name": "Grok 4.1 Fast",
-        "provider": "xAI",
-        "description": "Best agentic model",
-        "max_tokens": 131072,
-        "context_window": 131072,
-        "cost_input_per_1k": 0.0002,
-        "cost_output_per_1k": 0.0005,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/grok.png",
-    },
-    {
-        "id": "grok-code-fast",
-        "openrouter_id": "openrouter/x-ai/grok-code-fast-1",
-        "name": "Grok Code Fast",
-        "provider": "xAI",
-        "description": "Fast coding",
-        "max_tokens": 131072,
-        "context_window": 131072,
-        "cost_input_per_1k": 0.0002,
-        "cost_output_per_1k": 0.0015,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/grok.png",
-    },
-    # Anthropic Claude models
-    {
-        "id": "claude-sonnet-4.5",
-        "openrouter_id": "openrouter/anthropic/claude-sonnet-4.5",
-        "name": "Claude Sonnet 4.5",
-        "provider": "Anthropic",
-        "description": "Best for coding",
-        "max_tokens": 64000,
-        "context_window": 200000,
-        "cost_input_per_1k": 0.003,
-        "cost_output_per_1k": 0.015,
-        "default": True,
-        "logo_url": f"{ICON_CDN_BASE}/anthropic.png",
-    },
-    {
-        "id": "claude-opus-4.5",
-        "openrouter_id": "openrouter/anthropic/claude-opus-4.5",
-        "name": "Claude Opus 4.5",
-        "provider": "Anthropic",
-        "description": "Most capable",
-        "max_tokens": 32000,
-        "context_window": 200000,
-        "cost_input_per_1k": 0.015,
-        "cost_output_per_1k": 0.075,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/anthropic.png",
-    },
-    # Google Gemini models
-    {
-        "id": "gemini-3-pro",
-        "openrouter_id": "openrouter/google/gemini-3-pro-preview",
-        "name": "Gemini 3 Pro",
-        "provider": "Google",
-        "description": "Flagship multimodal reasoning",
-        "max_tokens": 65535,
-        "context_window": 1000000,
-        "cost_input_per_1k": 0.002,
-        "cost_output_per_1k": 0.012,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/gemini-color.png",
-    },
-    {
-        "id": "gemini-pro-2.5",
-        "openrouter_id": "openrouter/google/gemini-2.5-pro",
-        "name": "Gemini Pro 2.5",
-        "provider": "Google",
-        "description": "Balanced",
-        "max_tokens": 65535,
-        "context_window": 1000000,
-        "cost_input_per_1k": 0.0025,
-        "cost_output_per_1k": 0.0075,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/gemini-color.png",
-    },
-    # Zhipu GLM
-    {
-        "id": "glm-4.6",
-        "openrouter_id": "openrouter/z-ai/glm-4.6",
-        "name": "GLM 4.6",
-        "provider": "Zhipu AI",
-        "description": "Open-source frontier",
-        "max_tokens": 128000,
-        "context_window": 128000,
-        "cost_input_per_1k": 0.0005,
-        "cost_output_per_1k": 0.002,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/zhipu.png",
-    },
-    # Moonshot Kimi
-    {
-        "id": "kimi-k2",
-        "openrouter_id": "openrouter/moonshotai/kimi-k2",
-        "name": "Kimi K2",
-        "provider": "Moonshot",
-        "description": "Strong reasoning",
-        "max_tokens": 128000,
-        "context_window": 128000,
-        "cost_input_per_1k": 0.0006,
-        "cost_output_per_1k": 0.0024,
-        "default": False,
-        "logo_url": f"{ICON_CDN_BASE}/moonshot.png",
-    },
-]
+_model_store: list[dict[str, Any]] = []
+
+
+def update_model_store(models: list[dict[str, Any]]) -> None:
+    """Replace the in-memory model store with fresh models.
+
+    Called by services.openrouter_models after fetching from OpenRouter API.
+    """
+    global _model_store
+    _model_store = models
 
 
 # =============================================================================
-# Basic model lookup functions
+# Basic model lookup functions (read from _model_store)
 # =============================================================================
 
 
 def get_available_models() -> list[dict[str, Any]]:
     """Return list of available models for frontend display."""
-    return AVAILABLE_MODELS
+    return _model_store
 
 
-def get_default_model() -> dict[str, Any]:
-    """Return the default model configuration."""
-    for model in AVAILABLE_MODELS:
+def get_default_model() -> dict[str, Any] | None:
+    """Return the default model configuration, or None if store is empty."""
+    for model in _model_store:
         if model.get("default"):
             return model
-    return AVAILABLE_MODELS[0]
+    return _model_store[0] if _model_store else None
+
+
+def get_default_model_id() -> str | None:
+    """Return the ID of the default model, or None if store is empty."""
+    model = get_default_model()
+    return model["id"] if model else None
 
 
 def get_model_by_id(model_id: str) -> dict[str, Any] | None:
     """Get model configuration by its short ID."""
-    for model in AVAILABLE_MODELS:
+    for model in _model_store:
         if model["id"] == model_id:
             return model
     return None
@@ -169,7 +58,7 @@ def get_model_by_id(model_id: str) -> dict[str, Any] | None:
 
 def get_model_by_openrouter_id(openrouter_id: str) -> dict[str, Any] | None:
     """Get model configuration by its OpenRouter ID."""
-    for model in AVAILABLE_MODELS:
+    for model in _model_store:
         if model["openrouter_id"] == openrouter_id:
             return model
     return None
@@ -258,7 +147,7 @@ def get_model_costs(model_id: str) -> tuple:
 def calculate_token_cost(prompt_tokens: int, completion_tokens: int, model: str) -> float:
     """Calculate estimated cost in USD using LiteLLM's pricing database.
 
-    Falls back to hardcoded AVAILABLE_MODELS pricing if the model is not in LiteLLM's DB.
+    Falls back to model store pricing if the model is not in LiteLLM's DB.
 
     Args:
         prompt_tokens: Number of input/prompt tokens
@@ -293,7 +182,7 @@ def calculate_token_cost(prompt_tokens: int, completion_tokens: int, model: str)
 
 
 def get_router_model_list(openrouter_key: str) -> list[dict[str, Any]]:
-    """Generate LiteLLM Router model configuration from AVAILABLE_MODELS.
+    """Generate LiteLLM Router model configuration from the model store.
 
     Args:
         openrouter_key: OpenRouter API key
@@ -314,7 +203,7 @@ def get_router_model_list(openrouter_key: str) -> list[dict[str, Any]]:
             },
             "model_info": {"id": 1},
         }
-        for model in AVAILABLE_MODELS
+        for model in _model_store
     ]
 
 
