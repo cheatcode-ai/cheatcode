@@ -69,12 +69,7 @@ async def initialize_async():
                 retry_on_timeout=True,  # Retry on timeout
                 health_check_interval=30,  # Health check every 30 seconds (optimized from 60)
                 max_connections=128,  # Connection pool size (increased from 50)
-                socket_keepalive=True,  # Enable TCP keepalive
-                socket_keepalive_options={  # TCP keepalive options
-                    "TCP_KEEPIDLE": 60,
-                    "TCP_KEEPINTVL": 10,
-                    "TCP_KEEPCNT": 3,
-                },
+                socket_keepalive=True,  # Enable TCP keepalive (system defaults)
             )
 
         else:
