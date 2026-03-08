@@ -113,7 +113,6 @@ export function ModelSelector({
   if (isLoading || models.length === 0) {
     return (
       <div className={cn('flex items-center gap-2 px-3 h-10 text-[10px] font-mono uppercase tracking-widest text-zinc-500 animate-pulse', className)}>
-        <Bot className="h-3.5 w-3.5" />
         <span>Loading...</span>
       </div>
     );
