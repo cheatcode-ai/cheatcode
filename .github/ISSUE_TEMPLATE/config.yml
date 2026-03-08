@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security Vulnerability
+    url: mailto:founders@trycheatcode.com
+    about: "Do not open a public issue for security vulnerabilities. Email us instead."
+  - name: Questions & Discussions
+    url: https://github.com/cheatcode-ai/cheatcode/discussions
+    about: "Ask questions or start a discussion here."
