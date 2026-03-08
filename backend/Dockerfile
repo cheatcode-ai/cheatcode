@@ -9,9 +9,8 @@ RUN apk add --no-cache curl git
 RUN addgroup -g 1001 app && adduser -D -G app -u 1001 app
 
 # Install Python dependencies
-COPY pyproject.toml ./
+COPY pyproject.toml uv.lock ./
 ENV UV_LINK_MODE=copy
-RUN --mount=type=cache,target=/root/.cache/uv uv lock
 RUN --mount=type=cache,target=/root/.cache/uv uv sync --locked --quiet
 
 # Fix ownership of the entire /app directory including .venv

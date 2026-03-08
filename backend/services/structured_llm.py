@@ -37,7 +37,7 @@ def _register_hooks(client: instructor.AsyncInstructor) -> None:
     catching events that manual logging at the call site would miss.
     """
 
-    def on_completion_kwargs(kwargs: dict[str, Any]) -> None:
+    def on_completion_kwargs(**kwargs: Any) -> None:
         logger.info(
             "Structured LLM request",
             model=kwargs.get("model", "unknown"),
