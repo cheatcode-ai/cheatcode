@@ -14,13 +14,11 @@ type NavUser = {
   imageUrl: string;
 };
 
-export default async function HomePage({
+export default function HomePage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  const params = await searchParams;
-  const initialSkill = validInitialSkill(params["skill"]);
   return (
     <div className="gradient-home-bg relative min-h-screen w-full overflow-hidden text-white">
       <Suspense fallback={<HomeHeaderContent user={null} />}>
@@ -38,7 +36,9 @@ export default async function HomePage({
                   what will you build today?
                 </h1>
               </div>
-              <HomeComposer initialSkill={initialSkill} />
+              <Suspense fallback={<HomeComposer initialSkill={undefined} />}>
+                <HomeComposerSection searchParams={searchParams} />
+              </Suspense>
               <Suspense fallback={null}>
                 <FeaturedReplays />
               </Suspense>
@@ -49,6 +49,17 @@ export default async function HomePage({
       </main>
     </div>
   );
+}
+
+// `searchParams` is runtime data; awaiting it inside a Suspense boundary (not the
+// page body) lets the shell render without being blocked (Next 16 dynamic IO).
+async function HomeComposerSection({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  return <HomeComposer initialSkill={validInitialSkill(params["skill"])} />;
 }
 
 function validInitialSkill(value: string | string[] | undefined): string | undefined {
