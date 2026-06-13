@@ -14,7 +14,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react
 import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
-import { agentModelLabel, agentModelRequestValue } from "@/lib/agent-models";
+import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
@@ -237,7 +237,6 @@ export function ChatPanel({
       <MessageList messages={deferredMessages} />
       <PromptComposer
         budgetCapUsd={budgetCapUsd}
-        modelLabel={agentModelLabel(agentModelId)}
         onBudgetChange={(value) => {
           setBudgetCapUsd(threadId, value);
           saveBudgetMutation.mutate(value);
@@ -246,6 +245,7 @@ export function ChatPanel({
         onStop={stopRun}
         onSubmit={submitText}
         status={status}
+        threadId={threadId}
         value={draft}
       />
     </div>

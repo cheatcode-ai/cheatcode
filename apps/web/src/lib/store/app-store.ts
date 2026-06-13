@@ -12,6 +12,7 @@ interface AppStore {
   activePreviewTab: PreviewTab;
   agentModelId: AgentModelId;
   budgetCapUsdByThread: Record<string, number | null>;
+  commandPaletteOpen: boolean;
   connectionState: ConnectionState;
   draftByThread: Record<string, string>;
   expoUrl: string | null;
@@ -25,6 +26,7 @@ interface AppStore {
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
   setBudgetCapUsd: (threadId: string, value: number | null) => void;
+  setCommandPaletteOpen: (open: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
   setDraft: (threadId: string, value: string) => void;
   setExpoUrl: (url: string | null) => void;
@@ -45,6 +47,7 @@ export const useAppStore = create<AppStore>()(
       activePreviewTab: "app",
       agentModelId: DEFAULT_AGENT_MODEL_ID,
       budgetCapUsdByThread: {},
+      commandPaletteOpen: false,
       connectionState: "online",
       draftByThread: {},
       expoUrl: null,
@@ -63,6 +66,7 @@ export const useAppStore = create<AppStore>()(
         }),
       setActivePreviewTab: (tab) => set({ activePreviewTab: tab }),
       setAgentModelId: (agentModelId) => set({ agentModelId }),
+      setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
       setBudgetCapUsd: (threadId, value) =>
         set((state) => ({
           budgetCapUsdByThread: { ...state.budgetCapUsdByThread, [threadId]: value },

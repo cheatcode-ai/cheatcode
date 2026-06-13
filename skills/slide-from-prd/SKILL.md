@@ -1,6 +1,8 @@
 ---
 name: slide-from-prd
 description: Turns a PRD, roadmap, memo, or internal product brief into clear presentation slides. Use when the user asks for product update slides, roadmap slides, executive slides, or a PRD-to-deck conversion. Do NOT trigger for fundraising decks; use pitch-deck.
+category: Research & Docs
+tags: slides, prd, product
 license: MIT
 compatibility: Requires docs tools.
 ---

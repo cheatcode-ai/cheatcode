@@ -1,17 +1,19 @@
 "use client";
 
 import type { ProjectSummary, Thread } from "@cheatcode/types";
+import { ConfirmDialog } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowUpRight,
   Check,
   Link as LinkIcon,
+  type LucideIcon,
   Monitor,
   MoreHorizontal,
   Plus,
@@ -19,8 +21,20 @@ import {
   Trash2,
 } from "@/components/ui/icons";
 import { deleteProject, listProjects, listProjectThreads } from "@/lib/api/project-thread";
+import {
+  activeRouteNavItems,
+  isNavItemActive,
+  type NavItem,
+  WORKSPACE_NAV,
+} from "@/lib/navigation/nav-model";
 import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
+
+const SEARCH_NAV_ITEM = WORKSPACE_NAV.find((item) => item.id === "search");
+const SIDEBAR_LINK_ITEMS: readonly NavItem[] = [
+  ...activeRouteNavItems("workspace"),
+  ...activeRouteNavItems("footer"),
+];
 
 interface SidebarProject {
   appType: "general" | "mobile" | "web";
@@ -38,12 +52,17 @@ export function AppSidebar() {
   const searchParams = useSearchParams();
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const setCommandPaletteOpen = useAppStore((state) => state.setCommandPaletteOpen);
   const activeThreadId = searchParams.get("thread");
   const sidebarProjects = useSidebarProjects(getToken);
+  const [pendingDelete, setPendingDelete] = useState<SidebarProject | null>(null);
   const deleteMutation = useMutation({
     mutationFn: (project: SidebarProject) => deleteProject(getToken, project.id),
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Project delete failed");
+    },
+    onSettled: () => {
+      setPendingDelete(null);
     },
     onSuccess: (_result, project) => {
       toast.success(`Deleted ${project.name}`);
@@ -137,7 +156,7 @@ export function AppSidebar() {
                 activeThreadId={activeThreadId}
                 isDeleting={deleteMutation.isPending && deleteMutation.variables?.id === project.id}
                 isActivePath={pathname === "/projects"}
-                onDelete={(value) => deleteMutation.mutate(value)}
+                onDelete={setPendingDelete}
                 key={project.id}
                 onNavigate={() => setSidebarOpen(false)}
                 project={project}
@@ -145,9 +164,96 @@ export function AppSidebar() {
             ))}
           </div>
         </nav>
-        <div className="h-[73px] shrink-0 border-zinc-800 border-t bg-zinc-950 p-4" />
+        <div className="shrink-0 space-y-0 border-zinc-800 border-t bg-zinc-950 py-1">
+          {SEARCH_NAV_ITEM ? (
+            <SidebarActionRow
+              icon={SEARCH_NAV_ITEM.icon}
+              label={SEARCH_NAV_ITEM.label}
+              onClick={() => {
+                setCommandPaletteOpen(true);
+                setSidebarOpen(false);
+              }}
+            />
+          ) : null}
+          {SIDEBAR_LINK_ITEMS.map((item) =>
+            item.target.kind === "route" ? (
+              <SidebarNavLink
+                active={isNavItemActive(item, pathname)}
+                href={item.target.href}
+                icon={item.icon}
+                key={item.id}
+                label={item.label}
+                onNavigate={() => setSidebarOpen(false)}
+              />
+            ) : null,
+          )}
+        </div>
       </aside>
+      <ConfirmDialog
+        busy={deleteMutation.isPending}
+        cancelLabel="Cancel"
+        confirmLabel="Delete project"
+        description="This removes the project, its sandbox, and all generated files. Deployed previews stay live until they expire."
+        destructive
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteMutation.mutate(pendingDelete);
+          }
+        }}
+        open={pendingDelete !== null}
+        title={pendingDelete ? `Delete ${pendingDelete.name}?` : "Delete project?"}
+      />
     </>
+  );
+}
+
+function SidebarActionRow({
+  icon: Icon,
+  label,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      className="flex w-full items-center gap-3 px-4 py-2.5 text-left font-medium text-sm text-zinc-500 transition-colors hover:bg-zinc-900/30 hover:text-white"
+      onClick={onClick}
+      type="button"
+    >
+      <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </button>
+  );
+}
+
+function SidebarNavLink({
+  active,
+  href,
+  icon: Icon,
+  label,
+  onNavigate,
+}: {
+  active: boolean;
+  href: string;
+  icon: LucideIcon;
+  label: string;
+  onNavigate: () => void;
+}) {
+  return (
+    <Link
+      className={cn(
+        "flex w-full items-center gap-3 px-4 py-2.5 font-medium text-sm transition-colors",
+        active ? "text-white" : "text-zinc-500 hover:bg-zinc-900/30 hover:text-white",
+      )}
+      href={href}
+      onClick={onNavigate}
+    >
+      <Icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+      <span className="truncate">{label}</span>
+    </Link>
   );
 }
 
@@ -224,9 +330,7 @@ function ProjectRow({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            if (window.confirm(`Delete ${project.name}?`)) {
-              onDelete(project);
-            }
+            onDelete(project);
           }}
           type="button"
         >

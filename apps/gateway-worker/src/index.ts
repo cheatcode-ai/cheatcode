@@ -42,6 +42,7 @@ import { IdempotencyStore } from "./durable-objects/idempotency";
 import { QuotaTracker } from "./durable-objects/quota-tracker";
 import { RateLimiter } from "./durable-objects/rate-limiter";
 import { formatGatewayRouteError } from "./error-handling";
+import { greetingRoute } from "./greeting-routes";
 import {
   completeIdempotentRunRequest,
   type IdempotencyBindings,
@@ -77,6 +78,7 @@ import {
   updateProjectRoute,
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
+import { searchWorkspaceRoute } from "./search-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
 
@@ -308,6 +310,18 @@ export const gatewayRoutes = gatewayApp
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/usage/daily");
     return listUsageDailyRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+
+  .get("/v1/search", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/search");
+    return searchWorkspaceRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+
+  .get("/v1/greeting", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/greeting");
+    return greetingRoute(c.executionCtx, c.req.raw);
   })
 
   .get("/v1/projects", async (c) => {

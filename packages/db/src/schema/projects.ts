@@ -6,6 +6,8 @@ import { users } from "./users";
 export interface ProjectSettings {
   defaultModel?: string;
   budgetCapUsd?: number;
+  /** Public GitHub URL captured at project creation; consumed once by the app-builder scaffold. */
+  importRepoUrl?: string;
 }
 
 export interface DirectoryBackupHandle {

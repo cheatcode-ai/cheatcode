@@ -1,55 +1,41 @@
+import { APIError, emitUserEvent } from "@cheatcode/observability";
 import {
-  createDb,
-  type DatabaseHandle,
-  type DirectoryBackupHandle,
-  ensureSandboxProject,
-  getSandboxProjectById,
-  saveProjectBackupById,
-  saveSandboxProjectBackup,
-  withUserContext,
-} from "@cheatcode/db";
-import type { createLogger } from "@cheatcode/observability";
-import {
-  type CodeRuntimeContext,
-  executeCreateSnapshot,
-  executeRestoreSnapshot,
   executeShellExec,
   executeShellTerminal,
   executeStartDevServer,
   executeWriteFile,
 } from "@cheatcode/tools-code";
-import { ProjectId, UserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { z } from "zod";
+import {
+  type AgentRunAppBuilderEnv,
+  type AgentRunAppBuilderInput,
+  type AgentRunLogger,
+  type ProjectSandboxStub,
+  restoreBestEffortSnapshot,
+  snapshotAppBuilderWorkspace,
+} from "./app-builder-snapshot";
 import {
   appBuilderGlobalStylesSource,
   appBuilderLayoutSource,
   appBuilderPageSource,
 } from "./app-builder-template";
 
+export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
+
 const APP_BUILDER_DIR = "/workspace/app";
 const APP_BUILDER_PORT = 5173;
 const EXPO_METRO_PORT = 8081;
 const DEFAULT_PREVIEW_HOSTNAME = "preview.trycheatcode.com";
-const DEFAULT_PROJECT_MODE = "web";
 const PreviewHostnameSchema = z.string().trim().min(1).max(255).default(DEFAULT_PREVIEW_HOSTNAME);
 
-type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
-type AgentRunLogger = ReturnType<typeof createLogger>;
+type AppendChunk = (chunk: UIMessageChunk) => Promise<void>;
 
-interface AgentRunAppBuilderEnv {
-  HYPERDRIVE: Hyperdrive;
-  PREVIEW_HOSTNAME?: string;
-}
-
-interface AgentRunAppBuilderInput {
-  isFirstRun?: boolean;
-  messageText: string;
-  projectId: string;
-  projectMode?: "app-builder" | "app-builder-mobile" | "general";
-  sandboxName: string;
-  threadId: string;
-  userId: string;
+interface GitHubRepoRef {
+  host: string;
+  owner: string;
+  path: string;
+  repo: string;
 }
 
 function isMobileBuild(input: AgentRunAppBuilderInput): boolean {
@@ -57,21 +43,48 @@ function isMobileBuild(input: AgentRunAppBuilderInput): boolean {
 }
 
 interface RunAppBuilderOptions {
-  append: (chunk: UIMessageChunk) => Promise<void>;
+  append: AppendChunk;
   env: AgentRunAppBuilderEnv;
   input: AgentRunAppBuilderInput;
   logger: AgentRunLogger;
   sandbox: ProjectSandboxStub;
 }
 
-export async function runAppBuilder({
-  append,
-  env,
-  input,
-  logger,
-  sandbox,
-}: RunAppBuilderOptions): Promise<void> {
+export async function runAppBuilder(
+  options: RunAppBuilderOptions,
+): Promise<{ agentContextNote?: string }> {
+  const { input, logger, sandbox } = options;
+  await stopBestEffortProcesses(sandbox, logger);
+  // Marker/.git gate runs FIRST: an imported repo (any framework shape) must
+  // never fall back into the destructive reset + re-clone scaffold path on a
+  // follow-up run. See D7 — the marker, not the template-shape check, is the
+  // one-shot guarantee.
+  if (await hasImportedAppWorkspace(sandbox)) {
+    return restoreImportedWorkspace(options);
+  }
   const mobile = isMobileBuild(input);
+  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(sandbox, mobile));
+  if (shouldBootstrap && input.importRepoUrl) {
+    return importRepoWorkspace({ ...options, repoUrl: input.importRepoUrl });
+  }
+  await runTemplateAppBuilder({ ...options, mobile, shouldBootstrap });
+  return {};
+}
+
+async function runTemplateAppBuilder(
+  options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
+): Promise<void> {
+  const { env, input, logger, mobile, sandbox } = options;
+  await prepareTemplateWorkspace(options);
+  await clearBuildCache(sandbox, mobile);
+  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
+  await startTemplatePreview(options);
+}
+
+async function prepareTemplateWorkspace(
+  options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
+): Promise<void> {
+  const { append, input, logger, mobile, sandbox, shouldBootstrap } = options;
   await append({
     type: "text-delta",
     id: "answer",
@@ -79,34 +92,36 @@ export async function runAppBuilder({
       ? "Preparing the Expo workspace and live preview...\n"
       : "Preparing the Next.js workspace and live preview...\n",
   });
-  await stopBestEffortProcesses(sandbox, logger);
-  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(sandbox, mobile));
-  if (shouldBootstrap) {
-    await resetAppBuilderDirectory(sandbox);
-    if (mobile) {
-      await scaffoldExpoApp(sandbox, logger);
-    } else {
-      await scaffoldAppBuilder(sandbox, logger);
-    }
-    await installAppBuilderDependencies(sandbox, logger, mobile);
-    if (!mobile) {
-      await append({
-        type: "text-delta",
-        id: "answer",
-        delta: "Seeding the app files before the agent customizes them...\n",
-      });
-      await writeAppBuilderFiles(input, sandbox);
-    }
-  } else {
+  if (!shouldBootstrap) {
     await append({
       type: "text-delta",
       id: "answer",
       delta: "Using the restored app workspace for this follow-up...\n",
     });
     await installAppBuilderDependencies(sandbox, logger, mobile);
+    return;
   }
-  await clearBuildCache(sandbox, mobile);
-  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
+  await resetAppBuilderDirectory(sandbox);
+  if (mobile) {
+    await scaffoldExpoApp(sandbox, logger);
+  } else {
+    await scaffoldAppBuilder(sandbox, logger);
+  }
+  await installAppBuilderDependencies(sandbox, logger, mobile);
+  if (!mobile) {
+    await append({
+      type: "text-delta",
+      id: "answer",
+      delta: "Seeding the app files before the agent customizes them...\n",
+    });
+    await writeAppBuilderFiles(input, sandbox);
+  }
+}
+
+async function startTemplatePreview(
+  options: RunAppBuilderOptions & { mobile: boolean },
+): Promise<void> {
+  const { append, env, mobile, sandbox } = options;
   await append({
     type: "text-delta",
     id: "answer",
@@ -130,6 +145,226 @@ export async function runAppBuilder({
   });
 }
 
+// First import run only: clone the public GitHub repo over the empty workspace,
+// drop the one-shot marker, best-effort install, and hand control to the agent
+// without auto-starting a dev server (framework/port are unknowable). Failure
+// throws repo_import_failed, which rides the existing run() failure path.
+async function importRepoWorkspace(
+  options: RunAppBuilderOptions & { repoUrl: string },
+): Promise<{ agentContextNote: string }> {
+  const { append, env, input, logger, repoUrl, sandbox } = options;
+  const startedAt = Date.now();
+  const repoRef = parseGitHubRepo(repoUrl);
+  if (!repoRef) {
+    logger.error("repo_import_failed", { exitCode: null, repoHost: null, repoPath: null });
+    emitImportEvent(env, input, "repo_import_failed");
+    throw repoImportError("The import URL must be a public https github.com repository.");
+  }
+  logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
+  await append({
+    type: "text-delta",
+    id: "answer",
+    delta: `Cloning ${repoRef.path} into ${APP_BUILDER_DIR}...\n`,
+  });
+  await resetAppBuilderDirectory(sandbox);
+  await cloneRepoOrThrow({ env, input, logger, repoRef, repoUrl, sandbox });
+  await markImportedWorkspace(sandbox);
+  const installRan = await installImportedDependencies(sandbox, logger);
+  await clearBuildCache(sandbox, isMobileBuild(input));
+  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
+  await emitImportReady(append, repoUrl);
+  logger.info("repo_import_succeeded", {
+    durationMs: Date.now() - startedAt,
+    installRan,
+    repoHost: repoRef.host,
+    repoPath: repoRef.path,
+  });
+  emitImportEvent(env, input, "repo_import_succeeded");
+  return { agentContextNote: importedContextNote(repoUrl) };
+}
+
+// Every follow-up run of an imported project: re-install best-effort and snapshot,
+// but NEVER reset, re-clone, or auto-start the template dev server (prior agent
+// edits must survive).
+async function restoreImportedWorkspace(
+  options: RunAppBuilderOptions,
+): Promise<{ agentContextNote: string }> {
+  const { append, env, input, logger, sandbox } = options;
+  await append({
+    type: "text-delta",
+    id: "answer",
+    delta: "Using the imported app workspace for this follow-up...\n",
+  });
+  await installImportedDependencies(sandbox, logger);
+  await clearBuildCache(sandbox, isMobileBuild(input));
+  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
+  await append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
+  return { agentContextNote: importedContextNote(input.importRepoUrl) };
+}
+
+async function hasImportedAppWorkspace(sandbox: ProjectSandboxStub): Promise<boolean> {
+  const result = await executeShellTerminal(
+    {
+      command: `test -f ${APP_BUILDER_DIR}/.cheatcode-imported || test -d ${APP_BUILDER_DIR}/.git`,
+      cwd: "/workspace",
+      timeoutMs: 10_000,
+    },
+    { sandbox },
+  );
+  return result.success;
+}
+
+async function cloneRepoOrThrow(options: {
+  env: AgentRunAppBuilderEnv;
+  input: AgentRunAppBuilderInput;
+  logger: AgentRunLogger;
+  repoRef: GitHubRepoRef;
+  repoUrl: string;
+  sandbox: ProjectSandboxStub;
+}): Promise<void> {
+  try {
+    await executeShellExec(
+      {
+        command: [
+          "git",
+          "clone",
+          "--depth",
+          "1",
+          "--single-branch",
+          options.repoUrl,
+          APP_BUILDER_DIR,
+        ],
+        cwd: "/workspace",
+        timeoutMs: 300_000,
+      },
+      { sandbox: options.sandbox },
+    );
+  } catch (error) {
+    const detail = cloneFailureDetail(error);
+    options.logger.error("repo_import_failed", {
+      exitCode: detail.exitCode,
+      repoHost: options.repoRef.host,
+      repoPath: options.repoRef.path,
+      stderr: detail.stderr,
+    });
+    emitImportEvent(options.env, options.input, "repo_import_failed");
+    throw repoImportError("Could not clone the repository.");
+  }
+}
+
+function cloneFailureDetail(error: unknown): { exitCode: number | null; stderr: string } {
+  if (error instanceof APIError) {
+    const details = error.opts.details;
+    const exitCode = details?.["exitCode"];
+    const stderr = details?.["stderr"];
+    return {
+      exitCode: typeof exitCode === "number" ? exitCode : null,
+      stderr: typeof stderr === "string" ? stderr.slice(0, 500) : "",
+    };
+  }
+  return { exitCode: null, stderr: error instanceof Error ? error.message.slice(0, 500) : "" };
+}
+
+async function markImportedWorkspace(sandbox: ProjectSandboxStub): Promise<void> {
+  await executeShellExec(
+    {
+      command: ["touch", `${APP_BUILDER_DIR}/.cheatcode-imported`],
+      cwd: "/workspace",
+      timeoutMs: 10_000,
+    },
+    { sandbox },
+  );
+}
+
+async function installImportedDependencies(
+  sandbox: ProjectSandboxStub,
+  logger: AgentRunLogger,
+): Promise<boolean> {
+  if (!(await pathExists(sandbox, `${APP_BUILDER_DIR}/package.json`))) {
+    return false;
+  }
+  const usesNpm = await pathExists(sandbox, `${APP_BUILDER_DIR}/package-lock.json`);
+  const command = usesNpm
+    ? ["npm", "install", "--no-audit", "--no-fund"]
+    : ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"];
+  try {
+    await executeShellExec({ command, cwd: APP_BUILDER_DIR, timeoutMs: 300_000 }, { sandbox });
+    return true;
+  } catch (error) {
+    logger.warn("repo_import_install_failed", {
+      error: error instanceof Error ? error.message : "Unknown install error",
+    });
+    return false;
+  }
+}
+
+async function pathExists(sandbox: ProjectSandboxStub, path: string): Promise<boolean> {
+  const result = await executeShellTerminal(
+    { command: `test -e ${path}`, cwd: "/workspace", timeoutMs: 10_000 },
+    { sandbox },
+  );
+  return result.success;
+}
+
+async function emitImportReady(append: AppendChunk, repoUrl: string): Promise<void> {
+  await append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
+  await append({
+    type: "text-delta",
+    id: "answer",
+    delta: `Imported ${repoUrl}. The agent will inspect the project and start the dev server.\n`,
+  });
+}
+
+function emitImportEvent(
+  env: AgentRunAppBuilderEnv,
+  input: AgentRunAppBuilderInput,
+  eventName: "repo_import_failed" | "repo_import_succeeded",
+): void {
+  emitUserEvent(env, {
+    eventName,
+    userId: input.userId,
+    ...(input.runId ? { runId: input.runId } : {}),
+  });
+}
+
+function parseGitHubRepo(url: string): GitHubRepoRef | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") {
+    return null;
+  }
+  if (parsed.username !== "" || parsed.password !== "") {
+    return null;
+  }
+  if (parsed.hostname !== "github.com" && parsed.hostname !== "www.github.com") {
+    return null;
+  }
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  const owner = segments[0];
+  const rawRepo = segments[1];
+  if (!owner || !rawRepo) {
+    return null;
+  }
+  const repo = rawRepo.replace(/\.git$/u, "");
+  return { host: parsed.hostname, owner, path: `${owner}/${repo}`, repo };
+}
+
+function importedContextNote(repoUrl?: string): string {
+  const origin = repoUrl ? ` from ${repoUrl}` : "";
+  return `[context] This project was imported${origin} into ${APP_BUILDER_DIR}. Inspect it, complete any setup, and start the dev server on port 5173 with start_dev_server (Expo on 8081 for mobile).`;
+}
+
+function repoImportError(message: string): APIError {
+  return new APIError(502, "repo_import_failed", message, {
+    hint: "Check the URL is a public GitHub repo, then retry.",
+    retriable: true,
+  });
+}
+
 export function expoUrlFromPreview(previewUrl: string): null | string {
   const parsed = new URL(previewUrl);
   if (parsed.hostname.endsWith(".localhost")) {
@@ -137,42 +372,6 @@ export function expoUrlFromPreview(previewUrl: string): null | string {
   }
   const scheme = parsed.protocol === "https:" ? "exps" : "exp";
   return `${scheme}://${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
-}
-
-export async function snapshotAppBuilderWorkspace({
-  env,
-  input,
-  logger,
-  sandbox,
-}: {
-  env: AgentRunAppBuilderEnv;
-  input: AgentRunAppBuilderInput;
-  logger: AgentRunLogger;
-  sandbox: ProjectSandboxStub;
-}): Promise<void> {
-  await createBestEffortSnapshot({ env, input, logger, sandbox });
-}
-
-export async function restoreBestEffortSnapshot(
-  input: AgentRunAppBuilderInput,
-  sandbox: ProjectSandboxStub,
-  env: AgentRunAppBuilderEnv,
-  logger: AgentRunLogger,
-): Promise<void> {
-  const backup = await ensureProjectRecord(input, env, logger);
-  if (!backup) {
-    return;
-  }
-
-  try {
-    await executeRestoreSnapshot({ backup }, { sandbox });
-    logger.info("sandbox_snapshot_restored", { backupId: backup.id });
-  } catch (error) {
-    logger.warn("sandbox_snapshot_restore_failed", {
-      backupId: backup.id,
-      error: error instanceof Error ? error.message : "Unknown snapshot restore error",
-    });
-  }
 }
 
 export async function warmSandbox(
@@ -315,134 +514,6 @@ async function clearBuildCache(sandbox: ProjectSandboxStub, mobile: boolean): Pr
   );
 }
 
-async function createBestEffortSnapshot({
-  env,
-  input,
-  logger,
-  sandbox,
-}: {
-  env: AgentRunAppBuilderEnv;
-  input: AgentRunAppBuilderInput;
-  logger: AgentRunLogger;
-  sandbox: ProjectSandboxStub;
-}): Promise<void> {
-  try {
-    const backup = await executeCreateSnapshot(
-      {
-        dir: "/workspace",
-        name: "app-preview",
-      },
-      { sandbox },
-    );
-    await persistBestEffortSnapshot(input, backup, env, logger);
-    logger.info("sandbox_snapshot_created", { backupId: backup.id });
-  } catch (error) {
-    logger.warn("sandbox_snapshot_failed", {
-      error: error instanceof Error ? error.message : "Unknown snapshot error",
-    });
-  }
-}
-
-async function ensureProjectRecord(
-  input: AgentRunAppBuilderInput,
-  env: AgentRunAppBuilderEnv,
-  logger: AgentRunLogger,
-): Promise<DirectoryBackupHandle | null> {
-  const dbHandle = createDb(env.HYPERDRIVE);
-  const userId = UserId(input.userId);
-  try {
-    if (isUuid(input.projectId)) {
-      const project = await withUserContext(dbHandle.db, userId, (db) =>
-        getSandboxProjectById(db, {
-          projectId: ProjectId(input.projectId),
-          userId,
-        }),
-      );
-      logger.info("sandbox_project_resolved", {
-        projectId: input.projectId,
-        sandboxId: input.sandboxName,
-      });
-      return project?.containerBackup ?? null;
-    }
-    const project = await withUserContext(dbHandle.db, userId, (db) =>
-      ensureSandboxProject(db, {
-        mode: DEFAULT_PROJECT_MODE,
-        name: projectNameFromThreadId(input.threadId),
-        sandboxId: input.projectId,
-        userId,
-      }),
-    );
-    logger.info("sandbox_project_resolved", {
-      projectId: project.id,
-      sandboxId: input.projectId,
-    });
-    return project.containerBackup;
-  } catch (error) {
-    logger.warn("sandbox_project_resolve_failed", {
-      error: error instanceof Error ? error.message : "Unknown project lookup error",
-      sandboxId: input.projectId,
-    });
-    return null;
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
-}
-
-async function persistBestEffortSnapshot(
-  input: AgentRunAppBuilderInput,
-  backup: DirectoryBackupHandle,
-  env: AgentRunAppBuilderEnv,
-  logger: AgentRunLogger,
-): Promise<void> {
-  const dbHandle = createDb(env.HYPERDRIVE);
-  const userId = UserId(input.userId);
-  try {
-    await withUserContext(dbHandle.db, userId, async (db) => {
-      if (isUuid(input.projectId)) {
-        await saveProjectBackupById(db, {
-          backup,
-          projectId: ProjectId(input.projectId),
-          userId,
-        });
-        return;
-      }
-      await ensureSandboxProject(db, {
-        mode: DEFAULT_PROJECT_MODE,
-        name: projectNameFromThreadId(input.threadId),
-        sandboxId: input.projectId,
-        userId,
-      });
-      await saveSandboxProjectBackup(db, {
-        backup,
-        sandboxId: input.projectId,
-        userId,
-      });
-    });
-    logger.info("sandbox_snapshot_persisted", {
-      backupId: backup.id,
-      sandboxId: input.sandboxName,
-    });
-  } catch (error) {
-    logger.warn("sandbox_snapshot_persist_failed", {
-      backupId: backup.id,
-      error: error instanceof Error ? error.message : "Unknown snapshot persistence error",
-      sandboxId: input.sandboxName,
-    });
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
-}
-
-async function closeDatabase(dbHandle: DatabaseHandle, logger: AgentRunLogger): Promise<void> {
-  try {
-    await dbHandle.close();
-  } catch (error) {
-    logger.warn("db_close_failed", {
-      error: error instanceof Error ? error.message : "Unknown database close error",
-    });
-  }
-}
-
 async function stopBestEffortProcesses(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
@@ -563,14 +634,6 @@ async function installAppBuilderDependencies(
     },
     { sandbox },
   );
-}
-
-function projectNameFromThreadId(threadId: string): string {
-  return threadId.replaceAll("-", " ").slice(0, 60) || "Cheatcode Project";
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
 }
 
 function resolvePreviewHostname(env: AgentRunAppBuilderEnv): string {

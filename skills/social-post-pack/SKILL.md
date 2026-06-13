@@ -1,6 +1,8 @@
 ---
 name: social-post-pack
 description: Creates platform-specific social posts, hooks, image prompts, and variants from a launch, report, or announcement. Use when the user asks for LinkedIn posts, X/Twitter threads, social copy, carousels, or launch content. Do NOT trigger for long-form reports.
+category: Data & Media
+tags: social, content, marketing
 license: MIT
 compatibility: Requires writing and optional media tools.
 ---

@@ -1,6 +1,8 @@
 ---
 name: csv-analyst
 description: Analyzes CSV or spreadsheet data with statistics, charts, joins, and clear findings. Use when the user uploads CSV/XLSX data or asks for data analysis, cohort analysis, charts, or spreadsheet insight. Do NOT trigger for document-only research.
+category: Data & Media
+tags: data, csv, analysis, charts
 license: MIT
 compatibility: Requires sandbox Python and data tools.
 ---

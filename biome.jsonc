@@ -27,7 +27,8 @@
       "!**/*.gen.ts",
       "!**/wrangler.local-dev.generated.jsonc",
       "!**/worker-configuration.d.ts",
-      "!packages/skills/src/generated.ts"
+      "!packages/skills/src/generated.ts",
+      "!packages/skills/src/generated-manifest.ts"
     ]
   },
   "formatter": {

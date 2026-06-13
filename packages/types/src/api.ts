@@ -6,10 +6,29 @@ export const MessagePartSchema = z
   })
   .catchall(z.unknown());
 
+/**
+ * Public GitHub repo URL accepted for one-shot project import. The single regex
+ * enforces https + an exact `github.com` host (no port, no `host.evil.com`
+ * suffix), exactly one `{owner}/{repo}` path, and — by requiring `github.com`
+ * immediately after the scheme — rejects any embedded `user:pass@` userinfo, so
+ * private-repo credentials can never ride in the URL. Avoids the `URL` global,
+ * which is absent from this package's `lib`/`types` set; the gateway and agent
+ * worker re-validate at their own trust boundaries.
+ */
+export const GitHubRepoUrlSchema = z
+  .string()
+  .trim()
+  .max(300)
+  .regex(
+    /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/,
+    "Must be a public https://github.com/{owner}/{repo} URL",
+  );
+
 export const CreateProjectSchema = z
   .object({
     budgetCapUsd: z.number().positive().max(50).optional(),
     defaultModel: z.string().trim().min(1).max(200).optional(),
+    importRepoUrl: GitHubRepoUrlSchema.optional(),
     name: z.string().trim().min(1).max(120),
     mode: z.enum(["app-builder", "app-builder-mobile", "general"]).default("general"),
     masterInstructions: z.string().max(20_000).optional(),
@@ -30,6 +49,9 @@ export const ProjectSummarySchema = z
     createdAt: z.string().datetime(),
     defaultModel: z.string().trim().min(1).max(200).nullable(),
     id: z.string().uuid(),
+    // Nullish (not required) on purpose: lets a new web bundle tolerate a gateway
+    // response that predates this field while the two Workers deploy independently.
+    importRepoUrl: z.string().nullable().optional(),
     masterInstructions: z.string().nullable(),
     mode: z.string(),
     name: z.string(),
@@ -43,6 +65,7 @@ export const UpdateProjectSchema = z
   .object({
     budgetCapUsd: z.number().positive().max(50).nullable().optional(),
     defaultModel: z.string().trim().min(1).max(200).nullable().optional(),
+    importRepoUrl: GitHubRepoUrlSchema.nullable().optional(),
     masterInstructions: z.string().max(20_000).nullable().optional(),
     name: z.string().trim().min(1).max(120).optional(),
   })
@@ -416,6 +439,60 @@ export const UsageDailyTotalsResponseSchema = z
   })
   .strict();
 
+export const SearchQuerySchema = z
+  .object({
+    q: z.string().trim().min(1).max(100),
+    limit: z.coerce.number().int().min(1).max(20).default(10),
+  })
+  .strict();
+
+export const SearchResultProjectSchema = z
+  .object({
+    type: z.literal("project"),
+    id: z.string().uuid(),
+    name: z.string(),
+    latestThreadId: z.string().uuid().nullable(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const SearchResultThreadSchema = z
+  .object({
+    type: z.literal("thread"),
+    id: z.string().uuid(),
+    title: z.string(),
+    projectId: z.string().uuid(),
+    projectName: z.string(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const SearchResultSchema = z.discriminatedUnion("type", [
+  SearchResultProjectSchema,
+  SearchResultThreadSchema,
+]);
+
+export const SearchResponseSchema = z
+  .object({
+    query: z.string(),
+    results: z.array(SearchResultSchema),
+  })
+  .strict();
+
+export const GreetingResponseSchema = z
+  .object({
+    city: z.string().nullable(),
+    timezone: z.string().nullable(),
+    weather: z
+      .object({
+        tempC: z.number(),
+        weatherCode: z.number().int(),
+      })
+      .strict()
+      .nullable(),
+  })
+  .strict();
+
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
 export type BillingCancel = z.infer<typeof BillingCancelSchema>;
 export type BillingCancellationReason = z.infer<typeof BillingCancellationReasonSchema>;
@@ -435,6 +512,12 @@ export type UsageRunPoint = z.infer<typeof UsageRunPointSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;
+export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
+export type SearchQuery = z.infer<typeof SearchQuerySchema>;
+export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+export type SearchResultProject = z.infer<typeof SearchResultProjectSchema>;
+export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type Integration = z.infer<typeof IntegrationSchema>;
 export type IntegrationConnectResponse = z.infer<typeof IntegrationConnectResponseSchema>;

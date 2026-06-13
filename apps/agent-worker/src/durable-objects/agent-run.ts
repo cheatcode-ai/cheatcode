@@ -453,7 +453,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       if (this.isRunCanceled()) {
         return "completed";
       }
-      await runAppBuilder({
+      const { agentContextNote } = await runAppBuilder({
         append: (chunk) => this.append(chunk),
         env: this.env,
         input,
@@ -463,7 +463,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       if (this.isRunCanceled()) {
         return "completed";
       }
-      await this.streamMastraRunWithFallback(input, sandbox, logger, abortSignal);
+      await this.streamMastraRunWithFallback(input, sandbox, logger, abortSignal, agentContextNote);
       if (this.isRunCanceled()) {
         return "completed";
       }
@@ -526,11 +526,19 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     sandbox: ProjectSandboxStub,
     logger: ReturnType<typeof createLogger>,
     abortSignal: AbortSignal,
+    agentContextNote?: string,
   ): Promise<void> {
     this.setRunStage("Resolving BYOK credentials.");
     const primaryCredential = await resolveLlmCredential(this.env, input, logger);
     try {
-      await this.streamMastraRun(input, sandbox, primaryCredential, logger, abortSignal);
+      await this.streamMastraRun(
+        input,
+        sandbox,
+        primaryCredential,
+        logger,
+        abortSignal,
+        agentContextNote,
+      );
     } catch (error) {
       if (!shouldFallbackToOpenAI(input.model, primaryCredential, error)) {
         throw error;
@@ -552,7 +560,14 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         id: "answer",
         delta: "Anthropic BYOK is unavailable for this run, retrying with OpenAI BYOK...\n",
       });
-      await this.streamMastraRun(input, sandbox, fallbackCredential, logger, abortSignal);
+      await this.streamMastraRun(
+        input,
+        sandbox,
+        fallbackCredential,
+        logger,
+        abortSignal,
+        agentContextNote,
+      );
     }
   }
 
@@ -562,9 +577,11 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     credential: LlmCredential,
     logger: ReturnType<typeof createLogger>,
     abortSignal: AbortSignal,
+    agentContextNote?: string,
   ): Promise<void> {
     await runMastraStream({
       abortSignal,
+      ...(agentContextNote === undefined ? {} : { agentContextNote }),
       appendCheckedMastraChunk: (runInput, chunk) => this.appendCheckedMastraChunk(runInput, chunk),
       artifactRuntime: this.createArtifactRuntime(input),
       credential,

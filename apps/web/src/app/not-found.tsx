@@ -1,5 +1,14 @@
 import Image from "next/image";
 import Link from "next/link";
+import { WORKSPACE_NAV } from "@/lib/navigation/nav-model";
+
+// Friendly labels for the 404 quick-links; hrefs are resolved from the nav model
+// so routes live in one place. (ASCII art lands here in the Bud UI round.)
+const QUICK_LINKS: readonly { id: string; label: string }[] = [
+  { id: "new-task", label: "Home" },
+  { id: "projects", label: "Workspace" },
+  { id: "skills", label: "Skills" },
+];
 
 export default function NotFound() {
   return (
@@ -15,23 +24,31 @@ export default function NotFound() {
         </p>
         <h1 className="font-medium text-2xl text-white tracking-tight">Page not found</h1>
         <p className="mx-auto mt-4 max-w-sm text-sm text-thread-text-muted leading-relaxed">
-          The route does not exist in this Cheatcode workspace.
+          Were you looking for one of these?
         </p>
         <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-xl bg-white px-5 font-medium text-black transition-colors hover:bg-zinc-200"
-            href="/projects"
-          >
-            Open workspace
-          </Link>
-          <Link
-            className="inline-flex h-10 items-center justify-center rounded-xl border border-thread-border bg-thread-surface px-5 font-medium text-thread-text-secondary transition-colors hover:border-thread-border-hover hover:bg-thread-surface-hover hover:text-thread-text-primary"
-            href="/"
-          >
-            Go home
-          </Link>
+          {QUICK_LINKS.map((link) => {
+            const href = hrefForNavItem(link.id);
+            if (!href) {
+              return null;
+            }
+            return (
+              <Link
+                className="inline-flex h-10 items-center justify-center rounded-xl border border-thread-border bg-thread-surface px-5 font-medium text-thread-text-secondary transition-colors hover:border-thread-border-hover hover:bg-thread-surface-hover hover:text-thread-text-primary"
+                href={href}
+                key={link.id}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
         </div>
       </section>
     </main>
   );
+}
+
+function hrefForNavItem(id: string): string | null {
+  const item = WORKSPACE_NAV.find((candidate) => candidate.id === id);
+  return item && item.target.kind === "route" ? item.target.href : null;
 }

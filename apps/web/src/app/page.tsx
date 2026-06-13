@@ -1,9 +1,11 @@
+import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
 import { SignInButton } from "@clerk/nextjs";
 import { currentUser } from "@clerk/nextjs/server";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense, type SVGProps } from "react";
 import { HomeComposer } from "@/components/home/home-composer";
+import { HomeGreeting } from "@/components/home/home-greeting";
 import { Menu, Star, User, Zap } from "@/components/ui/icons";
 
 type NavUser = {
@@ -11,7 +13,13 @@ type NavUser = {
   imageUrl: string;
 };
 
-export default function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const params = await searchParams;
+  const initialSkill = validInitialSkill(params["skill"]);
   return (
     <div className="gradient-home-bg relative min-h-screen w-full overflow-hidden text-white">
       <Suspense fallback={<HomeHeaderContent user={null} />}>
@@ -22,11 +30,14 @@ export default function HomePage() {
           <div className="relative flex w-full flex-col items-center px-6">
             <div className="relative z-10 mx-auto flex h-full w-full max-w-3xl flex-col items-center justify-center gap-10 pt-16">
               <div className="flex flex-col items-center justify-center gap-5 pt-8">
+                <Suspense fallback={null}>
+                  <HomeGreeting />
+                </Suspense>
                 <h1 className="text-balance text-center font-medium text-3xl tracking-tight md:text-4xl lg:text-5xl xl:text-6xl">
                   what will you build today?
                 </h1>
               </div>
-              <HomeComposer />
+              <HomeComposer initialSkill={initialSkill} />
             </div>
           </div>
           <div className="mx-auto mb-16 max-w-4xl sm:mt-52" />
@@ -34,6 +45,14 @@ export default function HomePage() {
       </main>
     </div>
   );
+}
+
+function validInitialSkill(value: string | string[] | undefined): string | undefined {
+  const candidate = Array.isArray(value) ? value[0] : value;
+  if (candidate && SKILL_MANIFEST.some((skill) => skill.name === candidate)) {
+    return candidate;
+  }
+  return undefined;
 }
 
 async function HomeHeader() {

@@ -1,6 +1,8 @@
 ---
 name: pitch-deck
 description: Generates investor-ready pitch decks from a one-line startup idea or written brief. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, or .pptx deck. Do NOT trigger for internal PRD slides; use slide-from-prd.
+category: Research & Docs
+tags: slides, fundraising, investor
 license: MIT
 compatibility: Requires docs tools, research tools, and sandbox file output.
 ---

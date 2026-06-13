@@ -48,6 +48,7 @@ export type ErrorCode =
   | "upstream_sandbox_failed"
   | "upstream_timeout_sandbox"
   | "upstream_provider_outage"
+  | "repo_import_failed"
   | "internal_error"
   | "unavailable_maintenance";
 

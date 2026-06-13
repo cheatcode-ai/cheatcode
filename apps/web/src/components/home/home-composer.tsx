@@ -1,24 +1,35 @@
 "use client";
 
-import Link from "next/link";
+import type { ProjectSummary } from "@cheatcode/types";
+import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
+import { AddMenu } from "@/components/composer/add-menu";
+import { ComposerPopover } from "@/components/composer/composer-popover";
+import { ModelMenu } from "@/components/composer/model-menu";
+import { ProjectPicker } from "@/components/composer/project-picker";
+import { slashSkillItems } from "@/components/composer/slash-skill-source";
+import {
+  type TriggerDetector,
+  useComposerTriggers,
+} from "@/components/composer/use-composer-triggers";
+import { resolveInitialSkill, skillSurface } from "@/components/home/use-initial-skill";
 import {
   ArrowUp,
-  ChevronDown,
   Code,
   DollarSign,
   Globe,
   Heart,
   Palette,
-  Paperclip,
   Smartphone,
   Sparkles,
   Star,
@@ -26,7 +37,9 @@ import {
   X,
   Zap,
 } from "@/components/ui/icons";
-import { agentModelLabel, agentModelRequestValue } from "@/lib/agent-models";
+import { agentModelRequestValue } from "@/lib/agent-models";
+import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
+import { detectSlashToken } from "@/lib/input/caret-tokens";
 import {
   appendPromptAttachment,
   PROMPT_ATTACHMENT_ACCEPT,
@@ -34,7 +47,11 @@ import {
 } from "@/lib/input/prompt-attachments";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
+import { emitComposerEvent } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
+
+const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
+const SLASH_SOURCES: readonly TriggerDetector[] = [SLASH_DETECTOR];
 
 type PromptExample = {
   icon: typeof Code;
@@ -249,20 +266,33 @@ const TYPEWRITER_SENTENCES = [
   "Fix a bug",
 ] as const;
 
-export function HomeComposer() {
+export function HomeComposer({ initialSkill }: { initialSkill?: string | undefined }) {
+  const initial = useMemo(() => resolveInitialSkill(initialSkill ?? null), [initialSkill]);
   const router = useRouter();
+  const { getToken } = useAuth();
   const agentModelId = useAppStore((state) => state.agentModelId);
   const attachmentInputRef = useRef<HTMLInputElement | null>(null);
-  const [intentId, setIntentId] = useState<IntentId | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [intentId, setIntentId] = useState<IntentId | null>(initial.intent);
+  const [skillChip, setSkillChip] = useState<string | null>(initial.chip);
+  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
+  const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [attachmentStatus, setAttachmentStatus] = useState<AttachmentStatus | null>(null);
   const [value, setValue] = useState("");
-  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const typewriterPlaceholder = useTypewriterPlaceholder();
   const intent = INTENTS.find((candidate) => candidate.id === intentId) ?? null;
   const placeholder = intent ? intent.placeholder : typewriterPlaceholder;
   const prompts = intent ? INTENT_PROMPTS[intent.id] : WEB_PROMPTS;
   const canSubmit = value.trim().length > 0;
-  const modelLabel = agentModelLabel(agentModelId);
+  const triggers = useComposerTriggers({
+    onChange: setValue,
+    onInsert: () => emitComposerEvent(getToken, "composer_slash_inserted"),
+    sources: SLASH_SOURCES,
+    textareaRef,
+    value,
+  });
+  const slashItems = slashSkillItems(triggers.query);
+  const isMenuOpen = triggers.kind === "slash" && triggers.isActive && slashItems.length > 0;
 
   function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
@@ -270,13 +300,50 @@ export function HomeComposer() {
       return;
     }
     const trimmed = value.trim();
-    const prompt =
-      intent?.skill && !trimmed.startsWith("/") ? `/${intent.skill} ${trimmed}` : trimmed;
-    startPrompt(prompt, intent ? intent.surface : "web");
+    const skill = submitSkill();
+    const prompt = skill && !trimmed.startsWith("/") ? `/${skill} ${trimmed}` : trimmed;
+    if (selectedProject) {
+      void launchExisting(selectedProject, prompt);
+      return;
+    }
+    startPrompt(prompt, submitSurface());
+  }
+
+  function submitSkill(): string | null {
+    if (repoUrl) {
+      return null;
+    }
+    return intent?.skill ?? skillChip;
+  }
+
+  function submitSurface(): "mobile" | "web" | null {
+    if (repoUrl) {
+      return intentId === "mobile-app" ? "mobile" : "web";
+    }
+    return intent ? intent.surface : skillSurface(skillChip);
+  }
+
+  async function launchExisting(project: ProjectSummary, prompt: string) {
+    try {
+      const result = await launchIntoProject(getToken, project.id, prompt);
+      if (result.busy) {
+        toast.error(
+          "That project's latest thread is busy — wait for the run to finish or pick another project.",
+        );
+        return;
+      }
+      router.push(`/projects?${buildExistingProjectParams(result.threadId, prompt).toString()}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not open that project.");
+    }
   }
 
   function toggleIntent(nextId: IntentId) {
     setIntentId((current) => (current === nextId ? null : nextId));
+    setSkillChip(null);
+    if (repoUrl && nextId !== "mobile-app" && nextId !== "web-app") {
+      setRepoUrl(null);
+    }
   }
 
   function clearIntent() {
@@ -284,16 +351,35 @@ export function HomeComposer() {
     textareaRef.current?.focus();
   }
 
+  function handleRepoAttach(url: string) {
+    setRepoUrl(url);
+    setSkillChip(null);
+    if (intentId !== "mobile-app" && intentId !== "web-app") {
+      setIntentId(null);
+    }
+  }
+
+  function handleSelectProject(project: ProjectSummary | null) {
+    setSelectedProject(project);
+    if (project) {
+      setRepoUrl(null);
+    }
+  }
+
   function startPrompt(prompt: string, surface: "mobile" | "web" | null) {
     const params = buildLaunchParams({
       model: agentModelRequestValue(agentModelId) ?? null,
       prompt,
+      repo: repoUrl,
       surface,
     });
     router.push(`/projects?${params.toString()}`);
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (triggers.handleMenuKeyDown(event, slashItems)) {
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && canSubmit) {
       event.preventDefault();
       submit();
@@ -359,11 +445,20 @@ export function HomeComposer() {
       <form className="relative w-full" onSubmit={submit}>
         <div
           className={cn(
-            "mx-auto w-full max-w-3xl overflow-hidden rounded-none border border-white/5 bg-[#09090b]",
+            "relative mx-auto w-full max-w-3xl rounded-none border border-white/5 bg-[#09090b]",
             "shadow-[0_20px_50px_-12px_rgba(0,0,0,1),inset_0_1px_0_rgba(255,255,255,0.15)]",
             "transition-colors focus-within:border-white/10",
           )}
         >
+          {isMenuOpen ? (
+            <ComposerPopover
+              activeIndex={triggers.activeIndex}
+              ariaLabel="Skills"
+              items={slashItems}
+              onHoverIndex={triggers.setActiveIndex}
+              onSelectIndex={(index) => triggers.commitIndex(index, slashItems)}
+            />
+          ) : null}
           <div className="px-4 pt-6">
             <label className="sr-only" htmlFor="home-prompt">
               Message Cheatcode
@@ -371,8 +466,11 @@ export function HomeComposer() {
             <textarea
               className="max-h-[200px] min-h-12 w-full resize-none overflow-y-auto border-none bg-transparent p-0 pb-4 font-mono text-[16px] text-white/90 caret-blue-500 outline-none placeholder:text-zinc-600"
               id="home-prompt"
-              onChange={(event) => setValue(event.target.value)}
+              onChange={triggers.onTextareaChange}
+              onClick={triggers.onTextareaSelect}
               onKeyDown={handleKeyDown}
+              onKeyUp={triggers.onTextareaSelect}
+              onSelect={triggers.onTextareaSelect}
               placeholder={placeholder}
               ref={textareaRef}
               rows={1}
@@ -380,7 +478,7 @@ export function HomeComposer() {
             />
           </div>
           <div className="flex items-center justify-between px-4 pt-2 pb-4">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <input
                 accept={PROMPT_ATTACHMENT_ACCEPT}
                 className="sr-only"
@@ -390,19 +488,12 @@ export function HomeComposer() {
                 tabIndex={-1}
                 type="file"
               />
-              <button
-                aria-label="Attach file"
-                className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-none border border-white/5",
-                  "bg-gradient-to-b from-[#333] to-[#1a1a1a] text-zinc-400",
-                  "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-                  "transition-all hover:from-[#3a3a3a] hover:to-[#222] hover:text-white",
-                )}
-                onClick={() => attachmentInputRef.current?.click()}
-                type="button"
-              >
-                <Paperclip aria-hidden="true" className="h-4 w-4" />
-              </button>
+              <AddMenu
+                allowRepoImport={selectedProject === null}
+                onRepoAttach={handleRepoAttach}
+                onUploadClick={() => attachmentInputRef.current?.click()}
+              />
+              <ProjectPicker onSelect={handleSelectProject} selectedProject={selectedProject} />
               {intent ? (
                 <div className="flex h-8 items-center gap-2 border border-white/15 bg-white/5 px-3 font-mono text-[10px] text-zinc-200 uppercase tracking-widest">
                   <intent.icon aria-hidden="true" className="h-3.5 w-3.5" />
@@ -417,22 +508,19 @@ export function HomeComposer() {
                   </button>
                 </div>
               ) : null}
+              {skillChip ? (
+                <RemovableChip label={`/${skillChip}`} onClear={() => setSkillChip(null)} />
+              ) : null}
+              {repoUrl ? (
+                <RemovableChip
+                  label={repoLabel(repoUrl)}
+                  onClear={() => setRepoUrl(null)}
+                  title={repoUrl}
+                />
+              ) : null}
             </div>
             <div className="flex items-center gap-2">
-              <Link
-                aria-label={modelLabel}
-                className={cn(
-                  "mr-2 hidden h-10 items-center gap-2 rounded-none border border-white/5 px-3",
-                  "bg-gradient-to-b from-[#333] to-[#1a1a1a] font-mono text-[10px] text-zinc-400 uppercase tracking-widest",
-                  "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-                  "transition-all hover:from-[#3a3a3a] hover:to-[#222] hover:text-white md:flex",
-                )}
-                href="/settings/agents"
-              >
-                <span className="font-bold text-white text-xs">AI</span>
-                <span>{modelLabel}</span>
-                <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
-              </Link>
+              <ModelMenu variant="home" />
               <button
                 aria-label="Send message"
                 className={cn(
@@ -508,6 +596,7 @@ type AttachmentStatus = {
 function buildLaunchParams(input: {
   model: null | string;
   prompt: string;
+  repo: null | string;
   surface: "mobile" | "web" | null;
 }): URLSearchParams {
   const params = new URLSearchParams();
@@ -526,7 +615,42 @@ function buildLaunchParams(input: {
   if (input.model) {
     params.set("model", input.model);
   }
+  if (input.repo) {
+    params.set("repo", input.repo);
+  }
   return params;
+}
+
+function RemovableChip({
+  label,
+  onClear,
+  title,
+}: {
+  label: string;
+  onClear: () => void;
+  title?: string | undefined;
+}) {
+  return (
+    <div
+      className="flex h-8 items-center gap-2 border border-white/15 bg-white/5 px-3 font-mono text-[10px] text-zinc-200 uppercase tracking-widest"
+      title={title}
+    >
+      <span className="max-w-40 truncate">{label}</span>
+      <button
+        aria-label={`Remove ${label}`}
+        className="-mr-1.5 ml-0.5 flex h-6 w-6 items-center justify-center text-zinc-500 transition-colors hover:text-white"
+        onClick={onClear}
+        type="button"
+      >
+        <X aria-hidden="true" className="h-3 w-3" />
+      </button>
+    </div>
+  );
+}
+
+function repoLabel(url: string): string {
+  const match = url.match(/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?\/?$/i);
+  return match ? `${match[1]}/${match[2]}` : "repository";
 }
 
 function useTypewriterPlaceholder() {

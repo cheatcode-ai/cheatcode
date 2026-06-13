@@ -32,6 +32,7 @@
     "@vercel/og": "catalog:",
     "ai": "catalog:",
     "ai-elements": "catalog:",
+    "cmdk": "catalog:",
     "geist": "catalog:",
     "katex": "catalog:",
     "lucide-react": "catalog:",

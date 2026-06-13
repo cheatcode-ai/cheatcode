@@ -1,6 +1,8 @@
 ---
 name: mobile-app
 description: Builds the mobile app experience for the current project — Expo Router screens in mobile (app-builder-mobile) projects, mobile-first responsive web surfaces in web projects. Use when the user asks for a mobile app, iPhone-like app, mobile-first builder, or responsive app prototype. Do NOT trigger for App Store or Play Store release builds in V1.
+category: Builder & Apps
+tags: mobile, app, expo
 license: MIT
 compatibility: Requires the project workspace (Expo in mobile projects, Next.js in web projects).
 ---

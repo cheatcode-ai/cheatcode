@@ -99,6 +99,7 @@ export function buildOpenApiDocument(options: {
     servers: [{ url: "https://gateway.trycheatcode.com" }, { url: "http://localhost:8787" }],
     tags: [
       { name: "account" },
+      { name: "discovery" },
       { name: "projects" },
       { name: "threads" },
       { name: "runs" },

@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { type ReactNode, Suspense } from "react";
+import { CommandPalette } from "@/components/search/command-palette";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { ThreadHeader } from "@/components/shell/thread-header";
 
@@ -14,6 +15,7 @@ export function AppChrome({ children }: { children: ReactNode }) {
       <Suspense fallback={<ThreadHeaderFallback />}>
         <ThreadHeader />
       </Suspense>
+      <CommandPalette />
       <div className="flex h-screen min-h-0 pt-14">{children}</div>
     </main>
   );

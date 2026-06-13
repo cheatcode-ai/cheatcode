@@ -17,6 +17,7 @@ type MastraOpenedStream = { fullStream: AsyncIterable<unknown> };
 
 export type MastraStreamOptions = {
   abortSignal: AbortSignal;
+  agentContextNote?: string;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
   artifactRuntime: ArtifactRuntime;
   env: AgentRunEnv;
@@ -51,7 +52,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
   try {
     const stream = await resolveWithAbortTimeout({
       abortController,
-      operation: mastra.getAgent("general").stream(input.messageText, {
+      operation: mastra.getAgent("general").stream(mastraPromptText(options), {
         abortSignal: abortController.signal,
         maxSteps: AGENT_LOOP_MAX_STEPS,
         requestContext: createCodeRequestContext(
@@ -102,6 +103,14 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
   } finally {
     cleanupAbortListener();
   }
+}
+
+// Appends an ephemeral agent-context note (e.g. the GitHub-import inspect/start
+// instruction) to the prompt handed to Mastra only. The persisted user message,
+// written at run create, is untouched, so the UI never shows the note.
+function mastraPromptText(options: MastraStreamOptions): string {
+  const note = options.agentContextNote;
+  return note ? `${options.input.messageText}\n\n${note}` : options.input.messageText;
 }
 
 function linkedAbortController(runAbortSignal: AbortSignal): {

@@ -13,6 +13,7 @@ import {
 export interface CreateProjectInput {
   budgetCapUsd?: number;
   defaultModel?: string;
+  importRepoUrl?: string;
   masterInstructions?: string;
   mode: string;
   name: string;
@@ -26,6 +27,7 @@ export interface ProjectSummaryRecord {
   createdAt: Date;
   defaultModel: string | null;
   id: ProjectId;
+  importRepoUrl: string | null;
   masterInstructions: string | null;
   mode: string;
   name: string;
@@ -37,6 +39,7 @@ export interface ProjectSummaryRecord {
 export interface UpdateProjectInput {
   budgetCapUsd?: null | number;
   defaultModel?: null | string;
+  importRepoUrl?: null | string;
   masterInstructions?: string | null;
   name?: string;
   projectId: ProjectId;
@@ -592,7 +595,11 @@ async function updatedProjectSettings(
   db: Database,
   input: UpdateProjectInput,
 ): Promise<ProjectSettings | null> {
-  if (input.defaultModel === undefined && input.budgetCapUsd === undefined) {
+  if (
+    input.defaultModel === undefined &&
+    input.budgetCapUsd === undefined &&
+    input.importRepoUrl === undefined
+  ) {
     return null;
   }
   const row = await db.query.projects.findFirst({
@@ -611,7 +618,7 @@ async function updatedProjectSettings(
 
 export function nextProjectSettings(
   current: ProjectSettings,
-  input: Pick<UpdateProjectInput, "budgetCapUsd" | "defaultModel">,
+  input: Pick<UpdateProjectInput, "budgetCapUsd" | "defaultModel" | "importRepoUrl">,
 ): ProjectSettings {
   let settings = { ...current };
   if (input.defaultModel !== undefined) {
@@ -630,16 +637,29 @@ export function nextProjectSettings(
       settings.budgetCapUsd = input.budgetCapUsd;
     }
   }
+  if (input.importRepoUrl !== undefined) {
+    if (input.importRepoUrl === null) {
+      const { importRepoUrl: _importRepoUrl, ...settingsWithoutRepo } = settings;
+      settings = settingsWithoutRepo;
+    } else {
+      settings.importRepoUrl = input.importRepoUrl;
+    }
+  }
   return settings;
 }
 
-function initialProjectSettings(input: Pick<CreateProjectInput, "budgetCapUsd" | "defaultModel">) {
+function initialProjectSettings(
+  input: Pick<CreateProjectInput, "budgetCapUsd" | "defaultModel" | "importRepoUrl">,
+) {
   const settings: ProjectSettings = {};
   if (input.budgetCapUsd !== undefined) {
     settings.budgetCapUsd = input.budgetCapUsd;
   }
   if (input.defaultModel !== undefined) {
     settings.defaultModel = input.defaultModel;
+  }
+  if (input.importRepoUrl !== undefined) {
+    settings.importRepoUrl = input.importRepoUrl;
   }
   return Object.keys(settings).length > 0 ? settings : null;
 }
@@ -685,6 +705,7 @@ function projectSummaryFromRow(row: {
     createdAt: row.createdAt,
     defaultModel: row.settings.defaultModel ?? null,
     id: toProjectId(row.id),
+    importRepoUrl: row.settings.importRepoUrl ?? null,
     masterInstructions: row.masterInstructions,
     mode: row.mode,
     name: row.name,

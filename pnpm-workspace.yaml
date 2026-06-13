@@ -28,6 +28,7 @@ catalog:
   '@tanstack/react-query': 5.100.11
   '@tanstack/react-virtual': 3.13.24
   zustand: 5.0.13
+  cmdk: 1.1.1
   nuqs: 2.8.9
   react-hook-form: 7.76.0
   '@hookform/resolvers': 5.2.2

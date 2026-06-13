@@ -1,46 +1,64 @@
 "use client";
 
-import Link from "next/link";
+import { useAuth } from "@clerk/nextjs";
 import {
   type ChangeEvent,
   type FormEvent,
   type KeyboardEvent,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
 import type { RunStatus } from "@/components/chat/status-pill";
-import { ArrowUp, ChevronDown, DollarSign, Mic, Paperclip, Square } from "@/components/ui/icons";
+import { ComposerPopover } from "@/components/composer/composer-popover";
+import { useMentionFileItems } from "@/components/composer/mention-file-source";
+import { ModelMenu } from "@/components/composer/model-menu";
+import { slashSkillItems } from "@/components/composer/slash-skill-source";
+import {
+  type TriggerDetector,
+  useComposerTriggers,
+} from "@/components/composer/use-composer-triggers";
+import { ArrowUp, DollarSign, Mic, Paperclip, Square } from "@/components/ui/icons";
+import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import {
   appendPromptAttachment,
   PROMPT_ATTACHMENT_ACCEPT,
   readPromptAttachment,
 } from "@/lib/input/prompt-attachments";
+import { useAppStore } from "@/lib/store/app-store";
+import { emitComposerEvent } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
+
+const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
+const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
 
 interface PromptComposerProps {
   budgetCapUsd: number | null;
-  modelLabel: string;
   onBudgetChange: (value: number | null) => void;
   onChange: (value: string) => void;
   onStop: () => void;
   onSubmit: (value: string) => void;
   status: RunStatus;
+  threadId: string;
   value: string;
 }
 
 export function PromptComposer({
   budgetCapUsd,
-  modelLabel,
   onBudgetChange,
   onChange,
   onStop,
   onSubmit,
   status,
+  threadId,
   value,
 }: PromptComposerProps) {
+  const { getToken } = useAuth();
   const isRunning = status === "streaming" || status === "submitted";
   const canSubmit = value.trim().length > 0 && !isRunning;
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const sandboxReady = useAppStore((state) => state.sandboxStatus === "ready");
   const attachments = usePromptAttachments({ currentValue: value, onChange });
   const voiceInput = useVoiceInput({
     currentValue: value,
@@ -49,6 +67,28 @@ export function PromptComposer({
   });
   const composerStatus = attachments.status?.text ?? voiceInput.status;
   const composerStatusTone = attachments.status?.tone ?? voiceInput.tone;
+  const sources = useMemo(
+    () => (sandboxReady ? [SLASH_DETECTOR, MENTION_DETECTOR] : [SLASH_DETECTOR]),
+    [sandboxReady],
+  );
+  const triggers = useComposerTriggers({
+    onChange,
+    onInsert: (kind) =>
+      emitComposerEvent(
+        getToken,
+        kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
+      ),
+    sources,
+    textareaRef,
+    value,
+  });
+  const mentionItems = useMentionFileItems({
+    enabled: sandboxReady && triggers.kind === "mention",
+    query: triggers.query,
+    threadId,
+  });
+  const menuItems = triggers.kind === "mention" ? mentionItems : slashSkillItems(triggers.query);
+  const isMenuOpen = triggers.isActive && menuItems.length > 0;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -62,6 +102,9 @@ export function PromptComposer({
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (triggers.handleMenuKeyDown(event, menuItems)) {
+      return;
+    }
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       if (canSubmit) {
@@ -80,6 +123,15 @@ export function PromptComposer({
       onSubmit={handleSubmit}
     >
       <div className="relative z-10 mx-auto flex w-full max-w-3xl items-end justify-center gap-3 px-4">
+        {isMenuOpen ? (
+          <ComposerPopover
+            activeIndex={triggers.activeIndex}
+            ariaLabel={triggers.kind === "mention" ? "File mentions" : "Skills"}
+            items={menuItems}
+            onHoverIndex={triggers.setActiveIndex}
+            onSelectIndex={(index) => triggers.commitIndex(index, menuItems)}
+          />
+        ) : null}
         <div
           className={cn(
             "w-full overflow-hidden rounded-2xl border border-thread-border bg-thread-surface px-4 py-2",
@@ -95,9 +147,13 @@ export function PromptComposer({
                 <textarea
                   className="max-h-[200px] min-h-9 w-full resize-none overflow-y-auto border-none bg-transparent px-0 pt-0 pb-6 font-mono text-[15px] text-white/90 outline-none placeholder:text-zinc-600"
                   id="prompt"
-                  onChange={(event) => onChange(event.target.value)}
+                  onChange={triggers.onTextareaChange}
+                  onClick={triggers.onTextareaSelect}
                   onKeyDown={handleKeyDown}
+                  onKeyUp={triggers.onTextareaSelect}
+                  onSelect={triggers.onTextareaSelect}
                   placeholder="ask cheatcode to build anything ..."
+                  ref={textareaRef}
                   rows={1}
                   value={value}
                 />
@@ -124,14 +180,7 @@ export function PromptComposer({
                 </button>
               </div>
               <div className="z-10 flex items-center gap-2">
-                <Link
-                  aria-label={modelLabel}
-                  className="hidden h-8 items-center gap-2 rounded-md px-2 font-mono text-[10px] text-zinc-500 uppercase tracking-widest transition-colors hover:bg-zinc-800/40 hover:text-zinc-300 md:flex"
-                  href="/settings/agents"
-                >
-                  <span>{modelLabel}</span>
-                  <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
-                </Link>
+                <ModelMenu variant="thread" />
                 <BudgetCapControl onChange={onBudgetChange} value={budgetCapUsd} />
                 <VoiceInputButton isDisabled={isRunning} voiceInput={voiceInput} />
                 <SendActionButton canSubmit={canSubmit} isRunning={isRunning} />

@@ -15,6 +15,7 @@ import {
   schemaRef,
   stringSchema,
 } from "./openapi-builder";
+import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
 import { sandboxRoutes } from "./openapi-sandbox-routes";
 import {
   arraySchemaFor,
@@ -74,6 +75,7 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
     properties: {
       budgetCapUsd: { exclusiveMinimum: 0, maximum: 50, type: "number" },
       defaultModel: stringSchema({ maxLength: 200, minLength: 1 }),
+      importRepoUrl: stringSchema({ format: "uri", maxLength: 300 }),
       masterInstructions: stringSchema({ maxLength: 20_000 }),
       mode: {
         default: "general",
@@ -236,6 +238,7 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
       createdAt: stringSchema({ format: "date-time" }),
       defaultModel: nullableStringSchema({ maxLength: 200, minLength: 1 }),
       id: stringSchema({ format: "uuid" }),
+      importRepoUrl: nullableStringSchema({ maxLength: 300 }),
       masterInstructions: nullableStringSchema(),
       mode: stringSchema(),
       name: stringSchema(),
@@ -403,6 +406,7 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
     properties: {
       budgetCapUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
       defaultModel: nullableStringSchema({ maxLength: 200, minLength: 1 }),
+      importRepoUrl: nullableStringSchema({ maxLength: 300 }),
       masterInstructions: nullableStringSchema({ maxLength: 20_000 }),
       name: stringSchema({ maxLength: 120, minLength: 1 }),
     },
@@ -453,6 +457,7 @@ const paginatedSchema = (name: string): JsonValue => paginatedSchemaFor(COMPONEN
 
 const routes: OpenApiRoute[] = [
   ...accountRoutes,
+  ...discoveryRoutes,
   {
     method: "get",
     operationId: "listProjects",
@@ -748,7 +753,7 @@ const routes: OpenApiRoute[] = [
 
 export const OPENAPI_DOCUMENT = buildOpenApiDocument({
   routes,
-  schemas: { ...COMPONENT_SCHEMAS, ...accountSchemas, ...billingSchemas },
+  schemas: { ...COMPONENT_SCHEMAS, ...accountSchemas, ...billingSchemas, ...discoverySchemas },
 });
 
 export const openApiDocsHtml = (): string => renderOpenApiDocsHtml(routes);

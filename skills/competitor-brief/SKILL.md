@@ -1,6 +1,8 @@
 ---
 name: competitor-brief
 description: Creates concise competitor intelligence briefs with positioning, pricing, product surface, traction, and risks. Use when the user asks for competitor research, company intel, alternatives, or competitive landscape. Do NOT trigger for generic news digests.
+category: Research & Docs
+tags: research, competitive analysis, market
 license: MIT
 compatibility: Requires Exa company/news search and Firecrawl scraping.
 ---

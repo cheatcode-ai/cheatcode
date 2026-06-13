@@ -78,5 +78,8 @@ function titleFromPath(pathname: string): string {
   if (pathname.startsWith("/skills")) {
     return "Curated Skills";
   }
+  if (pathname.startsWith("/101")) {
+    return "cheatcode 101";
+  }
   return "Cheatcode";
 }

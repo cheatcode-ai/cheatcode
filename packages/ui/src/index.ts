@@ -1,5 +1,7 @@
 export type { ClassValue } from "./cn";
 export { cn } from "./cn";
+export type { ConfirmDialogProps, ModalShellProps } from "./confirm-dialog";
+export { ConfirmDialog, ModalShell } from "./confirm-dialog";
 export type { LucideIcon } from "./icons";
 export {
   ArrowUp,

@@ -1,6 +1,8 @@
 ---
 name: landing-page
 description: Builds production-quality landing pages or app marketing pages from an offer, product, or audience. Use when the user asks for a landing page, homepage, SaaS page, launch page, or conversion page. Do NOT trigger for full app dashboards.
+category: Builder & Apps
+tags: web, landing page, marketing
 license: MIT
 compatibility: Requires sandbox web app tooling.
 ---

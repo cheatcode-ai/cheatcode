@@ -1,6 +1,8 @@
 ---
 name: deep-research
 description: Produces a cited long-form research report on a complex question, fanning out parallel research probes when the topic spans many entities or angles. Use when the user asks for deep research, a cited report, market analysis, due diligence, a broad market scan, or a comprehensive investigation. Do NOT trigger for quick factual lookups.
+category: Research & Docs
+tags: research, report, analysis
 license: MIT
 compatibility: Requires Exa and Firecrawl research tools; fan-out mode requires Mastra workflows.
 ---

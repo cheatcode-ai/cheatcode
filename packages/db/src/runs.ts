@@ -28,6 +28,7 @@ const DEFAULT_RUN_BUDGET_CAP_USD = 5;
 
 export interface AgentRunHandle {
   budgetCapUsd?: number;
+  importRepoUrl?: string;
   isFirstRun?: boolean;
   masterInstructions?: string;
   modelId?: string;
@@ -204,6 +205,9 @@ function createdRunHandle(
   return {
     projectId: toProjectId(thread.projectId),
     ...(config.budgetCapUsd === undefined ? {} : { budgetCapUsd: config.budgetCapUsd }),
+    ...(thread.projectSettings.importRepoUrl
+      ? { importRepoUrl: thread.projectSettings.importRepoUrl }
+      : {}),
     ...(isFirstRun ? { isFirstRun } : {}),
     ...(thread.masterInstructions ? { masterInstructions: thread.masterInstructions } : {}),
     ...(modelId === undefined ? {} : { modelId }),

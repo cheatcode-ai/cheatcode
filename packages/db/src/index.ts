@@ -124,6 +124,13 @@ export {
   users,
 } from "./schema";
 export type {
+  WorkspaceProjectSearchRecord,
+  WorkspaceSearchInput,
+  WorkspaceSearchRecord,
+  WorkspaceThreadSearchRecord,
+} from "./search";
+export { searchWorkspace } from "./search";
+export type {
   ActivationEventRecord,
   UsageDailyTotalRecord,
   UsageRollupInput,

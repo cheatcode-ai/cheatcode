@@ -169,6 +169,7 @@ export async function startAgentRun(
           : {}),
         ...(personalization.globalMemory ? { globalMemory: personalization.globalMemory } : {}),
         disabledModels: personalization.disabledModels,
+        ...(run.importRepoUrl ? { importRepoUrl: run.importRepoUrl } : {}),
         messageText,
         model: body.model ?? run.modelId,
         projectId: run.projectId,

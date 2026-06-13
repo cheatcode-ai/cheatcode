@@ -79,6 +79,9 @@ export async function createProjectRoute(
         ...(parsedInput.data.budgetCapUsd === undefined
           ? {}
           : { budgetCapUsd: parsedInput.data.budgetCapUsd }),
+        ...(parsedInput.data.importRepoUrl
+          ? { importRepoUrl: parsedInput.data.importRepoUrl }
+          : {}),
         mode: parsedInput.data.mode,
         name: parsedInput.data.name,
         ...(parsedInput.data.defaultModel === undefined
@@ -133,6 +136,7 @@ export async function updateProjectRoute(
     const project = await withUserContext(db, userId, (tx) =>
       updateWritableProject(tx, projectId, userId, {
         ...(input.budgetCapUsd === undefined ? {} : { budgetCapUsd: input.budgetCapUsd }),
+        ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
         ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
         ...(input.masterInstructions === undefined
           ? {}
@@ -336,6 +340,7 @@ function projectResponse(project: ProjectSummaryRecord) {
     createdAt: project.createdAt.toISOString(),
     defaultModel: project.defaultModel,
     id: project.id,
+    importRepoUrl: project.importRepoUrl ?? null,
     masterInstructions: project.masterInstructions,
     mode: project.mode,
     name: project.name,

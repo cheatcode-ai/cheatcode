@@ -16,6 +16,7 @@ export const StartRunInputSchema = z
     agentDisplayName: z.string().trim().min(1).max(80).optional(),
     globalMemory: z.string().trim().min(1).max(8_000).optional(),
     disabledModels: z.array(z.string().trim().min(1).max(200)).max(16).default([]),
+    importRepoUrl: z.string().trim().url().max(300).optional(),
     budgetCapUsd: z.number().positive().max(50).optional(),
     dailyCostCapUsd: z.number().positive().optional(),
     dailyCostUsdAtRunStart: z.number().nonnegative().default(0),

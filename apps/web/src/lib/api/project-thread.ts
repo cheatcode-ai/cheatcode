@@ -19,6 +19,7 @@ const ThreadPageSchema = Paginated(ThreadSchema);
 
 export interface ProjectThreadBootstrapInput {
   defaultModel?: string | undefined;
+  importRepoUrl?: string | undefined;
   prompt: string | null;
   surface: string | null;
 }
@@ -34,10 +35,11 @@ export async function bootstrapProjectThread(
 ): Promise<ProjectThreadBootstrapResult> {
   const project = await createProject(getToken, {
     ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
+    ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
     mode: projectMode(input),
     name: projectName(input),
   });
-  const thread = await createThread(getToken, project.id, {
+  const thread = await createProjectThread(getToken, project.id, {
     title: threadTitle(input.prompt),
   });
   return { projectId: project.id, threadId: thread.id };
@@ -130,6 +132,7 @@ async function createProject(
   input: {
     budgetCapUsd?: number;
     defaultModel?: string;
+    importRepoUrl?: string;
     mode: "app-builder" | "app-builder-mobile" | "general";
     name: string;
   },
@@ -141,11 +144,11 @@ async function createProject(
   return ProjectSummarySchema.parse(await response.json());
 }
 
-async function createThread(
+export async function createProjectThread(
   getToken: () => Promise<null | string>,
   projectId: string,
   input: { title: string },
-) {
+): Promise<Thread> {
   const response = await authorizedFetch(getToken, `/v1/projects/${projectId}/threads`, {
     body: JSON.stringify(input),
     method: "POST",
@@ -189,7 +192,7 @@ function projectMode(
   return input.surface === "web" ? "app-builder" : "general";
 }
 
-function threadTitle(prompt: string | null): string {
+export function threadTitle(prompt: string | null): string {
   if (!prompt) {
     return "Untitled project";
   }

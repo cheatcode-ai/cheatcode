@@ -23,6 +23,7 @@ const PROJECT_URL_STATE = {
   new: parseAsString,
   prompt: parseAsString,
   promptKey: parseAsString,
+  repo: parseAsString,
   surface: parseAsString,
   thread: parseAsString,
 } as const;
@@ -41,6 +42,7 @@ export function ProjectsShell() {
   bootstrapNonceRef.current ??= createBootstrapNonce();
   const bootstrapInput = {
     ...(urlState.model ? { defaultModel: urlState.model } : {}),
+    ...(urlState.repo ? { importRepoUrl: urlState.repo } : {}),
     prompt,
     surface: urlState.surface,
   } satisfies ProjectThreadBootstrapInput;
@@ -60,7 +62,7 @@ export function ProjectsShell() {
   const consumedPromptRef = useRef<string | null>(null);
   const clearPromptParams = useCallback(() => {
     const hadPromptParams = Boolean(
-      urlState.model ?? urlState.prompt ?? urlState.promptKey ?? urlState.surface,
+      urlState.model ?? urlState.prompt ?? urlState.promptKey ?? urlState.repo ?? urlState.surface,
     );
     if (!hadPromptParams) {
       return;
@@ -69,9 +71,17 @@ export function ProjectsShell() {
       model: null,
       prompt: null,
       promptKey: null,
+      repo: null,
       surface: null,
     });
-  }, [setUrlState, urlState.model, urlState.prompt, urlState.promptKey, urlState.surface]);
+  }, [
+    setUrlState,
+    urlState.model,
+    urlState.prompt,
+    urlState.promptKey,
+    urlState.repo,
+    urlState.surface,
+  ]);
 
   useEffect(() => {
     if (!bootstrapQuery.data || urlState.thread === bootstrapQuery.data.threadId) {
@@ -152,7 +162,14 @@ function useBootstrapProjectThreadQuery(
   return useQuery({
     enabled: requestedThread.kind === "missing" && isEnabled,
     queryFn: () => bootstrapProjectThread(getToken, input),
-    queryKey: ["project-thread-bootstrap", input.defaultModel, input.prompt, input.surface, nonce],
+    queryKey: [
+      "project-thread-bootstrap",
+      input.defaultModel,
+      input.importRepoUrl,
+      input.prompt,
+      input.surface,
+      nonce,
+    ],
     refetchOnMount: false,
     refetchOnReconnect: false,
     refetchOnWindowFocus: false,

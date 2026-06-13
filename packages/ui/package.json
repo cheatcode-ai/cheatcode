@@ -14,6 +14,10 @@
       "types": "./dist/cn.d.ts",
       "default": "./dist/cn.js"
     },
+    "./confirm-dialog": {
+      "types": "./dist/confirm-dialog.d.ts",
+      "default": "./dist/confirm-dialog.js"
+    },
     "./icons": {
       "types": "./dist/icons.d.ts",
       "default": "./dist/icons.js"
