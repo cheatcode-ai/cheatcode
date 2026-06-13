@@ -147,6 +147,7 @@ catalog:
   '@hookform/resolvers': 5.2.2
   next-themes: 0.4.6
   next-intl: 4.12.0
+  cmdk: 1.1.1                          # ⌘K command palette engine (apps/web, §10.6)
   '@opennextjs/cloudflare': 1.19.11
   web-vitals: 5.2.0
   sonner: 2.0.7
@@ -337,7 +338,7 @@ visible `agent-browser` commands and logs are inspected by hand.
 
 | Capability | Default | Premium | Cheap |
 |---|---|---|---|
-| Code generation | `claude-sonnet-4-6` | `claude-opus-4-6` | `gpt-5.4-mini` |
+| Code generation | `claude-sonnet-4-6` | `claude-opus-4-8` | `gpt-5.4-mini` |
 | Reasoning | `claude-sonnet-4-6` w/ thinking | `gpt-5.4-thinking` | `claude-haiku-4-5-20251001` |
 | Vision | `claude-sonnet-4-6` | `gpt-5.4` | `gemini-2.5-flash` |
 | Image gen | FAL → FLUX.2 [pro] | Nano Banana Pro | Imagen 4 Fast |
@@ -351,12 +352,45 @@ visible `agent-browser` commands and logs are inspected by hand.
 AgentRun defaults to the code-generation primary (`claude-sonnet-4-6`) when no model is
 selected. If that request-scoped Anthropic BYOK call fails with a provider-side
 billing/quota/opaque stream error and the user has an OpenAI BYOK key in Vault,
-AgentRun retries the same request with `gpt-5.4-mini`. Explicit user model choices
-are never silently overridden. Google Gemini is supported as an explicit BYOK
-model selection using `google/<Gemini model id>`; the launch UI exposes
-`google/gemini-2.5-flash`. OpenRouter is supported as an explicit BYOK model
-selection using `openrouter/<OpenRouter model id>`; for example,
-`openrouter/openrouter/auto` routes through OpenRouter's `openrouter/auto` model.
+AgentRun retries the same request with `gpt-5.4-mini` (interactive consent, §23.5 /
+§8.6 model-fallback). Explicit user model choices are never silently overridden.
+
+**Centralized model catalog — the single source of truth is `packages/types/src/models.ts`**
+(`AGENT_MODEL_CATALOG`, 4 entries: `anthropic/claude-sonnet-4-6`,
+`anthropic/claude-opus-4-8`, `openai/gpt-5.4-thinking`, `openai/gpt-5.4-mini`). The
+client `AGENT_MODEL_OPTIONS` is re-derived from it as the **design-5 picker** — **Auto**
+(client-only pseudo-entry), Claude Sonnet 4.6, Claude Opus 4.8, GPT-5.4 Thinking, GPT-5.4
+Mini — with the stable public option shape `{ id, label, requestValue, description }`.
+**Gemini 2.5 Flash and the standalone OpenRouter-Auto row are pruned from the *displayed*
+catalog** (the Bud design's Models list omits them); they remain reachable only as
+explicit free-string `body.model` ids. The **backend resolver still accepts any
+free-string model id**, so the *usable* universe stays "all OpenRouter-supported models."
+
+**Model resolution chain (per-surface, disable-aware).** A run's model id resolves
+`explicit body.model → project default (settings.defaultModel) → user per-surface default →
+plan-defined production default`, keyed by `surfaceOf(projectMode)` (App builder =
+`app-builder`/`app-builder-mobile`, General agent = `general`). Disabled models (the user's
+`disabled_models` set) are **skipped** at each fall-through step; an explicit pick of a
+disabled model returns `validation_model_unavailable` (400), and the model-fallback offer is
+suppressed when `openai/gpt-5.4-mini` is disabled. The per-surface user **Agent-defaults
+matrix** (App builder / General agent, each with a model + budget) is the user-level layer.
+
+**OpenRouter is the catch-all transport (no new vendor).** OpenRouter is already a
+first-class BYOK provider (`ProviderSchema`, the `openrouter` validator, the generic key
+store, and the settings key row all exist). For a resolved model id the transport rule is:
+prefer the user's **direct provider key** (Sonnet/Opus → Anthropic, GPT-5.4* → OpenAI); else
+if they hold an **OpenRouter** key, route via OpenRouter (reaching any OpenRouter-supported
+model, incl. `openrouter/auto`, which is what "Auto" uses under the hood); else
+`byok_key_missing`. Both a single OpenRouter key and per-provider keys are supported
+simultaneously. Google Gemini stays reachable as an explicit `google/<id>` pick.
+
+**No hard-coded model pricing (decision 2026-06-13).** User billing is **sandbox-hours**
+(§28), never token spend. Run-cost USD — used only for budget-cap / daily-cost-cap
+enforcement and cost telemetry — is resolved **(1)** from the gateway's reported cost
+(OpenRouter returns actual USD per generation, captured in `usageFromMastraChunk` →
+`event.usd`), falling back to **(2)** a cached, keyless OpenRouter `/models` price map
+(edge-cached 24h + in-isolate memo). There is **no `MODEL_PRICING` hard-coded table and no
+Opus 4.8 price placeholder**; `/models` is public, so this introduces no new vendor.
 
 - Research log (2026-05-27): Exa over official Anthropic API pricing docs
   confirms Claude Sonnet 4.6 is `$3 / MTok` input and `$15 / MTok` output, and
@@ -500,6 +534,10 @@ future embedding feature is added.
 - **Object storage:** R2 (zero egress)
 - **Auth:** Clerk (Free 10k MAUs → Pro $25/month)
 - **Billing:** Polar (no fixed cost)
+- **Weather (greeting):** **Open-Meteo** — keyless, gateway-only `fetch` (no SDK, no key),
+  Cache-API cached (15 min TTL). Powers the time/weather greeting (§10.6, weather **ON
+  everywhere**; `weather: null` is the runtime fallback only). Non-commercial licensing
+  posture accepted by the product owner.
 - **CI:** GitHub Actions (free for public; 2000 min/mo for private)
 
 ---
@@ -952,6 +990,8 @@ Per-domain files under `packages/db/src/schema/`, single barrel `index.ts`:
 packages/db/src/schema/
 ├── index.ts         // re-exports all
 ├── users.ts         // v2_users
+├── profiles.ts      // v2_user_profiles
+├── billing.ts       // v2_entitlements, v2_billing_events (§28.6)
 ├── projects.ts      // v2_projects, v2_threads
 ├── messages.ts      // v2_messages, v2_agent_runs
 ├── keys.ts          // v2_provider_keys, v2_user_integrations
@@ -959,6 +999,13 @@ packages/db/src/schema/
 ├── usage.ts         // v2_usage_events, v2_usage_daily_totals
 └── audit.ts         // v2_audit_log
 ```
+
+**`profiles.ts` → `v2_user_profiles`** (user-foundation): `user_id` PK FK→`v2_users`
+`ON DELETE CASCADE`; `agent_display_name`, `global_memory` (≤8 KB), `appbuilder_default_model`,
+`general_default_model`, `appbuilder_default_budget_usd`, `general_default_budget_usd`,
+`disabled_models` (jsonb), `onboarding_completed_at`, `onboarding_state` (jsonb). Backs
+`GET/PATCH /v1/me/profile` and the system-prompt merge (§8.2). Every column is
+optional/nullable so partial onboarding landings are safe.
 
 All `pgTable()` names below are V2-prefixed in shipped code. The unprefixed TypeScript export names (`users`, `projects`, `providerKeys`) are only local ORM aliases; the physical tables are `v2_*`.
 
@@ -990,6 +1037,7 @@ import { users } from './users';
 export interface ProjectSettings {
   defaultModel?: string;
   budgetCapUsd?: number;
+  importRepoUrl?: string;   // GitHub import (composer Add menu) — public repos only, §8/§23.2
 }
 
 export const projects = pgTable('v2_projects', {
@@ -1660,7 +1708,7 @@ Explicit "don'ts" from research, for clarity in code reviews:
 5. **No `select *` in RLS policies without supporting composite indexes.**
 6. **No JSONB GIN-index on every JSONB column.** Only those queried by `@>` containment.
 7. **No `drizzle-kit push` in production.** `generate` → review → `migrate`.
-8. **No Supabase Realtime.** Durable Objects own streaming.
+8. **No Supabase Realtime.** Durable Objects own all streaming. The preview console strip is the one read surface that intentionally uses **cursor-based polling**, not streaming (`GET /v1/threads/:id/sandbox/console`, §23.2 #50) — any future console SSE must live on the ProjectSandbox DO. The dev-server process carries the deterministic id **`app-preview`** (set by `executeStartDevServer` via `processId`, with a same-name kill-guard) so the console reader can target it; console log polls wake a standby sandbox (the read-only guard prevents creation, not wake), so the client backs polling off to 30 s when no dev server is reported.
 9. **No multi-hop FK joins for tenancy checks.** `user_id` denormalized everywhere.
 10. **No `LISTEN/NOTIFY` for agent event streaming.** Durable Objects + SSE only (§10.6).
 11. **No Supabase Storage.** R2 for every byte.
@@ -1732,11 +1780,16 @@ export const generalAgent = new Agent({
 });
 ```
 
-The system prompt is built per-run from:
-- Static base prompt (capabilities, principles, style)
-- Project's `masterInstructions` from DB
-- Currently relevant skill frontmatters (always include all 9 — they fit in context)
-- Available tools (auto-injected by AI SDK)
+The system prompt is built per-run with a fixed **merge order** (`buildSystemPrompt`):
+1. Identity + agent display name (from `v2_user_profiles.agent_display_name`, ≤80 chars)
+2. Tool guidance (capabilities, principles, style)
+3. User Memory (`v2_user_profiles.global_memory`, ≤8 KB)
+4. Project Instructions (`v2_projects.master_instructions` from DB)
+5. Skill frontmatters (always include all curated skills — they fit in context)
+
+Tools are auto-injected by AI SDK. The master prompt also carries the **`@<path>` →
+`/workspace/<path>` resolution line**: composer `@` mentions resolve to absolute sandbox
+paths under `/workspace/` so the agent reads the referenced file directly.
 
 ### 8.3 Tool definition pattern (one example)
 
@@ -1878,17 +1931,32 @@ export const wideResearch = createWorkflow({
   .commit();
 ```
 
-### 8.6 Sensitive tool scope
+### 8.6 Sensitive tool scope — in-product approval gates (V2)
 
-V2 does **not** ship in-product approval gates for sensitive tools. Tools must not
-emit approve/reject requests or pause the stream waiting for a human approval UI.
-Potentially destructive production actions are either explicit first-class user
-commands with their own API/UI surface, or deferred until `plan.md` is updated.
+V2 **ships** a per-tool-call approval gate. Before a gated tool executes, the agent
+loop pauses, emits a `data-approval-request` part, and waits for an explicit
+Allow/Deny decision (`POST /v1/runs/{runId}/approvals/{approvalId}`, §23.2) routed back
+through request-context to the broker that owns the paused tool call. The run enters the
+**`paused`** state while waiting; the SSE stream stays open the whole time.
 
-V2 has no generic "ask for approval, then continue" tool flow. It also has no
-Vercel deployment provider. Generated app deploys, when exposed, target the
-Cloudflare-hosted product surface through an explicit Cloudflare deploy command
-and audit event, not a third-party deploy shortcut.
+**Gated-tool policy (decided 2026-06-13):**
+
+| Policy | Tools |
+|---|---|
+| `"always"` — gate every call | all `composio_execute` (every OAuth-tool action), destructive-shell patterns, and deploy/publish CLIs |
+| Destructive-shell pattern list | `rm -rf`, force pushes, and package publishes (`npm publish`, `pnpm publish`, `yarn publish`, `cargo publish`) alongside the deploy CLIs |
+| `"never"` — never gate | read-only / sandbox-local file + code tools |
+
+**Defaults:** a **5-minute tool-approval window with default-DENY** (enforced by the
+AgentRun DO `alarm()`, multiplexed with the retention alarm); a denied tool **fails the
+run** with the standard error (the run is not held open waiting for the user). The gate is
+fail-closed: if `withApprovalGate` sees no broker registered, the `"always"` tools refuse to
+run. Per-project `settings.toolApprovals` overrides are plumbed but **deferred** to a later
+round (not wired this round).
+
+V2 still has no Vercel deployment provider. Generated app deploys, when exposed, target the
+Cloudflare-hosted product surface through an explicit Cloudflare deploy command and audit
+event (itself a gated deploy/publish tool), not a third-party deploy shortcut.
 
 ### 8.7 Budget caps
 
@@ -1909,6 +1977,13 @@ V2 implements the stop as a `budget_cap_reached` stream part plus terminal
 `finishReason: "stop"` so the SSE stream closes cleanly and the assistant message is
 persisted before the run exits.
 
+**Budget-cap menu (design 14b):** the run-control budget dropdown offers **No cap / $2 /
+$5 / $10 / Custom (max $50)**. "No cap" is genuinely unbounded (`resolveRunBudgetCap`
+returns `number | null`, `null` = uncapped); the numeric options and Custom map straight to
+`budgetCapUsd`. Cost accrual that the cap is measured against uses the **gateway-reported
+USD** (OpenRouter's per-generation cost) falling back to the cached OpenRouter `/models`
+price map (§4.2) — there is no hard-coded price table.
+
 Project-level caps are persisted in `v2_projects.settings.budgetCapUsd`. The web
 composer sends the current cap for normal runs, and `createAgentRunForThread()`
 also applies the project cap server-side when a client omits `budgetCapUsd`, so
@@ -1920,10 +1995,11 @@ emits `daily_cost_cap_reached` plus `silent_failure_detected` with
 `detector=cost_spike`.
 
 Project-level default models are persisted in `v2_projects.settings.defaultModel`.
-The web model picker stores only the user's last-used local preference; when that
-preference is `Auto`, the client omits `model` and `createAgentRunForThread()`
-applies the project default before the AgentRun Durable Object starts. If neither
-is set, the agent runtime uses the plan-defined production default.
+The web model picker (the design-5 popover, §4.2) stores the user's last-used local
+preference; when that preference is `Auto`, the client omits `model`. Server-side resolution
+then follows the per-surface chain `explicit → project default → user per-surface default →
+production default` with disable-aware skipping (§4.2), keyed by `surfaceOf(projectMode)`,
+before the AgentRun Durable Object starts.
 
 ---
 
@@ -2249,7 +2325,8 @@ The §4.1 pnpm catalog is the authoritative pin source; this table is the fronte
 | `react-hook-form` / `@hookform/resolvers` / `zod` | 7.76.0 / 5.2.2 / 3.25.76 | Complex forms (resolvers 5.2.2 validates via Standard Schema — works with zod 3.25.x) |
 | `@clerk/nextjs` | 7.3.4 | Auth |
 | `@polar-sh/sdk` | 0.46.4 | Billing |
-| `next-themes` | 0.4.6 | Dark mode |
+| `next-themes` | 0.4.6 | Dark mode (localStorage-persisted; `defaultTheme="system"`, no `forcedTheme` — §10.11) |
+| `cmdk` | 1.1.1 | ⌘K command palette (search results + nav, §10.6) |
 | `next-intl` | 4.12.0 | i18n (English-only V1, architected for future locales) |
 | `@opennextjs/cloudflare` | 1.19.11 | Converts the Next.js build into a Cloudflare Worker and provides local `workerd` preview/deploy commands |
 | `web-vitals` | 5.2.0 | RUM |
@@ -2420,11 +2497,11 @@ introducing new React patterns.
 |---|---|---|
 | Server data (REST) | **TanStack Query 5** | Projects, threads, billing, models list, integrations, BYOK summaries |
 | Agent streaming | **`useChat<CheatcodeUIMessage>`** | The thread itself |
-| UI ephemeral | **Zustand 5 (slices)** | Sidebar collapsed, active tab, theme, draft text, connection state |
+| UI ephemeral | **Zustand 5 (slices)** | Sidebar collapsed, active tab, draft text, connection state (theme is **not** here — owned by next-themes) |
 | URL state | **`nuqs`** | Filters, modal open/close, tab selection, search params |
 | Simple forms | **`useActionState` + `useFormStatus`** | Rename project, toggle settings |
 | Complex forms | **React Hook Form + Zod + shadcn `<Form>`** | BYOK keys, project setup |
-| Local storage | **`zustand/middleware/persist`** | Theme, last-used model, sidebar state. **Never auth.** |
+| Local storage | **`zustand/middleware/persist`** | Last-used model, sidebar state. **Never auth.** (Theme persistence is owned by **next-themes** localStorage, not zustand persist — §10.11.) |
 | Server Components | **None** | Pass props down. No client store reaches here. |
 
 **The rule:** any piece of state exists in exactly one of these places. Cross-place duplication is a refactor candidate.
@@ -2519,7 +2596,7 @@ Flow: `useChat` → `POST gateway/v1/threads/{id}/runs` (SSE response) → gatew
 // packages/types/src/ui-message.ts — full definition in §25.5
 export type CheatcodeUIMessage = UIMessage<
   { runId: AgentRunId; modelId: string; userId: UserId },
-  { /* 12 custom data parts; see §25.5 */ },
+  { /* 15 custom data parts; see §25.5 */ },
   InferUITools<typeof cheatcodeTools>
 >;
 ```
@@ -2763,6 +2840,32 @@ import {
 
 Draft persistence: debounced write of `text` to Zustand `chatSlice.draftByThread[threadId]` (300 ms). `Cmd+Enter` submit, `Esc` stop, `↑` to edit last user message.
 
+#### Composer interaction layer (design 09b/11b/4V2-0)
+
+Both the home composer and the thread composer share one caret-token trigger parser and a
+shared popover:
+
+- **`/` menu (skills)** — leading-`/` opens a skill autocomplete driven by the build-time
+  **`generated-manifest.ts`** (name+description only; skill bodies never ship to the client).
+  Selecting a skill inserts `/<skill-name> `. Reuses the `?skill=` deep-link vocabulary from
+  discovery-misc (synthetic chip semantics).
+- **`@` mentions (files)** — an inline `@` opens a file picker over the thread sandbox files
+  route; selecting a path inserts `@<path>`, which the system prompt resolves to
+  `/workspace/<path>` (§8.2). The `@` trigger registers **only when the thread sandbox is
+  `ready`** (`sandboxStatus === "ready"`) — the files route lazily wakes a metered sandbox
+  and has no concurrency check.
+- **Model popover** — the design-5 picker (§4.2); writes the user's local model preference
+  (zustand) and sends it as the per-run `model` param. It reads `useProfileQuery().disabledModels`
+  to reflect disabled state; "Configure" deep-links to `/settings/agents`.
+- **Project picker (home)** — routes the typed prompt into the selected project's **newest
+  thread**, with an `activeRunId` busy preflight so a busy thread never loses the prompt.
+- **Add menu** — Local upload + **GitHub import**. Import writes `settings.importRepoUrl`;
+  the app-builder bootstrap git-clones it (public repos only, depth-1, no auto dev server,
+  failure code `repo_import_failed`), with one-shot semantics gated by a
+  `/workspace/app/.cheatcode-imported` marker (`.git` backstop) so follow-up runs never
+  re-clone. URLs containing userinfo are rejected; private-repo support via Composio GitHub
+  OAuth is the documented v1.5 upgrade path.
+
 #### Long-thread virtualization
 
 ```tsx
@@ -2803,6 +2906,14 @@ non-cold sandbox status; the close/open rail state and active tab live in
 Zustand.
 
 Heavy preview/editor dependencies, PDF.js, and Mermaid are lazy via `next/dynamic` where used. V1 does not ship Monaco or xterm.js because neither dependency is pinned in §4; file editing uses the in-app sandbox editor and terminal commands run through the authenticated POST route. Tab state stored in Zustand so user-initiated switches persist; URL state via `nuqs` only if we want deep-linking to a specific tab (V1: no).
+
+**Browser URL bar + console strip + phone bezel (design 22/23).** The preview URL bar shows
+the **entry URL only** — cross-origin iframes hide SPA navigation, so back/refresh operate on
+client-side assignment history + a reload token; **no `postMessage` navigation reporter is
+injected into scaffolded user templates** (decision #11 — don't touch user code). A console
+strip surfaces dev-server logs via the cursor-polling console route (§23.2 #50, never
+streaming). `DeviceFrame` renders a **phone bezel** keyed by `project.mode`
+(`app-builder-mobile → phone`, with the `expoUrl` fallback); other modes render flush.
 
 ### 10.8 PWA and web push are out of V2
 
@@ -2970,6 +3081,20 @@ import { GeistMono } from 'geist/font/mono';
 ```
 
 `disableTransitionOnChange` prevents the flash when toggling themes.
+
+**Theme ownership + unlock.** Theme is owned entirely by **next-themes** (localStorage key
+`theme`), not zustand persist (§10.5). The previously hard-coded `forcedTheme` is
+**removed**, and `defaultTheme="system"` with `enableSystem` lets the OS preference win until
+the user picks Light/Dark/System in the theme switcher. The switcher writes through
+next-themes' `setTheme`; no other store mirrors it.
+
+**Light-theme readiness audit (restyle deferred).** The semantic-token rule is binding:
+components must use semantic tokens (`bg-background`, `text-foreground`, `border-border`, …),
+**never raw palette classes** (e.g. `bg-zinc-900`), so the unlocked light theme renders
+correctly. A migration inventory of **17 files / 196 raw-palette occurrences** is recorded as
+readiness work; a review rule rejects new raw palette classes in components. The visual
+light-theme pass itself is deferred to the Bud UI round — this round only unlocks the toggle
+and lands the audit.
 
 ### 10.12 Internationalization (V1: English-only, architected for future)
 
@@ -3213,7 +3338,18 @@ All V1 features mapped to packages/services:
 | **K7 skills/AGENTS.md** | `skills/` folder + `packages/skills` loader |
 | **M2 deep research fan-out** | Same workflow as C2 |
 | **M3 live VM view** | `apps/web/src/components/preview/preview-side-panel.tsx` tabs: Preview, Code, Terminal, Browser |
-| **M12 budget caps** | Mastra `stopWhen` + per-run cost check + UI to set per-project |
+| **M12 budget caps** | Mastra `stopWhen` + per-run cost check + UI to set per-project (menu: No cap/$2/$5/$10/Custom≤$50, §8.7) |
+| **Onboarding (5-screen)** | `v2_user_profiles` + middleware gate + Clerk `metadata` claim (§29.2) |
+| **Account plan card + sandbox-hours meter** | `GET /v1/me/usage` + `GET /v1/billing/catalog` + per-run Activity punchcard (§28.10) |
+| **Model picker (design-5) + per-surface defaults** | `packages/types/src/models.ts` catalog + composer popover + profile defaults (§4.2) |
+| **Tool approval gate + interactive fallback + reconnect banner** | `withApprovalGate` + AgentRun DO paused state + `data-approval-*`/`data-model-fallback` (§8.6, §23.5) |
+| **Composer `/` + `@` menus / project picker / Add menu + GitHub import** | shared caret-token parser + `settings.importRepoUrl` clone (§10.6) |
+| **Search / ⌘K palette** | `GET /v1/search` + `cmdk` palette over `WORKSPACE_NAV` (§23.2 #51) |
+| **Time/weather greeting** | `GET /v1/greeting` + Open-Meteo (gateway-only, Cache-API, §10.6) |
+| **Skills catalog (search/tabs/Use) + `/101` docs + ASCII 404 + confirm dialog + sidebar IA** | `generated-manifest.ts` + `?skill=` deep-link + in-app content route + `packages/ui` `ConfirmDialog` + `WORKSPACE_NAV` registry (discovery-misc) |
+| **Theme switcher** | next-themes localStorage, `defaultTheme="system"`, no `forcedTheme` (§10.11) |
+| **Preview console strip + URL bar + phone bezel** | `GET /v1/threads/:id/sandbox/console` (cursor-poll), entry-URL-only bar, `DeviceFrame` by `project.mode` (§23.2 #50) |
+| **Featured replays (operator-curated, read-only)** | `FEATURED_REPLAYS` manifest + 2 public routes + sanitizer (§14.7) |
 
 ---
 
@@ -3262,6 +3398,8 @@ description: |                       # required, ≤1024 chars; THE activation f
   fundraising deck, demo day deck, seed deck, or says "turn this idea into a deck".
   Do NOT trigger for internal product updates (use slide-from-prd) or non-investor
   presentations.
+category: build                      # required (3-value enum: build | research | create) — drives /skills tabs
+tags: [slides, pitch, fundraising]  # required — string[], powers /skills search
 license: MIT                         # optional, free-form
 compatibility: Requires Node 22+ (pptxgenjs), Python 3.11+ (pandas), and Exa + Firecrawl tools.
 metadata:                            # optional, arbitrary k/v
@@ -3270,7 +3408,7 @@ metadata:                            # optional, arbitrary k/v
 ---
 ```
 
-**Stay on the open spec.** Claude-Code-only extensions (`when_to_use`, `allowed-tools`, `paths`, `arguments`, `shell`) won't portably work in Mastra. Stick to `name`, `description`, `license`, `compatibility`, `metadata`.
+**Stay on the open spec.** Claude-Code-only extensions (`when_to_use`, `allowed-tools`, `paths`, `arguments`, `shell`) won't portably work in Mastra. Stick to `name`, `description`, `license`, `compatibility`, `metadata`, plus the Cheatcode-required `category` (3-value enum) and `tags` (which feed the `/skills` catalog tabs + search, discovery-misc).
 
 ### 12.3 Writing the description (the activation field)
 
@@ -3426,6 +3564,8 @@ import matter from 'gray-matter';
 interface BundledSkill {
   name: string;
   description: string;
+  category: 'build' | 'research' | 'create';   // required — /skills tabs
+  tags: string[];                               // required — /skills search
   license?: string;
   compatibility?: string;
   metadata: Record<string, unknown>;
@@ -3456,6 +3596,8 @@ const skills: BundledSkill[] = readdirSync(SKILLS_DIR)
       name: data.name,
       description: data.description,
       license: data.license,
+      category: data.category,
+      tags: data.tags ?? [],
       compatibility: data.compatibility,
       metadata: data.metadata ?? {},
       body: content,
@@ -3471,8 +3613,27 @@ writeFileSync(
   `export const SKILLS: BundledSkill[] = ${JSON.stringify(skills, null, 2)};\n`
 );
 
-console.log(`Bundled ${skills.length} skills → ${OUT}`);
+// Second artifact: a client-safe manifest (name/description/category/tags only — NO body).
+// Exported as `@cheatcode/skills/manifest`; the composer `/` menu and the /skills catalog
+// import this so skill bodies never ship in client bundles (composer-interactions).
+const manifest = skills.map(({ name, description, category, tags }) =>
+  ({ name, description, category, tags }));
+writeFileSync(
+  './packages/skills/src/generated-manifest.ts',
+  `// AUTO-GENERATED by scripts/build-skills.ts — do not edit\n` +
+  `import type { SkillManifestEntry } from './types';\n\n` +
+  `export const SKILL_MANIFEST: SkillManifestEntry[] = ${JSON.stringify(manifest, null, 2)};\n`
+);
+
+console.log(`Bundled ${skills.length} skills → ${OUT} (+ generated-manifest.ts)`);
 ```
+
+**`/skills` catalog (discovery-misc):** the catalog page reads `SKILL_MANIFEST`, offering
+**search** (over name/description/tags), **category tabs** (build/research/create), and a
+**Use** action that deep-links to `/?skill=<bundled-skill-name>`. Home validates the
+`?skill=` param against bundled names and primes the composer (activate the matching intent
+pill, else show a synthetic removable skill chip). This `?skill=` contract is the same
+vocabulary the composer-interactions `/` autocomplete consumes — no second param.
 
 Run at build time:
 ```bash
@@ -4194,7 +4355,20 @@ app.use('/v1/*', cors({
 
 ### 14.7 Turnstile (free CAPTCHA)
 
-On signup form and future public form surfaces — Cloudflare Turnstile free. V1 has no public share/replay surface.
+On signup form and future public form surfaces — Cloudflare Turnstile free.
+
+**Public replay surface — operator-curated READ only (no user shares).** V1 ships an
+**operator-curated featured-replay READ surface**: a checked-in `FEATURED_REPLAYS` manifest
+(`apps/gateway-worker/src/featured-replays.ts`, same class of artifact as the bundled-skills
+const — slug-keyed, git-reviewed) plus **two unauthenticated routes** (`GET /v1/replays/featured`,
+`GET /v1/replays/:id`, both `security:[]`) that return **sanitized read-only transcripts** over
+existing `v2_messages`/`v2_threads`. There are **NO user shares, no share tokens, no publishing,
+no revoke, no `v2_replay_shares` table, and no migration**. A defense-in-depth sanitization
+allowlist (`replay-sanitize.ts`, reusing `redactSecrets`) strips `previewUrl`/`expoUrl`,
+artifact downloads (chips stay metadata-only), and any non-allowlisted fields before the
+transcript leaves the gateway. Featured pages are indexable (operator-vetted marketing demos);
+`/v1/replays/*` uses the existing `public.read` advisory rate-limit headers. Empty manifest →
+the home "Watch replays" card is hidden.
 
 ### 14.8 Audit log
 
@@ -4377,7 +4551,7 @@ V1 ships with no preview deployments. PRs are verified via `pnpm turbo lint type
 - `pnpm --filter @cheatcode/web preview` runs the converted app in the local Workers runtime on port 3001 so `gateway-worker` can keep port 8787.
 - `CHEATCODE_PROD_DEPLOY_APPROVED=true pnpm --filter @cheatcode/web deploy` deploys to Cloudflare Workers after explicit approval.
 - Runtime config lives in `apps/web/wrangler.jsonc`.
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GATEWAY_URL`, `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID`, and `CLERK_SECRET_KEY` must be present in Cloudflare Workers Builds / deploy environment. `scripts/deploy-phased.ts` injects the public web vars into OpenNext build/deploy and fails before deployment if the Clerk publishable key or Polar product ID is missing. The GitHub production environment must expose `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID` as environment variables for the manual web deploy job; `NEXT_PUBLIC_GATEWAY_URL` is pinned to `https://gateway.trycheatcode.com` by the deploy command. `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID` must point at a V2 Polar product whose metadata includes `tier=pro|team|enterprise`; the web Billing panel disables checkout instead of falling back to a dummy product ID when it is absent. `CLERK_SECRET_KEY` is also bound from Cloudflare Secrets Store at runtime.
+- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`, `NEXT_PUBLIC_GATEWAY_URL`, `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID`, and `CLERK_SECRET_KEY` must be present in Cloudflare Workers Builds / deploy environment. `scripts/deploy-phased.ts` injects the public web vars into OpenNext build/deploy and fails before deployment if the Clerk publishable key or Polar product ID is missing. The GitHub production environment must expose `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID` as environment variables for the manual web deploy job; `NEXT_PUBLIC_GATEWAY_URL` is pinned to `https://gateway.trycheatcode.com` by the deploy command. `NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID` must point at a V2 Polar product whose metadata includes `tier=pro` (the four paid tiers are `pro|premium|ultra|max`, §28.3; product ids are configured server-side as `POLAR_PRODUCT_ID_*`); the web Billing panel disables checkout instead of falling back to a dummy product ID when it is absent. `CLERK_SECRET_KEY` is also bound from Cloudflare Secrets Store at runtime.
 - R2 bucket `cheatcode-next-cache` backs the OpenNext incremental cache. Durable Object classes `DOQueueHandler`, `DOShardedTagCache`, and `BucketCachePurge` back revalidation queue/tag-cache/purge behavior.
 
 ### 15.5 Database migrations
@@ -4586,7 +4760,7 @@ and direct log inspection.
 
 ### Week 7 — Frontend polish + Polar
 - Polish `apps/web` thread UI, preview tabs, multi-agent progress, and sidebar project deletion for sandbox-limit recovery
-- Polar billing flow (free/pro/team tiers) + entitlement checks
+- Polar billing flow (free/pro/premium/ultra/max tiers, §28) + entitlement checks
 - In-product skills catalog page (browse 9 bundled skills only)
 - **Milestone:** Billing functional; frontend polish is complete and ready for the final direct `agent-browser` QA gate.
 
@@ -4760,6 +4934,10 @@ CLERK_SECRET_KEY=
 
 # Polar
 NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID=
+POLAR_PRODUCT_ID_PRO=            # tier-based checkout (§28.3); server maps {tier} → product id
+POLAR_PRODUCT_ID_PREMIUM=
+POLAR_PRODUCT_ID_ULTRA=
+POLAR_PRODUCT_ID_MAX=
 POLAR_ACCESS_TOKEN=
 POLAR_WEBHOOK_SECRET=
 
@@ -5547,9 +5725,9 @@ Both files cap at ~200 lines so they don't blow the agent's context budget. They
 |---|---|---|---|---|---|---|---|
 | 1 | GET | `/v1/me` | JWT | — | `User` | 200 | `read.cheap` |
 | 2 | GET | `/v1/limits` | JWT | — | `LimitsSnapshot` | 200 | `read.cheap` |
-| 3 | GET | `/v1/usage/daily` | JWT | query: `?days` | `UsageDailyTotals` | 200 | `read.cheap` |
+| 3 | GET | `/v1/usage/daily` | JWT | query: `?days` | `UsageDailyTotals` + `runs[]` (per-run start ts + status for the Activity punchcard, capped 2000 w/ `truncated`; legacy `totals` unchanged) | 200 | `read.cheap` |
 | 4 | GET | `/v1/projects` | JWT | query: `?cursor&limit` | `Paginated<Project>` | 200 | `read.cheap` |
-| 5 | POST | `/v1/projects` | JWT (Idempotency-Key optional) | `CreateProject { name, mode, masterInstructions? }` | `Project` | 201 + `Location` | `write.normal` |
+| 5 | POST | `/v1/projects` | JWT (Idempotency-Key optional) | `CreateProject { name, mode, masterInstructions?, importRepoUrl? }` | `Project` | 201 + `Location` | `write.normal` |
 | 6 | GET | `/v1/projects/{projectId}` | JWT | — | `Project` | 200/404 | `read.cheap` |
 | 7 | PATCH | `/v1/projects/{projectId}` | JWT | `UpdateProject` | `Project` | 200 | `write.normal` |
 | 8 | DELETE | `/v1/projects/{projectId}` | JWT | — | — | 204/404 | `write.normal` |
@@ -5559,7 +5737,7 @@ Both files cap at ~200 lines so they don't blow the agent's context budget. They
 | 12 | GET | `/v1/threads/{threadId}/messages` | JWT | `?cursor&limit` | `Paginated<UIMessage>` | 200 | `read.cheap` |
 | 13 | POST | `/v1/threads/{threadId}/runs` | JWT + Idempotency-Key | `CreateRun { message, model?, agentName?, budgetCapUsd? }` | SSE stream (`UI_MESSAGE_STREAM_HEADERS`) | 202 | `runs.create` (cost=10) |
 | 14 | GET | `/v1/threads/{threadId}/runs/stream` | JWT (header or `?token=`) | — | SSE stream | 200/204 | `read.expensive` |
-| 15 | GET | `/v1/threads/{threadId}/runs/status` | JWT | — | `RunStatus` | 200/204 | `read.cheap` |
+| 15 | GET | `/v1/threads/{threadId}/runs/status` | JWT | — | `RunStatus` (gains `paused` + `pendingApproval` snapshot) | 200/204 | `read.cheap` |
 | 16 | POST | `/v1/runs/{runId}/cancel` | JWT | — | `{ ok: true }` | 200/404 | `write.normal` |
 | 17 | GET | `/v1/outputs/{outputId}/download` | signed URL (`expires&sig`) | — | file stream | 200/410 | `public.read` |
 | 18 | POST | `/v1/runs/{runId}/takeover` | JWT | — | `{ vncUrl, resumeToken }` | 200 | `write.normal` |
@@ -5579,7 +5757,7 @@ Both files cap at ~200 lines so they don't blow the agent's context budget. They
 | 32 | GET | `/v1/threads/{threadId}/sandbox/files/{fileKey}` | JWT | `?encoding?` | `SandboxFile` | 200/404 | `read.expensive` |
 | 33 | PATCH | `/v1/threads/{threadId}/sandbox/files/{fileKey}` | JWT | `{ content, encoding? }` | `SandboxFileWrite` | 200 | `write.normal` |
 | 34 | POST | `/v1/billing/portal` | JWT | — | `{ url }` | 200 | `write.normal` |
-| 35 | POST | `/v1/billing/checkout` | JWT | `{ productId }` | `{ url }` | 200 | `write.normal` |
+| 35 | POST | `/v1/billing/checkout` | JWT | `{ tier }` (`pro\|premium\|ultra\|max`; server maps tier→`POLAR_PRODUCT_ID_*`, client product ids forbidden) | `{ url }` | 200 | `write.normal` |
 | 36 | POST | `/v1/client-error` | public ‡‡ | `{ message, stack, url, ts }` | `{ ok: true }` | 200 | `public.write` |
 | 37 | POST | `/v1/vitals` | public ‡‡ | `{ name, value, id }` | `{ ok: true }` | 200 | `public.write` |
 | 38 | POST | `/v1/user-events` | JWT | `{ eventName }` | `{ ok: true }` | 200 | `public.write` |
@@ -5589,6 +5767,22 @@ Both files cap at ~200 lines so they don't blow the agent's context budget. They
 | 42 | GET | `/openapi.json` | public | — | OpenAPI v3.1 spec | 200 | `public.read` |
 | 43 | GET | `/docs` | public | — | Built-in API docs UI | 200 | `public.read` |
 | 44 | GET | `/health` | public | — | `{ ok: true, version }` | 200 | `public.read` |
+| 45 | GET | `/v1/me/profile` | JWT | — | `Profile` (agent name, memory, per-surface model/budget defaults, disabled models, onboarding state) | 200 | `read.cheap` |
+| 46 | PATCH | `/v1/me/profile` | JWT | `UpdateProfile` (partial) | `Profile` | 200 | `write.normal` |
+| 47 | GET | `/v1/me/usage` | JWT | — | `SandboxUsageSummary` (hours used/total, resetAt, tier) — replaces a credits endpoint | 200/503 | `read.cheap` |
+| 48 | GET | `/v1/billing/catalog` | JWT | — | `PlanCatalog` (tier/price/sandbox-hours) | 200 | `read.cheap` |
+| 49 | POST | `/v1/runs/{runId}/approvals/{approvalId}` | JWT | `{ decision: 'allow' \| 'deny' }` | `{ ok: true }` | 200/404/409 | `write.normal` |
+| 50 | GET | `/v1/threads/{threadId}/sandbox/console` | JWT | `?cursor&lastPid` (cursor-poll, NOT streaming) | `SandboxConsole` (log slice + pid + cursor + `reset`) | 200 | `read.expensive` (cost 5, 60 polls/min, own bucket `${userId}:${route}`) |
+| 51 | GET | `/v1/search` | JWT | `?q` | `SearchResults` (projects + threads, ILIKE; no message text) | 200 | `read.cheap` |
+| 52 | GET | `/v1/greeting` | JWT | — | `Greeting` (time-of-day + Open-Meteo weather; `weather: null` fallback) | 200 | `read.cheap` |
+| 53 | GET | `/v1/replays/featured` | **public** `security:[]` | — | `FeaturedReplays` (curated manifest) | 200 | `public.read` |
+| 54 | GET | `/v1/replays/{id}` | **public** `security:[]` | — | `PublicReplay` (sanitized read-only transcript; `id` = manifest slug, not a token) | 200/404 | `public.read` |
+
+**Approval / replay / preview notes:**
+- Row 49 (approvals) resolves a paused gated tool call (§8.6); 404 if no such pending approval, 409 if already decided or the deadline passed (default-deny).
+- Rows 53–54 are **unauthenticated** operator-curated featured replays — **no** share/publish/revoke routes exist (decision #9); both carry `security:[]` and use the existing `public.read` advisory rate-limit headers.
+- Row 50 is cursor-poll, never streaming — DOs still own all streaming (§23.5). The client echoes the last-seen Blaxel `pid` as `lastPid`; a differing non-null pid forces `reset:true` + slice-from-0.
+- The composer Add-menu GitHub import rides `POST/PATCH /v1/projects` via `settings.importRepoUrl` (no new route); `POST /v1/user-events` extends its event enum (append-only) for composer/preview/search telemetry.
 
 ‡ **Rows 39–41 are served by `webhooks-worker` on `webhooks.trycheatcode.com`** (paths `/polar`, `/clerk`, `/composio`) — a separate public surface from the gateway, no `/v1` prefix. Every other row is `gateway.trycheatcode.com/...`. Each provider's signature scheme differs (Svix vs Standard Webhooks vs Composio HMAC) — verification is per-provider, see §23.8.
 
@@ -5677,7 +5871,31 @@ The three endpoints implementing AI SDK v6 chat send/cancel plus explicit active
 // POST /v1/runs/{runId}/cancel
 // 1. Get AgentRun DO, call DO.cancel(reason)
 // 2. Return { ok: true }; DO emits a terminal data-error part and ends the SSE stream
+
+// POST /v1/runs/{runId}/approvals/{approvalId}   (gateway → DO)
+// 1. Get AgentRun DO, call DO.decideApproval(approvalId, decision)
+// 2. The DO resolves the broker promise for the paused tool call and emits
+//    data-approval-decision; the run leaves `paused` (allow → running, deny → fails the run)
 ```
+
+**Paused-run lifecycle (run-control, §8.6).** A gated tool call moves the run into the
+`paused` state: the loop emits `data-approval-request` and awaits a broker promise registered
+in request-context. The SSE stream stays open the whole time (`paused` is a non-terminal
+state, §24.2). The AgentRun DO `alarm()` is **multiplexed** — it carries both the retention
+cleanup deadline and the active approval/fallback deadline; whichever is sooner fires next.
+On a **5-minute** tool-approval deadline with no decision, the DO defaults to **deny** and
+fails the run. **DO eviction mid-approval** loses the in-memory broker; on the next interaction
+the run resolves as a default-deny failure rather than hanging.
+
+**Interactive model fallback (replaces silent fallback).** When the primary provider errors
+(billing/quota/opaque) and a fallback model is available, the DO emits `data-model-fallback`
+and waits up to **120 s**; no response → **auto-allow** the fallback. The offer is suppressed
+when the fallback model (`openai/gpt-5.4-mini`) is in the user's disabled set. The client
+renders an "Use fallback" / "Open Models & Keys" choice card.
+
+**Client reconnect banner.** The transport preserves `prepareReconnectToStreamRequest` and
+the `data-seq` cursor; on a dropped connection the client shows a reconnect banner and resumes
+from the last `seq` (a paused/approval-waiting run reconnects to the same open stream).
 
 This is **one transport — SSE everywhere** (see §10.6). No WebSocket is involved in agent
 streaming. WebSocket is used only for noVNC takeover (§9.5), which connects
@@ -5848,6 +6066,7 @@ export interface AgentRunStub {
   sendUserMessage(message: UIMessage): Promise<{ accepted: boolean; seq: number }>;
   pause(): Promise<RunSnapshot>;
   resume(): Promise<RunSnapshot>;
+  decideApproval(approvalId: string, decision: 'allow' | 'deny'): Promise<RunSnapshot>;  // §8.6 gate
   cancel(reason: string): Promise<RunSnapshot>;
   finalize(outcome: 'completed' | 'failed', error?: string): Promise<RunSnapshot>;
   getSnapshot(): Promise<RunSnapshot>;
@@ -5894,6 +6113,13 @@ pending → running → (completed | failed | canceled)
                 ↓
               paused → running
 ```
+
+`paused` is entered both by user takeover (§9.5) and by a **tool approval gate** (§8.6): the
+loop awaits an Allow/Deny decision delivered via `POST /v1/runs/{runId}/approvals/{approvalId}`
+(→ `decideApproval()`). Allow resumes the tool call (`paused → running`); Deny fails the run.
+The `alarm()` is multiplexed across the daily retention cleanup and the active approval/​
+fallback deadline (5-min approval default-deny; 120-s fallback auto-allow) — see §23.5.
+Sandbox-hours metering continues during a pause (bounded overshoot, §28.2).
 
 **Two entry points — do not confuse them:**
 
@@ -6226,7 +6452,7 @@ export const fsRead = tool({
 });
 ```
 
-**Rules:** `.strict()` always · every property `.describe()` for LLM · explicit output schema (never `z.any()`) · no in-product approval-gate tool flow in V1.
+**Rules:** `.strict()` always · every property `.describe()` for LLM · explicit output schema (never `z.any()`) · gated tools pause the run for an in-product Allow/Deny approval via `withApprovalGate` (§8.6), default-deny on timeout.
 
 ### 25.3 `runtimeContext` shape
 
@@ -6272,9 +6498,12 @@ export type CheatcodeUIMessage = UIMessage<
     'sandbox-status':   { v: 1; status: SandboxState; previewUrl?: string; expoUrl?: string };
     'takeover':         { v: 1; available: boolean; vncUrl?: string; resumeToken?: string };
     'artifact':         { v: 1; outputId: string; kind: 'slide'|'pdf'|'image'|'video'|'audio'|'xlsx'|'docx'; downloadUrl: string; mimeType: string };
-    'quota':            { v: 1; feature: string; remaining: number; limit: number; resetAt: number };
+    'quota':            { v: 1; feature: string; remaining: number; limit: number; resetAt: number };  // billing-credits emits this in SANDBOX HOURS (§28.10) — warn at 80%/95%
     'thinking':         { v: 1; text: string; delta: boolean };
     'error':            { v: 1; code: string; message: string; retriable: boolean };
+    'approval-request': { v: 1; approvalId: string; toolName: string; toolInput: unknown; reason: string; deadlineAt: number };  // run-control: paused, awaiting Allow/Deny (§8.6, default-deny at deadline)
+    'approval-decision':{ v: 1; approvalId: string; decision: 'allow' | 'deny'; decidedBy: 'user' | 'timeout' };                 // run-control: resolves the matching request part in place
+    'model-fallback':   { v: 1; fromModel: string; toModel: string; reason: string; deadlineAt: number };                       // run-control: interactive fallback consent (120s auto-allow) — replaces the silent text-delta notice
     'seq':              { v: 1; seq: number };  // transient — latest message_part.seq; drives the resume cursor (§10.6, §23.5)
   },
   InferUITools<typeof cheatcodeTools>
@@ -6678,48 +6907,67 @@ pnpm dev
 
 ### 28.1 Pricing matrix (V1 locked)
 
-We charge for the agentic platform. LLM tokens are BYOK (zero cost to us). Sandbox-hours and Composio tool calls are metered (real infra cost). Projects, seats, BYOK slots are resource gates.
+We charge for the agentic platform. LLM tokens are BYOK (zero cost to us). **Sandbox hours
+are the sole user-facing metered platform resource** (real infra cost). Composio tool calls,
+projects, and BYOK slots are resource gates. **There is no "credits" unit anywhere** — every
+design surface (15f/07b/14b/19b) shows sandbox hours directly.
 
-| Dimension | **Free** | **Pro $20/mo** ($192/yr, -20%) | **Team $60/seat/mo** ($576/yr, -20%) | **Enterprise** |
-|---|---|---|---|---|
-| Active projects | 3 | 25 | Unlimited | Unlimited |
-| Concurrent sandboxes | 1 | 3 | 10 / seat | Custom |
-| Sandbox-hours / mo | 5 | 50 | 200 / seat | Custom |
-| Research fan-out subagents / run | 3 | 10 | 25 | Custom |
-| Composio tool calls / mo | 1,000 | 20,000 | 100,000 | Custom |
-| Connected Slack workspaces (agent tools via Composio) | 1 | 5 | Unlimited | Unlimited |
-| Deployments / mo | 5 | 100 | Unlimited | Unlimited |
-| Project preview privacy | public previews only | public + private previews | private previews + SSO seat | SAML / SCIM |
-| BYOK provider slots | 3 | 10 | Unlimited | Unlimited |
-| Data retention | 30 days | 1 year | 1 year (configurable) | Custom + audit logs |
-| Support | community | email (48h) | priority email (24h) | dedicated + SLA |
+| Dimension | **Free** | **Pro $25/mo** | **Premium $50/mo** | **Ultra $99/mo** | **Max $200/mo** |
+|---|---|---|---|---|---|
+| **Sandbox-hours / mo** | **5** | **60** | **140** | **320** | **800** |
+| Active projects | 3 | 25 | 50 | 100 | 250 |
+| Concurrent sandboxes | 1 | 3 | 5 | 8 | 12 |
+| Research fan-out subagents / run | 3 | 10 | 15 | 20 | 25 |
+| Composio tool calls / mo | 1,000 | 20,000 | 50,000 | 120,000 | 300,000 |
+| Connected Slack workspaces (agent tools via Composio) | 1 | 5 | 10 | 20 | Unlimited |
+| Deployments / mo | 5 | 100 | 250 | 600 | Unlimited |
+| BYOK provider slots | 3 | 10 | Unlimited | Unlimited | Unlimited |
+| Data retention | 30 days | 1 year | 1 year | 1 year | 1 year |
+| Support | community | email (48h) | email (24h) | priority (24h) | priority (12h) |
 
-**Annual = -20%.** No trial (Free tier IS the trial). Enterprise is contract-only.
+Free is the BYOK trial path. Price + sandbox hours are the locked design values; the other
+caps are **scaled monotonically by tier** as a flagged assumption pending sign-off (C2 —
+the design defines only price + sandbox hours). The single source for tier/price/sandbox-hour
+allowance is `PLAN_CATALOG` in `packages/billing/src/catalog.ts`.
+
+**Team / Enterprise are retired.** Seats, per-seat pricing, SSO/SAML/SCIM, and the org model
+move to [`future.md`](./future.md)'s cut list; legacy rows map `team → premium`,
+`enterprise → max`. No annual (-20%) row ships this round.
 
 ### 28.2 Quota semantics
 
 | Type | Behavior | Examples |
 |---|---|---|
-| Soft limit | Warn at 80% then 95% with in-app banner | sandbox-hours, Composio calls, deployments |
-| Hard limit | Block at 100% | concurrent sandboxes, active projects, BYOK slots, seats |
+| **Sandbox hours** | Warn at 80% then 95% (via the `data-quota` stream part, **in hours**); **HARD-block new run creation at 100%** — in-flight runs finish (bounded overshoot) | sandbox-hours |
+| Soft limit | Warn at 80% then 95% with in-app banner | Composio calls, deployments |
+| Hard limit | Block at 100% | concurrent sandboxes, active projects, BYOK slots |
 | Activity reset | Calendar-month, anchored to `subscription.current_period_start` | All meter-style |
 | Resource reset | Never (downgrade marks excess `over_quota=true`, freezes read-only 30d, then archives) | projects, BYOK slots |
+
+**Sandbox-hours enforcement.** The gate's denominator is the entitlement's
+`quota_sandbox_hours` read from Postgres at run creation; the QuotaTracker DO's
+`limit_override` is display-sync state, never an enforcement input. All sandbox-hours
+QuotaTracker reads/writes use the canonical `quotaPeriodEndFor(entitlement)` period helper.
 
 **Burst vs sustained:** Concurrent sandboxes = hard parallel cap (sustained). Sandbox-hours = monthly bucket (burst-friendly). Research fan-out subagents and Composio calls use per-run and per-month quotas to prevent runaway usage.
 
 ### 28.3 Polar product configuration
 
-Three products with monthly + annual prices:
+**Four monthly products**, one per paid tier:
 
-- `cheatcode_pro_monthly` ($20) / `cheatcode_pro_annual` ($192)
-- `cheatcode_team_monthly` ($60 metered-seat) / `cheatcode_team_annual` ($576)
-- `cheatcode_enterprise` (manual quote)
+- `cheatcode_pro_monthly` ($25) · `cheatcode_premium_monthly` ($50) ·
+  `cheatcode_ultra_monthly` ($99) · `cheatcode_max_monthly` ($200)
 
-Use Polar's `external_id` = the internal `v2_users.id` UUID, not Clerk `user_id`
-(and the internal org UUID for a future Team org model). `polar.customers.getStateExternal({ externalId: internalUserId })`
-gives one-call sync. Every paid Polar product must set product metadata
-`tier = pro | team | enterprise`; webhook code falls back to product name/ID only
-for local sandbox fixtures.
+Each product's id is configured as a gateway env var — `POLAR_PRODUCT_ID_PRO`,
+`POLAR_PRODUCT_ID_PREMIUM`, `POLAR_PRODUCT_ID_ULTRA`, `POLAR_PRODUCT_ID_MAX`. Checkout is
+**tier-based**: `POST /v1/billing/checkout {tier}` maps the tier to its product id
+server-side; **client-supplied product ids are forbidden**.
+
+Use Polar's `external_id` = the internal `v2_users.id` UUID, not Clerk `user_id`.
+`polar.customers.getStateExternal({ externalId: internalUserId })` gives one-call sync.
+Every paid Polar product must set product metadata `tier = pro | premium | ultra | max`;
+the webhook layer ranks tiers via `TIER_ORDER` from the shared catalog and falls back to
+product name/ID only for local sandbox fixtures.
 
 ### 28.4 Polar webhooks subscribed
 
@@ -6768,7 +7016,7 @@ Required: `customer.state_changed` (catch-all), `subscription.created`, `subscri
 
 create table entitlements (
   user_id            uuid primary key references users(id) on delete cascade,
-  tier               text not null default 'free' check (tier in ('free','pro','team','enterprise')),
+  tier               text not null default 'free' check (tier in ('free','pro','premium','ultra','max')),
   polar_customer_id  text,
   polar_subscription_id text,
   subscription_status text not null default 'none',
@@ -6777,7 +7025,7 @@ create table entitlements (
   current_period_end   timestamptz,
   max_projects         int not null default 3,
   max_concurrent_sandboxes int not null default 1,
-  max_seats            int not null default 1,
+  max_seats            int not null default 1,   -- frozen at 1 (seats retired with Team tier)
   quota_sandbox_hours  numeric not null default 5,
   quota_composio_calls int not null default 1000,
   quota_deployments    int not null default 5,
@@ -6797,7 +7045,16 @@ create table billing_events (
   processed_at  timestamptz default now()
 );
 create index on billing_events (user_id, processed_at desc);
+
+-- Activity punchcard: per-run start timestamps for GET /v1/usage/daily `runs[]` (§28.10).
+-- Hand-edited post-migration index (numbered at land time, §7.10).
+create index v2_agent_runs_user_started_idx on v2_agent_runs (user_id, started_at desc);
 ```
+
+**Tier migration (Team/Enterprise retired):** the `tier` CHECK alter is paired with an
+`UPDATE` mapping `team → premium` and `enterprise → max` before the new constraint is
+applied. The per-category usage rollup (`v2_usage_daily_categories`) is **not** added — the
+Activity card is a per-run punchcard read directly from `v2_agent_runs` via the index above.
 
 **Polar customer mapping:** Polar's `external_id` is set to the internal `users.id` UUID (not the Clerk ID). `polar.customers.getStateExternal({ externalId: internalUserId })` resolves directly. The webhook handler maps the Polar event → `users.id` via `polar_customer_id` or `external_id`.
 
@@ -6812,6 +7069,7 @@ create index on billing_events (user_id, processed_at desc);
 | Scenario | Behavior |
 |---|---|
 | Supabase down + KV miss | Fail-open: assume current cached tier; no cache → assume Free |
+| QuotaTracker unreachable at run creation (sandbox-hours gate) | Fail-open (logged + analytics event); the `GET /v1/me/usage` display endpoint returns 503 |
 | Hard limits (concurrent sandboxes, projects) | Fail-closed: always block on cap |
 | 24h grace after `subscription.past_due` | Keep tier active, banner says "update payment" |
 | `subscription.revoked` | Drop to Free immediately |
@@ -6830,6 +7088,29 @@ On tier downgrade:
   current slot limit; Vault retrieval ignores disabled rows until the user
   removes keys or upgrades.
 
+### 28.10 Sandbox-hours usage meter
+
+The **user-facing usage unit is sandbox hours** — read directly from the period-keyed
+QuotaTracker counter. There is **no derived "credit" unit, no `credits = hours × N` mapping,
+and no ledger**; BYOK LLM token spend never debits the hours meter (LLM run cost stays
+governed by `budgetCapUsd` / `dailyCostCapUsd`, §8.7, and is surfaced via `totals`).
+
+- `GET /v1/me/usage` → `SandboxUsageSummary` (`{ sandboxHoursUsed, sandboxHoursTotal, resetAt,
+  tier }`); replaces any credits endpoint.
+- `GET /v1/billing/catalog` → `PlanCatalog` (tier/price/sandbox-hours) sourced from
+  `PLAN_CATALOG` (`packages/billing/src/catalog.ts`), the single source of truth.
+- **Activity chart = a per-run punchcard** read from `v2_agent_runs` via
+  `v2_agent_runs_user_started_idx` (the `runs[]` extension on `GET /v1/usage/daily`), not a
+  per-category rollup.
+- The 402 quota error body is `{ sandboxHoursTotal, sandboxHoursUsed, resetAt, tier }`
+  (`quota_exhausted_sandbox_hours`); run-control renders it as an upgrade prompt, and the
+  `data-quota` part wording is "Sandbox hours: 58 of 60 used — resets Jul 1".
+
+*Optional future note:* a branded "credits" display could later be layered as a thin
+client-side formatter over this hours number, requiring no backend/schema/contract change
+(recorded so the option is not lost; seat plans, hour top-ups/promo grants, and a branded
+credits layer are all on the future.md cut list).
+
 ---
 
 ## 29. Onboarding & Lifecycle Hooks
@@ -6841,12 +7122,25 @@ On tier downgrade:
 Secondary signals are emitted through `cc_user_events`: first preview opened,
 first BYOK key added, and first generated artifact.
 
-### 29.2 First-run flow (4 screens, <90s)
+### 29.2 First-run flow (5 screens, all skippable, <90s)
 
-1. **Auth (Clerk pre-built)** — Google/GitHub one-click; email/phone fallback. No password by default.
-2. **Welcome card (5s)** — "Build your first app in 2 minutes." Single CTA: "Pick a template" or "Start blank".
-3. **Template gallery (curated 6)** — `landing-page`, `todo-app`, `slack-bot`, `voice-receptionist`, `mobile-app`, `blank`. Each = thumbnail + 1-line outcome.
-4. **First chat** — Prefilled with template-specific prompt. Agent runs, preview appears in <90 s.
+After Clerk auth (Google/GitHub one-click; email/phone fallback, no password by default), the
+shipped onboarding is a **5-screen flow**, every step **skippable**, persisted to
+`v2_user_profiles.onboarding_state` and gated until `onboarding_completed_at` is set:
+
+1. **Intro** — what Cheatcode does; single "Get started" CTA.
+2. **Name** — the user's preferred agent display name (→ `agent_display_name`).
+3. **Tools** — connect integrations; the Composio step **links out to
+   `/settings/integrations`** for this round (inline connect is a later upgrade).
+4. **Basics** — per-surface Agent defaults seed (App builder / General agent model + budget)
+   and global memory.
+5. **Plan** — renders the billing-credits tier catalog (`GET /v1/billing/catalog`) + tier
+   checkout; selecting a paid tier opens tier-based Polar checkout (§28.3).
+
+**Clean implementation — NO backfill (decision #4).** The onboarding gate applies to
+**everyone**; pre-existing (dev) accounts are **cleared out**, not migrated — there is no bulk
+`onboarding_complete` job. The <90 s activation framing still holds: a user can skip straight
+through to a first agent run.
 
 ### 29.3 Post-activation checklist (sidebar, dismissible)
 
@@ -6855,7 +7149,7 @@ Persists 7 days. 4 gamified tasks:
 - ☐ Build your first project ← auto-checks on first run
 - ☐ Add your LLM API key ← BYOK CTA
 - ☐ Open your first preview ← activation depth
-- ☐ Invite a teammate ← growth (Pro-gated)
+- ☐ Connect an integration ← growth (links to `/settings/integrations`; the "invite a teammate" task is retired with seats/Team)
 
 ### 29.4 Empty states (never show "0 of X" alone)
 
@@ -6916,7 +7210,7 @@ email/name to Polar with `customers.update({ id, customerUpdate: { email, name
    - Revoke Composio OAuth tokens (Gmail, Slack, GitHub, etc.)
    - Archive all projects
 3. After 30-day grace → hard-delete, via a **deletion-manifest Workflow that covers Postgres, R2, and Durable Objects** — DB rows alone are not enough:
-   - **Postgres:** V2-prefixed tables (`v2_users`, `v2_entitlements`, billing rows except `v2_billing_events`, `v2_projects`, `v2_threads`, `v2_messages`, `v2_agent_runs`, `v2_user_integrations`, `v2_generated_outputs`, `v2_usage_events`, `v2_usage_daily_totals`, `v2_provider_keys`) plus `delete_all_provider_keys()` to purge the user's Supabase Vault BYOK secret rows before the metadata cascade. Existing V1 tables in the same Supabase project are left untouched.
+   - **Postgres:** V2-prefixed tables (`v2_users`, `v2_user_profiles`, `v2_entitlements`, billing rows except `v2_billing_events`, `v2_projects`, `v2_threads`, `v2_messages`, `v2_agent_runs`, `v2_user_integrations`, `v2_generated_outputs`, `v2_usage_events`, `v2_usage_daily_totals`, `v2_provider_keys`) plus `delete_all_provider_keys()` to purge the user's Supabase Vault BYOK secret rows before the metadata cascade. `v2_user_profiles` is covered by `ON DELETE CASCADE` (PK=user_id FK→v2_users), so the `v2_users` delete reaps it automatically. Existing V1 tables in the same Supabase project are left untouched.
    - **R2 — delete every prefix the user owns:** `cheatcode-outputs/{userId}/`, `cheatcode-uploads/{userId}/`, and the `cheatcode-snapshots` `DirectoryBackup` objects for the user's projects.
    - **Durable Objects:** the webhooks Worker calls HMAC-protected internal Service Binding routes on `agent-worker` and `gateway-worker`; `AgentRun` clears its storage, `ProjectSandbox` destroys Blaxel state and clears its storage, and `QuotaTracker` clears quota counters/limits for the user.
    - **Retry semantics:** already-deleted Blaxel sandboxes count as success, but every other Blaxel deletion failure bubbles to the Cloudflare Workflow retry policy before Durable Object state is cleared. R2 output cleanup deletes the whole `{userId}/` prefix and then any indexed keys outside that prefix, so unindexed artifacts cannot survive the DSR.
@@ -6926,7 +7220,13 @@ email/name to Polar with `customers.update({ id, customerUpdate: { email, name
 
 Clerk's 1.2 KB session cookie too tight for tier + quota + flags. Tier-in-JWT = stale-tier-in-JWT. **All entitlements server-side; resolve per-request from KV (~2 ms).**
 
-One exception: `onboarding_complete: boolean` in `user.public_metadata`, exposed as JWT custom claim — used by Next.js middleware for routing without DB lookup.
+One exception: `onboarding_complete: boolean` in `user.public_metadata`, exposed as JWT custom claim — used by Next.js middleware for the onboarding-gate routing (§29.2) without a DB lookup.
+
+**Required Clerk config:** the session-token template must mirror public metadata into the
+JWT with the claim `{"metadata": "{{user.public_metadata}}"}` (Clerk dashboard → Sessions →
+customize session token). Without this claim the middleware cannot read
+`onboarding_complete` from the token and would fall back to a DB lookup on every navigation.
+This is an ops configuration step, verified during QA.
 
 ### 29.8 Cheatcode-owned notifications are out of V2
 
@@ -7044,9 +7344,11 @@ explicitly re-expanded with exact Polar product/discount behavior.
 | Silent-failure rate | <2% | 7d | — | >5% over 1h |
 | Cost-per-run regression | <120% of 7d median | rolling 1h | — | >150% for 30 min |
 
-**Cost guardrails:**
-- Per-run hard cap: $5 (kills run, emits `silent_failure_detected:cost_spike`)
-- Per-user daily cap: configurable by plan ($10 Free / $50 Pro / $200 Team; Enterprise unset by default), enforced at run creation from same-day `v2_usage_events` and again inside AgentRun as the stream accrues spend
+**Cost guardrails:** (these govern LLM run cost only — user billing is sandbox-hours, §28.
+Run-cost USD prefers the gateway-reported cost, falling back to the cached OpenRouter
+`/models` price map; no hard-coded price table, §4.2.)
+- Per-run hard cap: default $5 ("No cap" run option = uncapped, §8.7); kills run, emits `silent_failure_detected:cost_spike`
+- Per-user daily cap: scaled by tier (e.g. $10 Free, rising monotonically Pro→Max), enforced at run creation from same-day `v2_usage_events` and again inside AgentRun as the stream accrues spend
 - No separate per-tenant token quota ships in V2. The locked §28 pricing matrix
   treats LLM tokens as BYOK and defines no token allowance values; runaway model
   usage is controlled by the per-run and daily cost caps above. Add a token
@@ -7281,6 +7583,7 @@ cc.cost_usd_micros      = int
 | Billing | `@polar-sh/sdk@0.46.4` | — |
 | Sandbox | `@blaxel/core@0.2.84` | `blaxel/base-image:latest` or custom Cheatcode sandbox image |
 | DB | `drizzle-orm@0.45.2`, `drizzle-kit@0.31.10` | — |
+| Weather (greeting) | Open-Meteo (keyless HTTP, no SDK) | gateway-only `fetch`, Cache-API 15 min TTL |
 
 ---
 

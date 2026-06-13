@@ -40,11 +40,12 @@ const BASIC_ROWS = [
   },
 ] as const;
 
+// Sandbox-hour allowances mirror PLAN_CATALOG in @cheatcode/billing (design 15f).
 const TIERS = [
-  { bullet: "~25 sandbox-hours / month", name: "Pro", price: "$25", primary: true },
-  { bullet: "~60 sandbox-hours / month", name: "Premium", price: "$50", primary: false },
-  { bullet: "~150 sandbox-hours / month", name: "Ultra", price: "$99", primary: false },
-  { bullet: "~350 sandbox-hours / month", name: "Max", price: "$200", primary: false },
+  { bullet: "60 sandbox-hours / month", name: "Pro", price: "$25", primary: true },
+  { bullet: "140 sandbox-hours / month", name: "Premium", price: "$50", primary: false },
+  { bullet: "320 sandbox-hours / month", name: "Ultra", price: "$99", primary: false },
+  { bullet: "800 sandbox-hours / month", name: "Max", price: "$200", primary: false },
 ] as const;
 
 export function IntroStep({ onContinue }: { onContinue: () => void }) {
