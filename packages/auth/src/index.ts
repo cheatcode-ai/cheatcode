@@ -103,6 +103,22 @@ export async function fetchClerkUserPrimaryEmailStatus(input: {
   return primaryEmailStatusFromClerkUserResource(user);
 }
 
+export interface UpdateClerkUserPublicMetadataInput {
+  clerkUserId: string;
+  metadata: Record<string, unknown>;
+  secretKey: string;
+}
+
+/** Mirror a value into Clerk `public_metadata` (e.g. the onboarding-complete claim). */
+export async function updateClerkUserPublicMetadata(
+  input: UpdateClerkUserPublicMetadataInput,
+): Promise<void> {
+  const clerk = createClerkClient({ secretKey: input.secretKey });
+  await clerk.users.updateUserMetadata(input.clerkUserId, {
+    publicMetadata: input.metadata,
+  });
+}
+
 function resolvePrimaryEmailResource(
   user: z.infer<typeof ClerkUserResourceSchema>,
 ): z.infer<typeof ClerkEmailResourceSchema> | undefined {

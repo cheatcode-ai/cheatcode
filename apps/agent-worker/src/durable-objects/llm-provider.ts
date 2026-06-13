@@ -5,7 +5,7 @@ import {
   resolveRequestedLlmModel,
 } from "@cheatcode/agent-core";
 import { getProviderKey } from "@cheatcode/byok";
-import { createDb, type DatabaseHandle, withUserContext } from "@cheatcode/db";
+import { createDb, type Database, type DatabaseHandle, withUserContext } from "@cheatcode/db";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import { UserId } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
@@ -94,20 +94,48 @@ async function resolveProviderKey(
 ): Promise<LlmCredential> {
   const dbHandle = createDb(env.HYPERDRIVE);
   try {
-    const apiKey = await withUserContext(dbHandle.db, UserId(userId), (db) =>
-      getProviderKey(db, selection.provider),
+    const resolved = await withUserContext(dbHandle.db, UserId(userId), (db) =>
+      resolveTransportKey(db, selection),
     );
-    if (!apiKey) {
-      throw missingProviderKey(selection.provider);
-    }
     logger.info("byok_provider_key_resolved", {
-      modelId: selection.modelId,
-      provider: selection.provider,
+      modelId: resolved.selection.modelId,
+      provider: resolved.selection.provider,
     });
-    return { ...selection, apiKey };
+    return { ...resolved.selection, apiKey: resolved.apiKey };
   } finally {
     await closeDatabase(dbHandle, logger);
   }
+}
+
+/**
+ * D9 transport rule: prefer the user's direct provider key; otherwise route a
+ * non-OpenRouter selection through OpenRouter (using the full `provider/model`
+ * slug) when an OpenRouter key is present; otherwise the model is unavailable.
+ * Runs inside the caller's already-open withUserContext connection — at most one
+ * extra indexed get_provider_key call on the direct-key miss path.
+ */
+async function resolveTransportKey(
+  db: Database,
+  selection: LlmModelSelection,
+): Promise<{ apiKey: string; selection: LlmModelSelection }> {
+  const directKey = await getProviderKey(db, selection.provider);
+  if (directKey) {
+    return { apiKey: directKey, selection };
+  }
+  if (selection.provider !== "openrouter") {
+    const openrouterKey = await getProviderKey(db, "openrouter");
+    if (openrouterKey) {
+      return {
+        apiKey: openrouterKey,
+        selection: { modelId: openRouterSlug(selection), provider: "openrouter" },
+      };
+    }
+  }
+  throw missingProviderKey(selection.provider);
+}
+
+function openRouterSlug(selection: LlmModelSelection): string {
+  return `${selection.provider}/${selection.modelId}`;
 }
 
 function missingProviderKey(provider: LlmProvider): APIError {

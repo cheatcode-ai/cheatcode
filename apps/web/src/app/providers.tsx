@@ -6,20 +6,17 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type { ReactNode } from "react";
 import { useEffect, useState } from "react";
 import { Toaster } from "sonner";
+import { ProfileModelSync } from "@/components/profile/profile-model-sync";
 import { useAppStore } from "@/lib/store/app-store";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
   return (
     <NuqsAdapter>
-      <ThemeProvider
-        attribute="class"
-        defaultTheme="dark"
-        forcedTheme="dark"
-        disableTransitionOnChange
-      >
+      <ThemeProvider attribute="class" defaultTheme="system" enableSystem disableTransitionOnChange>
         <QueryClientProvider client={queryClient}>
           <AppStoreHydrator />
+          <ProfileModelSync />
           {children}
           <Toaster />
         </QueryClientProvider>

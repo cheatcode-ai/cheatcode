@@ -1,4 +1,4 @@
-import { accountRoutes } from "./openapi-account-routes";
+import { accountRoutes, accountSchemas } from "./openapi-account-routes";
 import { billingRoutes, billingSchemas } from "./openapi-billing-routes";
 import {
   arrayOf,
@@ -748,7 +748,7 @@ const routes: OpenApiRoute[] = [
 
 export const OPENAPI_DOCUMENT = buildOpenApiDocument({
   routes,
-  schemas: { ...COMPONENT_SCHEMAS, ...billingSchemas },
+  schemas: { ...COMPONENT_SCHEMAS, ...accountSchemas, ...billingSchemas },
 });
 
 export const openApiDocsHtml = (): string => renderOpenApiDocsHtml(routes);

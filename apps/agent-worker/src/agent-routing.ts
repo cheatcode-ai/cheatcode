@@ -8,6 +8,7 @@ import {
   getProjectWriteState,
   getThread,
   getUserDailyUsageCostUsd,
+  type RunPersonalization,
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, emitUserEvent } from "@cheatcode/observability";
@@ -122,6 +123,7 @@ export async function startAgentRun(
   body: CreateRun,
   sandboxName: string,
   policy: RunEntitlementPolicy,
+  personalization: RunPersonalization,
 ): Promise<Response> {
   const messageText = extractRunMessageText(body);
   const response = await fetchAgentRun(
@@ -137,6 +139,11 @@ export async function startAgentRun(
           ? {}
           : { dailyCostCapUsd: policy.dailyCostCapUsd }),
         ...(run.masterInstructions ? { masterInstructions: run.masterInstructions } : {}),
+        ...(personalization.agentDisplayName
+          ? { agentDisplayName: personalization.agentDisplayName }
+          : {}),
+        ...(personalization.globalMemory ? { globalMemory: personalization.globalMemory } : {}),
+        disabledModels: personalization.disabledModels,
         messageText,
         model: body.model ?? run.modelId,
         projectId: run.projectId,
@@ -215,6 +222,7 @@ export async function startLegacyThreadRun(
         ...(policy.dailyCostCapUsd === undefined
           ? {}
           : { dailyCostCapUsd: policy.dailyCostCapUsd }),
+        disabledModels: [],
         messageText: extractRunMessageText(body),
         model: body.model,
         projectId,

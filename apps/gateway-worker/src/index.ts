@@ -1,17 +1,12 @@
-import {
-  fetchClerkUserPrimaryEmail,
-  fetchClerkUserPrimaryEmailStatus,
-  verifyClerkBearerToken,
-  verifyInternalMaintenanceRequest,
-} from "@cheatcode/auth";
+import { verifyInternalMaintenanceRequest } from "@cheatcode/auth";
 import {
   deleteProviderKey,
   listProviderKeys,
   setProviderKey,
   validateProviderKey,
 } from "@cheatcode/byok";
-import { createDb, resolveInternalUserId, upsertClerkUser, withUserContext } from "@cheatcode/db";
-import { GatewayWorkerEnvSchema, resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import { createDb, withUserContext } from "@cheatcode/db";
+import { GatewayWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
@@ -32,6 +27,7 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
+import { authenticate, readRequiredSecret, requireVerifiedClerkEmail } from "./authenticate";
 import {
   billingCancelRoute,
   billingCheckoutRoute,
@@ -64,6 +60,7 @@ import {
 } from "./local-preview-proxy";
 import { listAgentsRoute, listToolsRoute } from "./metadata-routes";
 import { OPENAPI_DOCUMENT, openApiDocsHtml } from "./openapi";
+import { getMyProfileRoute, updateMyProfileRoute } from "./profile-routes";
 import {
   createProjectRoute,
   createThreadRoute,
@@ -171,114 +168,6 @@ function errorEventDetails(error: unknown): { message?: string; stack?: string }
   };
 }
 
-async function authenticate(
-  request: Request,
-  env: GatewayEnv,
-  ctx: ExecutionContext,
-): Promise<UserId> {
-  const jwtKey = await readOptionalSecret(env.CLERK_JWT_KEY, "CLERK_JWT_KEY");
-  const secretKey = await readOptionalSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
-  if (!jwtKey && !secretKey) {
-    throw new APIError(503, "unavailable_maintenance", "Clerk verification is not configured", {
-      hint: "Set CLERK_JWT_KEY or CLERK_SECRET_KEY in the gateway Worker environment.",
-      retriable: false,
-    });
-  }
-  const verificationOptions: { jwtKey?: string; secretKey?: string } = {};
-  if (jwtKey) {
-    verificationOptions.jwtKey = jwtKey;
-  }
-  if (secretKey) {
-    verificationOptions.secretKey = secretKey;
-  }
-  const session = await verifyClerkBearerToken(request, verificationOptions);
-  const { db, close } = createDb(env.HYPERDRIVE);
-  try {
-    const userId = await resolveInternalUserId(db, session.clerkUserId);
-    if (userId) {
-      return userId;
-    }
-    if (!secretKey) {
-      throw new APIError(404, "not_found_user", "Authenticated user is not synced", {
-        hint: "Wait for the Clerk user.created webhook to finish, then retry.",
-        retriable: true,
-      });
-    }
-    const email = await fetchClerkUserEmail(session.clerkUserId, secretKey);
-    if (!email) {
-      throw new APIError(404, "not_found_user", "Authenticated user is missing an email", {
-        hint: "Add a primary email address to the Clerk user, then retry.",
-        retriable: false,
-      });
-    }
-    const syncedUser = await upsertClerkUser(db, { clerkId: session.clerkUserId, email });
-    return syncedUser.userId;
-  } finally {
-    ctx.waitUntil(close());
-  }
-}
-
-async function fetchClerkUserEmail(clerkUserId: string, secretKey: string): Promise<string | null> {
-  try {
-    return await fetchClerkUserPrimaryEmail({ clerkUserId, secretKey });
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", "Unable to sync Clerk user", {
-      hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
-      retriable: true,
-    });
-  }
-}
-
-async function requireVerifiedClerkEmail(request: Request, env: GatewayEnv): Promise<void> {
-  const secretKey = await readRequiredSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
-  const session = await verifyClerkBearerToken(request, { secretKey });
-  const emailStatus = await fetchClerkEmailStatus(session.clerkUserId, secretKey);
-  if (emailStatus.verified) {
-    return;
-  }
-  throw new APIError(403, "permission_denied", "Verify your email before starting a sandbox run", {
-    details: { email: emailStatus.email },
-    hint: "Complete Clerk email verification, refresh the app, and start the run again.",
-    retriable: false,
-  });
-}
-
-async function fetchClerkEmailStatus(clerkUserId: string, secretKey: string) {
-  try {
-    return await fetchClerkUserPrimaryEmailStatus({ clerkUserId, secretKey });
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", "Unable to verify Clerk email status", {
-      hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
-      retriable: true,
-    });
-  }
-}
-
-async function readOptionalSecret(
-  secret: WorkerSecret | undefined,
-  name: string,
-): Promise<string | undefined> {
-  try {
-    return await resolveWorkerSecret(secret);
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", `${name} is unavailable`, {
-      hint: `Verify the ${name} Cloudflare Secrets Store binding and secret value.`,
-      retriable: false,
-    });
-  }
-}
-
-async function readRequiredSecret(secret: WorkerSecret | undefined, name: string): Promise<string> {
-  const value = await readOptionalSecret(secret, name);
-  if (!value) {
-    throw new APIError(503, "unavailable_maintenance", `${name} is not configured`, {
-      hint: `Set ${name} in the gateway Worker environment.`,
-      retriable: false,
-    });
-  }
-  return value;
-}
-
 async function forwardAgentRequest(c: GatewayContext, route: string): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
   const headers = await rateLimit(c, userId, route);
@@ -377,6 +266,18 @@ export const gatewayRoutes = gatewayApp
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     return c.json({ userId });
+  })
+
+  .get("/v1/me/profile", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/me/profile");
+    return getMyProfileRoute(c.env, c.executionCtx, userId);
+  })
+
+  .patch("/v1/me/profile", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "PATCH /v1/me/profile");
+    return updateMyProfileRoute(c.env, c.executionCtx, c.req.raw, userId);
   })
 
   .get("/v1/limits", async (c) => {

@@ -57,6 +57,7 @@ import {
   OutputIdSchema,
   verifySignedOutputDownload,
 } from "./output-download";
+import { loadRunPersonalization } from "./run-personalization";
 import { parseCreateRunRequestBody } from "./run-request";
 import {
   GatewayUserIdSchema,
@@ -306,9 +307,14 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
   try {
     const parsedUserId = UserId(userId);
     const parsedThreadId = ThreadId(threadId);
-    const thread = await withUserContext(db, parsedUserId, (tx) =>
-      getThread(tx, { threadId: parsedThreadId, userId: parsedUserId }),
-    );
+    const { personalization, thread } = await withUserContext(db, parsedUserId, async (tx) => {
+      const loadedThread = await getThread(tx, {
+        threadId: parsedThreadId,
+        userId: parsedUserId,
+      });
+      const loadedPersonalization = await loadRunPersonalization(tx, parsedUserId, body.model);
+      return { personalization: loadedPersonalization, thread: loadedThread };
+    });
     if (!thread) {
       throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
     }
@@ -318,6 +324,7 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
       createAgentRunForThread(tx, {
         agentName: body.agentName ?? DEFAULT_AGENT_NAME,
         maxConcurrentSandboxes: policy.maxConcurrentSandboxes,
+        personalization,
         sandboxId: sandboxName,
         source: "web",
         threadId: parsedThreadId,
@@ -363,7 +370,15 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
       }),
     );
     await sandboxForProject(c.env, userId, result.run.projectId);
-    const response = await startAgentRun(c.env, userId, result.run, body, sandboxName, policy);
+    const response = await startAgentRun(
+      c.env,
+      userId,
+      result.run,
+      body,
+      sandboxName,
+      policy,
+      personalization,
+    );
     return withRunLocation(response, result.run.runId);
   } finally {
     c.executionCtx.waitUntil(close());

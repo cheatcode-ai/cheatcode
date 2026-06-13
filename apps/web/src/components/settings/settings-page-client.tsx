@@ -20,20 +20,29 @@ import {
   Loader2,
   type LucideIcon,
   RefreshCw,
+  SlidersHorizontal,
   Sparkles,
   SquareAsterisk,
   User,
   Zap,
 } from "@/components/ui/icons";
 import { MenuBar } from "@/components/ui/menu-bar";
-import { AGENT_MODEL_OPTIONS, DEFAULT_AGENT_MODEL_ID } from "@/lib/agent-models";
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
-import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
+import { AgentsPanel } from "./agents-panel";
 import { IntegrationsPanel } from "./integrations-panel";
+import { PersonalizationPanel } from "./personalization-panel";
 import { ProviderKeysPanel } from "./provider-keys-panel";
+import { SettingsHeading } from "./settings-heading";
+import { ThemePreference } from "./theme-preference";
 
-export type SettingsSectionId = "account" | "integrations" | "agents" | "api-keys" | "billing";
+export type SettingsSectionId =
+  | "account"
+  | "integrations"
+  | "personalization"
+  | "agents"
+  | "api-keys"
+  | "billing";
 
 type SettingsMenuItem = {
   gradient: string;
@@ -62,6 +71,15 @@ const SETTINGS_MENU_ITEMS = [
     iconColor: "text-yellow-500",
     id: "integrations",
     label: "Integrations",
+  },
+  {
+    href: "/settings/personalization",
+    icon: SlidersHorizontal,
+    gradient:
+      "radial-gradient(circle, rgba(236,72,153,0.15) 0%, rgba(219,39,119,0.06) 50%, rgba(190,24,93,0) 100%)",
+    iconColor: "text-pink-500",
+    id: "personalization",
+    label: "Personalization",
   },
   {
     href: "/settings/agents",
@@ -133,6 +151,9 @@ function SettingsSection({ section }: { section: SettingsSectionId }) {
   if (section === "integrations") {
     return <IntegrationsPanel />;
   }
+  if (section === "personalization") {
+    return <PersonalizationPanel />;
+  }
   if (section === "agents") {
     return <AgentsPanel />;
   }
@@ -178,91 +199,13 @@ function AccountPanel() {
             </a>
           </div>
         </section>
-      </div>
-    </div>
-  );
-}
-
-function AgentsPanel() {
-  const agentModelId = useAppStore((state) => state.agentModelId);
-  const setAgentModelId = useAppStore((state) => state.setAgentModelId);
-  const hasOverride = agentModelId !== DEFAULT_AGENT_MODEL_ID;
-
-  return (
-    <div className="flex flex-col items-center text-zinc-200">
-      <SettingsHeading
-        description="Set the default model and budget behavior used by Cheatcode agent runs."
-        title="Agents"
-      />
-      <div className="w-full max-w-4xl space-y-6">
-        <div className="flex items-center justify-between px-1">
-          <div className="flex flex-col">
-            <div className="font-bold font-mono text-[11px] text-zinc-500 uppercase tracking-[0.2em]">
-              Default model
-            </div>
-            <p className="mt-1 text-xs text-zinc-600">
-              Auto keeps the plan-defined production default.
-            </p>
+        <section className="space-y-4 rounded-3xl border border-zinc-800/80 bg-[#111] p-8 shadow-xl">
+          <div className="space-y-1 text-center">
+            <h2 className="font-medium text-white">Appearance</h2>
+            <p className="text-sm text-zinc-500">Theme is stored on this device.</p>
           </div>
-          {hasOverride ? (
-            <button
-              aria-label="Reset agent model"
-              className="inline-flex h-8 items-center rounded-full border border-zinc-800/50 px-3 font-medium text-[10px] text-zinc-500 uppercase tracking-wider transition-colors hover:bg-zinc-900 hover:text-white"
-              onClick={() => setAgentModelId(DEFAULT_AGENT_MODEL_ID)}
-              type="button"
-            >
-              <RefreshCw aria-hidden="true" className="mr-2 h-3 w-3" />
-              Reset
-            </button>
-          ) : null}
-        </div>
-        <fieldset className="grid grid-cols-1 gap-4 md:grid-cols-2">
-          <legend className="sr-only">Default agent model</legend>
-          {AGENT_MODEL_OPTIONS.map((option) => {
-            const isSelected = option.id === agentModelId;
-            return (
-              <label
-                className={cn(
-                  "group relative flex min-h-36 cursor-pointer flex-col justify-between rounded-2xl border border-zinc-800/80 bg-[#111] p-6 text-left shadow-xl transition-colors hover:border-zinc-700/80 hover:bg-[#151515]",
-                  isSelected && "border-purple-500/40 bg-[#151515]",
-                )}
-                key={option.id}
-              >
-                <input
-                  checked={isSelected}
-                  className="sr-only"
-                  name="agent-model"
-                  onChange={() => setAgentModelId(option.id)}
-                  type="radio"
-                />
-                <div>
-                  <div className="mb-3 flex items-center justify-between">
-                    <span className="rounded-md border border-zinc-800/50 bg-zinc-900/50 px-2 py-0.5 font-bold font-mono text-[10px] text-zinc-400 uppercase tracking-widest">
-                      {option.label}
-                    </span>
-                    {isSelected ? (
-                      <span
-                        aria-hidden="true"
-                        className="h-1.5 w-1.5 rounded-full bg-purple-500 shadow-[0_0_8px_rgba(168,85,247,0.5)]"
-                      />
-                    ) : null}
-                  </div>
-                  <p className="min-h-10 text-xs text-zinc-500 leading-relaxed">
-                    {option.description}
-                  </p>
-                </div>
-                <div
-                  className={cn(
-                    "mt-6 flex h-10 items-center justify-center rounded-xl border border-zinc-800/80 bg-[#0a0a0a] font-mono text-[10px] uppercase tracking-widest transition-colors",
-                    isSelected ? "text-purple-300" : "text-zinc-600 group-hover:text-zinc-400",
-                  )}
-                >
-                  {isSelected ? "Selected" : "Select"}
-                </div>
-              </label>
-            );
-          })}
-        </fieldset>
+          <ThemePreference />
+        </section>
       </div>
     </div>
   );
@@ -712,15 +655,6 @@ function UsageHistoryRow({ row }: { row: UsageDailyTotal }) {
         {row.agentRunCount.toLocaleString()} runs
       </div>
       <div className="font-mono text-xs text-zinc-400">${row.totalCostUsd.toFixed(4)}</div>
-    </div>
-  );
-}
-
-function SettingsHeading({ description, title }: { description: string; title: string }) {
-  return (
-    <div className="mb-10 max-w-xl space-y-6 text-center">
-      <h1 className="font-medium text-2xl text-white tracking-tight">{title}</h1>
-      <p className="text-sm text-zinc-500 leading-relaxed">{description}</p>
     </div>
   );
 }

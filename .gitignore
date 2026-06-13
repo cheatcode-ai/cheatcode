@@ -28,3 +28,6 @@ plans/
 # Local debugging artifacts (agent-browser screenshots, clipboard scratch)
 /*.png
 .gemini-clipboard/
+
+# Claude Code transient session state
+.claude/last-session.json

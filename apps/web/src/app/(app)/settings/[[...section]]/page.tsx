@@ -12,6 +12,7 @@ const SETTINGS_STATIC_SECTIONS = [
   [],
   ["account"],
   ["integrations"],
+  ["personalization"],
   ["agents"],
   ["api-keys"],
   ["byok"],
@@ -57,6 +58,9 @@ function activeSectionFromSegments(segments: string[] | undefined): SettingsSect
 
   if (section === "integrations") {
     return "integrations";
+  }
+  if (section === "personalization") {
+    return "personalization";
   }
   if (section === "agents") {
     return "agents";

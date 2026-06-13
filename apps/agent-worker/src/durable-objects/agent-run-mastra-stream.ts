@@ -57,6 +57,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
         requestContext: createCodeRequestContext(
           { artifacts: options.artifactRuntime, sandbox },
           {
+            agentDisplayName: input.agentDisplayName,
             anthropicApiKey: credential.provider === "anthropic" ? credential.apiKey : undefined,
             composioApiKey: toolCredentials.composioApiKey,
             composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
@@ -66,6 +67,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
             exaApiKey: toolCredentials.exaApiKey,
             falApiKey: toolCredentials.falApiKey,
             firecrawlApiKey: toolCredentials.firecrawlApiKey,
+            globalMemory: input.globalMemory,
             googleApiKey: credential.provider === "google" ? credential.apiKey : undefined,
             llmProvider: credential.provider,
             masterInstructions: input.masterInstructions,

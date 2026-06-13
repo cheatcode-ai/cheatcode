@@ -2,6 +2,7 @@ import { DurableObject } from "cloudflare:workers";
 import { executeRunCodeTool, mastra } from "@cheatcode/agent-core";
 import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
 import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
+import { FALLBACK_MODEL_ID } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import {
   createAgentStreamResponse,
@@ -529,6 +530,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       await this.streamMastraRun(input, sandbox, primaryCredential, logger, abortSignal);
     } catch (error) {
       if (!shouldFallbackToOpenAI(input.model, primaryCredential, error)) {
+        throw error;
+      }
+      if (input.disabledModels.includes(FALLBACK_MODEL_ID)) {
+        logger.warn("llm_fallback_suppressed_by_user", { fallbackModel: FALLBACK_MODEL_ID });
         throw error;
       }
       const fallbackCredential = await resolveOpenAiFallbackCredential(this.env, input, logger);
