@@ -83,6 +83,7 @@ export {
   softDeleteProject,
   updateProject,
 } from "./projects";
+export { listExistingThreadIds, listReplayMessages } from "./replays";
 export type { EntitlementResourceLimitInput } from "./resource-limits";
 export { applyEntitlementResourceLimits } from "./resource-limits";
 export type {

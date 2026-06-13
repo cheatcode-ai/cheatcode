@@ -15,6 +15,7 @@ export type ErrorCode =
   | "not_found_run"
   | "not_found_output"
   | "not_found_tool"
+  | "not_found_replay"
   | "invalid_request_body"
   | "invalid_query_param"
   | "invalid_path_param"

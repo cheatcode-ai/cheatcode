@@ -79,6 +79,7 @@ import {
   updateProjectRoute,
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
+import { featuredReplaysRoute, replayByIdRoute } from "./replay-routes";
 import { searchWorkspaceRoute } from "./search-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
@@ -272,6 +273,10 @@ export const gatewayRoutes = gatewayApp
     return clientUserEventRoute(c, optionalTelemetryUser);
   })
   .get("/v1/outputs/:outputId/download", (c) => c.env.AGENT.fetch(c.req.raw))
+  // Public, unauthenticated featured-replay reads (replays plan §4). "featured"
+  // MUST be chained before ":id" so it is not captured as a slug.
+  .get("/v1/replays/featured", (c) => featuredReplaysRoute(c.env, c.executionCtx))
+  .get("/v1/replays/:id", (c) => replayByIdRoute(c.env, c.executionCtx, c.req.param("id")))
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     return c.json({ userId });

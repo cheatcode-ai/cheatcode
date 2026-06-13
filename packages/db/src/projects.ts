@@ -733,7 +733,7 @@ function threadFromRow(row: {
   };
 }
 
-function messageFromRow(row: {
+export function messageFromRow(row: {
   agentRunId: string | null;
   createdAt: Date;
   id: string;

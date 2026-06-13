@@ -572,6 +572,54 @@ export const GreetingResponseSchema = z
   })
   .strict();
 
+/**
+ * One sanitized message in a public replay transcript. Carries only the fields
+ * the gateway exposes after `sanitizeReplayParts` — `agentRunId`/`userId`/
+ * `threadId` never leave the gateway, and only `user`/`assistant` roles survive.
+ */
+export const PublicReplayMessageSchema = z
+  .object({
+    createdAt: z.string().datetime(),
+    id: z.string().uuid(),
+    parts: z.array(MessagePartSchema),
+    role: z.enum(["assistant", "user"]),
+  })
+  .strict();
+
+/** Response of `GET /v1/replays/:id`: the sanitized read-only transcript. */
+export const PublicReplaySchema = z
+  .object({
+    messages: z.array(PublicReplayMessageSchema),
+    replay: z
+      .object({
+        // Operator-authored; defaulted "the Cheatcode team" by the route.
+        authorName: z.string(),
+        // Latest message createdAt, or null when the timeline is empty.
+        date: z.string().datetime().nullable(),
+        // The public manifest slug (never the internal thread UUID).
+        id: z.string(),
+        title: z.string(),
+      })
+      .strict(),
+  })
+  .strict();
+
+/** Response of `GET /v1/replays/featured`: curated home-card rows. Empty `data` hides the card. */
+export const FeaturedReplaysSchema = z
+  .object({
+    data: z.array(
+      z
+        .object({
+          accentKind: z.enum(["app", "deck", "research", "data", "landing", "social"]).optional(),
+          id: z.string(),
+          previewText: z.string(),
+          title: z.string(),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
 export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
 export type ApprovalDecisionResponse = z.infer<typeof ApprovalDecisionResponseSchema>;
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
@@ -629,3 +677,6 @@ export type UpdateSandboxPathFile = z.infer<typeof UpdateSandboxPathFileSchema>;
 export type UsageDailyQuery = z.infer<typeof UsageDailyQuerySchema>;
 export type UsageDailyTotal = z.infer<typeof UsageDailyTotalSchema>;
 export type UsageDailyTotalsResponse = z.infer<typeof UsageDailyTotalsResponseSchema>;
+export type FeaturedReplays = z.infer<typeof FeaturedReplaysSchema>;
+export type PublicReplay = z.infer<typeof PublicReplaySchema>;
+export type PublicReplayMessage = z.infer<typeof PublicReplayMessageSchema>;

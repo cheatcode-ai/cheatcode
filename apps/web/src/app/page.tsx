@@ -4,6 +4,7 @@ import { currentUser } from "@clerk/nextjs/server";
 import Image from "next/image";
 import Link from "next/link";
 import { Suspense, type SVGProps } from "react";
+import { FeaturedReplays } from "@/components/home/featured-replays";
 import { HomeComposer } from "@/components/home/home-composer";
 import { HomeGreeting } from "@/components/home/home-greeting";
 import { Menu, Star, User, Zap } from "@/components/ui/icons";
@@ -38,6 +39,9 @@ export default async function HomePage({
                 </h1>
               </div>
               <HomeComposer initialSkill={initialSkill} />
+              <Suspense fallback={null}>
+                <FeaturedReplays />
+              </Suspense>
             </div>
           </div>
           <div className="mx-auto mb-16 max-w-4xl sm:mt-52" />

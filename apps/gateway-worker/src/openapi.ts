@@ -16,6 +16,7 @@ import {
   stringSchema,
 } from "./openapi-builder";
 import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
+import { replayRoutes, replaySchemas } from "./openapi-replay-routes";
 import { runControlRoutes, runControlSchemas } from "./openapi-run-control-routes";
 import { sandboxRoutes, sandboxSchemas } from "./openapi-sandbox-routes";
 import {
@@ -641,6 +642,7 @@ const routes: OpenApiRoute[] = [
     summary: "Download a signed generated output",
     tags: ["outputs"],
   },
+  ...replayRoutes,
   {
     method: "get",
     operationId: "listTools",
@@ -777,6 +779,7 @@ export const OPENAPI_DOCUMENT = buildOpenApiDocument({
     ...accountSchemas,
     ...billingSchemas,
     ...discoverySchemas,
+    ...replaySchemas,
     ...runControlSchemas,
     ...sandboxSchemas,
   },

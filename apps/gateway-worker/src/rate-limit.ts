@@ -141,6 +141,7 @@ function fallbackPolicyForRequest(request: Request): RateLimitPolicy {
   }
   if (
     /^\/v1\/outputs\/[^/]+\/download$/.test(url.pathname) ||
+    /^\/v1\/replays\//.test(url.pathname) ||
     url.pathname === "/health" ||
     url.pathname === "/docs" ||
     url.pathname === "/openapi.json"
