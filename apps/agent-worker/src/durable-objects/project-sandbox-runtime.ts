@@ -140,6 +140,17 @@ export const ProjectKillProcessInputSchema = z
   })
   .strict();
 
+export const ProjectReadDevServerLogsInputSchema = z
+  .object({
+    lastPid: z.string().min(1).max(100).optional(),
+    processId: z.string().min(1).max(200).default("app-preview"),
+    stderrCursor: z.number().int().min(0).default(0),
+    stdoutCursor: z.number().int().min(0).default(0),
+    tail: z.number().int().min(1).max(500).default(200),
+  })
+  .strict();
+export type ProjectReadDevServerLogsInput = z.input<typeof ProjectReadDevServerLogsInputSchema>;
+
 export const ProjectExposePortInputSchema = z
   .object({
     hostname: z.string().min(1).max(255).optional(),

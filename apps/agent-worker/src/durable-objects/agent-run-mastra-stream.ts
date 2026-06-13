@@ -1,4 +1,4 @@
-import { createCodeRequestContext, mastra } from "@cheatcode/agent-core";
+import { type ApprovalBroker, createCodeRequestContext, mastra } from "@cheatcode/agent-core";
 import type { createLogger } from "@cheatcode/observability";
 import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
 import { stepCountIs } from "ai";
@@ -19,8 +19,10 @@ export type MastraStreamOptions = {
   abortSignal: AbortSignal;
   agentContextNote?: string;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  approvalBroker: ApprovalBroker | undefined;
   artifactRuntime: ArtifactRuntime;
   env: AgentRunEnv;
+  hasPendingDecision: () => boolean;
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
   runRunCodeFallback: () => Promise<void>;
@@ -60,6 +62,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
           {
             agentDisplayName: input.agentDisplayName,
             anthropicApiKey: credential.provider === "anthropic" ? credential.apiKey : undefined,
+            approvalBroker: options.approvalBroker,
             composioApiKey: toolCredentials.composioApiKey,
             composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
             composioQuotaMeter: toolCredentials.composioQuotaMeter,
@@ -94,6 +97,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
       appendCheckedMastraChunk: options.appendCheckedMastraChunk,
       abortSignal: options.abortSignal,
       credential,
+      hasPendingDecision: options.hasPendingDecision,
       input,
       logger,
       runRunCodeFallback: options.runRunCodeFallback,
@@ -135,6 +139,7 @@ async function consumeOpenedMastraStream(options: {
   abortSignal: AbortSignal;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
   credential: LlmCredential;
+  hasPendingDecision: () => boolean;
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
   runRunCodeFallback: () => Promise<void>;
@@ -151,6 +156,7 @@ async function consumeOpenedMastraStream(options: {
     iterator,
     MASTRA_FIRST_CHUNK_TIMEOUT_MS,
     options.abortController,
+    options.hasPendingDecision,
   );
   if (firstChunk === "timeout") {
     await iterator.return?.();
@@ -161,6 +167,7 @@ async function consumeOpenedMastraStream(options: {
     abortController: options.abortController,
     appendCheckedMastraChunk: options.appendCheckedMastraChunk,
     firstChunk,
+    hasPendingDecision: options.hasPendingDecision,
     input: options.input,
     iterator,
   });
@@ -187,6 +194,7 @@ async function appendMastraStreamChunks(options: {
   abortController: AbortController;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
   firstChunk: IteratorResult<unknown, unknown>;
+  hasPendingDecision: () => boolean;
   input: StartRunInput;
   iterator: AsyncIterator<unknown>;
 }): Promise<"completed" | "timeout-after-visible" | "timeout-before-visible"> {
@@ -201,7 +209,12 @@ async function appendMastraStreamChunks(options: {
     const timeoutMs = hasVisibleChunk
       ? MASTRA_FIRST_CHUNK_TIMEOUT_MS
       : Math.max(1, firstVisibleChunkDeadline - Date.now());
-    const nextChunk = await readMastraChunk(options.iterator, timeoutMs, options.abortController);
+    const nextChunk = await readMastraChunk(
+      options.iterator,
+      timeoutMs,
+      options.abortController,
+      options.hasPendingDecision,
+    );
     if (nextChunk === "timeout") {
       return hasVisibleChunk ? "timeout-after-visible" : "timeout-before-visible";
     }

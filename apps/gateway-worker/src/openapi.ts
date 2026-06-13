@@ -16,7 +16,8 @@ import {
   stringSchema,
 } from "./openapi-builder";
 import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
-import { sandboxRoutes } from "./openapi-sandbox-routes";
+import { runControlRoutes, runControlSchemas } from "./openapi-run-control-routes";
+import { sandboxRoutes, sandboxSchemas } from "./openapi-sandbox-routes";
 import {
   arraySchemaFor,
   idempotencyKeyParameter,
@@ -287,9 +288,26 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
     properties: {
       active: { type: "boolean" },
       error: { type: ["object", "null"] },
+      pendingApproval: {
+        additionalProperties: false,
+        properties: {
+          approvalId: stringSchema({ format: "uuid" }),
+          expiresAt: { type: "integer" },
+          kind: { enum: ["tool-approval", "model-fallback"], type: "string" },
+          requestedAt: { type: "integer" },
+          summary: stringSchema(),
+          timeoutDecision: { enum: ["allow", "deny"], type: "string" },
+          toolName: stringSchema(),
+        },
+        required: ["approvalId", "expiresAt", "kind", "requestedAt", "summary", "timeoutDecision"],
+        type: "object",
+      },
       previewUrl: nullableStringSchema({ format: "uri" }),
       runId: nullableStringSchema(),
-      status: nullableStringSchema(),
+      status: {
+        enum: ["idle", "running", "paused", "completed", "failed", "canceled", null],
+        type: ["string", "null"],
+      },
     },
     type: "object",
   },
@@ -592,6 +610,7 @@ const routes: OpenApiRoute[] = [
     summary: "Cancel an agent run",
     tags: ["runs"],
   },
+  ...runControlRoutes,
   {
     method: "post",
     operationId: "startRunTakeover",
@@ -753,7 +772,14 @@ const routes: OpenApiRoute[] = [
 
 export const OPENAPI_DOCUMENT = buildOpenApiDocument({
   routes,
-  schemas: { ...COMPONENT_SCHEMAS, ...accountSchemas, ...billingSchemas, ...discoverySchemas },
+  schemas: {
+    ...COMPONENT_SCHEMAS,
+    ...accountSchemas,
+    ...billingSchemas,
+    ...discoverySchemas,
+    ...runControlSchemas,
+    ...sandboxSchemas,
+  },
 });
 
 export const openApiDocsHtml = (): string => renderOpenApiDocsHtml(routes);

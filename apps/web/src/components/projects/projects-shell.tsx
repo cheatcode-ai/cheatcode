@@ -125,7 +125,7 @@ export function ProjectsShell() {
           threadId={threadId}
         />
       </section>
-      <PreviewSidePanel threadId={threadId} />
+      <PreviewSidePanel project={projectQuery.data ?? null} threadId={threadId} />
     </>
   );
 }

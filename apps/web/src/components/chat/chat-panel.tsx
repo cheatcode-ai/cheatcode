@@ -14,6 +14,7 @@ import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react
 import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
+import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
 import { useAppStore } from "@/lib/store/app-store";
@@ -40,6 +41,8 @@ export function ChatPanel({
   const agentModelId = useAppStore((state) => state.agentModelId);
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const previewUrl = useAppStore((state) => state.previewUrl);
+  const resetConsole = useAppStore((state) => state.resetConsole);
+  const resetPreviewNavigation = useAppStore((state) => state.resetPreviewNavigation);
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
   const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
   const setBudgetCapUsd = useAppStore((state) => state.setBudgetCapUsd);
@@ -100,6 +103,7 @@ export function ChatPanel({
       }
       if (part.type === "data-sandbox-status") {
         applySandboxStatus(part.data, {
+          resetPreviewNavigation,
           setActivePreviewTab,
           setExpoUrl,
           setPreviewPanelOpen,
@@ -126,13 +130,23 @@ export function ChatPanel({
   const latestSandboxStatusValue = latestSandboxStatus?.status ?? null;
 
   // ChatPanel remounts per thread (key={threadId}), so this clears the previous
-  // thread's preview/expo state exactly once before the message-derived effect runs.
+  // thread's preview/expo/console/nav state exactly once before the
+  // message-derived effect runs.
   useEffect(() => {
     setPreviewUrl(null);
     setExpoUrl(null);
     setSandboxStatus("cold");
     setPreviewPanelOpen(false);
-  }, [setExpoUrl, setPreviewPanelOpen, setPreviewUrl, setSandboxStatus]);
+    resetConsole();
+    resetPreviewNavigation();
+  }, [
+    resetConsole,
+    resetPreviewNavigation,
+    setExpoUrl,
+    setPreviewPanelOpen,
+    setPreviewUrl,
+    setSandboxStatus,
+  ]);
 
   useEffect(() => {
     if (!latestSandboxStatusValue) {
@@ -148,6 +162,7 @@ export function ChatPanel({
           }
         : { v: 1, status: latestSandboxStatusValue },
       {
+        resetPreviewNavigation,
         setActivePreviewTab,
         setExpoUrl,
         setPreviewPanelOpen,
@@ -159,6 +174,7 @@ export function ChatPanel({
     latestSandboxExpoUrl,
     latestSandboxPreviewUrl,
     latestSandboxStatusValue,
+    resetPreviewNavigation,
     setActivePreviewTab,
     setExpoUrl,
     setPreviewPanelOpen,
@@ -234,6 +250,7 @@ export function ChatPanel({
         previewPanelOpen && hasPreviewSurface ? "xl:w-[35vw]" : "",
       )}
     >
+      <StreamReconnectBanner />
       <MessageList messages={deferredMessages} />
       <PromptComposer
         budgetCapUsd={budgetCapUsd}
@@ -268,6 +285,7 @@ type SandboxStatusData = Extract<
 >["data"];
 
 interface SandboxStatusActions {
+  resetPreviewNavigation: () => void;
   setActivePreviewTab: (tab: "app") => void;
   setExpoUrl: (url: null | string) => void;
   setPreviewPanelOpen: (open: boolean) => void;
@@ -281,6 +299,7 @@ function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActio
     actions.setPreviewUrl(null);
     actions.setExpoUrl(null);
     actions.setPreviewPanelOpen(true);
+    actions.resetPreviewNavigation();
   }
   if (data.previewUrl) {
     actions.setPreviewUrl(data.previewUrl);
@@ -343,8 +362,14 @@ function createTransport(
     },
     prepareReconnectToStreamRequest: async (): Promise<ReconnectRequest> => {
       const token = await getToken();
+      const cursor = cursorSource();
+      // A non-zero resume cursor means this is a real reconnect (not a fresh
+      // attach); surface it via the ephemeral store slice for the banner.
+      if (cursor !== "0") {
+        useAppStore.getState().setStreamReconnect({ at: Date.now(), fromSeq: Number(cursor) });
+      }
       return {
-        api: `${env.NEXT_PUBLIC_GATEWAY_URL}/v1/threads/${threadId}/runs/stream?lastSeq=${cursorSource()}`,
+        api: `${env.NEXT_PUBLIC_GATEWAY_URL}/v1/threads/${threadId}/runs/stream?lastSeq=${cursor}`,
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       };
     },

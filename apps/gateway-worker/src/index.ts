@@ -27,6 +27,7 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
+import { decideRunApprovalRoute, readSandboxConsoleRoute } from "./agent-proxy-routes";
 import { authenticate, readRequiredSecret, requireVerifiedClerkEmail } from "./authenticate";
 import {
   billingCancelRoute,
@@ -609,6 +610,10 @@ export const gatewayRoutes = gatewayApp
     return forwardAgentRequest(c, "POST /v1/runs/:runId/resume");
   })
 
+  .post("/v1/runs/:runId/approvals/:approvalId", async (c) => {
+    return decideRunApprovalRoute(c);
+  })
+
   .get("/v1/threads/:threadId/sandbox/files", async (c) => {
     return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/files");
   })
@@ -631,6 +636,10 @@ export const gatewayRoutes = gatewayApp
 
   .post("/v1/threads/:threadId/sandbox/terminal", async (c) => {
     return forwardAgentRequest(c, "POST /v1/threads/:threadId/sandbox/terminal");
+  })
+
+  .get("/v1/threads/:threadId/sandbox/console", async (c) => {
+    return readSandboxConsoleRoute(c);
   });
 
 export type GatewayAppType = typeof gatewayRoutes;

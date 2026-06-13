@@ -49,9 +49,21 @@ export const RunStatusSnapshotSchema = z
     messageCount: z.number().int().nonnegative(),
     modelId: z.string().min(1),
     ok: z.literal(true),
+    pendingApproval: z
+      .object({
+        approvalId: z.string().uuid(),
+        expiresAt: z.number().int(),
+        kind: z.enum(["tool-approval", "model-fallback"]),
+        requestedAt: z.number().int(),
+        summary: z.string(),
+        timeoutDecision: z.enum(["allow", "deny"]),
+        toolName: z.string().optional(),
+      })
+      .strict()
+      .optional(),
     runId: z.string().min(1),
     startedAt: z.number().int().nullable(),
-    status: z.enum(["idle", "running", "completed", "failed", "canceled"]),
+    status: z.enum(["idle", "running", "paused", "completed", "failed", "canceled"]),
     summary: z.string(),
   })
   .strict();

@@ -74,6 +74,32 @@ export function shouldFallbackToOpenAI(
   );
 }
 
+/**
+ * Classify why a primary provider stream failed, for the interactive fallback
+ * card (run-control §5.5). Reuses the message heuristics of
+ * {@link shouldFallbackToOpenAI} without changing its behavior. Returns a
+ * coarse, enum-safe reason (never the raw provider text, which may embed
+ * secrets — see run-control §8 redaction rule).
+ */
+export function classifyFallbackReason(
+  error: unknown,
+): "credits" | "provider_error" | "rate_limit" {
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  const statusCode = readStatusCode(error);
+  if (statusCode === 429 || message.includes("rate limit") || message.includes("rate-limit")) {
+    return "rate_limit";
+  }
+  if (
+    message.includes("credit") ||
+    message.includes("quota") ||
+    message.includes("billing") ||
+    message.includes("insufficient")
+  ) {
+    return "credits";
+  }
+  return "provider_error";
+}
+
 function resolveModelSelection(model: string | undefined): LlmModelSelection {
   try {
     return resolveRequestedLlmModel(model);

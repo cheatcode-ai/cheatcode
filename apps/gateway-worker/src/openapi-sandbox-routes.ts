@@ -2,9 +2,54 @@ import {
   type JsonValue,
   jsonBody,
   jsonResponse,
+  nullableStringSchema,
   type OpenApiRoute,
   schemaRef,
+  stringSchema,
 } from "./openapi-builder";
+
+export const sandboxSchemas: Record<string, JsonValue> = {
+  SandboxConsoleLine: {
+    additionalProperties: false,
+    properties: {
+      stream: { enum: ["stdout", "stderr"], type: "string" },
+      text: stringSchema({ maxLength: 2_000 }),
+    },
+    required: ["stream", "text"],
+    type: "object",
+  },
+  SandboxConsoleProcess: {
+    additionalProperties: false,
+    properties: {
+      command: stringSchema(),
+      id: stringSchema(),
+      pid: nullableStringSchema(),
+      status: stringSchema(),
+    },
+    required: ["command", "id", "pid", "status"],
+    type: "object",
+  },
+  SandboxConsoleSnapshot: {
+    additionalProperties: false,
+    properties: {
+      cursor: {
+        additionalProperties: false,
+        properties: {
+          stderr: { minimum: 0, type: "integer" },
+          stdout: { minimum: 0, type: "integer" },
+        },
+        required: ["stderr", "stdout"],
+        type: "object",
+      },
+      lines: { items: schemaRef("SandboxConsoleLine"), maxItems: 500, type: "array" },
+      process: { anyOf: [schemaRef("SandboxConsoleProcess"), { type: "null" }] },
+      reset: { type: "boolean" },
+      truncated: { type: "boolean" },
+    },
+    required: ["cursor", "lines", "process", "reset", "truncated"],
+    type: "object",
+  },
+};
 
 const sandboxEncodingParameter: JsonValue = {
   in: "query",
@@ -26,6 +71,28 @@ const sandboxFileListParameters: JsonValue[] = [
 ];
 
 export const sandboxRoutes: OpenApiRoute[] = [
+  {
+    method: "get",
+    operationId: "readSandboxConsole",
+    parameters: [
+      { in: "query", name: "processId", schema: { default: "app-preview", type: "string" } },
+      { in: "query", name: "stdoutCursor", schema: { default: 0, minimum: 0, type: "integer" } },
+      { in: "query", name: "stderrCursor", schema: { default: 0, minimum: 0, type: "integer" } },
+      { in: "query", name: "lastPid", schema: { type: "string" } },
+      {
+        in: "query",
+        name: "tail",
+        schema: { default: 200, maximum: 500, minimum: 1, type: "integer" },
+      },
+    ],
+    path: "/v1/threads/{threadId}/sandbox/console",
+    responses: {
+      "200": jsonResponse("Sandbox console snapshot", schemaRef("SandboxConsoleSnapshot")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Tail dev-server console output for a thread's sandbox",
+    tags: ["sandbox"],
+  },
   {
     method: "get",
     operationId: "listSandboxFiles",

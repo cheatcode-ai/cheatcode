@@ -1,5 +1,7 @@
 export type {
   AgentSummary,
+  ApprovalDecisionRequest,
+  ApprovalDecisionResponse,
   BillingCancel,
   BillingCancellationReason,
   BillingCatalogResponse,
@@ -23,6 +25,10 @@ export type {
   ProjectSummary,
   Provider,
   ProviderKeySummary,
+  SandboxConsoleLine,
+  SandboxConsoleProcess,
+  SandboxConsoleQuery,
+  SandboxConsoleSnapshot,
   SandboxFile,
   SandboxFileEntry,
   SandboxFileKey,
@@ -52,6 +58,8 @@ export type {
 } from "./api";
 export {
   AgentSummarySchema,
+  ApprovalDecisionRequestSchema,
+  ApprovalDecisionResponseSchema,
   BillingCancellationReasonSchema,
   BillingCancelSchema,
   BillingCatalogResponseSchema,
@@ -79,6 +87,10 @@ export {
   ProjectSummarySchema,
   ProviderKeySummarySchema,
   ProviderSchema,
+  SandboxConsoleLineSchema,
+  SandboxConsoleProcessSchema,
+  SandboxConsoleQuerySchema,
+  SandboxConsoleSnapshotSchema,
   SandboxFileEntrySchema,
   SandboxFileKeySchema,
   SandboxFileListSchema,
@@ -132,11 +144,19 @@ export {
   UserProfileSchema,
 } from "./profile";
 export type {
+  ApprovalDecisionData,
+  ApprovalRequestData,
   CheatcodeDataParts,
   CheatcodeMetadata,
   CheatcodeUIMessage,
+  ModelFallbackData,
   SandboxState,
   Task,
   TaskStatus,
   UIMessagePart,
+} from "./ui-message";
+export {
+  ApprovalDecisionDataSchema,
+  ApprovalRequestDataSchema,
+  ModelFallbackDataSchema,
 } from "./ui-message";

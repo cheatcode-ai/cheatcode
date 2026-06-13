@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  type SandboxConsoleSnapshot,
+  SandboxConsoleSnapshotSchema,
   type SandboxFile,
   type SandboxFileEntry,
   SandboxFileListSchema,
@@ -9,6 +11,23 @@ import {
   UpdateSandboxPathFileSchema,
 } from "@cheatcode/types";
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
+
+export interface SandboxConsoleQueryInput {
+  lastPid?: string | undefined;
+  processId?: string | undefined;
+  stderrCursor: number;
+  stdoutCursor: number;
+  tail?: number | undefined;
+}
+
+export async function readSandboxConsole(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+  query: SandboxConsoleQueryInput,
+): Promise<SandboxConsoleSnapshot> {
+  const response = await authorizedFetch(getToken, sandboxConsolePath(threadId, query));
+  return SandboxConsoleSnapshotSchema.parse(await response.json());
+}
 
 export async function listSandboxFiles(
   getToken: () => Promise<null | string>,
@@ -69,4 +88,21 @@ function sandboxFilesPath(threadId: string, path: string): string {
 function sandboxFilePath(threadId: string, path: string): string {
   const query = new URLSearchParams({ path });
   return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/file?${query.toString()}`;
+}
+
+function sandboxConsolePath(threadId: string, query: SandboxConsoleQueryInput): string {
+  const params = new URLSearchParams({
+    stderrCursor: String(query.stderrCursor),
+    stdoutCursor: String(query.stdoutCursor),
+  });
+  if (query.lastPid !== undefined) {
+    params.set("lastPid", query.lastPid);
+  }
+  if (query.processId !== undefined) {
+    params.set("processId", query.processId);
+  }
+  if (query.tail !== undefined) {
+    params.set("tail", String(query.tail));
+  }
+  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/console?${params.toString()}`;
 }

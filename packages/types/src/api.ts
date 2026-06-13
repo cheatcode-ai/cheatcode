@@ -371,6 +371,85 @@ export const SandboxTerminalResultSchema = z
   })
   .strict();
 
+/**
+ * Cursor-polling query for the dev-server console strip. Cursors are character
+ * offsets into Blaxel's accumulated per-stream log text; `lastPid` is echoed
+ * from the previous snapshot's process so the DO can detect a same-name
+ * dev-server restart (differing non-null pid forces a buffer reset). `processId`
+ * defaults to the deterministic dev-server id `app-preview`.
+ */
+export const SandboxConsoleQuerySchema = z
+  .object({
+    lastPid: z.string().min(1).max(100).optional(),
+    processId: z.string().min(1).max(200).default("app-preview"),
+    stderrCursor: z.coerce.number().int().min(0).default(0),
+    stdoutCursor: z.coerce.number().int().min(0).default(0),
+    tail: z.coerce.number().int().min(1).max(500).default(200),
+  })
+  .strict();
+
+/**
+ * One console line tagged only with its source stream. Severity (error/warn/
+ * info) is intentionally NOT on the wire — it is a presentation concern parsed
+ * client-side so its heuristics can iterate without a worker redeploy.
+ */
+export const SandboxConsoleLineSchema = z
+  .object({
+    stream: z.enum(["stdout", "stderr"]),
+    text: z.string().max(2_000),
+  })
+  .strict();
+
+/**
+ * Resolved dev-server process. `pid` is the Blaxel restart identity (string |
+ * number upstream, normalized via `String()`), null when Blaxel omits it.
+ * `status` is the raw Blaxel process status ("running" | "completed" | ...).
+ */
+export const SandboxConsoleProcessSchema = z
+  .object({
+    command: z.string(),
+    id: z.string(),
+    pid: z.string().nullable(),
+    status: z.string(),
+  })
+  .strict();
+
+/**
+ * Console snapshot returned by `GET /v1/threads/:threadId/sandbox/console`.
+ * `reset: true` ⇒ the log buffer restarted (process restart / rotation); the
+ * client must clear its buffer and reset cursors. `truncated: true` ⇒ more
+ * lines existed than `tail`. `process: null` ⇒ no sandbox / no resolvable
+ * dev-server process (the client backs polling off, never resurrecting the box).
+ */
+export const SandboxConsoleSnapshotSchema = z
+  .object({
+    cursor: z.object({ stderr: z.number().int().min(0), stdout: z.number().int().min(0) }).strict(),
+    lines: z.array(SandboxConsoleLineSchema).max(500),
+    process: SandboxConsoleProcessSchema.nullable(),
+    reset: z.boolean(),
+    truncated: z.boolean(),
+  })
+  .strict();
+
+/** Body of `POST /v1/runs/:runId/approvals/:approvalId`. */
+export const ApprovalDecisionRequestSchema = z
+  .object({
+    decision: z.enum(["allow", "deny"]),
+    reason: z.string().trim().min(1).max(500).optional(),
+  })
+  .strict();
+
+/** Resolution echoed by the approval decision route (idempotent replays). */
+export const ApprovalDecisionResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    approvalId: z.string().uuid(),
+    decision: z.enum(["allow", "deny"]),
+    decidedBy: z.enum(["user", "timeout", "cancel"]),
+    runStatus: z.enum(["running", "paused", "completed", "failed", "canceled"]),
+  })
+  .strict();
+
 export const Paginated = <T extends z.ZodTypeAny>(item: T) =>
   z
     .object({
@@ -493,6 +572,8 @@ export const GreetingResponseSchema = z
   })
   .strict();
 
+export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
+export type ApprovalDecisionResponse = z.infer<typeof ApprovalDecisionResponseSchema>;
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
 export type BillingCancel = z.infer<typeof BillingCancelSchema>;
 export type BillingCancellationReason = z.infer<typeof BillingCancellationReasonSchema>;
@@ -531,6 +612,10 @@ export type ToolSummary = z.infer<typeof ToolSummarySchema>;
 export type UIMessageRecord = z.infer<typeof UIMessageRecordSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 export type UpsertProviderKey = z.infer<typeof UpsertProviderKeySchema>;
+export type SandboxConsoleLine = z.infer<typeof SandboxConsoleLineSchema>;
+export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;
+export type SandboxConsoleQuery = z.infer<typeof SandboxConsoleQuerySchema>;
+export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
 export type SandboxFile = z.infer<typeof SandboxFileSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
 export type SandboxFileKey = z.infer<typeof SandboxFileKeySchema>;

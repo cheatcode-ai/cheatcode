@@ -1,6 +1,9 @@
 "use client";
 
 import {
+  type ApprovalDecisionRequest,
+  type ApprovalDecisionResponse,
+  ApprovalDecisionResponseSchema,
   type CheatcodeUIMessage,
   Paginated,
   type ProjectSummary,
@@ -113,6 +116,20 @@ export async function cancelRun(
   await authorizedFetch(getToken, `/v1/runs/${encodeURIComponent(runId)}/cancel`, {
     method: "POST",
   });
+}
+
+export async function decideRunApproval(
+  getToken: () => Promise<null | string>,
+  runId: string,
+  approvalId: string,
+  body: ApprovalDecisionRequest,
+): Promise<ApprovalDecisionResponse> {
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+    { body: JSON.stringify(body), method: "POST" },
+  );
+  return ApprovalDecisionResponseSchema.parse(await response.json());
 }
 
 export async function listThreadMessages(

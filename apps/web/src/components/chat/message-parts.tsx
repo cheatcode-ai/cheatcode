@@ -1,5 +1,11 @@
 import type { CheatcodeUIMessage } from "@cheatcode/types";
+import type { ReactNode } from "react";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
+import {
+  ApprovalDecisionBlock,
+  ApprovalRequestBlock,
+  ModelFallbackBlock,
+} from "@/components/chat/approval-parts";
 import { Download, ExternalLink } from "@/components/ui/icons";
 
 const MAX_TOOL_STRING_LENGTH = 600;
@@ -27,6 +33,7 @@ type TaskStatusById = ReadonlyMap<string, TaskStatusData>;
 
 export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
   const taskStatusById = collectTaskStatuses(message.parts);
+  const resolvedApprovalIds = collectResolvedApprovals(message.parts);
   const hasPlan = message.parts.some((part) => part.type === "data-plan");
 
   return (
@@ -36,6 +43,7 @@ export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
           hideTaskStatusBlocks={hasPlan}
           key={partKey(message.id, part, partIndex)}
           part={part}
+          resolvedApprovalIds={resolvedApprovalIds}
           taskStatusById={taskStatusById}
         />
       ))}
@@ -46,10 +54,12 @@ export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
 function MessagePartView({
   hideTaskStatusBlocks,
   part,
+  resolvedApprovalIds,
   taskStatusById,
 }: {
   hideTaskStatusBlocks: boolean;
   part: MessagePart;
+  resolvedApprovalIds: ReadonlySet<string>;
   taskStatusById: TaskStatusById;
 }) {
   if (part.type === "text") {
@@ -96,6 +106,11 @@ function MessagePartView({
     return <TakeoverBlock data={part.data} />;
   }
 
+  const approvalView = renderApprovalPart(part, resolvedApprovalIds);
+  if (approvalView !== null) {
+    return approvalView;
+  }
+
   if (part.type === "data-seq") {
     return null;
   }
@@ -105,6 +120,27 @@ function MessagePartView({
   }
 
   return <DataBlock title={part.type} value={formatUnknown(part)} />;
+}
+
+function renderApprovalPart(
+  part: MessagePart,
+  resolvedApprovalIds: ReadonlySet<string>,
+): ReactNode {
+  if (part.type === "data-approval-request") {
+    return (
+      <ApprovalRequestBlock
+        data={part.data}
+        resolved={resolvedApprovalIds.has(part.data.approvalId)}
+      />
+    );
+  }
+  if (part.type === "data-approval-decision") {
+    return <ApprovalDecisionBlock data={part.data} />;
+  }
+  if (part.type === "data-model-fallback") {
+    return <ModelFallbackBlock data={part.data} />;
+  }
+  return null;
 }
 
 function TaskStatusPart({ data, hidden }: { data: TaskStatusData; hidden: boolean }) {
@@ -153,6 +189,16 @@ function collectTaskStatuses(parts: MessagePart[]): TaskStatusById {
     }
   }
   return statuses;
+}
+
+function collectResolvedApprovals(parts: MessagePart[]): ReadonlySet<string> {
+  const resolved = new Set<string>();
+  for (const part of parts) {
+    if (part.type === "data-approval-decision") {
+      resolved.add(part.data.approvalId);
+    }
+  }
+  return resolved;
 }
 
 function TaskStatusBlock({ data }: { data: TaskStatusData }) {

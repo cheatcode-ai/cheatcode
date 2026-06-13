@@ -29,11 +29,13 @@ import {
   GLOBAL_MEMORY_CONTEXT_KEY,
   MASTER_INSTRUCTIONS_CONTEXT_KEY,
 } from "../system-prompt";
+import { APPROVAL_BROKER_CONTEXT_KEY, type ApprovalBroker } from "./approval-context";
 import { mastraRunCode } from "./registry";
 
 export interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
   anthropicApiKey?: string | undefined;
+  approvalBroker?: ApprovalBroker | undefined;
   composioApiKey?: string | undefined;
   composioConnectedAccounts?: ComposioConnectedAccounts | undefined;
   composioQuotaMeter?: ComposioQuotaMeter | undefined;
@@ -86,6 +88,7 @@ function contextEntries(
     [RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY, options.researchFanoutSubagentLimit],
     [FAL_API_KEY_CONTEXT_KEY, options.falApiKey],
     [ELEVENLABS_API_KEY_CONTEXT_KEY, options.elevenlabsApiKey],
+    [APPROVAL_BROKER_CONTEXT_KEY, options.approvalBroker],
   ];
 }
 

@@ -1,8 +1,8 @@
 import { DurableObject } from "cloudflare:workers";
-import { executeRunCodeTool, mastra } from "@cheatcode/agent-core";
-import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
+import { mastra } from "@cheatcode/agent-core";
+import { APIError, createLogger } from "@cheatcode/observability";
 import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
-import { FALLBACK_MODEL_ID } from "@cheatcode/types";
+import { ApprovalDecisionResponseSchema } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import {
   createAgentStreamResponse,
@@ -17,28 +17,36 @@ import {
   snapshotAppBuilderWorkspace,
   warmSandbox,
 } from "./agent-run-app-builder";
-import { storeAgentArtifact } from "./agent-run-artifacts";
-import { budgetChunk } from "./agent-run-budget";
 import {
-  type BudgetDelta,
-  recordBudgetDelta as persistBudgetDelta,
-  ZERO_BUDGET_SNAPSHOT,
-} from "./agent-run-budget-persistence";
+  type ApprovalDecisionInput,
+  ApprovalDecisionInputSchema,
+  armAgentRunAlarm,
+  RunApprovalController,
+  type RunIdentity,
+} from "./agent-run-approvals";
+import { storeAgentArtifact } from "./agent-run-artifacts";
+import { ZERO_BUDGET_SNAPSHOT } from "./agent-run-budget-persistence";
 import { emitMastraChunkTelemetry } from "./agent-run-chunk-telemetry";
 import {
-  type CostCapExhaustion,
+  appendBudgetStatus,
+  appendCostCapExhausted,
+  type BudgetAccountingDeps,
   costCapExhaustion,
+  enforceCostCaps,
   isCostCapAPIError,
+  recordBudgetDelta,
 } from "./agent-run-cost-caps";
+import { directRunCodeInputFromPrompt, runDirectRunCode } from "./agent-run-direct-code";
 import type { AgentRunEnv } from "./agent-run-env";
 import { toAgentRunStreamError } from "./agent-run-errors";
-import { runMastraStream } from "./agent-run-mastra-stream";
-import { persistAssistantMessage } from "./agent-run-message-persistence";
+import {
+  persistAssistantMessage,
+  persistAssistantMessageForIdentity,
+} from "./agent-run-message-persistence";
 import { emitStoredAgentRunMetric } from "./agent-run-metrics";
 import { emitFirstVisibleChunkMetric } from "./agent-run-performance";
 import { runPlanChunk, runTaskStatusChunk } from "./agent-run-progress";
 import { resolveAgentRunRetentionAction } from "./agent-run-retention";
-import { runRunCodeFallback } from "./agent-run-run-code-fallback";
 import {
   ResumeTakeoverInputSchema,
   RunStatusSnapshotSchema,
@@ -54,26 +62,16 @@ import {
   ensureAgentRunRetentionAlarm,
   getRunStateTimestamp,
   getRunStateValue,
-  readStoredRunSnapshot,
   setRunStateValue,
   updateRunRowStatus,
   upsertRunRow,
 } from "./agent-run-storage";
+import { type StreamDriverDeps, streamMastraRunWithFallback } from "./agent-run-stream-driver";
 import {
   consumeTakeoverStateInStorage,
   saveTakeoverStateInStorage,
 } from "./agent-run-takeover-state";
-import {
-  formatRunCodeFallbackOutput,
-  isAppBuilderRequest,
-  missingInternalUserResponse,
-} from "./agent-run-utils";
-import {
-  type LlmCredential,
-  resolveLlmCredential,
-  resolveOpenAiFallbackCredential,
-  shouldFallbackToOpenAI,
-} from "./llm-provider";
+import { isAppBuilderRequest, missingInternalUserResponse } from "./agent-run-utils";
 import {
   mastraChunkError,
   mastraChunkToUiChunks,
@@ -87,14 +85,25 @@ const INTERNAL_USER_HEADER = "X-Cheatcode-User-Id";
 const MINIMUM_RUN_BUDGET_USD = 0.01;
 type Subscriber = { controller: ReadableStreamDefaultController<UIMessageChunk> };
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
-type DirectRunCodeInput = { code: string; language: "javascript" | "python" };
 export class AgentRun extends DurableObject<AgentRunEnv> {
   private activeRunAbortController: AbortController | undefined;
   private cancelRequested = false;
   private readonly subscribers = new Set<Subscriber>();
+  private readonly approvals: RunApprovalController;
 
   public constructor(ctx: DurableObjectState, env: AgentRunEnv) {
     super(ctx, env);
+    this.approvals = new RunApprovalController({
+      append: (chunk, options) => this.append(chunk, options),
+      armAlarm: () => this.armAlarm(),
+      ctx: this.ctx,
+      currentStatus: () => this.getStatus(),
+      env: this.env,
+      finalizeUnrecoverable: () => this.finalizeUnrecoverableApproval(),
+      identity: () => this.runIdentity(),
+      isCanceled: () => this.isRunCanceled(),
+      setRunStatus: (status) => this.setRunStatus(status),
+    });
     this.ctx.blockConcurrencyWhile(async () => {
       applyAgentRunStorageMigrations(this.ctx);
       await ensureAgentRunRetentionAlarm(this.ctx);
@@ -102,6 +111,9 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   }
 
   public override async alarm(): Promise<void> {
+    if (await this.approvals.handleAlarmIfDue()) {
+      return;
+    }
     const action = resolveAgentRunRetentionAction({
       completedAt: getRunStateTimestamp(this.ctx, "completed_at"),
       now: Date.now(),
@@ -113,7 +125,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (action === "clear-messages") {
       this.ctx.storage.sql.exec("DELETE FROM message_part");
     }
-    await ensureAgentRunRetentionAlarm(this.ctx);
+    await this.armAlarm();
   }
 
   public override async fetch(request: Request): Promise<Response> {
@@ -149,6 +161,14 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (pathname === "/cancel") {
       const userId = this.readInternalUser(request);
       return userId ? this.cancel(userId) : missingInternalUserResponse("cancel");
+    }
+    if (pathname === "/approval") {
+      const userId = this.readInternalUser(request);
+      if (!userId) {
+        return missingInternalUserResponse("approval");
+      }
+      const body = ApprovalDecisionInputSchema.parse(await request.json());
+      return this.approval(userId, body);
     }
     if (pathname === "/delete-all") {
       const userId = this.readInternalUser(request);
@@ -203,7 +223,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
 
   private resume(userId: string, lastSeq: number): Response {
     const ownerUserId = this.getOwnerUserId();
-    if (!ownerUserId && !this.hasReplayRows(lastSeq) && this.getStatus() !== "running") {
+    if (!ownerUserId && !this.hasReplayRows(lastSeq) && !hasActiveRun(this.getStatus())) {
       return new Response(null, { status: 204 });
     }
     if (ownerUserId !== userId) {
@@ -212,7 +232,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
     }
-    if (!this.hasReplayRows(lastSeq) && this.getStatus() !== "running") {
+    if (!this.hasReplayRows(lastSeq) && !hasActiveRun(this.getStatus())) {
       return new Response(null, { status: 204 });
     }
     return createAgentStreamResponse({
@@ -264,9 +284,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
     }
-    if (this.getStatus() !== "running") {
+    if (!hasActiveRun(this.getStatus())) {
       return Response.json({ ok: true });
     }
+    await this.approvals.cancelPending();
     this.cancelRequested = true;
     this.activeRunAbortController?.abort(new Error("run canceled"));
     await this.append(
@@ -302,7 +323,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
             this.write(controller, parseSequencedChunk(row));
           }
         }
-        if (status === "running") {
+        if (hasActiveRun(status)) {
           subscriber = { controller };
           this.subscribers.add(subscriber);
           return;
@@ -328,14 +349,19 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       await this.append({ type: "start" });
       await this.append({ type: "text-start", id: "answer" });
       isAnswerTextOpen = true;
-      await this.appendBudgetStatus(input, ZERO_BUDGET_SNAPSHOT);
+      await appendBudgetStatus(this.accountingDeps(), input, ZERO_BUDGET_SNAPSHOT);
       await this.append(runPlanChunk());
       if (input.quotaWarning) {
         await this.append({ type: "data-quota", data: { v: 1, ...input.quotaWarning } });
       }
       const startupCostCap = costCapExhaustion(input, MINIMUM_RUN_BUDGET_USD);
       if (startupCostCap) {
-        await this.appendCostCapExhausted(input, isAnswerTextOpen, startupCostCap);
+        await appendCostCapExhausted(
+          this.accountingDeps(),
+          input,
+          isAnswerTextOpen,
+          startupCostCap,
+        );
         await persistAssistantMessage({ env: this.env, input, logger, rows: this.replayRows(0) });
         return;
       }
@@ -369,13 +395,13 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         type: "data-sandbox-status",
         data: { v: 1, status: "ready" },
       });
-      const sandboxBudget = await this.recordBudgetDelta(input, {
+      const sandboxBudget = await recordBudgetDelta(this.accountingDeps(), input, {
         kind: "sandbox_minimum",
         tokensIn: 0,
         tokensOut: 0,
         usd: MINIMUM_RUN_BUDGET_USD,
       });
-      await this.enforceCostCaps(input, sandboxBudget, isAnswerTextOpen);
+      await enforceCostCaps(this.accountingDeps(), input, sandboxBudget, isAnswerTextOpen);
       await this.append(runTaskStatusChunk("stream-results", "completed"));
       await this.append({ type: "text-end", id: "answer" });
       await this.append({ type: "finish", finishReason: "stop" });
@@ -438,7 +464,16 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   ): Promise<"completed" | "continue"> {
     const directRunCodeInput = directRunCodeInputFromPrompt(input.messageText);
     if (directRunCodeInput) {
-      await this.runDirectRunCode(input, sandbox, logger, directRunCodeInput);
+      await runDirectRunCode(
+        {
+          append: (chunk) => this.append(chunk),
+          artifacts: this.createArtifactRuntime(input),
+          logger,
+          sandbox,
+          setRunStage: (stage) => this.setRunStage(stage),
+        },
+        directRunCodeInput,
+      );
       if (this.isRunCanceled()) {
         return "completed";
       }
@@ -463,7 +498,13 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       if (this.isRunCanceled()) {
         return "completed";
       }
-      await this.streamMastraRunWithFallback(input, sandbox, logger, abortSignal, agentContextNote);
+      await streamMastraRunWithFallback(this.streamDriverDeps(), {
+        abortSignal,
+        ...(agentContextNote === undefined ? {} : { agentContextNote }),
+        input,
+        logger,
+        sandbox,
+      });
       if (this.isRunCanceled()) {
         return "completed";
       }
@@ -475,137 +516,28 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       });
       return "continue";
     }
-    await this.streamMastraRunWithFallback(input, sandbox, logger, abortSignal);
+    await streamMastraRunWithFallback(this.streamDriverDeps(), {
+      abortSignal,
+      input,
+      logger,
+      sandbox,
+    });
     if (this.isRunCanceled()) {
       return "completed";
     }
     return "continue";
   }
 
-  private async runDirectRunCode(
-    input: StartRunInput,
-    sandbox: ProjectSandboxStub,
-    logger: ReturnType<typeof createLogger>,
-    runCodeInput: DirectRunCodeInput,
-  ): Promise<void> {
-    logger.info("direct_run_code_started", { language: runCodeInput.language });
-    this.setRunStage("Running requested code in the sandbox.");
-    await this.append({
-      type: "text-delta",
-      id: "answer",
-      delta: `Running requested ${runCodeInput.language} directly in the sandbox.\n`,
-    });
-    await this.append({
-      type: "data-sandbox-status",
-      data: { v: 1, status: "starting" },
-    });
-    const result = await executeRunCodeTool(runCodeInput, {
-      artifacts: this.createArtifactRuntime(input),
-      sandbox,
-    });
-    logger.info("direct_run_code_completed", {
-      exitCode: result.exitCode,
-      language: runCodeInput.language,
-      stderrBytes: result.stderr.length,
-      stdoutBytes: result.stdout.length,
-      success: result.success,
-    });
-    await this.append({
-      type: "data-sandbox-status",
-      data: { v: 1, status: "ready" },
-    });
-    await this.append({
-      type: "text-delta",
-      id: "answer",
-      delta: formatRunCodeFallbackOutput(result),
-    });
-  }
-
-  private async streamMastraRunWithFallback(
-    input: StartRunInput,
-    sandbox: ProjectSandboxStub,
-    logger: ReturnType<typeof createLogger>,
-    abortSignal: AbortSignal,
-    agentContextNote?: string,
-  ): Promise<void> {
-    this.setRunStage("Resolving BYOK credentials.");
-    const primaryCredential = await resolveLlmCredential(this.env, input, logger);
-    try {
-      await this.streamMastraRun(
-        input,
-        sandbox,
-        primaryCredential,
-        logger,
-        abortSignal,
-        agentContextNote,
-      );
-    } catch (error) {
-      if (!shouldFallbackToOpenAI(input.model, primaryCredential, error)) {
-        throw error;
-      }
-      if (input.disabledModels.includes(FALLBACK_MODEL_ID)) {
-        logger.warn("llm_fallback_suppressed_by_user", { fallbackModel: FALLBACK_MODEL_ID });
-        throw error;
-      }
-      const fallbackCredential = await resolveOpenAiFallbackCredential(this.env, input, logger);
-      if (!fallbackCredential) {
-        throw error;
-      }
-      logger.warn("llm_provider_fallback_started", {
-        from: primaryCredential.provider,
-        to: fallbackCredential.provider,
-      });
-      await this.append({
-        type: "text-delta",
-        id: "answer",
-        delta: "Anthropic BYOK is unavailable for this run, retrying with OpenAI BYOK...\n",
-      });
-      await this.streamMastraRun(
-        input,
-        sandbox,
-        fallbackCredential,
-        logger,
-        abortSignal,
-        agentContextNote,
-      );
-    }
-  }
-
-  private async streamMastraRun(
-    input: StartRunInput,
-    sandbox: ProjectSandboxStub,
-    credential: LlmCredential,
-    logger: ReturnType<typeof createLogger>,
-    abortSignal: AbortSignal,
-    agentContextNote?: string,
-  ): Promise<void> {
-    await runMastraStream({
-      abortSignal,
-      ...(agentContextNote === undefined ? {} : { agentContextNote }),
-      appendCheckedMastraChunk: (runInput, chunk) => this.appendCheckedMastraChunk(runInput, chunk),
-      artifactRuntime: this.createArtifactRuntime(input),
-      credential,
-      env: this.env,
-      input,
-      logger,
-      runRunCodeFallback: () => this.runRunCodeFallback(input, sandbox, logger),
-      sandbox,
-      setRunStage: (stage) => this.setRunStage(stage),
-    });
-  }
-
-  private runRunCodeFallback(
-    input: StartRunInput,
-    sandbox: ProjectSandboxStub,
-    logger: ReturnType<typeof createLogger>,
-  ): Promise<void> {
-    return runRunCodeFallback({
+  private streamDriverDeps(): StreamDriverDeps {
+    return {
       append: (chunk) => this.append(chunk),
-      input,
-      logger,
-      sandbox,
+      appendCheckedMastraChunk: (input, chunk) => this.appendCheckedMastraChunk(input, chunk),
+      createArtifactRuntime: (input) => this.createArtifactRuntime(input),
+      createBroker: () => this.approvals.createBroker(),
+      env: this.env,
+      hasPendingDecision: () => this.approvals.hasPendingDecision(),
       setRunStage: (stage) => this.setRunStage(stage),
-    });
+    };
   }
 
   private async appendMastraChunk(chunk: unknown): Promise<number> {
@@ -617,49 +549,17 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return appendedCount;
   }
 
-  private async appendBudgetStatus(
-    input: StartRunInput,
-    snapshot: { tokensIn: number; tokensOut: number; usdSpent: number },
-  ): Promise<void> {
-    const chunk = budgetChunk(input, snapshot);
-    if (chunk) {
-      await this.append(chunk);
-    }
-  }
-
-  private async appendStoredBudgetStatus(input: StartRunInput): Promise<void> {
-    const stored = readStoredRunSnapshot(this.ctx);
-    await this.appendBudgetStatus(input, stored?.budget ?? ZERO_BUDGET_SNAPSHOT);
-  }
-
-  private async recordBudgetDelta(input: StartRunInput, event: BudgetDelta) {
-    const snapshot = await persistBudgetDelta(this.ctx, this.env, input, event);
-    await this.appendBudgetStatus(input, snapshot);
-    return snapshot;
-  }
-
-  private async appendCostCapExhausted(
-    input: StartRunInput,
-    isAnswerTextOpen: boolean,
-    exhaustion: CostCapExhaustion,
-  ): Promise<void> {
-    emitUserEvent(this.env, {
-      confidence: 1,
-      detector: "cost_spike",
-      errorCode: exhaustion.code,
-      eventName: "silent_failure_detected",
-      runId: input.runId,
-      userId: input.userId,
-    });
-    await this.append(exhaustion.chunk);
-    if (isAnswerTextOpen) {
-      await this.append({ type: "text-end", id: "answer" });
-    }
-    await this.appendStoredBudgetStatus(input);
-    await this.append({ type: "finish", finishReason: "stop" });
-    this.setStatus("completed");
-    await this.persistRunStatus(input, "completed");
-    this.closeSubscribers();
+  private accountingDeps(): BudgetAccountingDeps {
+    return {
+      append: (chunk) => this.append(chunk),
+      closeSubscribers: () => this.closeSubscribers(),
+      ctx: this.ctx,
+      env: this.env,
+      markCompleted: async (input) => {
+        this.setStatus("completed");
+        await this.persistRunStatus(input, "completed");
+      },
+    };
   }
 
   private async appendCheckedMastraChunk(input: StartRunInput, chunk: unknown): Promise<number> {
@@ -671,30 +571,15 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const appendedCount = await this.appendMastraChunk(chunk);
     const usage = usageFromMastraChunk(chunk);
     if (usage) {
-      const snapshot = await this.recordBudgetDelta(input, {
+      const snapshot = await recordBudgetDelta(this.accountingDeps(), input, {
         kind: "llm_usage",
         tokensIn: usage.tokensIn,
         tokensOut: usage.tokensOut,
         usd: usage.costUsd ?? 0,
       });
-      await this.enforceCostCaps(input, snapshot, true);
+      await enforceCostCaps(this.accountingDeps(), input, snapshot, true);
     }
     return appendedCount;
-  }
-
-  private async enforceCostCaps(
-    input: StartRunInput,
-    snapshot: { usdSpent: number },
-    isAnswerTextOpen: boolean,
-  ): Promise<void> {
-    const exhaustion = costCapExhaustion(input, snapshot.usdSpent);
-    if (!exhaustion) {
-      return;
-    }
-    await this.appendCostCapExhausted(input, isAnswerTextOpen, exhaustion);
-    throw new APIError(402, exhaustion.code, exhaustion.message, {
-      retriable: false,
-    });
   }
 
   private createArtifactRuntime(input: StartRunInput): ArtifactRuntime {
@@ -740,7 +625,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return snapshotAgentRunStatus(this.getStatus());
   }
 
-  private setStatus(status: "running" | "completed" | "failed" | "canceled"): void {
+  private setStatus(status: "running" | "paused" | "completed" | "failed" | "canceled"): void {
     this.ctx.storage.sql.exec(
       "INSERT OR REPLACE INTO run_state (key, value) VALUES ('status', ?)",
       status,
@@ -749,6 +634,81 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (status === "completed" || status === "failed" || status === "canceled") {
       setRunStateValue(this.ctx, "completed_at", String(Date.now()));
     }
+  }
+
+  /** Flips both the DO run state and the Postgres row (run-control §2.2). */
+  private async setRunStatus(status: "paused" | "running"): Promise<void> {
+    this.setStatus(status);
+    await this.persistStoredRunStatus(status);
+  }
+
+  private armAlarm(): Promise<void> {
+    return armAgentRunAlarm(this.ctx);
+  }
+
+  private runIdentity(): RunIdentity | null {
+    const runId = getRunStateValue(this.ctx, "run_id");
+    const threadId = getRunStateValue(this.ctx, "thread_id");
+    const userId = this.getOwnerUserId();
+    if (!runId || !threadId || !userId) {
+      return null;
+    }
+    return { runId, threadId, userId };
+  }
+
+  private async approval(userId: string, body: ApprovalDecisionInput): Promise<Response> {
+    if (this.getOwnerUserId() !== userId) {
+      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+        hint: "Open the thread from the account that started the run.",
+        retriable: false,
+      }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
+    }
+    try {
+      const result = await this.approvals.applyDecision({
+        approvalId: body.approvalId,
+        decision: body.decision,
+        ...(body.reason ? { reason: body.reason } : {}),
+      });
+      return Response.json(ApprovalDecisionResponseSchema.parse(result));
+    } catch (error) {
+      if (error instanceof APIError) {
+        return error.toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
+      }
+      throw error;
+    }
+  }
+
+  /** DO eviction mid-approval: fail the run deterministically (run-control §2.4). */
+  private async finalizeUnrecoverableApproval(): Promise<void> {
+    await this.append({
+      type: "data-error",
+      data: {
+        v: 1,
+        code: "approval_unrecoverable",
+        message: "Run could not recover the pending approval after a restart. Start a new run.",
+        retriable: false,
+      },
+    });
+    await this.append({ type: "finish", finishReason: "error" });
+    this.setStatus("failed");
+    const identity = this.runIdentity();
+    if (identity) {
+      await persistAssistantMessageForIdentity({
+        env: this.env,
+        logger: createLogger({ runId: identity.runId, userId: identity.userId }),
+        rows: this.replayRows(0),
+        runId: identity.runId,
+        threadId: identity.threadId,
+        userId: identity.userId,
+      });
+      await this.persistRunStatusById({
+        error: { message: "Pending approval was unrecoverable.", type: "approval_unrecoverable" },
+        runId: identity.runId,
+        status: "failed",
+        userId: identity.userId,
+      });
+    }
+    this.closeSubscribers();
   }
 
   private setRunIdentity(input: StartRunInput): void {
@@ -826,62 +786,4 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     emitStoredAgentRunMetric(this.ctx, this.env, input);
     return persistAgentRunStatus(this.env, input);
   }
-}
-
-function directRunCodeInputFromPrompt(messageText: string): DirectRunCodeInput | null {
-  const normalized = messageText.toLowerCase();
-  if (!normalized.includes("run") && !normalized.includes("execute")) {
-    return null;
-  }
-  const arithmeticPrint = messageText.match(/\bprint\s+([0-9][0-9\s+\-*/().]*)/i);
-  if (!arithmeticPrint?.[1]) {
-    return null;
-  }
-  const expression = arithmeticPrint[1].trim();
-  if (!isSafeArithmeticExpression(expression)) {
-    return null;
-  }
-  const language =
-    normalized.includes("javascript") || normalized.includes("node") ? "javascript" : "python";
-  const literal = exactPrintLiteral(messageText);
-  return {
-    code: directRunCode({ expression, language, literal }),
-    language,
-  };
-}
-
-function isSafeArithmeticExpression(expression: string): boolean {
-  return /^[0-9\s+\-*/().]+$/.test(expression) && /[0-9]/.test(expression);
-}
-
-function exactPrintLiteral(messageText: string): string | null {
-  const quoted = messageText.match(/\bprint\s+exactly\s+["'`]([^"'`\r\n]{1,120})["'`]/i)?.[1];
-  if (quoted && isSafePrintLiteral(quoted)) {
-    return quoted.trim();
-  }
-  const token = messageText.match(
-    /\bprint\s+exactly\s+([A-Za-z0-9][A-Za-z0-9_.:-]{0,120})\b/i,
-  )?.[1];
-  return token && isSafePrintLiteral(token) ? token : null;
-}
-
-function isSafePrintLiteral(value: string): boolean {
-  return /^[\w .:-]{1,120}$/.test(value.trim());
-}
-
-function directRunCode(input: {
-  expression: string;
-  language: "javascript" | "python";
-  literal: string | null;
-}): string {
-  const literalLine = input.literal ? `${printStatement(input.language, input.literal)}\n` : "";
-  return `${literalLine}${printStatement(input.language, input.expression)}`;
-}
-
-function printStatement(language: "javascript" | "python", value: string): string {
-  if (isSafeArithmeticExpression(value)) {
-    return language === "javascript" ? `console.log(${value});` : `print(${value})`;
-  }
-  const quoted = JSON.stringify(value) ?? '""';
-  return language === "javascript" ? `console.log(${quoted});` : `print(${quoted})`;
 }

@@ -44,8 +44,18 @@ export {
   MASTER_INSTRUCTIONS_CONTEXT_KEY,
   promptRuntimeContextFromRequestContext,
 } from "./mastra/system-prompt";
+export {
+  APPROVAL_BROKER_CONTEXT_KEY,
+  type ApprovalBroker,
+  type ApprovalDecidedBy,
+  type ApprovalDecisionValue,
+  type ApprovalKind,
+  type ApprovalRequestInput,
+  type RunDecision,
+} from "./mastra/tools/approval-context";
 export { mastraRunCode } from "./mastra/tools/registry";
 export {
+  type CodeRequestContextOptions,
   createCodeRequestContext,
   createSandboxReadinessRunCodeInput,
   executeRunCodeTool,

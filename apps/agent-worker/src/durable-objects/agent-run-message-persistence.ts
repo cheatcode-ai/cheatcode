@@ -16,6 +16,15 @@ interface PersistAssistantMessageInput {
   rows: unknown[];
 }
 
+interface PersistAssistantMessageForIdentityInput {
+  env: AgentRunEnv;
+  logger: Logger;
+  rows: unknown[];
+  runId: string;
+  threadId: string;
+  userId: string;
+}
+
 interface TextPartDraft {
   index: number;
   text: string;
@@ -27,7 +36,30 @@ export async function persistAssistantMessage({
   logger,
   rows,
 }: PersistAssistantMessageInput): Promise<void> {
-  if (!UUID_PATTERN.test(input.runId) || !UUID_PATTERN.test(input.threadId)) {
+  await persistAssistantMessageForIdentity({
+    env,
+    logger,
+    rows,
+    runId: input.runId,
+    threadId: input.threadId,
+    userId: input.userId,
+  });
+}
+
+/**
+ * Persist the collapsed assistant message from replay rows using a bare run
+ * identity. Used by the orphaned-approval finalization path (run-control §2.4),
+ * where the full {@link StartRunInput} is no longer in scope after a DO eviction.
+ */
+export async function persistAssistantMessageForIdentity({
+  env,
+  logger,
+  rows,
+  runId,
+  threadId,
+  userId,
+}: PersistAssistantMessageForIdentityInput): Promise<void> {
+  if (!UUID_PATTERN.test(runId) || !UUID_PATTERN.test(threadId)) {
     return;
   }
   const parts = assistantPartsFromRows(rows);
@@ -36,19 +68,19 @@ export async function persistAssistantMessage({
   }
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    await withUserContext(db, UserId(input.userId), (tx) =>
+    await withUserContext(db, UserId(userId), (tx) =>
       createThreadMessage(tx, {
-        agentRunId: AgentRunId(input.runId),
+        agentRunId: AgentRunId(runId),
         parts,
         role: "assistant",
-        threadId: ThreadId(input.threadId),
-        userId: UserId(input.userId),
+        threadId: ThreadId(threadId),
+        userId: UserId(userId),
       }),
     );
   } catch (error) {
     logger.error("assistant_message_persist_failed", {
       error: error instanceof Error ? error.message : "Unknown error",
-      runId: input.runId,
+      runId,
     });
   } finally {
     await close().catch((error: unknown) => {

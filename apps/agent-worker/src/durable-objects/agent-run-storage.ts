@@ -31,7 +31,7 @@ export interface StoredRunSnapshot {
   modelId: string;
   runId: string;
   startedAt: number | null;
-  status: "canceled" | "completed" | "failed" | "running";
+  status: "canceled" | "completed" | "failed" | "paused" | "running";
 }
 
 export interface BudgetEventInput {
@@ -108,7 +108,7 @@ export function upsertRunRow(ctx: DurableObjectState, input: StoredRunIdentity):
 
 export function updateRunRowStatus(
   ctx: DurableObjectState,
-  status: "canceled" | "completed" | "failed" | "running",
+  status: "canceled" | "completed" | "failed" | "paused" | "running",
 ): void {
   const runId = getRunStateValue(ctx, "run_id");
   if (!runId) {
@@ -358,9 +358,15 @@ function integerColumn(row: Record<string, unknown>, key: string): number | null
 function runStatusColumn(
   row: Record<string, unknown>,
   key: string,
-): "canceled" | "completed" | "failed" | "running" | null {
+): "canceled" | "completed" | "failed" | "paused" | "running" | null {
   const value = stringColumn(row, key);
-  if (value === "canceled" || value === "completed" || value === "failed" || value === "running") {
+  if (
+    value === "canceled" ||
+    value === "completed" ||
+    value === "failed" ||
+    value === "paused" ||
+    value === "running"
+  ) {
     return value;
   }
   return null;

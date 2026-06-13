@@ -3,6 +3,7 @@
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
 
 const FIRST_PREVIEW_OPENED_KEY = "cheatcode:first-preview-opened:v1";
+const CONSOLE_STRIP_OPENED_KEY = "cheatcode:console-strip-opened:v1";
 
 const swallow = (): void => undefined;
 
@@ -19,6 +20,17 @@ export async function emitFirstPreviewOpened(
   }
   await postUserEvent(getToken, "first_preview_opened");
   window.localStorage.setItem(FIRST_PREVIEW_OPENED_KEY, new Date().toISOString());
+}
+
+/** Once-per-browser, fire-and-forget; mirrors the `first_preview_opened` guard. */
+export async function emitConsoleStripOpened(
+  getToken: () => Promise<null | string>,
+): Promise<void> {
+  if (typeof window === "undefined" || window.localStorage.getItem(CONSOLE_STRIP_OPENED_KEY)) {
+    return;
+  }
+  await postUserEvent(getToken, "console_strip_opened");
+  window.localStorage.setItem(CONSOLE_STRIP_OPENED_KEY, new Date().toISOString());
 }
 
 /**

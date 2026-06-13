@@ -1,11 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { initialize, SandboxInstance, VolumeInstance } from "@blaxel/core";
-import {
-  APIError,
-  createLogger,
-  normalizeUnknownError,
-  redactSecrets,
-} from "@cheatcode/observability";
+import { APIError, createLogger, normalizeUnknownError } from "@cheatcode/observability";
 import type {
   SandboxBackupHandle,
   SandboxDeleteFileResult,
@@ -21,7 +16,9 @@ import type {
   SandboxSearchFilesResult,
   SandboxWriteFileResult,
 } from "@cheatcode/tools-code";
+import type { SandboxConsoleSnapshot } from "@cheatcode/types";
 import { z } from "zod";
+import { type SandboxExecAuditEntry, writeExecAudit } from "./project-sandbox-audit";
 import { listSandboxFiles } from "./project-sandbox-files";
 import {
   clearSandboxMeterCheckpoint,
@@ -31,6 +28,14 @@ import {
   setSandboxQuotaPeriod,
 } from "./project-sandbox-metering";
 import { buildPreviewSpec, createOrReplacePreview, previewUrl } from "./project-sandbox-preview";
+import {
+  emptyConsoleSnapshot,
+  ProcessListSchema,
+  ProcessResponseSchema,
+  readCompletedProcessLogs,
+  resolveDevServerProcess,
+  sliceProcessLogs,
+} from "./project-sandbox-process-logs";
 import {
   commandToShellString,
   type ProjectCreateBackupInput,
@@ -45,6 +50,8 @@ import {
   ProjectKillProcessInputSchema,
   type ProjectListFilesInput,
   ProjectListFilesInputSchema,
+  type ProjectReadDevServerLogsInput,
+  ProjectReadDevServerLogsInputSchema,
   type ProjectReadFileInput,
   ProjectReadFileInputSchema,
   type ProjectRestoreBackupInput,
@@ -85,31 +92,8 @@ const VOLUME_ID_PREFIX = "ccv";
 const DEFAULT_PREVIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
 const SANDBOX_IDLE_DELETE_TTL = "30d";
 const SANDBOX_OWNER_USER_ID_KEY = "sandbox_owner_user_id";
-const PROCESS_LOG_RETRY_DELAYS_MS = [0, 250, 750, 1_500, 3_000, 5_000] as const;
-
-interface SandboxProcessLogsReader {
-  process: {
-    logs: (identifier: string, type?: "all" | "stderr" | "stdout") => Promise<string>;
-  };
-}
 
 const OwnerUserIdSchema = z.string().uuid();
-
-const ProcessResponseSchema = z
-  .object({
-    command: z.string(),
-    exitCode: z.number().int().optional(),
-    logs: z.string().nullable().optional(),
-    name: z.string().optional(),
-    pid: z.union([z.string(), z.number()]).optional(),
-    status: z.string(),
-    stderr: z.string().optional(),
-    stdout: z.string().optional(),
-    workingDir: z.string().optional(),
-  })
-  .passthrough();
-
-const ProcessListSchema = z.array(ProcessResponseSchema);
 
 const SearchResponseSchema = z
   .object({
@@ -128,21 +112,6 @@ const SearchResponseSchema = z
     total: z.number().int().nonnegative(),
   })
   .passthrough();
-
-interface SandboxExecAuditEntry {
-  argc: number;
-  argv0: string;
-  cwd: string;
-  durationMs: number;
-  error?: Record<string, unknown>;
-  exitCode?: number;
-  processName: string;
-  sandboxId: string;
-  status: string;
-  success: boolean;
-  timestamp: string;
-  type: "sandbox_exec";
-}
 
 export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   private sandboxPromise: Promise<SandboxInstance> | undefined;
@@ -221,7 +190,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       let stdout = firstNonEmptyString(parsed.stdout, parsed.logs) ?? "";
       let stderr = parsed.stderr ?? "";
       if (!stdout && !stderr && parsed.status === "completed") {
-        const logs = await this.readCompletedProcessLogs(sandbox, processName);
+        const logs = await readCompletedProcessLogs(sandbox, processName, this.sandboxId());
         stdout = logs.stdout;
         stderr = logs.stderr;
       }
@@ -280,6 +249,13 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const parsedInput = ProjectStartProcessInputSchema.parse(input);
     const sandbox = await this.sandbox();
     const processName = parsedInput.processId ?? `process-${crypto.randomUUID()}`;
+    if (parsedInput.processId) {
+      await sandbox.process.kill(parsedInput.processId).catch(() => undefined);
+      createLogger().info("sandbox_process_name_reused", {
+        processId: parsedInput.processId,
+        sandboxId: this.sandboxId(),
+      });
+    }
     const process = await sandbox.process.exec({
       command: commandToShellString(parsedInput.command),
       keepAlive: true,
@@ -435,6 +411,22 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       status: "killed",
       success: true,
     };
+  }
+
+  /**
+   * Tails the dev-server process logs for the preview console strip (preview
+   * §4.1). Read-only: never creates/wakes a sandbox via `createIfNotExists` —
+   * returns an empty snapshot when no sandbox or dev-server process exists.
+   */
+  public async readDevServerLogs(
+    input: ProjectReadDevServerLogsInput,
+  ): Promise<SandboxConsoleSnapshot> {
+    const parsed = ProjectReadDevServerLogsInputSchema.parse(input);
+    const sandbox = await this.existingSandbox();
+    if (sandbox === null) {
+      return emptyConsoleSnapshot({ stderr: parsed.stderrCursor, stdout: parsed.stdoutCursor });
+    }
+    return this.readResolvedDevServerLogs(sandbox, parsed);
   }
 
   public async createBackup(input: ProjectCreateBackupInput): Promise<SandboxBackupHandle> {
@@ -645,33 +637,101 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return `${VOLUME_ID_PREFIX}-${this.sandboxId()}`;
   }
 
-  private async readCompletedProcessLogs(
-    sandbox: SandboxProcessLogsReader,
-    processName: string,
-  ): Promise<{ stderr: string; stdout: string }> {
-    for (const delayMs of PROCESS_LOG_RETRY_DELAYS_MS) {
-      if (delayMs > 0) {
-        await sleep(delayMs);
-      }
-      try {
-        const [stdout, stderr] = await Promise.all([
-          sandbox.process.logs(processName, "stdout"),
-          sandbox.process.logs(processName, "stderr"),
-        ]);
-        if (stdout || stderr) {
-          return { stderr, stdout };
-        }
-      } catch (error) {
-        const normalized = normalizeUnknownError(error, "Sandbox process log fetch failed.");
-        createLogger().warn("sandbox_process_logs_fetch_failed", {
-          error: normalized.message,
-          details: normalized.details,
-          processName,
+  private async readResolvedDevServerLogs(
+    sandbox: SandboxInstance,
+    parsed: {
+      lastPid?: string | undefined;
+      processId: string;
+      stderrCursor: number;
+      stdoutCursor: number;
+      tail: number;
+    },
+  ): Promise<SandboxConsoleSnapshot> {
+    try {
+      const processes = ProcessListSchema.parse(await sandbox.process.list());
+      const proc = resolveDevServerProcess(processes, parsed.processId);
+      if (proc === null) {
+        createLogger().debug("sandbox_console_process_unresolved", {
+          candidateCount: processes.length,
+          preferredId: parsed.processId,
           sandboxId: this.sandboxId(),
         });
+        return emptyConsoleSnapshot({ stderr: parsed.stderrCursor, stdout: parsed.stdoutCursor });
       }
+      const [stdoutText, stderrText] = await Promise.all([
+        sandbox.process.logs(proc.id, "stdout"),
+        sandbox.process.logs(proc.id, "stderr"),
+      ]);
+      const result = sliceProcessLogs({
+        lastPid: parsed.lastPid,
+        pid: proc.pid,
+        stderrCursor: parsed.stderrCursor,
+        stderrText,
+        stdoutCursor: parsed.stdoutCursor,
+        stdoutText,
+        tail: parsed.tail,
+      });
+      createLogger().info("sandbox_console_logs_read", {
+        lineCount: result.lines.length,
+        processId: proc.id,
+        reset: result.reset,
+        sandboxId: this.sandboxId(),
+        stderrBytes: stderrText.length,
+        stdoutBytes: stdoutText.length,
+        truncated: result.truncated,
+      });
+      return { ...result, process: proc };
+    } catch (error) {
+      const normalized = normalizeUnknownError(error, "Sandbox console log read failed.");
+      createLogger().warn("sandbox_console_logs_failed", {
+        error: normalized.message,
+        processId: parsed.processId,
+        sandboxId: this.sandboxId(),
+      });
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        `Sandbox console read failed: ${normalized.message}`,
+        {
+          details: { blaxel: normalized.details, sandboxId: this.sandboxId() },
+          hint: "Retry the console poll. If it persists, check Blaxel sandbox status.",
+          retriable: true,
+        },
+      );
     }
-    return { stderr: "", stdout: "" };
+  }
+
+  /**
+   * Read-only sandbox acquisition for log polling (preview §A7). Uses
+   * `SandboxInstance.get`, never `createIfNotExists`, so a poll cannot create a
+   * sandbox; returns null when the sandbox does not exist.
+   */
+  private async existingSandbox(): Promise<SandboxInstance | null> {
+    this.configureBlaxel();
+    if (this.sandboxPromise !== undefined) {
+      return this.sandboxPromise;
+    }
+    try {
+      const sandbox = await SandboxInstance.get(this.sandboxId());
+      this.sandboxPromise = Promise.resolve(sandbox);
+      await recordSandboxUsageBestEffort(await this.meteringContext());
+      return sandbox;
+    } catch (error) {
+      if (isNotFoundError(error)) {
+        return null;
+      }
+      const normalized = normalizeUnknownError(error, "Blaxel sandbox lookup failed.");
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        `Blaxel sandbox lookup failed: ${normalized.message}`,
+        {
+          details: { blaxel: normalized.details, sandboxId: this.sandboxId() },
+          hint: "Retry. If it persists, check Blaxel sandbox lifecycle status.",
+          retriable: true,
+        },
+      );
+    }
   }
 
   private isCompatibleBackupId(backupId: string): boolean {
@@ -683,26 +743,9 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return typeof value === "string" ? value : null;
   }
 
-  private async writeExecAudit(entry: SandboxExecAuditEntry): Promise<void> {
-    const key = auditObjectKey(entry);
-    await this.env.R2_AUDIT.put(key, JSON.stringify(redactSecrets(entry)), {
-      customMetadata: {
-        sandboxId: entry.sandboxId,
-        status: entry.status,
-        type: entry.type,
-      },
-      httpMetadata: {
-        contentType: "application/json",
-      },
-    });
+  private writeExecAudit(entry: SandboxExecAuditEntry): Promise<void> {
+    return writeExecAudit(this.env.R2_AUDIT, entry);
   }
-}
-
-function auditObjectKey(entry: SandboxExecAuditEntry): string {
-  const day = entry.timestamp.slice(0, 10);
-  const month = entry.timestamp.slice(0, 7);
-  const id = crypto.randomUUID();
-  return `sandbox-exec/${month}/${day}/${entry.sandboxId}/${entry.processName}-${id}.json`;
 }
 
 function timeoutSeconds(timeoutMs: number | undefined): number {
@@ -719,12 +762,6 @@ function firstNonEmptyString(...values: Array<null | string | undefined>): strin
     }
   }
   return undefined;
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms);
-  });
 }
 
 function decodeBase64(value: string): Uint8Array {

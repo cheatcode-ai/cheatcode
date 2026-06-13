@@ -16,6 +16,9 @@ import {
   withErrorHandler,
 } from "@cheatcode/observability";
 import {
+  ApprovalDecisionRequestSchema,
+  SandboxConsoleQuerySchema,
+  SandboxConsoleSnapshotSchema,
   SandboxFileKeySchema,
   SandboxFileListSchema,
   SandboxFilePathSchema,
@@ -138,6 +141,16 @@ const SANDBOX_FILE_PATHS = {
 } as const satisfies Record<z.infer<typeof SandboxFileKeySchema>, string>;
 
 export const agentApp = new Hono<{ Bindings: AgentEnv }>();
+
+const ApprovalIdParamSchema = z.string().uuid();
+
+function parseApprovalRouteParam(value: string): string {
+  const parsed = ApprovalIdParamSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new APIError(400, "invalid_path_param", "Invalid approval id", { retriable: false });
+  }
+  return parsed.data;
+}
 
 function requestId(): string {
   return `req_${crypto.randomUUID().replaceAll("-", "")}`;
@@ -428,6 +441,19 @@ agentApp.post("/v1/runs/:runId/cancel", async (c) => {
   });
 });
 
+agentApp.post("/v1/runs/:runId/approvals/:approvalId", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const runId = parseRunRouteParam(c.req.param("runId"));
+  const approvalId = parseApprovalRouteParam(c.req.param("approvalId"));
+  const body = ApprovalDecisionRequestSchema.parse(await c.req.json());
+  const run = await runForRoute(c.env, userId, runId);
+  return fetchAgentRun(agentRunForRunId(c.env, run.runId), "https://agent-run.internal/approval", {
+    body: JSON.stringify({ ...body, approvalId, userId }),
+    headers: { "X-Cheatcode-User-Id": userId },
+    method: "POST",
+  });
+});
+
 agentApp.post("/v1/runs/:runId/takeover", async (c) => {
   const userId = readGatewayUserId(c.req.raw.headers);
   const runId = parseRunRouteParam(c.req.param("runId"));
@@ -564,6 +590,21 @@ agentApp.post("/v1/threads/:threadId/sandbox/terminal", async (c) => {
     timeoutMs: body.timeoutMs,
   });
   return c.json(SandboxTerminalResultSchema.parse(result));
+});
+
+agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  const query = SandboxConsoleQuerySchema.parse({
+    lastPid: c.req.query("lastPid") ?? undefined,
+    processId: c.req.query("processId") ?? undefined,
+    stderrCursor: c.req.query("stderrCursor") ?? undefined,
+    stdoutCursor: c.req.query("stdoutCursor") ?? undefined,
+    tail: c.req.query("tail") ?? undefined,
+  });
+  const sandbox = await sandboxForThread(c.env, userId, threadId);
+  const snapshot = await sandbox.readDevServerLogs(query);
+  return c.json(SandboxConsoleSnapshotSchema.parse(snapshot));
 });
 
 function takeoverEmbedUrl(previewUrl: string, password: string): string {

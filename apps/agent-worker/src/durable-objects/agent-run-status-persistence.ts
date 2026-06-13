@@ -7,7 +7,7 @@ import {
 import { createLogger } from "@cheatcode/observability";
 import { AgentRunId, UserId } from "@cheatcode/types";
 
-export type PersistableRunStatus = "running" | "completed" | "failed" | "canceled";
+export type PersistableRunStatus = "running" | "paused" | "completed" | "failed" | "canceled";
 
 interface AgentRunStatusPersistenceEnv {
   HYPERDRIVE: Hyperdrive;

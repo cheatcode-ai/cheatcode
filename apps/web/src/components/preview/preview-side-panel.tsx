@@ -1,14 +1,19 @@
 "use client";
 
+import type { ProjectSummary } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { QRCodeSVG } from "qrcode.react";
 import { Activity, useEffect } from "react";
-import { ExternalLink, PanelRightOpen, X } from "@/components/ui/icons";
+import { PanelRightOpen, X } from "@/components/ui/icons";
+import { buildPreviewIframeSrc } from "@/lib/preview/url-bar";
 import type { PreviewTab } from "@/lib/store/app-store";
 import { useAppStore } from "@/lib/store/app-store";
 import { emitFirstPreviewOpened } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
 import { BrowserTakeoverTab } from "./browser-takeover-tab";
+import { ConsoleStrip } from "./console-strip";
+import { DeviceFrame } from "./device-frame";
+import { PreviewUrlBar } from "./preview-url-bar";
 import { SandboxEnvTab } from "./sandbox-env-tab";
 import { SandboxFilesTab } from "./sandbox-files-tab";
 import { SandboxTerminalTab } from "./sandbox-terminal-tab";
@@ -21,7 +26,13 @@ const TABS: ReadonlyArray<{ label: string; value: PreviewTab }> = [
   { label: "Terminal", value: "terminal" },
 ];
 
-export function PreviewSidePanel({ threadId }: { threadId: string }) {
+export function PreviewSidePanel({
+  project,
+  threadId,
+}: {
+  project: ProjectSummary | null;
+  threadId: string;
+}) {
   const { getToken } = useAuth();
   const activePreviewTab = useAppStore((state) => state.activePreviewTab);
   const connectionState = useAppStore((state) => state.connectionState);
@@ -33,6 +44,10 @@ export function PreviewSidePanel({ threadId }: { threadId: string }) {
   const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
   const hasPreviewSurface = previewUrl !== null || sandboxStatus !== "cold";
+  // Mobile projects get the phone column; expoUrl is a defensive fallback for
+  // legacy rows whose mode predates app-builder-mobile (preview-surface §A6).
+  const deviceFrame: "browser" | "phone" =
+    project?.mode === "app-builder-mobile" || expoUrl !== null ? "phone" : "browser";
 
   useEffect(() => {
     if (!previewUrl || !previewPanelOpen) {
@@ -65,6 +80,7 @@ export function PreviewSidePanel({ threadId }: { threadId: string }) {
       <div className="chat-scrollbar min-h-0 flex-1 overflow-y-auto p-4">
         <PanelBody
           activePreviewTab={activePreviewTab}
+          deviceFrame={deviceFrame}
           expoUrl={expoUrl}
           previewReloadToken={previewReloadToken}
           previewUrl={previewUrl}
@@ -133,6 +149,7 @@ function PanelTabs({
 
 function PanelBody({
   activePreviewTab,
+  deviceFrame,
   expoUrl,
   previewReloadToken,
   previewUrl,
@@ -140,6 +157,7 @@ function PanelBody({
   threadId,
 }: {
   activePreviewTab: PreviewTab;
+  deviceFrame: "browser" | "phone";
   expoUrl: string | null;
   previewReloadToken: number;
   previewUrl: string | null;
@@ -150,10 +168,12 @@ function PanelBody({
     <div className="h-full min-h-[520px]">
       <Activity mode={activePreviewTab === "app" ? "visible" : "hidden"}>
         <AppTab
+          deviceFrame={deviceFrame}
           expoUrl={expoUrl}
           previewReloadToken={previewReloadToken}
           previewUrl={previewUrl}
           sandboxStatus={sandboxStatus}
+          threadId={threadId}
         />
       </Activity>
       <Activity mode={activePreviewTab === "browser" ? "visible" : "hidden"}>
@@ -177,45 +197,40 @@ function PanelBody({
 }
 
 function AppTab({
+  deviceFrame,
   expoUrl,
   previewReloadToken,
   previewUrl,
   sandboxStatus,
+  threadId,
 }: {
+  deviceFrame: "browser" | "phone";
   expoUrl: string | null;
   previewReloadToken: number;
   previewUrl: string | null;
   sandboxStatus: string;
+  threadId: string;
 }) {
+  const previewPath = useAppStore((state) => state.previewPath);
   if (previewUrl) {
-    const iframeUrl = previewUrlWithReloadToken(previewUrl, previewReloadToken);
+    const iframeUrl = buildPreviewIframeSrc(previewUrl, previewPath, previewReloadToken);
     return (
       <div className="flex h-full min-h-[520px] flex-col border border-thread-border bg-black">
-        <div className="flex h-10 shrink-0 items-center justify-between border-thread-border-subtle border-b px-3">
-          <div className="min-w-0 truncate font-mono text-[10px] text-thread-text-secondary">
-            {previewUrl}
-          </div>
-          <a
-            aria-label="Open preview in a new tab"
-            className="ml-3 flex h-7 w-7 shrink-0 items-center justify-center border border-thread-border text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary"
-            href={previewUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
-          </a>
-        </div>
+        <PreviewUrlBar previewUrl={previewUrl} />
         <div className="flex min-h-0 flex-1">
-          <iframe
-            className="min-h-0 min-w-0 flex-1 bg-white"
-            key={iframeUrl}
-            referrerPolicy="no-referrer"
-            sandbox="allow-forms allow-modals allow-popups allow-scripts allow-same-origin"
-            src={iframeUrl}
-            title="Sandbox preview"
-          />
+          <DeviceFrame frame={deviceFrame}>
+            <iframe
+              className="min-h-0 min-w-0 flex-1 bg-white"
+              key={iframeUrl}
+              referrerPolicy="no-referrer"
+              sandbox="allow-forms allow-modals allow-popups allow-scripts allow-same-origin"
+              src={iframeUrl}
+              title="Sandbox preview"
+            />
+          </DeviceFrame>
           {expoUrl ? <ExpoDeviceTestPanel expoUrl={expoUrl} /> : null}
         </div>
+        <ConsoleStrip previewUrl={previewUrl} threadId={threadId} />
       </div>
     );
   }
@@ -297,15 +312,6 @@ function ExpoDeviceTestPanel({ expoUrl }: { expoUrl: string }) {
       </p>
     </aside>
   );
-}
-
-function previewUrlWithReloadToken(previewUrl: string, reloadToken: number): string {
-  if (reloadToken === 0) {
-    return previewUrl;
-  }
-  const url = new URL(previewUrl);
-  url.searchParams.set("cc_preview_reload", String(reloadToken));
-  return url.toString();
 }
 
 function StatusDot({ isOnline }: { isOnline: boolean }) {
