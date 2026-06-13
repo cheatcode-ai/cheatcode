@@ -19,6 +19,15 @@ export const StartRunInputSchema = z
     budgetCapUsd: z.number().positive().max(50).optional(),
     dailyCostCapUsd: z.number().positive().optional(),
     dailyCostUsdAtRunStart: z.number().nonnegative().default(0),
+    quotaWarning: z
+      .object({
+        feature: z.literal("sandbox_hours"),
+        limit: z.number().nonnegative(),
+        remaining: z.number().nonnegative(),
+        resetAt: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type StartRunInput = z.infer<typeof StartRunInputSchema>;

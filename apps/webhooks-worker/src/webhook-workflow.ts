@@ -1,5 +1,5 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { updateCustomerProfile } from "@cheatcode/billing";
+import { tierRank, updateCustomerProfile } from "@cheatcode/billing";
 import {
   createDb,
   type HyperdriveConnection,
@@ -299,13 +299,6 @@ function shouldEmitTierUpgraded(
 ): tier is string {
   const from = previousTier(result);
   return result.action === "entitlement_synced" && tierRank(tier) > tierRank(from);
-}
-
-function tierRank(tier: string | undefined): number {
-  if (tier === "enterprise") return 4;
-  if (tier === "team") return 3;
-  if (tier === "pro") return 2;
-  return 1;
 }
 
 function webhookWorkflowId(payload: WebhookWorkflowPayload): string {

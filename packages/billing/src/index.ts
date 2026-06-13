@@ -1,9 +1,21 @@
 import { APIError } from "@cheatcode/observability";
 import { Polar } from "@polar-sh/sdk";
 import { z } from "zod";
+import { PLAN_CATALOG, type PlanCatalogEntry } from "./catalog";
 
-export const BillingTierSchema = z.enum(["free", "pro", "team", "enterprise"]);
+export const BillingTierSchema = z.enum(["free", "pro", "premium", "ultra", "max"]);
 export type BillingTier = z.infer<typeof BillingTierSchema>;
+
+export type { PlanCatalogEntry, SandboxUsageWarnLevel } from "./catalog";
+export {
+  PAID_TIERS,
+  PLAN_CATALOG,
+  quotaPeriodEndFor,
+  sandboxHoursForTier,
+  sandboxHoursWarnLevel,
+  TIER_ORDER,
+  tierRank,
+} from "./catalog";
 
 export const CancellationReasonSchema = z.enum([
   "too_expensive",
@@ -77,52 +89,27 @@ export interface EntitlementCacheInput {
   updatedAt?: Date | null;
 }
 
-export const TIER_LIMITS = {
-  free: {
-    byokProviderSlots: 3,
-    dailyCostCapUsd: 10,
-    maxConcurrentSandboxes: 1,
-    maxProjects: 3,
-    maxSeats: 1,
-    quotaComposioCalls: 1_000,
-    quotaDeployments: 5,
-    quotaSandboxHours: 5,
-    researchFanoutSubagents: 3,
-  },
-  pro: {
-    byokProviderSlots: 10,
-    dailyCostCapUsd: 50,
-    maxConcurrentSandboxes: 3,
-    maxProjects: 25,
-    maxSeats: 1,
-    quotaComposioCalls: 20_000,
-    quotaDeployments: 100,
-    quotaSandboxHours: 50,
-    researchFanoutSubagents: 10,
-  },
-  team: {
-    byokProviderSlots: null,
-    dailyCostCapUsd: 200,
-    maxConcurrentSandboxes: 10,
-    maxProjects: null,
-    maxSeats: 50,
-    quotaComposioCalls: 100_000,
-    quotaDeployments: null,
-    quotaSandboxHours: 200,
-    researchFanoutSubagents: 25,
-  },
-  enterprise: {
-    byokProviderSlots: null,
-    dailyCostCapUsd: null,
-    maxConcurrentSandboxes: 50,
-    maxProjects: null,
-    maxSeats: 500,
-    quotaComposioCalls: null,
-    quotaDeployments: null,
-    quotaSandboxHours: null,
-    researchFanoutSubagents: null,
-  },
-} as const satisfies Record<BillingTier, TierLimits>;
+function tierLimitsFromCatalog(entry: PlanCatalogEntry): TierLimits {
+  return {
+    byokProviderSlots: entry.byokProviderSlots,
+    dailyCostCapUsd: entry.dailyCostCapUsd,
+    maxConcurrentSandboxes: entry.maxConcurrentSandboxes,
+    maxProjects: entry.maxProjects,
+    maxSeats: entry.maxSeats,
+    quotaComposioCalls: entry.quotaComposioCalls,
+    quotaDeployments: entry.quotaDeployments,
+    quotaSandboxHours: entry.sandboxHours,
+    researchFanoutSubagents: entry.researchFanoutSubagents,
+  };
+}
+
+export const TIER_LIMITS: Record<BillingTier, TierLimits> = {
+  free: tierLimitsFromCatalog(PLAN_CATALOG.free),
+  pro: tierLimitsFromCatalog(PLAN_CATALOG.pro),
+  premium: tierLimitsFromCatalog(PLAN_CATALOG.premium),
+  ultra: tierLimitsFromCatalog(PLAN_CATALOG.ultra),
+  max: tierLimitsFromCatalog(PLAN_CATALOG.max),
+};
 
 const CheckoutResponseSchema = z
   .object({
@@ -262,7 +249,7 @@ export function entitlementValuesForTier(tier: BillingTier): EntitlementValues {
   const limits = tierLimits(tier);
   return {
     flagPrivateProjects: tier !== "free",
-    flagSso: tier === "team" || tier === "enterprise",
+    flagSso: false,
     maxConcurrentSandboxes: limits.maxConcurrentSandboxes,
     maxProjects: integerLimit(limits.maxProjects),
     maxSeats: limits.maxSeats,
@@ -311,17 +298,20 @@ export function inferTierFromPolarProduct(input: {
         ...(input.productId ? { productId: input.productId } : {}),
         ...(input.productName ? { productName: input.productName } : {}),
       },
-      hint: "Set product metadata tier=pro|team|enterprise on every paid Polar product.",
+      hint: "Set product metadata tier=pro|premium|ultra|max on every paid Polar product.",
       retriable: false,
     });
   }
 
   const searchable = `${input.productName ?? ""} ${input.productId ?? ""}`.toLowerCase();
-  if (searchable.includes("enterprise")) {
-    return "enterprise";
+  if (searchable.includes("premium")) {
+    return "premium";
   }
-  if (searchable.includes("team")) {
-    return "team";
+  if (searchable.includes("ultra")) {
+    return "ultra";
+  }
+  if (searchable.includes("max")) {
+    return "max";
   }
   if (searchable.includes("pro")) {
     return "pro";

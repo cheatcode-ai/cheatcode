@@ -115,13 +115,26 @@ const UsageDailyTotalSchema: JsonValue = {
   type: "object",
 };
 
+const UsageRunPointSchema: JsonValue = {
+  additionalProperties: false,
+  properties: {
+    runId: stringSchema({ format: "uuid" }),
+    startedAt: stringSchema({ format: "date-time" }),
+    status: stringSchema(),
+  },
+  required: ["runId", "startedAt", "status"],
+  type: "object",
+};
+
 const UsageDailyTotalsSchema: JsonValue = {
   additionalProperties: false,
   properties: {
     days: { minimum: 1, type: "integer" },
+    runs: arrayOf(UsageRunPointSchema),
     totals: arrayOf(UsageDailyTotalSchema),
+    truncated: { type: "boolean" },
   },
-  required: ["days", "totals"],
+  required: ["days", "runs", "totals", "truncated"],
   type: "object",
 };
 

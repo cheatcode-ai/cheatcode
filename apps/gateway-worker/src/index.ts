@@ -30,10 +30,12 @@ import { z } from "zod";
 import { authenticate, readRequiredSecret, requireVerifiedClerkEmail } from "./authenticate";
 import {
   billingCancelRoute,
+  billingCatalogRoute,
   billingCheckoutRoute,
   billingPortalRoute,
   billingReactivateRoute,
   billingStateRoute,
+  myUsageRoute,
 } from "./billing-routes";
 import { resolveCorsOrigin } from "./cors";
 import { IdempotencyStore } from "./durable-objects/idempotency";
@@ -91,6 +93,10 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   IDEMPOTENCY: DurableObjectNamespace<IdempotencyStore>;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
+  POLAR_PRODUCT_ID_MAX?: string;
+  POLAR_PRODUCT_ID_PREMIUM?: string;
+  POLAR_PRODUCT_ID_PRO?: string;
+  POLAR_PRODUCT_ID_ULTRA?: string;
   QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
 }
@@ -278,6 +284,10 @@ export const gatewayRoutes = gatewayApp
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "PATCH /v1/me/profile");
     return updateMyProfileRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+
+  .get("/v1/me/usage", async (c) => {
+    return myUsageRoute(c, { authenticate, readRequiredSecret });
   })
 
   .get("/v1/limits", async (c) => {
@@ -520,6 +530,10 @@ export const gatewayRoutes = gatewayApp
     } finally {
       c.executionCtx.waitUntil(close());
     }
+  })
+
+  .get("/v1/billing/catalog", async (c) => {
+    return billingCatalogRoute(c, { authenticate, readRequiredSecret });
   })
 
   .post("/v1/billing/checkout", async (c) => {

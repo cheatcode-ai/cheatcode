@@ -135,5 +135,7 @@ export {
   listUsageDailyTotals,
   rollupUsageDailyTotals,
 } from "./usage";
+export type { AgentRunStartPoint, AgentRunStartPointRange } from "./usage-runs";
+export { listAgentRunStartPoints } from "./usage-runs";
 export type { ClerkUserUpsert, ClerkUserUpsertResult } from "./users";
 export { markClerkUserDeleted, resolveInternalUserId, upsertClerkUser } from "./users";

@@ -1,13 +1,27 @@
 import {
+  arrayOf,
   type JsonValue,
   jsonBody,
   jsonResponse,
+  nullableNumberSchema,
   nullableStringSchema,
   type OpenApiRoute,
   stringSchema,
 } from "./openapi-builder";
 
 const objectSchema = (name: string): JsonValue => ({ $ref: `#/components/schemas/${name}` });
+
+const billingTierSchema: JsonValue = {
+  enum: ["free", "pro", "premium", "ultra", "max"],
+  type: "string",
+};
+
+const positiveIntegerSchema: JsonValue = { exclusiveMinimum: 0, type: "integer" };
+
+const nullablePositiveIntegerSchema: JsonValue = {
+  exclusiveMinimum: 0,
+  type: ["integer", "null"],
+};
 
 export const billingSchemas: Record<string, JsonValue> = {
   BillingCancel: {
@@ -30,14 +44,23 @@ export const billingSchemas: Record<string, JsonValue> = {
     },
     type: "object",
   },
+  BillingCatalog: {
+    additionalProperties: false,
+    properties: {
+      currentTier: billingTierSchema,
+      plans: arrayOf(objectSchema("PlanSummary")),
+    },
+    required: ["currentTier", "plans"],
+    type: "object",
+  },
   BillingCheckout: {
     additionalProperties: false,
     properties: {
-      productId: stringSchema({ maxLength: 200, minLength: 1 }),
       returnUrl: stringSchema({ format: "uri", maxLength: 2_000 }),
       successUrl: stringSchema({ format: "uri", maxLength: 2_000 }),
+      tier: { enum: ["pro", "premium", "ultra", "max"], type: "string" },
     },
-    required: ["productId"],
+    required: ["tier"],
     type: "object",
   },
   BillingState: {
@@ -49,7 +72,7 @@ export const billingSchemas: Record<string, JsonValue> = {
       currentPeriodEnd: nullableStringSchema({ format: "date-time" }),
       currentPeriodStart: nullableStringSchema({ format: "date-time" }),
       subscriptionStatus: stringSchema(),
-      tier: { enum: ["free", "pro", "team", "enterprise"], type: "string" },
+      tier: billingTierSchema,
     },
     required: [
       "cancelAtPeriodEnd",
@@ -81,9 +104,80 @@ export const billingSchemas: Record<string, JsonValue> = {
     required: ["url"],
     type: "object",
   },
+  PlanSummary: {
+    additionalProperties: false,
+    properties: {
+      available: { type: "boolean" },
+      current: { type: "boolean" },
+      displayName: stringSchema(),
+      id: billingTierSchema,
+      limits: {
+        additionalProperties: false,
+        properties: {
+          dailyCostCapUsd: nullableNumberSchema(),
+          maxConcurrentSandboxes: positiveIntegerSchema,
+          maxProjects: nullablePositiveIntegerSchema,
+          quotaComposioCalls: nullablePositiveIntegerSchema,
+          quotaDeployments: nullablePositiveIntegerSchema,
+        },
+        required: [
+          "dailyCostCapUsd",
+          "maxConcurrentSandboxes",
+          "maxProjects",
+          "quotaComposioCalls",
+          "quotaDeployments",
+        ],
+        type: "object",
+      },
+      monthlyPriceUsd: { minimum: 0, type: "number" },
+      sandboxHoursPerMonth: { exclusiveMinimum: 0, type: "number" },
+    },
+    required: [
+      "available",
+      "current",
+      "displayName",
+      "id",
+      "limits",
+      "monthlyPriceUsd",
+      "sandboxHoursPerMonth",
+    ],
+    type: "object",
+  },
+  SandboxUsageSummary: {
+    additionalProperties: false,
+    properties: {
+      resetAt: stringSchema({ format: "date-time" }),
+      sandboxHoursTotal: { minimum: 0, type: "number" },
+      sandboxHoursUsed: { minimum: 0, type: "number" },
+      tier: billingTierSchema,
+      warnLevel: { enum: ["none", "warn80", "warn95", "exhausted"], type: "string" },
+    },
+    required: ["resetAt", "sandboxHoursTotal", "sandboxHoursUsed", "tier", "warnLevel"],
+    type: "object",
+  },
 };
 
 export const billingRoutes: OpenApiRoute[] = [
+  {
+    method: "get",
+    operationId: "getMyUsage",
+    path: "/v1/me/usage",
+    responses: {
+      "200": jsonResponse("Sandbox-hours usage summary", objectSchema("SandboxUsageSummary")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Get sandbox-hours usage summary",
+    tags: ["billing"],
+  },
+  {
+    method: "get",
+    operationId: "getBillingCatalog",
+    path: "/v1/billing/catalog",
+    responses: { "200": jsonResponse("Plan catalog", objectSchema("BillingCatalog")) },
+    security: [{ bearerAuth: [] }],
+    summary: "Get plan catalog",
+    tags: ["billing"],
+  },
   {
     method: "post",
     operationId: "createBillingPortal",

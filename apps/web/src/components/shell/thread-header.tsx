@@ -4,6 +4,7 @@ import { UserButton, useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
+import { UsageBadge } from "@/components/shell/usage-badge";
 import { Zap } from "@/components/ui/icons";
 import { getThread } from "@/lib/api/project-thread";
 import { useAppStore } from "@/lib/store/app-store";
@@ -52,6 +53,7 @@ export function ThreadHeader() {
         </div>
       </div>
       <div className="flex items-center gap-4">
+        <UsageBadge />
         <a
           className="hidden h-8 items-center gap-2 rounded-md border border-thread-border bg-thread-surface px-3 font-mono text-[11px] text-thread-text-secondary uppercase tracking-wider shadow-sm transition-colors hover:border-thread-border-hover hover:bg-thread-surface-hover hover:text-thread-text-primary md:flex"
           href="/settings/integrations"

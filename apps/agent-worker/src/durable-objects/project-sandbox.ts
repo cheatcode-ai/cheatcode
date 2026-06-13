@@ -23,6 +23,13 @@ import type {
 } from "@cheatcode/tools-code";
 import { z } from "zod";
 import { listSandboxFiles } from "./project-sandbox-files";
+import {
+  clearSandboxMeterCheckpoint,
+  initSandboxMeterCheckpoint,
+  recordSandboxUsageBestEffort,
+  type SandboxMeteringContext,
+  setSandboxQuotaPeriod,
+} from "./project-sandbox-metering";
 import { buildPreviewSpec, createOrReplacePreview, previewUrl } from "./project-sandbox-preview";
 import {
   commandToShellString,
@@ -77,10 +84,7 @@ const WORKSPACE_DIR = "/workspace";
 const VOLUME_ID_PREFIX = "ccv";
 const DEFAULT_PREVIEW_TOKEN_TTL_MS = 15 * 60 * 1000;
 const SANDBOX_IDLE_DELETE_TTL = "30d";
-const SANDBOX_HOURS_FEATURE = "sandbox_hours";
-const SANDBOX_METER_CHECKPOINT_KEY = "sandbox_meter_checkpoint_ms";
 const SANDBOX_OWNER_USER_ID_KEY = "sandbox_owner_user_id";
-const MILLIS_PER_HOUR = 60 * 60 * 1_000;
 const PROCESS_LOG_RETRY_DELAYS_MS = [0, 250, 750, 1_500, 3_000, 5_000] as const;
 
 interface SandboxProcessLogsReader {
@@ -152,9 +156,11 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       });
     }
     await this.ctx.storage.put(SANDBOX_OWNER_USER_ID_KEY, parsedUserId);
-    if ((await this.meterCheckpointMs()) === null) {
-      await this.ctx.storage.put(SANDBOX_METER_CHECKPOINT_KEY, Date.now());
-    }
+    await initSandboxMeterCheckpoint(this.ctx.storage);
+  }
+
+  public async setQuotaPeriod(periodEndIso: string): Promise<void> {
+    await setSandboxQuotaPeriod(this.ctx.storage, periodEndIso);
   }
 
   public async ensureReady(): Promise<ProjectSandboxStatus> {
@@ -457,7 +463,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   }
 
   public async destroySandbox(): Promise<SandboxDestroyResult> {
-    await this.recordSandboxUsageBestEffort();
+    await recordSandboxUsageBestEffort(await this.meteringContext());
     this.configureBlaxel();
     try {
       await SandboxInstance.delete(this.sandboxId());
@@ -480,7 +486,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       }
     }
     this.sandboxPromise = undefined;
-    await this.ctx.storage.delete(SANDBOX_METER_CHECKPOINT_KEY);
+    await clearSandboxMeterCheckpoint(this.ctx.storage);
     return { deleted: true, sandboxId: this.sandboxId() };
   }
 
@@ -517,8 +523,17 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
 
   private async sandbox(): Promise<SandboxInstance> {
     this.sandboxPromise ??= this.createSandbox();
-    await this.recordSandboxUsageBestEffort();
+    await recordSandboxUsageBestEffort(await this.meteringContext());
     return this.sandboxPromise;
+  }
+
+  private async meteringContext(): Promise<SandboxMeteringContext> {
+    return {
+      env: this.env,
+      ownerUserId: await this.ownerUserId(),
+      sandboxId: this.sandboxId(),
+      storage: this.ctx.storage,
+    };
   }
 
   private async createSandbox(): Promise<SandboxInstance> {
@@ -668,55 +683,6 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return typeof value === "string" ? value : null;
   }
 
-  private async meterCheckpointMs(): Promise<number | null> {
-    const value = await this.ctx.storage.get(SANDBOX_METER_CHECKPOINT_KEY);
-    return typeof value === "number" && Number.isFinite(value) ? value : null;
-  }
-
-  private async recordSandboxUsageBestEffort(): Promise<void> {
-    try {
-      await this.recordSandboxUsage();
-    } catch (error) {
-      const normalized = normalizeUnknownError(error, "Sandbox usage metering failed.");
-      createLogger().warn("sandbox_usage_meter_failed", {
-        error: normalized.message,
-        details: normalized.details,
-        sandboxId: this.sandboxId(),
-      });
-    }
-  }
-
-  private async recordSandboxUsage(): Promise<void> {
-    const ownerUserId = await this.ownerUserId();
-    const quotaTracker = this.env.QUOTA_TRACKER;
-    if (!ownerUserId || !quotaTracker) {
-      return;
-    }
-    const previousCheckpointMs = await this.meterCheckpointMs();
-    const now = Date.now();
-    if (previousCheckpointMs === null) {
-      await this.ctx.storage.put(SANDBOX_METER_CHECKPOINT_KEY, now);
-      return;
-    }
-    const hours = (now - previousCheckpointMs) / MILLIS_PER_HOUR;
-    if (hours <= 0) {
-      return;
-    }
-    const stub = quotaTracker.get(quotaTracker.idFromName(`quota:${ownerUserId}`));
-    const response = await stub.fetch("https://quota.internal/record", {
-      body: JSON.stringify({
-        amount: hours,
-        feature: SANDBOX_HOURS_FEATURE,
-        periodEnd: nextQuotaPeriodEnd().toISOString(),
-      }),
-      method: "POST",
-    });
-    if (!response.ok) {
-      throw new Error(`QuotaTracker record failed with HTTP ${response.status}`);
-    }
-    await this.ctx.storage.put(SANDBOX_METER_CHECKPOINT_KEY, now);
-  }
-
   private async writeExecAudit(entry: SandboxExecAuditEntry): Promise<void> {
     const key = auditObjectKey(entry);
     await this.env.R2_AUDIT.put(key, JSON.stringify(redactSecrets(entry)), {
@@ -759,11 +725,6 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => {
     setTimeout(resolve, ms);
   });
-}
-
-function nextQuotaPeriodEnd(): Date {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
 }
 
 function decodeBase64(value: string): Uint8Array {

@@ -157,7 +157,7 @@ function quotaResponse(
   };
 }
 
-async function syncQuotaLimits(
+export async function syncQuotaLimits(
   env: LimitBindings,
   userId: UserId,
   entitlement: EntitlementCache,

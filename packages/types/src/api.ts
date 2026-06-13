@@ -169,9 +169,13 @@ export const UpsertProviderKeySchema = z
   })
   .strict();
 
+export const BillingTierSchema = z.enum(["free", "pro", "premium", "ultra", "max"]);
+
+export const PaidBillingTierSchema = z.enum(["pro", "premium", "ultra", "max"]);
+
 export const BillingCheckoutSchema = z
   .object({
-    productId: z.string().trim().min(1).max(200),
+    tier: PaidBillingTierSchema,
     returnUrl: z.string().url().max(2000).optional(),
     successUrl: z.string().url().max(2000).optional(),
   })
@@ -194,8 +198,6 @@ export const BillingCancelSchema = z
     reason: BillingCancellationReasonSchema.optional(),
   })
   .strict();
-
-export const BillingTierSchema = z.enum(["free", "pro", "team", "enterprise"]);
 
 export const BillingStateResponseSchema = z
   .object({
@@ -223,6 +225,48 @@ export const BillingUrlResponseSchema = z
     url: z.string().url(),
   })
   .strict();
+
+export const SandboxUsageWarnLevelSchema = z.enum(["none", "warn80", "warn95", "exhausted"]);
+
+export const SandboxUsageSummaryResponseSchema = z
+  .object({
+    resetAt: z.string().datetime(),
+    sandboxHoursTotal: z.number().nonnegative(),
+    sandboxHoursUsed: z.number().nonnegative(),
+    tier: BillingTierSchema,
+    warnLevel: SandboxUsageWarnLevelSchema,
+  })
+  .strict();
+
+export const PlanSummarySchema = z
+  .object({
+    available: z.boolean(),
+    current: z.boolean(),
+    displayName: z.string(),
+    id: BillingTierSchema,
+    limits: z
+      .object({
+        dailyCostCapUsd: z.number().nullable(),
+        maxConcurrentSandboxes: z.number().int().positive(),
+        maxProjects: z.number().int().positive().nullable(),
+        quotaComposioCalls: z.number().int().positive().nullable(),
+        quotaDeployments: z.number().int().positive().nullable(),
+      })
+      .strict(),
+    monthlyPriceUsd: z.number().nonnegative(),
+    sandboxHoursPerMonth: z.number().positive(),
+  })
+  .strict();
+
+export const BillingCatalogResponseSchema = z
+  .object({
+    currentTier: BillingTierSchema,
+    plans: z.array(PlanSummarySchema),
+  })
+  .strict();
+
+/** Alias of BillingCatalogResponseSchema for catalog-named consumers. */
+export const PlanCatalogResponseSchema = BillingCatalogResponseSchema;
 
 export const SandboxFileKeySchema = z.enum(["app-page"]);
 
@@ -355,22 +399,39 @@ export const UsageDailyTotalSchema = z
   })
   .strict();
 
+export const UsageRunPointSchema = z
+  .object({
+    runId: z.string().uuid(),
+    startedAt: z.string().datetime(),
+    status: z.string(),
+  })
+  .strict();
+
 export const UsageDailyTotalsResponseSchema = z
   .object({
     days: z.number().int().positive(),
+    runs: z.array(UsageRunPointSchema),
     totals: z.array(UsageDailyTotalSchema),
+    truncated: z.boolean(),
   })
   .strict();
 
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
 export type BillingCancel = z.infer<typeof BillingCancelSchema>;
 export type BillingCancellationReason = z.infer<typeof BillingCancellationReasonSchema>;
+export type BillingCatalogResponse = z.infer<typeof BillingCatalogResponseSchema>;
 export type BillingStateResponse = z.infer<typeof BillingStateResponseSchema>;
 export type BillingSubscriptionActionResponse = z.infer<
   typeof BillingSubscriptionActionResponseSchema
 >;
 export type BillingTier = z.infer<typeof BillingTierSchema>;
 export type BillingUrlResponse = z.infer<typeof BillingUrlResponseSchema>;
+export type PaidBillingTier = z.infer<typeof PaidBillingTierSchema>;
+export type PlanCatalogResponse = z.infer<typeof PlanCatalogResponseSchema>;
+export type PlanSummary = z.infer<typeof PlanSummarySchema>;
+export type SandboxUsageSummaryResponse = z.infer<typeof SandboxUsageSummaryResponseSchema>;
+export type SandboxUsageWarnLevel = z.infer<typeof SandboxUsageWarnLevelSchema>;
+export type UsageRunPoint = z.infer<typeof UsageRunPointSchema>;
 export type CreateProject = z.infer<typeof CreateProjectSchema>;
 export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;

@@ -22,6 +22,13 @@
       "when": 1781349062819,
       "tag": "0002_amazing_puck",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1781353364655,
+      "tag": "0003_v2_billing_tier_premium_ultra_max",
+      "breakpoints": true
     }
   ]
 }

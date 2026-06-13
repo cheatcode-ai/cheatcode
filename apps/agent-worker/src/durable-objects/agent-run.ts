@@ -330,6 +330,9 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       isAnswerTextOpen = true;
       await this.appendBudgetStatus(input, ZERO_BUDGET_SNAPSHOT);
       await this.append(runPlanChunk());
+      if (input.quotaWarning) {
+        await this.append({ type: "data-quota", data: { v: 1, ...input.quotaWarning } });
+      }
       const startupCostCap = costCapExhaustion(input, MINIMUM_RUN_BUDGET_USD);
       if (startupCostCap) {
         await this.appendCostCapExhausted(input, isAnswerTextOpen, startupCostCap);

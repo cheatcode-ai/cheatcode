@@ -43,6 +43,7 @@ import {
   saveTakeoverState,
   startAgentRun,
   startLegacyThreadRun,
+  syncSandboxQuotaPeriod,
   withRunLocation,
 } from "./agent-routing";
 import { AgentRun } from "./durable-objects/agent-run";
@@ -369,7 +370,8 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
         userId: UserId(userId),
       }),
     );
-    await sandboxForProject(c.env, userId, result.run.projectId);
+    const warmedSandbox = await sandboxForProject(c.env, userId, result.run.projectId);
+    c.executionCtx.waitUntil(syncSandboxQuotaPeriod(warmedSandbox, policy.quotaPeriodEnd));
     const response = await startAgentRun(
       c.env,
       userId,

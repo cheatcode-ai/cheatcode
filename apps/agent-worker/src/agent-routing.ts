@@ -1,4 +1,9 @@
-import { entitlementCacheFromValues, tierLimits } from "@cheatcode/billing";
+import {
+  type EntitlementCache,
+  entitlementCacheFromValues,
+  quotaPeriodEndFor,
+  tierLimits,
+} from "@cheatcode/billing";
 import {
   type AgentRunHandle,
   createDb,
@@ -11,8 +16,9 @@ import {
   type RunPersonalization,
   withUserContext,
 } from "@cheatcode/db";
-import { APIError, emitUserEvent } from "@cheatcode/observability";
+import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
 import { AgentRunId, type CreateRun, ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import { z } from "zod";
 import type { AgentRun } from "./durable-objects/agent-run";
 import { DEFAULT_RUN_BUDGET_CAP_USD } from "./durable-objects/agent-run-budget";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
@@ -27,11 +33,30 @@ import {
 
 const DO_FREE_TIER_DURATION_ERROR = "Exceeded allowed duration in Durable Objects free tier";
 const MAX_RESEARCH_FANOUT_SUBAGENTS = 25;
+const SANDBOX_HOURS_FEATURE = "sandbox_hours";
+const SANDBOX_HOURS_WARN_RATIO = 0.8;
+
+const QuotaPeekResultSchema = z
+  .object({
+    limit: z.number().finite().nonnegative(),
+    remaining: z.number().finite().nonnegative(),
+    used: z.number().finite().nonnegative(),
+  })
+  .strict();
+
+export interface SandboxHoursQuotaWarning {
+  feature: "sandbox_hours";
+  limit: number;
+  remaining: number;
+  resetAt: number;
+}
 
 export interface RunEntitlementPolicy {
   dailyCostCapUsd?: number;
   dailyCostUsdAtRunStart: number;
   maxConcurrentSandboxes: number;
+  quotaPeriodEnd: string;
+  quotaWarning?: SandboxHoursQuotaWarning;
   researchFanoutSubagentLimit: number;
 }
 
@@ -148,6 +173,7 @@ export async function startAgentRun(
         model: body.model ?? run.modelId,
         projectId: run.projectId,
         ...(run.projectMode ? { projectMode: run.projectMode } : {}),
+        ...(policy.quotaWarning ? { quotaWarning: policy.quotaWarning } : {}),
         runId: run.runId,
         sandboxName,
         threadId: run.threadId,
@@ -176,20 +202,16 @@ export async function runEntitlementPolicy(
         userId: UserId(userId),
       });
       if (limits.dailyCostCapUsd !== null && dailyCostUsdAtRunStart >= limits.dailyCostCapUsd) {
-        throw new APIError(402, "daily_cost_cap_reached", "Daily cost cap reached", {
-          details: {
-            capUsd: limits.dailyCostCapUsd,
-            spentUsd: dailyCostUsdAtRunStart,
-            tier: entitlement.tier,
-          },
-          hint: "Wait for the UTC daily reset or upgrade your plan before starting another run.",
-          retriable: false,
-        });
+        throw dailyCostCapError(limits.dailyCostCapUsd, dailyCostUsdAtRunStart, entitlement.tier);
       }
+      const periodEnd = quotaPeriodEndFor(entitlement);
+      const quotaWarning = await evaluateSandboxHoursGate(env, userId, entitlement, periodEnd);
       return {
         dailyCostUsdAtRunStart,
         ...(limits.dailyCostCapUsd === null ? {} : { dailyCostCapUsd: limits.dailyCostCapUsd }),
         maxConcurrentSandboxes: entitlement.maxConcurrentSandboxes,
+        quotaPeriodEnd: periodEnd.toISOString(),
+        ...(quotaWarning ? { quotaWarning } : {}),
         researchFanoutSubagentLimit: Math.min(
           limits.researchFanoutSubagents ?? MAX_RESEARCH_FANOUT_SUBAGENTS,
           MAX_RESEARCH_FANOUT_SUBAGENTS,
@@ -199,6 +221,142 @@ export async function runEntitlementPolicy(
   } finally {
     await close();
   }
+}
+
+export async function syncSandboxQuotaPeriod(
+  sandbox: DurableObjectStub<ProjectSandbox>,
+  quotaPeriodEnd: string,
+): Promise<void> {
+  try {
+    await sandbox.setQuotaPeriod(quotaPeriodEnd);
+  } catch (error) {
+    createLogger().warn("sandbox_quota_period_sync_failed", {
+      error: error instanceof Error ? error.message : "Unknown setQuotaPeriod error",
+    });
+  }
+}
+
+async function evaluateSandboxHoursGate(
+  env: AgentEnv,
+  userId: string,
+  entitlement: EntitlementCache,
+  periodEnd: Date,
+): Promise<SandboxHoursQuotaWarning | undefined> {
+  const namespace = env.QUOTA_TRACKER;
+  const allowanceHours = entitlement.quotaSandboxHours;
+  if (!namespace || !(allowanceHours > 0)) {
+    return undefined;
+  }
+  const stub = namespace.get(namespace.idFromName(`quota:${userId}`));
+  await syncSandboxHoursLimit(stub, allowanceHours);
+  const usedHours = await peekSandboxHoursUsed(stub, periodEnd);
+  if (usedHours === null) {
+    return undefined;
+  }
+  const resetAt = periodEnd.getTime();
+  if (usedHours >= allowanceHours) {
+    emitSandboxHoursExhausted(env, userId, entitlement.tier, usedHours, allowanceHours);
+    throw sandboxHoursExhaustedError(allowanceHours, usedHours, resetAt, entitlement.tier);
+  }
+  if (usedHours / allowanceHours >= SANDBOX_HOURS_WARN_RATIO) {
+    emitUserEvent(env, { eventName: "sandbox_hours_warn_emitted", plan: entitlement.tier, userId });
+    return {
+      feature: SANDBOX_HOURS_FEATURE,
+      limit: allowanceHours,
+      remaining: Math.max(0, allowanceHours - usedHours),
+      resetAt,
+    };
+  }
+  return undefined;
+}
+
+async function syncSandboxHoursLimit(
+  stub: DurableObjectStub,
+  allowanceHours: number,
+): Promise<void> {
+  try {
+    const response = await stub.fetch("https://quota.internal/set-limit", {
+      body: JSON.stringify({
+        feature: SANDBOX_HOURS_FEATURE,
+        limit: allowanceHours,
+        source: "agent-worker-entitlement",
+      }),
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`QuotaTracker set-limit failed with HTTP ${response.status}`);
+    }
+  } catch (error) {
+    createLogger().warn("sandbox_hours_limit_sync_failed", {
+      error: error instanceof Error ? error.message : "Unknown quota set-limit error",
+    });
+  }
+}
+
+async function peekSandboxHoursUsed(
+  stub: DurableObjectStub,
+  periodEnd: Date,
+): Promise<number | null> {
+  try {
+    const response = await stub.fetch("https://quota.internal/peek", {
+      body: JSON.stringify({
+        feature: SANDBOX_HOURS_FEATURE,
+        periodEnd: periodEnd.toISOString(),
+      }),
+      method: "POST",
+    });
+    if (!response.ok) {
+      throw new Error(`QuotaTracker peek failed with HTTP ${response.status}`);
+    }
+    return QuotaPeekResultSchema.parse(await response.json()).used;
+  } catch (error) {
+    createLogger().warn("sandbox_hours_peek_failed_open", {
+      error: error instanceof Error ? error.message : "Unknown quota peek error",
+    });
+    return null;
+  }
+}
+
+function emitSandboxHoursExhausted(
+  env: AgentEnv,
+  userId: string,
+  tier: string,
+  usedHours: number,
+  allowanceHours: number,
+): void {
+  createLogger().warn("run_blocked_sandbox_hours_exhausted", {
+    sandboxHoursTotal: allowanceHours,
+    sandboxHoursUsed: usedHours,
+    tier,
+    userId,
+  });
+  emitUserEvent(env, { eventName: "sandbox_hours_exhausted_block", plan: tier, userId });
+}
+
+function sandboxHoursExhaustedError(
+  allowanceHours: number,
+  usedHours: number,
+  resetAt: number,
+  tier: string,
+): APIError {
+  return new APIError(402, "quota_exhausted_sandbox_hours", "Monthly sandbox hours exhausted", {
+    details: {
+      resetAt: new Date(resetAt).toISOString(),
+      sandboxHoursTotal: allowanceHours,
+      sandboxHoursUsed: usedHours,
+      tier,
+    },
+    hint: "Upgrade your plan or wait for your monthly sandbox-hour reset.",
+    retriable: false,
+  });
+}
+
+function dailyCostCapError(capUsd: number, spentUsd: number, tier: string): APIError {
+  return new APIError(402, "daily_cost_cap_reached", "Daily cost cap reached", {
+    details: { capUsd, spentUsd, tier },
+    hint: "Wait for the UTC daily reset or upgrade your plan before starting another run.",
+    retriable: false,
+  });
 }
 
 export async function startLegacyThreadRun(

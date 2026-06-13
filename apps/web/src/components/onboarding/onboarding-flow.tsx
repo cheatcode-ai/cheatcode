@@ -1,8 +1,6 @@
 "use client";
 
-import { env } from "@cheatcode/env/web";
 import {
-  BillingUrlResponseSchema,
   type OnboardingStep,
   OnboardingStepSchema,
   type OnboardingStepStatus,
@@ -22,7 +20,8 @@ import {
   ToolsStep,
 } from "@/components/onboarding/onboarding-steps";
 import { Loader2 } from "@/components/ui/icons";
-import { authorizedFetch } from "@/lib/api/authorized-fetch";
+import { requestCheckout } from "@/lib/api/billing";
+import { useBillingCatalogQuery } from "@/lib/hooks/use-billing";
 import { useProfileQuery, useUpdateProfileMutation } from "@/lib/hooks/use-profile";
 
 type Phase = "finishing" | "loading" | "retry" | "stepping";
@@ -57,6 +56,9 @@ export function OnboardingFlow() {
   const profile = profileQuery.data;
   const { mutateAsync } = mutation;
   const checkoutMutation = useCheckoutMutation(getToken);
+  const catalogQuery = useBillingCatalogQuery(getToken);
+  const canCheckout =
+    catalogQuery.data?.plans.some((plan) => plan.id === "pro" && plan.available) ?? false;
 
   const completeOnboarding = useCallback(
     async (target: string, planStatus: OnboardingStepStatus = "done") => {
@@ -127,7 +129,7 @@ export function OnboardingFlow() {
   }
 
   const stepProps: StepProps = {
-    canCheckout: Boolean(env.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID),
+    canCheckout,
     initialName: profile?.agentDisplayName ?? "",
     isBusy: checkoutMutation.isPending,
     onBasicsContinue: () => {
@@ -202,21 +204,12 @@ function renderStep(stepName: OnboardingStep, props: StepProps): ReactNode {
 
 function useCheckoutMutation(getToken: () => Promise<null | string>) {
   return useMutation({
-    mutationFn: async () => {
-      const productId = env.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID;
-      if (!productId) {
-        throw new Error("Polar product is not configured");
-      }
-      const response = await authorizedFetch(getToken, "/v1/billing/checkout", {
-        body: JSON.stringify({
-          productId,
-          returnUrl: window.location.href,
-          successUrl: window.location.href,
-        }),
-        method: "POST",
-      });
-      return BillingUrlResponseSchema.parse(await response.json()).url;
-    },
+    mutationFn: () =>
+      requestCheckout(getToken, {
+        returnUrl: window.location.href,
+        successUrl: window.location.href,
+        tier: "pro",
+      }),
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Checkout failed");
     },

@@ -39,7 +39,10 @@ export const entitlements = pgTable(
     source: text("source"),
   },
   (table) => [
-    check("v2_entitlements_tier_check", sql`${table.tier} in ('free','pro','team','enterprise')`),
+    check(
+      "v2_entitlements_tier_check",
+      sql`${table.tier} in ('free','pro','premium','ultra','max')`,
+    ),
   ],
 );
 
