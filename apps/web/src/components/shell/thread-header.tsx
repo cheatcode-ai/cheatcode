@@ -1,6 +1,6 @@
 "use client";
 
-import { UserButton, useAuth } from "@clerk/nextjs";
+import { ClerkLoaded, ClerkLoading, UserButton, useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
 import { usePathname, useSearchParams } from "next/navigation";
@@ -61,7 +61,14 @@ export function ThreadHeader() {
           <Zap aria-hidden="true" className="h-3.5 w-3.5" />
           Integrations
         </a>
-        <UserButton />
+        {/* Gate Clerk's UserButton behind ClerkLoaded so SSR and the first client render
+            match (it mounts a client-only div); avoids a hydration-mismatch tree regen. */}
+        <ClerkLoading>
+          <div aria-hidden="true" className="h-7 w-7 rounded-full bg-thread-skeleton" />
+        </ClerkLoading>
+        <ClerkLoaded>
+          <UserButton />
+        </ClerkLoaded>
       </div>
     </header>
   );
