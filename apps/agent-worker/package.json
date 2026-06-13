@@ -1,0 +1,34 @@
+{
+  "name": "@cheatcode/agent-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "wrangler deploy --dry-run",
+    "dev": "wrangler dev --port 8788",
+    "lint": "biome check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cheatcode/agent-core": "workspace:*",
+    "@cheatcode/auth": "workspace:*",
+    "@cheatcode/billing": "workspace:*",
+    "@cheatcode/byok": "workspace:*",
+    "@cheatcode/db": "workspace:*",
+    "@cheatcode/env": "workspace:*",
+    "@cheatcode/observability": "workspace:*",
+    "@cheatcode/tools-code": "workspace:*",
+    "@cheatcode/types": "workspace:*",
+    "@blaxel/core": "catalog:",
+    "ai": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

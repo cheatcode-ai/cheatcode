@@ -1,0 +1,176 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cheatcode-webhooks",
+  "workers_dev": false,
+  "preview_urls": false,
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "webhooks.trycheatcode.com/*",
+      "zone_name": "trycheatcode.com"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/5 * * * *", "20 0 * * *", "35 0 * * *"]
+  },
+  "vars": {
+    "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
+    "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert"
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "BL_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "blaxel-api-key"
+    },
+    {
+      "binding": "BL_REGION",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "blaxel-region"
+    },
+    {
+      "binding": "BL_WORKSPACE",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "blaxel-workspace"
+    },
+    {
+      "binding": "CLERK_WEBHOOK_SIGNING_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "clerk-webhook-signing-secret"
+    },
+    {
+      "binding": "COMPOSIO_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "composio-api-key"
+    },
+    {
+      "binding": "POLAR_WEBHOOK_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "polar-webhook-secret"
+    },
+    {
+      "binding": "COMPOSIO_WEBHOOK_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "composio-webhook-secret"
+    },
+    {
+      "binding": "CLOUDFLARE_ANALYTICS_API_TOKEN",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "cloudflare-analytics-api-token"
+    },
+    {
+      "binding": "INTERNAL_ALERT_WEBHOOK_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "internal-alert-webhook-secret"
+    },
+    {
+      "binding": "INTERNAL_MAINTENANCE_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "internal-maintenance-secret"
+    },
+    {
+      "binding": "POLAR_ACCESS_TOKEN",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "polar-access-token"
+    }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "b7cead054a6a4207a475b9544971f04a",
+      "localConnectionString": "postgresql://app_worker:app_worker@localhost:54322/postgres"
+    }
+  ],
+  "services": [
+    {
+      "binding": "AGENT",
+      "service": "cheatcode-agent"
+    },
+    {
+      "binding": "GATEWAY",
+      "service": "cheatcode-gateway"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "WEBHOOK_IDEMPOTENCY",
+        "class_name": "WebhookIdempotencyStore"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["WebhookIdempotencyStore"]
+    }
+  ],
+  "workflows": [
+    {
+      "name": "cheatcode-webhook-processor",
+      "binding": "WEBHOOK_WORKFLOW",
+      "class_name": "WebhookWorkflow",
+      "limits": {
+        "steps": 10
+      }
+    },
+    {
+      "name": "cheatcode-ops-maintenance",
+      "binding": "OPS_WORKFLOW",
+      "class_name": "OpsMaintenanceWorkflow",
+      "limits": {
+        "steps": 10
+      }
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "ENTITLEMENTS_CACHE",
+      "id": "9f160d052a5540f2a3aa70ced948c532",
+      "preview_id": "9f160d052a5540f2a3aa70ced948c532"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_OUTPUTS",
+      "bucket_name": "cheatcode-outputs"
+    },
+    {
+      "binding": "R2_SNAPSHOTS",
+      "bucket_name": "cheatcode-snapshots"
+    },
+    {
+      "binding": "R2_UPLOADS",
+      "bucket_name": "cheatcode-uploads"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USER_EVENTS",
+      "dataset": "cc_user_events"
+    },
+    {
+      "binding": "ERROR_EVENTS",
+      "dataset": "cc_error_events"
+    },
+    {
+      "binding": "PERFORMANCE_METRICS",
+      "dataset": "cc_performance_metrics"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
+  }
+}

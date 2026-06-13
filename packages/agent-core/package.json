@@ -1,0 +1,35 @@
+{
+  "name": "@cheatcode/agent-core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "catalog:",
+    "@ai-sdk/google": "catalog:",
+    "@ai-sdk/openai": "catalog:",
+    "@cheatcode/observability": "workspace:*",
+    "@cheatcode/skills": "workspace:*",
+    "@cheatcode/tools-browser": "workspace:*",
+    "@cheatcode/tools-code": "workspace:*",
+    "@cheatcode/tools-data": "workspace:*",
+    "@cheatcode/tools-docs": "workspace:*",
+    "@cheatcode/tools-media": "workspace:*",
+    "@cheatcode/tools-research": "workspace:*",
+    "@cheatcode/types": "workspace:*",
+    "@composio/core": "catalog:",
+    "@mastra/core": "catalog:",
+    "@openrouter/ai-sdk-provider": "catalog:",
+    "ai": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

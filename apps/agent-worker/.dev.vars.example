@@ -1,0 +1,15 @@
+# Blaxel hosted sandbox credentials for local Worker dev.
+BL_API_KEY=
+BL_WORKSPACE=cheatcode
+BL_REGION=us-pdx-1
+BLAXEL_SANDBOX_IMAGE=sandbox/cheatcode-sandbox:yoo6c20wgw03
+BLAXEL_SANDBOX_MEMORY_MB=4096
+
+# App-level Composio key used to execute connected-account actions.
+COMPOSIO_API_KEY=
+
+# Used to sign generated-output download URLs served through agent-worker.
+OUTPUT_DOWNLOAD_SIGNING_SECRET=
+
+# Used to verify internal DSR maintenance calls from webhooks-worker.
+INTERNAL_MAINTENANCE_SECRET=

@@ -1,0 +1,140 @@
+import type { UserId } from "@cheatcode/types";
+import { eq } from "drizzle-orm";
+import type { Database } from "./client";
+import type { OnboardingStateValue } from "./schema";
+import { userProfiles } from "./schema";
+
+export type UserProfileRecord = typeof userProfiles.$inferSelect;
+
+type OnboardingStepKey = "intro" | "name" | "tools" | "basics" | "plan";
+type OnboardingStepStatusValue = "done" | "skipped";
+
+export interface UpsertUserProfileInput {
+  userId: UserId;
+  agentDisplayName?: string | null;
+  appbuilderDefaultBudgetUsd?: number | null;
+  appbuilderDefaultModel?: string | null;
+  disabledModels?: readonly string[];
+  generalDefaultBudgetUsd?: number | null;
+  generalDefaultModel?: string | null;
+  globalMemory?: string | null;
+  onboardingCompleted?: boolean;
+  onboardingStep?: { status: OnboardingStepStatusValue; step: OnboardingStepKey };
+}
+
+export interface RunPersonalization {
+  agentDisplayName: string | null;
+  appbuilderDefaultBudgetUsd: number | null;
+  appbuilderDefaultModel: string | null;
+  disabledModels: readonly string[];
+  generalDefaultBudgetUsd: number | null;
+  generalDefaultModel: string | null;
+  globalMemory: string | null;
+}
+
+const DEFAULT_PERSONALIZATION: RunPersonalization = {
+  agentDisplayName: null,
+  appbuilderDefaultBudgetUsd: null,
+  appbuilderDefaultModel: null,
+  disabledModels: [],
+  generalDefaultBudgetUsd: null,
+  generalDefaultModel: null,
+  globalMemory: null,
+};
+
+export async function getUserProfile(
+  db: Database,
+  userId: UserId,
+): Promise<UserProfileRecord | null> {
+  const row = await db.query.userProfiles.findFirst({ where: eq(userProfiles.userId, userId) });
+  return row ?? null;
+}
+
+/** Narrow read for the run-create hot path; missing row → all defaults. */
+export async function getRunPersonalization(
+  db: Database,
+  userId: UserId,
+): Promise<RunPersonalization> {
+  const row = await getUserProfile(db, userId);
+  if (!row) {
+    return DEFAULT_PERSONALIZATION;
+  }
+  return {
+    agentDisplayName: row.agentDisplayName,
+    // Drizzle returns numeric columns as strings at runtime; coerce back to number.
+    appbuilderDefaultBudgetUsd: coerceBudget(row.appbuilderDefaultBudgetUsd),
+    appbuilderDefaultModel: row.appbuilderDefaultModel,
+    disabledModels: row.disabledModels,
+    generalDefaultBudgetUsd: coerceBudget(row.generalDefaultBudgetUsd),
+    generalDefaultModel: row.generalDefaultModel,
+    globalMemory: row.globalMemory,
+  };
+}
+
+export async function upsertUserProfile(
+  db: Database,
+  input: UpsertUserProfileInput,
+): Promise<UserProfileRecord> {
+  const existing = await getUserProfile(db, input.userId);
+  const onboardingState = mergeOnboardingState(existing?.onboardingState, input.onboardingStep);
+  const shouldLatch =
+    input.onboardingCompleted === true && (existing?.onboardingCompletedAt ?? null) === null;
+  const mutation = {
+    ...profileColumnUpdates(input),
+    onboardingState,
+    ...(shouldLatch ? { onboardingCompletedAt: new Date() } : {}),
+  };
+  // updated_at is refreshed by the trg_v2_user_profiles_updated BEFORE UPDATE trigger.
+  const [row] = await db
+    .insert(userProfiles)
+    .values({ userId: input.userId, ...mutation })
+    .onConflictDoUpdate({ set: mutation, target: userProfiles.userId })
+    .returning();
+  if (!row) {
+    throw new Error("Failed to upsert user profile.");
+  }
+  return row;
+}
+
+function profileColumnUpdates(
+  input: UpsertUserProfileInput,
+): Partial<typeof userProfiles.$inferInsert> {
+  const updates: Partial<typeof userProfiles.$inferInsert> = {};
+  if (input.agentDisplayName !== undefined) {
+    updates.agentDisplayName = input.agentDisplayName;
+  }
+  if (input.globalMemory !== undefined) {
+    updates.globalMemory = input.globalMemory;
+  }
+  if (input.appbuilderDefaultModel !== undefined) {
+    updates.appbuilderDefaultModel = input.appbuilderDefaultModel;
+  }
+  if (input.generalDefaultModel !== undefined) {
+    updates.generalDefaultModel = input.generalDefaultModel;
+  }
+  if (input.appbuilderDefaultBudgetUsd !== undefined) {
+    updates.appbuilderDefaultBudgetUsd = input.appbuilderDefaultBudgetUsd;
+  }
+  if (input.generalDefaultBudgetUsd !== undefined) {
+    updates.generalDefaultBudgetUsd = input.generalDefaultBudgetUsd;
+  }
+  if (input.disabledModels !== undefined) {
+    updates.disabledModels = [...input.disabledModels];
+  }
+  return updates;
+}
+
+function mergeOnboardingState(
+  existing: OnboardingStateValue | undefined,
+  step: UpsertUserProfileInput["onboardingStep"],
+): OnboardingStateValue {
+  const steps = { ...(existing?.steps ?? {}) };
+  if (step) {
+    steps[step.step] = step.status;
+  }
+  return { steps };
+}
+
+function coerceBudget(value: number | null): number | null {
+  return value === null ? null : Number(value);
+}

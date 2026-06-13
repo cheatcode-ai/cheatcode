@@ -1,0 +1,30 @@
+.DS_Store
+node_modules/
+.turbo/
+.wrangler/
+.next/
+.open-next/
+dist/
+coverage/
+.qa/
+qa-*.png
+*.har
+*.tsbuildinfo
+.env
+.env.*
+!.env.example
+!.env.migrate.example
+apps/*/.dev.vars
+apps/*/wrangler.local-dev.generated.jsonc
+supabase/.temp/
+packages/skills/src/generated.ts
+
+# Preserved legacy V1 tree and pre-V2 notes. Section 20 cleanup requires a git snapshot first.
+cheatcode/
+docs/
+tasks/
+plans/
+
+# Local debugging artifacts (agent-browser screenshots, clipboard scratch)
+/*.png
+.gemini-clipboard/

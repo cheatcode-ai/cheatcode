@@ -1,0 +1,28 @@
+name: cheatcode-dev
+
+services:
+  sandbox:
+    image: cheatcode-agent-sandbox:dev
+    build:
+      context: ./infra/containers/sandbox
+      dockerfile: Dockerfile
+    platform: linux/amd64
+    container_name: cheatcode-sandbox-dev
+    environment:
+      NODE_ENV: development
+      PYTHONUNBUFFERED: "1"
+    expose:
+      - "5173"
+      - "8000"
+      - "6080"
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8080"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    volumes:
+      - cheatcode-dev-workspace:/workspace
+
+volumes:
+  cheatcode-dev-workspace:

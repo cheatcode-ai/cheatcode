@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "WebWorker"],
+    "types": ["@cloudflare/workers-types"],
+    "paths": {
+      "@/*": ["./src/*"],
+      "@cheatcode/*": ["../../packages/*/src"]
+    }
+  },
+  "include": ["src/**/*", "worker-configuration.d.ts"]
+}

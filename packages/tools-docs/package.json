@@ -1,0 +1,26 @@
+{
+  "name": "@cheatcode/tools-docs",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "lint": "biome check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cheatcode/observability": "workspace:*",
+    "@cheatcode/tools-code": "workspace:*",
+    "@react-pdf/renderer": "catalog:",
+    "docx": "catalog:",
+    "exceljs": "catalog:",
+    "pptxgenjs": "catalog:",
+    "react": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "typescript": "catalog:"
+  }
+}

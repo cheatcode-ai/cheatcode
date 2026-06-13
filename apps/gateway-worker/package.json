@@ -1,0 +1,31 @@
+{
+  "name": "@cheatcode/gateway-worker",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "wrangler deploy --dry-run",
+    "dev": "wrangler dev",
+    "lint": "biome check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@cheatcode/auth": "workspace:*",
+    "@cheatcode/billing": "workspace:*",
+    "@cheatcode/byok": "workspace:*",
+    "@cheatcode/db": "workspace:*",
+    "@cheatcode/env": "workspace:*",
+    "@cheatcode/observability": "workspace:*",
+    "@cheatcode/types": "workspace:*",
+    "@composio/core": "catalog:",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

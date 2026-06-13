@@ -1,0 +1,11 @@
+{
+  "extends": "../../packages/tsconfig/nextjs.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@cheatcode/*": ["../../packages/*/src"]
+    }
+  },
+  "include": ["next-env.d.ts", "src/**/*", "**/*.ts", "**/*.tsx"]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "@cheatcode/biome-config",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "files": [
+    "biome.jsonc"
+  ]
+}

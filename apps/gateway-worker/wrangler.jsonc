@@ -1,0 +1,119 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cheatcode-gateway",
+  "workers_dev": false,
+  "preview_urls": false,
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "gateway.trycheatcode.com/*",
+      "zone_name": "trycheatcode.com"
+    }
+  ],
+  "services": [
+    {
+      "binding": "AGENT",
+      "service": "cheatcode-agent"
+    }
+  ],
+  "secrets_store_secrets": [
+    {
+      "binding": "CLERK_SECRET_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "clerk-secret-key"
+    },
+    {
+      "binding": "POLAR_ACCESS_TOKEN",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "polar-access-token"
+    },
+    {
+      "binding": "COMPOSIO_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "composio-api-key"
+    },
+    {
+      "binding": "COMPOSIO_AUTH_CONFIGS",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "composio-auth-configs"
+    },
+    {
+      "binding": "INTERNAL_MAINTENANCE_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "internal-maintenance-secret"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "RATE_LIMITER",
+        "class_name": "RateLimiter"
+      },
+      {
+        "name": "QUOTA_TRACKER",
+        "class_name": "QuotaTracker"
+      },
+      {
+        "name": "IDEMPOTENCY",
+        "class_name": "IdempotencyStore"
+      }
+    ]
+  },
+  "kv_namespaces": [
+    {
+      "binding": "ENTITLEMENTS_CACHE",
+      "id": "9f160d052a5540f2a3aa70ced948c532",
+      "preview_id": "9f160d052a5540f2a3aa70ced948c532"
+    }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "b7cead054a6a4207a475b9544971f04a",
+      "localConnectionString": "postgresql://app_worker:app_worker@localhost:54322/postgres"
+    }
+  ],
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["RateLimiter"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["QuotaTracker"]
+    },
+    {
+      "tag": "v3",
+      "new_sqlite_classes": ["IdempotencyStore"]
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USER_EVENTS",
+      "dataset": "cc_user_events"
+    },
+    {
+      "binding": "ERROR_EVENTS",
+      "dataset": "cc_error_events"
+    },
+    {
+      "binding": "PERFORMANCE_METRICS",
+      "dataset": "cc_performance_metrics"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
+  }
+}

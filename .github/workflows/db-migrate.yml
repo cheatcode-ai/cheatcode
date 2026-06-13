@@ -1,0 +1,59 @@
+name: DB Migrate
+
+on:
+  pull_request:
+    paths:
+      - infra/supabase/migrations/**
+      - packages/db/src/schema/**
+      - packages/db/drizzle/**
+      - scripts/migrate.ts
+  workflow_dispatch:
+
+concurrency:
+  group: db-migrate
+  cancel-in-progress: false
+
+jobs:
+  diff:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cheatcode/db db:generate
+      - name: Fail if Drizzle migrations drifted
+        run: git diff --exit-code packages/db/drizzle
+      - name: Compute pending migration plan
+        run: pnpm tsx scripts/migrate.ts --dry-run | tee migration-plan.txt
+        env:
+          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
+      - uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          header: db-migration-plan
+          path: migration-plan.txt
+
+  apply:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Apply migrations
+        run: pnpm tsx scripts/migrate.ts --apply
+        env:
+          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://turbo.build/schema.json",
+  "remoteCache": {
+    "enabled": true,
+    "signature": true
+  },
+  "tasks": {
+    "build": {
+      "dependsOn": ["^build", "skills:build"],
+      "outputs": ["dist/**", ".next/**", ".wrangler/**", ".open-next/**"]
+    },
+    "db:generate": {
+      "cache": false,
+      "dependsOn": ["^build"]
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true,
+      "dependsOn": ["skills:build"]
+    },
+    "lint": {
+      "dependsOn": ["^build"]
+    },
+    "skills:build": {
+      "cache": false,
+      "inputs": ["skills/**", "scripts/build-skills.ts"],
+      "outputs": ["packages/skills/src/generated.ts"]
+    },
+    "typecheck": {
+      "dependsOn": ["^build", "skills:build"]
+    },
+    "deploy": {
+      "dependsOn": ["build", "typecheck", "lint"],
+      "cache": false
+    }
+  }
+}

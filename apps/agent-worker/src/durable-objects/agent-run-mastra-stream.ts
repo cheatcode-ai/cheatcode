@@ -1,0 +1,203 @@
+import { createCodeRequestContext, mastra } from "@cheatcode/agent-core";
+import type { createLogger } from "@cheatcode/observability";
+import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
+import { stepCountIs } from "ai";
+import { resolveWithAbortTimeout } from "./abort-timeout";
+import type { AgentRunEnv } from "./agent-run-env";
+import type { StartRunInput } from "./agent-run-schemas";
+import { readMastraChunk } from "./agent-run-utils";
+import { resolveAgentToolCredentials } from "./agent-tool-credentials";
+import type { LlmCredential } from "./llm-provider";
+
+const AGENT_LOOP_MAX_STEPS = 50;
+const MASTRA_FIRST_CHUNK_TIMEOUT_MS = 45_000;
+
+type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
+type MastraOpenedStream = { fullStream: AsyncIterable<unknown> };
+
+export type MastraStreamOptions = {
+  abortSignal: AbortSignal;
+  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  artifactRuntime: ArtifactRuntime;
+  env: AgentRunEnv;
+  input: StartRunInput;
+  logger: ReturnType<typeof createLogger>;
+  runRunCodeFallback: () => Promise<void>;
+  sandbox: ProjectSandboxStub;
+  setRunStage: (stage: string) => void;
+  credential: LlmCredential;
+};
+
+export async function runMastraStream(options: MastraStreamOptions): Promise<void> {
+  const { credential, env, input, logger, sandbox, setRunStage } = options;
+  const toolCredentials = await resolveAgentToolCredentials({
+    env,
+    logger,
+    run: input,
+    setRunStage,
+  });
+  logger.info("agent_tool_credentials_resolved", {
+    composioConfigured: Boolean(toolCredentials.composioApiKey),
+    exaConfigured: Boolean(toolCredentials.exaApiKey),
+    firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
+  });
+  const { abortController, cleanupAbortListener } = linkedAbortController(options.abortSignal);
+  setRunStage("Opening Mastra stream.");
+  logger.info("mastra_stream_opening", {
+    modelId: credential.modelId,
+    provider: credential.provider,
+    timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+  });
+  try {
+    const stream = await resolveWithAbortTimeout({
+      abortController,
+      operation: mastra.getAgent("general").stream(input.messageText, {
+        abortSignal: abortController.signal,
+        maxSteps: AGENT_LOOP_MAX_STEPS,
+        requestContext: createCodeRequestContext(
+          { artifacts: options.artifactRuntime, sandbox },
+          {
+            anthropicApiKey: credential.provider === "anthropic" ? credential.apiKey : undefined,
+            composioApiKey: toolCredentials.composioApiKey,
+            composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
+            composioQuotaMeter: toolCredentials.composioQuotaMeter,
+            composioUserId: toolCredentials.composioUserId,
+            elevenlabsApiKey: toolCredentials.elevenlabsApiKey,
+            exaApiKey: toolCredentials.exaApiKey,
+            falApiKey: toolCredentials.falApiKey,
+            firecrawlApiKey: toolCredentials.firecrawlApiKey,
+            googleApiKey: credential.provider === "google" ? credential.apiKey : undefined,
+            llmProvider: credential.provider,
+            masterInstructions: input.masterInstructions,
+            modelId: credential.modelId,
+            openaiApiKey: credential.provider === "openai" ? credential.apiKey : undefined,
+            openrouterApiKey: credential.provider === "openrouter" ? credential.apiKey : undefined,
+            researchFanoutSubagentLimit: input.researchFanoutSubagentLimit,
+          },
+        ),
+        stopWhen: stepCountIs(AGENT_LOOP_MAX_STEPS),
+      }),
+      timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+    });
+    if (stream === "timeout") {
+      if (!options.abortSignal.aborted) {
+        logger.warn("mastra_stream_open_timeout", { timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS });
+        await options.runRunCodeFallback();
+      }
+      return;
+    }
+    await consumeOpenedMastraStream({
+      abortController,
+      appendCheckedMastraChunk: options.appendCheckedMastraChunk,
+      abortSignal: options.abortSignal,
+      credential,
+      input,
+      logger,
+      runRunCodeFallback: options.runRunCodeFallback,
+      setRunStage,
+      stream,
+    });
+  } finally {
+    cleanupAbortListener();
+  }
+}
+
+function linkedAbortController(runAbortSignal: AbortSignal): {
+  abortController: AbortController;
+  cleanupAbortListener: () => void;
+} {
+  const abortController = new AbortController();
+  const abortFromRun = () => abortController.abort(new Error("run canceled"));
+  if (runAbortSignal.aborted) {
+    abortFromRun();
+    return { abortController, cleanupAbortListener: () => undefined };
+  }
+  runAbortSignal.addEventListener("abort", abortFromRun, { once: true });
+  return {
+    abortController,
+    cleanupAbortListener: () => runAbortSignal.removeEventListener("abort", abortFromRun),
+  };
+}
+
+async function consumeOpenedMastraStream(options: {
+  abortController: AbortController;
+  abortSignal: AbortSignal;
+  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  credential: LlmCredential;
+  input: StartRunInput;
+  logger: ReturnType<typeof createLogger>;
+  runRunCodeFallback: () => Promise<void>;
+  setRunStage: (stage: string) => void;
+  stream: MastraOpenedStream;
+}): Promise<void> {
+  options.logger.info("mastra_stream_opened", {
+    modelId: options.credential.modelId,
+    provider: options.credential.provider,
+  });
+  options.setRunStage("Streaming model response.");
+  const iterator = options.stream.fullStream[Symbol.asyncIterator]();
+  const firstChunk = await readMastraChunk(
+    iterator,
+    MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+    options.abortController,
+  );
+  if (firstChunk === "timeout") {
+    await iterator.return?.();
+    await runFallbackUnlessCanceled(options);
+    return;
+  }
+  const streamResult = await appendMastraStreamChunks({
+    abortController: options.abortController,
+    appendCheckedMastraChunk: options.appendCheckedMastraChunk,
+    firstChunk,
+    input: options.input,
+    iterator,
+  });
+  if (streamResult === "timeout-before-visible") {
+    await iterator.return?.();
+    await runFallbackUnlessCanceled(options);
+    return;
+  }
+  if (streamResult === "timeout-after-visible") {
+    await iterator.return?.();
+  }
+}
+
+async function runFallbackUnlessCanceled(options: {
+  abortSignal: AbortSignal;
+  runRunCodeFallback: () => Promise<void>;
+}): Promise<void> {
+  if (!options.abortSignal.aborted) {
+    await options.runRunCodeFallback();
+  }
+}
+
+async function appendMastraStreamChunks(options: {
+  abortController: AbortController;
+  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  firstChunk: IteratorResult<unknown, unknown>;
+  input: StartRunInput;
+  iterator: AsyncIterator<unknown>;
+}): Promise<"completed" | "timeout-after-visible" | "timeout-before-visible"> {
+  let hasVisibleChunk = false;
+  const firstVisibleChunkDeadline = Date.now() + MASTRA_FIRST_CHUNK_TIMEOUT_MS;
+  if (options.firstChunk.done) {
+    return "completed";
+  }
+  hasVisibleChunk =
+    (await options.appendCheckedMastraChunk(options.input, options.firstChunk.value)) > 0;
+  for (;;) {
+    const timeoutMs = hasVisibleChunk
+      ? MASTRA_FIRST_CHUNK_TIMEOUT_MS
+      : Math.max(1, firstVisibleChunkDeadline - Date.now());
+    const nextChunk = await readMastraChunk(options.iterator, timeoutMs, options.abortController);
+    if (nextChunk === "timeout") {
+      return hasVisibleChunk ? "timeout-after-visible" : "timeout-before-visible";
+    }
+    if (nextChunk.done) {
+      return "completed";
+    }
+    const appendedCount = await options.appendCheckedMastraChunk(options.input, nextChunk.value);
+    hasVisibleChunk = appendedCount > 0 || hasVisibleChunk;
+  }
+}

@@ -1,0 +1,121 @@
+name: Deploy Workers
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm_production_deploy:
+        description: Type "deploy Cheatcode V2 to production" to approve production deployment.
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-workers
+  cancel-in-progress: false
+
+jobs:
+  prepare-production:
+    if: github.event.inputs.confirm_production_deploy == 'deploy Cheatcode V2 to production'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm typecheck:scripts
+
+  deploy-agent:
+    runs-on: ubuntu-latest
+    needs: prepare-production
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build --filter=@cheatcode/agent-worker
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/agent-worker
+          command: deploy
+
+  deploy-gateway:
+    runs-on: ubuntu-latest
+    needs: deploy-agent
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build --filter=@cheatcode/gateway-worker
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/gateway-worker
+          command: deploy
+
+  deploy-web:
+    runs-on: ubuntu-latest
+    needs: deploy-gateway
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cheatcode/web deploy
+        env:
+          CHEATCODE_PROD_DEPLOY_APPROVED: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID: ${{ vars.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID }}
+
+  deploy-webhooks:
+    runs-on: ubuntu-latest
+    needs: deploy-web
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build --filter=@cheatcode/webhooks-worker
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/webhooks-worker
+          command: deploy

@@ -1,0 +1,107 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cheatcode-agent",
+  "workers_dev": false,
+  "preview_urls": false,
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "BLAXEL_SANDBOX_IMAGE": "sandbox/cheatcode-sandbox:yoo6c20wgw03",
+    "BLAXEL_SANDBOX_MEMORY_MB": "4096",
+    "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
+    "PREVIEW_HOSTNAME": "preview.trycheatcode.com",
+    "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "COMPOSIO_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "composio-api-key"
+    },
+    {
+      "binding": "INTERNAL_MAINTENANCE_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "internal-maintenance-secret"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "AGENT_RUN",
+        "class_name": "AgentRun"
+      },
+      {
+        "name": "PROJECT_SANDBOX",
+        "class_name": "ProjectSandbox"
+      },
+      {
+        "name": "QUOTA_TRACKER",
+        "class_name": "QuotaTracker",
+        "script_name": "cheatcode-gateway"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["AgentRun"]
+    },
+    {
+      "tag": "v2",
+      "new_sqlite_classes": ["ProjectSandbox"]
+    }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "b7cead054a6a4207a475b9544971f04a",
+      "localConnectionString": "postgresql://app_worker:app_worker@localhost:54322/postgres"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_AUDIT",
+      "bucket_name": "cheatcode-audit"
+    },
+    {
+      "binding": "R2_OUTPUTS",
+      "bucket_name": "cheatcode-outputs"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USER_EVENTS",
+      "dataset": "cc_user_events"
+    },
+    {
+      "binding": "AGENT_METRICS",
+      "dataset": "cc_agent_metrics"
+    },
+    {
+      "binding": "ERROR_EVENTS",
+      "dataset": "cc_error_events"
+    },
+    {
+      "binding": "PERFORMANCE_METRICS",
+      "dataset": "cc_performance_metrics"
+    },
+    {
+      "binding": "COST_EVENTS",
+      "dataset": "cc_cost_events"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
+  }
+}
