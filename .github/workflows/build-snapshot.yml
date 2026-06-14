@@ -1,0 +1,41 @@
+name: Build Sandbox Snapshot
+
+# Rebuilds + republishes the Daytona sandbox snapshot whenever the sandbox image
+# changes. Builds on Daytona's infra (no Docker/cross-arch build needed in CI).
+# Keeps the `cheatcode-sandbox` snapshot name stable so the agent-worker's
+# DAYTONA_SANDBOX_SNAPSHOT var never has to change.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "infra/containers/sandbox/**"
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: daytona-snapshot
+  cancel-in-progress: false
+
+jobs:
+  build-snapshot:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Daytona CLI
+        run: |
+          curl -sf -L https://download.daytona.io/daytona/install.sh | sudo bash
+          daytona version
+      - name: Build & publish snapshot
+        run: |
+          # Idempotent: drop the previous snapshot of this name (existing sandboxes
+          # are unaffected — they already hold their own copy) then rebuild.
+          daytona snapshot delete cheatcode-sandbox -y 2>/dev/null || true
+          daytona snapshot create cheatcode-sandbox \
+            -f infra/containers/sandbox/Dockerfile \
+            -c infra/containers/sandbox \
+            --cpu 2 --memory 4 --disk 10

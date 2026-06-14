@@ -1,43 +1,33 @@
 name: Deploy Workers
 
+# Fully automated production deploy. Runs after "Static Checks" succeeds on main —
+# no manual step required. `workflow_dispatch` is kept only as a manual fallback.
+# The worker chain (agent → gateway → webhooks → preview-proxy) is the Daytona
+# backend; the web deploy runs independently and self-skips until its NEXT_PUBLIC
+# vars are configured (so a missing web var never blocks the backend cutover).
 on:
-  workflow_dispatch:
-    inputs:
-      confirm_production_deploy:
-        description: Type "deploy Cheatcode V2 to production" to approve production deployment.
-        required: true
-        type: string
+  workflow_run:
+    workflows: ["Static Checks"]
+    types: [completed]
+  workflow_dispatch: {}
 
 permissions:
   contents: read
 
 concurrency:
-  group: production-workers
+  group: production-deploy
   cancel-in-progress: false
 
 jobs:
-  prepare-production:
-    if: github.event.inputs.confirm_production_deploy == 'deploy Cheatcode V2 to production'
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm typecheck:scripts
-
   deploy-agent:
+    # Only on a successful Static Checks run on main, or a manual dispatch.
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
     runs-on: ubuntu-latest
-    needs: prepare-production
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
@@ -55,11 +45,13 @@ jobs:
           command: deploy
 
   deploy-gateway:
-    runs-on: ubuntu-latest
     needs: deploy-agent
+    runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
@@ -76,34 +68,14 @@ jobs:
           workingDirectory: apps/gateway-worker
           command: deploy
 
-  deploy-web:
-    runs-on: ubuntu-latest
-    needs: deploy-gateway
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @cheatcode/web deploy
-        env:
-          CHEATCODE_PROD_DEPLOY_APPROVED: "true"
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID: ${{ vars.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID }}
-
   deploy-webhooks:
+    needs: deploy-gateway
     runs-on: ubuntu-latest
-    needs: deploy-web
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
@@ -121,11 +93,13 @@ jobs:
           command: deploy
 
   deploy-preview-proxy:
-    runs-on: ubuntu-latest
     needs: deploy-webhooks
+    runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.2
@@ -141,3 +115,30 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/preview-proxy
           command: deploy
+
+  deploy-web:
+    # Independent of the worker chain; self-skips until the NEXT_PUBLIC vars exist
+    # so a missing web var can never block the backend cutover.
+    needs: deploy-agent
+    if: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY != '' }}
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cheatcode/web deploy
+        env:
+          CHEATCODE_PROD_DEPLOY_APPROVED: "true"
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
+          NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID: ${{ vars.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID }}
