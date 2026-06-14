@@ -1,4 +1,3 @@
-import { initialize, SandboxInstance, VolumeInstance } from "@blaxel/core";
 import { hmacSha256Base64 } from "@cheatcode/auth";
 import type { UserDeletionManifest } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
@@ -10,9 +9,9 @@ import { z } from "zod";
 
 export interface LifecycleEnv {
   AGENT?: Fetcher;
-  BL_API_KEY?: WorkerSecret | string;
-  BL_REGION?: WorkerSecret | string;
-  BL_WORKSPACE?: WorkerSecret | string;
+  DAYTONA_API_KEY?: WorkerSecret | string;
+  DAYTONA_API_URL?: string;
+  DAYTONA_ORG_ID?: WorkerSecret | string;
   COMPOSIO_API_KEY?: WorkerSecret;
   GATEWAY?: Fetcher;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
@@ -43,6 +42,12 @@ const AgentDeleteStateResponseSchema = z
     runStatesDeleted: z.number().int().nonnegative(),
   })
   .strict();
+
+const DaytonaSandboxItemSchema = z.object({ id: z.string() }).passthrough();
+const DaytonaSandboxListSchema = z
+  .object({ items: z.array(DaytonaSandboxItemSchema).default([]) })
+  .passthrough()
+  .or(z.array(DaytonaSandboxItemSchema));
 
 interface AgentDurableStateDeletionResult {
   projectStatesDeleted: number;
@@ -132,11 +137,8 @@ async function deleteAgentDurableState(
   manifest: UserDeletionManifest,
 ): Promise<AgentDurableStateDeletionResult> {
   if (!env.AGENT) {
-    const [projectStatesDeleted, projectVolumesDeleted] = await deleteBlaxelSandboxesAndVolumes(
-      env,
-      manifest.sandboxIds,
-    );
-    return { projectStatesDeleted, projectVolumesDeleted, runStatesDeleted: 0 };
+    const projectStatesDeleted = await deleteDaytonaSandboxes(env, manifest.sandboxIds);
+    return { projectStatesDeleted, projectVolumesDeleted: 0, runStatesDeleted: 0 };
   }
   const body = JSON.stringify({
     projectIds: manifest.projectIds,
@@ -306,39 +308,87 @@ async function revokeComposioConnections(
   return revoked;
 }
 
-async function deleteBlaxelSandboxesAndVolumes(
-  env: LifecycleEnv,
-  sandboxIds: string[],
-): Promise<[number, number]> {
+/**
+ * GDPR-fallback Daytona delete (used only when the AGENT binding is absent, so we
+ * cannot read the ProjectSandbox DO storage). Names aren't unique, so the
+ * authoritative path is a label-list (`app=cheatcode,sandboxId=<id>`); we also
+ * attempt a delete by name as a fallback. No volumes under the disk model.
+ */
+async function deleteDaytonaSandboxes(env: LifecycleEnv, sandboxIds: string[]): Promise<number> {
   if (sandboxIds.length === 0) {
-    return [0, 0];
+    return 0;
   }
-  const apiKey = await requiredSecret(env.BL_API_KEY, "BL_API_KEY");
-  const workspace = await requiredSecret(env.BL_WORKSPACE, "BL_WORKSPACE");
-  initialize({ apiKey, disableH2: true, workspace });
-  let sandboxesDeleted = 0;
+  const apiKey = await requiredSecret(env.DAYTONA_API_KEY, "DAYTONA_API_KEY");
+  const apiUrl = (env.DAYTONA_API_URL ?? "https://app.daytona.io/api").replace(/\/$/, "");
+  const orgId = await optionalSecret(env.DAYTONA_ORG_ID, "DAYTONA_ORG_ID");
+  let deleted = 0;
   for (const sandboxId of sandboxIds) {
-    try {
-      await SandboxInstance.delete(sandboxId);
-      sandboxesDeleted += 1;
-    } catch (error) {
-      if (!isNotFoundError(error)) {
-        throw upstreamLifecycleError("Blaxel sandbox deletion failed", error);
+    const targets = new Set<string>();
+    for (const sandbox of await daytonaListByLabels(apiUrl, apiKey, orgId, sandboxId)) {
+      targets.add(sandbox);
+    }
+    targets.add(sandboxId);
+    for (const target of targets) {
+      if (await daytonaDeleteSandbox(apiUrl, apiKey, orgId, target)) {
+        deleted += 1;
       }
     }
   }
-  let volumesDeleted = 0;
-  for (const sandboxId of sandboxIds) {
-    try {
-      await VolumeInstance.delete(projectVolumeName(sandboxId));
-      volumesDeleted += 1;
-    } catch (error) {
-      if (!isNotFoundError(error)) {
-        throw upstreamLifecycleError("Blaxel volume deletion failed", error);
-      }
-    }
+  return deleted;
+}
+
+function daytonaHeaders(apiKey: string, orgId: string | null): Headers {
+  const headers = new Headers({ Authorization: `Bearer ${apiKey}` });
+  if (orgId) {
+    headers.set("X-Daytona-Organization-ID", orgId);
   }
-  return [sandboxesDeleted, volumesDeleted];
+  return headers;
+}
+
+async function daytonaListByLabels(
+  apiUrl: string,
+  apiKey: string,
+  orgId: string | null,
+  sandboxId: string,
+): Promise<string[]> {
+  const labels = encodeURIComponent(JSON.stringify({ app: "cheatcode", sandboxId }));
+  const response = await fetch(`${apiUrl}/sandbox?labels=${labels}`, {
+    headers: daytonaHeaders(apiKey, orgId),
+  });
+  if (!response.ok) {
+    if (response.status === 404) {
+      return [];
+    }
+    throw upstreamLifecycleError(
+      "Daytona sandbox list failed",
+      new Error(`HTTP ${response.status}`),
+    );
+  }
+  const parsed = DaytonaSandboxListSchema.parse(await response.json());
+  const items = Array.isArray(parsed) ? parsed : parsed.items;
+  return items.map((item) => item.id);
+}
+
+async function daytonaDeleteSandbox(
+  apiUrl: string,
+  apiKey: string,
+  orgId: string | null,
+  idOrName: string,
+): Promise<boolean> {
+  const response = await fetch(`${apiUrl}/sandbox/${encodeURIComponent(idOrName)}`, {
+    method: "DELETE",
+    headers: daytonaHeaders(apiKey, orgId),
+  });
+  if (response.ok) {
+    return true;
+  }
+  if (response.status === 404) {
+    return false;
+  }
+  throw upstreamLifecycleError(
+    "Daytona sandbox deletion failed",
+    new Error(`HTTP ${response.status}`),
+  );
 }
 
 async function deleteR2Keys(bucket: R2Bucket, keys: string[]): Promise<number> {
@@ -461,8 +511,4 @@ function isAlreadyRefundedError(error: unknown): boolean {
 
 function uniqueStrings(values: string[]): string[] {
   return [...new Set(values)];
-}
-
-function projectVolumeName(sandboxId: string): string {
-  return `ccv-${sandboxId}`;
 }

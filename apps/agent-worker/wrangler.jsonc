@@ -7,13 +7,24 @@
   "compatibility_date": "2026-05-20",
   "compatibility_flags": ["nodejs_compat"],
   "vars": {
-    "BLAXEL_SANDBOX_IMAGE": "sandbox/cheatcode-sandbox:yoo6c20wgw03",
-    "BLAXEL_SANDBOX_MEMORY_MB": "4096",
+    "DAYTONA_API_URL": "https://app.daytona.io/api",
+    "DAYTONA_TARGET": "us",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
     "PREVIEW_HOSTNAME": "preview.trycheatcode.com",
     "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
   },
   "secrets_store_secrets": [
+    {
+      "binding": "DAYTONA_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "daytona-api-key"
+    },
+    {
+      "binding": "PREVIEW_TOKEN_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "preview-token-secret"
+    },
     {
       "binding": "COMPOSIO_API_KEY",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",

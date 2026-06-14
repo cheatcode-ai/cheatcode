@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { refreshBlaxelCliAuth, syncBlaxelLocalToken } from "./sync-blaxel-local-token";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GATEWAY_WORKER_DIR = join(ROOT, "apps/gateway-worker");
@@ -12,7 +11,7 @@ const WRANGLER_INSPECTOR_PORT = "9239";
 interface DevOptions {
   dryRun: boolean;
   port: string;
-  skipBlaxelCheck: boolean;
+  skipSandboxCheck: boolean;
   webOnly: boolean;
   workersOnly: boolean;
 }
@@ -24,7 +23,7 @@ interface CommandSpec {
 }
 
 type ConfigRecord = Record<string, unknown>;
-type BooleanOption = "dryRun" | "skipBlaxelCheck" | "webOnly" | "workersOnly";
+type BooleanOption = "dryRun" | "skipSandboxCheck" | "webOnly" | "workersOnly";
 
 const WORKER_CONFIGS = [
   "wrangler.jsonc",
@@ -39,19 +38,18 @@ const LOCAL_CLERK_SECRET_FILES = [
 ] as const;
 
 const REQUIRED_AGENT_WORKER_SECRETS = [
-  "BL_API_KEY",
-  "BL_WORKSPACE",
-  "BL_REGION",
+  "DAYTONA_API_KEY",
+  "PREVIEW_TOKEN_SECRET",
   "INTERNAL_MAINTENANCE_SECRET",
   "OUTPUT_DOWNLOAD_SIGNING_SECRET",
 ] as const;
 
-const SKIPPABLE_BLAXEL_SECRETS = new Set(["BL_API_KEY", "BL_WORKSPACE", "BL_REGION"]);
+const SKIPPABLE_SANDBOX_SECRETS = new Set(["DAYTONA_API_KEY", "PREVIEW_TOKEN_SECRET"]);
 
 const BOOLEAN_FLAGS: ReadonlyMap<string, BooleanOption> = new Map([
   ["--dry-run", "dryRun"],
-  ["--skip-blaxel-check", "skipBlaxelCheck"],
-  ["--skip-docker-check", "skipBlaxelCheck"],
+  ["--skip-daytona-check", "skipSandboxCheck"],
+  ["--skip-sandbox-check", "skipSandboxCheck"],
   ["--web-only", "webOnly"],
   ["--workers-only", "workersOnly"],
 ]);
@@ -70,7 +68,7 @@ function isRecord(value: unknown): value is ConfigRecord {
 
 function usage(): string {
   return [
-    "Usage: pnpm dev -- [--port <next-port>] [--web-only] [--workers-only] [--dry-run] [--skip-blaxel-check]",
+    "Usage: pnpm dev -- [--port <next-port>] [--web-only] [--workers-only] [--dry-run] [--skip-sandbox-check]",
     "",
     "Starts apps/web plus one chained Wrangler dev process for all Workers.",
     "The gateway Worker is the only HTTP entrypoint; other Workers are service-bound.",
@@ -81,7 +79,7 @@ function defaultOptions(): DevOptions {
   return {
     dryRun: false,
     port: "3000",
-    skipBlaxelCheck: false,
+    skipSandboxCheck: false,
     webOnly: false,
     workersOnly: false,
   };
@@ -151,14 +149,14 @@ function validateLocalClerkSecrets(): void {
 
 export function missingLocalAgentWorkerSecrets(
   values: Record<string, string>,
-  options: { requireBlaxel: boolean },
+  options: { requireSandbox: boolean },
 ): string[] {
   return REQUIRED_AGENT_WORKER_SECRETS.filter(
-    (key) => (options.requireBlaxel || !SKIPPABLE_BLAXEL_SECRETS.has(key)) && !values[key],
+    (key) => (options.requireSandbox || !SKIPPABLE_SANDBOX_SECRETS.has(key)) && !values[key],
   );
 }
 
-function validateLocalAgentWorkerSecrets(options: { requireBlaxel: boolean }): void {
+function validateLocalAgentWorkerSecrets(options: { requireSandbox: boolean }): void {
   const values = readEnvFileValues(AGENT_WORKER_DEV_VARS);
   const missing = missingLocalAgentWorkerSecrets(values, options);
   if (missing.length === 0) {
@@ -168,8 +166,8 @@ function validateLocalAgentWorkerSecrets(options: { requireBlaxel: boolean }): v
   throw new Error(
     [
       `${AGENT_WORKER_DEV_VARS} is missing required local Worker secrets: ${missing.join(", ")}.`,
-      options.requireBlaxel
-        ? "Run `pnpm sync:blaxel-local-token` or fill the ignored .dev.vars before `pnpm dev`."
+      options.requireSandbox
+        ? "Set DAYTONA_API_KEY + PREVIEW_TOKEN_SECRET (and the maintenance/signing secrets) in the ignored .dev.vars, or pass --skip-sandbox-check."
         : "Set INTERNAL_MAINTENANCE_SECRET and OUTPUT_DOWNLOAD_SIGNING_SECRET before starting local Workers.",
     ].join(" "),
   );
@@ -352,15 +350,9 @@ async function main(): Promise<void> {
   const commands = commandsFor(options);
 
   await runOneShot("pnpm", ["turbo", "skills:build"]);
-  if (!options.webOnly && !options.skipBlaxelCheck) {
-    await runOneShot("bl", ["workspaces", "--current"]);
-    await refreshBlaxelCliAuth();
-    const syncResult = syncBlaxelLocalToken();
-    writeLine(syncResult.message);
-  }
   if (!options.webOnly) {
     validateLocalClerkSecrets();
-    validateLocalAgentWorkerSecrets({ requireBlaxel: !options.skipBlaxelCheck });
+    validateLocalAgentWorkerSecrets({ requireSandbox: !options.skipSandboxCheck });
   }
 
   if (options.dryRun) {

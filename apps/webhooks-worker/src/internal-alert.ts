@@ -8,7 +8,7 @@ const InternalAlertPayloadSchema = z
   .object({
     description: z.string().trim().min(1).max(4_000).optional(),
     id: z.string().trim().min(1).max(160).optional(),
-    metadata: z.record(z.unknown()).optional(),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     metric: z.string().trim().min(1).max(160).optional(),
     route: z.string().trim().min(1).max(240).optional(),
     runId: z.string().trim().min(1).max(160).optional(),

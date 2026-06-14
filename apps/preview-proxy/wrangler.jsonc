@@ -1,0 +1,53 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cheatcode-preview-proxy",
+  "workers_dev": false,
+  "preview_urls": false,
+  "main": "src/index.ts",
+  "compatibility_date": "2026-05-20",
+  "compatibility_flags": ["nodejs_compat"],
+  "routes": [
+    {
+      "pattern": "*.preview.trycheatcode.com/*",
+      "zone_name": "trycheatcode.com"
+    }
+  ],
+  "vars": {
+    "DAYTONA_API_URL": "https://app.daytona.io/api"
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "DAYTONA_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "daytona-api-key"
+    },
+    {
+      "binding": "PREVIEW_TOKEN_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "preview-token-secret"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "ERROR_EVENTS",
+      "dataset": "cc_error_events"
+    },
+    {
+      "binding": "PERFORMANCE_METRICS",
+      "dataset": "cc_performance_metrics"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
+  }
+}

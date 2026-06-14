@@ -1,7 +1,7 @@
 import { AgentSummarySchema, ToolSummarySchema } from "@cheatcode/types";
 
 const TOOL_SUMMARIES = [
-  tool("code", "runCode", "Execute short Python or Node programs inside Blaxel."),
+  tool("code", "runCode", "Execute short Python or Node programs inside the sandbox."),
   tool("code", "fs_read", "Read a file from the project sandbox."),
   tool("code", "fs_write", "Write a file in the project sandbox."),
   tool("code", "fs_list", "List project sandbox files."),

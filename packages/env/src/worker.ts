@@ -57,10 +57,20 @@ export const AgentWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
     AGENT_RUN: z.custom<DurableObjectNamespace>(),
-    BL_API_KEY: z.string().min(1),
-    BL_REGION: z.string().min(1),
-    BL_WORKSPACE: z.string().min(1),
-    BLAXEL_SANDBOX_IMAGE: z.string().min(1),
+    // Daytona sandbox backend (replaces Blaxel). Secret-store-bound → resolved
+    // request-scoped in the ProjectSandbox DO via resolveWorkerSecret().
+    DAYTONA_API_KEY: WorkerSecretSchema,
+    DAYTONA_API_URL: z.string().url(),
+    DAYTONA_TARGET: z.string().min(1).default("us"),
+    DAYTONA_SANDBOX_SNAPSHOT: z.string().min(1),
+    DAYTONA_ORG_ID: z.string().min(1).optional(),
+    // Shared HMAC secret for the preview-proxy access-token contract (WS5).
+    PREVIEW_TOKEN_SECRET: WorkerSecretSchema,
+    // Blaxel (retired — kept optional for rollback until post-QA; no longer read by code).
+    BL_API_KEY: OptionalWorkerSecretSchema,
+    BL_REGION: OptionalWorkerSecretSchema,
+    BL_WORKSPACE: OptionalWorkerSecretSchema,
+    BLAXEL_SANDBOX_IMAGE: z.string().min(1).optional(),
     BLAXEL_SANDBOX_MEMORY_MB: z.string().regex(/^\d+$/).optional(),
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
@@ -80,6 +90,12 @@ export const WebhooksWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
     AGENT: z.custom<Fetcher>().optional(),
+    // Daytona GDPR-fallback delete path (used only when the AGENT binding is absent).
+    DAYTONA_API_KEY: OptionalWorkerSecretSchema,
+    DAYTONA_API_URL: z.string().url().optional(),
+    DAYTONA_TARGET: OptionalWorkerSecretSchema,
+    DAYTONA_ORG_ID: OptionalWorkerSecretSchema,
+    // Blaxel (retired — kept optional for rollback).
     BL_API_KEY: OptionalWorkerSecretSchema,
     BL_REGION: OptionalWorkerSecretSchema,
     BL_WORKSPACE: OptionalWorkerSecretSchema,

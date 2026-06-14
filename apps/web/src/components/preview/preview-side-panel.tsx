@@ -243,7 +243,7 @@ function AppTab({
           Sandbox {sandboxStatus}
         </div>
         <div className="mt-3 font-mono text-sm text-thread-text-secondary">
-          Blaxel sandbox output streams into chat.
+          Sandbox output streams into chat.
         </div>
       </div>
     </div>

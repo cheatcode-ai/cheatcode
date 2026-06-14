@@ -110,9 +110,9 @@ const ResumeTakeoverBodySchema = z
   .strict();
 const SandboxFileListQuerySchema = z
   .object({
-    includeHidden: QueryBooleanSchema.default("false"),
+    includeHidden: QueryBooleanSchema.default(false),
     path: SandboxFilePathSchema.default(DEFAULT_SANDBOX_FILE_LIST_ROOT),
-    recursive: QueryBooleanSchema.default("true"),
+    recursive: QueryBooleanSchema.default(true),
   })
   .strict();
 const SandboxReadEncodingQuerySchema = z.enum(["utf8", "base64"]).optional();
@@ -609,13 +609,18 @@ agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
 
 function takeoverEmbedUrl(previewUrl: string, password: string): string {
   const url = new URL(previewUrl);
-  const previewToken = url.searchParams.get("bl_preview_token");
+  // Cheatcode preview-proxy access token (see project-sandbox-preview.ts). Loading
+  // vnc.html with it sets the cc_pt cookie (first-party in a takeover tab), which
+  // authorizes the websockify WS upgrade; we also carry it on the WS path as a
+  // fallback for cookie-restricted contexts (double-encoded so the proxy decodes
+  // back to the original base64 token).
+  const previewToken = url.searchParams.get("__cc_pt");
   url.pathname = "/vnc.html";
   url.searchParams.set("autoconnect", "1");
   url.searchParams.set("resize", "scale");
   url.searchParams.set("password", password);
   if (previewToken) {
-    url.searchParams.set("path", `websockify?bl_preview_token=${previewToken}`);
+    url.searchParams.set("path", `websockify?__cc_pt=${encodeURIComponent(previewToken)}`);
   }
   return url.toString();
 }

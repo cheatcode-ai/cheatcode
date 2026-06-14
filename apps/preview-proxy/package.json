@@ -1,28 +1,20 @@
 {
-  "name": "@cheatcode/agent-worker",
+  "name": "@cheatcode/preview-proxy",
   "private": true,
   "version": "0.0.0",
   "type": "module",
   "main": "./src/index.ts",
-  "types": "./dist/index.d.ts",
+  "types": "./src/index.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "dev": "wrangler dev --port 8788",
+    "dev": "wrangler dev",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
-    "@cheatcode/agent-core": "workspace:*",
     "@cheatcode/auth": "workspace:*",
-    "@cheatcode/billing": "workspace:*",
-    "@cheatcode/byok": "workspace:*",
-    "@cheatcode/db": "workspace:*",
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
-    "@cheatcode/tools-code": "workspace:*",
-    "@cheatcode/types": "workspace:*",
-    "ai": "catalog:",
-    "hono": "catalog:",
     "zod": "catalog:"
   },
   "devDependencies": {

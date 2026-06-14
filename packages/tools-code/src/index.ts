@@ -1,3 +1,25 @@
+export type {
+  CreateSandboxParams,
+  DaytonaClientConfig,
+  DaytonaExecuteResponse,
+  DaytonaFileInfo,
+  DaytonaPreviewLink,
+  DaytonaSandbox,
+  DaytonaSession,
+  DaytonaSessionExecResponse,
+  ExecuteParams,
+} from "./daytona-client";
+export {
+  DaytonaApiError,
+  DaytonaClient,
+  DEFAULT_DAYTONA_TOOLBOX_URL,
+  ExecuteResponseSchema,
+  FileInfoSchema,
+  PreviewLinkSchema,
+  SandboxSchema,
+  SessionSchema,
+} from "./daytona-client";
+
 import { deleteFile, listFiles, readFile, searchFiles, writeFile } from "./files";
 import { gitClone, gitCommit, gitPush, gitStatus } from "./git";
 import { startDevServer } from "./preview";

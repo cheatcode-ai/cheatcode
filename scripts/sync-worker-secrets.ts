@@ -17,17 +17,12 @@ const DEFAULT_ENV_FILES = [
 
 const WORKER_SECRETS = [
   {
-    envKey: "BL_API_KEY",
+    envKey: "DAYTONA_API_KEY",
     workerDir: "apps/agent-worker",
     workerName: "cheatcode-agent",
   },
   {
-    envKey: "BL_WORKSPACE",
-    workerDir: "apps/agent-worker",
-    workerName: "cheatcode-agent",
-  },
-  {
-    envKey: "BL_REGION",
+    envKey: "PREVIEW_TOKEN_SECRET",
     workerDir: "apps/agent-worker",
     workerName: "cheatcode-agent",
   },

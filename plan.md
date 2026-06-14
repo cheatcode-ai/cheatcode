@@ -2003,7 +2003,9 @@ before the AgentRun Durable Object starts.
 
 ---
 
-## 9. Blaxel Sandbox Strategy
+## 9. Sandbox Strategy (Daytona)
+
+> **⚠️ MIGRATED Blaxel → Daytona (2026-06-14).** The sandbox backend is now **Daytona**, called via a REST-over-fetch client (`packages/tools-code/src/daytona-client.ts`) from the `ProjectSandbox` DO — no SDK in Workers. Key differences from the Blaxel design described in the subsections below (which is retained for historical context): the **sandbox disk is the durable store** (no Volumes; `autoDeleteInterval=-1`, auto-archive for cold storage); previews go through a self-hosted **`apps/preview-proxy`** worker (`preview.trycheatcode.com`) that injects the Daytona preview token + skip-warning headers (the browser only sees a Cheatcode HMAC token); `exec` merges stderr into stdout and timeouts are in seconds; long-running processes use **toolbox sessions** with DO-persisted records; active runs hold a **run-lease** (`beginRun`/`endRun`) that pins `autoStopInterval=0` + a keepalive alarm; metering accrues only during run-leases. **Authoritative implementation docs:** [`docs/plans/blaxel-to-daytona-migration.md`](./docs/plans/blaxel-to-daytona-migration.md), [`docs/plans/daytona-rest-reference.md`](./docs/plans/daytona-rest-reference.md), [`docs/plans/daytona-egress-broker.md`](./docs/plans/daytona-egress-broker.md). The Blaxel `@blaxel/core` SDK, `BL_*` env vars, and `blaxel.toml` are removed from code; `BL_*` secrets are retained until post-QA for rollback.
 
 ### 9.1 Sandbox image (`infra/containers/sandbox/Dockerfile`)
 

@@ -19,14 +19,18 @@ export interface SandboxMeteringContext {
   storage: DurableObjectStorage;
 }
 
-/** Seed the metering checkpoint on first owner registration (idempotent). */
+/**
+ * Seed the metering checkpoint when a run lease opens (idempotent). Lifecycle-aware
+ * (Codex R1): the checkpoint exists ONLY while ≥1 run lease is active, so we accrue
+ * running-hours during agent runs and never bill idle/stopped time.
+ */
 export async function initSandboxMeterCheckpoint(storage: DurableObjectStorage): Promise<void> {
   if ((await meterCheckpointMs(storage)) === null) {
     await storage.put(SANDBOX_METER_CHECKPOINT_KEY, Date.now());
   }
 }
 
-/** Drop the metering checkpoint when the sandbox is destroyed. */
+/** Drop the metering checkpoint when the last run lease closes / sandbox destroyed. */
 export async function clearSandboxMeterCheckpoint(storage: DurableObjectStorage): Promise<void> {
   await storage.delete(SANDBOX_METER_CHECKPOINT_KEY);
 }
@@ -63,7 +67,7 @@ async function recordSandboxUsage(ctx: SandboxMeteringContext): Promise<void> {
   const previousCheckpointMs = await meterCheckpointMs(ctx.storage);
   const now = Date.now();
   if (previousCheckpointMs === null) {
-    await ctx.storage.put(SANDBOX_METER_CHECKPOINT_KEY, now);
+    // No active run lease → not running on our behalf → do not accrue (lifecycle-aware).
     return;
   }
   const hours = (now - previousCheckpointMs) / MILLIS_PER_HOUR;

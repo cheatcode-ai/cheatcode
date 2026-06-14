@@ -17,9 +17,16 @@
   },
   "vars": {
     "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
+    "DAYTONA_API_URL": "https://app.daytona.io/api",
+    "DAYTONA_TARGET": "us",
     "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert"
   },
   "secrets_store_secrets": [
+    {
+      "binding": "DAYTONA_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "daytona-api-key"
+    },
     {
       "binding": "BL_API_KEY",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",

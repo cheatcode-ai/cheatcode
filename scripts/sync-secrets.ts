@@ -51,6 +51,9 @@ const DEFAULT_ENV_FILES = [
 ] as const;
 
 export const SECRET_SPECS: readonly SecretSpec[] = [
+  { envKeys: ["DAYTONA_API_KEY"], secretName: "daytona-api-key" },
+  { envKeys: ["PREVIEW_TOKEN_SECRET"], secretName: "preview-token-secret" },
+  // Blaxel secrets retained for rollback until post-QA; no longer read by code.
   { envKeys: ["BL_API_KEY"], secretName: "blaxel-api-key" },
   { envKeys: ["BL_REGION"], secretName: "blaxel-region" },
   { envKeys: ["BL_WORKSPACE"], secretName: "blaxel-workspace" },

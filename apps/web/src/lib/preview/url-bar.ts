@@ -1,6 +1,6 @@
 /**
  * Pure helpers for the preview URL bar. The preview iframe is cross-origin
- * (Blaxel host / local `/__sandbox/<b64host>` proxy), so we can only know and
+ * (Daytona preview-proxy host / local `/__sandbox/<b64host>` proxy), so we can only know and
  * control the *entry URL* we assign — never the live SPA location after in-app
  * navigation (`contentWindow.location` throws `SecurityError`). The bar shows
  * the last commanded URL, not where the app actually is (preview-surface §A5).

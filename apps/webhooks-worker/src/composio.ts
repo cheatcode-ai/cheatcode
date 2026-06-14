@@ -12,8 +12,8 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 const ComposioPayloadSchema = z
   .object({
-    data: z.record(z.unknown()).default({}),
-    metadata: z.record(z.unknown()).optional(),
+    data: z.record(z.string(), z.unknown()).default({}),
+    metadata: z.record(z.string(), z.unknown()).optional(),
     timestamp: z.string().optional(),
     type: z.string().min(1),
   })

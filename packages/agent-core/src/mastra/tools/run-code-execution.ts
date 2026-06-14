@@ -1,6 +1,7 @@
 import type { CodeRuntimeContext, RunCodeInput, RunCodeOutput } from "@cheatcode/tools-code";
 import { RunCodeInputSchema, RunCodeOutputSchema } from "@cheatcode/tools-code";
 import { RequestContext } from "@mastra/core/request-context";
+import { noopObserve } from "@mastra/core/tools";
 import {
   COMPOSIO_API_KEY_CONTEXT_KEY,
   COMPOSIO_CONNECTED_ACCOUNTS_CONTEXT_KEY,
@@ -122,6 +123,7 @@ export async function executeRunCodeTool(
   }
 
   const output = await execute(RunCodeInputSchema.parse(input), {
+    observe: noopObserve,
     requestContext: createCodeRequestContext(runtimeContext),
   });
   return RunCodeOutputSchema.parse(output);

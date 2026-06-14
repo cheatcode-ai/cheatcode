@@ -92,8 +92,8 @@ export function usageFromMastraChunk(chunk: unknown): MastraUsageDelta | null {
   }
 
   const usage = usageRecord(record);
-  const tokensIn = tokenCount(usage, ["inputTokens", "promptTokens"]);
-  const tokensOut = tokenCount(usage, ["outputTokens", "completionTokens"]);
+  const tokensIn = tokenCount(usage, ["inputTokens", "promptTokens", "input_tokens"]);
+  const tokensOut = tokenCount(usage, ["outputTokens", "completionTokens", "output_tokens"]);
   if (tokensIn === 0 && tokensOut === 0) {
     return null;
   }
@@ -167,12 +167,26 @@ export function normalizeMastraStreamError(error: unknown): Error {
 
 function usageRecord(record: Record<string, unknown>): Record<string, unknown> {
   const payload = asRecord(record["payload"]);
-  for (const candidate of [
+  const metadata = asRecord(payload["metadata"]);
+  const candidates: Record<string, unknown>[] = [
     asRecord(record["usage"]),
     asRecord(record["totalUsage"]),
     asRecord(payload["usage"]),
     asRecord(payload["totalUsage"]),
+  ];
+  // Mastra 1.x finish chunks nest the raw provider usage under
+  // payload.metadata.providerMetadata.<provider>.usage (snake_case token fields),
+  // with no normalized top-level usage — so dig through every provider entry.
+  for (const providerMetadata of [
+    asRecord(record["providerMetadata"]),
+    asRecord(payload["providerMetadata"]),
+    asRecord(metadata["providerMetadata"]),
   ]) {
+    for (const providerValue of Object.values(providerMetadata)) {
+      candidates.push(asRecord(asRecord(providerValue)["usage"]));
+    }
+  }
+  for (const candidate of candidates) {
     if (Object.keys(candidate).length > 0) {
       return candidate;
     }

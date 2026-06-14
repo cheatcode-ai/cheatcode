@@ -1,7 +1,9 @@
 FROM node:22-bookworm-slim
 
-COPY --from=ghcr.io/blaxel-ai/sandbox:latest /sandbox-api /usr/local/bin/sandbox-api
-RUN chmod a+rx /usr/local/bin/sandbox-api
+# Daytona injects its own daemon (host-mounted, PID 1) and overrides ENTRYPOINT,
+# so we do NOT bake a sandbox daemon. Long-running services (Xvfb/x11vnc/websockify)
+# are started post-create via a toolbox session (scripts/start-vnc.sh), not here.
+# Sandboxes are created with user "node" to match /workspace + template ownership.
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
   file python3 python3-pip python3-venv git curl ca-certificates wget gnupg netcat-openbsd \

@@ -12,12 +12,12 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 
 | Layer | Choice |
 |---|---|
-| Language | **TypeScript** everywhere. No Python in backend. Python lives only inside the Blaxel sandbox. |
+| Language | **TypeScript** everywhere. No Python in backend. Python lives only inside the Daytona sandbox. |
 | Backend runtime | **Cloudflare Workers + Durable Objects + Workflows** |
 | Frontend | **Next.js 16.2.6 + React 19.2.6 + Tailwind 4.3 + shadcn CLI 4.6 + AI Elements + Streamdown** on Cloudflare Workers via OpenNext |
 | Agent framework | **Mastra 1.35** on top of **Vercel AI SDK v6.0.182** |
-| Sandbox | Blaxel Sandboxes via `@blaxel/core@0.2.84` — one hosted persistent sandbox per project |
-| Browser automation | **Stagehand v3.2 LOCAL mode** inside the Blaxel sandbox image; noVNC for user takeover |
+| Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/daytona-client.ts`) — one persistent sandbox per project (disk is the durable store) |
+| Browser automation | **Stagehand v3.2 LOCAL mode** inside the Daytona sandbox image; noVNC for user takeover (via the `preview-proxy` worker) |
 | Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (no `service_role` from Workers — uses `app_worker` role) |
 | Auth | **Clerk 7.3.4** (Workers JWT verify) |
 | Billing | **Polar 0.46.4** (no fixed cost, rev-share only) |
@@ -32,7 +32,8 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 apps/
   web/                    Next.js 16 (Cloudflare Workers/OpenNext)
   gateway-worker/         Public Hono router + Clerk JWT + rate limit
-  agent-worker/           Agent loop + AgentRun DO + ProjectSandbox DO + Blaxel adapter
+  agent-worker/           Agent loop + AgentRun DO + ProjectSandbox DO + Daytona adapter
+  preview-proxy/          Custom preview proxy (preview.trycheatcode.com) in front of Daytona previews
   webhooks-worker/        Clerk, Polar, Composio webhooks + internal ops workflows
 
 packages/
@@ -56,7 +57,7 @@ packages/
   biome-config/           Shared biome.jsonc
 
 skills/                   8 curated Anthropic SKILL.md skills
-infra/                    Wrangler configs, Supabase migrations, Blaxel sandbox Dockerfile
+infra/                    Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile/snapshot
 scripts/                  Operational helpers only: build skills, secrets, deploy orchestration, migrations, audit archive
 ```
 
@@ -159,7 +160,7 @@ Full details in plan.md Section 12.
 
 Use Mastra Workflows for orchestration. Each subagent is a `ToolLoopAgent` with explicit `stopWhen: stepCountIs(N)` budget caps. The `deep-research-fanout` workflow shows the canonical fanout pattern (see plan.md Section 8.5).
 
-When using subagents for complex tasks, give each their own Blaxel-backed ProjectSandbox if they need isolated filesystem state. Otherwise share the parent's sandbox.
+When using subagents for complex tasks, give each their own Daytona-backed ProjectSandbox if they need isolated filesystem state. Otherwise share the parent's sandbox.
 
 ## Plan.md is source of truth
 
@@ -167,7 +168,7 @@ If you're proposing a change that contradicts `plan.md`, **update plan.md first*
 
 ## When stuck
 
-- Sandbox not working? `apps/agent-worker/src/durable-objects/project-sandbox.ts` — check Blaxel auth, sandbox name, image, region, and process/file normalization.
+- Sandbox not working? `apps/agent-worker/src/durable-objects/project-sandbox.ts` + `packages/tools-code/src/daytona-client.ts` — check Daytona auth (`DAYTONA_API_KEY`), sandbox name/snapshot, `DAYTONA_TARGET` region, and the toolbox/session paths. Reference: `docs/plans/daytona-rest-reference.md`.
 - Auth broken? `packages/auth/` — Clerk JWT verify pattern with `@clerk/backend`.
 - Skill not triggering? Inspect the bundled skill `description` first — it is
   the activation field, not the body. Use manual fixture review plus final UI

@@ -192,7 +192,7 @@ export const startDevServerInputSchema = z
       .max(255)
       .default("preview.trycheatcode.com")
       .describe("Preview hostname expected by the web client."),
-    name: z.string().min(1).max(100).default("preview").describe("Blaxel preview name."),
+    name: z.string().min(1).max(100).default("preview").describe("Preview name."),
     port: z
       .number()
       .int()
@@ -246,7 +246,9 @@ export const createSnapshotInputSchema = z
       .positive()
       .max(90 * 24 * 60 * 60)
       .default(30 * 24 * 60 * 60)
-      .describe("Deprecated compatibility TTL in seconds; Blaxel volume lifetime owns durability."),
+      .describe(
+        "Deprecated compatibility TTL in seconds; the Daytona sandbox disk owns durability.",
+      ),
   })
   .strict();
 

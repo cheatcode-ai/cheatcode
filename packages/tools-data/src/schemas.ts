@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const DataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-export const DataRecordSchema = z.record(DataCellSchema);
+export const DataRecordSchema = z.record(z.string(), DataCellSchema);
 
 export const ColumnKindSchema = z.enum(["boolean", "date", "empty", "mixed", "number", "string"]);
 
@@ -40,6 +40,7 @@ export const GroupSummarySchema = z
     count: z.number().int().nonnegative(),
     group: z.string(),
     metrics: z.record(
+      z.string(),
       z
         .object({
           mean: z.number(),

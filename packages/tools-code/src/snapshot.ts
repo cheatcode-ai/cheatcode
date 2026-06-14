@@ -84,7 +84,7 @@ export async function executeRestoreSnapshot(
 
 export const createSnapshot = tool({
   description:
-    "Return the persistent Blaxel volume handle for the sandbox workspace so future runs can recover project state.",
+    "Return the persistent Daytona sandbox handle for the workspace so future runs can recover project state.",
   inputSchema: CreateSnapshotInputSchema,
   outputSchema: SnapshotHandleSchema,
   execute: async (input, options: unknown) =>
@@ -93,7 +93,7 @@ export const createSnapshot = tool({
 
 export const restoreSnapshot = tool({
   description:
-    "Reconnect the sandbox to a previously returned Blaxel volume handle for the project workspace.",
+    "Reconnect to a previously returned Daytona sandbox handle for the project workspace.",
   inputSchema: RestoreSnapshotInputSchema,
   outputSchema: RestoreSnapshotOutputSchema,
   execute: async (input, options: unknown) =>

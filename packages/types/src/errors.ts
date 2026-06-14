@@ -63,7 +63,7 @@ export const ErrorResponseSchema = z
         retriable: z.boolean(),
         request_id: z.string(),
         doc_url: z.string().url().optional(),
-        details: z.record(z.unknown()).optional(),
+        details: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
   })

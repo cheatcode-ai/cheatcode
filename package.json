@@ -19,7 +19,6 @@
     "lint": "biome check . && turbo lint",
     "prod:set-hyperdrive": "tsx scripts/set-hyperdrive-id.ts",
     "skills:build": "turbo skills:build",
-    "sync:blaxel-local-token": "tsx scripts/sync-blaxel-local-token.ts",
     "sync:secrets": "tsx scripts/sync-secrets.ts",
     "sync:worker-secrets": "tsx scripts/sync-worker-secrets.ts",
     "typecheck": "turbo typecheck && pnpm typecheck:scripts",

@@ -373,7 +373,7 @@ export const SandboxTerminalResultSchema = z
 
 /**
  * Cursor-polling query for the dev-server console strip. Cursors are character
- * offsets into Blaxel's accumulated per-stream log text; `lastPid` is echoed
+ * offsets into Daytona's accumulated per-stream log text; `lastPid` is echoed
  * from the previous snapshot's process so the DO can detect a same-name
  * dev-server restart (differing non-null pid forces a buffer reset). `processId`
  * defaults to the deterministic dev-server id `app-preview`.
@@ -401,9 +401,9 @@ export const SandboxConsoleLineSchema = z
   .strict();
 
 /**
- * Resolved dev-server process. `pid` is the Blaxel restart identity (string |
- * number upstream, normalized via `String()`), null when Blaxel omits it.
- * `status` is the raw Blaxel process status ("running" | "completed" | ...).
+ * Resolved dev-server process. `pid` is the Daytona restart identity (string |
+ * number upstream, normalized via `String()`), null when Daytona omits it.
+ * `status` is the raw Daytona process status ("running" | "completed" | ...).
  */
 export const SandboxConsoleProcessSchema = z
   .object({

@@ -412,8 +412,7 @@ export const mastraFsList = createTool({
 
 export const mastraFsSearch = createTool({
   id: "fs_search",
-  description:
-    "Search file contents under /workspace in the project sandbox using Blaxel's optimized grep API.",
+  description: "Search file contents under /workspace in the project sandbox using ripgrep/grep.",
   inputSchema: SearchFilesInputSchema,
   outputSchema: SearchFilesOutputSchema,
   execute: async (input, context) => executeSearchFiles(input, codeRuntimeFromContext(context)),
@@ -489,7 +488,7 @@ export const mastraSandboxDestroy = createTool({
 
 export const mastraSandboxSnapshot = createTool({
   id: "sandbox_snapshot",
-  description: "Return the current project's persistent Blaxel volume handle.",
+  description: "Return the current project's persistent Daytona sandbox handle.",
   inputSchema: createSnapshotInputSchema,
   outputSchema: snapshotHandleSchema,
   execute: async (input, context) => executeCreateSnapshot(input, codeRuntimeFromContext(context)),
@@ -497,7 +496,7 @@ export const mastraSandboxSnapshot = createTool({
 
 export const mastraSandboxRestore = createTool({
   id: "sandbox_restore",
-  description: "Reconnect the sandbox to a previously returned Blaxel volume handle.",
+  description: "Reconnect the sandbox to a previously returned Daytona sandbox handle.",
   inputSchema: restoreSnapshotInputSchema,
   outputSchema: restoreSnapshotOutputSchema,
   execute: async (input, context) =>

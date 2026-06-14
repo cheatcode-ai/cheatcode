@@ -1,0 +1,5 @@
+# Daytona control-plane API key (resolves the per-sandbox preview origin + token).
+DAYTONA_API_KEY=
+# Shared HMAC secret for the preview access-token contract (must match the
+# value the agent-worker uses to MINT cc_pt tokens).
+PREVIEW_TOKEN_SECRET=

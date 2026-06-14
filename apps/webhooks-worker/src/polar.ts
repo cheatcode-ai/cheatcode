@@ -21,12 +21,12 @@ import { z } from "zod";
 
 const PolarEventSchema = z
   .object({
-    data: z.record(z.unknown()),
+    data: z.record(z.string(), z.unknown()),
     type: z.string().min(1),
   })
   .passthrough();
 
-const RawPayloadSchema = z.record(z.unknown());
+const RawPayloadSchema = z.record(z.string(), z.unknown());
 const InternalUserIdSchema = z
   .string()
   .uuid()

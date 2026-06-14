@@ -18,7 +18,6 @@
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/types": "workspace:*",
-    "@blaxel/core": "catalog:",
     "@clerk/backend": "catalog:",
     "@composio/core": "catalog:",
     "@polar-sh/sdk": "catalog:",

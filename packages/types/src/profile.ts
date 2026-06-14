@@ -6,7 +6,7 @@ export const OnboardingStepStatusSchema = z.enum(["done", "skipped"]);
 
 export const OnboardingStateSchema = z
   .object({
-    steps: z.record(OnboardingStepSchema, OnboardingStepStatusSchema).default({}),
+    steps: z.partialRecord(OnboardingStepSchema, OnboardingStepStatusSchema).default({}),
   })
   .strict();
 
