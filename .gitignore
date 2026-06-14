@@ -20,10 +20,11 @@ supabase/.temp/
 packages/skills/src/generated.ts
 
 # Preserved legacy V1 tree and pre-V2 notes. Section 20 cleanup requires a git snapshot first.
-cheatcode/
-docs/
-tasks/
-plans/
+# Anchored to repo root so nested source dirs (e.g. apps/web/src/components/docs) aren't ignored.
+/cheatcode/
+/docs/
+/tasks/
+/plans/
 
 # Local debugging artifacts (agent-browser screenshots, clipboard scratch)
 /*.png
