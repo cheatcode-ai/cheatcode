@@ -1,5 +1,4 @@
 import { APIError } from "@cheatcode/observability";
-import { createFalClient } from "@fal-ai/client";
 import { z } from "zod/v4";
 import { storeRemoteMediaArtifact } from "./artifacts";
 import type { MediaRuntimeContext } from "./runtime";
@@ -51,12 +50,13 @@ const FalVideoResponseSchema = z
 export async function executeFalImage(
   input: unknown,
   runtimeContext: MediaRuntimeContext,
-  client: FalClientLike = createScopedFalClient(runtimeContext),
+  client?: FalClientLike,
 ): Promise<FalMediaOutput> {
+  const resolvedClient = client ?? (await createScopedFalClient(runtimeContext));
   const parsedInput = FalImageInputSchema.parse(input);
   const response = FalImageResponseSchema.parse(
     unwrapFalData(
-      await client.subscribe(parsedInput.modelId, { input: falImagePayload(parsedInput) }),
+      await resolvedClient.subscribe(parsedInput.modelId, { input: falImagePayload(parsedInput) }),
     ),
   );
   const artifact = await storeFalImageArtifact({
@@ -80,12 +80,15 @@ export async function executeFalImage(
 export async function executeFalImageEdit(
   input: unknown,
   runtimeContext: MediaRuntimeContext,
-  client: FalClientLike = createScopedFalClient(runtimeContext),
+  client?: FalClientLike,
 ): Promise<FalMediaOutput> {
+  const resolvedClient = client ?? (await createScopedFalClient(runtimeContext));
   const parsedInput = FalImageEditInputSchema.parse(input);
   const response = FalImageResponseSchema.parse(
     unwrapFalData(
-      await client.subscribe(parsedInput.modelId, { input: falImageEditPayload(parsedInput) }),
+      await resolvedClient.subscribe(parsedInput.modelId, {
+        input: falImageEditPayload(parsedInput),
+      }),
     ),
   );
   const artifact = await storeFalImageArtifact({
@@ -109,12 +112,13 @@ export async function executeFalImageEdit(
 export async function executeFalVideo(
   input: unknown,
   runtimeContext: MediaRuntimeContext,
-  client: FalClientLike = createScopedFalClient(runtimeContext),
+  client?: FalClientLike,
 ): Promise<FalMediaOutput> {
+  const resolvedClient = client ?? (await createScopedFalClient(runtimeContext));
   const parsedInput = FalVideoInputSchema.parse(input);
   const response = FalVideoResponseSchema.parse(
     unwrapFalData(
-      await client.subscribe(parsedInput.modelId, { input: falVideoPayload(parsedInput) }),
+      await resolvedClient.subscribe(parsedInput.modelId, { input: falVideoPayload(parsedInput) }),
     ),
   );
   if (!response.video) {
@@ -145,7 +149,10 @@ export async function executeFalVideo(
   });
 }
 
-function createScopedFalClient(runtimeContext: MediaRuntimeContext): FalClientLike {
+// Dynamically imported so the FAL SDK stays out of the agent-worker isolate's
+// startup path (CF startup CPU limit). Only loaded when an image/video tool fires.
+async function createScopedFalClient(runtimeContext: MediaRuntimeContext): Promise<FalClientLike> {
+  const { createFalClient } = await import("@fal-ai/client");
   return createFalClient({
     credentials: requireMediaProviderKey(runtimeContext, "fal"),
   });

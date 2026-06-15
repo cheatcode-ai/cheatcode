@@ -1,5 +1,5 @@
 import { APIError } from "@cheatcode/observability";
-import { Polar } from "@polar-sh/sdk";
+import type { Polar } from "@polar-sh/sdk";
 import { z } from "zod";
 import { PLAN_CATALOG, type PlanCatalogEntry } from "./catalog";
 
@@ -178,7 +178,7 @@ export interface SubscriptionActionResult {
 }
 
 export async function createCheckoutUrl(input: CreateCheckoutUrlInput): Promise<string> {
-  const response = await polarClient(input.accessToken).checkouts.create({
+  const response = await (await polarClient(input.accessToken)).checkouts.create({
     allowDiscountCodes: true,
     externalCustomerId: input.userId,
     metadata: { userId: input.userId },
@@ -202,7 +202,9 @@ export async function createCustomerPortalUrl(
         externalCustomerId: input.externalCustomerId,
         ...(input.returnUrl ? { returnUrl: input.returnUrl } : {}),
       };
-  const response = await polarClient(input.accessToken).customerSessions.create(sessionInput);
+  const response = await (await polarClient(input.accessToken)).customerSessions.create(
+    sessionInput,
+  );
   return parseCustomerPortalUrl(response);
 }
 
@@ -214,7 +216,7 @@ export async function cancelSubscriptionAtPeriodEnd(
     ...(input.reason ? { customerCancellationReason: input.reason } : {}),
     ...(input.comment ? { customerCancellationComment: input.comment } : {}),
   };
-  const response = await polarClient(input.accessToken).subscriptions.update({
+  const response = await (await polarClient(input.accessToken)).subscriptions.update({
     id: input.subscriptionId,
     subscriptionUpdate,
   });
@@ -224,7 +226,7 @@ export async function cancelSubscriptionAtPeriodEnd(
 export async function reactivateSubscription(
   input: ReactivateSubscriptionInput,
 ): Promise<SubscriptionActionResult> {
-  const response = await polarClient(input.accessToken).subscriptions.update({
+  const response = await (await polarClient(input.accessToken)).subscriptions.update({
     id: input.subscriptionId,
     subscriptionUpdate: { cancelAtPeriodEnd: false },
   });
@@ -232,7 +234,7 @@ export async function reactivateSubscription(
 }
 
 export async function updateCustomerProfile(input: UpdateCustomerProfileInput): Promise<void> {
-  await polarClient(input.accessToken).customers.update({
+  await (await polarClient(input.accessToken)).customers.update({
     customerUpdate: {
       email: input.email,
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -332,13 +334,18 @@ function isoDateOrNow(value: Date | null | undefined): string {
   return (value ?? new Date()).toISOString();
 }
 
-function polarClient(accessToken: string): Polar {
+// Dynamically imported so the 2.2 MB Polar SDK stays out of the importing
+// isolate's startup path (CF startup CPU limit). The agent-worker pulls this
+// package for pure entitlement math and must not pay the Polar parse cost; the
+// SDK loads only when a checkout/portal/subscription call is actually made.
+async function polarClient(accessToken: string): Promise<Polar> {
   if (accessToken.trim().length === 0) {
     throw new APIError(503, "unavailable_maintenance", "Polar access token is not configured", {
       hint: "Set POLAR_ACCESS_TOKEN in the gateway Worker environment.",
       retriable: false,
     });
   }
+  const { Polar } = await import("@polar-sh/sdk");
   return new Polar({ accessToken });
 }
 

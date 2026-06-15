@@ -1,5 +1,4 @@
 import type { ContentsOptions, RegularSearchOptions } from "exa-js";
-import Exa from "exa-js";
 import type { ResearchRuntimeContext } from "./runtime";
 import { requireResearchProviderKey } from "./runtime";
 import {
@@ -33,10 +32,11 @@ export interface ExaClientLike {
 export async function executeExaSearch(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client: ExaClientLike = createExaClient(runtimeContext),
+  client?: ExaClientLike,
 ): Promise<ExaSearchOutput> {
+  const resolvedClient = client ?? (await createExaClient(runtimeContext));
   const parsedInput = ExaSearchInputSchema.parse(input);
-  const response = await client.search(parsedInput.query, exaSearchOptions(parsedInput));
+  const response = await resolvedClient.search(parsedInput.query, exaSearchOptions(parsedInput));
 
   return ExaSearchOutputSchema.parse({
     requestId: response.requestId,
@@ -44,7 +44,10 @@ export async function executeExaSearch(
   });
 }
 
-function createExaClient(runtimeContext: ResearchRuntimeContext): ExaClientLike {
+// Dynamically imported so the Exa SDK stays out of the agent-worker isolate's
+// startup path (CF startup CPU limit). Only loaded when the research tool fires.
+async function createExaClient(runtimeContext: ResearchRuntimeContext): Promise<ExaClientLike> {
+  const { default: Exa } = await import("exa-js");
   const client = new Exa(requireResearchProviderKey(runtimeContext, "exa"));
   return {
     search: (query, options) =>

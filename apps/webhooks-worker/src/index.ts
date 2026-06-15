@@ -45,9 +45,6 @@ export interface WebhooksEnv
   AGENT?: Fetcher;
   CLERK_WEBHOOK_SECRET?: WorkerSecret;
   CLERK_WEBHOOK_SIGNING_SECRET?: WorkerSecret;
-  BL_API_KEY?: WorkerSecret;
-  BL_REGION?: WorkerSecret;
-  BL_WORKSPACE?: WorkerSecret;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;

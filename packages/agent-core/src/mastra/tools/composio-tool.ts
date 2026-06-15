@@ -1,4 +1,3 @@
-import { Composio } from "@composio/core";
 import { createTool } from "@mastra/core/tools";
 import { z } from "zod/v4";
 import {
@@ -138,7 +137,11 @@ interface BoundedJson {
   truncated: boolean;
 }
 
-function createComposioToolClient(apiKey: string): ComposioToolClient {
+// Dynamically imported so the ~1.2 MB Composio SDK stays out of the agent-worker
+// isolate's startup path (CF startup CPU limit). Only loaded when a Composio tool
+// actually fires.
+async function createComposioToolClient(apiKey: string): Promise<ComposioToolClient> {
+  const { Composio } = await import("@composio/core");
   const composio = new Composio({ apiKey });
   return {
     execute: (slug, body) => composio.tools.execute(slug, body),
@@ -190,7 +193,7 @@ export async function listComposioTools(
   }
 
   try {
-    const toolClient = client ?? createComposioToolClient(runtime.apiKey);
+    const toolClient = client ?? (await createComposioToolClient(runtime.apiKey));
     const tools = await toolClient.getTools(runtime.userId, { toolkits: [input.integration] });
     const bounded = boundedJson(tools, MAX_COMPOSIO_OUTPUT_CHARS);
     return composioListToolsOutputSchema.parse({
@@ -231,7 +234,7 @@ export async function executeComposioAction(
   }
 
   try {
-    const toolClient = client ?? createComposioToolClient(runtime.apiKey);
+    const toolClient = client ?? (await createComposioToolClient(runtime.apiKey));
     const response = composioExecuteResponseSchema.parse(
       await toolClient.execute(input.toolSlug, executeBody(input, runtime.userId, connectionId)),
     );

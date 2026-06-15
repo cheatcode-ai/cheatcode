@@ -28,21 +28,6 @@
       "secret_name": "daytona-api-key"
     },
     {
-      "binding": "BL_API_KEY",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "blaxel-api-key"
-    },
-    {
-      "binding": "BL_REGION",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "blaxel-region"
-    },
-    {
-      "binding": "BL_WORKSPACE",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "blaxel-workspace"
-    },
-    {
       "binding": "CLERK_WEBHOOK_SIGNING_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "clerk-webhook-signing-secret"

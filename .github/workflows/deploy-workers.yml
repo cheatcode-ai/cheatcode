@@ -19,33 +19,13 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  deploy-agent:
+  # Gateway MUST deploy first: it DEFINES the QuotaTracker Durable Object that the
+  # agent worker cross-script binds to (CF requires the defining script to exist
+  # before a consumer can bind its class). Gateway's own service binding to
+  # cheatcode-agent resolves lazily, so gateway-first has no chicken-and-egg.
+  deploy-gateway:
     # Only on a successful Static Checks run on main, or a manual dispatch.
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main') }}
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm turbo build --filter=@cheatcode/agent-worker
-      - uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          workingDirectory: apps/agent-worker
-          command: deploy
-
-  deploy-gateway:
-    needs: deploy-agent
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -68,8 +48,32 @@ jobs:
           workingDirectory: apps/gateway-worker
           command: deploy
 
-  deploy-webhooks:
+  deploy-agent:
     needs: deploy-gateway
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm turbo build --filter=@cheatcode/agent-worker
+      - uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          workingDirectory: apps/agent-worker
+          command: deploy
+
+  deploy-webhooks:
+    needs: deploy-agent
     runs-on: ubuntu-latest
     environment: production
     steps:

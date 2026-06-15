@@ -1,5 +1,5 @@
 import { APIError } from "@cheatcode/observability";
-import { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
+import type { ElevenLabsClient } from "@elevenlabs/elevenlabs-js";
 import { z } from "zod/v4";
 import { storeBytesMediaArtifact } from "./artifacts";
 import type { MediaRuntimeContext } from "./runtime";
@@ -36,15 +36,16 @@ const TranscriptionResponseSchema = z
 export async function executeElevenLabsTts(
   input: unknown,
   runtimeContext: MediaRuntimeContext,
-  client: ElevenLabsClientLike = createElevenLabsClient(runtimeContext),
+  client?: ElevenLabsClientLike,
 ): Promise<ElevenLabsTtsOutput> {
+  const resolvedClient = client ?? (await createElevenLabsClient(runtimeContext));
   const parsedInput = ElevenLabsTtsInputSchema.parse(input);
   const request: TextToSpeechRequest = {
     modelId: parsedInput.modelId,
     outputFormat: parsedInput.outputFormat,
     text: parsedInput.text,
   };
-  const audio = await client.textToSpeech.convert(parsedInput.voiceId, request);
+  const audio = await resolvedClient.textToSpeech.convert(parsedInput.voiceId, request);
   const contentType = outputFormatContentType(parsedInput.outputFormat);
   const artifact = await storeBytesMediaArtifact({
     contentType,
@@ -71,8 +72,9 @@ export async function executeElevenLabsTts(
 export async function executeElevenLabsTranscription(
   input: unknown,
   runtimeContext: MediaRuntimeContext,
-  client: ElevenLabsClientLike = createElevenLabsClient(runtimeContext),
+  client?: ElevenLabsClientLike,
 ): Promise<ElevenLabsTranscriptionOutput> {
+  const resolvedClient = client ?? (await createElevenLabsClient(runtimeContext));
   const parsedInput = ElevenLabsTranscriptionInputSchema.parse(input);
   const audio = await transcriptionAudio(parsedInput, runtimeContext);
   const request: SpeechToTextRequest = {
@@ -84,7 +86,9 @@ export async function executeElevenLabsTranscription(
   if (parsedInput.languageCode) {
     request["languageCode"] = parsedInput.languageCode;
   }
-  const response = TranscriptionResponseSchema.parse(await client.speechToText.convert(request));
+  const response = TranscriptionResponseSchema.parse(
+    await resolvedClient.speechToText.convert(request),
+  );
   return ElevenLabsTranscriptionOutputSchema.parse({
     languageCode: response.languageCode ?? response.language_code,
     modelId: parsedInput.modelId,
@@ -93,7 +97,13 @@ export async function executeElevenLabsTranscription(
   });
 }
 
-function createElevenLabsClient(runtimeContext: MediaRuntimeContext): ElevenLabsClientLike {
+// Dynamically imported so the 6.5 MB ElevenLabs SDK is a lazy chunk — kept out
+// of the agent-worker isolate's startup path (CF startup CPU limit). Only loaded
+// when a TTS/STT tool actually fires.
+async function createElevenLabsClient(
+  runtimeContext: MediaRuntimeContext,
+): Promise<ElevenLabsClientLike> {
+  const { ElevenLabsClient } = await import("@elevenlabs/elevenlabs-js");
   return new ElevenLabsClient({
     apiKey: requireMediaProviderKey(runtimeContext, "elevenlabs"),
   });
