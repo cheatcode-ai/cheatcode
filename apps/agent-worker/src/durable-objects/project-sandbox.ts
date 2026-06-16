@@ -83,7 +83,7 @@ export interface ProjectSandboxStatus {
 }
 
 const WORKSPACE_DIR = "/workspace";
-const ENV_FILE_DIR = "/home/daytona/.cc-env";
+const ENV_FILE_DIR = "/home/node/.cc-env";
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
 const DEFAULT_IDLE_STOP_MIN = 15;
 const AUTO_ARCHIVE_MIN = 1_440; // 1 day stopped → cold storage

@@ -241,8 +241,7 @@ export const listFiles = tool({
 });
 
 export const searchFiles = tool({
-  description:
-    "Search file contents under /workspace in the project sandbox using Blaxel's optimized grep API.",
+  description: "Search file contents under /workspace in the project sandbox using grep.",
   inputSchema: SearchFilesInputSchema,
   outputSchema: SearchFilesOutputSchema,
   execute: async (input, options: unknown) =>

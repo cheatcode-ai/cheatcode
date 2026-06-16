@@ -41,7 +41,7 @@ export function appBuilderPageSource(messageText: string): string {
   return `const cards = [
   ["Gateway", "Clerk auth and rate limits route the request."],
   ["AgentRun", "Durable Object stores resumable stream parts."],
-  ["Sandbox", "Blaxel serves this live preview."],
+  ["Sandbox", "Daytona serves this live preview."],
 ];
 
 export default function Home() {

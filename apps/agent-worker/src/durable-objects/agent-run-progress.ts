@@ -4,7 +4,7 @@ import type { UIMessageChunk } from "ai";
 type AgentRunTaskId = "prepare-sandbox" | "run-agent" | "stream-results";
 
 const RUN_TASKS: ReadonlyArray<{ id: AgentRunTaskId; title: string }> = [
-  { id: "prepare-sandbox", title: "Prepare Blaxel sandbox" },
+  { id: "prepare-sandbox", title: "Prepare sandbox" },
   { id: "run-agent", title: "Run agent tools" },
   { id: "stream-results", title: "Stream workspace result" },
 ];

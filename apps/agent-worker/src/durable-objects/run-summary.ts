@@ -29,7 +29,7 @@ function errorMessageFromRows(rows: unknown[]): string {
   let message = "";
   for (const row of rows) {
     const chunk = parsedChunkFromRow(row);
-    if (!chunk || chunk["type"] !== "data-error") {
+    if (chunk?.["type"] !== "data-error") {
       continue;
     }
     const data = chunk["data"];

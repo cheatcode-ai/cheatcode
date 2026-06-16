@@ -343,6 +343,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const logger = createLogger({ threadId: input.threadId, userId: input.userId });
     logger.info("agent_run_started", { mastra_agent_ready: Boolean(mastra.getAgent("general")) });
     let isAnswerTextOpen = false;
+    const sandbox = this.env.PROJECT_SANDBOX.get(
+      this.env.PROJECT_SANDBOX.idFromName(input.sandboxName),
+    );
+    let runLeaseOpened = false;
 
     try {
       await this.persistRunStatus(input, "running");
@@ -376,9 +380,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       });
       this.setRunStage("Preparing project sandbox.");
 
-      const sandbox = this.env.PROJECT_SANDBOX.get(
-        this.env.PROJECT_SANDBOX.idFromName(input.sandboxName),
-      );
+      // Open the active-run lease BEFORE any long sandbox work: pins
+      // autoStopInterval=0 + schedules the keepalive alarm so the 15-min idle
+      // auto-stop can't kill a long run/dev server, and seeds the lifecycle
+      // metering checkpoint so sandbox-hours actually accrue. Released in finally.
+      await sandbox.beginRun(input.runId);
+      runLeaseOpened = true;
       await restoreBestEffortSnapshot(input, sandbox, this.env, logger);
       if (this.isRunCanceled()) {
         return;
@@ -450,6 +457,11 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       });
       this.closeSubscribers();
     } finally {
+      if (runLeaseOpened) {
+        // Release the lease: restores the idle auto-stop + closes the metering
+        // checkpoint. Best-effort — the keepalive alarm reaps stale leases.
+        await sandbox.endRun(input.runId).catch(() => undefined);
+      }
       if (this.activeRunAbortController === abortController) {
         this.activeRunAbortController = undefined;
       }

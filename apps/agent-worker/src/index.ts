@@ -76,11 +76,6 @@ export { AgentRun, ProjectSandbox };
 
 export interface AgentEnv extends AnalyticsBindings {
   AGENT_RUN: DurableObjectNamespace<AgentRun>;
-  BL_API_KEY: string;
-  BL_REGION: string;
-  BL_WORKSPACE: string;
-  BLAXEL_SANDBOX_IMAGE: string;
-  BLAXEL_SANDBOX_MEMORY_MB?: string;
   COMPOSIO_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
