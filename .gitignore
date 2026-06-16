@@ -4,6 +4,7 @@ node_modules/
 .wrangler/
 .next/
 .open-next/
+.vercel/
 dist/
 coverage/
 .qa/

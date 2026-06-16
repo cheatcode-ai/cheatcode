@@ -1,0 +1,14 @@
+# Legacy V1 tree (not a V2 workspace member; contains special files like gunicorn.ctl).
+# Leading slash = anchored to repo root, so it does NOT match nested source dirs
+# such as apps/web/src/components/docs.
+/cheatcode/
+/docs/
+/tasks/
+/plans/
+# Build artifacts (match anywhere; Vercel installs + builds fresh)
+node_modules
+.next
+.open-next
+.wrangler
+.turbo
+*.log

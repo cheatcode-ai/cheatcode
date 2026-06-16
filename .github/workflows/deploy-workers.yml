@@ -120,31 +120,23 @@ jobs:
           workingDirectory: apps/preview-proxy
           command: deploy
 
-  deploy-web:
-    # Independent of the worker chain; self-skips until the NEXT_PUBLIC vars exist
-    # so a missing web var can never block the backend cutover.
-    needs: deploy-agent
-    if: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY != '' }}
+  deploy-web-vercel:
+    # The web app is hosted on Vercel: its Next.js bundle exceeds Cloudflare's
+    # Worker size limit, so the frontend lives on Vercel while the all-Cloudflare
+    # backend stays on the worker chain above. Independent of that chain. Build env
+    # (NEXT_PUBLIC_*, CLERK_SECRET_KEY) lives in the Vercel project, so `vercel
+    # deploy` triggers a server-side build — CI only needs the token + project ids.
+    # Self-skips until VERCEL_PROJECT_ID is configured.
+    if: ${{ vars.VERCEL_PROJECT_ID != '' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - uses: pnpm/action-setup@v4
-        with:
-          version: 10.33.2
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-      # `run deploy` (not bare `deploy`) — `pnpm deploy` is a reserved built-in
-      # that ignores the package's deploy script and errors NOTHING_TO_DEPLOY.
-      - run: pnpm --filter @cheatcode/web run deploy
+      - run: npm install -g vercel@latest
+      - run: vercel deploy --prod --yes --token="$VERCEL_TOKEN"
         env:
-          CHEATCODE_PROD_DEPLOY_APPROVED: "true"
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: ${{ vars.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY }}
-          NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID: ${{ vars.NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID }}
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
