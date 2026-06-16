@@ -90,7 +90,11 @@ export async function listIntegrationSummaries(
 export async function connectIntegration(input: ConnectIntegrationInput): Promise<Response> {
   const apiKey = await readRequiredSecret(input.env.COMPOSIO_API_KEY, "COMPOSIO_API_KEY");
   const authConfigId = await readAuthConfigId(input.env, input.integration);
-  const composio = new Composio({ apiKey });
+  const composio = new Composio({
+    allowTracking: false,
+    apiKey,
+    baseURL: "https://backend.composio.dev",
+  });
   const callbackUrl = resolveCallbackUrl(input.request);
   const connection = await createConnectionLink({
     authConfigId,
@@ -119,7 +123,11 @@ export async function deleteIntegration(input: DeleteIntegrationInput): Promise<
     return;
   }
   const apiKey = await readRequiredSecret(input.env.COMPOSIO_API_KEY, "COMPOSIO_API_KEY");
-  const composio = new Composio({ apiKey });
+  const composio = new Composio({
+    allowTracking: false,
+    apiKey,
+    baseURL: "https://backend.composio.dev",
+  });
   await deleteConnectedAccount(composio, record.composioConnectionId);
   await deleteUserIntegration(input.db, {
     integration: input.integration,

@@ -13,7 +13,6 @@ export interface ProjectSettings {
 export interface DirectoryBackupHandle {
   id: string;
   dir: string;
-  localBucket?: boolean | undefined;
 }
 
 export const projects = pgTable(v2TableName("projects"), {

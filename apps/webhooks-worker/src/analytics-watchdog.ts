@@ -161,7 +161,7 @@ async function queryAnalyticsEngine(input: {
   return parseSqlResponse(await response.json()).data;
 }
 
-async function postInternalAlert(
+export async function postInternalAlert(
   env: AnalyticsWatchdogEnv,
   alert: InternalAlertPayload,
 ): Promise<void> {

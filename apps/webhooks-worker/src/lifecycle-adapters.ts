@@ -293,7 +293,11 @@ async function revokeComposioConnections(
     createLogger().warn("gdpr_composio_revoke_skipped", { reason: "missing_api_key" });
     return 0;
   }
-  const composio = new Composio({ apiKey });
+  const composio = new Composio({
+    allowTracking: false,
+    apiKey,
+    baseURL: "https://backend.composio.dev",
+  });
   let revoked = 0;
   for (const connectionId of connectionIds) {
     try {

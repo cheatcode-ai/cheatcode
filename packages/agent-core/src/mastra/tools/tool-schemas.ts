@@ -224,7 +224,6 @@ export const snapshotHandleSchema = z
   .object({
     id: z.string().min(1),
     dir: workspacePathSchema,
-    localBucket: z.boolean().optional(),
   })
   .strict();
 
@@ -238,7 +237,6 @@ export const createSnapshotInputSchema = z
       .refine(isSafeWorkspacePath, "Path must stay inside /workspace.")
       .default("/workspace")
       .describe("Workspace directory represented by the persistent volume handle."),
-    localBucket: z.boolean().optional().describe("Deprecated compatibility flag; ignored in V2."),
     name: z.string().min(1).max(200).optional().describe("Human-readable handle label."),
     ttl: z
       .number()

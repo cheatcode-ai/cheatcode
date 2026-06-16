@@ -172,12 +172,10 @@ export interface SandboxUnexposePortInput {
 export interface SandboxBackupHandle {
   id: string;
   dir: string;
-  localBucket?: boolean;
 }
 
 export interface SandboxCreateBackupInput {
   dir: string;
-  localBucket?: boolean;
   name?: string;
   ttl?: number;
 }

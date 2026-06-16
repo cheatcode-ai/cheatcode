@@ -25,6 +25,7 @@ import {
 import { type Provider, ProviderSchema, type UserId } from "@cheatcode/types";
 import { z } from "zod";
 import { runAnalyticsWatchdog } from "./analytics-watchdog";
+import { runEgressCanary } from "./egress-canary";
 import { deleteUserExternalResources, type LifecycleEnv } from "./lifecycle-adapters";
 
 const OpsMaintenancePayloadSchema = z.discriminatedUnion("kind", [
@@ -35,6 +36,10 @@ const OpsMaintenancePayloadSchema = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("byok-revalidation"),
     limit: z.number().int().positive().max(1_000).default(250),
+    scheduledTime: z.number().int().nonnegative(),
+  }),
+  z.object({
+    kind: z.literal("egress-canary"),
     scheduledTime: z.number().int().nonnegative(),
   }),
   z.object({
@@ -122,6 +127,21 @@ export async function enqueueAnalyticsWatchdog(
   return instance.id;
 }
 
+export async function enqueueEgressCanary(
+  env: OpsWorkflowBindings,
+  scheduledTime: number,
+): Promise<string> {
+  const instance = await env.OPS_WORKFLOW.create({
+    id: `egress-canary-${scheduledTime}-${crypto.randomUUID()}`,
+    params: { kind: "egress-canary", scheduledTime },
+    retention: {
+      errorRetention: "30 days",
+      successRetention: "7 days",
+    },
+  });
+  return instance.id;
+}
+
 export async function enqueueByokRevalidation(
   env: OpsWorkflowBindings,
   scheduledTime: number,
@@ -161,6 +181,10 @@ export async function processOpsMaintenancePayload(
   const payload = OpsMaintenancePayloadSchema.parse(value);
   if (payload.kind === "analytics-watchdog") {
     await runAnalyticsWatchdog(env);
+    return;
+  }
+  if (payload.kind === "egress-canary") {
+    await runEgressCanary(env);
     return;
   }
   const { db, close } = createDb(env.HYPERDRIVE);
@@ -348,6 +372,9 @@ function opsStepName(kind: OpsMaintenancePayload["kind"]): string {
   }
   if (kind === "byok-revalidation") {
     return "inventory BYOK keys for revalidation";
+  }
+  if (kind === "egress-canary") {
+    return "run egress canary";
   }
   return "run analytics watchdog";
 }

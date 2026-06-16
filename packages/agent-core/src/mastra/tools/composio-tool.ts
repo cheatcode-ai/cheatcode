@@ -11,6 +11,13 @@ import {
 
 const MAX_COMPOSIO_ARGUMENTS_JSON_CHARS = 100_000;
 const MAX_COMPOSIO_OUTPUT_CHARS = 20_000;
+// Composio's tool-list API silently returns only its small default page (~10) at the
+// base toolkit version; request the documented max so large toolkits (github/gmail/
+// notion) are not under-enumerated. Docs: docs.composio.dev/docs/tools-direct/fetching-tools.
+const COMPOSIO_LIST_LIMIT = 500;
+// The SDK default base URL is already backend.composio.dev; pin it explicitly so a
+// future SDK default change can't silently repoint Workers at an unresolvable host.
+const COMPOSIO_BASE_URL = "https://backend.composio.dev";
 const composioIntegrationNameSchema = z.enum(["github", "gmail", "slack", "notion", "linear"]);
 
 const requestContextReaderSchema = {
@@ -36,6 +43,15 @@ export const composioListToolsInputSchema = z
     integration: composioIntegrationNameSchema.describe(
       "Connected integration whose tools should be listed.",
     ),
+    search: z
+      .string()
+      .trim()
+      .min(1)
+      .max(120)
+      .optional()
+      .describe(
+        "Optional keyword filter (e.g. 'create issue') to narrow large toolkits. Use this when a previous listing returned toolsTruncated=true.",
+      ),
   })
   .strict();
 
@@ -137,7 +153,7 @@ export interface ComposioRuntimeContext {
 
 export interface ComposioToolClient {
   execute(slug: string, body: ComposioExecuteBody): Promise<unknown>;
-  getRawTools(options: { toolkits: string[] }): Promise<unknown>;
+  getRawTools(options: { limit?: number; search?: string; toolkits: string[] }): Promise<unknown>;
 }
 
 interface ComposioExecuteBody {
@@ -158,7 +174,7 @@ interface BoundedJson {
 // actually fires.
 async function createComposioToolClient(apiKey: string): Promise<ComposioToolClient> {
   const { Composio } = await import("@composio/core");
-  const composio = new Composio({ apiKey });
+  const composio = new Composio({ allowTracking: false, apiKey, baseURL: COMPOSIO_BASE_URL });
   return {
     execute: (slug, body) => composio.tools.execute(slug, body),
     getRawTools: (options) => composio.tools.getRawComposioTools(options),
@@ -210,12 +226,16 @@ export async function listComposioTools(
 
   try {
     const toolClient = client ?? (await createComposioToolClient(runtime.apiKey));
-    const rawTools = await toolClient.getRawTools({ toolkits: [input.integration] });
+    const rawTools = await toolClient.getRawTools(
+      input.search
+        ? { limit: COMPOSIO_LIST_LIMIT, search: input.search, toolkits: [input.integration] }
+        : { limit: COMPOSIO_LIST_LIMIT, toolkits: [input.integration] },
+    );
     const parsed = composioRawToolListSchema.safeParse(rawTools);
     if (!parsed.success) {
       return composioListFailure(input, "Composio returned an unexpected tool list shape.");
     }
-    const bounded = boundedJson(parsed.data, MAX_COMPOSIO_OUTPUT_CHARS);
+    const bounded = boundedToolListJson(parsed.data, MAX_COMPOSIO_OUTPUT_CHARS);
     return composioListToolsOutputSchema.parse({
       error: null,
       integration: input.integration,
@@ -338,6 +358,25 @@ function boundedJson(value: unknown, maxChars: number): BoundedJson {
   return { text: text.slice(0, maxChars), truncated: true };
 }
 
+// Serializes tools into a VALID JSON array bounded by char budget — it drops whole
+// tools rather than slicing mid-object (which boundedJson's substring would, handing
+// the model malformed JSON it cannot parse for slugs). Truncation is surfaced via
+// toolsTruncated so the model knows to re-list with a narrower `search`.
+function boundedToolListJson(tools: readonly unknown[], maxChars: number): BoundedJson {
+  const serialized: string[] = [];
+  let size = 2; // surrounding "[]"
+  for (const tool of tools) {
+    const entry = stringifyJson(tool);
+    const addition = entry.length + (serialized.length > 0 ? 1 : 0); // comma separator
+    if (size + addition > maxChars) {
+      return { text: `[${serialized.join(",")}]`, truncated: true };
+    }
+    serialized.push(entry);
+    size += addition;
+  }
+  return { text: `[${serialized.join(",")}]`, truncated: false };
+}
+
 function stringifyJson(value: unknown): string {
   try {
     return JSON.stringify(value) ?? "null";
@@ -356,7 +395,7 @@ function externalErrorMessage(error: unknown): string {
 export const mastraComposioListTools = createTool({
   id: "composio_list_tools",
   description:
-    "List available Composio action tools for a user-connected integration before choosing an exact action slug.",
+    "List available Composio action tools for a user-connected integration before choosing an exact action slug. If toolsTruncated is true, call again with a `search` keyword to narrow to the action you need.",
   inputSchema: composioListToolsInputSchema,
   outputSchema: composioListToolsOutputSchema,
   execute: async (input, context) => listComposioTools(input, composioRuntimeFromContext(context)),

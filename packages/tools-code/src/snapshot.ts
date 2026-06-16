@@ -17,15 +17,10 @@ export const CreateSnapshotInputSchema = z
   })
   .strict();
 
-const InternalCreateSnapshotInputSchema = CreateSnapshotInputSchema.extend({
-  localBucket: z.boolean().optional(),
-}).strict();
-
 export const SnapshotHandleSchema = z
   .object({
     id: z.string().min(1),
     dir: z.string().min(1),
-    localBucket: z.boolean().optional(),
   })
   .strict();
 
@@ -44,21 +39,18 @@ export const RestoreSnapshotOutputSchema = z
   .strict();
 
 export type CreateSnapshotInput = z.input<typeof CreateSnapshotInputSchema>;
-type InternalCreateSnapshotInput = z.input<typeof InternalCreateSnapshotInputSchema>;
 export type SnapshotHandle = z.infer<typeof SnapshotHandleSchema>;
 export type RestoreSnapshotInput = z.input<typeof RestoreSnapshotInputSchema>;
 export type RestoreSnapshotOutput = z.infer<typeof RestoreSnapshotOutputSchema>;
 
 export async function executeCreateSnapshot(
-  input: InternalCreateSnapshotInput,
+  input: CreateSnapshotInput,
   runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
 ): Promise<SnapshotHandle> {
-  const parsedInput = InternalCreateSnapshotInputSchema.parse(input);
+  const parsedInput = CreateSnapshotInputSchema.parse(input);
   return SnapshotHandleSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "createBackup", {
       dir: parsedInput.dir,
-      ttl: parsedInput.ttl,
-      ...(parsedInput.localBucket === undefined ? {} : { localBucket: parsedInput.localBucket }),
       ...(parsedInput.name ? { name: parsedInput.name } : {}),
     }),
   );
@@ -74,9 +66,6 @@ export async function executeRestoreSnapshot(
       backup: {
         id: parsedInput.backup.id,
         dir: parsedInput.backup.dir,
-        ...(parsedInput.backup.localBucket === undefined
-          ? {}
-          : { localBucket: parsedInput.backup.localBucket }),
       },
     }),
   );

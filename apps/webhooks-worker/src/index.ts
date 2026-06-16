@@ -18,6 +18,7 @@ import {
   enqueueAnalyticsWatchdog,
   enqueueByokRevalidation,
   enqueueDailyUsageRollup,
+  enqueueEgressCanary,
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
@@ -412,6 +413,10 @@ const webhooksHandler = {
     }
     if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
       ctx.waitUntil(enqueueAnalyticsWatchdog(env, controller.scheduledTime));
+      return;
+    }
+    if (controller.cron === EGRESS_CANARY_CRON) {
+      ctx.waitUntil(enqueueEgressCanary(env, controller.scheduledTime));
     }
   },
 };
@@ -419,6 +424,7 @@ const webhooksHandler = {
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
 const BYOK_REVALIDATION_CRON = "35 0 * * *";
 const DAILY_USAGE_ROLLUP_CRON = "20 0 * * *";
+const EGRESS_CANARY_CRON = "30 3 * * *";
 
 export default withErrorHandler(webhooksHandler, {
   errorCategory: "webhook",
