@@ -23,7 +23,7 @@ async function handlePreviewRequest(request: Request, env: PreviewProxyEnv): Pro
   const target = parsePreviewHost(originalHost);
   if (!target) {
     throw new APIError(400, "invalid_request_body", "Malformed preview host", {
-      hint: "Preview hosts look like {sandboxId}--{port}.preview.trycheatcode.com.",
+      hint: "Preview hosts look like {sandboxId}--{port}.trycheatcode.com.",
       retriable: false,
     });
   }
@@ -55,7 +55,7 @@ async function handlePreviewRequest(request: Request, env: PreviewProxyEnv): Pro
 function buildSessionCookie(token: string, exp: number): string {
   const maxAgeSeconds = Math.max(0, Math.floor((exp - Date.now()) / 1000));
   // SameSite=None is required because the preview is loaded in a cross-site
-  // iframe (top-level web.trycheatcode.com -> *.preview.trycheatcode.com).
+  // iframe (top-level web.trycheatcode.com -> {id}--{port}.trycheatcode.com).
   return `${COOKIE_TOKEN_NAME}=${token}; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 

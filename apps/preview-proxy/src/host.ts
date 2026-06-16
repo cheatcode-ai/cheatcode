@@ -1,11 +1,13 @@
 /**
  * Wildcard preview host parsing.
  *
- * Every preview is served from `{sandboxId}--{port}.preview.trycheatcode.com`.
+ * Every preview is served from `{sandboxId}--{port}.trycheatcode.com` — a single
+ * label below the apex so Cloudflare Universal SSL (which covers `*.trycheatcode.com`
+ * but not deeper wildcards) terminates TLS for free, no Advanced Certificate needed.
  * The `--` (double-dash) separator keeps Daytona sandbox ids (which contain
  * single `-` characters, e.g. UUIDs) unambiguous from the trailing port.
  */
-const PREVIEW_HOST_SUFFIX = ".preview.trycheatcode.com";
+const PREVIEW_HOST_SUFFIX = ".trycheatcode.com";
 const SANDBOX_LABEL_PATTERN = /^([a-z0-9-]+)--(\d{1,5})$/;
 const SANDBOX_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -15,7 +17,7 @@ export interface PreviewTarget {
 }
 
 /**
- * Parse `{sandboxId}--{port}.preview.trycheatcode.com` into its parts.
+ * Parse `{sandboxId}--{port}.trycheatcode.com` into its parts.
  * Returns `null` for any host that is not a well-formed preview host so the
  * caller can reject it with a 400.
  */

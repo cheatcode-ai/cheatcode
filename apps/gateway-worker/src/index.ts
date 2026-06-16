@@ -117,7 +117,7 @@ const GATEWAY_SECURITY_HEADERS = {
       "https://web.trycheatcode.com",
       "http://localhost:3000",
       "http://localhost:8787",
-      "wss://*.preview.trycheatcode.com",
+      "wss://*.trycheatcode.com",
     ],
     defaultSrc: ["'self'"],
     fontSrc: ["'self'", "data:"],

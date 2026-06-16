@@ -8,7 +8,7 @@ export const StartDevServerInputSchema = z
     command: z.array(z.string().min(1)).min(1).max(128),
     cwd: z.string().min(1).max(500),
     env: z.record(z.string(), z.string()).optional(),
-    hostname: z.string().min(1).max(255).default("preview.trycheatcode.com"),
+    hostname: z.string().min(1).max(255).default("trycheatcode.com"),
     keepAliveTimeoutMs: z
       .number()
       .int()

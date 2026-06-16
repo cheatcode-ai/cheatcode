@@ -26,7 +26,7 @@ export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
 const APP_BUILDER_DIR = "/workspace/app";
 const APP_BUILDER_PORT = 5173;
 const EXPO_METRO_PORT = 8081;
-const DEFAULT_PREVIEW_HOSTNAME = "preview.trycheatcode.com";
+const DEFAULT_PREVIEW_HOSTNAME = "trycheatcode.com";
 const PreviewHostnameSchema = z.string().trim().min(1).max(255).default(DEFAULT_PREVIEW_HOSTNAME);
 
 type AppendChunk = (chunk: UIMessageChunk) => Promise<void>;

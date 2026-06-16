@@ -8,7 +8,7 @@
   "compatibility_flags": ["nodejs_compat"],
   "routes": [
     {
-      "pattern": "*.preview.trycheatcode.com/*",
+      "pattern": "*.trycheatcode.com/*",
       "zone_name": "trycheatcode.com"
     }
   ],

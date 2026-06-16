@@ -94,7 +94,7 @@ export interface AgentEnv extends AnalyticsBindings {
   R2_OUTPUTS_BUCKET_NAME?: string;
 }
 
-const DEFAULT_PREVIEW_HOSTNAME = "preview.trycheatcode.com";
+const DEFAULT_PREVIEW_HOSTNAME = "trycheatcode.com";
 const DEFAULT_AGENT_NAME = "general";
 const START_VNC_SCRIPT = "/opt/cheatcode/start-vnc.sh";
 const TAKEOVER_PORT = 6080;

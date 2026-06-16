@@ -107,6 +107,22 @@ const composioExecuteResponseSchema = z
   })
   .strict();
 
+// `getRawComposioTools` returns framework-agnostic tool definitions. The default
+// object schema strips every other key, projecting each tool down to exactly what
+// the agent needs to then call composio_execute: the canonical `slug`, the input
+// argument schema, and the toolkit `version`/deprecation signal. Dropping
+// `outputParameters`/`tags`/`toolkit` keeps more actions under MAX_COMPOSIO_OUTPUT_CHARS.
+const composioRawToolSchema = z.object({
+  slug: z.string(),
+  name: z.string().optional(),
+  description: z.string().optional(),
+  inputParameters: z.unknown().optional(),
+  version: z.string().optional(),
+  isDeprecated: z.boolean().optional(),
+});
+
+const composioRawToolListSchema = z.array(composioRawToolSchema);
+
 type ComposioListToolsInput = z.infer<typeof composioListToolsInputSchema>;
 type ComposioExecuteInput = z.infer<typeof composioExecuteInputSchema>;
 type ComposioExecuteOutput = z.infer<typeof composioExecuteOutputSchema>;
@@ -121,7 +137,7 @@ export interface ComposioRuntimeContext {
 
 export interface ComposioToolClient {
   execute(slug: string, body: ComposioExecuteBody): Promise<unknown>;
-  getTools(userId: string, options: { toolkits: string[] }): Promise<unknown>;
+  getRawTools(options: { toolkits: string[] }): Promise<unknown>;
 }
 
 interface ComposioExecuteBody {
@@ -145,7 +161,7 @@ async function createComposioToolClient(apiKey: string): Promise<ComposioToolCli
   const composio = new Composio({ apiKey });
   return {
     execute: (slug, body) => composio.tools.execute(slug, body),
-    getTools: (userId, options) => composio.tools.get(userId, options),
+    getRawTools: (options) => composio.tools.getRawComposioTools(options),
   };
 }
 
@@ -194,13 +210,17 @@ export async function listComposioTools(
 
   try {
     const toolClient = client ?? (await createComposioToolClient(runtime.apiKey));
-    const tools = await toolClient.getTools(runtime.userId, { toolkits: [input.integration] });
-    const bounded = boundedJson(tools, MAX_COMPOSIO_OUTPUT_CHARS);
+    const rawTools = await toolClient.getRawTools({ toolkits: [input.integration] });
+    const parsed = composioRawToolListSchema.safeParse(rawTools);
+    if (!parsed.success) {
+      return composioListFailure(input, "Composio returned an unexpected tool list shape.");
+    }
+    const bounded = boundedJson(parsed.data, MAX_COMPOSIO_OUTPUT_CHARS);
     return composioListToolsOutputSchema.parse({
       error: null,
       integration: input.integration,
       successful: true,
-      toolCount: Array.isArray(tools) ? tools.length : 0,
+      toolCount: parsed.data.length,
       toolsJson: bounded.text,
       toolsTruncated: bounded.truncated,
     });

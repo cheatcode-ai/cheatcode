@@ -11,7 +11,7 @@
     "DAYTONA_TARGET": "us",
     "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
-    "PREVIEW_HOSTNAME": "preview.trycheatcode.com",
+    "PREVIEW_HOSTNAME": "trycheatcode.com",
     "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
   },
   "secrets_store_secrets": [

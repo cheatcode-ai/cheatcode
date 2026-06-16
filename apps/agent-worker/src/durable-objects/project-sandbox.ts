@@ -387,7 +387,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const ttlMs =
       parsed.tokenTtlMs ?? (mode === "app" ? APP_PREVIEW_TTL_MS : DEFAULT_TAKEOVER_TTL_MS);
     const built = await buildPreviewUrl({
-      hostname: parsed.hostname ?? this.env.PREVIEW_HOSTNAME ?? "preview.trycheatcode.com",
+      hostname: parsed.hostname ?? this.env.PREVIEW_HOSTNAME ?? "trycheatcode.com",
       mode,
       port: parsed.port,
       sandboxId: id,
