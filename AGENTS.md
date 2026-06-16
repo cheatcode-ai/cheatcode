@@ -22,7 +22,7 @@ explicitly asks to delete the V1 code by name — see `plan.md` Section 20.
 | Database | Supabase Postgres via Hyperdrive + Drizzle 0.45.2 |
 | Auth | Clerk 7.3.4 |
 | Billing | Polar 0.46.4 |
-| OAuth tools | Composio `@composio/core@0.8.1` |
+| OAuth tools | Composio `@composio/core@0.10.0` |
 | Storage | R2 (no Supabase Storage) |
 | Observability | Workers Logs + Workers Tracing + Workers Analytics Engine (no third-party APM in V1) |
 | Lint/format | Biome 2.4 (single config, no ESLint+Prettier except next plugin) |

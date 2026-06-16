@@ -163,7 +163,7 @@ catalog:
   '@clerk/backend': 3.4.9
   '@clerk/nextjs': 7.3.4
   '@polar-sh/sdk': 0.46.4
-  '@composio/core': 0.8.1
+  '@composio/core': 0.10.0
   # ── Data ──
   drizzle-orm: 0.45.2
   pg: 8.21.0                                  # Required by Hyperdrive + Drizzle node-postgres setup (§7.3); omitted in the original catalog.
@@ -6420,6 +6420,35 @@ skill_invoke, skill_read_reference
 ```
 
 **Naming rules:** domain-first (LLM intent matches better), verb after, snake_case, ≤6 properties per tool (split if larger). Destructive or production-impacting actions require explicit first-class user commands and audit logging; V1 has no generic approve/reject tool gate.
+
+**Integration approach (deliberate — verified 2026-06-16):** The agent calls
+`@composio/core`'s low-level `tools.getRawComposioTools` (framework-agnostic
+discovery) and `tools.execute` directly, with **no Composio provider** set, and
+hand-wraps them in exactly two Mastra `createTool` meta-tools
+(`composio_list_tools` for runtime discovery, `composio_execute` for the
+action). Discovery projects each raw action to `{ slug, name, description,
+inputParameters, version, isDeprecated }` — the fields needed to then call
+`composio_execute` — rather than the default `OpenAIProvider` function envelope.
+Discovery passes the documented max `limit` (500; the API silently caps at ~20
+otherwise — github alone has 800+ actions) and accepts an optional `search`
+keyword so the model can narrow large toolkits server-side; the projected list is
+bounded into **valid JSON** by whole-tool count (never sliced mid-object). The
+client pins concrete per-toolkit `toolkitVersions` (fetched from
+`GET /api/v3/toolkits/<slug>` → `meta.version`) so discovery and `tools.execute`
+agree on one version and manual execute never throws `ComposioToolVersionRequiredError`;
+it also sets `baseURL` (= the SDK default `backend.composio.dev`, pinned) and
+`allowTracking: false` (no edge telemetry fetches). The LLM sees only these two
+tools — never N expanded per-action tools — so the tool list and token budget
+stay bounded. `@composio/core`
+(~1.2 MB) is dynamically `import()`-ed only when a tool fires, to stay under the
+Worker startup-CPU limit; per-request BYOK key, `userId`, and
+`connectedAccountId` are injected via Mastra `requestContext`. We deliberately
+do **not** use the framework providers `@composio/vercel` (emits a Vercel AI SDK
+`ToolSet`) or `@composio/mastra` (emits Mastra `createTool`s): both expand every
+action into its own tool, build the tool set eagerly, and capture a `Composio`
+instance at construction — which would regress the bounded tool surface, the
+lazy-import mitigation, and per-request BYOK/quota control. They are additive on
+top of `@composio/core`, not equivalent to it.
 
 **Composio execution contract:** `composio_list_tools` lists actions for an
 active user-connected integration. `composio_execute` resolves the user's

@@ -21,7 +21,7 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 | Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (no `service_role` from Workers — uses `app_worker` role) |
 | Auth | **Clerk 7.3.4** (Workers JWT verify) |
 | Billing | **Polar 0.46.4** (no fixed cost, rev-share only) |
-| OAuth tool integrations | **Composio `@composio/core@0.8.1`** |
+| OAuth tool integrations | **Composio `@composio/core@0.10.0`** |
 | Storage | **R2** (no Supabase Storage; zero egress) |
 | Observability | **Cloudflare Workers Logs + Workers Tracing + Workers Analytics Engine** — no Sentry, no Langfuse, no Axiom |
 | Default models | Claude Sonnet 4.6 (code) / GPT-5.4 Thinking (reasoning) / GPT-5.4 Mini fallback |

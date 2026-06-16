@@ -18,6 +18,18 @@ const COMPOSIO_LIST_LIMIT = 500;
 // The SDK default base URL is already backend.composio.dev; pin it explicitly so a
 // future SDK default change can't silently repoint Workers at an unresolvable host.
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
+// Concrete toolkit versions pinned for deterministic discovery + execution. Without a
+// pin the SDK uses base version 00000000_00 (which can expose fewer actions than the
+// live toolkit), and "latest" would make manual tools.execute throw
+// ComposioToolVersionRequiredError. Fetched from GET /api/v3/toolkits/<slug> -> meta.version
+// on 2026-06-16; bump periodically. The LLM-supplied `version` in composio_execute still overrides.
+const COMPOSIO_TOOLKIT_VERSIONS: Record<string, string> = {
+  github: "20260501_01",
+  gmail: "20260615_00",
+  linear: "20260615_00",
+  notion: "20260615_00",
+  slack: "20260615_00",
+};
 const composioIntegrationNameSchema = z.enum(["github", "gmail", "slack", "notion", "linear"]);
 
 const requestContextReaderSchema = {
@@ -174,7 +186,12 @@ interface BoundedJson {
 // actually fires.
 async function createComposioToolClient(apiKey: string): Promise<ComposioToolClient> {
   const { Composio } = await import("@composio/core");
-  const composio = new Composio({ allowTracking: false, apiKey, baseURL: COMPOSIO_BASE_URL });
+  const composio = new Composio({
+    allowTracking: false,
+    apiKey,
+    baseURL: COMPOSIO_BASE_URL,
+    toolkitVersions: COMPOSIO_TOOLKIT_VERSIONS,
+  });
   return {
     execute: (slug, body) => composio.tools.execute(slug, body),
     getRawTools: (options) => composio.tools.getRawComposioTools(options),

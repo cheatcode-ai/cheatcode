@@ -5,14 +5,10 @@
   "type": "module",
   "packageManager": "pnpm@10.33.2",
   "scripts": {
-    "build": "next build --webpack && opennextjs-cloudflare build --skipNextBuild",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv cloudflare-env.d.ts",
-    "deploy": "CHEATCODE_REQUIRE_WEB_PUBLIC_ENV=true tsx ../../scripts/require-production-approval.ts && NEXT_PUBLIC_GATEWAY_URL=https://gateway.trycheatcode.com pnpm build && opennextjs-cloudflare deploy",
+    "build": "next build",
     "dev": "next dev --webpack",
     "lint": "biome check .",
-    "preview": "pnpm build && opennextjs-cloudflare preview -- --port 3001",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
-    "upload": "CHEATCODE_REQUIRE_WEB_PUBLIC_ENV=true tsx ../../scripts/require-production-approval.ts && NEXT_PUBLIC_GATEWAY_URL=https://gateway.trycheatcode.com pnpm build && opennextjs-cloudflare upload"
+    "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@ai-sdk/react": "catalog:",
