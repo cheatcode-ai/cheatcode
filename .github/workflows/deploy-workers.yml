@@ -139,7 +139,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @cheatcode/web deploy
+      # `run deploy` (not bare `deploy`) — `pnpm deploy` is a reserved built-in
+      # that ignores the package's deploy script and errors NOTHING_TO_DEPLOY.
+      - run: pnpm --filter @cheatcode/web run deploy
         env:
           CHEATCODE_PROD_DEPLOY_APPROVED: "true"
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
