@@ -19,7 +19,6 @@
     "@cheatcode/ui": "workspace:*",
     "@clerk/nextjs": "catalog:",
     "@hookform/resolvers": "catalog:",
-    "@opennextjs/cloudflare": "catalog:",
     "@streamdown/code": "catalog:",
     "@streamdown/math": "catalog:",
     "@streamdown/mermaid": "catalog:",
@@ -58,7 +57,6 @@
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "eslint-config-next": "catalog:",
-    "typescript": "catalog:",
-    "wrangler": "catalog:"
+    "typescript": "catalog:"
   }
 }
