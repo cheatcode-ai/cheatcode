@@ -2,9 +2,9 @@ name: Deploy Workers
 
 # Fully automated production deploy. Runs after "Static Checks" succeeds on main —
 # no manual step required. `workflow_dispatch` is kept only as a manual fallback.
-# The worker chain (agent → gateway → webhooks → preview-proxy) is the Daytona
-# backend; the web deploy runs independently and self-skips until its NEXT_PUBLIC
-# vars are configured (so a missing web var never blocks the backend cutover).
+# This deploys the all-Cloudflare backend worker chain (gateway → agent → webhooks
+# → preview-proxy). The web frontend is NOT deployed here: it lives on a Vercel
+# project that auto-deploys via Vercel's GitHub integration on push to main.
 on:
   workflow_run:
     workflows: ["Static Checks"]
@@ -119,24 +119,3 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           workingDirectory: apps/preview-proxy
           command: deploy
-
-  deploy-web-vercel:
-    # The web app is hosted on Vercel: its Next.js bundle exceeds Cloudflare's
-    # Worker size limit, so the frontend lives on Vercel while the all-Cloudflare
-    # backend stays on the worker chain above. Independent of that chain. Build env
-    # (NEXT_PUBLIC_*, CLERK_SECRET_KEY) lives in the Vercel project, so `vercel
-    # deploy` triggers a server-side build — CI only needs the token + project ids.
-    # Self-skips until VERCEL_PROJECT_ID is configured.
-    if: ${{ vars.VERCEL_PROJECT_ID != '' && (github.event_name == 'workflow_dispatch' || (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.head_branch == 'main')) }}
-    runs-on: ubuntu-latest
-    environment: production
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
-      - run: npm install -g vercel@latest
-      - run: vercel deploy --prod --yes --token="$VERCEL_TOKEN"
-        env:
-          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-          VERCEL_ORG_ID: ${{ vars.VERCEL_ORG_ID }}
-          VERCEL_PROJECT_ID: ${{ vars.VERCEL_PROJECT_ID }}
