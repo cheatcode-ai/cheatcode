@@ -7,6 +7,7 @@ on:
       - packages/db/src/schema/**
       - packages/db/drizzle/**
       - scripts/migrate.ts
+      - .github/workflows/db-migrate.yml
   workflow_dispatch:
 
 concurrency:
@@ -27,6 +28,10 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # drizzle.config.ts imports @cheatcode/env/migrate (built ./dist), so build the db
+      # package's workspace dep closure before generate — otherwise db:generate fails with
+      # "Cannot find module @cheatcode/env/dist/migrate.js" on a fresh runner.
+      - run: pnpm turbo build --filter=@cheatcode/db^...
       - run: pnpm --filter @cheatcode/db db:generate
       - name: Fail if Drizzle migrations drifted
         run: git diff --exit-code packages/db/drizzle
