@@ -7,6 +7,7 @@ on:
       - packages/db/src/schema/**
       - packages/db/drizzle/**
       - scripts/migrate.ts
+      - .github/workflows/db-migrate.yml
   workflow_dispatch:
 
 concurrency:
@@ -17,6 +18,10 @@ jobs:
   diff:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    env:
+      # Empty unless the SUPABASE_MIGRATION_URL secret is configured. Gates the
+      # connection-dependent migration-plan step below.
+      MIGRATION_DB_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -27,14 +32,27 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # drizzle.config.ts imports @cheatcode/env/migrate (built ./dist), so build the db
+      # package's workspace dep closure before generate — otherwise db:generate fails with
+      # "Cannot find module @cheatcode/env/dist/migrate.js" on a fresh runner.
+      - run: pnpm turbo build --filter=@cheatcode/db^...
+      # drizzle-kit generate reads the schema and never connects; a placeholder URL just
+      # satisfies drizzle.config.ts's eager loadMigrationEnv() call.
       - run: pnpm --filter @cheatcode/db db:generate
+        env:
+          SUPABASE_MIGRATION_URL: postgres://placeholder@localhost:5432/placeholder
       - name: Fail if Drizzle migrations drifted
         run: git diff --exit-code packages/db/drizzle
+      # The pending-plan comment needs a real DB connection, so it only runs when the
+      # SUPABASE_MIGRATION_URL secret is configured (it is not today). The drift check
+      # above is the gate; this stays best-effort.
       - name: Compute pending migration plan
+        if: env.MIGRATION_DB_URL != ''
         run: pnpm tsx scripts/migrate.ts --dry-run | tee migration-plan.txt
         env:
-          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
+          SUPABASE_MIGRATION_URL: ${{ env.MIGRATION_DB_URL }}
       - uses: marocchino/sticky-pull-request-comment@v2
+        if: env.MIGRATION_DB_URL != ''
         with:
           header: db-migration-plan
           path: migration-plan.txt
