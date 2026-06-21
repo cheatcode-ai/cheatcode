@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import {
+  bigint,
   boolean,
   check,
   integer,
@@ -32,6 +33,11 @@ export const entitlements = pgTable(
     quotaSandboxHours: numeric("quota_sandbox_hours").notNull().default("5"),
     quotaComposioCalls: integer("quota_composio_calls").notNull().default(1000),
     quotaDeployments: integer("quota_deployments").notNull().default(5),
+    // Lifetime free DeepSeek token allowance: consumed counter (limit is a code constant,
+    // FREE_DEEPSEEK_TOKEN_LIMIT). Defaults to 0 so every new account has the full grant.
+    freeDeepseekTokensUsed: bigint("free_deepseek_tokens_used", { mode: "number" })
+      .notNull()
+      .default(0),
     flagPrivateProjects: boolean("flag_private_projects").notNull().default(false),
     flagSso: boolean("flag_sso").notNull().default(false),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

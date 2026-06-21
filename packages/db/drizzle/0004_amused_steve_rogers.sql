@@ -1,0 +1,1 @@
+ALTER TABLE "v2_entitlements" ADD COLUMN "free_deepseek_tokens_used" bigint DEFAULT 0 NOT NULL;

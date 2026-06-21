@@ -5,6 +5,7 @@ import type { StartRunInput } from "./agent-run-schemas";
 import { persistAgentRunUsage } from "./agent-run-status-persistence";
 import {
   appendBudgetEvent,
+  getRunStateValue,
   readStoredRunSnapshot,
   type StoredBudgetSnapshot,
 } from "./agent-run-storage";
@@ -30,8 +31,14 @@ export async function recordBudgetDelta(
   event: BudgetDelta,
 ): Promise<StoredBudgetSnapshot> {
   const storedBeforeAppend = readStoredRunSnapshot(ctx);
-  const model = input.model ?? storedBeforeAppend?.modelId ?? "unknown";
-  const usd = await budgetEventUsd(model, event);
+  // Prefer the credential's resolved accounting slug (set for DeepSeek runs) so usage is
+  // attributed to the model that actually served the run — not the Auto/default request.
+  const resolvedModelId = getRunStateValue(ctx, "resolved_model_id");
+  const model = resolvedModelId ?? input.model ?? storedBeforeAppend?.modelId ?? "unknown";
+  const isPlatformFree = getRunStateValue(ctx, "credit_source") === "platform_free";
+  // Free DeepSeek runs are $0 to the user (metered by tokens, not USD), so they never
+  // consume the user's run/daily USD budget cap.
+  const usd = isPlatformFree ? 0 : await budgetEventUsd(model, event);
   appendBudgetEvent(ctx, {
     kind: event.kind,
     modelId: model,
@@ -41,10 +48,13 @@ export async function recordBudgetDelta(
   });
   const stored = readStoredRunSnapshot(ctx);
   const provider = providerFromModel(model);
+  const freeDeepseekTokens =
+    isPlatformFree && event.kind === "llm_usage" ? event.tokensIn + event.tokensOut : 0;
   ctx.waitUntil(
     persistAgentRunUsage(env, {
       costUsd: usd,
       eventType: event.kind,
+      ...(freeDeepseekTokens > 0 ? { freeDeepseekTokens } : {}),
       inputTokens: event.tokensIn,
       model,
       outputTokens: event.tokensOut,
@@ -76,9 +86,12 @@ async function budgetEventUsd(model: string, event: BudgetDelta): Promise<number
   });
 }
 
-function providerFromModel(model: string): "anthropic" | "openai" | undefined {
+function providerFromModel(model: string): "anthropic" | "deepseek" | "openai" | undefined {
   if (model.startsWith("anthropic/") || model.startsWith("claude-")) {
     return "anthropic";
+  }
+  if (model.startsWith("deepseek/") || model.startsWith("deepseek-")) {
+    return "deepseek";
   }
   if (model.startsWith("openai/") || model.startsWith("gpt-") || model.startsWith("o")) {
     return "openai";

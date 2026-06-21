@@ -4,6 +4,7 @@ import type { ProjectSandbox } from "./project-sandbox";
 
 export interface AgentRunEnv extends AnalyticsBindings {
   COMPOSIO_API_KEY?: WorkerSecret;
+  DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: string;

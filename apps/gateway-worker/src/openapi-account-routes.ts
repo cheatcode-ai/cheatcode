@@ -22,7 +22,8 @@ const nullableCatalogModelSchema = (): JsonValue => ({
 });
 const disabledModelsSchema = (): JsonValue => ({
   items: catalogModelSchema(),
-  maxItems: 3,
+  // One fewer than the catalog so ≥1 model always stays enabled (mirrors the zod schema).
+  maxItems: AGENT_MODEL_CATALOG.length - 1,
   type: "array",
 });
 const onboardingStateSchema: JsonValue = {
@@ -44,6 +45,15 @@ const onboardingStepSchema: JsonValue = {
     step: { enum: ONBOARDING_STEP_IDS, type: "string" },
   },
   required: ["status", "step"],
+  type: "object",
+};
+const freeDeepseekSchema: JsonValue = {
+  additionalProperties: false,
+  properties: {
+    limit: { minimum: 1, type: "integer" },
+    used: { minimum: 0, type: "integer" },
+  },
+  required: ["limit", "used"],
   type: "object",
 };
 
@@ -73,6 +83,7 @@ export const accountSchemas: Record<string, JsonValue> = {
       disabledModels: disabledModelsSchema(),
       generalDefaultBudgetUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
       generalDefaultModel: nullableCatalogModelSchema(),
+      freeDeepseek: freeDeepseekSchema,
       globalMemory: nullableStringSchema({ maxLength: 8_000 }),
       onboardingCompletedAt: nullableStringSchema({ format: "date-time" }),
       onboardingState: onboardingStateSchema,

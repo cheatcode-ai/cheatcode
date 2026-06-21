@@ -73,6 +73,9 @@ export const AgentWorkerEnvSchema = z
     BLAXEL_SANDBOX_IMAGE: z.string().min(1).optional(),
     BLAXEL_SANDBOX_MEMORY_MB: z.string().regex(/^\d+$/).optional(),
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
+    // Platform-provided DeepSeek key for the free tier (Secrets-Store-bound, resolved
+    // request-scoped in the AgentRun DO via resolveWorkerSecret()).
+    DEEPSEEK_PLATFORM_API_KEY: OptionalWorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
     INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     OUTPUT_DOWNLOAD_BASE_URL: z.string().url().optional(),

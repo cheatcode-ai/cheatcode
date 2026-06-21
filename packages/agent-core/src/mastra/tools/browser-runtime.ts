@@ -54,15 +54,29 @@ function browserCredentialFromRequestContext(requestContext: RequestContextReade
     );
   }
 
+  // Fallback for non-vision providers (e.g. a DeepSeek-free or OpenRouter run): browser
+  // tools need a vision/CUA key, so prefer any the user has. The platform DeepSeek key is
+  // never read here, so it can never reach the sandbox as a browser credential.
   const anthropicKey = requestContext.get(ANTHROPIC_API_KEY_CONTEXT_KEY);
   if (typeof anthropicKey === "string" && anthropicKey.trim().length > 0) {
     return providerCredential("anthropic", anthropicKey, undefined, DEFAULT_ANTHROPIC_MODEL_ID);
   }
-  return providerCredential(
-    "openai",
-    requestContext.get(OPENAI_API_KEY_CONTEXT_KEY),
-    undefined,
-    DEFAULT_OPENAI_MODEL_ID,
+  const openaiKey = requestContext.get(OPENAI_API_KEY_CONTEXT_KEY);
+  if (typeof openaiKey === "string" && openaiKey.trim().length > 0) {
+    return providerCredential("openai", openaiKey, undefined, DEFAULT_OPENAI_MODEL_ID);
+  }
+  const googleKey = requestContext.get(GOOGLE_API_KEY_CONTEXT_KEY);
+  if (typeof googleKey === "string" && googleKey.trim().length > 0) {
+    return providerCredential("google", googleKey, undefined, DEFAULT_GOOGLE_MODEL_ID);
+  }
+  throw new APIError(
+    400,
+    "byok_key_missing",
+    "Browser automation needs an Anthropic, OpenAI, or Google API key.",
+    {
+      hint: "Add one in Settings → Models. Free DeepSeek credits don't cover browser tools.",
+      retriable: false,
+    },
   );
 }
 

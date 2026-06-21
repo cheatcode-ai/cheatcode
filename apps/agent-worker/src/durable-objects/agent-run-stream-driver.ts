@@ -26,6 +26,7 @@ export interface StreamDriverDeps {
   createBroker: () => ApprovalBroker;
   env: AgentRunEnv;
   hasPendingDecision: () => boolean;
+  persistResolvedCredential: (credential: LlmCredential) => void;
   setRunStage: (stage: string) => void;
 }
 
@@ -98,6 +99,10 @@ async function streamMastraRun(
   params: StreamRunParams,
   credential: LlmCredential,
 ): Promise<void> {
+  // Persist the resolved credit source + accounting slug + free-tier baseline to run-state
+  // (covers both the primary and OpenAI-fallback credentials) before any tokens stream, so
+  // per-step metering and the free-quota hard stop read the model that actually served.
+  deps.persistResolvedCredential(credential);
   await runMastraStream({
     abortSignal: params.abortSignal,
     ...(params.agentContextNote === undefined ? {} : { agentContextNote: params.agentContextNote }),

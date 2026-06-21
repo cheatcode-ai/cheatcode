@@ -65,6 +65,19 @@ export function dailyCostCapReachedChunk(): UIMessageChunk {
   };
 }
 
+export function freeDeepseekQuotaReachedChunk(): UIMessageChunk {
+  return {
+    type: "data-error",
+    data: {
+      v: 1,
+      code: "deepseek_free_quota_exhausted",
+      message:
+        "Your 200,000 free DeepSeek tokens are used up. Add your own key in Settings → Models to keep building.",
+      retriable: false,
+    },
+  };
+}
+
 export function effectiveRunBudgetCapUsd(input: BudgetedRunInput): number {
   return input.budgetCapUsd ?? DEFAULT_RUN_BUDGET_CAP_USD;
 }

@@ -9,6 +9,9 @@ export const StartRunInputSchema = z
     userId: z.string().uuid(),
     messageText: z.string().min(1),
     model: z.string().trim().min(1).max(200).optional(),
+    // Whether the user explicitly picked `model` (vs an Auto/implicit default). Gates
+    // the free-DeepSeek last-resort fallback so explicit non-free picks aren't swapped.
+    modelExplicit: z.boolean().optional(),
     projectMode: z.enum(["app-builder", "app-builder-mobile", "general"]).default("general"),
     isFirstRun: z.boolean().default(false),
     researchFanoutSubagentLimit: z.number().int().positive().max(25).default(3),

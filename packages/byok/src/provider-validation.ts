@@ -17,6 +17,17 @@ const PROVIDER_VALIDATORS = {
       "x-api-key": key,
     }),
   },
+  deepseek: {
+    invalidStatuses: [401, 403],
+    label: "DeepSeek",
+    method: "GET",
+    schema: z.object({ data: z.array(z.object({ id: z.string().min(1) }).passthrough()) }),
+    url: "https://api.deepseek.com/models",
+    headers: (key: string) => ({
+      authorization: `Bearer ${key}`,
+      "content-type": "application/json",
+    }),
+  },
   elevenlabs: {
     invalidStatuses: [401, 403],
     label: "ElevenLabs",

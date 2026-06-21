@@ -1,5 +1,5 @@
 import type { UserId } from "@cheatcode/types";
-import { UserId as toUserId } from "@cheatcode/types";
+import { FREE_DEEPSEEK_TOKEN_LIMIT, UserId as toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { billingEvents, entitlements, users } from "./schema";
@@ -99,6 +99,29 @@ export async function findBillingUserByPolarCustomerId(
         polarCustomerId: row.polarCustomerId,
       }
     : null;
+}
+
+export interface FreeDeepseekUsage {
+  limit: number;
+  used: number;
+}
+
+/** Reads the per-user lifetime free DeepSeek token counter from the entitlements row. */
+export async function getFreeDeepseekUsage(
+  db: Database,
+  userId: UserId,
+): Promise<FreeDeepseekUsage> {
+  const row = await db.query.entitlements.findFirst({
+    columns: { freeDeepseekTokensUsed: true },
+    where: eq(entitlements.userId, userId),
+  });
+  return { limit: FREE_DEEPSEEK_TOKEN_LIMIT, used: row?.freeDeepseekTokensUsed ?? 0 };
+}
+
+/** True while the user still has free DeepSeek allowance left (run-start gate). */
+export async function hasFreeDeepseekAllowance(db: Database, userId: UserId): Promise<boolean> {
+  const { limit, used } = await getFreeDeepseekUsage(db, userId);
+  return used < limit;
 }
 
 export async function findEntitlementByUserId(

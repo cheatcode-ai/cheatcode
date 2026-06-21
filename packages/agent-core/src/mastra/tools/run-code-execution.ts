@@ -12,6 +12,7 @@ import {
 } from "../composio-context";
 import {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
+  DEEPSEEK_API_KEY_CONTEXT_KEY,
   GOOGLE_API_KEY_CONTEXT_KEY,
   LLM_MODEL_ID_CONTEXT_KEY,
   LLM_PROVIDER_CONTEXT_KEY,
@@ -41,6 +42,7 @@ export interface CodeRequestContextOptions {
   composioConnectedAccounts?: ComposioConnectedAccounts | undefined;
   composioQuotaMeter?: ComposioQuotaMeter | undefined;
   composioUserId?: string | undefined;
+  deepseekApiKey?: string | undefined;
   elevenlabsApiKey?: string | undefined;
   exaApiKey?: string | undefined;
   falApiKey?: string | undefined;
@@ -84,6 +86,7 @@ function contextEntries(
     [OPENAI_API_KEY_CONTEXT_KEY, options.openaiApiKey],
     [GOOGLE_API_KEY_CONTEXT_KEY, options.googleApiKey],
     [OPENROUTER_API_KEY_CONTEXT_KEY, options.openrouterApiKey],
+    [DEEPSEEK_API_KEY_CONTEXT_KEY, options.deepseekApiKey],
     [EXA_API_KEY_CONTEXT_KEY, options.exaApiKey],
     [FIRECRAWL_API_KEY_CONTEXT_KEY, options.firecrawlApiKey],
     [RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY, options.researchFanoutSubagentLimit],

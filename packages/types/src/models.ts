@@ -37,12 +37,27 @@ export const AGENT_MODEL_CATALOG = [
     provider: "openai",
     description: "Fast fallback model for lower-cost utility runs.",
   },
+  {
+    id: "deepseek/deepseek-v4-flash",
+    label: "DeepSeek V4",
+    provider: "deepseek",
+    description: "Free for everyone — up to 200K tokens included.",
+  },
 ] as const;
 
 export type CatalogModelId = (typeof AGENT_MODEL_CATALOG)[number]["id"];
 
 export const PRODUCTION_DEFAULT_MODEL_ID = "anthropic/claude-sonnet-4-6" satisfies CatalogModelId;
 export const FALLBACK_MODEL_ID = "openai/gpt-5.4-mini" satisfies CatalogModelId;
+
+/**
+ * The free, platform-credited DeepSeek SKU. Zero-config default for keyless users
+ * and the only model the platform DeepSeek key serves (the `deepseek-v4-flash`
+ * provider id, prefixed with `deepseek/` as the catalog/accounting slug).
+ */
+export const FREE_DEEPSEEK_MODEL_ID = "deepseek/deepseek-v4-flash" satisfies CatalogModelId;
+/** Lifetime free-token allowance per user for the platform-provided DeepSeek key. */
+export const FREE_DEEPSEEK_TOKEN_LIMIT = 200_000;
 
 const CATALOG_MODEL_IDS = AGENT_MODEL_CATALOG.map((entry) => entry.id) as [
   CatalogModelId,
