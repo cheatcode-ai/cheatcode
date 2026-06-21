@@ -36,6 +36,7 @@ export type ErrorCode =
   | "byok_key_missing"
   | "byok_key_invalid"
   | "byok_key_quota_exhausted"
+  | "deepseek_free_quota_exhausted"
   | "sandbox_disk_full"
   | "sandbox_cpu_exhausted"
   | "sandbox_failed_to_start"

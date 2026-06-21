@@ -66,6 +66,7 @@ export const SECRET_SPECS: readonly SecretSpec[] = [
   { envKeys: ["POLAR_ACCESS_TOKEN"], secretName: "polar-access-token" },
   { envKeys: ["POLAR_WEBHOOK_SECRET"], secretName: "polar-webhook-secret" },
   { envKeys: ["COMPOSIO_API_KEY"], secretName: "composio-api-key" },
+  { envKeys: ["DEEPSEEK_PLATFORM_API_KEY"], secretName: "deepseek-platform-api-key" },
   { envKeys: ["COMPOSIO_AUTH_CONFIGS"], secretName: "composio-auth-configs" },
   { envKeys: ["COMPOSIO_WEBHOOK_SECRET"], secretName: "composio-webhook-secret" },
   {

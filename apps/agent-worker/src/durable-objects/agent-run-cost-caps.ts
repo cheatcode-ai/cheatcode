@@ -1,9 +1,11 @@
 import { APIError, emitUserEvent } from "@cheatcode/observability";
+import { FREE_DEEPSEEK_TOKEN_LIMIT } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import {
   budgetCapReachedChunk,
   budgetChunk,
   dailyCostCapReachedChunk,
+  freeDeepseekQuotaReachedChunk,
   isBudgetExhausted,
   isDailyCostCapExhausted,
 } from "./agent-run-budget";
@@ -14,7 +16,11 @@ import {
 } from "./agent-run-budget-persistence";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
-import { readStoredRunSnapshot, type StoredBudgetSnapshot } from "./agent-run-storage";
+import {
+  getRunStateValue,
+  readStoredRunSnapshot,
+  type StoredBudgetSnapshot,
+} from "./agent-run-storage";
 
 export type CostCapExhaustion = {
   chunk: UIMessageChunk;
@@ -103,6 +109,51 @@ export async function enforceCostCaps(
   throw new APIError(402, exhaustion.code, exhaustion.message, {
     retriable: false,
   });
+}
+
+/**
+ * Hard-stops a platform_free DeepSeek run synchronously from DO-local state once the
+ * lifetime allowance would be crossed: startUsed (captured at credential resolution) plus
+ * this run's accumulated tokens. No mid-run DB read — the per-step DB increment is
+ * best-effort and lags, so it can't be the bound. Bounds a single run; residual cross-run
+ * overshoot (~one run) is negligible. Free runs are $0, so the USD cap never bounds them.
+ */
+export async function enforceFreeDeepseekCap(
+  deps: BudgetAccountingDeps,
+  input: StartRunInput,
+  snapshot: { tokensIn: number; tokensOut: number },
+  isAnswerTextOpen: boolean,
+): Promise<void> {
+  if (getRunStateValue(deps.ctx, "credit_source") !== "platform_free") {
+    return;
+  }
+  const projected = freeDeepseekStartUsed(deps.ctx) + snapshot.tokensIn + snapshot.tokensOut;
+  if (projected < FREE_DEEPSEEK_TOKEN_LIMIT) {
+    return;
+  }
+  await deps.append(freeDeepseekQuotaReachedChunk());
+  if (isAnswerTextOpen) {
+    await deps.append({ id: "answer", type: "text-end" });
+  }
+  await appendStoredBudgetStatus(deps, input);
+  await deps.append({ finishReason: "stop", type: "finish" });
+  await deps.markCompleted(input);
+  deps.closeSubscribers();
+  throw new APIError(
+    402,
+    "deepseek_free_quota_exhausted",
+    "Free DeepSeek token allowance reached.",
+    { retriable: false },
+  );
+}
+
+function freeDeepseekStartUsed(ctx: DurableObjectState): number {
+  const raw = getRunStateValue(ctx, "free_deepseek_start_used");
+  if (raw === undefined) {
+    return 0;
+  }
+  const parsed = Number(raw);
+  return Number.isFinite(parsed) && parsed > 0 ? Math.trunc(parsed) : 0;
 }
 
 export function costCapExhaustion(

@@ -34,6 +34,11 @@
       "binding": "INTERNAL_MAINTENANCE_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "internal-maintenance-secret"
+    },
+    {
+      "binding": "DEEPSEEK_PLATFORM_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "deepseek-platform-api-key"
     }
   ],
   "durable_objects": {

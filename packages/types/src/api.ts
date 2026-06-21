@@ -123,6 +123,7 @@ export const ProviderSchema = z.enum([
   "openai",
   "google",
   "openrouter",
+  "deepseek",
   "fal",
   "elevenlabs",
   "exa",

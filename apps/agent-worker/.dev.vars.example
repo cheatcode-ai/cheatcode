@@ -13,3 +13,7 @@ OUTPUT_DOWNLOAD_SIGNING_SECRET=
 
 # Used to verify internal DSR maintenance calls from webhooks-worker.
 INTERNAL_MAINTENANCE_SECRET=
+
+# Platform DeepSeek API key for the free 200K-token tier (https://platform.deepseek.com/api_keys).
+# Leave blank to disable the free tier locally; set a real key to test free DeepSeek runs.
+DEEPSEEK_PLATFORM_API_KEY=

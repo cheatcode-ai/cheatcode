@@ -14,6 +14,7 @@ import {
   type AgentRunConfig,
   type AgentRunError,
   agentRuns,
+  entitlements,
   type ProjectSettings,
   projects,
   threads,
@@ -69,6 +70,8 @@ export interface RecordAgentRunUsageInput {
   agentRunId: AgentRunId;
   costUsd: number;
   eventType: string;
+  /** When set (platform_free DeepSeek runs), meter these tokens against the lifetime allowance. */
+  freeDeepseekTokens?: number;
   inputTokens: number;
   model?: string;
   outputTokens: number;
@@ -504,6 +507,18 @@ export async function recordAgentRunUsage(
       })
       .where(and(eq(agentRuns.id, input.agentRunId), eq(agentRuns.userId, input.userId)))
       .returning({ id: agentRuns.id });
+
+    // Meter platform-credited DeepSeek tokens against the per-user lifetime allowance.
+    // Atomic row-locked `+=` keyed by user, in the SAME tx as the run-total update, so the
+    // counter tracks agent_runs.tokens_* exactly (per-step delta, counted once) — plan WS3.
+    if (input.freeDeepseekTokens && input.freeDeepseekTokens > 0) {
+      await tx
+        .update(entitlements)
+        .set({
+          freeDeepseekTokensUsed: sql`${entitlements.freeDeepseekTokensUsed} + ${input.freeDeepseekTokens}`,
+        })
+        .where(eq(entitlements.userId, input.userId));
+    }
     return Boolean(updatedRows[0]);
   });
 }

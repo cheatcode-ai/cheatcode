@@ -4,11 +4,14 @@ export type {
   EntitlementRecord,
   EntitlementSubscriptionStateInput,
   EntitlementUpsertInput,
+  FreeDeepseekUsage,
 } from "./billing";
 export {
   findBillingUserById,
   findBillingUserByPolarCustomerId,
   findEntitlementByUserId,
+  getFreeDeepseekUsage,
+  hasFreeDeepseekAllowance,
   recordBillingEvent,
   updateEntitlementSubscriptionState,
   updateUserPolarCustomerId,

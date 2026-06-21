@@ -67,6 +67,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
             composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
             composioQuotaMeter: toolCredentials.composioQuotaMeter,
             composioUserId: toolCredentials.composioUserId,
+            deepseekApiKey: credential.provider === "deepseek" ? credential.apiKey : undefined,
             elevenlabsApiKey: toolCredentials.elevenlabsApiKey,
             exaApiKey: toolCredentials.exaApiKey,
             falApiKey: toolCredentials.falApiKey,
@@ -81,6 +82,11 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
             researchFanoutSubagentLimit: input.researchFanoutSubagentLimit,
           },
         ),
+        // DeepSeek V4 defaults to thinking mode; disable it so tool-calling stays a clean
+        // OpenAI-style loop (avoids the reasoning_content round-trip). No-op for other providers.
+        ...(credential.provider === "deepseek"
+          ? { providerOptions: { deepseek: { thinking: { type: "disabled" } } } }
+          : {}),
         stopWhen: stepCountIs(AGENT_LOOP_MAX_STEPS),
       }),
       timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,

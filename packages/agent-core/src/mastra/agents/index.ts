@@ -2,10 +2,13 @@ export type { LlmModelSelection, LlmProvider } from "./general";
 export {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
   createAnthropicByokModel,
+  createDeepSeekModel,
   createGoogleByokModel,
   createOpenAiByokModel,
   createOpenRouterByokModel,
+  DEEPSEEK_API_KEY_CONTEXT_KEY,
   DEFAULT_ANTHROPIC_MODEL_ID,
+  DEFAULT_DEEPSEEK_MODEL_ID,
   DEFAULT_GOOGLE_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
   DEFAULT_OPENROUTER_MODEL_ID,

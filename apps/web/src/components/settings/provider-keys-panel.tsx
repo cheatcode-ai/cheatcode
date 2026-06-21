@@ -49,6 +49,13 @@ const PROVIDER_META: Record<Provider, ProviderMeta> = {
     label: "Anthropic",
     placeholder: "sk-ant-...",
   },
+  deepseek: {
+    description: "Your own DeepSeek key — runs beyond the free 200K token allowance.",
+    keyUrl: "https://platform.deepseek.com/api_keys",
+    keyUrlLabel: "platform.deepseek.com",
+    label: "DeepSeek",
+    placeholder: "sk-...",
+  },
   elevenlabs: {
     description: "Voice generation and speech APIs for media workflows.",
     keyUrl: "https://elevenlabs.io/app/settings/api-keys",

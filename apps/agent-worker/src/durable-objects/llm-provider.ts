@@ -1,26 +1,57 @@
 import {
+  DEFAULT_DEEPSEEK_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
   type LlmModelSelection,
   type LlmProvider,
   resolveRequestedLlmModel,
 } from "@cheatcode/agent-core";
 import { getProviderKey } from "@cheatcode/byok";
-import { createDb, type Database, type DatabaseHandle, withUserContext } from "@cheatcode/db";
+import {
+  createDb,
+  type Database,
+  type DatabaseHandle,
+  getFreeDeepseekUsage,
+  withUserContext,
+} from "@cheatcode/db";
+import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, type createLogger } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { FREE_DEEPSEEK_MODEL_ID, UserId } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface LlmProviderEnv {
   HYPERDRIVE: Hyperdrive;
+  DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
 }
 
 interface LlmProviderInput {
   model?: string | undefined;
   userId: string;
+  /** Whether the user explicitly chose this model (vs an Auto/implicit default). */
+  modelExplicit?: boolean | undefined;
+  /** Models the user disabled in settings; gates the free-DeepSeek fallback. */
+  disabledModels?: readonly string[] | undefined;
 }
+
+export type CreditSource = "byok" | "platform_free";
 
 export interface LlmCredential extends LlmModelSelection {
   apiKey: string;
+  creditSource: CreditSource;
+  /** For platform_free runs: the user's free-token count at resolution (DO hard-stop baseline). */
+  freeTokensUsedAtResolve?: number;
+}
+
+interface FreeTierContext {
+  platformDeepseekKey: string | undefined;
+  modelExplicit: boolean;
+  disabledModels: readonly string[];
+}
+
+interface ResolvedTransport {
+  apiKey: string;
+  selection: LlmModelSelection;
+  creditSource: CreditSource;
+  freeTokensUsed?: number;
 }
 
 export async function resolveLlmCredential(
@@ -29,7 +60,12 @@ export async function resolveLlmCredential(
   logger: ReturnType<typeof createLogger>,
 ): Promise<LlmCredential> {
   const selection = resolveModelSelection(input.model);
-  return resolveProviderKey(env, input.userId, selection, logger);
+  const platformDeepseekKey = await resolveWorkerSecret(env.DEEPSEEK_PLATFORM_API_KEY);
+  return resolveProviderKey(env, input.userId, selection, logger, {
+    disabledModels: input.disabledModels ?? [],
+    modelExplicit: input.modelExplicit ?? Boolean(input.model?.trim()),
+    platformDeepseekKey,
+  });
 }
 
 export async function resolveOpenAiFallbackCredential(
@@ -39,7 +75,12 @@ export async function resolveOpenAiFallbackCredential(
 ): Promise<LlmCredential | null> {
   const selection = { provider: "openai", modelId: DEFAULT_OPENAI_MODEL_ID } as const;
   try {
-    return await resolveProviderKey(env, input.userId, selection, logger);
+    // The OpenAI fallback never rides free DeepSeek credits (platform key withheld).
+    return await resolveProviderKey(env, input.userId, selection, logger, {
+      disabledModels: [],
+      modelExplicit: true,
+      platformDeepseekKey: undefined,
+    });
   } catch (error) {
     if (error instanceof APIError && error.code === "byok_key_missing") {
       logger.warn("llm_provider_fallback_unavailable", { provider: "openai" });
@@ -106,7 +147,7 @@ function resolveModelSelection(model: string | undefined): LlmModelSelection {
   } catch (error) {
     throw new APIError(400, "invalid_request_body", "Unsupported model selection.", {
       details: { message: error instanceof Error ? error.message : "Unknown model error" },
-      hint: "Use a supported Anthropic, Google Gemini, OpenAI, or OpenRouter model id.",
+      hint: "Use a supported Anthropic, Google Gemini, OpenAI, DeepSeek, or OpenRouter model id.",
       retriable: false,
     });
   }
@@ -117,47 +158,115 @@ async function resolveProviderKey(
   userId: string,
   selection: LlmModelSelection,
   logger: ReturnType<typeof createLogger>,
+  freeTier: FreeTierContext,
 ): Promise<LlmCredential> {
   const dbHandle = createDb(env.HYPERDRIVE);
+  const brandedUserId = UserId(userId);
   try {
-    const resolved = await withUserContext(dbHandle.db, UserId(userId), (db) =>
-      resolveTransportKey(db, selection),
+    const resolved = await withUserContext(dbHandle.db, brandedUserId, (db) =>
+      resolveTransportKey(db, brandedUserId, selection, freeTier),
     );
     logger.info("byok_provider_key_resolved", {
+      creditSource: resolved.creditSource,
       modelId: resolved.selection.modelId,
       provider: resolved.selection.provider,
     });
-    return { ...resolved.selection, apiKey: resolved.apiKey };
+    return {
+      ...resolved.selection,
+      apiKey: resolved.apiKey,
+      creditSource: resolved.creditSource,
+      ...(resolved.freeTokensUsed === undefined
+        ? {}
+        : { freeTokensUsedAtResolve: resolved.freeTokensUsed }),
+    };
   } finally {
     await closeDatabase(dbHandle, logger);
   }
 }
 
 /**
- * D9 transport rule: prefer the user's direct provider key; otherwise route a
- * non-OpenRouter selection through OpenRouter (using the full `provider/model`
- * slug) when an OpenRouter key is present; otherwise the model is unavailable.
- * Runs inside the caller's already-open withUserContext connection — at most one
- * extra indexed get_provider_key call on the direct-key miss path.
+ * Transport rule (plan §"Credential resolution"): (a) the user's direct provider key
+ * always wins. The platform free DeepSeek key then serves the `deepseek-v4-flash` SKU —
+ * before OpenRouter when the user explicitly picked it, or after OpenRouter as the last
+ * resort for an Auto/implicit run with no usable key. (c) Otherwise a non-OpenRouter
+ * selection routes through OpenRouter when a key is present. Runs inside the caller's
+ * withUserContext connection. The free SKU never silently downgrades a `deepseek-v4-pro`
+ * request, and an explicit non-free pick is never swapped to free credits.
  */
 async function resolveTransportKey(
   db: Database,
+  userId: UserId,
   selection: LlmModelSelection,
-): Promise<{ apiKey: string; selection: LlmModelSelection }> {
+  freeTier: FreeTierContext,
+): Promise<ResolvedTransport> {
+  // (a) The user's own direct provider key always wins (incl. their own DeepSeek key).
   const directKey = await getProviderKey(db, selection.provider);
   if (directKey) {
-    return { apiKey: directKey, selection };
+    return { apiKey: directKey, creditSource: "byok", selection };
   }
+
+  const wantsFreeFlash =
+    selection.provider === "deepseek" && selection.modelId === DEFAULT_DEEPSEEK_MODEL_ID;
+  const platformKey = freeTier.platformDeepseekKey;
+  const freeModelAllowed =
+    platformKey !== undefined && !freeTier.disabledModels.includes(FREE_DEEPSEEK_MODEL_ID);
+  // Memoize the allowance read so the gate costs at most one query per resolution.
+  let freeUsage: { limit: number; used: number } | undefined;
+  const tryPlatformFree = async (): Promise<ResolvedTransport | null> => {
+    if (!freeModelAllowed || platformKey === undefined) {
+      return null;
+    }
+    if (freeUsage === undefined) {
+      freeUsage = await getFreeDeepseekUsage(db, userId);
+    }
+    return freeUsage.used < freeUsage.limit
+      ? platformFreeTransport(platformKey, freeUsage.used)
+      : null;
+  };
+
+  // (b) Explicit free-flash pick → platform free before OpenRouter.
+  if (wantsFreeFlash) {
+    const free = await tryPlatformFree();
+    if (free) {
+      return free;
+    }
+  }
+
+  // (c) OpenRouter fallback (existing D9 rule).
   if (selection.provider !== "openrouter") {
     const openrouterKey = await getProviderKey(db, "openrouter");
     if (openrouterKey) {
       return {
         apiKey: openrouterKey,
+        creditSource: "byok",
         selection: { modelId: openRouterSlug(selection), provider: "openrouter" },
       };
     }
   }
+
+  // (d) Auto/implicit run with no usable key → platform free as a last resort.
+  if (!freeTier.modelExplicit) {
+    const free = await tryPlatformFree();
+    if (free) {
+      return free;
+    }
+  }
+
+  // The free path was attempted but the allowance is spent → a clear "used up" error
+  // (vs a generic missing-key error) so the user knows to add their own key.
+  if (freeUsage !== undefined && freeUsage.used >= freeUsage.limit) {
+    throw freeDeepseekQuotaExhausted();
+  }
   throw missingProviderKey(selection.provider);
+}
+
+function platformFreeTransport(apiKey: string, freeTokensUsed: number): ResolvedTransport {
+  return {
+    apiKey,
+    creditSource: "platform_free",
+    freeTokensUsed,
+    selection: { modelId: DEFAULT_DEEPSEEK_MODEL_ID, provider: "deepseek" },
+  };
 }
 
 function openRouterSlug(selection: LlmModelSelection): string {
@@ -182,7 +291,22 @@ function providerLabel(provider: LlmProvider): string {
   if (provider === "google") {
     return "Google Gemini";
   }
+  if (provider === "deepseek") {
+    return "DeepSeek";
+  }
   return "OpenRouter";
+}
+
+function freeDeepseekQuotaExhausted(): APIError {
+  return new APIError(
+    402,
+    "deepseek_free_quota_exhausted",
+    "Your 200,000 free DeepSeek tokens are used up.",
+    {
+      hint: "Add your own DeepSeek (or Anthropic/OpenAI) key in Settings → Models to keep building.",
+      retriable: false,
+    },
+  );
 }
 
 function readStatusCode(error: unknown): number | null {

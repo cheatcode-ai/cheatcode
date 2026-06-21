@@ -23,6 +23,7 @@ export interface PersistAgentRunStatusInput {
 export interface PersistAgentRunUsageInput {
   costUsd: number;
   eventType: string;
+  freeDeepseekTokens?: number;
   inputTokens: number;
   model?: string;
   outputTokens: number;
@@ -79,6 +80,7 @@ export async function persistAgentRunUsage(
         agentRunId: AgentRunId(input.runId),
         costUsd: input.costUsd,
         eventType: input.eventType,
+        ...(input.freeDeepseekTokens ? { freeDeepseekTokens: input.freeDeepseekTokens } : {}),
         inputTokens: input.inputTokens,
         ...(input.model ? { model: input.model } : {}),
         outputTokens: input.outputTokens,

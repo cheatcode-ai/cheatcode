@@ -33,6 +33,7 @@ import {
   type BudgetAccountingDeps,
   costCapExhaustion,
   enforceCostCaps,
+  enforceFreeDeepseekCap,
   isCostCapAPIError,
   recordBudgetDelta,
 } from "./agent-run-cost-caps";
@@ -72,6 +73,7 @@ import {
   saveTakeoverStateInStorage,
 } from "./agent-run-takeover-state";
 import { isAppBuilderRequest, missingInternalUserResponse } from "./agent-run-utils";
+import type { LlmCredential } from "./llm-provider";
 import {
   mastraChunkError,
   mastraChunkToUiChunks,
@@ -548,8 +550,28 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       createBroker: () => this.approvals.createBroker(),
       env: this.env,
       hasPendingDecision: () => this.approvals.hasPendingDecision(),
+      persistResolvedCredential: (credential) => this.persistResolvedCredential(credential),
       setRunStage: (stage) => this.setRunStage(stage),
     };
+  }
+
+  private persistResolvedCredential(credential: LlmCredential): void {
+    setRunStateValue(this.ctx, "credit_source", credential.creditSource);
+    // DeepSeek runs (free or BYOK) carry the bare provider id; persist the catalog/accounting
+    // slug so usage attribution matches the catalog format even for Auto-resolved runs.
+    if (credential.provider === "deepseek") {
+      setRunStateValue(this.ctx, "resolved_model_id", `deepseek/${credential.modelId}`);
+    }
+    if (
+      credential.creditSource === "platform_free" &&
+      credential.freeTokensUsedAtResolve !== undefined
+    ) {
+      setRunStateValue(
+        this.ctx,
+        "free_deepseek_start_used",
+        String(credential.freeTokensUsedAtResolve),
+      );
+    }
   }
 
   private async appendMastraChunk(chunk: unknown): Promise<number> {
@@ -590,6 +612,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         usd: usage.costUsd ?? 0,
       });
       await enforceCostCaps(this.accountingDeps(), input, snapshot, true);
+      await enforceFreeDeepseekCap(this.accountingDeps(), input, snapshot, true);
     }
     return appendedCount;
   }

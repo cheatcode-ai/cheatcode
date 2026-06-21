@@ -132,6 +132,8 @@ export {
   AGENT_MODEL_CATALOG,
   CatalogModelIdSchema,
   FALLBACK_MODEL_ID,
+  FREE_DEEPSEEK_MODEL_ID,
+  FREE_DEEPSEEK_TOKEN_LIMIT,
   isCatalogModelId,
   PRODUCTION_DEFAULT_MODEL_ID,
 } from "./models";

@@ -1,6 +1,8 @@
 import { updateClerkUserPublicMetadata, verifyClerkBearerToken } from "@cheatcode/auth";
 import {
   createDb,
+  type FreeDeepseekUsage,
+  getFreeDeepseekUsage,
   getUserProfile,
   type UpsertUserProfileInput,
   type UserProfileRecord,
@@ -31,8 +33,11 @@ export async function getMyProfileRoute(
 ): Promise<Response> {
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const record = await withUserContext(db, userId, (tx) => getUserProfile(tx, userId));
-    return Response.json(UserProfileSchema.parse(profileResponse(record)));
+    const { freeDeepseek, record } = await withUserContext(db, userId, async (tx) => ({
+      freeDeepseek: await getFreeDeepseekUsage(tx, userId),
+      record: await getUserProfile(tx, userId),
+    }));
+    return Response.json(UserProfileSchema.parse(profileResponse(record, freeDeepseek)));
   } finally {
     ctx.waitUntil(close());
   }
@@ -160,13 +165,19 @@ async function mirrorOnboardingClaim(
   }
 }
 
-function profileResponse(record: UserProfileRecord | null): Record<string, unknown> {
+function profileResponse(
+  record: UserProfileRecord | null,
+  freeDeepseek?: FreeDeepseekUsage,
+): Record<string, unknown> {
+  // Optional so the update route can omit it (the meter is read from the GET response).
+  const freeDeepseekField = freeDeepseek ? { freeDeepseek } : {};
   if (!record) {
     return {
       agentDisplayName: null,
       appbuilderDefaultBudgetUsd: null,
       appbuilderDefaultModel: null,
       disabledModels: [],
+      ...freeDeepseekField,
       generalDefaultBudgetUsd: null,
       generalDefaultModel: null,
       globalMemory: null,
@@ -180,6 +191,7 @@ function profileResponse(record: UserProfileRecord | null): Record<string, unkno
     appbuilderDefaultBudgetUsd: coerceBudget(record.appbuilderDefaultBudgetUsd),
     appbuilderDefaultModel: record.appbuilderDefaultModel,
     disabledModels: record.disabledModels,
+    ...freeDeepseekField,
     generalDefaultBudgetUsd: coerceBudget(record.generalDefaultBudgetUsd),
     generalDefaultModel: record.generalDefaultModel,
     globalMemory: record.globalMemory,

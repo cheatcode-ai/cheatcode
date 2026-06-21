@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { CatalogModelIdSchema } from "./models";
+import { AGENT_MODEL_CATALOG, CatalogModelIdSchema } from "./models";
 
 export const OnboardingStepSchema = z.enum(["intro", "name", "tools", "basics", "plan"]);
 export const OnboardingStepStatusSchema = z.enum(["done", "skipped"]);
@@ -10,8 +10,9 @@ export const OnboardingStateSchema = z
   })
   .strict();
 
-// `disabledModels.max(3)` encodes "≥1 catalog model stays enabled" structurally (catalog has 4 entries).
-const DisabledModelsSchema = z.array(CatalogModelIdSchema).max(3);
+// Cap at one fewer than the catalog so ≥1 model always stays enabled. Derived from the
+// catalog length so it can't drift as the catalog grows (e.g. the DeepSeek free entry).
+const DisabledModelsSchema = z.array(CatalogModelIdSchema).max(AGENT_MODEL_CATALOG.length - 1);
 const SurfaceBudgetSchema = z.number().positive().max(50); // 0 < n ≤ $50; null = No cap
 
 export const UserProfileSchema = z
@@ -26,6 +27,12 @@ export const UserProfileSchema = z
     onboardingCompletedAt: z.string().datetime().nullable(),
     onboardingState: OnboardingStateSchema,
     updatedAt: z.string().datetime().nullable(),
+    // Server-computed free DeepSeek allowance, surfaced for the Models page meter.
+    // Optional so a new web bundle tolerates a gateway response that predates this
+    // field while the two workers deploy independently (deploy skew).
+    freeDeepseek: z
+      .object({ limit: z.number().int().positive(), used: z.number().int().nonnegative() })
+      .optional(),
   })
   .strict();
 

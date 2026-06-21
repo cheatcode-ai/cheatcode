@@ -172,6 +172,7 @@ export async function startAgentRun(
         ...(run.importRepoUrl ? { importRepoUrl: run.importRepoUrl } : {}),
         messageText,
         model: body.model ?? run.modelId,
+        modelExplicit: Boolean(body.model?.trim()),
         projectId: run.projectId,
         ...(run.projectMode ? { projectMode: run.projectMode } : {}),
         ...(policy.quotaWarning ? { quotaWarning: policy.quotaWarning } : {}),

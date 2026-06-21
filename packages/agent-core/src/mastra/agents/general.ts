@@ -1,4 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { APIError } from "@cheatcode/observability";
@@ -8,7 +9,9 @@ import type { RequestContext } from "@mastra/core/request-context";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
 import {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
+  DEEPSEEK_API_KEY_CONTEXT_KEY,
   DEFAULT_ANTHROPIC_MODEL_ID,
+  DEFAULT_DEEPSEEK_MODEL_ID,
   DEFAULT_GOOGLE_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
   DEFAULT_OPENROUTER_MODEL_ID,
@@ -26,7 +29,9 @@ import { cheatcodeTools } from "../tools/tool-set";
 export type { LlmModelSelection, LlmProvider } from "../llm-context";
 export {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
+  DEEPSEEK_API_KEY_CONTEXT_KEY,
   DEFAULT_ANTHROPIC_MODEL_ID,
+  DEFAULT_DEEPSEEK_MODEL_ID,
   DEFAULT_GOOGLE_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
   DEFAULT_OPENROUTER_MODEL_ID,
@@ -86,6 +91,22 @@ export function createOpenRouterByokModel(
   }).chat(modelId);
 }
 
+/**
+ * DeepSeek model — serves both the platform free tier (our key) and user BYOK keys.
+ * Pass the bare provider id (`deepseek-v4-flash`); non-thinking mode is selected at the
+ * stream call site via providerOptions so tool-calling stays clean.
+ */
+export function createDeepSeekModel(
+  apiKey: string,
+  modelId = DEFAULT_DEEPSEEK_MODEL_ID,
+): MastraModelConfig {
+  const trimmed = apiKey.trim();
+  if (trimmed.length === 0) {
+    throw new Error("DeepSeek key is required.");
+  }
+  return createDeepSeek({ apiKey: trimmed })(modelId);
+}
+
 export function resolveRequestedLlmModel(model: string | null | undefined): LlmModelSelection {
   const requested = model?.trim();
   if (!requested) {
@@ -104,6 +125,9 @@ export function resolveRequestedLlmModel(model: string | null | undefined): LlmM
   if (requested.startsWith("openrouter/")) {
     return requestedModel("openrouter", requested.slice("openrouter/".length));
   }
+  if (requested.startsWith("deepseek/")) {
+    return requestedModel("deepseek", requested.slice("deepseek/".length));
+  }
   if (requested.startsWith("claude-")) {
     return requestedModel("anthropic", requested);
   }
@@ -112,6 +136,9 @@ export function resolveRequestedLlmModel(model: string | null | undefined): LlmM
   }
   if (requested.startsWith("gemini-")) {
     return requestedModel("google", requested);
+  }
+  if (requested.startsWith("deepseek-")) {
+    return requestedModel("deepseek", requested);
   }
 
   throw new Error(`Unsupported model selection: ${requested}`);
@@ -149,6 +176,11 @@ function resolveGeneralModel({
         requiredProviderKey(requestContext, GOOGLE_API_KEY_CONTEXT_KEY, "Google Gemini", provider),
         requestedModelId(modelId, DEFAULT_GOOGLE_MODEL_ID),
       );
+    case "deepseek":
+      return createDeepSeekModel(
+        requiredProviderKey(requestContext, DEEPSEEK_API_KEY_CONTEXT_KEY, "DeepSeek", provider),
+        requestedModelId(modelId, DEFAULT_DEEPSEEK_MODEL_ID),
+      );
     case "anthropic":
       return createAnthropicByokModel(
         requiredProviderKey(requestContext, ANTHROPIC_API_KEY_CONTEXT_KEY, "Anthropic", provider),
@@ -158,7 +190,7 @@ function resolveGeneralModel({
 }
 
 function resolveLlmProvider(value: unknown): LlmProvider {
-  if (value === "google" || value === "openai" || value === "openrouter") {
+  if (value === "google" || value === "openai" || value === "openrouter" || value === "deepseek") {
     return value;
   }
   return "anthropic";
