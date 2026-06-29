@@ -154,6 +154,7 @@ export function HomeComposer({
   const [repoUrl, setRepoUrl] = useState<string | null>(null);
   const [attachmentStatus, setAttachmentStatus] = useState<AttachmentStatus | null>(null);
   const [value, setValue] = useState(initialPrompt ?? "");
+  const [skillCreatorMode, setSkillCreatorMode] = useState(skillCreator);
   const typewriterPlaceholder = useTypewriterPlaceholder();
   const intent = INTENTS.find((candidate) => candidate.id === intentId) ?? null;
   const placeholder = intent ? intent.placeholder : typewriterPlaceholder;
@@ -327,11 +328,8 @@ export function HomeComposer({
 
   return (
     <div className="mt-6 w-full">
-      {skillCreator ? (
-        <SkillCreatorSuggestions onPick={(text) => setValue(text)} />
-      ) : (
-        <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
-      )}
+      <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
+      {skillCreatorMode ? <SkillCreatorSuggestions onPick={(text) => setValue(text)} /> : null}
       <form
         className="cheatcode-home-composer-form mt-8 w-full md:pointer-events-none md:fixed md:right-0 md:bottom-8 md:left-0 md:z-20 md:flex md:justify-center md:pl-64"
         onSubmit={submit}
@@ -355,6 +353,22 @@ export function HomeComposer({
             ) : null}
             <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">
               <div>
+                {skillCreatorMode ? (
+                  <div className="px-4 pt-3">
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#f7f7f7] pr-1.5 pl-2.5 font-medium text-[#86641d] text-[12px]">
+                      <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5" />
+                      Skill Creator
+                      <button
+                        aria-label="Exit Skill Creator"
+                        className="flex h-5 w-5 items-center justify-center rounded-full text-[#a9842e] transition-colors hover:bg-white/70 hover:text-[#86641d]"
+                        onClick={() => setSkillCreatorMode(false)}
+                        type="button"
+                      >
+                        <X aria-hidden="true" className="h-3 w-3" />
+                      </button>
+                    </span>
+                  </div>
+                ) : null}
                 <ComposerContextChips
                   className="px-2 pt-3"
                   onClearSkill={clearSkillSelection}
@@ -368,7 +382,7 @@ export function HomeComposer({
                 <textarea
                   className={cn(
                     "max-h-[200px] min-h-[80px] w-full resize-none overflow-y-auto border-none bg-transparent px-2 pb-0 font-medium text-[#1b1b1b] text-[14px] leading-6 outline-none placeholder:text-[#a0a0a0]",
-                    skillChip || toolChip ? "pt-2" : "pt-4",
+                    skillChip || toolChip || skillCreatorMode ? "pt-2" : "pt-4",
                   )}
                   id="home-prompt"
                   onChange={triggers.onTextareaChange}
@@ -473,28 +487,22 @@ const SKILL_CREATOR_SUGGESTIONS = [
 
 function SkillCreatorSuggestions({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="mx-auto w-full max-w-[708px]">
-      <div className="flex items-center gap-2">
-        <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-[#f7f7f7] px-2.5 font-medium text-[#86641d] text-[12px]">
-          <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5" />
-          Skill Creator
-        </span>
-        <span className="text-[#8a8a8a] text-[13px]">
-          Describe a reusable skill — I’ll author it and save it to your skills.
-        </span>
-      </div>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+    <div className="mx-auto mt-6 w-full max-w-[564px] overflow-hidden rounded-[18px] border border-[#f1f1f1] bg-white">
+      <p className="px-4 pt-3 pb-1 font-medium text-[#a0a0a0] text-[12px]">Create skills</p>
+      <ul>
         {SKILL_CREATOR_SUGGESTIONS.map((suggestion) => (
-          <button
-            className="rounded-[14px] border border-[#f1f1f1] bg-white px-3 py-2.5 text-left font-medium text-[#1b1b1b] text-[13px] transition-colors hover:border-[#ececec] hover:bg-[#fafafa]"
-            key={suggestion}
-            onClick={() => onPick(suggestion)}
-            type="button"
-          >
-            {suggestion}
-          </button>
+          <li key={suggestion}>
+            <button
+              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left font-medium text-[#1b1b1b] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7]"
+              onClick={() => onPick(suggestion)}
+              type="button"
+            >
+              <CheatcodeMark aria-hidden="true" className="h-4 w-4 shrink-0 text-[#a9842e]" />
+              <span className="min-w-0 flex-1">{suggestion}</span>
+            </button>
+          </li>
         ))}
-      </div>
+      </ul>
     </div>
   );
 }

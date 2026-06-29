@@ -6,7 +6,11 @@ import { HomeSessionChrome } from "@/components/home/home-session-chrome";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 
-export default function HomePage() {
+export default function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   return (
     <div className="relative min-h-screen bg-white text-[#1b1b1b] transition-[padding] duration-200 md:pl-[var(--cheatcode-sidebar-offset,16rem)]">
       <Suspense fallback={null}>
@@ -24,10 +28,26 @@ export default function HomePage() {
           </h1>
           <HomeComposerFromSearchParams />
           <Suspense fallback={<div className="mt-6 h-32 w-full rounded-2xl bg-[#f7f7f7]" />}>
-            <FeaturedReplays />
+            <HomeFeaturedSlot searchParams={searchParams} />
           </Suspense>
         </section>
       </main>
     </div>
   );
+}
+
+/**
+ * Renders "Watch replays" — except in Skill Creator mode, where the composer shows the
+ * "Create skills" panel in its place (bud parity). Reads `searchParams` inside a Suspense
+ * boundary so the rest of the home route still prerenders.
+ */
+async function HomeFeaturedSlot({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  if ((await searchParams)["mode"] === "skill-creator") {
+    return null;
+  }
+  return <FeaturedReplays />;
 }
