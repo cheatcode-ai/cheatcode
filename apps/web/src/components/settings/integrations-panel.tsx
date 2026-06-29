@@ -3,6 +3,7 @@
 import type { Integration, IntegrationName } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import Link from "next/link";
 import { toast } from "sonner";
 import { Check, ExternalLink, Loader2, Trash2, Zap } from "@/components/ui/icons";
 import {
@@ -39,6 +40,13 @@ export function IntegrationsPanel() {
           Connect OAuth tools for agent actions. Connections are routed through Composio and
           executed server-side by V2 workers.
         </p>
+        <Link
+          className="mt-4 inline-flex h-9 items-center gap-2 rounded-full border border-[#e6e6e6] bg-white px-4 font-medium text-[#1b1b1b] text-[14px] transition-colors hover:bg-[#f7f7f7]"
+          href="/tools"
+        >
+          Browse all apps
+          <ExternalLink aria-hidden="true" className="h-4 w-4" />
+        </Link>
       </div>
       <div className="grid w-full gap-4 md:grid-cols-2">
         {integrationsQuery.isPending ? (
