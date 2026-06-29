@@ -606,6 +606,19 @@ export const SearchResponseSchema = z
   })
   .strict();
 
+/** `GET /v1/threads` — the user's recent chats (threads) across all projects, newest first. */
+export const RecentThreadsQuerySchema = z
+  .object({
+    limit: z.coerce.number().int().min(1).max(50).default(20),
+  })
+  .strict();
+
+export const RecentThreadsResponseSchema = z
+  .object({
+    threads: z.array(SearchResultThreadSchema),
+  })
+  .strict();
+
 export const GreetingResponseSchema = z
   .object({
     city: z.string().nullable(),
@@ -751,6 +764,8 @@ export type CreateThread = z.infer<typeof CreateThreadSchema>;
 export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
 export type SearchQuery = z.infer<typeof SearchQuerySchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+export type RecentThreadsQuery = z.infer<typeof RecentThreadsQuerySchema>;
+export type RecentThreadsResponse = z.infer<typeof RecentThreadsResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type SearchResultProject = z.infer<typeof SearchResultProjectSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;

@@ -98,7 +98,7 @@ function MessageBubble({ message }: { message: CheatcodeUIMessage }) {
   return (
     <article
       className={cn(
-        "group relative px-2",
+        "cc-fade-in group relative px-2",
         isUser ? "ms-auto w-full max-w-[78%]" : "w-full max-w-full",
       )}
     >

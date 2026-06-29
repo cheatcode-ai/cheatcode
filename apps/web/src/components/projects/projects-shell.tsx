@@ -2,7 +2,7 @@
 
 import type { CheatcodeUIMessage, ProjectSummary, Thread } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatPanel } from "@/components/chat/chat-panel";
@@ -54,6 +54,16 @@ export function ProjectsShell() {
     !isPromptHandoffPending,
   );
   const threadId = activeThreadId(requestedThread, bootstrapQuery.data?.threadId);
+  const queryClient = useQueryClient();
+  const bootstrappedThreadId = bootstrapQuery.data?.threadId ?? null;
+  // A fresh chat created from the home composer should appear in the chat-first
+  // sidebar's "Chats" list right away (the sidebar is persistent and won't refetch
+  // on navigation otherwise).
+  useEffect(() => {
+    if (bootstrappedThreadId) {
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+    }
+  }, [bootstrappedThreadId, queryClient]);
   const threadQuery = useThreadQuery(getToken, threadId, requestedThread.kind === "uuid");
   const projectId = bootstrapQuery.data?.projectId ?? threadQuery.data?.projectId ?? null;
   const projectQuery = useProjectQuery(getToken, projectId);

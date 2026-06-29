@@ -1,11 +1,15 @@
 import {
   createDb,
+  listRecentThreads,
   searchWorkspace,
   type WorkspaceSearchRecord,
+  type WorkspaceThreadSearchRecord,
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, createLogger } from "@cheatcode/observability";
 import {
+  RecentThreadsQuerySchema,
+  RecentThreadsResponseSchema,
   SearchQuerySchema,
   SearchResponseSchema,
   type SearchResult,
@@ -37,6 +41,48 @@ export async function searchWorkspaceRoute(
   } finally {
     ctx.waitUntil(close());
   }
+}
+
+/** `GET /v1/threads?limit=N` — the user's recent chats (threads) across all projects. */
+export async function listRecentThreadsRoute(
+  env: SearchRouteEnv,
+  ctx: ExecutionContext,
+  request: Request,
+  userId: UserId,
+): Promise<Response> {
+  const limit = parseRecentThreadsLimit(request);
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    const records = await withUserContext(db, userId, (tx) => listRecentThreads(tx, userId, limit));
+    const response = RecentThreadsResponseSchema.parse({
+      threads: records.map(toThreadResult),
+    });
+    return Response.json(response);
+  } finally {
+    ctx.waitUntil(close());
+  }
+}
+
+function toThreadResult(record: WorkspaceThreadSearchRecord): SearchResult {
+  return {
+    id: record.id,
+    projectId: record.projectId,
+    projectName: record.projectName,
+    title: record.title,
+    type: "thread",
+    updatedAt: record.updatedAt.toISOString(),
+  };
+}
+
+function parseRecentThreadsLimit(request: Request): number {
+  const url = new URL(request.url);
+  const parsed = RecentThreadsQuerySchema.safeParse({
+    limit: url.searchParams.get("limit") ?? undefined,
+  });
+  if (!parsed.success) {
+    throw invalidQueryParam("Invalid threads query", parsed.error);
+  }
+  return parsed.data.limit;
 }
 
 function toSearchResult(record: WorkspaceSearchRecord): SearchResult {

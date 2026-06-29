@@ -1,7 +1,33 @@
 import type { SandboxState } from "@cheatcode/types";
+import { Loader2 } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 export type RunStatus = "error" | "ready" | "streaming" | "submitted";
+
+/** "36s" under a minute, else "2m 5s" (bud-style elapsed formatting). */
+function formatElapsed(seconds: number): string {
+  if (seconds < 60) {
+    return `${seconds}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = seconds % 60;
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+/**
+ * The run "Working • Ns" indicator — a muted spinner + elapsed timer shown just above the
+ * composer while the agent is actively working (bud parity). Mounted only when running.
+ */
+export function WorkingIndicator({ elapsedSeconds }: { elapsedSeconds: number }) {
+  return (
+    <div className="mb-2 flex items-center gap-2 px-1 text-[#a0a0a0] text-[14px]">
+      <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+      <span className="font-medium">
+        Working{elapsedSeconds > 0 ? ` • ${formatElapsed(elapsedSeconds)}` : ""}
+      </span>
+    </div>
+  );
+}
 
 const STATUS_LABEL: Record<RunStatus, string> = {
   error: "ERROR",

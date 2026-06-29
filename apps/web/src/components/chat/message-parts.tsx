@@ -358,8 +358,8 @@ function DataBlock({
     <div
       className={
         tone === "error"
-          ? "rounded-[14px] border border-[var(--thread-status-error-border)] bg-[var(--thread-status-error-bg)] p-3 font-mono text-[11px] text-red-700"
-          : "rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary"
+          ? "cc-fade-in rounded-[14px] border border-[var(--thread-status-error-border)] bg-[var(--thread-status-error-bg)] p-3 font-mono text-[11px] text-red-700"
+          : "cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary"
       }
     >
       <div className="mb-2 text-[10px] text-thread-text-muted">{title}</div>

@@ -57,6 +57,13 @@
       "when": 1782736991161,
       "tag": "0007_ambiguous_thunderball",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1782759325849,
+      "tag": "0008_fixed_maggott",
+      "breakpoints": true
     }
   ]
 }

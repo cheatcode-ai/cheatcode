@@ -96,7 +96,7 @@ import {
   getThreadReplayShareRoute,
   updateReplayShareRoute,
 } from "./replay-share-routes";
-import { searchWorkspaceRoute } from "./search-routes";
+import { listRecentThreadsRoute, searchWorkspaceRoute } from "./search-routes";
 import { createUserSkillRoute, deleteUserSkillRoute, listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
@@ -378,6 +378,11 @@ export const gatewayRoutes = gatewayApp
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/search");
     return searchWorkspaceRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+  .get("/v1/threads", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/threads");
+    return listRecentThreadsRoute(c.env, c.executionCtx, c.req.raw, userId);
   })
 
   .get("/v1/greeting", async (c) => {

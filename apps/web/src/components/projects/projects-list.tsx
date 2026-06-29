@@ -35,6 +35,7 @@ export function ProjectsList() {
   const invalidateProjects = () => {
     void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
     void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
   };
 
   const renameMutation = useMutation({

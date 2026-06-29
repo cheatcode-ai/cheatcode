@@ -33,7 +33,7 @@ export function Response({ children }: { children: string }) {
   return (
     <div className="max-w-none text-sm leading-6 [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted [&_pre]:p-3">
       <Streamdown
-        animated={{ animation: "blurIn", stagger: 40 }}
+        animated={{ animation: "fadeIn", duration: 400, stagger: 40 }}
         controls={{ code: { copy: true, download: true }, table: { copy: true, fullscreen: true } }}
         plugins={plugins}
         shikiTheme={["github-light", "github-dark"]}

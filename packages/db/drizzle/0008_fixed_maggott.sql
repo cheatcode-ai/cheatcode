@@ -1,0 +1,1 @@
+CREATE INDEX "v2_threads_user_recent_idx" ON "v2_threads" USING btree ("user_id","updated_at" DESC NULLS LAST) WHERE deleted_at is null;

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { boolean, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { boolean, index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -34,17 +34,26 @@ export const projects = pgTable(v2TableName("projects"), {
   deletedAt: timestamp("deleted_at", { withTimezone: true }),
 });
 
-export const threads = pgTable(v2TableName("threads"), {
-  id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-  projectId: uuid("project_id")
-    .notNull()
-    .references(() => projects.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  title: text("title"),
-  activeRunId: uuid("active_run_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+export const threads = pgTable(
+  v2TableName("threads"),
+  {
+    id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
+    projectId: uuid("project_id")
+      .notNull()
+      .references(() => projects.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    title: text("title"),
+    activeRunId: uuid("active_run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Serves the chat-first sidebar's per-user recent-threads listing (newest first).
+    index("v2_threads_user_recent_idx")
+      .on(table.userId, table.updatedAt.desc())
+      .where(sql`deleted_at is null`),
+  ],
+);

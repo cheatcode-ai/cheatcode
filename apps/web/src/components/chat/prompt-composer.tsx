@@ -10,7 +10,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { RunStatus } from "@/components/chat/status-pill";
+import { type RunStatus, WorkingIndicator } from "@/components/chat/status-pill";
 import {
   ComposerContextChips,
   composePromptWithComposerContext,
@@ -24,6 +24,7 @@ import {
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
 import { ArrowUp, DollarSign, Mic, Paperclip, Square } from "@/components/ui/icons";
+import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import {
   appendPromptAttachment,
@@ -61,6 +62,7 @@ export function PromptComposer({
 }: PromptComposerProps) {
   const { getToken } = useAuth();
   const isRunning = status === "streaming" || status === "submitted";
+  const elapsedSeconds = useElapsedSeconds(isRunning);
   const canSubmit = value.trim().length > 0 && !isRunning;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [openControlMenu, setOpenControlMenu] = useState<ComposerControlMenu | null>(null);
@@ -154,10 +156,12 @@ export function PromptComposer({
             onSelectIndex={(index) => triggers.commitIndex(index, menuItems)}
           />
         ) : null}
+        {isRunning ? <WorkingIndicator elapsedSeconds={elapsedSeconds} /> : null}
         <div
           className={cn(
             "bud-composer-shell w-full overflow-visible rounded-[24px] p-px",
             "transition-colors focus-within:border-[#eeeeee]",
+            isRunning && "bud-composer-working",
           )}
         >
           <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">

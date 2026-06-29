@@ -8,6 +8,8 @@ import {
   Paginated,
   type ProjectSummary,
   ProjectSummarySchema,
+  RecentThreadsResponseSchema,
+  type SearchResultThread,
   type Thread,
   ThreadSchema,
   type UIMessageRecord,
@@ -66,6 +68,15 @@ export async function listProjectThreads(
   );
   const page = ThreadPageSchema.parse(await response.json());
   return page.data;
+}
+
+/** The user's recent chats (threads) across all projects, newest first — chat-first sidebar. */
+export async function listRecentThreads(
+  getToken: () => Promise<null | string>,
+  limit = 20,
+): Promise<SearchResultThread[]> {
+  const response = await authorizedFetch(getToken, `/v1/threads?limit=${limit}`);
+  return RecentThreadsResponseSchema.parse(await response.json()).threads;
 }
 
 export async function getProject(

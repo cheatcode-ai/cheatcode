@@ -126,6 +126,32 @@ const TYPEWRITER_SENTENCES = [
   "Fix a bug",
 ] as const;
 
+/** The skill to attach on submit — a repo import carries no skill. */
+function resolveSubmitSkill(
+  repoUrl: string | null,
+  intent: Intent | null,
+  skillChip: string | null,
+): string | null {
+  if (repoUrl) {
+    return null;
+  }
+  return intent?.skill ?? skillChip;
+}
+
+/** The build surface (mobile/web/null) implied by the current intent or imported repo. */
+function resolveSubmitSurface(
+  repoUrl: string | null,
+  intentId: IntentId | null,
+  intent: Intent | null,
+  skillChip: string | null,
+): "mobile" | "web" | null {
+  if (repoUrl) {
+    return intentId === "mobile-app" ? "mobile" : "web";
+  }
+  return intent ? intent.surface : skillSurface(skillChip);
+}
+
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: large composer whose score comes from idiomatic JSX conditionals (intent/repo/skill-creator chips); pre-existing, splitting the JSX risks visual regressions.
 export function HomeComposer({
   initialPrompt,
   initialPromptKey,
@@ -186,7 +212,7 @@ export function HomeComposer({
       return;
     }
     const trimmed = value.trim();
-    const skill = submitSkill();
+    const skill = resolveSubmitSkill(repoUrl, intent, skillChip);
     const prompt = composePromptWithComposerContext({
       prompt: trimmed,
       skill,
@@ -196,21 +222,7 @@ export function HomeComposer({
       void launchExisting(selectedProject, prompt);
       return;
     }
-    startPrompt(prompt, submitSurface());
-  }
-
-  function submitSkill(): string | null {
-    if (repoUrl) {
-      return null;
-    }
-    return intent?.skill ?? skillChip;
-  }
-
-  function submitSurface(): "mobile" | "web" | null {
-    if (repoUrl) {
-      return intentId === "mobile-app" ? "mobile" : "web";
-    }
-    return intent ? intent.surface : skillSurface(skillChip);
+    startPrompt(prompt, resolveSubmitSurface(repoUrl, intentId, intent, skillChip));
   }
 
   async function launchExisting(project: ProjectSummary, prompt: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary, Thread } from "@cheatcode/types";
+import type { ProjectSummary, SearchResultThread, Thread } from "@cheatcode/types";
 import { ConfirmDialog, ModalShell } from "@cheatcode/ui";
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -34,6 +34,7 @@ import {
   deleteProject,
   listProjects,
   listProjectThreads,
+  listRecentThreads,
   updateProject,
 } from "@/lib/api/project-thread";
 import { formatHoursUsed, useSandboxUsageQuery } from "@/lib/hooks/use-billing";
@@ -102,10 +103,12 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const activeThreadId = searchParams.get("thread");
   const sidebarProjects = useSidebarProjects(getToken, Boolean(isSignedIn));
+  const sidebarChats = useSidebarChats(getToken, Boolean(isSignedIn));
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
   const [accountOpen, setAccountOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<SidebarProject | null>(null);
   const [pendingRename, setPendingRename] = useState<SidebarProject | null>(null);
+  const [chatsOpen, setChatsOpen] = useState(true);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const deleteMutation = useMutation({
@@ -120,6 +123,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
       toast.success(`Deleted ${project.name}`);
       void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
       if (pathname === "/projects" && activeThreadId === project.threadId) {
         router.push("/");
       }
@@ -138,6 +142,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
       toast.success(`Renamed to ${result.name}`);
       void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
     },
   });
   const isOverlay = mode === "overlay";
@@ -211,10 +216,13 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
               setSettingsOpen(false);
               setSidebarCollapsed(true);
             }}
+            chatsOpen={chatsOpen}
+            onChatsOpenChange={setChatsOpen}
             onDelete={setPendingDelete}
             onProjectsOpenChange={setProjectsOpen}
             onRename={setPendingRename}
             renameMutation={renameMutation}
+            sidebarChats={sidebarChats}
             onToggleAccount={() => {
               setAccountOpen((current) => !current);
               setSettingsOpen(false);
@@ -274,6 +282,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
 function ExpandedSidebarContent({
   accountOpen,
   activeThreadId,
+  chatsOpen,
   deleteMutation,
   displayName,
   getToken,
@@ -282,6 +291,7 @@ function ExpandedSidebarContent({
   isOverlay,
   isSignedIn,
   onAuthModeChange,
+  onChatsOpenChange,
   onCloseAccount,
   onCloseSettings,
   onCollapse,
@@ -296,11 +306,13 @@ function ExpandedSidebarContent({
   projectsOpen,
   renameMutation,
   settingsOpen,
+  sidebarChats,
   sidebarProjects,
   signOut,
 }: {
   accountOpen: boolean;
   activeThreadId: string | null;
+  chatsOpen: boolean;
   deleteMutation: { isPending: boolean; variables?: SidebarProject | undefined };
   displayName: string;
   getToken: () => Promise<null | string>;
@@ -309,6 +321,7 @@ function ExpandedSidebarContent({
   isOverlay: boolean;
   isSignedIn: boolean;
   onAuthModeChange: (mode: AuthMode) => void;
+  onChatsOpenChange: (updater: (current: boolean) => boolean) => void;
   onCloseAccount: () => void;
   onCloseSettings: () => void;
   onCollapse: () => void;
@@ -326,6 +339,7 @@ function ExpandedSidebarContent({
     variables?: { name: string; project: SidebarProject } | undefined;
   };
   settingsOpen: boolean;
+  sidebarChats: ReturnType<typeof useSidebarChats>;
   sidebarProjects: ReturnType<typeof useSidebarProjects>;
   signOut: () => void;
 }) {
@@ -392,16 +406,32 @@ function ExpandedSidebarContent({
           )}
         >
           <nav aria-label="Primary" className="flex flex-col gap-1 px-1 pb-1">
-            {PRIMARY_NAV.map((item) => (
+            {/* Chat-first: only "New chat" is a top-level row; Projects moves into the
+                secondary collapsible below, so it isn't duplicated here. */}
+            {PRIMARY_NAV.filter((item) => item.id !== "projects").map((item) => (
               <SidebarNavRow item={item} key={item.id} pathname={pathname} />
             ))}
             <button
-              aria-expanded={projectsOpen}
+              aria-expanded={chatsOpen}
               className="paper-focus-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+              onClick={() => onChatsOpenChange((current) => !current)}
+              type="button"
+            >
+              <span>Chats</span>
+              <ChevronDown
+                aria-hidden="true"
+                className={cn("h-3.5 w-3.5 transition-transform", chatsOpen && "rotate-180")}
+              />
+            </button>
+            {chatsOpen ? <ChatList activeThreadId={activeThreadId} chats={sidebarChats} /> : null}
+
+            <button
+              aria-expanded={projectsOpen}
+              className="paper-focus-ring mt-2 flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
               onClick={() => onProjectsOpenChange((current) => !current)}
               type="button"
             >
-              <span>Recent projects</span>
+              <span>Projects</span>
               <ChevronDown
                 aria-hidden="true"
                 className={cn("h-3.5 w-3.5 transition-transform", projectsOpen && "rotate-180")}
@@ -860,6 +890,49 @@ function SidebarHelpCard({ item, pathname }: { item: NavItem; pathname: string }
   );
 }
 
+function ChatList({
+  activeThreadId,
+  chats,
+}: {
+  activeThreadId: string | null;
+  chats: ReturnType<typeof useSidebarChats>;
+}) {
+  if (chats.isLoading) {
+    return <ProjectSkeletonRows />;
+  }
+  if (chats.items.length === 0) {
+    return <div className="px-2 py-2 text-[#a0a0a0] text-[12px]">No chats yet</div>;
+  }
+  return (
+    <div className="space-y-1 py-1">
+      {chats.items.slice(0, 12).map((chat) => (
+        <ChatRow activeThreadId={activeThreadId} chat={chat} key={chat.id} />
+      ))}
+    </div>
+  );
+}
+
+function ChatRow({
+  activeThreadId,
+  chat,
+}: {
+  activeThreadId: string | null;
+  chat: SearchResultThread;
+}) {
+  const isActive = activeThreadId === chat.id;
+  return (
+    <Link
+      className={cn(
+        "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+        isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
+      )}
+      href={`/projects?thread=${encodeURIComponent(chat.id)}`}
+    >
+      <span className="min-w-0 flex-1 truncate">{chat.title || "Untitled chat"}</span>
+    </Link>
+  );
+}
+
 function ProjectList({
   activeThreadId,
   deleteMutation,
@@ -1116,6 +1189,20 @@ function RenameProjectDialog({
 
 function navItems(section: NavItem["section"]): NavItem[] {
   return WORKSPACE_NAV.filter((item) => item.section === section && item.status === "active");
+}
+
+function useSidebarChats(getToken: () => Promise<null | string>, enabled: boolean) {
+  const { data, isPending } = useQuery({
+    enabled,
+    queryFn: () => listRecentThreads(getToken, 20),
+    queryKey: ["sidebar-chats"],
+    retry: false,
+    staleTime: 30_000,
+  });
+  return {
+    isLoading: enabled && isPending,
+    items: enabled ? (data ?? []) : [],
+  };
 }
 
 function useSidebarProjects(getToken: () => Promise<null | string>, enabled: boolean) {

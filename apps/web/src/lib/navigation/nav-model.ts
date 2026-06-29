@@ -48,7 +48,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
   {
     icon: Plus,
     id: "new-task",
-    label: "New task",
+    label: "New chat",
     section: "primary",
     status: "active",
     target: { href: "/", kind: "route", matchPrefix: "/" },

@@ -21,6 +21,12 @@ const searchLimitParameter: JsonValue = {
   schema: { default: 10, maximum: 20, minimum: 1, type: "integer" },
 };
 
+const recentThreadsLimitParameter: JsonValue = {
+  in: "query",
+  name: "limit",
+  schema: { default: 20, maximum: 50, minimum: 1, type: "integer" },
+};
+
 export const discoverySchemas: Record<string, JsonValue> = {
   GreetingResponse: {
     additionalProperties: false,
@@ -82,6 +88,14 @@ export const discoverySchemas: Record<string, JsonValue> = {
     required: ["id", "projectId", "projectName", "title", "type", "updatedAt"],
     type: "object",
   },
+  RecentThreadsResponse: {
+    additionalProperties: false,
+    properties: {
+      threads: arrayOf(schemaRef("SearchResultThread")),
+    },
+    required: ["threads"],
+    type: "object",
+  },
 };
 
 export const discoveryRoutes: OpenApiRoute[] = [
@@ -96,6 +110,19 @@ export const discoveryRoutes: OpenApiRoute[] = [
     },
     security: [{ bearerAuth: [] }],
     summary: "Search projects and threads",
+    tags: ["discovery"],
+  },
+  {
+    method: "get",
+    operationId: "listRecentThreads",
+    parameters: [recentThreadsLimitParameter],
+    path: "/v1/threads",
+    responses: {
+      "200": jsonResponse("Recent chats (threads)", schemaRef("RecentThreadsResponse")),
+      "400": jsonResponse("Invalid query", schemaRef("Error")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "List recent chats across projects",
     tags: ["discovery"],
   },
   {

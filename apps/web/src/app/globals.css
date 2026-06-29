@@ -465,6 +465,18 @@
     background: linear-gradient(180deg, #f7f7f7 0%, rgba(247, 247, 247, 0) 100%);
   }
 
+  /* Composer "working heartbeat" — a gentle amber inset glow that pulses while the
+     agent is actively running (bud parity). Gated in JS on the run status. */
+  .bud-composer-working {
+    animation: cc-heartbeat 1.4s ease-in-out infinite;
+  }
+
+  /* 0.4s entrance fade for new transcript items (assistant bubbles, thought/tool
+     cards). Applied only to stable-keyed nodes — never the streaming text wrapper. */
+  .cc-fade-in {
+    animation: cc-fade-in 0.4s ease-out both;
+  }
+
   .bud-lifted-surface {
     background: #ffffff;
     box-shadow:
@@ -781,6 +793,27 @@
   }
 }
 
+/* Composer working glow — pulses an amber inset shadow (bud's heartbeat-shadow). */
+@keyframes cc-heartbeat {
+  0%,
+  100% {
+    box-shadow: inset 0 0 12px rgba(248, 175, 44, 0.16);
+  }
+  50% {
+    box-shadow: inset 0 0 22px rgba(248, 175, 44, 0.5);
+  }
+}
+
+/* Gentle entrance fade for new transcript items. */
+@keyframes cc-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 @keyframes gradient-shift {
   0% {
     background-position: 0% 50%;
@@ -863,5 +896,16 @@
     100% {
       background-position: -200% 0;
     }
+  }
+}
+
+/* Accessibility + paint cost: disable the new decorative run animations when the
+   user requests reduced motion. The infinite composer heartbeat is the main offender. */
+@media (prefers-reduced-motion: reduce) {
+  .bud-composer-working {
+    animation: none;
+  }
+  .cc-fade-in {
+    animation: none;
   }
 }

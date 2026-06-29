@@ -286,18 +286,38 @@ function ChatContextRow({
   threadId: string;
   title: null | string | undefined;
 }) {
-  const projectName = project?.name?.trim() || "new project";
-  const titleText = title?.trim() || "New task";
+  const titleText = title?.trim() || "New chat";
+  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
+  const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
+  const previewUrl = useAppStore((state) => state.previewUrl);
+  const sandboxStatus = useAppStore((state) => state.sandboxStatus);
+  // Mirror ChatPanel's `hasPreviewSurface` so the Computer toggle only shows when the
+  // panel can actually render — never a no-op (the panel returns null when fully cold).
+  const hasComputerSurface = previewUrl !== null || sandboxStatus !== "cold";
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
 
   return (
     <header className="flex h-[54px] shrink-0 items-center gap-3 px-4 pt-3 text-[#1b1b1b]">
-      <span className="inline-flex h-[30px] min-w-0 max-w-[160px] items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 text-[13px]">
-        <Monitor aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#8a8a8a]" />
-        <span className="truncate">{projectName}</span>
-      </span>
       <h1 className="min-w-0 flex-1 truncate font-semibold text-[15px]">{titleText}</h1>
+      {hasComputerSurface ? (
+        <button
+          aria-label={previewPanelOpen ? "Hide computer" : "Show computer"}
+          aria-pressed={previewPanelOpen}
+          // The preview panel only renders at xl, so the toggle is xl-only too.
+          className={cn(
+            "hidden h-[30px] shrink-0 items-center gap-2 rounded-full border px-3 text-[13px] transition-colors xl:inline-flex",
+            previewPanelOpen
+              ? "border-[#e3e3e3] bg-[#f5f5f5] text-[#1b1b1b]"
+              : "border-[#f1f1f1] bg-white text-[#5f5f5f] hover:text-[#1b1b1b]",
+          )}
+          onClick={() => setPreviewPanelOpen(!previewPanelOpen)}
+          type="button"
+        >
+          <Monitor aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+          <span>Computer</span>
+        </button>
+      ) : null}
       {project ? (
         <button
           aria-label="Share this run"

@@ -111,3 +111,46 @@ export async function searchWorkspace(
 
   return [...projectResults, ...threadResults];
 }
+
+/**
+ * A user's most-recently-active threads (chats) across all their projects, newest first.
+ * Backs the chat-first sidebar's "Chats" list. Mirrors the thread half of
+ * `searchWorkspace` minus the title filter; filters by BOTH `threads.userId` and
+ * `projects.userId` (defense-in-depth — these tables have no broad RLS). Served by the
+ * partial index `threads (user_id, updated_at desc) where deleted_at is null`.
+ */
+export async function listRecentThreads(
+  db: Database,
+  userId: UserId,
+  limit: number,
+): Promise<WorkspaceThreadSearchRecord[]> {
+  const rows = await db
+    .select({
+      id: threads.id,
+      title: threads.title,
+      updatedAt: threads.updatedAt,
+      projectId: projects.id,
+      projectName: projects.name,
+    })
+    .from(threads)
+    .innerJoin(
+      projects,
+      and(
+        eq(projects.id, threads.projectId),
+        eq(projects.userId, userId),
+        isNull(projects.deletedAt),
+      ),
+    )
+    .where(and(eq(threads.userId, userId), isNull(threads.deletedAt)))
+    .orderBy(desc(threads.updatedAt))
+    .limit(limit);
+
+  return rows.map((row) => ({
+    type: "thread",
+    id: toThreadId(row.id),
+    title: row.title ?? "",
+    projectId: toProjectId(row.projectId),
+    projectName: row.projectName,
+    updatedAt: row.updatedAt,
+  }));
+}
