@@ -23,7 +23,9 @@ export default function HomePage() {
             cheatcode ready to build
           </h1>
           <HomeComposerFromSearchParams />
-          <FeaturedReplays />
+          <Suspense fallback={<div className="mt-6 h-32 w-full rounded-2xl bg-[#f7f7f7]" />}>
+            <FeaturedReplays />
+          </Suspense>
         </section>
       </main>
     </div>
