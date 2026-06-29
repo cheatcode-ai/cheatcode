@@ -8,5 +8,6 @@ export { userProfiles } from "./profiles";
 export type { DirectoryBackupHandle, ProjectSettings } from "./projects";
 export { projects, threads } from "./projects";
 export { replayShares } from "./replays";
+export { userSkills } from "./skills";
 export { usageDailyTotals, usageEvents } from "./usage";
 export { users } from "./users";

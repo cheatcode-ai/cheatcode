@@ -22,6 +22,7 @@ export type {
   CreateReplayShare,
   CreateRun,
   CreateThread,
+  CreateUserSkill,
   FeaturedReplays,
   GeneratedOutputSummary,
   GeneratedOutputsResponse,
@@ -80,6 +81,8 @@ export type {
   UsageDailyTotal,
   UsageDailyTotalsResponse,
   UsageRunPoint,
+  UserSkill,
+  UserSkillsResponse,
 } from "./api";
 export {
   AgentSummarySchema,
@@ -106,6 +109,7 @@ export {
   CreateReplayShareSchema,
   CreateRunSchema,
   CreateThreadSchema,
+  CreateUserSkillSchema,
   FeaturedReplaysSchema,
   GeneratedOutputSummarySchema,
   GeneratedOutputsResponseSchema,
@@ -168,6 +172,8 @@ export {
   UsageDailyTotalSchema,
   UsageDailyTotalsResponseSchema,
   UsageRunPointSchema,
+  UserSkillSchema,
+  UserSkillsResponseSchema,
 } from "./api";
 export type { ErrorCode, ErrorResponse } from "./errors";
 export { ErrorResponseSchema } from "./errors";

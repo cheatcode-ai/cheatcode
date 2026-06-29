@@ -97,6 +97,7 @@ import {
   updateReplayShareRoute,
 } from "./replay-share-routes";
 import { searchWorkspaceRoute } from "./search-routes";
+import { createUserSkillRoute, deleteUserSkillRoute, listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
 
@@ -309,6 +310,21 @@ export const gatewayRoutes = gatewayApp
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/threads/:threadId/replay-share");
     return getThreadReplayShareRoute(c.env, c.executionCtx, userId, c.req.param("threadId"));
+  })
+  .get("/v1/skills", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/skills");
+    return listUserSkillsRoute(c.env, c.executionCtx, userId);
+  })
+  .post("/v1/skills", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "POST /v1/skills");
+    return createUserSkillRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+  .delete("/v1/skills/:skillId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "DELETE /v1/skills/:skillId");
+    return deleteUserSkillRoute(c.env, c.executionCtx, userId, c.req.param("skillId"));
   })
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);

@@ -701,6 +701,32 @@ export const UpdateReplayShareSchema = z
     message: "At least one replay share field is required.",
   });
 
+/** A user-created skill (client-safe projection; `body` only travels on detail/create). */
+export const UserSkillSchema = z
+  .object({
+    category: z.string(),
+    createdAt: z.string().datetime(),
+    description: z.string(),
+    id: z.string().uuid(),
+    name: z.string(),
+    tags: z.array(z.string()),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const UserSkillsResponseSchema = z.object({ skills: z.array(UserSkillSchema) }).strict();
+
+/** Body of `POST /v1/skills` — create/update a custom skill (by name). */
+export const CreateUserSkillSchema = z
+  .object({
+    body: z.string().trim().min(1).max(40_000),
+    category: z.string().trim().min(1).max(80).optional(),
+    description: z.string().trim().min(1).max(400),
+    name: z.string().trim().min(1).max(80),
+    tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  })
+  .strict();
+
 export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
 export type ApprovalDecisionResponse = z.infer<typeof ApprovalDecisionResponseSchema>;
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
@@ -770,6 +796,9 @@ export type CreateReplayShare = z.infer<typeof CreateReplayShareSchema>;
 export type ReplayShare = z.infer<typeof ReplayShareSchema>;
 export type ReplayVisibility = z.infer<typeof ReplayVisibilitySchema>;
 export type UpdateReplayShare = z.infer<typeof UpdateReplayShareSchema>;
+export type CreateUserSkill = z.infer<typeof CreateUserSkillSchema>;
+export type UserSkill = z.infer<typeof UserSkillSchema>;
+export type UserSkillsResponse = z.infer<typeof UserSkillsResponseSchema>;
 
 // ---------------------------------------------------------------------------
 // Automations (bud-parity: scheduled + event-triggered agent runs)

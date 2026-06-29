@@ -167,6 +167,13 @@ export type {
   WorkspaceThreadSearchRecord,
 } from "./search";
 export { searchWorkspace } from "./search";
+export type { UpsertUserSkillInput, UserSkillRecord } from "./skills";
+export {
+  deleteUserSkill,
+  getUserSkillByName,
+  listUserSkills,
+  upsertUserSkill,
+} from "./skills";
 export type {
   ActivationEventRecord,
   UsageDailyTotalRecord,
