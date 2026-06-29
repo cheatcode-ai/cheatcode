@@ -28,7 +28,11 @@ import {
 import { Cron } from "croner";
 import { z } from "zod";
 import { requireVerifiedClerkEmail } from "./authenticate";
-import { deleteAutomationTrigger, registerAutomationTrigger } from "./automation-triggers";
+import {
+  deleteAutomationTrigger,
+  registerAutomationTrigger,
+  setAutomationTriggerState,
+} from "./automation-triggers";
 import type { GatewayEnv } from "./index";
 import { enforceActiveProjectLimit } from "./limits";
 
@@ -208,7 +212,10 @@ export async function updateAutomationRoute(
   const patch = parsed.data;
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const summary = await withUserContext(db, userId, async (tx) => {
+    // Pausing/resuming an EVENT automation must also disable/enable its Composio
+    // trigger so a paused automation stops receiving webhook deliveries (and a
+    // resumed one starts again). The intent is returned from the tx, applied after.
+    const { summary, triggerSync } = await withUserContext(db, userId, async (tx) => {
       const existing = await getAutomation(tx, userId, id);
       if (!existing) {
         throw notFound("Automation not found");
@@ -218,8 +225,25 @@ export async function updateAutomationRoute(
       if (!row) {
         throw notFound("Automation not found");
       }
-      return automationToSummary(row);
+      const shouldSync =
+        existing.kind === "event" &&
+        Boolean(existing.triggerId) &&
+        patch.status !== undefined &&
+        patch.status !== existing.status;
+      return {
+        summary: automationToSummary(row),
+        triggerSync:
+          shouldSync && existing.triggerId
+            ? {
+                state: (patch.status === "running" ? "enable" : "disable") as "disable" | "enable",
+                triggerId: existing.triggerId,
+              }
+            : null,
+      };
     });
+    if (triggerSync) {
+      await setAutomationTriggerState(env, triggerSync.triggerId, triggerSync.state);
+    }
     return Response.json(AutomationSummarySchema.parse(summary));
   } finally {
     ctx.waitUntil(close());

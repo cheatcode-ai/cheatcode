@@ -17,9 +17,9 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
 import { ArrowUpRight, ChevronDown, Loader2 } from "@/components/ui/icons";
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
-import { requestCheckout } from "@/lib/api/billing";
 import {
   formatHoursTotal,
   formatHoursUsed,
@@ -84,20 +84,19 @@ export function BillingPanel() {
 }
 
 function ViewPricingButton({ getToken }: { getToken: () => Promise<null | string> }) {
-  const upgradeMutation = useUpgradeMutation(getToken);
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   return (
-    <button
-      className="relative isolate inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-white px-3 font-medium text-[#1b1b1b] text-[13px] leading-[19.5px] shadow-[0_0_0_1px_rgba(27,27,27,0.02),0_1px_2px_-1px_rgba(27,27,27,0.02),0_2px_4px_rgba(27,27,27,0.01)] transition duration-200 hover:bg-[#f7f7f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/10 focus-visible:ring-offset-1 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50"
-      disabled={upgradeMutation.isPending}
-      onClick={() => upgradeMutation.mutate()}
-      type="button"
-    >
-      {upgradeMutation.isPending ? (
-        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-      ) : null}
-      View pricing
-    </button>
+    <>
+      <button
+        className="relative isolate inline-flex h-7 shrink-0 cursor-pointer items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-white px-3 font-medium text-[#1b1b1b] text-[13px] leading-[19.5px] shadow-[0_0_0_1px_rgba(27,27,27,0.02),0_1px_2px_-1px_rgba(27,27,27,0.02),0_2px_4px_rgba(27,27,27,0.01)] transition duration-200 hover:bg-[#f7f7f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/10 focus-visible:ring-offset-1 active:scale-[0.99]"
+        onClick={() => setPickerOpen(true)}
+        type="button"
+      >
+        View pricing
+      </button>
+      <UpgradeDialog getToken={getToken} onClose={() => setPickerOpen(false)} open={pickerOpen} />
+    </>
   );
 }
 
@@ -128,8 +127,8 @@ function SandboxHoursMeterBody({
   usage: SandboxUsageSummaryResponse;
 }) {
   const [usageView, setUsageView] = useState<"remaining" | "used">("remaining");
+  const [pickerOpen, setPickerOpen] = useState(false);
   const portalMutation = usePortalMutation(getToken);
-  const upgradeMutation = useUpgradeMutation(getToken);
   const remaining = Math.max(0, usage.sandboxHoursTotal - usage.sandboxHoursUsed);
   const displayedHours = usageView === "remaining" ? remaining : usage.sandboxHoursUsed;
   const fraction =
@@ -140,7 +139,7 @@ function SandboxHoursMeterBody({
   const nextLabel =
     usageView === "remaining" ? "Show sandbox hours used" : "Show sandbox hours remaining";
   const isPaidTier = usage.tier !== "free";
-  const actionPending = isPaidTier ? portalMutation.isPending : upgradeMutation.isPending;
+  const actionPending = isPaidTier && portalMutation.isPending;
   const actionLabel = isPaidTier ? "Manage" : "Upgrade";
 
   return (
@@ -174,7 +173,7 @@ function SandboxHoursMeterBody({
           <button
             className="inline-flex h-8 items-center rounded-full bg-[#0f0f0f] px-4 font-medium text-sm text-white transition-colors hover:bg-[#2a2a2a] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/20 focus-visible:ring-offset-2"
             disabled={actionPending}
-            onClick={() => (isPaidTier ? portalMutation.mutate() : upgradeMutation.mutate())}
+            onClick={() => (isPaidTier ? portalMutation.mutate() : setPickerOpen(true))}
             type="button"
           >
             {actionPending ? (
@@ -197,6 +196,7 @@ function SandboxHoursMeterBody({
           />
         ))}
       </div>
+      <UpgradeDialog getToken={getToken} onClose={() => setPickerOpen(false)} open={pickerOpen} />
     </div>
   );
 }
@@ -726,23 +726,6 @@ function usePortalMutation(getToken: () => Promise<null | string>) {
     },
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Billing redirect failed");
-    },
-    onSuccess: (url) => {
-      window.location.assign(url);
-    },
-  });
-}
-
-function useUpgradeMutation(getToken: () => Promise<null | string>) {
-  return useMutation({
-    mutationFn: () =>
-      requestCheckout(getToken, {
-        returnUrl: window.location.href,
-        successUrl: window.location.href,
-        tier: "pro",
-      }),
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Checkout failed");
     },
     onSuccess: (url) => {
       window.location.assign(url);

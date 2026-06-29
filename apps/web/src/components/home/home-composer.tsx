@@ -8,7 +8,6 @@ import {
   SandboxUsageSummaryResponseSchema,
 } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
-import { useMutation } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
@@ -22,6 +21,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
 import { AddMenu } from "@/components/composer/add-menu";
 import {
   ComposerContextChips,
@@ -37,18 +37,8 @@ import {
 } from "@/components/composer/use-composer-triggers";
 import { resolveInitialSkill, skillSurface } from "@/components/home/use-initial-skill";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import {
-  ArrowUp,
-  Globe,
-  Loader2,
-  Smartphone,
-  Star,
-  TrendingUp,
-  X,
-  Zap,
-} from "@/components/ui/icons";
+import { ArrowUp, Globe, Smartphone, Star, TrendingUp, X, Zap } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
-import { requestCheckout } from "@/lib/api/billing";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
 import { detectSlashToken } from "@/lib/input/caret-tokens";
 import {
@@ -558,20 +548,7 @@ async function resolveComposerAuthToken(
 
 function FreePlanComposerBanner({ getToken }: { getToken: () => Promise<null | string> }) {
   const tier = useComposerUsageTier();
-  const checkoutMutation = useMutation({
-    mutationFn: () =>
-      requestCheckout(getToken, {
-        returnUrl: window.location.href,
-        successUrl: window.location.href,
-        tier: "pro",
-      }),
-    onError: (error) => {
-      toast.error(error instanceof Error ? error.message : "Checkout failed");
-    },
-    onSuccess: (url) => {
-      window.location.assign(url);
-    },
-  });
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   if (tier && tier !== "free") {
     return null;
@@ -588,23 +565,16 @@ function FreePlanComposerBanner({ getToken }: { getToken: () => Promise<null | s
               </span>
               <button
                 className="shrink-0 font-medium text-[#5f5f5f] text-[13px] leading-[19.5px] transition-colors hover:text-[#1b1b1b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/15 focus-visible:ring-offset-2"
-                disabled={checkoutMutation.isPending}
-                onClick={() => checkoutMutation.mutate()}
+                onClick={() => setPickerOpen(true)}
                 type="button"
               >
-                {checkoutMutation.isPending ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
-                    Opening
-                  </span>
-                ) : (
-                  "Select a plan"
-                )}
+                Select a plan
               </button>
             </div>
           </div>
         </div>
       </div>
+      <UpgradeDialog getToken={getToken} onClose={() => setPickerOpen(false)} open={pickerOpen} />
     </div>
   );
 }

@@ -1,5 +1,6 @@
 "use client";
 
+import type { PaidBillingTier } from "@cheatcode/types";
 import Link from "next/link";
 import { type ReactNode, useState } from "react";
 import { Check, ExternalLink, Loader2 } from "@/components/ui/icons";
@@ -21,9 +22,9 @@ const TOOL_ROWS = [
 
 const BASIC_ROWS = [
   {
-    cta: "Coming soon",
+    cta: "Open automations",
     description: 'Automate routine work - e.g. "Every morning at 8, draft a social pack."',
-    href: null,
+    href: "/automations",
     title: "Automations",
   },
   {
@@ -42,11 +43,16 @@ const BASIC_ROWS = [
 
 // Sandbox-hour allowances mirror PLAN_CATALOG in @cheatcode/billing (design 15f).
 const TIERS = [
-  { bullet: "60 sandbox-hours / month", name: "Pro", price: "$25", primary: true },
-  { bullet: "140 sandbox-hours / month", name: "Premium", price: "$50", primary: false },
-  { bullet: "320 sandbox-hours / month", name: "Ultra", price: "$99", primary: false },
-  { bullet: "800 sandbox-hours / month", name: "Max", price: "$200", primary: false },
-] as const;
+  { bullet: "60 sandbox-hours / month", name: "Pro", price: "$25", tier: "pro" },
+  { bullet: "140 sandbox-hours / month", name: "Premium", price: "$50", tier: "premium" },
+  { bullet: "320 sandbox-hours / month", name: "Ultra", price: "$99", tier: "ultra" },
+  { bullet: "800 sandbox-hours / month", name: "Max", price: "$200", tier: "max" },
+] as const satisfies readonly {
+  bullet: string;
+  name: string;
+  price: string;
+  tier: PaidBillingTier;
+}[];
 
 export function IntroStep({ onContinue }: { onContinue: () => void }) {
   return (
@@ -154,14 +160,14 @@ export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onS
 }
 
 export function PlanStep({
-  canCheckout,
+  availableTiers,
   isBusy,
   onCheckout,
   onComplete,
 }: {
-  canCheckout: boolean;
+  availableTiers: ReadonlySet<PaidBillingTier>;
   isBusy: boolean;
-  onCheckout: () => void;
+  onCheckout: (tier: PaidBillingTier) => void;
   onComplete: (target: string) => void;
 }) {
   return (
@@ -170,7 +176,7 @@ export function PlanStep({
       <div className="grid gap-3 sm:grid-cols-2">
         {TIERS.map((tier) => (
           <PlanCard
-            canCheckout={canCheckout}
+            available={availableTiers.has(tier.tier)}
             isBusy={isBusy}
             key={tier.name}
             onCheckout={onCheckout}
@@ -189,15 +195,15 @@ export function PlanStep({
 }
 
 function PlanCard({
-  canCheckout,
+  available,
   isBusy,
   onCheckout,
   tier,
 }: {
-  canCheckout: boolean;
+  available: boolean;
   isBusy: boolean;
-  onCheckout: () => void;
-  tier: { bullet: string; name: string; price: string; primary: boolean };
+  onCheckout: (tier: PaidBillingTier) => void;
+  tier: { bullet: string; name: string; price: string; tier: PaidBillingTier };
 }) {
   return (
     <div className="flex flex-col justify-between rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] p-5">
@@ -208,15 +214,15 @@ function PlanCard({
         </div>
         <p className="mt-2 text-[#8a8a8a] text-xs">{tier.bullet}</p>
       </div>
-      {tier.primary ? (
+      {available ? (
         <button
           className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#1b1b1b] px-4 font-medium text-sm text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={!canCheckout || isBusy}
-          onClick={onCheckout}
+          disabled={isBusy}
+          onClick={() => onCheckout(tier.tier)}
           type="button"
         >
           {isBusy ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
-          {canCheckout ? "Upgrade to Pro" : "Unavailable"}
+          Upgrade to {tier.name}
         </button>
       ) : (
         <div className="mt-4 flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] text-[#a0a0a0] text-xs">

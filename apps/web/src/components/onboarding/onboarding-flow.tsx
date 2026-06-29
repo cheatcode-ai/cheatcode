@@ -4,6 +4,9 @@ import {
   type OnboardingStep,
   OnboardingStepSchema,
   type OnboardingStepStatus,
+  type PaidBillingTier,
+  PaidBillingTierSchema,
+  type PlanSummary,
   type UpdateUserProfile,
   type UserProfile,
 } from "@cheatcode/types";
@@ -26,15 +29,28 @@ import { useProfileQuery, useUpdateProfileMutation } from "@/lib/hooks/use-profi
 
 type Phase = "finishing" | "loading" | "retry" | "stepping";
 
+/** The set of paid tiers the catalog reports as purchasable right now (a tier is
+ * unavailable until its Polar product id is configured). */
+function availablePaidTiers(plans: PlanSummary[] | undefined): ReadonlySet<PaidBillingTier> {
+  const tiers = new Set<PaidBillingTier>();
+  for (const plan of plans ?? []) {
+    const paid = PaidBillingTierSchema.safeParse(plan.id);
+    if (paid.success && plan.available) {
+      tiers.add(paid.data);
+    }
+  }
+  return tiers;
+}
+
 const STEP_ORDER = OnboardingStepSchema.options;
 
 interface StepProps {
-  canCheckout: boolean;
+  availableTiers: ReadonlySet<PaidBillingTier>;
   initialName: string;
   isBusy: boolean;
   onBasicsContinue: () => void;
   onBasicsSkip: () => void;
-  onCheckout: () => void;
+  onCheckout: (tier: PaidBillingTier) => void;
   onIntro: () => void;
   onNameContinue: (name: string) => void;
   onNameSkip: () => void;
@@ -61,8 +77,7 @@ export function OnboardingFlow() {
   const { mutateAsync } = mutation;
   const checkoutMutation = useCheckoutMutation(getToken);
   const catalogQuery = useBillingCatalogQuery(getToken);
-  const canCheckout =
-    catalogQuery.data?.plans.some((plan) => plan.id === "pro" && plan.available) ?? false;
+  const availableTiers = availablePaidTiers(catalogQuery.data?.plans);
 
   const completeOnboarding = useCallback(
     async (target: string, planStatus: OnboardingStepStatus = "done") => {
@@ -147,7 +162,7 @@ export function OnboardingFlow() {
   }
 
   const stepProps: StepProps = {
-    canCheckout,
+    availableTiers,
     initialName: profile?.agentDisplayName ?? "",
     isBusy: checkoutMutation.isPending,
     onBasicsContinue: () => {
@@ -158,7 +173,7 @@ export function OnboardingFlow() {
       recordStep("basics", "skipped");
       advance();
     },
-    onCheckout: () => checkoutMutation.mutate(),
+    onCheckout: (tier) => checkoutMutation.mutate(tier),
     onIntro: () => {
       recordStep("intro", "done");
       advance();
@@ -209,7 +224,7 @@ function renderStep(stepName: OnboardingStep, props: StepProps): ReactNode {
     case "plan":
       return (
         <PlanStep
-          canCheckout={props.canCheckout}
+          availableTiers={props.availableTiers}
           isBusy={props.isBusy}
           onCheckout={props.onCheckout}
           onComplete={props.onPlanComplete}
@@ -222,13 +237,13 @@ function renderStep(stepName: OnboardingStep, props: StepProps): ReactNode {
 
 function useCheckoutMutation(getToken: () => Promise<null | string>) {
   return useMutation({
-    mutationFn: () =>
+    mutationFn: (tier: PaidBillingTier) =>
       requestCheckout(getToken, {
         returnUrl: window.location.href,
         // Marker so the onboarding flow auto-completes on return instead of
         // dropping the buyer back on the Plan step.
         successUrl: `${window.location.origin}${window.location.pathname}?checkout=success`,
-        tier: "pro",
+        tier,
       }),
     onError: (error) => {
       toast.error(error instanceof Error ? error.message : "Checkout failed");
