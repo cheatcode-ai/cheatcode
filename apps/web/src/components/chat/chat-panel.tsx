@@ -7,15 +7,16 @@ import {
   ErrorResponseSchema,
   type ProjectSummary,
 } from "@cheatcode/types";
+import { ModalShell } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport } from "ai";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
-import { Monitor } from "@/components/ui/icons";
+import { Monitor, SlidersHorizontal } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
 import { useAppStore } from "@/lib/store/app-store";
@@ -284,6 +285,7 @@ function ChatContextRow({
 }) {
   const projectName = project?.name?.trim() || "new project";
   const titleText = title?.trim() || "New task";
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   return (
     <header className="flex h-[54px] shrink-0 items-center gap-3 px-4 pt-3 text-[#1b1b1b]">
@@ -292,8 +294,110 @@ function ChatContextRow({
         <span className="truncate">{projectName}</span>
       </span>
       <h1 className="min-w-0 flex-1 truncate font-semibold text-[15px]">{titleText}</h1>
+      {project ? (
+        <button
+          aria-label="Project settings"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[#8a8a8a] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+          onClick={() => setSettingsOpen(true)}
+          type="button"
+        >
+          <SlidersHorizontal aria-hidden="true" className="h-4 w-4" />
+        </button>
+      ) : null}
       <span className="shrink-0 text-[#8a8a8a] text-[13px]">$0.00</span>
+      {project ? (
+        <ProjectSettingsDialog
+          onClose={() => setSettingsOpen(false)}
+          open={settingsOpen}
+          project={project}
+        />
+      ) : null}
     </header>
+  );
+}
+
+function ProjectSettingsDialog({
+  onClose,
+  open,
+  project,
+}: {
+  onClose: () => void;
+  open: boolean;
+  project: ProjectSummary;
+}) {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+  const [instructions, setInstructions] = useState(project.masterInstructions ?? "");
+  const [model, setModel] = useState(project.defaultModel ?? "");
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateProject(getToken, project.id, {
+        defaultModel: model.trim() || null,
+        masterInstructions: instructions.trim() || null,
+      }),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not save project settings"),
+    onSuccess: () => {
+      toast.success("Project settings saved");
+      void queryClient.invalidateQueries({ queryKey: ["projects", project.id] });
+      onClose();
+    },
+  });
+
+  return (
+    <ModalShell
+      ariaLabel="Project settings"
+      className="m-auto w-full max-w-lg"
+      onClose={onClose}
+      open={open}
+    >
+      <form
+        className="flex flex-col gap-4 p-5 text-[#1b1b1b]"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!mutation.isPending) {
+            mutation.mutate();
+          }
+        }}
+      >
+        <h2 className="font-semibold text-[18px]">Project settings</h2>
+        <label className="flex flex-col gap-1.5">
+          <span className="font-medium text-[#5f5f5f] text-[12px]">Master instructions</span>
+          <textarea
+            className="min-h-[120px] w-full resize-y rounded-lg border border-[#ececec] bg-white px-3 py-2 text-[#1b1b1b] text-[14px] outline-none focus:border-[#1b1b1b]/40"
+            onChange={(event) => setInstructions(event.target.value)}
+            placeholder="Persistent guidance applied to every run in this project."
+            value={instructions}
+          />
+        </label>
+        <label className="flex flex-col gap-1.5">
+          <span className="font-medium text-[#5f5f5f] text-[12px]">Default model</span>
+          <input
+            className="h-9 w-full rounded-lg border border-[#ececec] bg-white px-3 text-[#1b1b1b] text-[14px] outline-none focus:border-[#1b1b1b]/40"
+            onChange={(event) => setModel(event.target.value)}
+            placeholder="e.g. claude-sonnet-4-6 (leave blank for Auto)"
+            value={model}
+          />
+        </label>
+        <div className="flex justify-end gap-2">
+          <button
+            className="rounded-full border border-[#ececec] px-4 py-1.5 font-medium text-[13px] hover:bg-[#f7f7f7]"
+            onClick={onClose}
+            type="button"
+          >
+            Cancel
+          </button>
+          <button
+            className="rounded-full bg-[#1b1b1b] px-4 py-1.5 font-medium text-[13px] text-white hover:bg-black disabled:opacity-50"
+            disabled={mutation.isPending}
+            type="submit"
+          >
+            {mutation.isPending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </form>
+    </ModalShell>
   );
 }
 
