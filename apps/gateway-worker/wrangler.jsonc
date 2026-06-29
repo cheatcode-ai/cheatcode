@@ -6,6 +6,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-05-20",
   "compatibility_flags": ["nodejs_compat"],
+  // Polar product ids per paid tier — non-secret config (they appear in checkout URLs),
+  // bound as plain vars. Ultra/Max have no Polar product yet, so those tiers 503 until
+  // the owner creates the products and adds their ids here.
+  "vars": {
+    "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
+    "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
+  },
   "routes": [
     {
       "pattern": "gateway.trycheatcode.com/*",

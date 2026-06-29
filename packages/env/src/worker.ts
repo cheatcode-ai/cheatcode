@@ -48,6 +48,12 @@ export const GatewayWorkerEnvSchema = z
     IDEMPOTENCY: z.custom<DurableObjectNamespace>().optional(),
     INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
+    // Polar product ids per paid tier — non-secret config bound as plain wrangler vars
+    // (not secrets). Optional so a tier without a Polar product simply 503s on checkout.
+    POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
     QUOTA_TRACKER: z.custom<DurableObjectNamespace>(),
     RATE_LIMITER: z.custom<DurableObjectNamespace>(),
   })
