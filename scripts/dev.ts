@@ -226,9 +226,24 @@ function parseArgs(argv: string[]): DevOptions {
   return options;
 }
 
+/** Matches a JSON string literal (group 1), a `//` line comment, or a `/* *​/` block comment. */
+const JSONC_TOKEN = /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
+
+/**
+ * Strip comments + trailing commas from a JSONC source so the wrangler `.jsonc` configs
+ * (which legitimately contain comments) can be `JSON.parse`d. String-aware: the alternation
+ * matches whole string literals first and the replacer keeps them, so comment-like
+ * sequences inside strings are never touched.
+ */
+function stripJsonc(input: string): string {
+  return input
+    .replace(JSONC_TOKEN, (_match, stringLiteral?: string) => stringLiteral ?? "")
+    .replace(/,(\s*[}\]])/g, "$1");
+}
+
 function createLocalWorkerConfig(configPath: string): string {
   const absolutePath = resolve(GATEWAY_WORKER_DIR, configPath);
-  const parsed = JSON.parse(readFileSync(absolutePath, "utf8")) as unknown;
+  const parsed = JSON.parse(stripJsonc(readFileSync(absolutePath, "utf8"))) as unknown;
   if (!isRecord(parsed)) {
     throw new Error(`${configPath} must parse to a JSON object.`);
   }
