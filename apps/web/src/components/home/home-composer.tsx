@@ -480,25 +480,25 @@ type AttachmentStatus = {
 
 const SKILL_CREATOR_SUGGESTIONS = [
   "Create a skill that drafts follow-up emails from meeting notes",
-  "Create a skill that summarizes Linear issues into a weekly digest",
+  "Create a skill that summarizes Linear issues",
   "Create a skill that turns screenshots into bug reports",
   "Create a skill that researches a company before sales calls",
 ] as const;
 
 function SkillCreatorSuggestions({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="mx-auto mt-6 w-full max-w-[564px] overflow-hidden rounded-[18px] border border-[#f1f1f1] bg-white">
-      <p className="px-4 pt-3 pb-1 font-medium text-[#a0a0a0] text-[12px]">Create skills</p>
-      <ul>
+    <div className="mx-auto mt-6 w-full max-w-[448px] overflow-hidden rounded-[17px] border border-[#f1f1f1] bg-white">
+      <p className="px-3.5 pt-2.5 pb-0.5 font-medium text-[#a0a0a0] text-[12px]">Create skills</p>
+      <ul className="pb-1">
         {SKILL_CREATOR_SUGGESTIONS.map((suggestion) => (
           <li key={suggestion}>
             <button
-              className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left font-medium text-[#1b1b1b] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7]"
+              className="flex w-full items-center gap-2.5 rounded-[11px] px-3.5 py-1.5 text-left font-medium text-[#1b1b1b] text-[13px] leading-5 transition-colors hover:bg-[#f7f7f7]"
               onClick={() => onPick(suggestion)}
               type="button"
             >
-              <CheatcodeMark aria-hidden="true" className="h-4 w-4 shrink-0 text-[#a9842e]" />
-              <span className="min-w-0 flex-1">{suggestion}</span>
+              <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#a0a0a0]" />
+              <span className="min-w-0 flex-1 truncate">{suggestion}</span>
             </button>
           </li>
         ))}
