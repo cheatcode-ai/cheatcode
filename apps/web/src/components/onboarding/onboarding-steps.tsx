@@ -6,11 +6,11 @@ import { Check, ExternalLink, Loader2 } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 const INTRO_BULLETS = [
-  "A full computer — a sandboxed Linux box for code, shells, and files.",
-  "A full browser — I navigate, click, and hand control back when you want it.",
-  "Skills & integrations — connect your tools and reusable skills.",
-  "Your models, your keys — bring your own provider keys; nothing is marked up.",
-  "Live phone previews — watch mobile apps update as I build them.",
+  "A full computer - a sandboxed Linux box for code, shells, and files.",
+  "A full browser - I navigate, click, and hand control back when you want it.",
+  "Skills & integrations - connect your tools and reusable skills.",
+  "Your models, your keys - bring your own provider keys; nothing is marked up.",
+  "Live phone previews - watch mobile apps update as I build them.",
 ] as const;
 
 const TOOL_ROWS = [
@@ -22,19 +22,19 @@ const TOOL_ROWS = [
 const BASIC_ROWS = [
   {
     cta: "Coming soon",
-    description: 'Automate routine work — e.g. "Every morning at 8, draft a social pack."',
+    description: 'Automate routine work - e.g. "Every morning at 8, draft a social pack."',
     href: null,
     title: "Automations",
   },
   {
     cta: "Browse skills",
-    description: 'Teach reusable skills — e.g. "Create an invoice-chaser skill."',
+    description: 'Teach reusable skills - e.g. "Create an invoice-chaser skill."',
     href: "/skills",
     title: "Custom skills",
   },
   {
     cta: null,
-    description: "This is the computer I use — a persistent sandbox per project for real work.",
+    description: "This is the computer I use - a persistent sandbox per project for real work.",
     href: null,
     title: "Your agent computer",
   },
@@ -54,8 +54,8 @@ export function IntroStep({ onContinue }: { onContinue: () => void }) {
       <StepHeader subtitle="I'm your agent team. I have:" title="Welcome to Cheatcode" />
       <ul className="space-y-3">
         {INTRO_BULLETS.map((bullet) => (
-          <li className="flex gap-3 text-sm text-zinc-300" key={bullet}>
-            <Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-purple-400" />
+          <li className="flex gap-3 text-[#707070] text-sm" key={bullet}>
+            <Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[#5b9a73]" />
             <span>{bullet}</span>
           </li>
         ))}
@@ -81,7 +81,7 @@ export function NameStep({
     <div className="space-y-6">
       <StepHeader progress="1 / 4" title="First, give your agents a name" />
       <input
-        className="h-12 w-full rounded-2xl border border-zinc-800 bg-[#080808] px-4 text-sm text-zinc-200 outline-none placeholder:text-zinc-700 focus:border-zinc-700"
+        className="h-12 w-full rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 text-[#1b1b1b] text-sm outline-none placeholder:text-[#b5b5b5] focus:border-[#dedede] focus:bg-white"
         maxLength={80}
         onChange={(event) => setName(event.target.value)}
         placeholder="Give your agent a name"
@@ -102,16 +102,16 @@ export function ToolsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
       <div className="space-y-3">
         {TOOL_ROWS.map((tool) => (
           <div
-            className="flex items-center justify-between gap-4 rounded-2xl border border-zinc-800/80 bg-[#0b0b0b] px-4 py-3"
+            className="flex items-center justify-between gap-4 rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 py-3"
             key={tool.name}
           >
             <div className="min-w-0">
-              <div className="font-medium text-sm text-white">{tool.name}</div>
-              <p className="mt-0.5 text-xs text-zinc-500">{tool.description}</p>
+              <div className="font-medium text-[#1b1b1b] text-sm">{tool.name}</div>
+              <p className="mt-0.5 text-[#8a8a8a] text-xs">{tool.description}</p>
             </div>
             <Link
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-zinc-800 px-3 py-2 text-xs text-zinc-300 transition-colors hover:bg-zinc-900 hover:text-white"
-              href="/settings/integrations"
+              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#f1f1f1] bg-white px-3 py-2 text-[#4f4f4f] text-xs transition-colors hover:border-[#dedede] hover:text-[#1b1b1b]"
+              href="/tools"
             >
               Connect
               <ExternalLink aria-hidden="true" className="h-3 w-3" />
@@ -134,14 +134,14 @@ export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onS
       <div className="space-y-3">
         {BASIC_ROWS.map((row) => (
           <div
-            className="rounded-2xl border border-zinc-800/80 bg-[#0b0b0b] px-4 py-3"
+            className="rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 py-3"
             key={row.title}
           >
             <div className="flex items-center justify-between gap-3">
-              <div className="font-medium text-sm text-white">{row.title}</div>
+              <div className="font-medium text-[#1b1b1b] text-sm">{row.title}</div>
               {row.cta ? <BasicCta cta={row.cta} href={row.href} /> : null}
             </div>
-            <p className="mt-1 text-xs text-zinc-500 leading-relaxed">{row.description}</p>
+            <p className="mt-1 text-[#8a8a8a] text-xs leading-relaxed">{row.description}</p>
           </div>
         ))}
       </div>
@@ -200,17 +200,17 @@ function PlanCard({
   tier: { bullet: string; name: string; price: string; primary: boolean };
 }) {
   return (
-    <div className="flex flex-col justify-between rounded-2xl border border-zinc-800/80 bg-[#0b0b0b] p-5">
+    <div className="flex flex-col justify-between rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] p-5">
       <div>
         <div className="flex items-baseline justify-between">
-          <span className="font-medium text-white">{tier.name}</span>
-          <span className="font-mono text-sm text-zinc-300">{tier.price}/mo</span>
+          <span className="font-medium text-[#1b1b1b]">{tier.name}</span>
+          <span className="font-mono text-[#4f4f4f] text-sm">{tier.price}/mo</span>
         </div>
-        <p className="mt-2 text-xs text-zinc-500">{tier.bullet}</p>
+        <p className="mt-2 text-[#8a8a8a] text-xs">{tier.bullet}</p>
       </div>
       {tier.primary ? (
         <button
-          className="mt-4 inline-flex h-10 items-center justify-center rounded-xl bg-white px-4 font-medium text-black text-sm transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#1b1b1b] px-4 font-medium text-sm text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
           disabled={!canCheckout || isBusy}
           onClick={onCheckout}
           type="button"
@@ -219,7 +219,7 @@ function PlanCard({
           {canCheckout ? "Upgrade to Pro" : "Unavailable"}
         </button>
       ) : (
-        <div className="mt-4 flex h-10 items-center justify-center rounded-xl border border-zinc-800 text-xs text-zinc-600">
+        <div className="mt-4 flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] text-[#a0a0a0] text-xs">
           Coming soon
         </div>
       )}
@@ -229,10 +229,10 @@ function PlanCard({
 
 function BasicCta({ cta, href }: { cta: string; href: string | null }) {
   if (!href) {
-    return <span className="text-xs text-zinc-600">{cta}</span>;
+    return <span className="text-[#a0a0a0] text-xs">{cta}</span>;
   }
   return (
-    <Link className="text-purple-300 text-xs transition-colors hover:text-purple-200" href={href}>
+    <Link className="text-[#1b1b1b] text-xs underline-offset-2 hover:underline" href={href}>
       {cta}
     </Link>
   );
@@ -250,12 +250,14 @@ function StepHeader({
   return (
     <header className="space-y-2">
       {progress ? (
-        <p className="font-mono text-[10px] text-zinc-600 uppercase tracking-[0.24em]">
+        <p className="font-mono text-[#a0a0a0] text-[10px] uppercase tracking-[0.24em]">
           {progress}
         </p>
       ) : null}
-      <h1 className="font-medium text-2xl text-white tracking-tight">{title}</h1>
-      {subtitle ? <p className="text-sm text-zinc-400 leading-relaxed">{subtitle}</p> : null}
+      <h1 className="font-bold text-[#1b1b1b] text-[24px] leading-[32px] tracking-normal">
+        {title}
+      </h1>
+      {subtitle ? <p className="text-[#707070] text-sm leading-relaxed">{subtitle}</p> : null}
     </header>
   );
 }
@@ -268,8 +270,8 @@ function ContinueButton({ children, onClick }: { children?: ReactNode; onClick: 
   return (
     <button
       className={cn(
-        "inline-flex h-11 items-center justify-center rounded-2xl bg-white px-6",
-        "font-medium text-black transition-colors hover:bg-zinc-200",
+        "inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6",
+        "font-medium text-white transition-colors hover:bg-black",
       )}
       onClick={onClick}
       type="button"
@@ -282,7 +284,7 @@ function ContinueButton({ children, onClick }: { children?: ReactNode; onClick: 
 function SkipButton({ children, onClick }: { children?: ReactNode; onClick: () => void }) {
   return (
     <button
-      className="inline-flex h-11 items-center justify-center rounded-2xl px-4 text-sm text-zinc-400 transition-colors hover:text-white"
+      className="inline-flex h-11 items-center justify-center rounded-full px-4 text-[#707070] text-sm transition-colors hover:bg-[#fafafa] hover:text-[#1b1b1b]"
       onClick={onClick}
       type="button"
     >

@@ -46,8 +46,8 @@ export function ComposerPopover({
       aria-activedescendant={`${baseId}-${safeIndex}`}
       aria-label={ariaLabel}
       className={cn(
-        "absolute bottom-full left-0 z-30 mb-2 max-h-72 w-80 max-w-[calc(100vw-2rem)] overflow-y-auto",
-        "border border-white/10 bg-[#09090b] p-1 shadow-2xl",
+        "absolute bottom-full left-0 z-30 mb-2 flex max-h-72 w-80 max-w-[calc(100vw-2rem)] flex-col gap-1 overflow-y-auto rounded-[18px]",
+        "border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_70px_rgba(0,0,0,0.12)]",
       )}
       role="listbox"
       tabIndex={-1}
@@ -56,12 +56,12 @@ export function ComposerPopover({
         <button
           aria-selected={index === safeIndex}
           className={cn(
-            "flex w-full flex-col items-start gap-0.5 px-2 py-1.5 text-left transition-colors",
+            "flex w-full flex-col items-start gap-0.5 rounded-[14px] px-2 py-1.5 text-left transition-colors",
             item.disabled
-              ? "cursor-default text-zinc-600"
+              ? "cursor-default text-[#b5b5b5]"
               : index === safeIndex
-                ? "bg-white/10 text-white"
-                : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+                ? "bg-[#f8f8f8] text-[#1b1b1b]"
+                : "text-[#707070] hover:bg-[#fafafa] hover:text-[#1b1b1b]",
           )}
           disabled={item.disabled}
           id={`${baseId}-${index}`}
@@ -72,13 +72,20 @@ export function ComposerPopover({
               onSelectIndex(index);
             }
           }}
+          onClick={() => {
+            if (!item.disabled) {
+              onSelectIndex(index);
+            }
+          }}
           onMouseEnter={() => onHoverIndex(index)}
           role="option"
           type="button"
         >
           <span className="font-mono text-[12px] tracking-wide">{item.label}</span>
           {item.hint ? (
-            <span className="line-clamp-2 text-[11px] text-zinc-500 leading-snug">{item.hint}</span>
+            <span className="line-clamp-2 text-[#8a8a8a] text-[11px] leading-snug">
+              {item.hint}
+            </span>
           ) : null}
         </button>
       ))}

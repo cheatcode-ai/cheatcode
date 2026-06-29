@@ -1,5 +1,6 @@
 import { env } from "@cheatcode/env/web";
 import { ClerkProvider } from "@clerk/nextjs";
+import { ui } from "@clerk/ui";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
@@ -42,7 +43,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       data-scroll-behavior="smooth"
     >
       <body>
-        <ClerkProvider {...(clerkPublishableKey ? { publishableKey: clerkPublishableKey } : {})}>
+        <ClerkProvider
+          {...(clerkPublishableKey ? { publishableKey: clerkPublishableKey } : {})}
+          signInUrl="/sign-in"
+          signUpUrl="/sign-up"
+          ui={ui}
+        >
           <NextIntlClientProvider locale="en" messages={messages}>
             <Providers>
               <ClientObservability />

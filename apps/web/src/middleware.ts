@@ -9,6 +9,8 @@ const isProtectedRoute = createRouteMatcher([
   "/projects(.*)",
   "/settings(.*)",
   "/skills(.*)",
+  "/tools(.*)",
+  "/automations(.*)",
   "/101(.*)",
   "/onboarding(.*)",
 ]);
@@ -18,7 +20,10 @@ const middleware = clerkMiddleware(async (auth, request) => {
   if (!isProtectedRoute(request)) {
     return;
   }
-  const { sessionClaims } = await auth.protect();
+  const { sessionClaims, userId } = await auth();
+  if (!userId) {
+    return;
+  }
   const complete = readOnboardingComplete(sessionClaims);
   if (!complete && !isOnboardingRoute(request)) {
     return NextResponse.redirect(new URL("/onboarding", request.url));

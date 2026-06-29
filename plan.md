@@ -45,7 +45,7 @@
 
 ## 1. Product Vision & Positioning
 
-**Product:** Cheatcode is a generalist AI agent platform that builds apps, generates documents (slides, PDFs, spreadsheets), runs research (deep + wide), automates browsers, and generates media (image/video/voice). It's accessed via a web app — no native mobile or desktop apps in V1.
+**Product:** Cheatcode is a generalist AI agent platform that builds apps, generates documents (slides, PDFs, spreadsheets), runs research (deep + wide), and automates browsers. It's accessed via a web app — no native mobile or desktop apps in V1.
 
 **Positioning one-liner:** "AI agents that build, research, and ship — your keys, your models, your sandbox."
 
@@ -53,7 +53,7 @@
 
 - **Mobile-first web app builder** — responsive app surfaces inside the same sandbox preview, with desktop/mobile UI review and no native app-store scope.
 - **Transparent multi-agent progress** — live VM view + per-agent task lanes + reasoning traces. HappyCapy users complain they can't see what subagents are doing; we make it the headline feature.
-- **BYOK across everything** — LLMs, image/video/voice providers, search APIs. Zero inference markup. Users pay providers directly.
+- **BYOK across paid providers** — LLMs, search, parsing, and automation APIs. Zero inference markup. Users pay providers directly.
 - **Curated in-product skills catalog** — 9 hand-curated skills at launch, Anthropic SKILL.md format, bundled at build time. External registry publishing is outside V2.
 - **Free-tier-friendly stack** — Cloudflare hosts both the web app and Workers; Blaxel gives up to $200 starter credits.
 
@@ -172,15 +172,13 @@ catalog:
   '@supabase/supabase-js': 2.106.0
   '@t3-oss/env-nextjs': 0.13.11
   zod: 3.25.76
-  # ── Tools: docs / media / research ──
+  # ── Tools: docs / data / research ──
   pptxgenjs: 3.12.0
   docx: 9.5.1
   exceljs: 4.4.0
   '@react-pdf/renderer': 4.3.1
   recharts: 3.2.1
   arquero: 8.0.3
-  '@fal-ai/client': 1.6.0
-  '@elevenlabs/elevenlabs-js': 2.49.1            # `elevenlabs@2.1.0` is not published; current official SDK package.
   exa-js: 2.13.0
   '@mendable/firecrawl-js': 1.29.0
   # ── Dev / build / checks ──
@@ -341,10 +339,7 @@ visible `agent-browser` commands and logs are inspected by hand.
 | Code generation | `claude-sonnet-4-6` | `claude-opus-4-8` | `gpt-5.4-mini` |
 | Reasoning | `claude-sonnet-4-6` w/ thinking | `gpt-5.4-thinking` | `claude-haiku-4-5-20251001` |
 | Vision | `claude-sonnet-4-6` | `gpt-5.4` | `gemini-2.5-flash` |
-| Image gen | FAL → FLUX.2 [pro] | Nano Banana Pro | Imagen 4 Fast |
-| Video gen | FAL → Veo 3.1 Fast | Kling 3.0 Pro | Seedance 2.0 Fast |
-| TTS | ElevenLabs v3 | ElevenLabs v3 | Cartesia Sonic 2 |
-| STT | ElevenLabs Scribe v2 | — | Voxtral Small |
+| Media generation | Deferred out of V1 | — | — |
 | Web search | Exa | — | — |
 | Scraping | Firecrawl | Stagehand + LOCAL Chromium | — |
 | Future PDF parse | LlamaParse key validation only in V1 | LandingAI ADE | — |
@@ -502,15 +497,9 @@ Opus 4.8 price placeholder**; `/models` is public, so this introduces no new ven
   `@cheatcode/env/web` uses static `process.env.NEXT_PUBLIC_*` property reads
   for public values so Next/OpenNext can inline them while Cloudflare runtime
   bindings remain a fallback.
-- Research log (2026-05-27): Context7 `/elevenlabs/elevenlabs-js` confirms
-  current TTS usage is
-  `client.textToSpeech.convert(voiceId, { text, modelId, outputFormat })`
-  with camelCase request fields. Local pinned `@elevenlabs/elevenlabs-js@2.49.1`
-  type definitions confirm batch `speechToText.convert(request)` requires
-  `modelId: "scribe_v2" | "scribe_v1"` and the current default Scribe model is
-  `scribe_v2`. Implementation implication: media tools keep `eleven_v3` for
-  TTS generation and validate STT model ids to the pinned SDK enum before
-  calling ElevenLabs.
+- Product update (2026-06-27): Fal and ElevenLabs are removed from V1. Media
+  generation and speech tools are deferred; the active BYOK surface is LLM,
+  research/search, parsing, and automation provider keys.
 
 Browser automation remains separate from the main LLM provider selection:
 Stagehand LOCAL tools use Anthropic/OpenAI-compatible credentials in V1. If the
@@ -560,7 +549,6 @@ cheatcode/
 │   ├── tools-browser/                Stagehand v3 LOCAL wrappers + noVNC takeover
 │   ├── tools-docs/                   pptxgenjs, docx, exceljs, react-pdf
 │   ├── tools-data/                   Arquero, CSV parsing, charts (Recharts SSR in sandbox)
-│   ├── tools-media/                  FAL (image+video) + ElevenLabs (TTS+STT)
 │   ├── tools-research/               Exa + Firecrawl
 │   ├── db/                           Drizzle schema (per-domain files), queries, migrations
 │   │   ├── src/schema/               users.ts, projects.ts, messages.ts, keys.ts, outputs.ts, usage.ts, audit.ts, index.ts
@@ -717,8 +705,8 @@ packages:
         │  - x11vnc + websockify (takeover)    │
         └──────────────────────────────────────┘
 
-External: Supabase (via Hyperdrive), R2 buckets, FAL, ElevenLabs, Exa,
-          Firecrawl, Clerk, Polar, Composio
+External: Supabase (via Hyperdrive), R2 buckets, Exa, Firecrawl, Clerk,
+          Polar, Composio
 ```
 
 ### 6.2 Worker responsibilities
@@ -1203,7 +1191,7 @@ export const usageEvents = pgTable('v2_usage_events', {
   userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   agentRunId: uuid('agent_run_id'),
   eventType: text('event_type').notNull(),   // 'llm.completion' | 'tool.call' | 'media.generation'
-  provider: text('provider'),                // 'anthropic' | 'openai' | 'fal' | ...
+  provider: text('provider'),                // 'anthropic' | 'openai' | 'deepseek' | ...
   model: text('model'),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
@@ -1543,8 +1531,7 @@ import type { Database } from '@cheatcode/db';
 
 export type Provider =
   | 'anthropic' | 'openai' | 'google' | 'openrouter'
-  | 'fal' | 'elevenlabs' | 'exa' | 'firecrawl'
-  | 'llamaparse';
+  | 'deepseek' | 'exa' | 'firecrawl' | 'llamaparse';
 
 // All calls run inside withUserContext(db, internalUserId, …) so the RPCs
 // resolve the user from app.user_id. The caller never names a user.
@@ -3321,12 +3308,12 @@ All V1 features mapped to packages/services:
 | **D1, D3, D4 writing variants** | Composable with C1/C2 — agent picks length/tone via prompt |
 | **D2/D5/D6/D7 tech-docs/outreach/book/script** | Skills |
 | **D8 translation** | Free with model — no special infra |
-| **E1 image gen** | `packages/tools-media/image.ts` FAL `fal-ai/flux-2/turbo` → FLUX.2 |
-| **E2 image edit** | `packages/tools-media/image.ts` FAL `fal-ai/gemini-3-pro-image-preview/edit` → Gemini 3 Pro Image |
-| **E3 video gen** | `packages/tools-media/video.ts` FAL `fal-ai/veo3.1` → Veo 3.1 |
-| **E4 voice TTS** | `packages/tools-media/voice.ts` ElevenLabs v3 |
+| **E1 image gen** | Deferred out of V1; no Fal vendor/API ships |
+| **E2 image edit** | Deferred out of V1; no Fal vendor/API ships |
+| **E3 video gen** | Deferred out of V1; no Fal vendor/API ships |
+| **E4 voice TTS** | Deferred out of V1; no ElevenLabs vendor/API ships |
 | **E5 music** | Deferred out of V1; no Suno vendor/API ships |
-| **E6 transcription** | `packages/tools-media/stt.ts` ElevenLabs Scribe v2 |
+| **E6 transcription** | Deferred out of V1; no ElevenLabs vendor/API ships |
 | **E7-E9 logo/carousel/thumbnail** | Skills |
 | **E10 avatar video** | Deferred out of V1; no HeyGen vendor/API ships |
 | **F1 browser tool** | `packages/tools-browser` Stagehand v3 LOCAL |
@@ -3720,14 +3707,14 @@ Full draft descriptions + tool requirements + body budgets:
 
 | # | Skill | Body budget | Tools required | Draft description (≤1024 chars) |
 |---|---|---|---|---|
-| 1 | **pitch-deck** | 350–450 lines | `research_deep`, `research_fanout`, `media_generate_image`, `docs_generate_slides`, `firecrawl_scrape` | "Generates investor-ready pitch decks (.pptx) from a one-line idea or written brief. Performs market sizing, competitor scan, and TAM/SAM/SOM with citations, then produces 10–14 designed slides using a curated template. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, Series A deck, or says 'turn this idea into a deck'. Do NOT trigger for internal product update decks (use slide-from-prd)." |
+| 1 | **pitch-deck** | 350–450 lines | `research_deep`, `research_fanout`, `docs_generate_slides`, `firecrawl_scrape` | "Generates investor-ready pitch decks (.pptx) from a one-line idea or written brief. Performs market sizing, competitor scan, and TAM/SAM/SOM with citations, then produces 10–14 designed slides using a curated template. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, Series A deck, or says 'turn this idea into a deck'. Do NOT trigger for internal product update decks (use slide-from-prd)." |
 | 2 | **deep-research** | 300–400 lines | `research_deep`, `search_web_advanced`, `firecrawl_scrape` | "Conducts multi-step research with structured planning, source-tracking, and citation. Returns a synthesized brief with [[N]] inline citations and a sources list. Use when the user asks to 'research', 'deep dive', 'investigate', 'find out everything about', or wants a literature review, market analysis, or policy explainer requiring more than a single search." |
 | 3 | **deep-research** (fan-out mode) | 200–300 lines | `research_fanout`, `search_web`, `search_company`, `firecrawl_scrape` | "Runs parallel fan-out research across N entities or topics simultaneously, producing a comparison matrix or batch brief. Use when the user supplies a list of items to investigate (10 competitors, 20 companies, every Fortune 500 in a sector) or asks for parallel coverage at breadth rather than depth." |
 | 4 | **competitor-brief** | 250–350 lines | `firecrawl_scrape`, `search_company`, `research_competitor` | "Analyzes a company URL or name and outputs structured competitive intel: product, pricing, positioning, recent news, traction signals, hiring patterns, and SWOT. Use when the user provides a company website or asks 'tell me about [Company]', 'analyze this competitor', 'what does [URL] do', or wants a competitor teardown." |
 | 5 | **slide-from-prd** | 250–350 lines | `fs_read`, `docs_generate_pdf`, `docs_generate_slides` | "Converts a PRD, design doc, or spec document into a presentation deck preserving structure (goals, problem, solution, milestones). Use when the user has an existing PRD/RFC/spec and asks to 'make slides from this', 'turn this into a deck', or 'present this PRD'." |
 | 6 | **csv-analyst** | 300–400 lines | `fs_read`, `runCode`, `data_analyze_csv`, `data_chart` | "Analyzes uploaded CSV files: cleans, profiles, computes summary stats, generates charts, and writes a structured insights report. Use when the user uploads a .csv/.tsv or pastes tabular data and asks for analysis, visualization, trends, anomalies, or 'what does this data tell me'. Do NOT trigger when the deliverable is an .xlsx financial model or a standalone Python script." |
-| 7 | **social-post-pack** | 200–280 lines | `firecrawl_scrape`, `search_web`, `media_generate_image` only when visual prompts/assets are requested | "Takes one topic, idea, or article URL and produces platform-tailored variants: LinkedIn long-form, X thread, Reddit post (with subreddit-aware tone), and Instagram caption. Use when the user asks for 'social posts', 'tweet thread', 'LinkedIn post', 'cross-post this', or 'social media variants' for a single topic." |
-| 8 | **landing-page** | 350–450 lines | `shell_exec`, `fs_write`, `media_generate_image`, `start_dev_server` | "Builds a complete marketing landing page or product page in the existing sandbox web app, with hero, features, proof, CTA, and pricing/FAQ sections when relevant. Use when the user describes a product or app idea and asks for a 'landing page', 'marketing site', 'product page', or 'splash page'. Outputs deployable web code in the project sandbox, not a design mock, and reviews the result through the real preview UI and logs." |
+| 7 | **social-post-pack** | 200–280 lines | `firecrawl_scrape`, `search_web` | "Takes one topic, idea, or article URL and produces platform-tailored variants: LinkedIn long-form, X thread, Reddit post (with subreddit-aware tone), and Instagram caption. Use when the user asks for 'social posts', 'tweet thread', 'LinkedIn post', 'cross-post this', or 'social media variants' for a single topic." |
+| 8 | **landing-page** | 350–450 lines | `shell_exec`, `fs_write`, `start_dev_server` | "Builds a complete marketing landing page or product page in the existing sandbox web app, with hero, features, proof, CTA, and pricing/FAQ sections when relevant. Use when the user describes a product or app idea and asks for a 'landing page', 'marketing site', 'product page', or 'splash page'. Outputs deployable web code in the project sandbox, not a design mock, and reviews the result through the real preview UI and logs." |
 | 9 | **mobile-app** | 400–500 lines | `shell_exec`, `fs_write`, `start_dev_server` | "Builds a mobile-first responsive web app surface in the existing Next.js project, with thumb-friendly navigation, primary screens, empty/loading/error states, and responsive layouts. Use when the user asks for a 'mobile app', 'iPhone-like app', 'mobile-first builder', or phone-first product. Outputs runnable code in the project workspace - Expo Router screens in app-builder-mobile projects, mobile-first responsive web surfaces in web projects - and reviews the result through the real preview UI and logs." |
 
 Each skill ships with at least:
@@ -4271,7 +4258,7 @@ Workers-Version-safe secret updates and does not run `wrangler deploy`.
 - Cloudflare Rate Limiting Rule: 1000 req/min/IP on `gateway.trycheatcode.com/v1/*`
 - Cloudflare Bot Management on Free tier (basic)
 
-**Per-user-per-route (DO-backed)** — canonical implementation is the token-bucket `RateLimiter` DO in §24.4; the policy below is keyed by the real `/v1/*` routes (§23.2). Daily caps on expensive features (deep-research fan-out, media/video generation) are **quotas** via the `QuotaTracker` DO (§24.5) against §28.1 plan limits — not rate limits:
+**Per-user-per-route (DO-backed)** — canonical implementation is the token-bucket `RateLimiter` DO in §24.4; the policy below is keyed by the real `/v1/*` routes (§23.2). Daily caps on expensive features such as deep-research fan-out are **quotas** via the `QuotaTracker` DO (§24.5) against §28.1 plan limits — not rate limits:
 
 Gateway routes fail open when the `RateLimiter` DO is unavailable because of
 Cloudflare platform, account-tier, timeout, or malformed-response errors. The
@@ -4639,7 +4626,7 @@ drivers.
 | Clerk Free | **10,000 MAUs** | Pro $25/mo |
 | Polar | No fixed cost | 4% rev-share |
 | GitHub Actions | 2,000 min/mo private | $0.008/min |
-| All BYOK (LLM/media/voice/search) | User pays providers | $0 to us |
+| All BYOK (LLM/search/parsing/automation) | User pays providers | $0 to us |
 
 ### 16.2 Cost projections
 
@@ -4731,12 +4718,11 @@ and direct log inspection.
 - Streamdown + full AI Elements wired
 - **Milestone:** Agent runs `npx create-next-app`, user sees preview tab, edits file, hot-reload works.
 
-### Week 3 — Browser + docs + media
+### Week 3 — Browser + docs
 - `packages/tools-browser` with Stagehand v3 LOCAL mode (Chromium in container)
 - User takeover via x11vnc + websockify + noVNC iframe
 - `packages/tools-docs` (pptxgenjs, docx, exceljs, react-pdf) → R2 → signed download URLs
-- `packages/tools-media` (FAL image + video + ElevenLabs TTS/STT)
-- **Milestone:** Agent generates a slide deck, image, and video; user downloads them. User can take control of browser mid-task.
+- **Milestone:** Agent generates a slide deck and user downloads it. User can take control of browser mid-task.
 
 ### Week 4 — Research + skills
 - `packages/tools-research` (Exa + Firecrawl)
@@ -4775,14 +4761,13 @@ and direct log inspection.
 
 ### 17.9 Delivery risk & descope order
 
-The 8-week scope above is **deliberately ambitious** — sandboxed codegen, browser automation, docs/media generation, research, billing, 9 skills, and skill publishing is a lot for the window. V1 scope is **locked** — no feature is cut pre-emptively (see `future.md` for what already isn't in V1). But ambition without a fallback is how launches slip silently, so this is the **pre-agreed descope order**: if a week genuinely slips, items move to a fast-follow (v1.0.x, days after launch — *not* `future.md`) strictly top-down. Nothing below is removed unless a week actually slips; the list only fixes *what gives first*, so the call is made calmly instead of in a week-8 panic.
+The 8-week scope above is **deliberately ambitious** — sandboxed codegen, browser automation, docs generation, research, billing, 9 skills, and skill publishing is a lot for the window. V1 scope is **locked** — no feature is cut pre-emptively (see `future.md` for what already isn't in V1). But ambition without a fallback is how launches slip silently, so this is the **pre-agreed descope order**: if a week genuinely slips, items move to a fast-follow (v1.0.x, days after launch — *not* `future.md`) strictly top-down. Nothing below is removed unless a week actually slips; the list only fixes *what gives first*, so the call is made calmly instead of in a week-8 panic.
 
 | Order | First to move to fast-follow | Why it's safe to defer | Still ships at launch |
 |---|---|---|---|
 | 1 | External skill publishing (`cheatcode/cheatcode-skills` repo + `skills.sh` link) | Out of V2; owner-managed launch work | The 9 bundled in-product skills themselves |
 | 2 | Separate wide-research skill (25-way fan-out) | Folded into deep-research as fan-out mode | Deep research fan-out mode |
-| 3 | Media generation video (keep image + TTS) | Video is the heaviest, least-core generator | Image gen, TTS |
-| 4 | Mobile-app build skill | Web/app builder covers the core promise | App-builder + general agent |
+| 3 | Mobile-app build skill | Web/app builder covers the core promise | App-builder + general agent |
 
 **Never descoped — the non-negotiable V1 core** (this is Codex's "simpler V1" floor, treated as the launch gate): auth + BYOK + sandbox + SSE chat streaming + file/code tools + billing/quota + ≥2 flagship skills. If *these* are at risk, the launch **date** moves — scope below the line is never raided to protect them.
 
@@ -6411,7 +6396,6 @@ git_status, git_commit, git_push, git_clone
 browser_open, browser_act, browser_extract, browser_observe, browser_screenshot
 search_web, search_web_advanced, search_company, firecrawl_scrape, firecrawl_search, firecrawl_extract
 docs_generate_slides, docs_generate_pdf, docs_generate_xlsx, docs_generate_docx
-media_generate_image, media_edit_image, media_generate_video, media_generate_speech, media_transcribe
 composio_list_tools, composio_execute
 data_analyze_csv, data_chart, data_scrape_to_csv
 research_deep, research_wide, research_competitor
@@ -7601,11 +7585,6 @@ cc.cost_usd_micros      = int
 | LLM (Google Gemini) | `@ai-sdk/google@3.0.80` | `gemini-2.5-flash` |
 | LLM (OpenAI) | `@ai-sdk/openai@2.0.101` | `gpt-5.4-mini` |
 | LLM (OpenRouter) | `@openrouter/ai-sdk-provider@2.9.0` | explicit `openrouter/<model-id>`, e.g. `openrouter/openrouter/auto` |
-| Image gen | `@fal-ai/client@1.6.0` | `fal-ai/flux-2/turbo` |
-| Image edit | `@fal-ai/client@1.6.0` | `fal-ai/gemini-3-pro-image-preview/edit` |
-| Video gen | `@fal-ai/client@1.6.0` | `fal-ai/veo3.1` |
-| TTS | `@elevenlabs/elevenlabs-js@2.49.1` | `eleven_v3` |
-| STT | `@elevenlabs/elevenlabs-js@2.49.1` | `scribe_v2` |
 | Web search | `exa-js@2.13.0` | `search()` with nested `contents` |
 | Scrape | `@mendable/firecrawl-js@1.29.0` | `/scrape` + `/extract` |
 | Browser | `@browserbasehq/stagehand@3.2.0` | LOCAL mode in container |
@@ -7635,8 +7614,6 @@ cc.cost_usd_micros      = int
 - [ ] Create Clerk app + configure OAuth providers (auth-email handled by Clerk; we do not customize templates in V1)
 - [ ] Create Polar account + configure products (billing receipts handled by Polar as merchant-of-record)
 - [ ] Enable Workers Observability (Logs + Tracing) in Cloudflare dashboard per Worker
-- [ ] Create FAL account (for manual validation — users provide their own keys)
-- [ ] Create ElevenLabs account (for manual validation — users provide their own keys)
 - [ ] Configure GitHub Actions cache for Turborepo artifacts
 - [ ] Configure GitHub Actions secrets:
   - `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`

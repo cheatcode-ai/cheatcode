@@ -31,6 +31,58 @@ export async function resolveInternalUserId(db: Database, clerkId: string): Prom
   return row ? toUserId(row.id) : null;
 }
 
+export interface UserAccountRecord {
+  id: UserId;
+  email: string;
+  displayName: string | null;
+  avatarUrl: string | null;
+}
+
+export async function getUserAccount(
+  db: Database,
+  userId: UserId,
+): Promise<UserAccountRecord | null> {
+  const row = await db.query.users.findFirst({
+    columns: { avatarUrl: true, displayName: true, email: true, id: true },
+    where: and(eq(users.id, userId), isNull(users.deletedAt)),
+  });
+  return row
+    ? {
+        avatarUrl: row.avatarUrl,
+        displayName: row.displayName,
+        email: row.email,
+        id: toUserId(row.id),
+      }
+    : null;
+}
+
+/** Update user-owned account fields. Email stays Clerk-authoritative (synced via webhook);
+ * only the display-name override is editable here. */
+export async function updateUserAccount(
+  db: Database,
+  userId: UserId,
+  input: { displayName?: string | null },
+): Promise<UserAccountRecord | null> {
+  const [row] = await db
+    .update(users)
+    .set({ displayName: input.displayName ?? null, updatedAt: new Date() })
+    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
+    .returning({
+      avatarUrl: users.avatarUrl,
+      displayName: users.displayName,
+      email: users.email,
+      id: users.id,
+    });
+  return row
+    ? {
+        avatarUrl: row.avatarUrl,
+        displayName: row.displayName,
+        email: row.email,
+        id: toUserId(row.id),
+      }
+    : null;
+}
+
 export async function upsertClerkUser(
   db: Database,
   input: ClerkUserUpsert,

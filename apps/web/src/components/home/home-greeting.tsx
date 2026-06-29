@@ -6,16 +6,21 @@ import { useQuery } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
 import { getGreeting } from "@/lib/api/greeting";
 
+const CLOCK_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 /**
- * Greeting line above the home headline. Time-of-day + clock are always computed
- * client-side (per directive — the server never returns a clock). When signed in,
+ * Greeting line above the home headline. Clock is always computed client-side
+ * (per directive - the server never returns a clock). When signed in,
  * it appends the gateway greeting (city + rounded temperature) when available and
  * degrades silently to time-only on any failure.
  */
 export function HomeGreeting() {
   const { getToken, isSignedIn } = useAuth();
   const now = useClientClock();
-  const greetingQuery = useQuery({
+  const { data: greeting } = useQuery({
     enabled: Boolean(isSignedIn),
     queryFn: () => getGreeting(getToken),
     queryKey: ["greeting"],
@@ -26,12 +31,10 @@ export function HomeGreeting() {
   if (!now) {
     return null;
   }
-  const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" }).format(
-    now,
-  );
+  const clock = CLOCK_FORMATTER.format(now).replace(/\s+/g, "");
   return (
-    <p className="font-mono text-[11px] text-zinc-500 uppercase tracking-[0.22em]">
-      {`${timeOfDay(now)} · ${clock}${weatherSuffix(greetingQuery.data ?? null)}`}
+    <p className="mt-4 text-center font-medium text-[#5f5f5f] text-[13px] leading-[19.5px]">
+      {`${clock}${weatherSuffix(greeting ?? null)}`}
     </p>
   );
 }
@@ -44,17 +47,6 @@ function useClientClock(): Date | null {
     return () => window.clearInterval(interval);
   }, []);
   return now;
-}
-
-function timeOfDay(now: Date): string {
-  const hour = now.getHours();
-  if (hour < 12) {
-    return "Good morning";
-  }
-  if (hour < 18) {
-    return "Good afternoon";
-  }
-  return "Good evening";
 }
 
 function weatherSuffix(data: GreetingResponse | null): string {

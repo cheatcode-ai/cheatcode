@@ -24,6 +24,12 @@
     "typecheck": "turbo typecheck && pnpm typecheck:scripts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit"
   },
+  "pnpm": {
+    "overrides": {
+      "@clerk/localizations": "4.8.1",
+      "@clerk/shared": "4.17.1"
+    }
+  },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
     "@commitlint/cli": "catalog:",

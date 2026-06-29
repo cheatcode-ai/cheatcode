@@ -1,12 +1,16 @@
-import { SignUp } from "@clerk/nextjs";
+import { connection } from "next/server";
 import { Suspense } from "react";
+import { AuthRoutePage } from "@/components/auth/auth-route-page";
 
 export default function SignUpPage() {
   return (
-    <main className="grid min-h-screen place-items-center">
-      <Suspense fallback={<div className="h-[32rem] w-[25rem] rounded-md border" />}>
-        <SignUp />
-      </Suspense>
-    </main>
+    <Suspense fallback={null}>
+      <SignUpRoute />
+    </Suspense>
   );
+}
+
+async function SignUpRoute() {
+  await connection();
+  return <AuthRoutePage mode="sign-up" />;
 }

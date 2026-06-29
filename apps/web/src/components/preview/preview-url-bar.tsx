@@ -6,11 +6,11 @@ import { buildPreviewIframeSrc, normalizePreviewPath, previewOrigin } from "@/li
 import { useAppStore } from "@/lib/store/app-store";
 
 const CONTROL_CLASS =
-  "flex h-7 shrink-0 items-center justify-center border border-thread-border px-2 font-mono text-[10px] text-thread-text-secondary uppercase tracking-[0.16em] transition-colors hover:bg-thread-hover hover:text-thread-text-primary disabled:cursor-not-allowed disabled:opacity-40";
+  "flex h-7 shrink-0 items-center justify-center rounded-full px-2 text-[12px] text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary disabled:cursor-not-allowed disabled:opacity-40";
 
 /**
  * Functional preview URL bar (preview-surface §7.3 / §A5). The iframe is
- * cross-origin, so this shows and edits the *entry URL* we command — never the
+ * cross-origin, so this shows and edits the *entry URL* we command - never the
  * live SPA location after in-app navigation. Back/Refresh operate on our own
  * assignment history + the existing reload token.
  */
@@ -32,7 +32,7 @@ export function PreviewUrlBar({ previewUrl }: { previewUrl: string }) {
   };
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-thread-border-subtle border-b px-3">
+    <div className="flex h-10 shrink-0 items-center gap-2 border-thread-border-subtle border-b bg-[#fafafa] px-3">
       <button
         className={CONTROL_CLASS}
         disabled={previewPathHistory.length === 0}
@@ -49,12 +49,12 @@ export function PreviewUrlBar({ previewUrl }: { previewUrl: string }) {
       >
         <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
-      <span className="shrink-0 truncate font-mono text-[10px] text-thread-text-muted">
+      <span className="shrink-0 truncate font-mono text-[11px] text-thread-text-muted">
         {origin}
       </span>
       <input
         aria-label="Preview path"
-        className="min-w-0 flex-1 bg-transparent font-mono text-[10px] text-thread-text-secondary outline-none placeholder:text-thread-text-muted"
+        className="min-w-0 flex-1 bg-transparent font-mono text-[11px] text-thread-text-secondary outline-none placeholder:text-thread-text-muted"
         defaultValue={previewPath}
         key={previewPath}
         onKeyDown={(event) => {

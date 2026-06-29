@@ -14,12 +14,12 @@ import { decideRunApproval } from "@/lib/api/project-thread";
 type ApprovalChoice = "allow" | "deny";
 
 const CARD_CLASS =
-  "border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary";
-const LABEL_CLASS = "mb-2 text-[9px] text-thread-text-muted uppercase tracking-[0.28em]";
+  "rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary";
+const LABEL_CLASS = "mb-2 text-[10px] text-thread-text-muted";
 const BUTTON_CLASS =
-  "border border-thread-border px-3 py-1 text-[10px] text-thread-text-primary uppercase tracking-[0.18em] transition-colors hover:bg-thread-hover disabled:cursor-not-allowed disabled:opacity-40";
+  "rounded-full border border-thread-border px-3 py-1 text-[11px] text-thread-text-primary transition-colors hover:bg-thread-hover disabled:cursor-not-allowed disabled:opacity-40";
 const LINK_CLASS =
-  "mt-2 inline-block text-[10px] text-thread-accent uppercase tracking-[0.18em] underline-offset-4 hover:underline";
+  "mt-2 inline-block text-[11px] text-thread-accent underline-offset-4 hover:underline";
 
 function useApprovalDecision(runId: string, approvalId: string) {
   const { getToken } = useAuth();
@@ -60,7 +60,7 @@ function ToolApprovalCard({
     <div className={CARD_CLASS}>
       <div className={LABEL_CLASS}>approval required</div>
       <div className="text-thread-text-primary">{data.toolName ?? "tool"}</div>
-      <pre className="mt-1 whitespace-pre-wrap break-words bg-black/30 p-2 text-thread-text-secondary">
+      <pre className="mt-1 whitespace-pre-wrap break-words rounded-[10px] bg-white p-2 text-thread-text-secondary">
         <code>{data.summary}</code>
       </pre>
       <DecisionButtons

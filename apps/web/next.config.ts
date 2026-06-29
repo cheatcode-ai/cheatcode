@@ -7,6 +7,7 @@ const nextConfig = {
     unoptimized: true,
     qualities: [75],
     minimumCacheTTL: 14_400,
+    remotePatterns: [{ hostname: "logos.composio.dev", protocol: "https" }],
   },
 } satisfies NextConfig;
 

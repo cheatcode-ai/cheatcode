@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useEffect, useId, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { cn } from "./cn";
 import { Loader2 } from "./icons";
 
@@ -46,7 +46,6 @@ export function ModalShell({
   }, [open]);
 
   return (
-    // biome-ignore lint/a11y/useKeyWithClickEvents: native <dialog> dismisses via the cancel (Escape) event; onClick only closes on backdrop clicks (mouse-only enhancement).
     <dialog
       aria-describedby={describedBy}
       aria-label={ariaLabel}
@@ -64,6 +63,12 @@ export function ModalShell({
           onClose();
         }
       }}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        }
+      }}
       ref={dialogRef}
     >
       {children}
@@ -77,6 +82,7 @@ export interface ConfirmDialogProps {
   description?: string | undefined;
   confirmLabel: string;
   cancelLabel: string;
+  id?: string | undefined;
   destructive?: boolean | undefined;
   busy?: boolean | undefined;
   onConfirm: () => void;
@@ -94,13 +100,14 @@ export function ConfirmDialog({
   description,
   confirmLabel,
   cancelLabel,
+  id = "confirm-dialog",
   destructive = false,
   busy = false,
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
-  const titleId = useId();
-  const descriptionId = useId();
+  const titleId = `${id}-title`;
+  const descriptionId = `${id}-description`;
 
   return (
     <ModalShell

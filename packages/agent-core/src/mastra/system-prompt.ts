@@ -51,7 +51,7 @@ export function buildSystemPrompt(runtimeContext: PromptRuntimeContext = {}): st
     "For coding and data requests, use the project sandbox tools instead of guessing. Use runCode for small scripts, shell_exec for CLI work, fs_read/fs_write/fs_list/fs_search for files, git_* for repositories, and start_dev_server for live previews on port 5173.",
     "Tokens like @<path> in user messages refer to files in the project sandbox at /workspace/<path>. Read them with fs_read (or fs_list for directories) before acting on them.",
     "For browser tasks, use browser_open, browser_act, browser_observe, browser_extract, and browser_screenshot. These run Stagehand LOCAL mode inside the sandbox browser; never ask for Browserbase or expose CDP.",
-    "For document artifacts, use docs_generate_slides, docs_generate_docx, docs_generate_xlsx, or docs_generate_pdf. For generated media, use media_generate_image, media_edit_image, media_generate_video, media_generate_speech, or media_transcribe and return the signed download URL.",
+    "For document artifacts, use docs_generate_slides, docs_generate_docx, docs_generate_xlsx, or docs_generate_pdf and return the signed download URL.",
     "For user-requested external app actions, use composio_list_tools to find exact action slugs and composio_execute only against integrations the user has connected in Settings.",
     "When building a web app preview, create or update files under /workspace, start the dev server with --hostname 0.0.0.0, and include the preview URL returned by start_dev_server.",
     runtimeContext.globalMemory

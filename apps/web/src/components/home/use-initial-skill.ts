@@ -17,7 +17,7 @@ const SKILL_TO_SURFACE: Record<string, SkillSurface> = {
 };
 
 export interface InitialSkillResolution {
-  /** Synthetic removable chip when the skill maps to no intent pill. */
+  /** The selected skill chip shown in the composer. */
   chip: string | null;
   /** Intent pill to pre-activate (pitch-deck/deep-research/csv-analyst). */
   intent: SkillIntent | null;
@@ -35,7 +35,7 @@ export function resolveInitialSkill(skill: string | null | undefined): InitialSk
   }
   const intent = SKILL_TO_INTENT[skill];
   if (intent) {
-    return { chip: null, intent };
+    return { chip: skill, intent };
   }
   return { chip: skill, intent: null };
 }

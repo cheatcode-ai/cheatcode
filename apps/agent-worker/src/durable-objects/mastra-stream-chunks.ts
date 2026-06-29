@@ -39,10 +39,6 @@ const ARTIFACT_TOOL_NAMES = new Set([
   "docs_generate_pdf",
   "docs_generate_slides",
   "docs_generate_xlsx",
-  "media_edit_image",
-  "media_generate_image",
-  "media_generate_speech",
-  "media_generate_video",
 ]);
 
 export interface MastraUsageDelta {

@@ -27,7 +27,7 @@ export interface PreviewConsoleState {
 export function usePreviewConsole(threadId: string, enabled: boolean): PreviewConsoleState {
   const { getToken } = useAuth();
 
-  const query = useQuery<SandboxConsoleSnapshot>({
+  const { error, isFetching } = useQuery<SandboxConsoleSnapshot>({
     enabled,
     queryFn: async () => {
       const { consoleCursor, consoleProcess } = useAppStore.getState();
@@ -47,8 +47,8 @@ export function usePreviewConsole(threadId: string, enabled: boolean): PreviewCo
   });
 
   return {
-    isPolling: enabled && query.isFetching,
-    lastError: query.error instanceof Error ? query.error.message : null,
+    isPolling: enabled && isFetching,
+    lastError: error instanceof Error ? error.message : null,
   };
 }
 

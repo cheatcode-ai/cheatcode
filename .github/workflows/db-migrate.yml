@@ -8,6 +8,18 @@ on:
       - packages/db/drizzle/**
       - scripts/migrate.ts
       - .github/workflows/db-migrate.yml
+  # Auto-apply on merge to main whenever migration-relevant files change, so schema
+  # changes ship with the code that needs them — no manual workflow_dispatch required.
+  # The apply is idempotent (skips already-applied migrations via the _raw_migrations
+  # ledger + drizzle's own ledger), so an unrelated re-run is a no-op.
+  push:
+    branches: [main]
+    paths:
+      - infra/supabase/migrations/**
+      - packages/db/src/schema/**
+      - packages/db/drizzle/**
+      - scripts/migrate.ts
+      - .github/workflows/db-migrate.yml
   workflow_dispatch:
 
 concurrency:
@@ -44,8 +56,8 @@ jobs:
       - name: Fail if Drizzle migrations drifted
         run: git diff --exit-code packages/db/drizzle
       # The pending-plan comment needs a real DB connection, so it only runs when the
-      # SUPABASE_MIGRATION_URL secret is configured (it is not today). The drift check
-      # above is the gate; this stays best-effort.
+      # SUPABASE_MIGRATION_URL secret is configured. The drift check above is the gate;
+      # this stays best-effort.
       - name: Compute pending migration plan
         if: env.MIGRATION_DB_URL != ''
         run: pnpm tsx scripts/migrate.ts --dry-run | tee migration-plan.txt
@@ -58,7 +70,8 @@ jobs:
           path: migration-plan.txt
 
   apply:
-    if: github.event_name == 'workflow_dispatch'
+    # Auto on push to main; also available as a manual fallback via workflow_dispatch.
+    if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     environment: production
     steps:
@@ -71,6 +84,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # scripts/migrate.ts spawns drizzle-kit migrate, whose drizzle.config.ts imports
+      # @cheatcode/env/migrate (built ./dist) — build the db dep closure first.
+      - run: pnpm turbo build --filter=@cheatcode/db^...
       - name: Apply migrations
         run: pnpm tsx scripts/migrate.ts --apply
         env:

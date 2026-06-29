@@ -64,7 +64,7 @@ function MessagePartView({
 }) {
   if (part.type === "text") {
     return (
-      <div className="chat-markdown max-w-none font-mono text-xs text-zinc-300 leading-relaxed tracking-wide">
+      <div className="chat-markdown max-w-none text-[#1b1b1b] text-[14px] leading-6">
         <MarkdownResponse>{part.text}</MarkdownResponse>
       </div>
     );
@@ -152,8 +152,8 @@ function TaskStatusPart({ data, hidden }: { data: TaskStatusData; hidden: boolea
 
 function PlanBlock({ data, taskStatusById }: { data: PlanData; taskStatusById: TaskStatusById }) {
   return (
-    <div className="border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
-      <div className="mb-3 text-[9px] text-thread-text-muted uppercase tracking-[0.28em]">plan</div>
+    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
+      <div className="mb-3 text-[10px] text-thread-text-muted">plan</div>
       <div className="space-y-2">
         {data.tasks.map((task) => {
           const update = taskStatusById.get(task.id);
@@ -245,10 +245,8 @@ function TakeoverBlock({ data }: { data: TakeoverData }) {
     return <DataBlock title="takeover" value="not available" />;
   }
   return (
-    <div className="border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
-      <div className="mb-2 text-[9px] text-thread-text-muted uppercase tracking-[0.28em]">
-        takeover
-      </div>
+    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
+      <div className="mb-2 text-[10px] text-thread-text-muted">takeover</div>
       <a
         className="inline-flex items-center gap-2 text-thread-accent underline-offset-4 hover:underline"
         href={data.vncUrl}
@@ -270,10 +268,8 @@ function ArtifactBlock({ data }: { data: ArtifactData }) {
   const sizeLabel = typeof data.sizeBytes === "number" ? formatBytes(data.sizeBytes) : null;
 
   return (
-    <div className="border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
-      <div className="mb-2 text-[9px] text-thread-text-muted uppercase tracking-[0.28em]">
-        artifact
-      </div>
+    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
+      <div className="mb-2 text-[10px] text-thread-text-muted">artifact</div>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 flex-1">
           <div className="truncate text-thread-text-primary">{label}</div>
@@ -362,13 +358,11 @@ function DataBlock({
     <div
       className={
         tone === "error"
-          ? "border border-[var(--thread-status-error-border)] bg-[var(--thread-status-error-bg)] p-3 font-mono text-[11px] text-red-300"
-          : "border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary"
+          ? "rounded-[14px] border border-[var(--thread-status-error-border)] bg-[var(--thread-status-error-bg)] p-3 font-mono text-[11px] text-red-700"
+          : "rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary"
       }
     >
-      <div className="mb-2 text-[9px] text-thread-text-muted uppercase tracking-[0.28em]">
-        {title}
-      </div>
+      <div className="mb-2 text-[10px] text-thread-text-muted">{title}</div>
       <pre className="whitespace-pre-wrap break-words">{value}</pre>
     </div>
   );

@@ -25,7 +25,6 @@ interface AppStore {
   activePreviewTab: PreviewTab;
   agentModelId: AgentModelId;
   budgetCapUsdByThread: Record<string, number | null>;
-  commandPaletteOpen: boolean;
   connectionState: ConnectionState;
   consoleCursor: ConsoleCursor;
   consoleLines: ConsoleLine[];
@@ -40,6 +39,7 @@ interface AppStore {
   previewReloadToken: number;
   previewUrl: string | null;
   sandboxStatus: SandboxState;
+  sidebarCollapsed: boolean;
   sidebarOpen: boolean;
   streamReconnect: StreamReconnect | null;
   appendConsoleLines: (
@@ -57,7 +57,6 @@ interface AppStore {
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
   setBudgetCapUsd: (threadId: string, value: number | null) => void;
-  setCommandPaletteOpen: (open: boolean) => void;
   setConnectionState: (state: ConnectionState) => void;
   setConsoleStripOpen: (open: boolean) => void;
   setDraft: (threadId: string, value: string) => void;
@@ -65,13 +64,14 @@ interface AppStore {
   setPreviewPanelOpen: (open: boolean) => void;
   setPreviewUrl: (url: string | null) => void;
   setSandboxStatus: (status: SandboxState) => void;
+  setSidebarCollapsed: (collapsed: boolean) => void;
   setSidebarOpen: (open: boolean) => void;
   setStreamReconnect: (value: StreamReconnect | null) => void;
 }
 
 type PersistedAppStore = Pick<
   AppStore,
-  "activePreviewTab" | "agentModelId" | "budgetCapUsdByThread"
+  "activePreviewTab" | "agentModelId" | "budgetCapUsdByThread" | "sidebarCollapsed"
 >;
 
 export const useAppStore = create<AppStore>()(
@@ -80,7 +80,6 @@ export const useAppStore = create<AppStore>()(
       activePreviewTab: "app",
       agentModelId: DEFAULT_AGENT_MODEL_ID,
       budgetCapUsdByThread: {},
-      commandPaletteOpen: false,
       connectionState: "online",
       consoleCursor: { stderr: 0, stdout: 0 },
       consoleLines: [],
@@ -95,6 +94,7 @@ export const useAppStore = create<AppStore>()(
       previewReloadToken: 0,
       previewUrl: null,
       sandboxStatus: "cold",
+      sidebarCollapsed: false,
       sidebarOpen: false,
       streamReconnect: null,
       appendConsoleLines: (lines, cursor, process, truncated) =>
@@ -145,7 +145,6 @@ export const useAppStore = create<AppStore>()(
       resetPreviewNavigation: () => set({ previewPath: "/", previewPathHistory: [] }),
       setActivePreviewTab: (tab) => set({ activePreviewTab: tab }),
       setAgentModelId: (agentModelId) => set({ agentModelId }),
-      setCommandPaletteOpen: (commandPaletteOpen) => set({ commandPaletteOpen }),
       setBudgetCapUsd: (threadId, value) =>
         set((state) => ({
           budgetCapUsdByThread: { ...state.budgetCapUsdByThread, [threadId]: value },
@@ -160,6 +159,7 @@ export const useAppStore = create<AppStore>()(
       setPreviewPanelOpen: (previewPanelOpen) => set({ previewPanelOpen }),
       setPreviewUrl: (previewUrl) => set({ previewUrl }),
       setSandboxStatus: (sandboxStatus) => set({ sandboxStatus }),
+      setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),
       setSidebarOpen: (sidebarOpen) => set({ sidebarOpen }),
       setStreamReconnect: (streamReconnect) => set({ streamReconnect }),
     }),
@@ -169,9 +169,10 @@ export const useAppStore = create<AppStore>()(
         activePreviewTab: state.activePreviewTab,
         agentModelId: state.agentModelId,
         budgetCapUsdByThread: state.budgetCapUsdByThread,
+        sidebarCollapsed: state.sidebarCollapsed,
       }),
       migrate: migratePersistedState,
-      version: 5,
+      version: 6,
       skipHydration: true,
       storage: createJSONStorage(() => localStorage),
     },
@@ -184,12 +185,14 @@ function migratePersistedState(persistedState: unknown): PersistedAppStore {
       activePreviewTab: "app",
       agentModelId: DEFAULT_AGENT_MODEL_ID,
       budgetCapUsdByThread: {},
+      sidebarCollapsed: false,
     };
   }
   return {
     activePreviewTab: migratePreviewTab(persistedState["activePreviewTab"]),
     agentModelId: migrateAgentModelId(persistedState["agentModelId"]),
     budgetCapUsdByThread: migrateBudgetCaps(persistedState["budgetCapUsdByThread"]),
+    sidebarCollapsed: persistedState["sidebarCollapsed"] === true,
   };
 }
 

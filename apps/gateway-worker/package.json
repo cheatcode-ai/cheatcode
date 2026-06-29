@@ -20,6 +20,7 @@
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "@composio/core": "catalog:",
+    "croner": "^10.0.1",
     "hono": "catalog:",
     "zod": "catalog:"
   },

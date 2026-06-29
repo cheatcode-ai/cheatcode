@@ -4,7 +4,7 @@
 
 ## What this is
 
-Cheatcode is a generalist AI agent platform. Users describe what they want, agents build it — apps, slides, research, browser automation, and media generation. Web-only product. **BYOK across all paid providers** (LLMs, image/video, TTS/STT, search).
+Cheatcode is a generalist AI agent platform. Users describe what they want, agents build it — apps, slides, research, and browser automation. Web-only product. **BYOK across all paid providers** (LLMs, search, parsing, and automation APIs).
 
 Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation + skills marketplace), Zo Computer (persistent personal cloud computer). Our wedge: mobile-first app builder + multi-agent transparency + BYOK economics.
 
@@ -42,7 +42,6 @@ packages/
   tools-browser/          Stagehand LOCAL + noVNC takeover
   tools-docs/             pptxgenjs, docx, exceljs, @react-pdf/renderer
   tools-data/             Arquero CSV analysis + Recharts SSR charts in the sandbox
-  tools-media/            FAL (image/video) + ElevenLabs (TTS/STT)
   tools-research/         Exa + Firecrawl
   db/                     Drizzle schema (per-domain) + queries + migrations
   byok/                   Vault-backed BYOK with provider validation

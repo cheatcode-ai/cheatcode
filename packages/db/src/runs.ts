@@ -21,8 +21,6 @@ import {
   usageEvents,
 } from "./schema";
 
-type ProjectMode = "app-builder" | "app-builder-mobile" | "general";
-
 export type AgentRunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "canceled";
 
 const DEFAULT_RUN_BUDGET_CAP_USD = 5;
@@ -114,18 +112,8 @@ export async function createAgentRunForThread(
       return attachResult;
     }
 
-    const budgetCapUsd = resolveRunBudgetCap(
-      input.budgetCapUsd,
-      thread.projectSettings,
-      input.personalization,
-      thread.projectMode,
-    );
-    const modelId = resolveRunModelId(
-      input.modelId,
-      thread.projectSettings,
-      input.personalization,
-      thread.projectMode,
-    );
+    const budgetCapUsd = resolveRunBudgetCap(input.budgetCapUsd, thread.projectSettings);
+    const modelId = resolveRunModelId(input.modelId, thread.projectSettings, input.personalization);
     const isFirstRun = await isFirstAgentRunForUser(tx as Database, input.userId);
     const config = agentRunConfig({
       ...input,
@@ -317,28 +305,17 @@ async function cancelSupersededRun(db: Database, runId: string): Promise<void> {
     .where(eq(agentRuns.id, runId));
 }
 
-export function surfaceOf(projectMode: ProjectMode): "appbuilder" | "general" {
-  return projectMode === "general" ? "general" : "appbuilder";
-}
-
 export function resolveRunBudgetCap(
   inputBudgetCapUsd: number | undefined,
   projectSettings: ProjectSettings,
-  personalization?: RunPersonalization,
-  projectMode: ProjectMode = "general",
 ): number {
-  const surfaceBudget = personalization ? surfaceBudgetDefault(personalization, projectMode) : null;
-  // A null surface budget ("No cap") falls through to the production default (D8); it does not lift the cap.
-  return (
-    inputBudgetCapUsd ?? projectSettings.budgetCapUsd ?? surfaceBudget ?? DEFAULT_RUN_BUDGET_CAP_USD
-  );
+  return inputBudgetCapUsd ?? projectSettings.budgetCapUsd ?? DEFAULT_RUN_BUDGET_CAP_USD;
 }
 
 export function resolveRunModelId(
   inputModelId: string | undefined,
   projectSettings: ProjectSettings,
   personalization?: RunPersonalization,
-  projectMode: ProjectMode = "general",
 ): string | undefined {
   const explicit = cleanModelId(inputModelId);
   if (explicit) {
@@ -346,11 +323,7 @@ export function resolveRunModelId(
     return explicit;
   }
   const disabled = new Set(personalization?.disabledModels ?? []);
-  const surfaceDefault = personalization ? surfaceModelDefault(personalization, projectMode) : null;
-  for (const candidate of [
-    cleanModelId(projectSettings.defaultModel),
-    cleanModelId(surfaceDefault),
-  ]) {
+  for (const candidate of [cleanModelId(projectSettings.defaultModel)]) {
     if (candidate && !disabled.has(candidate)) {
       return candidate;
     }
@@ -360,24 +333,6 @@ export function resolveRunModelId(
     return undefined;
   }
   return AGENT_MODEL_CATALOG.find((entry) => !disabled.has(entry.id))?.id;
-}
-
-function surfaceModelDefault(
-  personalization: RunPersonalization,
-  projectMode: ProjectMode,
-): string | null {
-  return surfaceOf(projectMode) === "general"
-    ? personalization.generalDefaultModel
-    : personalization.appbuilderDefaultModel;
-}
-
-function surfaceBudgetDefault(
-  personalization: RunPersonalization,
-  projectMode: ProjectMode,
-): number | null {
-  return surfaceOf(projectMode) === "general"
-    ? personalization.generalDefaultBudgetUsd
-    : personalization.appbuilderDefaultBudgetUsd;
 }
 
 function cleanModelId(value: string | null | undefined): string | undefined {

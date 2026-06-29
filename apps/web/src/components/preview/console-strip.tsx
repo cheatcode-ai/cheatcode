@@ -11,7 +11,7 @@ import { cn } from "@/lib/ui/cn";
 /**
  * Functional console strip (preview-surface §7.3). Collapsed by default; while
  * expanded ∧ sandbox ready it polls the dev-server console over HTTP (no
- * streaming — DOs own streaming). pid-based resets are handled in the store.
+ * streaming - DOs own streaming). pid-based resets are handled in the store.
  */
 export function ConsoleStrip({
   previewUrl,
@@ -38,15 +38,13 @@ export function ConsoleStrip({
   };
 
   return (
-    <div className="shrink-0 border-thread-border-subtle border-t">
+    <div className="shrink-0 border-thread-border-subtle border-t bg-white">
       <button
         className="flex w-full items-center justify-between px-3 py-2 transition-colors hover:bg-thread-hover"
         onClick={toggle}
         type="button"
       >
-        <span className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.2em]">
-          Console
-        </span>
+        <span className="font-mono text-[11px] text-thread-text-muted">Console</span>
         <span className="flex min-w-0 items-center gap-2">
           <span className="truncate font-mono text-[10px] text-thread-text-secondary">
             {consoleSummary(consoleProcess, previewUrl)}
@@ -88,7 +86,7 @@ function ConsoleLines({
     );
   }
   return (
-    <div className="chat-scrollbar max-h-48 overflow-y-auto bg-black/30 px-3 py-2 font-mono text-[10px]">
+    <div className="chat-scrollbar max-h-48 overflow-y-auto bg-[#fafafa] px-3 py-2 font-mono text-[10px]">
       {truncated ? (
         <div className="mb-1 text-thread-text-muted">earlier output truncated</div>
       ) : null}

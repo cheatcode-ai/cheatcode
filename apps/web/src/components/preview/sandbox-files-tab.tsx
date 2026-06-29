@@ -75,7 +75,7 @@ export function SandboxFilesTab({
   }
 
   return (
-    <div className="grid h-full min-h-[520px] grid-cols-[240px_minmax(0,1fr)] border border-thread-border bg-[var(--thread-code-bg)]">
+    <div className="grid h-full min-h-[520px] grid-cols-[240px_minmax(0,1fr)] overflow-hidden rounded-[16px] border border-thread-border bg-white">
       <FileList
         entries={filesQuery.data?.files ?? []}
         isLoading={filesQuery.isPending}
@@ -109,23 +109,21 @@ function FileList({
   onSelect: (path: string) => void;
   selectedPath: string;
 }) {
-  const sortedEntries = [...entries].sort(compareFileEntries);
+  const sortedEntries = entries.toSorted(compareFileEntries);
 
   return (
-    <div className="min-w-0 border-thread-border-subtle border-r">
-      <div className="flex h-10 items-center border-thread-border-subtle border-b px-3 font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.22em]">
+    <div className="min-w-0 border-thread-border-subtle border-r bg-white">
+      <div className="flex h-10 items-center border-thread-border-subtle border-b px-3 font-semibold text-[13px] text-thread-text-primary">
         Files
       </div>
       <div className="chat-scrollbar h-[calc(100%-2.5rem)] overflow-y-auto p-2">
         {isLoading ? (
-          <div className="px-2 py-3 font-mono text-[10px] text-thread-text-tertiary uppercase tracking-[0.18em]">
-            Loading
-          </div>
+          <div className="px-2 py-3 text-[12px] text-thread-text-tertiary">Loading</div>
         ) : null}
         {sortedEntries.map((entry) => (
           <button
             className={cn(
-              "block w-full truncate px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
+              "block w-full truncate rounded-[10px] px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
               entry.type === "file"
                 ? "text-thread-text-secondary hover:bg-thread-hover hover:text-thread-text-primary"
                 : "cursor-default text-thread-text-tertiary",
@@ -196,10 +194,8 @@ function ReadOnlyFilePreview({ file }: { file: SandboxFile }) {
 
 function BinaryFileMetadata({ entry, path }: { entry: SandboxFileEntry | null; path: string }) {
   return (
-    <div className="space-y-4 bg-black/30 p-4">
-      <div className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.22em]">
-        Binary data file
-      </div>
+    <div className="space-y-4 bg-[#fafafa] p-4">
+      <div className="font-mono text-[11px] text-thread-text-muted">Binary data file</div>
       <dl className="space-y-2 font-mono text-[11px] text-thread-text-secondary">
         <div>
           <dt className="text-thread-text-tertiary">Path</dt>
@@ -238,7 +234,7 @@ function EditableFileForm({
         </div>
         <button
           className={cn(
-            "ml-3 shrink-0 bg-white px-3 py-1 font-bold font-mono text-[9px] text-zinc-950 uppercase tracking-[0.18em] transition-colors hover:bg-zinc-200",
+            "ml-3 shrink-0 rounded-full bg-[#1b1b1b] px-3 py-1 font-medium text-[12px] text-white transition-colors hover:bg-black",
             (!hasChanges || isSaving) && "cursor-not-allowed opacity-45",
           )}
           disabled={!hasChanges || isSaving}
@@ -260,12 +256,10 @@ function EditableFileForm({
 
 function FilesPlaceholder({ sandboxStatus }: { sandboxStatus: string }) {
   return (
-    <div className="grid h-full min-h-[420px] place-items-center bg-black/30">
+    <div className="grid h-full min-h-[420px] place-items-center rounded-[16px] bg-[#fafafa]">
       <div className="text-center">
         <div className="mx-auto mb-4 h-2 w-2 rounded-full bg-thread-status-warning" />
-        <div className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.28em]">
-          Files {sandboxStatus}
-        </div>
+        <div className="text-[12px] text-thread-text-muted">Files {sandboxStatus}</div>
       </div>
     </div>
   );
@@ -273,13 +267,11 @@ function FilesPlaceholder({ sandboxStatus }: { sandboxStatus: string }) {
 
 function FilesError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="space-y-3 bg-black/30 p-4">
-      <div className="font-mono text-[10px] text-thread-status-danger uppercase tracking-[0.22em]">
-        File unavailable
-      </div>
+    <div className="space-y-3 rounded-[16px] bg-[#fafafa] p-4">
+      <div className="font-semibold text-[13px] text-red-700">File unavailable</div>
       <p className="text-sm text-thread-text-secondary">{message}</p>
       <button
-        className="border border-thread-border px-3 py-2 font-mono text-[10px] text-thread-text-secondary uppercase tracking-[0.18em] hover:bg-thread-hover hover:text-thread-text-primary"
+        className="rounded-full border border-thread-border px-3 py-2 text-[12px] text-thread-text-secondary hover:bg-thread-hover hover:text-thread-text-primary"
         onClick={onRetry}
         type="button"
       >

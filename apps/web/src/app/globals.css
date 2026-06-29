@@ -72,6 +72,7 @@
   --color-thread-status-error: var(--thread-status-error);
   --color-thread-status-error-bg: var(--thread-status-error-bg);
   --color-thread-status-info: var(--thread-status-info);
+  --color-thread-accent: var(--thread-accent-purple);
   --color-thread-accent-purple: var(--thread-accent-purple);
   --color-thread-skeleton: var(--thread-skeleton-bg);
   --color-thread-loading: var(--thread-loading-dot);
@@ -253,39 +254,39 @@
 }
 
 :root {
-  --background: #09090b;
-  --foreground: oklch(0.985 0 0);
-  --card: #000000;
-  --card-foreground: oklch(0.985 0 0);
-  --popover: #262626;
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(54.65% 0.246 262.87);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: #1a1a1a;
-  --muted-foreground: oklch(0.7 0 0);
-  --accent: #0d0d0d;
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.577 0.245 27.325);
-  --destructive-foreground: oklch(0.577 0.245 27.325);
-  --border: #333333;
-  --input: #1a1a1a;
-  --ring: oklch(0.708 0 0);
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
+  --background: #ffffff;
+  --foreground: #1b1b1b;
+  --card: #ffffff;
+  --card-foreground: #1b1b1b;
+  --popover: #ffffff;
+  --popover-foreground: #1b1b1b;
+  --primary: #1b1b1b;
+  --primary-foreground: #ffffff;
+  --secondary: #f7f7f7;
+  --secondary-foreground: #1b1b1b;
+  --muted: #f7f7f7;
+  --muted-foreground: #707070;
+  --accent: #f8af2c;
+  --accent-foreground: #1b1b1b;
+  --destructive: #d43f3a;
+  --destructive-foreground: #ffffff;
+  --border: #f1f1f1;
+  --input: #f7f7f7;
+  --ring: #1b1b1b;
+  --chart-1: #f8af2c;
+  --chart-2: #5b9a73;
+  --chart-3: #8aa0a8;
+  --chart-4: #d88a6b;
+  --chart-5: #c7a84a;
   --radius: 0.625rem;
-  --sidebar: oklch(0.9741 0 129.63);
-  --sidebar-foreground: oklch(0.145 0 0);
-  --sidebar-primary: oklch(0.205 0 0);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.1149 0 0 / 4%);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar: #ffffff;
+  --sidebar-foreground: #1b1b1b;
+  --sidebar-primary: #1b1b1b;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f7f7f7;
+  --sidebar-accent-foreground: #1b1b1b;
+  --sidebar-border: #f1f1f1;
+  --sidebar-ring: #1b1b1b;
 
   /* ============================================
    * THREAD SCREEN COLOR SYSTEM
@@ -293,63 +294,63 @@
    * ============================================ */
 
   /* Thread Panel Backgrounds */
-  --thread-panel-bg: #09090b; /* zinc-950 */
-  --thread-panel-bg-translucent: rgba(9, 9, 11, 0.8); /* zinc-950/80 */
-  --thread-surface: #131112;
-  --thread-surface-hover: #1c1a1b;
-  --thread-surface-subtle: rgba(19, 17, 18, 0.5);
+  --thread-panel-bg: #ffffff;
+  --thread-panel-bg-translucent: rgba(255, 255, 255, 0.88);
+  --thread-surface: #f8f8f8;
+  --thread-surface-hover: #f1f1f1;
+  --thread-surface-subtle: rgba(248, 248, 248, 0.68);
 
   /* Thread Borders */
-  --thread-border: #27272a; /* zinc-800 */
-  --thread-border-subtle: rgba(39, 39, 42, 0.5); /* zinc-800/50 */
-  --thread-border-hover: #3f3f46; /* zinc-700 */
-  --thread-divider: #52525b; /* zinc-600 */
+  --thread-border: #ececec;
+  --thread-border-subtle: #f1f1f1;
+  --thread-border-hover: #dcdcdc;
+  --thread-divider: #dedede;
 
   /* Thread Text Colors */
-  --thread-text-primary: #ffffff; /* white */
-  --thread-text-secondary: #a1a1aa; /* zinc-400 */
-  --thread-text-tertiary: #71717a; /* zinc-500 */
-  --thread-text-muted: #52525b; /* zinc-600 */
-  --thread-text-placeholder: #71717a; /* zinc-500 */
+  --thread-text-primary: #1b1b1b;
+  --thread-text-secondary: #4f4f4f;
+  --thread-text-tertiary: #8a8a8a;
+  --thread-text-muted: #a0a0a0;
+  --thread-text-placeholder: #a0a0a0;
 
   /* Thread Interactive States */
-  --thread-hover-bg: #1c1a1b;
-  --thread-active-bg: #27272a;
-  --thread-focus-ring: #52525b; /* zinc-600 */
+  --thread-hover-bg: #f7f7f7;
+  --thread-active-bg: #f1f1f1;
+  --thread-focus-ring: #1b1b1b;
 
   /* Thread Status Colors */
-  --thread-status-success: #10b981; /* emerald-500 */
-  --thread-status-success-bg: rgba(16, 185, 129, 0.1);
-  --thread-status-success-border: rgba(16, 185, 129, 0.2);
-  --thread-status-success-glow: rgba(16, 185, 129, 0.4);
+  --thread-status-success: #5b9a73;
+  --thread-status-success-bg: rgba(91, 154, 115, 0.1);
+  --thread-status-success-border: rgba(91, 154, 115, 0.2);
+  --thread-status-success-glow: rgba(91, 154, 115, 0.22);
 
-  --thread-status-warning: #f59e0b; /* amber-500 */
-  --thread-status-warning-bg: rgba(245, 158, 11, 0.1);
-  --thread-status-warning-border: rgba(245, 158, 11, 0.2);
+  --thread-status-warning: #f8af2c;
+  --thread-status-warning-bg: rgba(248, 175, 44, 0.14);
+  --thread-status-warning-border: rgba(248, 175, 44, 0.3);
 
-  --thread-status-error: #ef4444; /* red-500 */
-  --thread-status-error-bg: rgba(239, 68, 68, 0.1);
-  --thread-status-error-border: rgba(127, 29, 29, 0.3); /* red-900/30 */
-  --thread-status-error-text: #f87171; /* red-400 */
+  --thread-status-error: #d43f3a;
+  --thread-status-error-bg: rgba(212, 63, 58, 0.08);
+  --thread-status-error-border: rgba(212, 63, 58, 0.22);
+  --thread-status-error-text: #b8322f;
 
-  --thread-status-info: #3b82f6; /* blue-500 */
+  --thread-status-info: #6e8ea0;
 
   /* Thread Accent Colors */
-  --thread-accent-purple: #a855f7; /* purple-500 */
-  --thread-accent-purple-glow: rgba(168, 85, 247, 0.2);
+  --thread-accent-purple: #f8af2c;
+  --thread-accent-purple-glow: rgba(248, 175, 44, 0.18);
 
   /* Thread Message Bubbles */
-  --thread-user-message-bg: #131112;
-  --thread-assistant-message-bg: rgba(24, 24, 27, 0.2); /* zinc-900/20 */
-  --thread-assistant-message-border: rgba(39, 39, 42, 0.5);
+  --thread-user-message-bg: #efefef;
+  --thread-assistant-message-bg: #ffffff;
+  --thread-assistant-message-border: #f1f1f1;
 
   /* Thread Code/Tool Colors */
-  --thread-code-bg: rgba(255, 255, 255, 0.01);
-  --thread-tool-border: #27272a;
+  --thread-code-bg: #fafafa;
+  --thread-tool-border: #ececec;
 
   /* Thread Skeleton/Loading */
-  --thread-skeleton-bg: rgba(39, 39, 42, 0.5); /* zinc-800/50 */
-  --thread-loading-dot: #a855f7; /* purple-500 */
+  --thread-skeleton-bg: #ededed;
+  --thread-loading-dot: #f8af2c;
 }
 
 .dark {
@@ -434,6 +435,84 @@
       Consolas, "Liberation Mono", "Courier New", monospace,
       "Noto Sans Mono CJK JP", "Noto Sans Mono CJK KR", "Noto Sans Mono CJK SC",
       "Noto Sans Mono CJK TC";
+  }
+}
+
+@layer components {
+  .paper-dot-field {
+    background-image: radial-gradient(#d9d9d9 0.9px, transparent 0.9px);
+    background-size: 10px 10px;
+  }
+
+  .paper-soft-panel {
+    border: 1px solid #f1f1f1;
+    background: rgba(248, 248, 248, 0.6);
+  }
+
+  .paper-card {
+    border: 1px solid #f1f1f1;
+    background: #ffffff;
+    box-shadow: 0 0 1px rgba(0, 0, 0, 0.08);
+  }
+
+  .bud-composer-shell {
+    border: 2px solid #f7f7f7;
+    background: #ffffff;
+    box-shadow: none;
+  }
+
+  .bud-composer-fill {
+    background: linear-gradient(180deg, #f7f7f7 0%, rgba(247, 247, 247, 0) 100%);
+  }
+
+  .bud-lifted-surface {
+    background: #ffffff;
+    box-shadow:
+      0 0 1px rgba(0, 0, 0, 0.08),
+      inset 0 0 2px rgba(0, 0, 0, 0.02);
+  }
+
+  .cheatcode-auth-dialog::backdrop {
+    background: rgba(0, 0, 0, 0.28);
+    backdrop-filter: blur(10px);
+  }
+
+  .paper-focus-ring {
+    outline: 2px solid transparent;
+    outline-offset: 2px;
+  }
+
+  .paper-focus-ring:focus-visible {
+    outline-color: #1b1b1b;
+  }
+}
+
+@layer utilities {
+  @media (min-width: 768px) {
+    html.cheatcode-home-computer-open .cheatcode-home-main {
+      padding-right: min(58vw, 48rem);
+      transition: padding-right 200ms ease;
+    }
+
+    html.cheatcode-home-computer-open .cheatcode-home-center {
+      max-width: 30rem;
+      transition: max-width 200ms ease;
+    }
+
+    html.cheatcode-home-computer-open .cheatcode-home-composer-form {
+      right: min(58vw, 48rem);
+      padding-left: var(--cheatcode-sidebar-offset, 4rem);
+      width: auto;
+      transition:
+        right 200ms ease,
+        width 200ms ease,
+        padding-left 200ms ease;
+    }
+
+    html.cheatcode-home-computer-open .cheatcode-home-composer-shell {
+      max-width: 28rem;
+      transition: max-width 200ms ease;
+    }
   }
 }
 

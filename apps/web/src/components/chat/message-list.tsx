@@ -76,15 +76,15 @@ export function MessageList({ messages }: { messages: CheatcodeUIMessage[] }) {
 
 function EmptyThread() {
   return (
-    <div className="flex min-h-[60vh] flex-1 items-center justify-center bg-thread-panel px-4 font-mono">
+    <div className="flex min-h-[60vh] flex-1 items-center justify-center bg-white px-4">
       <div className="text-center">
         <div className="mb-6 flex justify-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-sm border border-zinc-800 bg-zinc-900">
+          <div className="flex h-12 w-12 items-center justify-center rounded-[14px] border border-[#f1f1f1] bg-[#f7f7f7]">
             <Image alt="" height={24} src="/cheatcode-symbol.png" width={24} />
           </div>
         </div>
-        <h2 className="mb-2 font-medium text-sm text-white">Ready to Build</h2>
-        <p className="mx-auto max-w-sm text-xs text-zinc-500">
+        <h2 className="mb-2 font-semibold text-[#1b1b1b] text-[15px]">Ready to build</h2>
+        <p className="mx-auto max-w-sm text-[#707070] text-[13px]">
           What would you like to create today?
         </p>
       </div>
@@ -104,14 +104,17 @@ function MessageBubble({ message }: { message: CheatcodeUIMessage }) {
     >
       <div
         className={cn(
-          isUser &&
-            "border border-zinc-800/50 bg-[var(--thread-user-message-bg)] p-4 backdrop-blur-sm",
-          !isUser && "p-1",
+          isUser && "rounded-[16px] bg-[var(--thread-user-message-bg)] px-4 py-3 text-[#1b1b1b]",
+          !isUser && "py-1",
         )}
       >
-        <div className="mb-2 font-mono text-[9px] text-thread-text-muted uppercase tracking-[0.28em]">
-          {message.role}
-        </div>
+        {isUser ? null : (
+          <div className="mb-3 flex items-center gap-2 text-[13px]">
+            <span className="text-[#f8af2c]">*</span>
+            <span className="font-semibold text-[#1b1b1b]">cheatcode</span>
+            <span className="text-[#a0a0a0]">- sonnet-4.6</span>
+          </div>
+        )}
         <MessageParts message={message} />
       </div>
     </article>

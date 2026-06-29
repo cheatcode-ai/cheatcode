@@ -31,10 +31,6 @@ export {
   type ComposioQuotaResult,
 } from "./mastra/composio-context";
 export {
-  ELEVENLABS_API_KEY_CONTEXT_KEY,
-  FAL_API_KEY_CONTEXT_KEY,
-} from "./mastra/media-context";
-export {
   EXA_API_KEY_CONTEXT_KEY,
   FIRECRAWL_API_KEY_CONTEXT_KEY,
   RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY,

@@ -27,7 +27,13 @@ export function SandboxEnvTab({
 }) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const envQuery = useQuery({
+  const {
+    data: envData,
+    error: envError,
+    isError: envIsError,
+    isPending: envIsPending,
+    refetch: refetchEnv,
+  } = useQuery({
     enabled: Boolean(previewUrl),
     queryFn: () => loadSandboxEnvFile(getToken, threadId),
     queryKey: sandboxFileQueryKey(threadId, ENV_PATH),
@@ -48,17 +54,17 @@ export function SandboxEnvTab({
   if (!previewUrl) {
     return <EnvPlaceholder label={`Env ${sandboxStatus}`} />;
   }
-  if (envQuery.isError) {
-    return <EnvError message={envQuery.error.message} onRetry={() => envQuery.refetch()} />;
+  if (envIsError) {
+    return <EnvError message={envError.message} onRetry={() => refetchEnv()} />;
   }
-  if (envQuery.isPending) {
+  if (envIsPending) {
     return <EnvPlaceholder label="Loading env" />;
   }
 
   return (
     <EnvEditor
-      content={envQuery.data.content}
-      exists={envQuery.data.exists}
+      content={envData.content}
+      exists={envData.exists}
       isSaving={saveMutation.isPending}
       onSave={(content) => saveMutation.mutate(content)}
     />
@@ -80,14 +86,14 @@ function EnvEditor({
   const hasChanges = draft !== content;
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col border border-thread-border bg-[var(--thread-code-bg)]">
+    <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-[16px] border border-thread-border bg-white">
       <div className="flex h-10 shrink-0 items-center justify-between border-thread-border-subtle border-b px-3">
         <div className="min-w-0 truncate font-mono text-[10px] text-thread-text-secondary">
           {ENV_PATH}
         </div>
         <button
           className={cn(
-            "ml-3 shrink-0 bg-white px-3 py-1 font-bold font-mono text-[9px] text-zinc-950 uppercase tracking-[0.18em] transition-colors hover:bg-zinc-200",
+            "ml-3 shrink-0 rounded-full bg-[#1b1b1b] px-3 py-1 font-medium text-[12px] text-white transition-colors hover:bg-black",
             (!hasChanges || isSaving) && "cursor-not-allowed opacity-45",
           )}
           disabled={!hasChanges || isSaving}
@@ -97,7 +103,7 @@ function EnvEditor({
           {isSaving ? "Saving" : exists ? "Save" : "Create"}
         </button>
       </div>
-      <div className="border-thread-border-subtle border-b px-3 py-2 font-mono text-[10px] text-thread-text-tertiary uppercase tracking-[0.18em]">
+      <div className="border-thread-border-subtle border-b px-3 py-2 font-mono text-[11px] text-thread-text-tertiary">
         {exists ? "Sandbox environment" : "Create sandbox environment file"}
       </div>
       <textarea
@@ -130,12 +136,10 @@ function isEnvFile(entry: SandboxFileEntry): boolean {
 
 function EnvPlaceholder({ label }: { label: string }) {
   return (
-    <div className="grid h-full min-h-[420px] place-items-center bg-black/30">
+    <div className="grid h-full min-h-[420px] place-items-center rounded-[16px] bg-[#fafafa]">
       <div className="text-center">
         <div className="mx-auto mb-4 h-2 w-2 rounded-full bg-thread-status-warning" />
-        <div className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.28em]">
-          {label}
-        </div>
+        <div className="text-[12px] text-thread-text-muted">{label}</div>
       </div>
     </div>
   );
@@ -143,13 +147,11 @@ function EnvPlaceholder({ label }: { label: string }) {
 
 function EnvError({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
-    <div className="space-y-3 bg-black/30 p-4">
-      <div className="font-mono text-[10px] text-thread-status-danger uppercase tracking-[0.22em]">
-        Env unavailable
-      </div>
+    <div className="space-y-3 rounded-[16px] bg-[#fafafa] p-4">
+      <div className="font-semibold text-[13px] text-red-700">Env unavailable</div>
       <p className="text-sm text-thread-text-secondary">{message}</p>
       <button
-        className="border border-thread-border px-3 py-2 font-mono text-[10px] text-thread-text-secondary uppercase tracking-[0.18em] hover:bg-thread-hover hover:text-thread-text-primary"
+        className="rounded-full border border-thread-border px-3 py-2 text-[12px] text-thread-text-secondary hover:bg-thread-hover hover:text-thread-text-primary"
         onClick={onRetry}
         type="button"
       >

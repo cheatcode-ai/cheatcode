@@ -1,11 +1,11 @@
+import type { ComponentType } from "react";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import {
   BookOpen,
-  type LucideIcon,
+  Link as LinkIcon,
   Monitor,
   Plus,
   SlidersHorizontal,
-  Sparkles,
-  SquareAsterisk,
   TrendingUp,
   User,
   Zap,
@@ -18,21 +18,19 @@ export type NavItemId =
   | "new-task"
   | "personalization"
   | "projects"
-  | "search"
   | "settings"
   | "skills"
+  | "tools"
   | "usage";
 
 export type NavSection = "footer" | "primary" | "workspace";
 
-export type NavTarget =
-  | { action: "open-search"; kind: "action" }
-  | { href: string; kind: "route"; matchPrefix: string };
+export type NavTarget = { href: string; kind: "route"; matchPrefix: string };
 
 export interface NavItem {
   description?: string;
   expandable?: boolean;
-  icon: LucideIcon;
+  icon: ComponentType<{ className?: string; "aria-hidden"?: boolean | "false" | "true" }>;
   id: NavItemId;
   label: string;
   section: NavSection;
@@ -42,10 +40,9 @@ export interface NavItem {
 
 /**
  * Canonical sidebar IA. The future Bud sidebar consumes the whole registry; this
- * round the existing sidebar renders only `status: "active"` workspace/footer
- * items as plain links and wires `open-search` to the command palette. `planned`
- * entries are reserved for the automations / billing-credits / user-foundation
- * clusters to flip on.
+ * round the existing sidebar renders only `status: "active"` items as plain
+ * links. `planned` entries are reserved for the automations / billing-credits /
+ * user-foundation clusters to flip on.
  */
 export const WORKSPACE_NAV: readonly NavItem[] = [
   {
@@ -57,14 +54,6 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     target: { href: "/", kind: "route", matchPrefix: "/" },
   },
   {
-    icon: SquareAsterisk,
-    id: "search",
-    label: "Search",
-    section: "primary",
-    status: "active",
-    target: { action: "open-search", kind: "action" },
-  },
-  {
     expandable: true,
     icon: Monitor,
     id: "projects",
@@ -74,7 +63,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     target: { href: "/projects", kind: "route", matchPrefix: "/projects" },
   },
   {
-    icon: Sparkles,
+    icon: CheatcodeMark,
     id: "skills",
     label: "Skills",
     section: "workspace",
@@ -82,11 +71,19 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     target: { href: "/skills", kind: "route", matchPrefix: "/skills" },
   },
   {
+    icon: LinkIcon,
+    id: "tools",
+    label: "Tools",
+    section: "workspace",
+    status: "active",
+    target: { href: "/tools", kind: "route", matchPrefix: "/tools" },
+  },
+  {
     icon: Zap,
     id: "automations",
     label: "Automations",
     section: "workspace",
-    status: "planned",
+    status: "active",
     target: { href: "/automations", kind: "route", matchPrefix: "/automations" },
   },
   {
@@ -94,7 +91,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     id: "personalization",
     label: "Personalization",
     section: "workspace",
-    status: "planned",
+    status: "active",
     target: {
       href: "/settings/personalization",
       kind: "route",

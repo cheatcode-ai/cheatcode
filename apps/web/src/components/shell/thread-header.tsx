@@ -3,6 +3,7 @@
 import { ClerkLoaded, ClerkLoading, UserButton, useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import Image from "next/image";
+import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import { UsageBadge } from "@/components/shell/usage-badge";
 import { Zap } from "@/components/ui/icons";
@@ -19,14 +20,14 @@ export function ThreadHeader() {
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
   const routeTitle = titleFromPath(pathname);
   const threadId = validThreadId(searchParams.get("thread"));
-  const threadQuery = useQuery({
+  const { data: thread, isPending: threadIsPending } = useQuery({
     enabled: pathname === "/projects" && threadId !== null,
     queryFn: () => getThread(getToken, String(threadId)),
     queryKey: ["threads", threadId],
     retry: false,
     staleTime: 5_000,
   });
-  const title = pathname === "/projects" ? threadQuery.data?.title || "New project" : routeTitle;
+  const title = pathname === "/projects" ? thread?.title || "New project" : routeTitle;
 
   return (
     <header className="fixed top-0 right-0 left-0 z-30 flex h-14 w-full items-center justify-between border-thread-border-subtle border-b bg-thread-panel-translucent px-6 backdrop-blur-md">
@@ -40,7 +41,7 @@ export function ThreadHeader() {
           <Image alt="" height={18} src="/cheatcode-symbol.png" width={18} />
         </button>
         <div className="-ms-2 flex min-w-0 flex-col px-2 py-1">
-          {threadQuery.isPending && pathname === "/projects" && threadId !== null ? (
+          {threadIsPending && pathname === "/projects" && threadId !== null ? (
             <>
               <span aria-hidden="true" className="block h-4 w-32 rounded-md bg-thread-skeleton" />
               <span className="sr-only">Loading project title</span>
@@ -54,13 +55,13 @@ export function ThreadHeader() {
       </div>
       <div className="flex items-center gap-4">
         <UsageBadge />
-        <a
+        <Link
           className="hidden h-8 items-center gap-2 rounded-md border border-thread-border bg-thread-surface px-3 font-mono text-[11px] text-thread-text-secondary uppercase tracking-wider shadow-sm transition-colors hover:border-thread-border-hover hover:bg-thread-surface-hover hover:text-thread-text-primary md:flex"
-          href="/settings/integrations"
+          href="/tools"
         >
           <Zap aria-hidden="true" className="h-3.5 w-3.5" />
-          Integrations
-        </a>
+          Tools
+        </Link>
         {/* Gate Clerk's UserButton behind ClerkLoaded so SSR and the first client render
             match (it mounts a client-only div); avoids a hydration-mismatch tree regen. */}
         <ClerkLoading>
@@ -84,6 +85,9 @@ function titleFromPath(pathname: string): string {
   }
   if (pathname.startsWith("/skills")) {
     return "Curated Skills";
+  }
+  if (pathname.startsWith("/tools")) {
+    return "Tools";
   }
   if (pathname.startsWith("/101")) {
     return "cheatcode 101";

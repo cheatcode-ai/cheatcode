@@ -1,0 +1,50 @@
+export const clerkAuthAppearance = {
+  elements: {
+    card: "!m-0 !flex !w-full !flex-col !gap-0 !rounded-none !border-0 !bg-transparent !p-0 !shadow-none",
+    cardBox: "!w-full !bg-transparent !shadow-none",
+    developmentMode: "!hidden",
+    dividerLine: "!bg-[#eeeeee]",
+    dividerRow: "!my-0 !w-full",
+    dividerText: "!text-[#707070] !text-[13px]",
+    footer: "!hidden",
+    footerAction: "!hidden",
+    footerActionLink: "!hidden",
+    footerActionText: "!hidden",
+    form: "!w-full !gap-5 !space-y-0",
+    formButtonPrimary:
+      "!flex !h-10 !min-h-10 !w-full !items-center !justify-center !gap-2 !rounded-[12px] !border-0 !bg-[#e3ac55] !px-4 !font-semibold !text-[14px] !text-white !shadow-none !transition-colors hover:!bg-[#d39a3f]",
+    formField: "!w-full !space-y-2",
+    formFieldInput:
+      "!box-border !h-[38px] !w-full !rounded-[11px] !border !border-[#e6e6e6] !bg-white !px-3.5 !text-[#1b1b1b] !text-[14px] !shadow-none placeholder:!text-[#a3a3a3] focus:!border-[#d8d8d8] focus:!ring-2 focus:!ring-[#1b1b1b]/10",
+    formFieldInputGroup:
+      "!box-border !h-[38px] !w-full !rounded-[11px] !border !border-[#e6e6e6] !bg-white focus-within:!border-[#d8d8d8] focus-within:!ring-2 focus-within:!ring-[#1b1b1b]/10",
+    formFieldInputShowPasswordButton: "!text-[#707070] hover:!text-[#1b1b1b]",
+    formFieldLabel: "!text-[#1b1b1b] !text-[13px] !font-medium",
+    formFieldLabelRow: "!mb-2",
+    formFieldRow: "!w-full",
+    header: "!hidden",
+    headerSubtitle: "!hidden",
+    headerTitle: "!hidden",
+    logoBox: "!hidden",
+    main: "!w-full !gap-5 !space-y-0",
+    rootBox: "!w-full",
+    socialButtons: "!w-full",
+    socialButtonsBlockButtonText: "!text-[14px] !font-medium !text-[#5f5f5f]",
+    socialButtonsBlockButton:
+      "!flex !h-[38px] !w-full !items-center !justify-center !gap-2.5 !rounded-[11px] !border !border-[#e6e6e6] !bg-white !px-3.5 !text-[#5f5f5f] !shadow-none !transition-colors hover:!bg-[#f7f7f7]",
+    socialButtonsRoot: "!mb-0 !w-full",
+  },
+  layout: {
+    socialButtonsPlacement: "top",
+    socialButtonsVariant: "blockButton",
+  },
+  variables: {
+    borderRadius: "10px",
+    colorBackground: "#ffffff",
+    colorInputBackground: "#ffffff",
+    colorPrimary: "#e0aa57",
+    colorText: "#1b1b1b",
+    colorTextSecondary: "#707070",
+    fontFamily: "var(--font-geist-sans), Arial, sans-serif",
+  },
+};

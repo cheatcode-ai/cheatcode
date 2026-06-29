@@ -124,8 +124,6 @@ export const ProviderSchema = z.enum([
   "google",
   "openrouter",
   "deepseek",
-  "fal",
-  "elevenlabs",
   "exa",
   "firecrawl",
   "llamaparse",
@@ -143,7 +141,15 @@ export const ProviderKeySummarySchema = z
   })
   .strict();
 
-export const IntegrationNameSchema = z.enum(["github", "gmail", "slack", "notion", "linear"]);
+// A Composio toolkit slug (e.g. "github", "google_calendar"). Previously a 5-value
+// enum; widened to the full Composio catalog so any managed-auth toolkit can be
+// browsed, connected, and used by the agent.
+export const IntegrationNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_]+$/, "Toolkit slug must be lowercase letters, digits, or underscores.");
 
 export const IntegrationStatusSchema = z.enum([
   "not_connected",
@@ -168,6 +174,47 @@ export const IntegrationSchema = z
 export const IntegrationConnectResponseSchema = z
   .object({
     oauthUrl: z.string().url(),
+  })
+  .strict();
+
+export const ToolkitCategorySchema = z
+  .object({
+    name: z.string(),
+    slug: z.string(),
+  })
+  .strict();
+
+export const ToolkitCatalogEntrySchema = z
+  .object({
+    categorySlugs: z.array(z.string()),
+    connectable: z.boolean(),
+    connectedAt: z.string().datetime().nullable(),
+    description: z.string(),
+    displayName: z.string(),
+    name: IntegrationNameSchema,
+    status: IntegrationStatusSchema,
+    updatedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export const IntegrationCatalogSchema = z
+  .object({
+    categories: z.array(ToolkitCategorySchema),
+    toolkits: z.array(ToolkitCatalogEntrySchema),
+  })
+  .strict();
+
+export const ToolkitActionSchema = z
+  .object({
+    description: z.string(),
+    name: z.string(),
+    slug: z.string(),
+  })
+  .strict();
+
+export const ToolkitActionsResponseSchema = z
+  .object({
+    actions: z.array(ToolkitActionSchema),
   })
   .strict();
 
@@ -650,8 +697,13 @@ export type SearchResultProject = z.infer<typeof SearchResultProjectSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type Integration = z.infer<typeof IntegrationSchema>;
+export type IntegrationCatalog = z.infer<typeof IntegrationCatalogSchema>;
 export type IntegrationConnectResponse = z.infer<typeof IntegrationConnectResponseSchema>;
 export type IntegrationName = z.infer<typeof IntegrationNameSchema>;
+export type ToolkitAction = z.infer<typeof ToolkitActionSchema>;
+export type ToolkitActionsResponse = z.infer<typeof ToolkitActionsResponseSchema>;
+export type ToolkitCatalogEntry = z.infer<typeof ToolkitCatalogEntrySchema>;
+export type ToolkitCategory = z.infer<typeof ToolkitCategorySchema>;
 export type LimitsSnapshot = z.infer<typeof LimitsSnapshotSchema>;
 export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
@@ -681,3 +733,151 @@ export type UsageDailyTotalsResponse = z.infer<typeof UsageDailyTotalsResponseSc
 export type FeaturedReplays = z.infer<typeof FeaturedReplaysSchema>;
 export type PublicReplay = z.infer<typeof PublicReplaySchema>;
 export type PublicReplayMessage = z.infer<typeof PublicReplayMessageSchema>;
+
+// ---------------------------------------------------------------------------
+// Automations (bud-parity: scheduled + event-triggered agent runs)
+// ---------------------------------------------------------------------------
+
+export const AutomationKindSchema = z.enum(["scheduled", "event"]);
+export const AutomationStatusSchema = z.enum(["running", "paused"]);
+
+export const AutomationDeliveryChannelSchema = z
+  .object({
+    type: z.enum(["slack", "notion", "email"]),
+    target: z.string().trim().min(1).max(400),
+  })
+  .strict();
+
+/** Permissive 5-field cron (UTC). Runtime expansion validates further. */
+const CronExpressionSchema = z
+  .string()
+  .trim()
+  .regex(/^(\S+\s+){4}\S+$/, "Expected a 5-field cron expression");
+
+export const CreateAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120),
+    kind: AutomationKindSchema,
+    prompt: z.string().trim().min(1).max(20_000),
+    model: z.string().trim().min(1).max(200).optional(),
+    projectId: z.string().uuid().optional(),
+    schedule: CronExpressionSchema.optional(),
+    triggerToolkit: z.string().trim().min(1).max(120).optional(),
+    triggerSlug: z.string().trim().min(1).max(200).optional(),
+    deliveryChannels: z.array(AutomationDeliveryChannelSchema).max(10).default([]),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (value.kind === "scheduled" && !value.schedule) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "schedule is required for scheduled automations",
+        path: ["schedule"],
+      });
+    }
+    if (value.kind === "event" && (!value.triggerToolkit || !value.triggerSlug)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "triggerToolkit and triggerSlug are required for event automations",
+        path: ["triggerSlug"],
+      });
+    }
+  });
+
+export const UpdateAutomationSchema = z
+  .object({
+    name: z.string().trim().min(1).max(120).optional(),
+    status: AutomationStatusSchema.optional(),
+    prompt: z.string().trim().min(1).max(20_000).optional(),
+    model: z.string().trim().min(1).max(200).nullable().optional(),
+    schedule: CronExpressionSchema.optional(),
+    deliveryChannels: z.array(AutomationDeliveryChannelSchema).max(10).optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one automation field is required.",
+  });
+
+export const AutomationSummarySchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string(),
+    status: AutomationStatusSchema,
+    kind: AutomationKindSchema,
+    prompt: z.string(),
+    model: z.string().nullable(),
+    projectId: z.string().uuid().nullable(),
+    schedule: z.string().nullable(),
+    triggerToolkit: z.string().nullable(),
+    triggerSlug: z.string().nullable(),
+    deliveryChannels: z.array(AutomationDeliveryChannelSchema),
+    nextRunAt: z.string().datetime().nullable(),
+    lastRunAt: z.string().datetime().nullable(),
+    createdAt: z.string().datetime(),
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const AutomationDeliveryResultSchema = z
+  .object({
+    type: z.enum(["slack", "notion", "email"]),
+    target: z.string(),
+    status: z.enum(["pending", "delivered", "failed"]),
+    error: z.string().optional(),
+  })
+  .strict();
+
+export const AutomationRunSummarySchema = z
+  .object({
+    id: z.string().uuid(),
+    automationId: z.string().uuid(),
+    threadId: z.string().uuid().nullable(),
+    status: z.enum(["running", "succeeded", "failed", "skipped"]),
+    summary: z.string().nullable(),
+    error: z.string().nullable(),
+    deliveries: z.array(AutomationDeliveryResultSchema),
+    startedAt: z.string().datetime(),
+    finishedAt: z.string().datetime().nullable(),
+  })
+  .strict();
+
+export const AutomationListResponseSchema = z
+  .object({ automations: z.array(AutomationSummarySchema) })
+  .strict();
+
+export const AutomationRunsResponseSchema = z
+  .object({ runs: z.array(AutomationRunSummarySchema) })
+  .strict();
+
+export type AutomationKind = z.infer<typeof AutomationKindSchema>;
+export type AutomationStatus = z.infer<typeof AutomationStatusSchema>;
+export type AutomationDeliveryChannel = z.infer<typeof AutomationDeliveryChannelSchema>;
+export type CreateAutomation = z.infer<typeof CreateAutomationSchema>;
+export type UpdateAutomation = z.infer<typeof UpdateAutomationSchema>;
+export type AutomationSummary = z.infer<typeof AutomationSummarySchema>;
+export type AutomationRunSummary = z.infer<typeof AutomationRunSummarySchema>;
+export type AutomationListResponse = z.infer<typeof AutomationListResponseSchema>;
+export type AutomationRunsResponse = z.infer<typeof AutomationRunsResponseSchema>;
+
+// --- Account (GET/PATCH /v1/me) ---
+
+export const MeResponseSchema = z
+  .object({
+    id: z.string().uuid(),
+    email: z.string(),
+    displayName: z.string().nullable(),
+    avatarUrl: z.string().nullable(),
+  })
+  .strict();
+
+export const UpdateMeSchema = z
+  .object({
+    displayName: z.string().trim().min(1).max(120).nullable().optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one account field is required.",
+  });
+
+export type MeResponse = z.infer<typeof MeResponseSchema>;
+export type UpdateMe = z.infer<typeof UpdateMeSchema>;

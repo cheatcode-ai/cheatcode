@@ -44,12 +44,10 @@ export function SandboxTerminalTab({
   }
 
   return (
-    <div className="flex h-full min-h-[520px] flex-col border border-thread-border bg-black">
+    <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-[16px] border border-thread-border bg-white">
       <div className="flex h-10 shrink-0 items-center justify-between border-thread-border-subtle border-b px-3">
-        <div className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.22em]">
-          Terminal
-        </div>
-        <div className="font-mono text-[9px] text-thread-text-tertiary uppercase tracking-[0.2em]">
+        <div className="font-mono text-[12px] text-thread-text-muted">Terminal</div>
+        <div className="font-mono text-[11px] text-thread-text-tertiary">
           Sandbox {sandboxStatus}
         </div>
       </div>
@@ -78,7 +76,7 @@ export function SandboxTerminalTab({
         />
         <button
           className={cn(
-            "shrink-0 border border-thread-border px-3 py-2 font-mono text-[9px] text-thread-text-secondary uppercase tracking-[0.18em] transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
+            "shrink-0 rounded-full border border-thread-border px-3 py-2 text-[12px] text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
             isBusy && "cursor-not-allowed opacity-45",
           )}
           disabled={isBusy}
@@ -106,8 +104,8 @@ function TerminalResult({ entry }: { entry: TerminalEntry }) {
       <div className="font-mono text-[11px] text-thread-text-primary">$ {entry.command}</div>
       <pre
         className={cn(
-          "whitespace-pre-wrap border-thread-border border-l bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] leading-5",
-          entry.result.success ? "text-thread-text-secondary" : "text-thread-status-danger",
+          "whitespace-pre-wrap rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] leading-5",
+          entry.result.success ? "text-thread-text-secondary" : "text-red-700",
         )}
       >
         {output}

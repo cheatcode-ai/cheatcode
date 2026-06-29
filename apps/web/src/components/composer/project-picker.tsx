@@ -24,24 +24,24 @@ export function ProjectPicker({
   const { getToken } = useAuth();
   const [isOpen, setIsOpen] = useState(false);
   const [search, setSearch] = useState("");
-  const projectsQuery = useQuery({
+  const { data: projectData, isPending: projectsIsPending } = useQuery({
     enabled: isOpen,
     queryFn: () => listProjects(getToken),
     queryKey: ["sidebar-projects"],
     retry: false,
     staleTime: 30_000,
   });
-  const projects = (projectsQuery.data ?? []).filter((project) =>
+  const projects = (projectData ?? []).filter((project) =>
     project.name.toLowerCase().includes(search.trim().toLowerCase()),
   );
 
   if (selectedProject) {
     return (
-      <div className="flex h-8 items-center gap-2 border border-white/15 bg-white/5 px-3 font-mono text-[10px] text-zinc-200 uppercase tracking-widest">
+      <div className="flex h-8 items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 text-[#1b1b1b] text-[12px]">
         <span className="max-w-40 truncate">{selectedProject.name || "Project"}</span>
         <button
           aria-label="Clear selected project"
-          className="-mr-1.5 ml-0.5 flex h-6 w-6 items-center justify-center text-zinc-500 transition-colors hover:text-white"
+          className="-mr-1.5 ml-0.5 flex h-6 w-6 items-center justify-center text-[#8a8a8a] transition-colors hover:text-[#1b1b1b]"
           onClick={() => onSelect(null)}
           type="button"
         >
@@ -55,7 +55,7 @@ export function ProjectPicker({
     <div className="relative">
       <button
         aria-expanded={isOpen}
-        className="flex h-8 items-center gap-2 border border-white/5 bg-[#09090b] px-3 font-mono text-[10px] text-zinc-500 uppercase tracking-widest transition-colors hover:border-white/10 hover:text-zinc-300"
+        className="paper-focus-ring flex h-8 items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 text-[#4f4f4f] text-[12px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
         onClick={() => setIsOpen((current) => !current)}
         type="button"
       >
@@ -63,16 +63,16 @@ export function ProjectPicker({
         <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
       </button>
       {isOpen ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 border border-white/10 bg-[#09090b] p-1 shadow-2xl">
+        <div className="absolute bottom-full left-0 z-30 mb-2 flex w-72 flex-col gap-1 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
           <input
             aria-label="Search projects"
-            className="mb-1 w-full border-white/5 border-b bg-transparent px-2 py-1.5 font-mono text-[11px] text-white outline-none placeholder:text-zinc-600"
+            className="w-full border-[#f1f1f1] border-b bg-transparent px-3 py-2 text-[#1b1b1b] text-[13px] outline-none placeholder:text-[#a0a0a0]"
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search projects"
             value={search}
           />
           <button
-            className="flex h-8 w-full items-center gap-2 px-2 font-mono text-[10px] text-zinc-300 uppercase tracking-widest transition-colors hover:bg-white/5 hover:text-white"
+            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
             onClick={() => {
               onSelect(null);
               setIsOpen(false);
@@ -88,7 +88,7 @@ export function ProjectPicker({
               setIsOpen(false);
             }}
             projects={projects}
-            isLoading={projectsQuery.isPending}
+            isLoading={projectsIsPending}
           />
         </div>
       ) : null}
@@ -106,24 +106,20 @@ function ProjectRows({
   projects: readonly ProjectSummary[];
 }) {
   if (isLoading) {
-    return <p className="px-2 py-3 font-mono text-[10px] text-zinc-600 uppercase">Loading…</p>;
+    return <p className="px-3 py-3 text-[#a0a0a0] text-[12px]">Loading...</p>;
   }
   if (projects.length === 0) {
-    return (
-      <p className="px-2 py-3 font-mono text-[10px] text-zinc-600 uppercase tracking-widest">
-        No projects yet
-      </p>
-    );
+    return <p className="px-3 py-3 text-[#a0a0a0] text-[12px]">No projects yet</p>;
   }
   return (
-    <div className="max-h-56 overflow-y-auto">
+    <div className="flex max-h-56 flex-col gap-1 overflow-y-auto">
       {projects.map((project) => (
         <button
           className={cn(
-            "flex w-full items-center justify-between gap-2 px-2 py-1.5 text-left font-mono text-[11px] transition-colors",
+            "flex w-full items-center justify-between gap-2 rounded-xl px-3 py-2 text-left text-[13px] transition-colors",
             project.readOnly
-              ? "cursor-not-allowed text-zinc-600"
-              : "text-zinc-400 hover:bg-white/5 hover:text-zinc-200",
+              ? "cursor-not-allowed text-[#c7c7c7]"
+              : "text-[#4f4f4f] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
           )}
           disabled={project.readOnly}
           key={project.id}
@@ -132,9 +128,7 @@ function ProjectRows({
         >
           <span className="min-w-0 truncate">{project.name || "Untitled project"}</span>
           {project.readOnly ? (
-            <span className="shrink-0 text-[9px] text-zinc-600 uppercase tracking-widest">
-              read-only
-            </span>
+            <span className="shrink-0 text-[#a0a0a0] text-[11px]">read-only</span>
           ) : null}
         </button>
       ))}

@@ -122,6 +122,7 @@ export function ProjectsShell() {
           key={threadId}
           onSubmitDraft={clearPromptParams}
           project={projectQuery.data ?? null}
+          threadTitle={threadQuery.data?.title ?? null}
           threadId={threadId}
         />
       </section>

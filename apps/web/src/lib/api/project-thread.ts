@@ -141,7 +141,14 @@ export async function listThreadMessages(
     `/v1/threads/${encodeURIComponent(threadId)}/messages?limit=100`,
   );
   const page = ThreadMessagePageSchema.parse(await response.json());
-  return page.data.map(messageRecordToUiMessage).filter(isCheatcodeUIMessage);
+  const messages: CheatcodeUIMessage[] = [];
+  for (const record of page.data) {
+    const message = messageRecordToUiMessage(record);
+    if (isCheatcodeUIMessage(message)) {
+      messages.push(message);
+    }
+  }
+  return messages;
 }
 
 async function createProject(

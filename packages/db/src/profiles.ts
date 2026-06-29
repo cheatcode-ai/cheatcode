@@ -12,11 +12,7 @@ type OnboardingStepStatusValue = "done" | "skipped";
 export interface UpsertUserProfileInput {
   userId: UserId;
   agentDisplayName?: string | null;
-  appbuilderDefaultBudgetUsd?: number | null;
-  appbuilderDefaultModel?: string | null;
   disabledModels?: readonly string[];
-  generalDefaultBudgetUsd?: number | null;
-  generalDefaultModel?: string | null;
   globalMemory?: string | null;
   onboardingCompleted?: boolean;
   onboardingStep?: { status: OnboardingStepStatusValue; step: OnboardingStepKey };
@@ -24,21 +20,13 @@ export interface UpsertUserProfileInput {
 
 export interface RunPersonalization {
   agentDisplayName: string | null;
-  appbuilderDefaultBudgetUsd: number | null;
-  appbuilderDefaultModel: string | null;
   disabledModels: readonly string[];
-  generalDefaultBudgetUsd: number | null;
-  generalDefaultModel: string | null;
   globalMemory: string | null;
 }
 
 const DEFAULT_PERSONALIZATION: RunPersonalization = {
   agentDisplayName: null,
-  appbuilderDefaultBudgetUsd: null,
-  appbuilderDefaultModel: null,
   disabledModels: [],
-  generalDefaultBudgetUsd: null,
-  generalDefaultModel: null,
   globalMemory: null,
 };
 
@@ -61,12 +49,7 @@ export async function getRunPersonalization(
   }
   return {
     agentDisplayName: row.agentDisplayName,
-    // Drizzle returns numeric columns as strings at runtime; coerce back to number.
-    appbuilderDefaultBudgetUsd: coerceBudget(row.appbuilderDefaultBudgetUsd),
-    appbuilderDefaultModel: row.appbuilderDefaultModel,
     disabledModels: row.disabledModels,
-    generalDefaultBudgetUsd: coerceBudget(row.generalDefaultBudgetUsd),
-    generalDefaultModel: row.generalDefaultModel,
     globalMemory: row.globalMemory,
   };
 }
@@ -106,18 +89,6 @@ function profileColumnUpdates(
   if (input.globalMemory !== undefined) {
     updates.globalMemory = input.globalMemory;
   }
-  if (input.appbuilderDefaultModel !== undefined) {
-    updates.appbuilderDefaultModel = input.appbuilderDefaultModel;
-  }
-  if (input.generalDefaultModel !== undefined) {
-    updates.generalDefaultModel = input.generalDefaultModel;
-  }
-  if (input.appbuilderDefaultBudgetUsd !== undefined) {
-    updates.appbuilderDefaultBudgetUsd = input.appbuilderDefaultBudgetUsd;
-  }
-  if (input.generalDefaultBudgetUsd !== undefined) {
-    updates.generalDefaultBudgetUsd = input.generalDefaultBudgetUsd;
-  }
   if (input.disabledModels !== undefined) {
     updates.disabledModels = [...input.disabledModels];
   }
@@ -133,8 +104,4 @@ function mergeOnboardingState(
     steps[step.step] = step.status;
   }
   return { steps };
-}
-
-function coerceBudget(value: number | null): number | null {
-  return value === null ? null : Number(value);
 }

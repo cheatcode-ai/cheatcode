@@ -3,14 +3,10 @@ import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 import type { ComposioRuntimeCredentials } from "./composio-provider";
 import { resolveComposioRuntimeCredentials } from "./composio-provider";
-import type { MediaCredentials } from "./media-provider";
-import { resolveMediaCredentials } from "./media-provider";
 import type { ResearchCredentials } from "./research-provider";
 import { resolveResearchCredentials } from "./research-provider";
 
-export type AgentToolCredentials = ComposioRuntimeCredentials &
-  MediaCredentials &
-  ResearchCredentials;
+export type AgentToolCredentials = ComposioRuntimeCredentials & ResearchCredentials;
 
 export async function resolveAgentToolCredentials(input: {
   env: AgentRunEnv;
@@ -20,8 +16,6 @@ export async function resolveAgentToolCredentials(input: {
 }): Promise<AgentToolCredentials> {
   input.setRunStage("Resolving research providers.");
   const researchCredentials = await resolveResearchCredentials(input.env, input.run, input.logger);
-  input.setRunStage("Resolving media providers.");
-  const mediaCredentials = await resolveMediaCredentials(input.env, input.run, input.logger);
   input.setRunStage("Resolving Composio providers.");
   const composioCredentials = await resolveComposioRuntimeCredentials(
     input.env,
@@ -30,7 +24,6 @@ export async function resolveAgentToolCredentials(input: {
   );
   return {
     ...composioCredentials,
-    ...mediaCredentials,
     ...researchCredentials,
   };
 }

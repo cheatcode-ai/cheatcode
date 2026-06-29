@@ -5,7 +5,6 @@ import {
   type KeyboardEvent,
   type RefObject,
   type SyntheticEvent,
-  useEffect,
   useState,
 } from "react";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
@@ -73,21 +72,11 @@ export function useComposerTriggers({
   const [caret, setCaret] = useState(0);
   const [dismissedStart, setDismissedStart] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
-  const [pendingCaret, setPendingCaret] = useState<number | null>(null);
 
   const detected = detectActive(value, Math.min(caret, value.length), sources);
   const token = detected?.token ?? null;
   const kind = detected?.kind ?? null;
   const isActive = token !== null && dismissedStart !== token.start;
-
-  useEffect(() => {
-    if (pendingCaret === null) {
-      return;
-    }
-    const element = textareaRef.current;
-    element?.setSelectionRange(pendingCaret, pendingCaret);
-    setPendingCaret(null);
-  }, [pendingCaret, textareaRef]);
 
   function commitIndex(index: number, items: readonly ComposerMenuItem[]): void {
     const item = items[index];
@@ -97,10 +86,14 @@ export function useComposerTriggers({
     const next = replaceToken(value, token, item.insert);
     onChange(next.value);
     setCaret(next.caret);
-    setPendingCaret(next.caret);
     setDismissedStart(null);
     setActiveIndex(0);
     onInsert?.(kind ?? "slash", item);
+    window.requestAnimationFrame(() => {
+      const element = textareaRef.current;
+      element?.focus();
+      element?.setSelectionRange(next.caret, next.caret);
+    });
   }
 
   function handleMenuKeyDown(

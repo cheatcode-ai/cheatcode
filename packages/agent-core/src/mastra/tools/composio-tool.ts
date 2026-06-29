@@ -30,7 +30,16 @@ const COMPOSIO_TOOLKIT_VERSIONS: Record<string, string> = {
   notion: "20260615_00",
   slack: "20260615_00",
 };
-const composioIntegrationNameSchema = z.enum(["github", "gmail", "slack", "notion", "linear"]);
+// A connected Composio toolkit slug (e.g. "github", "google_calendar"). Open slug
+// rather than a fixed enum so the agent can list/execute tools for any toolkit the
+// user connected from the catalog. The runtime still gates on the user's actual
+// connected accounts before listing or executing.
+const composioIntegrationNameSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(64)
+  .regex(/^[a-z0-9_]+$/);
 
 const requestContextReaderSchema = {
   parse(value: unknown): { get(key: string): unknown } {

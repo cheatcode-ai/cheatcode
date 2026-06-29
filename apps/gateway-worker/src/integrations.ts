@@ -47,15 +47,10 @@ const SUPPORTED_INTEGRATIONS = [
   { displayName: "Linear", name: "linear" },
 ] as const satisfies readonly { displayName: string; name: IntegrationName }[];
 
-const ComposioAuthConfigMapSchema = z
-  .object({
-    github: z.string().min(1).optional(),
-    gmail: z.string().min(1).optional(),
-    linear: z.string().min(1).optional(),
-    notion: z.string().min(1).optional(),
-    slack: z.string().min(1).optional(),
-  })
-  .strict();
+// Optional override map of toolkit slug -> a specific (often custom-credentialed)
+// Composio auth config id. Toolkits not listed fall back to a Composio-managed auth
+// config created on demand, so any catalog toolkit can be connected.
+const ComposioAuthConfigMapSchema = z.record(IntegrationNameSchema, z.string().min(1));
 
 type ComposioAuthConfigMap = z.infer<typeof ComposioAuthConfigMapSchema>;
 
@@ -82,27 +77,37 @@ export async function listIntegrationSummaries(
       byName.set(parsed.data, record);
     }
   }
-  return SUPPORTED_INTEGRATIONS.map((supported) =>
+  const supportedNames = new Set<string>(SUPPORTED_INTEGRATIONS.map((supported) => supported.name));
+  const summaries = SUPPORTED_INTEGRATIONS.map((supported) =>
     integrationSummary(supported.name, supported.displayName, byName.get(supported.name)),
   );
+  // Include any app connected outside the curated five (e.g. from the full Composio
+  // catalog on the Tools page) so the connected-state reflects reality everywhere.
+  for (const [name, record] of byName) {
+    if (!supportedNames.has(name)) {
+      summaries.push(integrationSummary(name, titleCaseSlug(name), record));
+    }
+  }
+  return summaries;
+}
+
+/** "google_calendar" -> "Google Calendar" for catalog apps without a curated display name. */
+function titleCaseSlug(slug: string): string {
+  return slug
+    .split("_")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
 }
 
 export async function connectIntegration(input: ConnectIntegrationInput): Promise<Response> {
   const apiKey = await readRequiredSecret(input.env.COMPOSIO_API_KEY, "COMPOSIO_API_KEY");
-  const authConfigId = await readAuthConfigId(input.env, input.integration);
   const composio = new Composio({
     allowTracking: false,
     apiKey,
     baseURL: "https://backend.composio.dev",
   });
-  const callbackUrl = resolveCallbackUrl(input.request);
-  const connection = await createConnectionLink({
-    authConfigId,
-    callbackUrl,
-    composio,
-    integration: input.integration,
-    userId: input.userId,
-  });
+  const connection = await createConnection(input, composio);
   await upsertUserIntegration(input.db, {
     composioConnectionId: connection.id,
     integration: input.integration,
@@ -173,21 +178,52 @@ export function normalizeIntegrationStatus(status: string): Integration["status"
   }
 }
 
-async function readAuthConfigId(
-  env: IntegrationEnv,
-  integration: IntegrationName,
-): Promise<string> {
-  const raw = await readRequiredSecret(env.COMPOSIO_AUTH_CONFIGS, "COMPOSIO_AUTH_CONFIGS");
-  const parsedJson = parseAuthConfigJson(raw);
-  const authConfigId = parsedJson[integration];
-  if (!authConfigId) {
-    throw new APIError(503, "unavailable_maintenance", "Composio integration is not configured", {
-      details: { integration },
-      hint: "Add this integration to COMPOSIO_AUTH_CONFIGS.",
-      retriable: false,
+// Builds a Composio connection link. Curated toolkits with a pre-configured auth
+// config keep the redirect-back-to-Cheatcode flow; every other toolkit uses
+// toolkits.authorize, which creates the right auth-config type for that toolkit's
+// auth scheme (OAuth, API key, etc.) and initiates the connection idempotently.
+async function createConnection(
+  input: ConnectIntegrationInput,
+  composio: Composio,
+): Promise<{ id: string; redirectUrl: string }> {
+  const configured = await readConfiguredAuthConfigId(input.env, input.integration);
+  if (configured) {
+    return createConnectionLink({
+      authConfigId: configured,
+      callbackUrl: resolveCallbackUrl(input.request),
+      composio,
+      integration: input.integration,
+      userId: input.userId,
     });
   }
-  return authConfigId;
+  return authorizeToolkit(composio, input.integration, input.userId);
+}
+
+async function authorizeToolkit(
+  composio: Composio,
+  integration: IntegrationName,
+  userId: UserId,
+): Promise<{ id: string; redirectUrl: string }> {
+  try {
+    const connection = await composio.toolkits.authorize(userId, integration);
+    if (!connection.redirectUrl) {
+      throw new Error("Composio returned no redirect URL.");
+    }
+    return { id: connection.id, redirectUrl: connection.redirectUrl };
+  } catch (error) {
+    throw composioGatewayError("Unable to start the connection", error, integration);
+  }
+}
+
+async function readConfiguredAuthConfigId(
+  env: IntegrationEnv,
+  integration: IntegrationName,
+): Promise<string | undefined> {
+  const raw = await resolveWorkerSecret(env.COMPOSIO_AUTH_CONFIGS).catch(() => undefined);
+  if (!raw) {
+    return undefined;
+  }
+  return parseAuthConfigJson(raw)[integration];
 }
 
 function parseAuthConfigJson(raw: string): ComposioAuthConfigMap {

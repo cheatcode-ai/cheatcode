@@ -13,7 +13,7 @@ export const userProfiles = pgTable(v2TableName("user_profiles"), {
     .references(() => users.id, { onDelete: "cascade" }),
   agentDisplayName: text("agent_display_name"),
   globalMemory: text("global_memory"),
-  // Per-surface Agent defaults (design 13b). null model = Auto; null budget = No cap.
+  // Legacy per-surface defaults are retained in storage only; the product no longer reads them.
   appbuilderDefaultModel: text("appbuilder_default_model"),
   generalDefaultModel: text("general_default_model"),
   appbuilderDefaultBudgetUsd: numeric("appbuilder_default_budget_usd", {

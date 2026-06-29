@@ -12,6 +12,7 @@ import {
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { Hono } from "hono";
+import { runAutomationTick } from "./automation-runner";
 import { verifyComposioWebhook } from "./composio";
 import { verifyInternalAlert } from "./internal-alert";
 import {
@@ -413,6 +414,9 @@ const webhooksHandler = {
     }
     if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
       ctx.waitUntil(enqueueAnalyticsWatchdog(env, controller.scheduledTime));
+      // Automations ride the 5-minute tick (CF cron-trigger limit blocks a dedicated
+      // 1-minute schedule); scheduled automations fire within ~5 min of their time.
+      ctx.waitUntil(runAutomationTick(env, controller.scheduledTime));
       return;
     }
     if (controller.cron === EGRESS_CANARY_CRON) {

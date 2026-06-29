@@ -20,7 +20,6 @@ import {
   OPENAI_API_KEY_CONTEXT_KEY,
   OPENROUTER_API_KEY_CONTEXT_KEY,
 } from "../llm-context";
-import { ELEVENLABS_API_KEY_CONTEXT_KEY, FAL_API_KEY_CONTEXT_KEY } from "../media-context";
 import {
   EXA_API_KEY_CONTEXT_KEY,
   FIRECRAWL_API_KEY_CONTEXT_KEY,
@@ -43,9 +42,7 @@ export interface CodeRequestContextOptions {
   composioQuotaMeter?: ComposioQuotaMeter | undefined;
   composioUserId?: string | undefined;
   deepseekApiKey?: string | undefined;
-  elevenlabsApiKey?: string | undefined;
   exaApiKey?: string | undefined;
-  falApiKey?: string | undefined;
   firecrawlApiKey?: string | undefined;
   globalMemory?: string | undefined;
   googleApiKey?: string | undefined;
@@ -90,8 +87,6 @@ function contextEntries(
     [EXA_API_KEY_CONTEXT_KEY, options.exaApiKey],
     [FIRECRAWL_API_KEY_CONTEXT_KEY, options.firecrawlApiKey],
     [RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY, options.researchFanoutSubagentLimit],
-    [FAL_API_KEY_CONTEXT_KEY, options.falApiKey],
-    [ELEVENLABS_API_KEY_CONTEXT_KEY, options.elevenlabsApiKey],
     [APPROVAL_BROKER_CONTEXT_KEY, options.approvalBroker],
   ];
 }

@@ -1,237 +1,157 @@
 "use client";
 
-import { SKILL_MANIFEST, type SkillManifestEntry } from "@cheatcode/skills/manifest";
-import type { SearchResult } from "@cheatcode/types";
 import { ModalShell } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { Command } from "cmdk";
 import { useRouter } from "next/navigation";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Search } from "@/components/ui/icons";
 import { searchWorkspace } from "@/lib/api/search";
-import { type NavItem, WORKSPACE_NAV } from "@/lib/navigation/nav-model";
-import { useAppStore } from "@/lib/store/app-store";
-import { emitCommandPaletteOpened } from "@/lib/telemetry/user-events";
 
-const ROUTE_NAV_ITEMS = WORKSPACE_NAV.filter(
-  (item) => item.status === "active" && item.target.kind === "route",
-);
+/** Dispatch on `window` to open the palette from any UI affordance (e.g. a Search button). */
+export const OPEN_COMMAND_PALETTE_EVENT = "cheatcode:open-command-palette";
 
 /**
- * ⌘K / Ctrl+K command palette mounted once in the app shell. Uses cmdk for
- * keyboard semantics inside the shared native-`<dialog>` `ModalShell` (one modal
- * mechanism product-wide). Server search results come pre-filtered (so cmdk's own
- * filtering is disabled); static nav + skill groups are filtered against the same
- * input.
+ * Global ⌘K / Ctrl+K command palette. Mounted once in the app providers. Backed
+ * by the real `GET /v1/search` (projects + threads only — message text and files
+ * are intentionally out of scope server-side, so we never imply file results).
+ * cmdk's built-in filtering is disabled (`shouldFilter={false}`) because matching
+ * happens server-side; cmdk only owns keyboard navigation + selection.
  */
 export function CommandPalette() {
-  const open = useAppStore((state) => state.commandPaletteOpen);
-  const setOpen = useAppStore((state) => state.setCommandPaletteOpen);
-  const { getToken } = useAuth();
+  const { getToken, isSignedIn } = useAuth();
   const router = useRouter();
+  const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const debouncedQuery = useDebouncedValue(query, 250);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const trimmed = debouncedQuery.trim();
-  const searchQuery = useQuery({
-    enabled: open && trimmed.length >= 2,
-    queryFn: () => searchWorkspace(getToken, trimmed),
-    queryKey: ["workspace-search", trimmed],
-    retry: false,
-    staleTime: 30_000,
-  });
+  const trimmed = query.trim();
 
   useEffect(() => {
-    function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "k" && (event.metaKey || event.ctrlKey)) {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        const store = useAppStore.getState();
-        const next = !store.commandPaletteOpen;
-        store.setCommandPaletteOpen(next);
-        if (next) {
-          emitCommandPaletteOpened(getToken);
-        }
+        setOpen((current) => !current);
       }
-    }
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [getToken]);
+    };
+    // Any UI affordance can open the palette by dispatching this event.
+    const onOpenRequest = () => setOpen(true);
+    document.addEventListener("keydown", onKeyDown);
+    window.addEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener(OPEN_COMMAND_PALETTE_EVENT, onOpenRequest);
+    };
+  }, []);
 
   useEffect(() => {
     if (!open) {
       setQuery("");
-      return;
     }
-    const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
-    return () => window.cancelAnimationFrame(frame);
   }, [open]);
 
-  function navigate(href: string) {
+  const searchResults = useQuery({
+    enabled: open && Boolean(isSignedIn) && trimmed.length > 0,
+    placeholderData: keepPreviousData,
+    queryFn: () => searchWorkspace(getToken, trimmed),
+    queryKey: ["command-palette-search", trimmed],
+    staleTime: 10_000,
+  });
+
+  const results = searchResults.data?.results ?? [];
+  const projects = results.filter((result) => result.type === "project");
+  const threads = results.filter((result) => result.type === "thread");
+
+  const navigate = (href: string) => {
     setOpen(false);
     router.push(href);
+  };
+
+  if (!isSignedIn) {
+    return null;
   }
 
-  const navMatches = ROUTE_NAV_ITEMS.filter((item) => matches(item.label, query));
-  const skillMatches = SKILL_MANIFEST.filter((skill) => matchesSkill(skill, query));
-  const results = searchQuery.data?.results ?? [];
-
   return (
-    <ModalShell ariaLabel="Command palette" onClose={() => setOpen(false)} open={open}>
+    <ModalShell
+      ariaLabel="Search projects and threads"
+      className="m-auto w-full max-w-xl"
+      onClose={() => setOpen(false)}
+      open={open}
+    >
       <Command
-        className="flex max-h-[60vh] flex-col font-mono"
-        label="Command palette"
+        className="flex max-h-[60vh] flex-col overflow-hidden text-[#1b1b1b]"
+        label="Search projects and threads"
         shouldFilter={false}
       >
-        <Command.Input
-          className="w-full border-thread-border border-b bg-transparent px-4 py-3 text-sm text-thread-text-primary outline-none placeholder:text-thread-text-muted"
-          onValueChange={setQuery}
-          placeholder="Search projects, threads, skills…"
-          ref={inputRef}
-          value={query}
-        />
-        <Command.List className="chat-scrollbar overflow-y-auto p-1">
-          <Command.Empty className="px-3 py-6 text-center text-thread-text-muted text-xs">
-            {searchQuery.isPending && trimmed.length >= 2 ? "Searching…" : "No results"}
-          </Command.Empty>
-          {results.length > 0 ? (
-            <PaletteGroup heading="Results">
-              {results.map((result) => (
-                <ResultRow key={resultKey(result)} onNavigate={navigate} result={result} />
-              ))}
-            </PaletteGroup>
+        <div className="flex items-center gap-2 border-[#f0f0f0] border-b px-4">
+          <Search aria-hidden="true" className="h-4 w-4 shrink-0 text-[#a0a0a0]" />
+          <Command.Input
+            className="h-12 w-full bg-transparent text-[#1b1b1b] text-[14px] outline-none placeholder:text-[#a0a0a0]"
+            onValueChange={setQuery}
+            placeholder="Search projects and threads…"
+            value={query}
+          />
+        </div>
+        <Command.List className="chat-scrollbar flex-1 overflow-y-auto p-2">
+          {trimmed.length === 0 ? (
+            <p className="px-2 py-6 text-center text-[#a0a0a0] text-[13px]">
+              Type to search your projects and threads.
+            </p>
+          ) : searchResults.isFetching && results.length === 0 ? (
+            <p className="px-2 py-6 text-center text-[#a0a0a0] text-[13px]">Searching…</p>
+          ) : results.length === 0 ? (
+            <Command.Empty className="px-2 py-6 text-center text-[#a0a0a0] text-[13px]">
+              No results for “{trimmed}”.
+            </Command.Empty>
           ) : null}
-          {navMatches.length > 0 ? (
-            <PaletteGroup heading="Go to">
-              {navMatches.map((item) => (
-                <NavRow item={item} key={item.id} onNavigate={navigate} />
+
+          {projects.length > 0 ? (
+            <Command.Group
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[#a0a0a0] [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide"
+              heading="Projects"
+            >
+              {projects.map((project) => (
+                <Command.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[14px] data-[selected=true]:bg-[#f7f7f7]"
+                  key={project.id}
+                  onSelect={() =>
+                    navigate(
+                      project.latestThreadId
+                        ? `/projects?thread=${project.latestThreadId}`
+                        : "/projects",
+                    )
+                  }
+                  value={`project-${project.id}`}
+                >
+                  <span className="min-w-0 flex-1 truncate">{project.name || "Untitled"}</span>
+                </Command.Item>
               ))}
-            </PaletteGroup>
+            </Command.Group>
           ) : null}
-          {skillMatches.length > 0 ? (
-            <PaletteGroup heading="Skills">
-              {skillMatches.map((skill) => (
-                <PaletteItem
-                  hint={skill.category}
-                  key={skill.name}
-                  label={skill.name}
-                  onSelect={() => navigate(`/?skill=${encodeURIComponent(skill.name)}`)}
-                  value={`skill-${skill.name}`}
-                />
+
+          {threads.length > 0 ? (
+            <Command.Group
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-[#a0a0a0] [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wide"
+              heading="Threads"
+            >
+              {threads.map((thread) => (
+                <Command.Item
+                  className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[14px] data-[selected=true]:bg-[#f7f7f7]"
+                  key={thread.id}
+                  onSelect={() => navigate(`/projects?thread=${thread.id}`)}
+                  value={`thread-${thread.id}`}
+                >
+                  <span className="min-w-0 flex-1 truncate">
+                    {thread.title || "Untitled thread"}
+                  </span>
+                  <span className="shrink-0 truncate text-[#a0a0a0] text-[12px]">
+                    {thread.projectName}
+                  </span>
+                </Command.Item>
               ))}
-            </PaletteGroup>
+            </Command.Group>
           ) : null}
         </Command.List>
       </Command>
     </ModalShell>
   );
-}
-
-function PaletteGroup({ children, heading }: { children: ReactNode; heading: string }) {
-  return (
-    <Command.Group
-      className="px-1 pt-2 pb-1 text-[10px] text-thread-text-muted uppercase tracking-widest [&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:pb-1"
-      heading={heading}
-    >
-      {children}
-    </Command.Group>
-  );
-}
-
-function PaletteItem({
-  disabled,
-  hint,
-  label,
-  onSelect,
-  value,
-}: {
-  disabled?: boolean;
-  hint?: string | undefined;
-  label: string;
-  onSelect: () => void;
-  value: string;
-}) {
-  return (
-    <Command.Item
-      className="flex cursor-pointer items-center justify-between gap-3 rounded-md px-2 py-2 text-sm text-thread-text-secondary data-[selected=true]:bg-thread-surface-hover data-[selected=true]:text-thread-text-primary data-[disabled=true]:opacity-40"
-      disabled={disabled ?? false}
-      onSelect={onSelect}
-      value={value}
-    >
-      <span className="min-w-0 truncate">{label}</span>
-      {hint ? <span className="shrink-0 text-[11px] text-thread-text-muted">{hint}</span> : null}
-    </Command.Item>
-  );
-}
-
-function ResultRow({
-  onNavigate,
-  result,
-}: {
-  onNavigate: (href: string) => void;
-  result: SearchResult;
-}) {
-  if (result.type === "project") {
-    const href = result.latestThreadId ? `/projects?thread=${result.latestThreadId}` : null;
-    return (
-      <PaletteItem
-        disabled={href === null}
-        hint="project"
-        label={result.name}
-        onSelect={() => {
-          if (href) {
-            onNavigate(href);
-          }
-        }}
-        value={`project-${result.id}`}
-      />
-    );
-  }
-  return (
-    <PaletteItem
-      hint={result.projectName}
-      label={result.title}
-      onSelect={() => onNavigate(`/projects?thread=${result.id}`)}
-      value={`thread-${result.id}`}
-    />
-  );
-}
-
-function NavRow({ item, onNavigate }: { item: NavItem; onNavigate: (href: string) => void }) {
-  if (item.target.kind !== "route") {
-    return null;
-  }
-  const href = item.target.href;
-  return (
-    <PaletteItem label={item.label} onSelect={() => onNavigate(href)} value={`nav-${item.id}`} />
-  );
-}
-
-function resultKey(result: SearchResult): string {
-  return `${result.type}-${result.id}`;
-}
-
-function matches(label: string, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  return needle.length === 0 || label.toLowerCase().includes(needle);
-}
-
-function matchesSkill(skill: SkillManifestEntry, query: string): boolean {
-  const needle = query.trim().toLowerCase();
-  if (needle.length === 0) {
-    return true;
-  }
-  return (
-    skill.name.toLowerCase().includes(needle) ||
-    skill.description.toLowerCase().includes(needle) ||
-    skill.tags.some((tag) => tag.toLowerCase().includes(needle))
-  );
-}
-
-function useDebouncedValue<T>(value: T, delayMs: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(value), delayMs);
-    return () => window.clearTimeout(timer);
-  }, [value, delayMs]);
-  return debounced;
 }

@@ -1,11 +1,4 @@
 import {
-  mastraMediaEditImage,
-  mastraMediaGenerateImage,
-  mastraMediaGenerateSpeech,
-  mastraMediaGenerateVideo,
-  mastraMediaTranscribe,
-} from "./media-registry";
-import {
   mastraBrowserAct,
   mastraBrowserExtract,
   mastraBrowserObserve,
@@ -79,11 +72,6 @@ export const cheatcodeTools = {
   git_commit: mastraGitCommit,
   git_push: mastraGitPush,
   git_status: mastraGitStatus,
-  media_edit_image: mastraMediaEditImage,
-  media_generate_image: mastraMediaGenerateImage,
-  media_generate_speech: mastraMediaGenerateSpeech,
-  media_generate_video: mastraMediaGenerateVideo,
-  media_transcribe: mastraMediaTranscribe,
   research_competitor: mastraCompetitorResearch,
   research_deep: mastraDeepResearch,
   research_fanout: mastraResearchFanout,

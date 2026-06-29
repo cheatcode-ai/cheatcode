@@ -17,13 +17,15 @@ export default function GlobalError({
   return (
     <html lang="en">
       <body>
-        <main className="flex min-h-screen items-center justify-center bg-[#050505] px-6 text-white">
+        <main className="paper-dot-field flex min-h-screen items-center justify-center bg-white px-6 text-[#1b1b1b]">
           <section className="w-full max-w-md text-center">
-            <p className="mb-3 font-mono text-[10px] text-zinc-600 uppercase tracking-[0.28em]">
+            <p className="mb-3 font-mono text-[#a0a0a0] text-[10px] uppercase tracking-[0.28em]">
               Critical error
             </p>
-            <h1 className="font-medium text-2xl tracking-tight">Cheatcode needs to reload</h1>
-            <p className="mx-auto mt-4 max-w-sm text-sm text-zinc-500 leading-relaxed">
+            <h1 className="font-bold text-[24px] leading-[32px] tracking-normal">
+              Cheatcode needs to reload
+            </h1>
+            <p className="mx-auto mt-4 max-w-sm text-[#707070] text-sm leading-relaxed">
               The app hit an unrecoverable client error. The report was sent to the gateway
               telemetry endpoint.
             </p>
@@ -33,7 +35,7 @@ export default function GlobalError({
               </p>
             ) : null}
             <button
-              className="mt-8 inline-flex h-10 items-center justify-center rounded-xl bg-white px-5 font-medium text-black transition-colors hover:bg-zinc-200"
+              className="mt-8 inline-flex h-10 items-center justify-center rounded-full bg-[#1b1b1b] px-5 font-medium text-white transition-colors hover:bg-black"
               onClick={reset}
               type="button"
             >

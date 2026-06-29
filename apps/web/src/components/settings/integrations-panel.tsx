@@ -1,19 +1,17 @@
 "use client";
 
-import {
-  type Integration,
-  IntegrationConnectResponseSchema,
-  type IntegrationName,
-  IntegrationSchema,
-} from "@cheatcode/types";
+import type { Integration, IntegrationName } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { Check, ExternalLink, Loader2, Trash2, Zap } from "@/components/ui/icons";
-import { authorizedFetch } from "@/lib/api/authorized-fetch";
+import {
+  connectIntegration,
+  disconnectIntegration,
+  INTEGRATIONS_QUERY,
+  listIntegrations,
+} from "@/lib/api/integrations";
 import { cn } from "@/lib/ui/cn";
-
-const INTEGRATIONS_QUERY = ["integrations"] as const;
 
 const STATUS_LABELS: Record<Integration["status"], string> = {
   active: "Connected",
@@ -34,15 +32,15 @@ export function IntegrationsPanel() {
   const integrations = integrationsQuery.data ?? [];
 
   return (
-    <div className="flex flex-col items-center text-zinc-200">
-      <div className="mb-10 max-w-xl space-y-6 text-center">
-        <h1 className="font-medium text-2xl text-white tracking-tight">Integrations</h1>
-        <p className="text-sm text-zinc-500 leading-relaxed">
+    <div className="text-[#1b1b1b]">
+      <div className="mb-6">
+        <h1 className="font-bold text-[30px] tracking-[-0.01em]">Integrations</h1>
+        <p className="mt-3 text-[#4f4f4f] text-[18px] leading-7">
           Connect OAuth tools for agent actions. Connections are routed through Composio and
           executed server-side by V2 workers.
         </p>
       </div>
-      <div className="grid w-full max-w-4xl gap-4 md:grid-cols-2">
+      <div className="grid w-full gap-4 md:grid-cols-2">
         {integrationsQuery.isPending ? (
           <IntegrationsLoading />
         ) : (
@@ -87,14 +85,14 @@ function IntegrationCard({
   const isOtherDisconnecting = Boolean(disconnectingName && disconnectingName !== integration.name);
 
   return (
-    <section className="rounded-3xl border border-zinc-800/80 bg-[#111] p-6 shadow-xl">
+    <section className="rounded-[22px] border border-[#f1f1f1] bg-white p-5">
       <div className="flex items-start justify-between gap-4">
         <div className="space-y-2">
           <div className="flex items-center gap-3">
             <IntegrationMark isActive={isActive} />
-            <h2 className="font-medium text-white">{integration.displayName}</h2>
+            <h2 className="font-semibold text-[#1b1b1b]">{integration.displayName}</h2>
           </div>
-          <p className="text-sm text-zinc-500 leading-relaxed">
+          <p className="text-[#707070] text-sm leading-relaxed">
             {integrationDescription(integration.name)}
           </p>
         </div>
@@ -110,7 +108,7 @@ function IntegrationCard({
       <div className="mt-6 flex flex-col gap-3 sm:flex-row">
         {isActive ? (
           <button
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-xl px-4 text-red-400 transition-colors hover:bg-red-500/10 hover:text-red-300 disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex h-10 flex-1 items-center justify-center rounded-full px-4 text-red-700 transition-colors hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={isBusy || isOtherDisconnecting}
             onClick={onDisconnect}
             type="button"
@@ -124,7 +122,7 @@ function IntegrationCard({
           </button>
         ) : (
           <button
-            className="inline-flex h-10 flex-1 items-center justify-center rounded-xl bg-white px-4 font-medium text-black transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-45"
+            className="inline-flex h-10 flex-1 items-center justify-center rounded-full bg-[#1b1b1b] px-4 font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-45"
             disabled={isBusy}
             onClick={onConnect}
             type="button"
@@ -139,7 +137,7 @@ function IntegrationCard({
         )}
       </div>
       {integration.updatedAt ? (
-        <p className="mt-4 font-mono text-[10px] text-zinc-600 uppercase tracking-[0.2em]">
+        <p className="mt-4 text-[#8a8a8a] text-[12px]">
           Updated {formatDate(integration.updatedAt)}
         </p>
       ) : null}
@@ -152,13 +150,13 @@ function IntegrationsLoading() {
     <>
       {LOADING_INTEGRATION_NAMES.map((name) => (
         <section
-          className="min-h-44 animate-pulse rounded-3xl border border-zinc-800/80 bg-[#111] p-6 shadow-xl"
+          className="min-h-44 animate-pulse rounded-[22px] border border-[#f1f1f1] bg-white p-6"
           key={name}
         >
-          <div className="h-5 w-28 rounded bg-zinc-800" />
-          <div className="mt-4 h-3 w-full rounded bg-zinc-900" />
-          <div className="mt-2 h-3 w-2/3 rounded bg-zinc-900" />
-          <div className="mt-8 h-10 rounded-xl bg-zinc-900" />
+          <div className="h-5 w-28 rounded bg-[#ededed]" />
+          <div className="mt-4 h-3 w-full rounded bg-[#f1f1f1]" />
+          <div className="mt-2 h-3 w-2/3 rounded bg-[#f1f1f1]" />
+          <div className="mt-8 h-10 rounded-full bg-[#f1f1f1]" />
         </section>
       ))}
     </>
@@ -196,6 +194,8 @@ function integrationDescription(name: IntegrationName): string {
       return "Create pages and read workspace content for requested document workflows.";
     case "linear":
       return "Read and create issues for project planning and implementation tasks.";
+    default:
+      return "Let your agents take actions in this connected app when you ask.";
   }
 }
 
@@ -210,16 +210,13 @@ function statusClassName(status: Integration["status"]): string {
       return "border-red-500/20 bg-red-500/10 text-red-300";
     case "inactive":
     case "not_connected":
-      return "border-zinc-800 bg-black/30 text-zinc-500";
+      return "border-[#f1f1f1] bg-[#f7f7f7] text-[#707070]";
   }
 }
 
 function useIntegrationsQuery(getToken: () => Promise<null | string>) {
   return useQuery({
-    queryFn: async () => {
-      const response = await authorizedFetch(getToken, "/v1/integrations");
-      return IntegrationSchema.array().parse(await response.json());
-    },
+    queryFn: () => listIntegrations(getToken),
     queryKey: INTEGRATIONS_QUERY,
     staleTime: 30_000,
   });
@@ -227,14 +224,9 @@ function useIntegrationsQuery(getToken: () => Promise<null | string>) {
 
 function useConnectIntegration(getToken: () => Promise<null | string>) {
   return useMutation({
-    mutationFn: async (integration: IntegrationName) => {
-      const response = await authorizedFetch(getToken, `/v1/integrations/${integration}/connect`, {
-        method: "POST",
-      });
-      return IntegrationConnectResponseSchema.parse(await response.json());
-    },
+    mutationFn: (integration: IntegrationName) => connectIntegration(getToken, integration),
     onError: (error) => toast.error(error.message),
-    onSuccess: ({ oauthUrl }) => {
+    onSuccess: (oauthUrl) => {
       window.location.assign(oauthUrl);
     },
   });
@@ -245,9 +237,7 @@ function useDisconnectIntegration(
   queryClient: ReturnType<typeof useQueryClient>,
 ) {
   return useMutation({
-    mutationFn: async (integration: IntegrationName) => {
-      await authorizedFetch(getToken, `/v1/integrations/${integration}`, { method: "DELETE" });
-    },
+    mutationFn: (integration: IntegrationName) => disconnectIntegration(getToken, integration),
     onError: (error) => toast.error(error.message),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: INTEGRATIONS_QUERY });

@@ -58,18 +58,6 @@ function applyProfilePatch(previous: UserProfile, patch: UpdateUserProfile): Use
   if (patch.globalMemory !== undefined) {
     next.globalMemory = patch.globalMemory;
   }
-  if (patch.appbuilderDefaultModel !== undefined) {
-    next.appbuilderDefaultModel = patch.appbuilderDefaultModel;
-  }
-  if (patch.appbuilderDefaultBudgetUsd !== undefined) {
-    next.appbuilderDefaultBudgetUsd = patch.appbuilderDefaultBudgetUsd;
-  }
-  if (patch.generalDefaultModel !== undefined) {
-    next.generalDefaultModel = patch.generalDefaultModel;
-  }
-  if (patch.generalDefaultBudgetUsd !== undefined) {
-    next.generalDefaultBudgetUsd = patch.generalDefaultBudgetUsd;
-  }
   if (patch.disabledModels !== undefined) {
     next.disabledModels = patch.disabledModels;
   }

@@ -4,7 +4,6 @@ import {
   type JsonValue,
   jsonBody,
   jsonResponse,
-  nullableNumberSchema,
   nullableStringSchema,
   type OpenApiRoute,
   schemaRef,
@@ -16,10 +15,6 @@ const ONBOARDING_STEP_IDS = ["intro", "name", "tools", "basics", "plan"];
 const ONBOARDING_STEP_STATUSES = ["done", "skipped"];
 
 const catalogModelSchema = (): JsonValue => ({ enum: [...CATALOG_MODEL_IDS], type: "string" });
-const nullableCatalogModelSchema = (): JsonValue => ({
-  enum: [...CATALOG_MODEL_IDS, null],
-  type: ["string", "null"],
-});
 const disabledModelsSchema = (): JsonValue => ({
   items: catalogModelSchema(),
   // One fewer than the catalog so ≥1 model always stays enabled (mirrors the zod schema).
@@ -63,11 +58,7 @@ export const accountSchemas: Record<string, JsonValue> = {
     minProperties: 1,
     properties: {
       agentDisplayName: nullableStringSchema({ maxLength: 80, minLength: 1 }),
-      appbuilderDefaultBudgetUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      appbuilderDefaultModel: nullableCatalogModelSchema(),
       disabledModels: disabledModelsSchema(),
-      generalDefaultBudgetUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      generalDefaultModel: nullableCatalogModelSchema(),
       globalMemory: nullableStringSchema({ maxLength: 8_000 }),
       onboardingCompleted: { const: true, type: "boolean" },
       onboardingStep: onboardingStepSchema,
@@ -78,11 +69,7 @@ export const accountSchemas: Record<string, JsonValue> = {
     additionalProperties: false,
     properties: {
       agentDisplayName: nullableStringSchema({ maxLength: 80, minLength: 1 }),
-      appbuilderDefaultBudgetUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      appbuilderDefaultModel: nullableCatalogModelSchema(),
       disabledModels: disabledModelsSchema(),
-      generalDefaultBudgetUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      generalDefaultModel: nullableCatalogModelSchema(),
       freeDeepseek: freeDeepseekSchema,
       globalMemory: nullableStringSchema({ maxLength: 8_000 }),
       onboardingCompletedAt: nullableStringSchema({ format: "date-time" }),
@@ -91,11 +78,7 @@ export const accountSchemas: Record<string, JsonValue> = {
     },
     required: [
       "agentDisplayName",
-      "appbuilderDefaultBudgetUsd",
-      "appbuilderDefaultModel",
       "disabledModels",
-      "generalDefaultBudgetUsd",
-      "generalDefaultModel",
       "globalMemory",
       "onboardingCompletedAt",
       "onboardingState",

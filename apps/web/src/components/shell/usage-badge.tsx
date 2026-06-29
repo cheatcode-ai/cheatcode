@@ -2,6 +2,7 @@
 
 import type { SandboxUsageWarnLevel } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
+import Link from "next/link";
 import { useState } from "react";
 import { formatHoursTotal, formatHoursUsed, useSandboxUsageQuery } from "@/lib/hooks/use-billing";
 
@@ -88,16 +89,18 @@ function UsagePopover({
       <p className="text-thread-text-secondary text-xs">
         {formatHoursUsed(remaining)} hours remaining · Resets {formatResetDate(usage.resetAt)}
       </p>
-      <a
+      <Link
         className="inline-flex text-thread-text-secondary text-xs underline-offset-2 hover:text-thread-text-primary hover:underline"
         href="/settings/billing"
       >
         Manage plan
-      </a>
+      </Link>
     </div>
   );
 }
 
+const RESET_DATE_FORMATTER = new Intl.DateTimeFormat("en", { day: "numeric", month: "short" });
+
 function formatResetDate(value: string): string {
-  return new Intl.DateTimeFormat("en", { day: "numeric", month: "short" }).format(new Date(value));
+  return RESET_DATE_FORMATTER.format(new Date(value));
 }

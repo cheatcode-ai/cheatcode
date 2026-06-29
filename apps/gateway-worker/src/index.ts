@@ -27,8 +27,18 @@ import { type Context, Hono } from "hono";
 import { cors } from "hono/cors";
 import { secureHeaders } from "hono/secure-headers";
 import { z } from "zod";
+import { getMeRoute, updateMeRoute } from "./account-routes";
 import { decideRunApprovalRoute, readSandboxConsoleRoute } from "./agent-proxy-routes";
 import { authenticate, readRequiredSecret, requireVerifiedClerkEmail } from "./authenticate";
+import {
+  createAutomationRoute,
+  deleteAutomationRoute,
+  getAutomationRoute,
+  listAutomationRunsRoute,
+  listAutomationsRoute,
+  runAutomationNowRoute,
+  updateAutomationRoute,
+} from "./automations-routes";
 import {
   billingCancelRoute,
   billingCatalogRoute,
@@ -55,6 +65,7 @@ import {
   listIntegrationSummaries,
   parseIntegrationName,
 } from "./integrations";
+import { getIntegrationCatalog, listToolkitActions } from "./integrations-catalog";
 import { buildLimitsSnapshot, enforceByokProviderSlotLimit } from "./limits";
 import {
   resolveLocalPreviewProxyRequest,
@@ -279,7 +290,14 @@ export const gatewayRoutes = gatewayApp
   .get("/v1/replays/:id", (c) => replayByIdRoute(c.env, c.executionCtx, c.req.param("id")))
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    return c.json({ userId });
+    await rateLimit(c, userId, "GET /v1/me");
+    return getMeRoute(c.env, c.executionCtx, userId);
+  })
+
+  .patch("/v1/me", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "PATCH /v1/me");
+    return updateMeRoute(c.env, c.executionCtx, c.req.raw, userId);
   })
 
   .get("/v1/me/profile", async (c) => {
@@ -418,6 +436,54 @@ export const gatewayRoutes = gatewayApp
     );
   })
 
+  .get("/v1/automations", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/automations");
+    return listAutomationsRoute(c.env, c.executionCtx, userId);
+  })
+
+  .post("/v1/automations", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "POST /v1/automations");
+    return createAutomationRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+
+  .get("/v1/automations/:automationId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/automations/:automationId");
+    return getAutomationRoute(c.env, c.executionCtx, userId, c.req.param("automationId"));
+  })
+
+  .patch("/v1/automations/:automationId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "PATCH /v1/automations/:automationId");
+    return updateAutomationRoute(
+      c.env,
+      c.executionCtx,
+      c.req.raw,
+      userId,
+      c.req.param("automationId"),
+    );
+  })
+
+  .delete("/v1/automations/:automationId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "DELETE /v1/automations/:automationId");
+    return deleteAutomationRoute(c.env, c.executionCtx, userId, c.req.param("automationId"));
+  })
+
+  .post("/v1/automations/:automationId/run", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "POST /v1/automations/:automationId/run");
+    return runAutomationNowRoute(c.env, c.executionCtx, userId, c.req.param("automationId"));
+  })
+
+  .get("/v1/automations/:automationId/runs", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/automations/:automationId/runs");
+    return listAutomationRunsRoute(c.env, c.executionCtx, userId, c.req.param("automationId"));
+  })
+
   .get("/v1/tools", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/tools");
@@ -515,6 +581,28 @@ export const gatewayRoutes = gatewayApp
     } finally {
       c.executionCtx.waitUntil(close());
     }
+  })
+
+  .get("/v1/integrations/catalog", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/integrations/catalog");
+    const { db, close } = createDb(c.env.HYPERDRIVE);
+    try {
+      const catalog = await withUserContext(db, userId, (tx) =>
+        getIntegrationCatalog(tx, c.env, userId),
+      );
+      return c.json(catalog);
+    } finally {
+      c.executionCtx.waitUntil(close());
+    }
+  })
+
+  .get("/v1/integrations/:name/tools", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/integrations/:name/tools");
+    const integration = parseIntegrationName(c.req.param("name"));
+    const actions = await listToolkitActions(c.env, integration);
+    return c.json(actions);
   })
 
   .post("/v1/integrations/:name/connect", async (c) => {

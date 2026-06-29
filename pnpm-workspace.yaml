@@ -12,12 +12,11 @@ catalog:
   '@browserbasehq/stagehand': 3.2.0
   '@clerk/backend': 3.7.0
   '@clerk/nextjs': 7.5.2
+  '@clerk/ui': 1.16.1
   '@cloudflare/workers-types': 4.20260613.1
   '@commitlint/cli': 21.0.2
   '@commitlint/config-conventional': 21.0.2
   '@composio/core': 0.10.0
-  '@elevenlabs/elevenlabs-js': 2.52.0
-  '@fal-ai/client': 1.10.1
   '@hono/zod-openapi': 0.18.4
   '@hookform/resolvers': 5.4.0
   '@mastra/core': 1.42.0

@@ -11,6 +11,10 @@ import {
   useState,
 } from "react";
 import type { RunStatus } from "@/components/chat/status-pill";
+import {
+  ComposerContextChips,
+  composePromptWithComposerContext,
+} from "@/components/composer/composer-context-chips";
 import { ComposerPopover } from "@/components/composer/composer-popover";
 import { useMentionFileItems } from "@/components/composer/mention-file-source";
 import { ModelMenu } from "@/components/composer/model-menu";
@@ -32,6 +36,7 @@ import { cn } from "@/lib/ui/cn";
 
 const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
 const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
+type ComposerControlMenu = "budget" | "model";
 
 interface PromptComposerProps {
   budgetCapUsd: number | null;
@@ -58,6 +63,8 @@ export function PromptComposer({
   const isRunning = status === "streaming" || status === "submitted";
   const canSubmit = value.trim().length > 0 && !isRunning;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const [openControlMenu, setOpenControlMenu] = useState<ComposerControlMenu | null>(null);
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const sandboxReady = useAppStore((state) => state.sandboxStatus === "ready");
   const attachments = usePromptAttachments({ currentValue: value, onChange });
   const voiceInput = useVoiceInput({
@@ -73,11 +80,15 @@ export function PromptComposer({
   );
   const triggers = useComposerTriggers({
     onChange,
-    onInsert: (kind) =>
+    onInsert: (kind, item) => {
+      if (kind === "slash") {
+        setSelectedSkill(item.id);
+      }
       emitComposerEvent(
         getToken,
         kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
-      ),
+      );
+    },
     sources,
     textareaRef,
     value,
@@ -97,7 +108,7 @@ export function PromptComposer({
       return;
     }
     if (canSubmit) {
-      onSubmit(value.trim());
+      submitComposerValue();
     }
   }
 
@@ -108,7 +119,7 @@ export function PromptComposer({
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       if (canSubmit) {
-        onSubmit(value.trim());
+        submitComposerValue();
       }
     }
     if (event.key === "Escape" && isRunning) {
@@ -117,12 +128,23 @@ export function PromptComposer({
     }
   }
 
+  function submitComposerValue() {
+    onSubmit(
+      composePromptWithComposerContext({
+        prompt: value,
+        skill: selectedSkill,
+        tool: null,
+      }),
+    );
+    setSelectedSkill(null);
+  }
+
   return (
     <form
-      className="absolute right-0 bottom-0 left-0 z-10 bg-gradient-to-t from-background via-background/90 to-transparent pt-8 pb-6"
+      className="absolute right-0 bottom-0 left-0 z-10 bg-gradient-to-t from-white via-white/95 to-transparent pt-14 pb-10"
       onSubmit={handleSubmit}
     >
-      <div className="relative z-10 mx-auto flex w-full max-w-3xl items-end justify-center gap-3 px-4">
+      <div className="relative z-10 mx-auto flex w-full max-w-[740px] flex-col justify-end px-3 sm:px-4">
         {isMenuOpen ? (
           <ComposerPopover
             activeIndex={triggers.activeIndex}
@@ -134,33 +156,42 @@ export function PromptComposer({
         ) : null}
         <div
           className={cn(
-            "w-full overflow-hidden rounded-2xl border border-thread-border bg-thread-surface px-4 py-2",
-            "shadow-2xl transition-colors focus-within:border-thread-border-hover",
+            "bud-composer-shell w-full overflow-visible rounded-[24px] p-px",
+            "transition-colors focus-within:border-[#eeeeee]",
           )}
         >
-          <div className="flex flex-col justify-between">
-            <div className="flex flex-col gap-1 px-4">
-              <div className="flex items-start gap-2 pt-4">
+          <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">
+            <div className="flex min-h-[80px] flex-col gap-1 px-0">
+              <ComposerContextChips
+                className="px-2 pt-3"
+                onClearSkill={() => setSelectedSkill(null)}
+                skill={selectedSkill}
+                tool={null}
+              />
+              <div className="flex items-start gap-2">
                 <label className="sr-only" htmlFor="prompt">
                   Message Cheatcode
                 </label>
                 <textarea
-                  className="max-h-[200px] min-h-9 w-full resize-none overflow-y-auto border-none bg-transparent px-0 pt-0 pb-6 font-mono text-[15px] text-white/90 outline-none placeholder:text-zinc-600"
+                  className={cn(
+                    "max-h-[200px] min-h-[80px] w-full resize-none overflow-y-auto border-none bg-transparent px-2 pb-0 font-medium text-[#1b1b1b] text-[14px] leading-6 outline-none placeholder:text-[#a0a0a0]",
+                    selectedSkill ? "pt-2" : "pt-4",
+                  )}
                   id="prompt"
                   onChange={triggers.onTextareaChange}
                   onClick={triggers.onTextareaSelect}
                   onKeyDown={handleKeyDown}
                   onKeyUp={triggers.onTextareaSelect}
                   onSelect={triggers.onTextareaSelect}
-                  placeholder="ask cheatcode to build anything ..."
+                  placeholder="Reply, refine, or take the wheel"
                   ref={textareaRef}
                   rows={1}
                   value={value}
                 />
               </div>
             </div>
-            <div className="relative mt-0 mb-1 flex items-center justify-between px-2">
-              <div className="z-10 flex items-center gap-3">
+            <div className="relative flex items-center justify-between gap-3 px-0">
+              <div className="z-10 flex items-center gap-2">
                 <input
                   accept={PROMPT_ATTACHMENT_ACCEPT}
                   className="sr-only"
@@ -172,7 +203,7 @@ export function PromptComposer({
                 />
                 <button
                   aria-label="Attach file"
-                  className="flex h-8 w-8 items-center justify-center rounded-full text-zinc-400 transition-colors hover:bg-zinc-800/50 hover:text-white"
+                  className="paper-focus-ring flex h-7 w-7 items-center justify-center rounded-full text-[#707070] transition-colors hover:bg-white hover:text-[#1b1b1b]"
                   onClick={() => attachments.inputRef.current?.click()}
                   type="button"
                 >
@@ -180,14 +211,23 @@ export function PromptComposer({
                 </button>
               </div>
               <div className="z-10 flex items-center gap-2">
-                <ModelMenu variant="thread" />
-                <BudgetCapControl onChange={onBudgetChange} value={budgetCapUsd} />
+                <ModelMenu
+                  onOpenChange={(open) => setOpenControlMenu(open ? "model" : null)}
+                  open={openControlMenu === "model"}
+                  variant="thread"
+                />
+                <BudgetCapControl
+                  isOpen={openControlMenu === "budget"}
+                  onChange={onBudgetChange}
+                  onOpenChange={(open) => setOpenControlMenu(open ? "budget" : null)}
+                  value={budgetCapUsd}
+                />
                 <VoiceInputButton isDisabled={isRunning} voiceInput={voiceInput} />
                 <SendActionButton canSubmit={canSubmit} isRunning={isRunning} />
               </div>
             </div>
+            <ComposerStatusLine status={composerStatus} tone={composerStatusTone} />
           </div>
-          <ComposerStatusLine status={composerStatus} tone={composerStatusTone} />
         </div>
       </div>
     </form>
@@ -206,10 +246,10 @@ function VoiceInputButton({
     <button
       aria-label={voiceInput.isListening ? "Stop voice input" : "Start voice input"}
       className={cn(
-        "hidden h-8 w-8 items-center justify-center rounded-full transition-colors sm:flex",
+        "hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex",
         voiceInput.isListening
-          ? "bg-red-500/10 text-red-300"
-          : "text-zinc-500 hover:bg-zinc-800/40 hover:text-zinc-300",
+          ? "bg-red-500/10 text-red-600"
+          : "text-[#707070] hover:bg-white hover:text-[#1b1b1b]",
         disabled && "cursor-not-allowed opacity-45",
       )}
       disabled={disabled}
@@ -230,24 +270,16 @@ function SendActionButton({ canSubmit, isRunning }: { canSubmit: boolean; isRunn
     <button
       aria-label={isRunning ? "Stop agent" : "Send message"}
       className={cn(
-        "group relative flex h-8 w-8 shrink-0 items-center justify-center overflow-hidden rounded-full p-[2px] text-zinc-500 transition-colors hover:text-zinc-300",
-        "bg-[conic-gradient(from_110deg,#09090b,#ffffff_16%,#3f3f46_32%,#09090b_54%,#ffffff_72%,#09090b)]",
-        !canSubmit && !isRunning && "cursor-not-allowed opacity-45",
+        "paper-focus-ring flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] text-white transition-colors hover:bg-black",
+        !canSubmit && !isRunning && "cursor-not-allowed bg-[#f1f1f1] text-[#a0a0a0]",
       )}
       disabled={!canSubmit && !isRunning}
       type="submit"
     >
-      <span
-        aria-hidden="true"
-        className="pointer-events-none absolute inset-[3px] rounded-full bg-gradient-to-b from-zinc-900 to-black shadow-[inset_0_2px_4px_rgba(255,255,255,0.05),inset_0_-2px_4px_rgba(0,0,0,0.3)]"
-      />
       {isRunning ? (
-        <Square
-          aria-hidden="true"
-          className="pointer-events-none relative z-10 h-3.5 w-3.5 fill-current"
-        />
+        <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
       ) : (
-        <ArrowUp aria-hidden="true" className="pointer-events-none relative z-10 h-4 w-4" />
+        <ArrowUp aria-hidden="true" className="h-4 w-4" />
       )}
     </button>
   );
@@ -261,8 +293,8 @@ function ComposerStatusLine({ status, tone }: { status: null | string; tone: "er
     <p
       aria-live="polite"
       className={cn(
-        "px-4 pb-2 text-right font-mono text-[9px] uppercase tracking-[0.2em]",
-        tone === "error" ? "text-red-300" : "text-zinc-600",
+        "px-2 pt-1 text-right text-[12px]",
+        tone === "error" ? "text-red-600" : "text-[#707070]",
       )}
     >
       {status}
@@ -291,14 +323,10 @@ function usePromptAttachments({
     if (files.length === 0) {
       return;
     }
-    let nextValue = currentValue;
-    const attachedNames: string[] = [];
     try {
-      for (const file of files.slice(0, 5)) {
-        const attachment = await readPromptAttachment(file);
-        nextValue = appendPromptAttachment(nextValue, attachment);
-        attachedNames.push(attachment.name);
-      }
+      const attachments = await Promise.all(files.slice(0, 5).map(readPromptAttachment));
+      const attachedNames = attachments.map((attachment) => attachment.name);
+      const nextValue = attachments.reduce(appendPromptAttachment, currentValue);
       onChange(nextValue);
       setStatus({
         tone: "ok",
@@ -495,13 +523,16 @@ function parseCustomBudget(raw: string): null | number {
 }
 
 function BudgetCapControl({
+  isOpen,
   onChange,
+  onOpenChange,
   value,
 }: {
+  isOpen: boolean;
   onChange: (value: number | null) => void;
+  onOpenChange: (open: boolean) => void;
   value: number | null;
 }) {
-  const [isOpen, setIsOpen] = useState(false);
   const label = value === null ? "No cap" : `$${value}`;
 
   return (
@@ -509,8 +540,8 @@ function BudgetCapControl({
       <button
         aria-expanded={isOpen}
         aria-label="Set run budget cap"
-        className="flex h-8 items-center gap-1.5 rounded-md px-2 font-mono text-[10px] text-zinc-500 uppercase tracking-widest transition-colors hover:bg-zinc-800/40 hover:text-zinc-300"
-        onClick={() => setIsOpen((current) => !current)}
+        className="flex h-7 items-center gap-1.5 rounded-full px-2 text-[#707070] text-[12px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+        onClick={() => onOpenChange(!isOpen)}
         type="button"
       >
         <DollarSign aria-hidden="true" className="h-3.5 w-3.5" />
@@ -520,7 +551,7 @@ function BudgetCapControl({
         <BudgetCapMenu
           onSelect={(next) => {
             onChange(next);
-            setIsOpen(false);
+            onOpenChange(false);
           }}
           value={value}
         />
@@ -547,40 +578,39 @@ function BudgetCapMenu({
   }
 
   return (
-    <div className="absolute right-0 bottom-10 z-30 w-36 border border-white/10 bg-[#09090b] p-1 shadow-2xl">
+    <div className="absolute right-0 bottom-10 z-30 w-36 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
       {BUDGET_OPTIONS.map((option) => (
         <button
           className={cn(
-            "flex h-8 w-full items-center justify-between px-2 font-mono text-[10px] uppercase tracking-widest transition-colors",
+            "flex h-8 w-full items-center justify-between rounded-xl px-2 text-[12px] transition-colors",
             option.value === value
-              ? "bg-white/10 text-white"
-              : "text-zinc-500 hover:bg-white/5 hover:text-zinc-300",
+              ? "bg-[#f7f7f7] text-[#1b1b1b]"
+              : "text-[#707070] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
           )}
           key={option.label}
           onClick={() => onSelect(option.value)}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            onSelect(option.value);
+          }}
           type="button"
         >
           <span>{option.label}</span>
-          {option.value === value ? <span className="text-zinc-500">set</span> : null}
+          {option.value === value ? <span className="text-[#a0a0a0]">set</span> : null}
         </button>
       ))}
       <div
         className={cn(
           "flex h-8 w-full items-center gap-1 px-2",
-          isCustomValue ? "bg-white/10" : undefined,
+          isCustomValue ? "rounded-xl bg-[#f7f7f7]" : undefined,
         )}
       >
-        <span
-          className={cn(
-            "font-mono text-[10px] uppercase tracking-widest",
-            isCustomValue ? "text-white" : "text-zinc-500",
-          )}
-        >
+        <span className={cn("text-[12px]", isCustomValue ? "text-[#1b1b1b]" : "text-[#707070]")}>
           $
         </span>
         <input
           aria-label="Custom budget cap in dollars"
-          className="w-full border-none bg-transparent font-mono text-[10px] text-white uppercase tracking-widest outline-none placeholder:text-zinc-600"
+          className="w-full border-none bg-transparent text-[#1b1b1b] text-[12px] outline-none placeholder:text-[#a0a0a0]"
           inputMode="decimal"
           onBlur={commitCustom}
           onChange={(event) => setCustomDraft(event.target.value)}

@@ -15,23 +15,28 @@ import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
+import { Monitor } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 import { cn } from "@/lib/ui/cn";
 
+const EMPTY_MESSAGES: CheatcodeUIMessage[] = [];
+
 export function ChatPanel({
   autoSubmitPrompt,
-  initialMessages = [],
+  initialMessages = EMPTY_MESSAGES,
   onSubmitDraft,
   project,
+  threadTitle,
   threadId,
 }: {
   autoSubmitPrompt?: null | string;
   initialMessages?: CheatcodeUIMessage[];
   onSubmitDraft?: () => void;
   project: ProjectSummary | null;
+  threadTitle?: null | string;
   threadId: string;
 }) {
   const { getToken } = useAuth();
@@ -246,10 +251,11 @@ export function ChatPanel({
   return (
     <div
       className={cn(
-        "relative flex min-h-0 flex-1 flex-col bg-thread-panel font-mono transition-[margin] duration-200 ease-in-out",
-        previewPanelOpen && hasPreviewSurface ? "xl:w-[35vw]" : "",
+        "relative flex h-screen min-h-0 flex-1 flex-col bg-white transition-[width] duration-200 ease-in-out",
+        previewPanelOpen && hasPreviewSurface ? "xl:w-[584px] xl:flex-none" : "",
       )}
     >
+      <ChatContextRow project={project} title={threadTitle} />
       <StreamReconnectBanner />
       <MessageList messages={deferredMessages} />
       <PromptComposer
@@ -266,6 +272,28 @@ export function ChatPanel({
         value={draft}
       />
     </div>
+  );
+}
+
+function ChatContextRow({
+  project,
+  title,
+}: {
+  project: ProjectSummary | null;
+  title: null | string | undefined;
+}) {
+  const projectName = project?.name?.trim() || "new project";
+  const titleText = title?.trim() || "New task";
+
+  return (
+    <header className="flex h-[54px] shrink-0 items-center gap-3 px-4 pt-3 text-[#1b1b1b]">
+      <span className="inline-flex h-[30px] min-w-0 max-w-[160px] items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 text-[13px]">
+        <Monitor aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#8a8a8a]" />
+        <span className="truncate">{projectName}</span>
+      </span>
+      <h1 className="min-w-0 flex-1 truncate font-semibold text-[15px]">{titleText}</h1>
+      <span className="shrink-0 text-[#8a8a8a] text-[13px]">$0.00</span>
+    </header>
   );
 }
 

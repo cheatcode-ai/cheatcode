@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
-import { AppChrome } from "@/components/shell/app-chrome";
+import { ProtectedAppShell } from "@/components/auth/protected-app-shell";
 
 export default function AppLayout({ children }: { children: ReactNode }) {
-  return <AppChrome>{children}</AppChrome>;
+  return <ProtectedAppShell>{children}</ProtectedAppShell>;
 }

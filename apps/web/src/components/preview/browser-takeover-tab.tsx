@@ -33,15 +33,15 @@ export function BrowserTakeoverTab({
 
   if (session) {
     return (
-      <div className="flex h-full min-h-[520px] flex-col border border-thread-border bg-black">
+      <div className="flex h-full min-h-[520px] flex-col overflow-hidden rounded-[16px] border border-thread-border bg-white">
         <div className="flex h-10 shrink-0 items-center justify-between border-thread-border-subtle border-b px-3">
-          <div className="min-w-0 truncate font-mono text-[10px] text-thread-text-secondary">
+          <div className="min-w-0 truncate font-semibold text-[13px] text-thread-text-primary">
             Private browser takeover
           </div>
           <div className="ml-3 flex shrink-0 items-center gap-2">
             <a
               aria-label="Open browser takeover in a new tab"
-              className="flex h-7 w-7 items-center justify-center border border-thread-border text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary"
+              className="flex h-7 w-7 items-center justify-center rounded-full text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary"
               href={session.vncUrl}
               rel="noreferrer"
               target="_blank"
@@ -50,7 +50,7 @@ export function BrowserTakeoverTab({
             </a>
             <button
               className={cn(
-                "h-7 border border-thread-border px-3 font-mono text-[9px] text-thread-text-secondary uppercase tracking-[0.18em] transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
+                "h-7 rounded-full border border-thread-border px-3 text-[12px] text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
                 isBusy && "cursor-not-allowed opacity-45",
               )}
               disabled={isBusy}
@@ -62,7 +62,7 @@ export function BrowserTakeoverTab({
           </div>
         </div>
         <iframe
-          className="min-h-0 flex-1 bg-black"
+          className="min-h-0 flex-1 bg-white"
           referrerPolicy="no-referrer"
           sandbox="allow-forms allow-modals allow-popups allow-scripts allow-same-origin"
           src={session.vncUrl}
@@ -73,15 +73,13 @@ export function BrowserTakeoverTab({
   }
 
   return (
-    <div className="grid h-full min-h-[420px] place-items-center border border-thread-border bg-black/30">
+    <div className="grid h-full min-h-[420px] place-items-center rounded-[16px] border border-thread-border bg-[#fafafa]">
       <div className="text-center">
         <div className="mx-auto mb-4 h-2 w-2 rounded-full bg-thread-status-warning" />
-        <div className="font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.28em]">
-          Browser {sandboxStatus}
-        </div>
+        <div className="text-[12px] text-thread-text-muted">Browser {sandboxStatus}</div>
         <button
           className={cn(
-            "mt-4 border border-thread-border px-4 py-2 font-mono text-[10px] text-thread-text-secondary uppercase tracking-[0.18em] transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
+            "mt-4 rounded-full border border-thread-border px-4 py-2 text-[12px] text-thread-text-secondary transition-colors hover:bg-thread-hover hover:text-thread-text-primary",
             isBusy && "cursor-not-allowed opacity-45",
           )}
           disabled={isBusy}

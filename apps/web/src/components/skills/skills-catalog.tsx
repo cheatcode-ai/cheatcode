@@ -8,8 +8,21 @@ import {
 } from "@cheatcode/skills/manifest";
 import { useAuth } from "@clerk/nextjs";
 import Link from "next/link";
+import type { ComponentType } from "react";
 import { useMemo, useState } from "react";
-import { BookOpen, Code, FileSpreadsheet, type LucideIcon, Sparkles } from "@/components/ui/icons";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
+import {
+  BriefcaseBusiness,
+  ChartNoAxesCombined,
+  ChevronDown,
+  FileText,
+  LayoutTemplate,
+  Megaphone,
+  Presentation,
+  Search,
+  Smartphone,
+  Telescope,
+} from "@/components/ui/icons";
 import { emitSkillUseClicked } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
 
@@ -17,10 +30,54 @@ type CatalogTab = "All" | SkillCategory;
 
 const TABS: readonly CatalogTab[] = ["All", ...SKILL_CATEGORIES];
 
-const CATEGORY_ICON: Record<SkillCategory, LucideIcon> = {
-  "Builder & Apps": Code,
-  "Data & Media": FileSpreadsheet,
-  "Research & Docs": BookOpen,
+type SkillIconComponent = ComponentType<{
+  className?: string;
+  "aria-hidden"?: boolean | "false" | "true";
+}>;
+
+type SkillVisual = {
+  icon: SkillIconComponent;
+  iconClassName: string;
+};
+
+const DEFAULT_SKILL_VISUAL: SkillVisual = {
+  icon: CheatcodeMark,
+  iconClassName: "bg-[#f7f7f7] text-[#a9842e]",
+};
+
+const SKILL_VISUALS: Partial<Record<string, SkillVisual>> = {
+  "competitor-brief": {
+    icon: BriefcaseBusiness,
+    iconClassName: "bg-[#f7f7f7] text-[#86641d]",
+  },
+  "csv-analyst": {
+    icon: ChartNoAxesCombined,
+    iconClassName: "bg-[#f6f8f4] text-[#4d7a45]",
+  },
+  "deep-research": {
+    icon: Telescope,
+    iconClassName: "bg-[#f7f7f7] text-[#4f6f8f]",
+  },
+  "landing-page": {
+    icon: LayoutTemplate,
+    iconClassName: "bg-[#f7f7f7] text-[#7a5a1f]",
+  },
+  "mobile-app": {
+    icon: Smartphone,
+    iconClassName: "bg-[#f5f7f8] text-[#4f6f7d]",
+  },
+  "pitch-deck": {
+    icon: Presentation,
+    iconClassName: "bg-[#f7f7f7] text-[#927126]",
+  },
+  "slide-from-prd": {
+    icon: FileText,
+    iconClassName: "bg-[#f7f7f7] text-[#756531]",
+  },
+  "social-post-pack": {
+    icon: Megaphone,
+    iconClassName: "bg-[#f8f6f4] text-[#94602d]",
+  },
 };
 
 export function SkillsCatalog() {
@@ -28,49 +85,73 @@ export function SkillsCatalog() {
   const [tab, setTab] = useState<CatalogTab>("All");
   const [search, setSearch] = useState("");
   const filtered = useMemo(() => filterSkills(SKILL_MANIFEST, tab, search), [tab, search]);
+  const desktopColumns = useMemo(() => splitSkillColumns(filtered), [filtered]);
 
   return (
-    <div className="mt-6">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <input
-          aria-label="Search skills"
-          className="w-full max-w-sm rounded-2xl border border-thread-border bg-black/25 px-4 py-2.5 text-sm text-thread-text-primary outline-none placeholder:text-thread-text-muted"
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search skills"
-          value={search}
-        />
-        <div className="flex flex-wrap gap-2">
-          {TABS.map((candidate) => (
-            <button
-              aria-pressed={candidate === tab}
-              className={cn(
-                "flex items-center gap-2 rounded-full border px-3 py-1.5 font-mono text-[10px] uppercase tracking-[0.18em] transition-colors",
-                candidate === tab
-                  ? "border-white/25 bg-white/10 text-white"
-                  : "border-thread-border text-thread-text-muted hover:text-thread-text-secondary",
-              )}
-              key={candidate}
-              onClick={() => setTab(candidate)}
-              type="button"
-            >
-              <span>{candidate}</span>
-              <span className="text-thread-text-muted">
-                {countForTab(SKILL_MANIFEST, candidate)}
-              </span>
-            </button>
-          ))}
-        </div>
+    <div className="mt-8">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <label className="relative block min-w-0 sm:w-[362px]" htmlFor="skills-search">
+          <span className="sr-only">Search skills</span>
+          <Search
+            aria-hidden="true"
+            className="absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 text-[#707070]"
+          />
+          <input
+            className="h-8 w-full rounded-full border-0 bg-[#f7f7f7] pr-3 pl-10 font-medium text-[#1b1b1b] text-[14px] shadow-[0_0_0_2px_#fff,0_0_0_4px_#f7f7f7] outline-none placeholder:text-[#a0a0a0] focus:shadow-[0_0_0_2px_#fff,0_0_0_4px_#dedede]"
+            id="skills-search"
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search by name"
+            value={search}
+          />
+        </label>
+        <button
+          className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] px-5 font-medium text-[14px] text-white shadow-[0_0_1px_rgba(0,0,0,0.24)] disabled:opacity-100"
+          disabled
+          type="button"
+        >
+          Create skill
+        </button>
+      </div>
+      <div className="scrollbar-hide mt-8 flex gap-2 overflow-x-auto pb-1">
+        {TABS.map((candidate) => (
+          <button
+            aria-pressed={candidate === tab}
+            className={cn(
+              "flex h-8 shrink-0 items-center gap-1 rounded-full px-3 font-medium text-[14px] transition-colors",
+              candidate === tab
+                ? "border border-[#f1f1f1] bg-white text-[#1b1b1b]"
+                : "text-[#8a8a8a] hover:text-[#1b1b1b]",
+            )}
+            key={candidate}
+            onClick={() => setTab(candidate)}
+            type="button"
+          >
+            <span>{candidate}</span>
+          </button>
+        ))}
       </div>
 
-      <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+      <div className="mt-9 flex flex-col gap-4 md:hidden">
         {filtered.map((skill) => (
-          <SkillCard getToken={getToken} key={skill.name} skill={skill} />
+          <SkillCard getToken={getToken} instanceId="mobile" key={skill.name} skill={skill} />
+        ))}
+      </div>
+      <div className="mt-9 hidden gap-4 md:grid md:grid-cols-2">
+        {desktopColumns.map((column) => (
+          <div className="flex min-w-0 flex-col gap-4" key={column.id}>
+            {column.skills.map((skill) => (
+              <SkillCard
+                getToken={getToken}
+                instanceId={`desktop-${column.id}`}
+                key={skill.name}
+                skill={skill}
+              />
+            ))}
+          </div>
         ))}
       </div>
       {filtered.length === 0 ? (
-        <p className="mt-10 text-center font-mono text-[11px] text-thread-text-muted uppercase tracking-[0.2em]">
-          No skills match your search
-        </p>
+        <p className="mt-10 text-center text-[#8a8a8a] text-[14px]">No skills match your search</p>
       ) : null}
     </div>
   );
@@ -78,47 +159,88 @@ export function SkillsCatalog() {
 
 function SkillCard({
   getToken,
+  instanceId,
   skill,
 }: {
   getToken: () => Promise<null | string>;
+  instanceId: string;
   skill: SkillManifestEntry;
 }) {
-  const Icon = CATEGORY_ICON[skill.category] ?? Sparkles;
+  const [isExpanded, setIsExpanded] = useState(false);
+  const visual = SKILL_VISUALS[skill.name] ?? DEFAULT_SKILL_VISUAL;
+  const Icon = visual.icon;
+  const descriptionId = `skill-${instanceId}-${skill.name}-description`;
+  const titleId = `skill-${instanceId}-${skill.name}-title`;
+  const toggleExpanded = () => setIsExpanded((current) => !current);
+
   return (
-    <article className="group flex flex-col rounded-3xl border border-thread-border bg-thread-surface/50 p-5 transition-colors hover:border-purple-400/35 hover:bg-thread-surface/75">
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-center gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl border border-thread-border bg-black/25 text-purple-200">
-            <Icon aria-hidden="true" className="h-5 w-5" />
-          </div>
-          <div className="min-w-0">
-            <h2 className="truncate font-mono text-[12px] text-thread-text-primary tracking-[0.18em]">
-              {skill.name}
-            </h2>
-            <p className="mt-1 font-mono text-[9px] text-thread-text-muted uppercase tracking-[0.2em]">
-              {skill.category}
+    <article
+      aria-labelledby={titleId}
+      className={cn(
+        "group min-h-[92px] self-start rounded-[23px] border-2 border-[#f7f7f7] bg-white p-0.5 text-left transition-[border-color,box-shadow] duration-200 ease-out hover:border-[#ececec]",
+        isExpanded ? "border-[#ececec] shadow-[0_10px_28px_rgba(0,0,0,0.04)]" : null,
+      )}
+    >
+      <div className="flex h-11 items-center gap-3 px-3.5 py-2.5">
+        <span
+          className={cn(
+            "flex size-6 shrink-0 items-center justify-center rounded-[14px]",
+            visual.iconClassName,
+          )}
+        >
+          <Icon aria-hidden="true" className="h-4 w-4" />
+        </span>
+        <h2
+          className="min-w-0 flex-1 truncate font-medium text-[#1b1b1b] text-[14px] leading-5"
+          id={titleId}
+        >
+          {skill.name}
+        </h2>
+        <button
+          aria-controls={descriptionId}
+          aria-expanded={isExpanded}
+          aria-label={isExpanded ? `Collapse ${skill.name}` : `Show ${skill.name} details`}
+          className="flex size-7 shrink-0 items-center justify-center rounded-full text-[#8a8a8a] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/15"
+          onClick={toggleExpanded}
+          type="button"
+        >
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              "h-4 w-4 transition-transform duration-200 ease-out",
+              isExpanded ? "rotate-180" : null,
+            )}
+          />
+        </button>
+      </div>
+      <div className="overflow-hidden rounded-[20px] bg-[#f7f7f7] transition-[background-color] duration-200">
+        <div className="flex min-h-10 items-start gap-3 px-4">
+          <button
+            aria-controls={descriptionId}
+            aria-expanded={isExpanded}
+            className="min-w-0 flex-1 py-2 text-left focus-visible:outline-none"
+            onClick={toggleExpanded}
+            type="button"
+          >
+            <p
+              className={cn(
+                "min-w-0 font-medium text-[#707070] text-[13px] leading-[19.5px] transition-colors",
+                isExpanded ? null : "line-clamp-1",
+              )}
+              id={descriptionId}
+            >
+              {skill.description}
             </p>
-          </div>
+          </button>
+          <Link
+            className="mt-2 shrink-0 font-medium text-[#707070] text-[13px] leading-[19.5px] transition-colors hover:text-[#1b1b1b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/15"
+            href={`/?skill=${encodeURIComponent(skill.name)}`}
+            onClick={() => emitSkillUseClicked(getToken)}
+          >
+            Use
+          </Link>
         </div>
       </div>
-      <p className="mt-5 min-h-18 text-sm text-thread-text-muted leading-6">{skill.description}</p>
-      <div className="mt-5 flex flex-wrap gap-2">
-        {skill.tags.map((tag) => (
-          <span
-            className="rounded-full border border-thread-border bg-black/25 px-2.5 py-1 font-mono text-[9px] text-thread-text-muted uppercase tracking-[0.16em]"
-            key={tag}
-          >
-            {tag}
-          </span>
-        ))}
-      </div>
-      <Link
-        className="mt-5 inline-flex h-9 w-fit items-center justify-center rounded-full bg-white px-4 font-medium text-black text-xs transition-colors hover:bg-zinc-200"
-        href={`/?skill=${encodeURIComponent(skill.name)}`}
-        onClick={() => emitSkillUseClicked(getToken)}
-      >
-        Use
-      </Link>
     </article>
   );
 }
@@ -137,13 +259,18 @@ function filterSkills(
       return true;
     }
     return (
-      skill.name.toLowerCase().includes(needle) ||
-      skill.description.toLowerCase().includes(needle) ||
-      skill.tags.some((tag) => tag.toLowerCase().includes(needle))
+      skill.name.toLowerCase().includes(needle) || skill.description.toLowerCase().includes(needle)
     );
   });
 }
 
-function countForTab(skills: readonly SkillManifestEntry[], tab: CatalogTab): number {
-  return tab === "All" ? skills.length : skills.filter((skill) => skill.category === tab).length;
+function splitSkillColumns(skills: readonly SkillManifestEntry[]) {
+  const columns = [
+    { id: "left", skills: [] as SkillManifestEntry[] },
+    { id: "right", skills: [] as SkillManifestEntry[] },
+  ] as const;
+  skills.forEach((skill, index) => {
+    columns[index % columns.length]?.skills.push(skill);
+  });
+  return columns;
 }

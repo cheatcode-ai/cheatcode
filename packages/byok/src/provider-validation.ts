@@ -28,14 +28,6 @@ const PROVIDER_VALIDATORS = {
       "content-type": "application/json",
     }),
   },
-  elevenlabs: {
-    invalidStatuses: [401, 403],
-    label: "ElevenLabs",
-    method: "GET",
-    schema: z.array(z.object({}).passthrough()),
-    url: "https://api.elevenlabs.io/v1/models",
-    headers: (key: string) => ({ "xi-api-key": key }),
-  },
   exa: {
     body: () =>
       JSON.stringify({
@@ -50,14 +42,6 @@ const PROVIDER_VALIDATORS = {
     schema: z.object({ results: z.array(z.object({}).passthrough()).optional() }).passthrough(),
     url: "https://api.exa.ai/search",
     headers: (key: string) => ({ "content-type": "application/json", "x-api-key": key }),
-  },
-  fal: {
-    invalidStatuses: [401, 403],
-    label: "Fal",
-    method: "GET",
-    schema: z.object({}).passthrough(),
-    url: "https://api.fal.ai/v1/models?limit=1",
-    headers: (key: string) => ({ authorization: `Key ${key}` }),
   },
   firecrawl: {
     invalidStatuses: [401, 403],

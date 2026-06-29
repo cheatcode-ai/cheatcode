@@ -9,7 +9,7 @@ import {
 } from "@cheatcode/types";
 import { useAuth, useUser } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -49,6 +49,10 @@ export function OnboardingFlow() {
   const { getToken } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // Polar redirects back here with ?checkout=success after a completed purchase
+  // (see useCheckoutMutation). Without this, the buyer lands back on the Plan step.
+  const checkoutSucceeded = searchParams.get("checkout") === "success";
   const [phase, setPhase] = useState<Phase>("loading");
   const [stepIndex, setStepIndex] = useState(0);
   const guardedRef = useRef(false);
@@ -92,9 +96,13 @@ export function OnboardingFlow() {
       void completeOnboarding("/projects");
       return;
     }
+    if (checkoutSucceeded) {
+      void completeOnboarding("/projects", "done");
+      return;
+    }
     setStepIndex(resumeIndex(profile.onboardingState.steps));
     setPhase("stepping");
-  }, [profile, userLoaded, completeOnboarding]);
+  }, [profile, userLoaded, completeOnboarding, checkoutSucceeded]);
 
   function recordStep(step: OnboardingStep, status: OnboardingStepStatus, name?: string) {
     const patch: UpdateUserProfile = { onboardingStep: { status, step } };
@@ -108,11 +116,21 @@ export function OnboardingFlow() {
     setStepIndex((index) => Math.min(index + 1, STEP_ORDER.length - 1));
   }
 
+  if (profileQuery.isError) {
+    return (
+      <LoadErrorCard
+        isPending={profileQuery.isFetching}
+        onRetry={() => {
+          void profileQuery.refetch();
+        }}
+      />
+    );
+  }
   if (phase === "loading") {
-    return <StatusCard label="Loading…" />;
+    return <StatusCard label="Loading..." />;
   }
   if (phase === "finishing") {
-    return <StatusCard label="Finishing setup…" />;
+    return <StatusCard label="Finishing setup..." />;
   }
   if (phase === "retry") {
     return (
@@ -125,7 +143,7 @@ export function OnboardingFlow() {
 
   const stepName = STEP_ORDER[stepIndex];
   if (!stepName) {
-    return <StatusCard label="Loading…" />;
+    return <StatusCard label="Loading..." />;
   }
 
   const stepProps: StepProps = {
@@ -166,8 +184,8 @@ export function OnboardingFlow() {
   };
 
   return (
-    <div className="w-full max-w-xl rounded-3xl border border-zinc-800/80 bg-[#0d0d0d] p-8 shadow-2xl">
-      {renderStep(stepName, stepProps)}
+    <div className="w-full max-w-[392px] rounded-[28px] border border-[#f1f1f1] bg-[#f8f8f8] p-1 shadow-[0_18px_70px_rgba(0,0,0,0.08)]">
+      <div className="rounded-[24px] bg-white p-8">{renderStep(stepName, stepProps)}</div>
     </div>
   );
 }
@@ -207,7 +225,9 @@ function useCheckoutMutation(getToken: () => Promise<null | string>) {
     mutationFn: () =>
       requestCheckout(getToken, {
         returnUrl: window.location.href,
-        successUrl: window.location.href,
+        // Marker so the onboarding flow auto-completes on return instead of
+        // dropping the buyer back on the Plan step.
+        successUrl: `${window.location.origin}${window.location.pathname}?checkout=success`,
         tier: "pro",
       }),
     onError: (error) => {
@@ -221,23 +241,43 @@ function useCheckoutMutation(getToken: () => Promise<null | string>) {
 
 function StatusCard({ label }: { label: string }) {
   return (
-    <div className="flex w-full max-w-xl flex-col items-center gap-4 rounded-3xl border border-zinc-800/80 bg-[#0d0d0d] p-12 text-center">
-      <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-zinc-500" />
-      <p className="text-sm text-zinc-400">{label}</p>
+    <div className="flex w-full max-w-[392px] flex-col items-center gap-4 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
+      <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-[#a0a0a0]" />
+      <p className="text-[#707070] text-sm">{label}</p>
     </div>
   );
 }
 
 function RetryCard({ isPending, onRetry }: { isPending: boolean; onRetry: () => void }) {
   return (
-    <div className="flex w-full max-w-xl flex-col items-center gap-5 rounded-3xl border border-zinc-800/80 bg-[#0d0d0d] p-12 text-center">
-      <p className="text-sm text-zinc-300">Finishing setup…</p>
-      <p className="max-w-sm text-xs text-zinc-500 leading-relaxed">
-        Your progress is saved. We could not refresh your session — retry to finish, or this
+    <div className="flex w-full max-w-[392px] flex-col items-center gap-5 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
+      <p className="text-[#1b1b1b] text-sm">Finishing setup...</p>
+      <p className="max-w-sm text-[#707070] text-xs leading-relaxed">
+        Your progress is saved. We could not refresh your session - retry to finish, or this
         resolves on the next sign-in.
       </p>
       <button
-        className="inline-flex h-11 items-center justify-center rounded-2xl bg-white px-6 font-medium text-black transition-colors hover:bg-zinc-200 disabled:cursor-not-allowed disabled:opacity-60"
+        className="inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6 font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isPending}
+        onClick={onRetry}
+        type="button"
+      >
+        {isPending ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
+        Retry
+      </button>
+    </div>
+  );
+}
+
+function LoadErrorCard({ isPending, onRetry }: { isPending: boolean; onRetry: () => void }) {
+  return (
+    <div className="flex w-full max-w-[392px] flex-col items-center gap-5 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
+      <p className="text-[#1b1b1b] text-sm">Setup could not load</p>
+      <p className="max-w-sm text-[#707070] text-xs leading-relaxed">
+        We could not reach your profile. Check the local server and try again.
+      </p>
+      <button
+        className="inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6 font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
         disabled={isPending}
         onClick={onRetry}
         type="button"

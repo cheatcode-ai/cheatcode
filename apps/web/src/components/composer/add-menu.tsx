@@ -1,7 +1,7 @@
 "use client";
 
 import { GitHubRepoUrlSchema } from "@cheatcode/types";
-import { type FormEvent, useState } from "react";
+import { type KeyboardEvent, useState } from "react";
 import { Paperclip, Plus } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
@@ -32,8 +32,7 @@ export function AddMenu({
     setError(null);
   }
 
-  function submitRepo(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function submitRepo() {
     const parsed = GitHubRepoUrlSchema.safeParse(url);
     if (!parsed.success) {
       setError(parsed.error.issues[0]?.message ?? "Enter a valid public GitHub URL.");
@@ -43,16 +42,22 @@ export function AddMenu({
     close();
   }
 
+  function handleRepoKeyDown(event: KeyboardEvent<HTMLInputElement>) {
+    if (event.key !== "Enter") {
+      return;
+    }
+    event.preventDefault();
+    submitRepo();
+  }
+
   return (
     <div className="relative">
       <button
         aria-expanded={isOpen}
         aria-label="Add to prompt"
         className={cn(
-          "flex h-10 w-10 items-center justify-center rounded-none border border-white/5",
-          "bg-gradient-to-b from-[#333] to-[#1a1a1a] text-zinc-400",
-          "shadow-[0_1px_2px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.1)]",
-          "transition-all hover:from-[#3a3a3a] hover:to-[#222] hover:text-white",
+          "paper-focus-ring flex h-8 w-8 items-center justify-center rounded-full",
+          "bg-white text-[#4f4f4f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
         )}
         onClick={() => setIsOpen((current) => !current)}
         type="button"
@@ -60,9 +65,9 @@ export function AddMenu({
         <Plus aria-hidden="true" className="h-4 w-4" />
       </button>
       {isOpen ? (
-        <div className="absolute bottom-full left-0 z-30 mb-2 w-72 border border-white/10 bg-[#09090b] p-1 shadow-2xl">
+        <div className="absolute bottom-full left-0 z-30 mb-2 flex w-72 flex-col gap-1 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
           <button
-            className="flex h-8 w-full items-center gap-2 px-2 font-mono text-[10px] text-zinc-400 uppercase tracking-widest transition-colors hover:bg-white/5 hover:text-white"
+            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
             onClick={() => {
               onUploadClick();
               close();
@@ -73,30 +78,32 @@ export function AddMenu({
             Upload file
           </button>
           {!allowRepoImport ? null : showImport ? (
-            <form className="flex flex-col gap-1 p-1" onSubmit={submitRepo}>
+            <div className="flex flex-col gap-1 p-1">
               <input
                 aria-label="Public GitHub repository URL"
                 // biome-ignore lint/a11y/noAutofocus: focus the field the user just opened
                 autoFocus
-                className="w-full border border-white/10 bg-transparent px-2 py-1.5 font-mono text-[11px] text-white outline-none placeholder:text-zinc-600"
+                className="w-full rounded-xl border border-[#f1f1f1] bg-[#f8f8f8] px-3 py-2 text-[#1b1b1b] text-[13px] outline-none placeholder:text-[#a0a0a0]"
                 onChange={(event) => {
                   setUrl(event.target.value);
                   setError(null);
                 }}
+                onKeyDown={handleRepoKeyDown}
                 placeholder="https://github.com/owner/repo"
                 value={url}
               />
-              {error ? <span className="px-1 text-[10px] text-red-300">{error}</span> : null}
+              {error ? <span className="px-1 text-[11px] text-red-600">{error}</span> : null}
               <button
-                className="flex h-8 items-center justify-center bg-white/10 font-mono text-[10px] text-white uppercase tracking-widest transition-colors hover:bg-white/15"
-                type="submit"
+                className="flex h-9 items-center justify-center rounded-xl bg-[#1b1b1b] font-medium text-[13px] text-white transition-colors hover:bg-black"
+                onClick={submitRepo}
+                type="button"
               >
                 Attach repository
               </button>
-            </form>
+            </div>
           ) : (
             <button
-              className="flex h-8 w-full items-center gap-2 px-2 font-mono text-[10px] text-zinc-400 uppercase tracking-widest transition-colors hover:bg-white/5 hover:text-white"
+              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
               onClick={() => setShowImport(true)}
               type="button"
             >

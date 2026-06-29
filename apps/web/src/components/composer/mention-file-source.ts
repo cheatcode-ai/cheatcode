@@ -27,7 +27,11 @@ export function useMentionFileItems({
   const { getToken } = useAuth();
   const { dirPart, filterPart } = splitMentionQuery(query);
   const dirPath = workspacePath(dirPart);
-  const filesQuery = useQuery({
+  const {
+    data: filesData,
+    isError: filesIsError,
+    isPending: filesIsPending,
+  } = useQuery({
     enabled,
     queryFn: () => listSandboxFiles(getToken, threadId, dirPath),
     queryKey: ["mention-files", threadId, dirPath],
@@ -38,13 +42,13 @@ export function useMentionFileItems({
   if (!enabled) {
     return [];
   }
-  if (filesQuery.isError) {
+  if (filesIsError) {
     return [disabledRow("mention-error", "No sandbox files yet")];
   }
-  if (filesQuery.isPending) {
+  if (filesIsPending) {
     return [disabledRow("mention-loading", "Searching files…")];
   }
-  return mentionItems(filesQuery.data.files, dirPart, filterPart);
+  return mentionItems(filesData.files, dirPart, filterPart);
 }
 
 function splitMentionQuery(query: string): { dirPart: string; filterPart: string } {

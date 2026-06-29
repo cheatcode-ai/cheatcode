@@ -1,3 +1,25 @@
+export type { CreateAutomationInput, UpdateAutomationInput } from "./automations";
+export {
+  advanceNextRunAt,
+  automationRunToSummary,
+  automationToSummary,
+  claimNextRunRequest,
+  createAutomation,
+  createAutomationRun,
+  dueScheduledAutomations,
+  enqueueRunRequest,
+  findEventAutomationsByTrigger,
+  finishAutomationRun,
+  getAutomation,
+  hasActiveAutomationRun,
+  listAutomationRuns,
+  listAutomations,
+  listRunningAutomationRuns,
+  markRunRequest,
+  reclaimStaleRunRequests,
+  softDeleteAutomation,
+  updateAutomation,
+} from "./automations";
 export type {
   BillingEventInput,
   BillingUserRecord,
@@ -148,5 +170,11 @@ export {
 } from "./usage";
 export type { AgentRunStartPoint, AgentRunStartPointRange } from "./usage-runs";
 export { listAgentRunStartPoints } from "./usage-runs";
-export type { ClerkUserUpsert, ClerkUserUpsertResult } from "./users";
-export { markClerkUserDeleted, resolveInternalUserId, upsertClerkUser } from "./users";
+export type { ClerkUserUpsert, ClerkUserUpsertResult, UserAccountRecord } from "./users";
+export {
+  getUserAccount,
+  markClerkUserDeleted,
+  resolveInternalUserId,
+  updateUserAccount,
+  upsertClerkUser,
+} from "./users";

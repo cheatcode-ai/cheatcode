@@ -12,7 +12,6 @@ import {
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
 import {
-  type CatalogModelId,
   type UpdateUserProfile,
   UpdateUserProfileSchema,
   type UserId,
@@ -58,8 +57,7 @@ export async function updateMyProfileRoute(
   let record: UserProfileRecord;
   try {
     record = await withUserContext(db, userId, async (tx) => {
-      const existing = await getUserProfile(tx, userId);
-      return upsertUserProfile(tx, buildProfilePatch(userId, body, existing));
+      return upsertUserProfile(tx, buildProfilePatch(userId, body));
     });
   } finally {
     ctx.waitUntil(close());
@@ -70,27 +68,13 @@ export async function updateMyProfileRoute(
   return Response.json(UserProfileSchema.parse(profileResponse(record)));
 }
 
-function buildProfilePatch(
-  userId: UserId,
-  body: UpdateUserProfile,
-  existing: UserProfileRecord | null,
-): UpsertUserProfileInput {
-  const nextDisabled = resolveDisabledSet(body, existing);
+function buildProfilePatch(userId: UserId, body: UpdateUserProfile): UpsertUserProfileInput {
   const input: UpsertUserProfileInput = { userId };
   assignScalarFields(input, body);
-  applySurfaceModel(input, "appbuilder", body.appbuilderDefaultModel, existing, nextDisabled);
-  applySurfaceModel(input, "general", body.generalDefaultModel, existing, nextDisabled);
   if (body.disabledModels !== undefined) {
-    input.disabledModels = [...nextDisabled];
+    input.disabledModels = [...body.disabledModels];
   }
   return input;
-}
-
-function resolveDisabledSet(
-  body: UpdateUserProfile,
-  existing: UserProfileRecord | null,
-): ReadonlySet<string> {
-  return new Set(body.disabledModels ?? existing?.disabledModels ?? []);
 }
 
 function assignScalarFields(input: UpsertUserProfileInput, body: UpdateUserProfile): void {
@@ -100,43 +84,11 @@ function assignScalarFields(input: UpsertUserProfileInput, body: UpdateUserProfi
   if (body.globalMemory !== undefined) {
     input.globalMemory = body.globalMemory;
   }
-  if (body.appbuilderDefaultBudgetUsd !== undefined) {
-    input.appbuilderDefaultBudgetUsd = body.appbuilderDefaultBudgetUsd;
-  }
-  if (body.generalDefaultBudgetUsd !== undefined) {
-    input.generalDefaultBudgetUsd = body.generalDefaultBudgetUsd;
-  }
   if (body.onboardingCompleted !== undefined) {
     input.onboardingCompleted = body.onboardingCompleted;
   }
   if (body.onboardingStep !== undefined) {
     input.onboardingStep = body.onboardingStep;
-  }
-}
-
-/**
- * Enforce "a disabled model cannot be a per-surface default": reject when the
- * request sets a disabled model as the default, and clear a stored default that
- * the request newly disables.
- */
-function applySurfaceModel(
-  input: UpsertUserProfileInput,
-  surface: "appbuilder" | "general",
-  bodyValue: CatalogModelId | null | undefined,
-  existing: UserProfileRecord | null,
-  nextDisabled: ReadonlySet<string>,
-): void {
-  const key = surface === "appbuilder" ? "appbuilderDefaultModel" : "generalDefaultModel";
-  if (bodyValue !== undefined) {
-    if (bodyValue !== null && nextDisabled.has(bodyValue)) {
-      throw disabledDefaultConflict(surface, bodyValue);
-    }
-    input[key] = bodyValue;
-    return;
-  }
-  const storedValue = existing?.[key] ?? null;
-  if (storedValue !== null && nextDisabled.has(storedValue)) {
-    input[key] = null;
   }
 }
 
@@ -174,12 +126,8 @@ function profileResponse(
   if (!record) {
     return {
       agentDisplayName: null,
-      appbuilderDefaultBudgetUsd: null,
-      appbuilderDefaultModel: null,
       disabledModels: [],
       ...freeDeepseekField,
-      generalDefaultBudgetUsd: null,
-      generalDefaultModel: null,
       globalMemory: null,
       onboardingCompletedAt: null,
       onboardingState: { steps: {} },
@@ -188,34 +136,13 @@ function profileResponse(
   }
   return {
     agentDisplayName: record.agentDisplayName,
-    appbuilderDefaultBudgetUsd: coerceBudget(record.appbuilderDefaultBudgetUsd),
-    appbuilderDefaultModel: record.appbuilderDefaultModel,
     disabledModels: record.disabledModels,
     ...freeDeepseekField,
-    generalDefaultBudgetUsd: coerceBudget(record.generalDefaultBudgetUsd),
-    generalDefaultModel: record.generalDefaultModel,
     globalMemory: record.globalMemory,
     onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
     onboardingState: record.onboardingState,
     updatedAt: record.updatedAt.toISOString(),
   };
-}
-
-function coerceBudget(value: number | null): number | null {
-  return value === null ? null : Number(value);
-}
-
-function disabledDefaultConflict(surface: string, model: string): APIError {
-  return new APIError(
-    400,
-    "invalid_request_body",
-    "A disabled model cannot be set as a per-surface default.",
-    {
-      details: { model, surface },
-      hint: "Re-enable the model or choose a different default for this surface.",
-      retriable: false,
-    },
-  );
 }
 
 function invalidRequestBody(message: string, error: z.ZodError): APIError {

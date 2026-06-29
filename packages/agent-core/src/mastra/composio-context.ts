@@ -18,12 +18,14 @@ export interface ComposioQuotaMeter {
   consumeCall(): Promise<ComposioQuotaResult>;
 }
 
-export const ComposioConnectedAccountsSchema = z
-  .object({
-    github: z.string().min(1).optional(),
-    gmail: z.string().min(1).optional(),
-    linear: z.string().min(1).optional(),
-    notion: z.string().min(1).optional(),
-    slack: z.string().min(1).optional(),
-  })
-  .strict();
+// Maps a connected Composio toolkit slug to its connected-account id. Keyed by an
+// open toolkit slug (not a fixed 5-enum) so the agent can use any toolkit the user
+// has connected from the catalog.
+export const ComposioConnectedAccountsSchema = z.record(
+  z
+    .string()
+    .min(1)
+    .max(64)
+    .regex(/^[a-z0-9_]+$/),
+  z.string().min(1),
+);

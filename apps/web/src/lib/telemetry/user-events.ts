@@ -48,14 +48,6 @@ export function emitComposerEvent(
   void postUserEvent(getToken, eventName).catch(swallow);
 }
 
-/** Once-per-session, fire-and-forget; mirrors the `first_preview_opened` guard. */
-export function emitCommandPaletteOpened(getToken: () => Promise<null | string>): void {
-  if (!claimSessionEvent("command_palette_opened")) {
-    return;
-  }
-  void postUserEvent(getToken, "command_palette_opened").catch(swallow);
-}
-
 /** Unguarded fire-and-forget — every `Use` click on the skills catalog counts. */
 export function emitSkillUseClicked(getToken: () => Promise<null | string>): void {
   void postUserEvent(getToken, "skill_use_clicked").catch(swallow);

@@ -6,7 +6,8 @@ const MAX_SLASH_ITEMS = 8;
 /**
  * Maps the bundled skill manifest + the current `/` query into menu items. The
  * manifest is browser-safe (name/description/category/tags only — no skill
- * bodies). Selecting a row inserts `/<name> ` so activation stays model-driven.
+ * bodies). Selecting a row removes the slash token and lets the composer render
+ * the selected skill as a chip, then add the model-facing hint on submit.
  */
 export function slashSkillItems(query: string): ComposerMenuItem[] {
   const needle = query.trim().toLowerCase();
@@ -17,7 +18,7 @@ export function slashSkillItems(query: string): ComposerMenuItem[] {
     .map((skill) => ({
       hint: skill.description,
       id: skill.name,
-      insert: `/${skill.name} `,
-      label: `/${skill.name}`,
+      insert: "",
+      label: skill.name,
     }));
 }

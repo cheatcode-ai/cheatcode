@@ -13,16 +13,11 @@ export const OnboardingStateSchema = z
 // Cap at one fewer than the catalog so ≥1 model always stays enabled. Derived from the
 // catalog length so it can't drift as the catalog grows (e.g. the DeepSeek free entry).
 const DisabledModelsSchema = z.array(CatalogModelIdSchema).max(AGENT_MODEL_CATALOG.length - 1);
-const SurfaceBudgetSchema = z.number().positive().max(50); // 0 < n ≤ $50; null = No cap
 
 export const UserProfileSchema = z
   .object({
     agentDisplayName: z.string().min(1).max(80).nullable(),
-    appbuilderDefaultBudgetUsd: SurfaceBudgetSchema.nullable(),
-    appbuilderDefaultModel: CatalogModelIdSchema.nullable(),
     disabledModels: DisabledModelsSchema,
-    generalDefaultBudgetUsd: SurfaceBudgetSchema.nullable(),
-    generalDefaultModel: CatalogModelIdSchema.nullable(),
     globalMemory: z.string().max(8_000).nullable(),
     onboardingCompletedAt: z.string().datetime().nullable(),
     onboardingState: OnboardingStateSchema,
@@ -39,11 +34,7 @@ export const UserProfileSchema = z
 export const UpdateUserProfileSchema = z
   .object({
     agentDisplayName: z.string().trim().min(1).max(80).nullable().optional(),
-    appbuilderDefaultBudgetUsd: SurfaceBudgetSchema.nullable().optional(),
-    appbuilderDefaultModel: CatalogModelIdSchema.nullable().optional(),
     disabledModels: DisabledModelsSchema.optional(),
-    generalDefaultBudgetUsd: SurfaceBudgetSchema.nullable().optional(),
-    generalDefaultModel: CatalogModelIdSchema.nullable().optional(),
     globalMemory: z.string().max(8_000).nullable().optional(),
     onboardingCompleted: z.literal(true).optional(),
     onboardingStep: z

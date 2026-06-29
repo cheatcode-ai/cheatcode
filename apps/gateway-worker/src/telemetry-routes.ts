@@ -47,9 +47,19 @@ const WebVitalsBodySchema = z.union([
   WebVitalMetricSchema,
   z.array(WebVitalMetricSchema).min(1).max(20),
 ]);
+// Keep in sync with the client emitters in
+// apps/web/src/lib/telemetry/user-events.ts. Each name here is a fire-and-forget
+// product-signal event; an unlisted name 400s and is swallowed client-side.
 const ClientUserEventBodySchema = z
   .object({
-    eventName: z.enum(["first_preview_opened"]),
+    eventName: z.enum([
+      "first_preview_opened",
+      "console_strip_opened",
+      "composer_mention_inserted",
+      "composer_repo_attached",
+      "composer_slash_inserted",
+      "skill_use_clicked",
+    ]),
   })
   .strict();
 

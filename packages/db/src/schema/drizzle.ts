@@ -1,3 +1,4 @@
+export { automationRunRequests, automationRuns, automations } from "./automations";
 export { billingEvents, entitlements } from "./billing";
 export { providerKeys, userIntegrations } from "./keys";
 export type { AgentRunConfig, AgentRunError } from "./messages";
