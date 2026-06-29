@@ -12,6 +12,7 @@ import {
   automationRunRequests,
   automationRuns,
   automations,
+  messages,
 } from "./schema";
 
 type AutomationRow = typeof automations.$inferSelect;
@@ -317,16 +318,47 @@ export async function listRunningAutomationRuns(
   db: Database,
   cutoff: Date,
   limit = 100,
-): Promise<Array<{ id: string; threadId: string | null; userId: string }>> {
+): Promise<Array<{ id: string; automationId: string; threadId: string | null; userId: string }>> {
   return db
     .select({
       id: automationRuns.id,
+      automationId: automationRuns.automationId,
       threadId: automationRuns.threadId,
       userId: automationRuns.userId,
     })
     .from(automationRuns)
     .where(and(eq(automationRuns.status, "running"), lte(automationRuns.startedAt, cutoff)))
     .limit(limit);
+}
+
+/** Concatenated text of the latest assistant message on a thread — the run's summary
+ * for delivery. Returns null when there is no assistant text yet. */
+export async function getLatestAssistantText(
+  db: Database,
+  threadId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ parts: messages.parts })
+    .from(messages)
+    .where(and(eq(messages.threadId, threadId), eq(messages.role, "assistant")))
+    .orderBy(desc(messages.createdAt))
+    .limit(1);
+  if (!row) {
+    return null;
+  }
+  const text = row.parts
+    .filter((part): part is { type: "text"; text: string } => {
+      return (
+        typeof part === "object" &&
+        part !== null &&
+        (part as { type?: unknown }).type === "text" &&
+        typeof (part as { text?: unknown }).text === "string"
+      );
+    })
+    .map((part) => part.text)
+    .join("")
+    .trim();
+  return text.length > 0 ? text : null;
 }
 
 export async function hasActiveAutomationRun(db: Database, automationId: string): Promise<boolean> {

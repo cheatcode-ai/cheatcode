@@ -15,6 +15,7 @@ import {
   ArrowUpRight,
   ChevronDown,
   CreditCard,
+  FileText,
   Link as LinkIcon,
   type LucideIcon,
   Menu,
@@ -57,6 +58,7 @@ const FOOTER_NAV = navItems("footer");
 const CREDIT_BAR_KEYS = Array.from({ length: 50 }, (_, index) => `credit-bar-${index}`);
 const SIDEBAR_MORE_LINKS = [
   { href: "/settings/account", icon: User, label: "Account" },
+  { href: "/artifacts", icon: FileText, label: "Artifacts" },
   { href: "/settings/billing", icon: CreditCard, label: "Pricing" },
   { href: "/settings/billing", icon: TrendingUp, label: "Usage" },
 ] as const satisfies readonly SidebarMenuLinkItem[];

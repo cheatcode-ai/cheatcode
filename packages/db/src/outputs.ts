@@ -1,7 +1,17 @@
 import type { AgentRunId, ProjectId, UserId } from "@cheatcode/types";
-import { eq } from "drizzle-orm";
+import { and, desc, eq, gt, isNull, or } from "drizzle-orm";
 import type { Database } from "./client";
 import { generatedOutputs } from "./schema";
+
+export interface GeneratedOutputRecord {
+  id: string;
+  kind: string;
+  filename: string;
+  mimeType: string;
+  sizeBytes: number;
+  createdAt: Date;
+  expiresAt: Date | null;
+}
 
 export interface SaveGeneratedOutputInput {
   agentRunId?: AgentRunId;
@@ -56,6 +66,34 @@ export async function hasGeneratedOutputForUser(db: Database, userId: UserId): P
     .where(eq(generatedOutputs.userId, userId))
     .limit(1);
   return rows.length > 0;
+}
+
+/** A user's generated artifacts, newest first, excluding ones already past expiry. */
+export async function listGeneratedOutputsByUser(
+  db: Database,
+  userId: UserId,
+  now: Date,
+  limit = 100,
+): Promise<GeneratedOutputRecord[]> {
+  return db
+    .select({
+      id: generatedOutputs.id,
+      kind: generatedOutputs.kind,
+      filename: generatedOutputs.filename,
+      mimeType: generatedOutputs.mimeType,
+      sizeBytes: generatedOutputs.sizeBytes,
+      createdAt: generatedOutputs.createdAt,
+      expiresAt: generatedOutputs.expiresAt,
+    })
+    .from(generatedOutputs)
+    .where(
+      and(
+        eq(generatedOutputs.userId, userId),
+        or(isNull(generatedOutputs.expiresAt), gt(generatedOutputs.expiresAt, now)),
+      ),
+    )
+    .orderBy(desc(generatedOutputs.createdAt))
+    .limit(limit);
 }
 
 export async function findGeneratedOutputOwner(

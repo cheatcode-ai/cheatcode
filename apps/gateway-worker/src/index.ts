@@ -283,6 +283,7 @@ export const gatewayRoutes = gatewayApp
   .post("/v1/user-events", async (c) => {
     return clientUserEventRoute(c, optionalTelemetryUser);
   })
+  .get("/v1/outputs", (c) => forwardAgentRequest(c, "GET /v1/outputs"))
   .get("/v1/outputs/:outputId/download", (c) => c.env.AGENT.fetch(c.req.raw))
   // Public, unauthenticated featured-replay reads (replays plan §4). "featured"
   // MUST be chained before ":id" so it is not captured as a slug.

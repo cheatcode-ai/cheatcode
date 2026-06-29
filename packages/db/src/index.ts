@@ -11,6 +11,7 @@ export {
   findEventAutomationsByTrigger,
   finishAutomationRun,
   getAutomation,
+  getLatestAssistantText,
   hasActiveAutomationRun,
   listAutomationRuns,
   listAutomations,
@@ -62,10 +63,11 @@ export {
   listProviderKeyRevalidationTargets,
   purgeUserProviderKeySecrets,
 } from "./lifecycle";
-export type { SaveGeneratedOutputInput } from "./outputs";
+export type { GeneratedOutputRecord, SaveGeneratedOutputInput } from "./outputs";
 export {
   findGeneratedOutputOwner,
   hasGeneratedOutputForUser,
+  listGeneratedOutputsByUser,
   saveGeneratedOutput,
 } from "./outputs";
 export type { RunPersonalization, UpsertUserProfileInput, UserProfileRecord } from "./profiles";
@@ -149,6 +151,7 @@ export {
   userProfiles,
   users,
 } from "./schema";
+export type { AutomationDelivery, AutomationDeliveryChannel } from "./schema/automations";
 export type {
   WorkspaceProjectSearchRecord,
   WorkspaceSearchInput,

@@ -1,4 +1,5 @@
 import {
+  type AutomationDelivery,
   advanceNextRunAt,
   claimNextRunRequest,
   createAutomationRun,
@@ -10,6 +11,7 @@ import {
   findActiveAgentRunForThread,
   finishAutomationRun,
   getAutomation,
+  getLatestAssistantText,
   hasActiveAutomationRun,
   listRunningAutomationRuns,
   markRunRequest,
@@ -18,6 +20,7 @@ import {
 import { createLogger } from "@cheatcode/observability";
 import { AutomationId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
 import { Cron } from "croner";
+import { deliverAutomationSummary } from "./automation-delivery";
 import type { WebhooksEnv } from "./index";
 
 const MAX_DRAIN_PER_TICK = 10;
@@ -41,7 +44,7 @@ export async function runAutomationTick(env: WebhooksEnv, scheduledTime: number)
   try {
     await enqueueDueScheduledRuns(db, now);
     await drainOutbox(db, env, now);
-    await reconcileRunningRuns(db, now);
+    await reconcileRunningRuns(db, env, now);
   } catch (error) {
     createLogger().error("automation_tick_failed", {
       message: error instanceof Error ? error.message : "unknown",
@@ -90,7 +93,12 @@ async function drainOutbox(db: Database, env: WebhooksEnv, now: Date): Promise<v
 async function processRequest(
   db: Database,
   env: WebhooksEnv,
-  request: { id: string; automationId: string; userId: string },
+  request: {
+    id: string;
+    automationId: string;
+    userId: string;
+    normalized?: Record<string, string> | null;
+  },
 ): Promise<void> {
   const userId = UserId(request.userId);
   const automation = await getAutomation(db, userId, AutomationId(request.automationId));
@@ -118,13 +126,12 @@ async function processRequest(
     threadId: thread.id,
   });
 
-  const started = await startAgentRun(
-    env,
-    request.userId,
-    thread.id,
-    automation.prompt,
-    automation.model,
-  );
+  // Event automations get the (bounded) trigger context appended so the run can act on it.
+  const triggerContext = request.normalized?.["context"];
+  const prompt = triggerContext
+    ? `${automation.prompt}\n\n--- Trigger context ---\n${triggerContext}`
+    : automation.prompt;
+  const started = await startAgentRun(env, request.userId, thread.id, prompt, automation.model);
   if (!started) {
     await finishAutomationRun(db, run.id, {
       status: "failed",
@@ -163,9 +170,9 @@ async function startAgentRun(
   return response.ok;
 }
 
-/** Finalize runs whose underlying agent run is no longer active. Optimistic success;
- * richer per-status capture + Slack/Notion/email delivery layer on top of this. */
-async function reconcileRunningRuns(db: Database, now: Date): Promise<void> {
+/** Finalize runs whose underlying agent run is no longer active: capture the final
+ * assistant message as the summary and deliver it to the automation's channels. */
+async function reconcileRunningRuns(db: Database, env: WebhooksEnv, now: Date): Promise<void> {
   const cutoff = new Date(now.getTime() - RECONCILE_GRACE_MS);
   const running = await listRunningAutomationRuns(db, cutoff);
   for (const run of running) {
@@ -179,6 +186,17 @@ async function reconcileRunningRuns(db: Database, now: Date): Promise<void> {
     if (active) {
       continue;
     }
-    await finishAutomationRun(db, run.id, { status: "succeeded", summary: "Run completed." });
+    const summary = (await getLatestAssistantText(db, run.threadId)) ?? "Run completed.";
+    const automation = await getAutomation(db, UserId(run.userId), AutomationId(run.automationId));
+    let deliveries: AutomationDelivery[] = [];
+    if (automation && automation.deliveryChannels.length > 0) {
+      deliveries = await deliverAutomationSummary(env, {
+        automationName: automation.name,
+        channels: automation.deliveryChannels,
+        summary,
+        userId: run.userId,
+      });
+    }
+    await finishAutomationRun(db, run.id, { status: "succeeded", summary, deliveries });
   }
 }

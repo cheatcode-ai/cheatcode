@@ -306,6 +306,8 @@ interface NewAutomationForm {
   triggerToolkit: string;
   triggerSlug: string;
   prompt: string;
+  deliveryType: "none" | "slack" | "notion" | "email";
+  deliveryTarget: string;
 }
 
 function NewAutomationDialog({ onClose }: { onClose: () => void }) {
@@ -318,6 +320,8 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
     triggerToolkit: "",
     triggerSlug: "",
     prompt: "",
+    deliveryType: "none",
+    deliveryTarget: "",
   });
 
   const set = <K extends keyof NewAutomationForm>(key: K, value: NewAutomationForm[K]) =>
@@ -329,7 +333,10 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
         name: form.name.trim(),
         kind: form.kind,
         prompt: form.prompt.trim(),
-        deliveryChannels: [],
+        deliveryChannels:
+          form.deliveryType === "none" || form.deliveryTarget.trim().length === 0
+            ? []
+            : [{ type: form.deliveryType, target: form.deliveryTarget.trim() }],
         ...(form.kind === "scheduled"
           ? { schedule: form.schedule.trim() }
           : { triggerToolkit: form.triggerToolkit.trim(), triggerSlug: form.triggerSlug.trim() }),
@@ -416,11 +423,11 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
                 value={form.triggerToolkit}
               />
             </Field>
-            <Field label="Trigger">
+            <Field hint="Composio trigger slug — connect the app first." label="Trigger">
               <input
                 className={inputClass}
                 onChange={(event) => set("triggerSlug", event.target.value)}
-                placeholder="new_email"
+                placeholder="GMAIL_NEW_GMAIL_MESSAGE"
                 value={form.triggerSlug}
               />
             </Field>
@@ -434,6 +441,42 @@ function NewAutomationDialog({ onClose }: { onClose: () => void }) {
             placeholder="Summarize the top NYT headlines and send me the highlights."
             value={form.prompt}
           />
+        </Field>
+
+        <Field
+          hint={
+            form.deliveryType === "slack"
+              ? "Slack channel ID (e.g. C0ABC12345)"
+              : form.deliveryType === "notion"
+                ? "Notion parent page ID (UUID)"
+                : form.deliveryType === "email"
+                  ? "Recipient email address"
+                  : "Optional — also deliver the result to a connected app."
+          }
+          label="Deliver results to"
+        >
+          <div className="flex gap-2">
+            <select
+              className={cn(inputClass, "max-w-[140px]")}
+              onChange={(event) =>
+                set("deliveryType", event.target.value as NewAutomationForm["deliveryType"])
+              }
+              value={form.deliveryType}
+            >
+              <option value="none">No delivery</option>
+              <option value="slack">Slack</option>
+              <option value="notion">Notion</option>
+              <option value="email">Email</option>
+            </select>
+            {form.deliveryType === "none" ? null : (
+              <input
+                className={inputClass}
+                onChange={(event) => set("deliveryTarget", event.target.value)}
+                placeholder="target"
+                value={form.deliveryTarget}
+              />
+            )}
+          </div>
         </Field>
 
         <div className="flex justify-end gap-2">

@@ -881,3 +881,25 @@ export const UpdateMeSchema = z
 
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 export type UpdateMe = z.infer<typeof UpdateMeSchema>;
+
+// --- Generated outputs / artifacts (GET /v1/outputs) ---
+
+export const GeneratedOutputSummarySchema = z
+  .object({
+    id: z.string().uuid(),
+    kind: z.string(),
+    filename: z.string(),
+    mimeType: z.string(),
+    sizeBytes: z.number().int().nonnegative(),
+    createdAt: z.string().datetime(),
+    expiresAt: z.string().datetime().nullable(),
+    downloadUrl: z.string().url(),
+  })
+  .strict();
+
+export const GeneratedOutputsResponseSchema = z
+  .object({ outputs: z.array(GeneratedOutputSummarySchema) })
+  .strict();
+
+export type GeneratedOutputSummary = z.infer<typeof GeneratedOutputSummarySchema>;
+export type GeneratedOutputsResponse = z.infer<typeof GeneratedOutputsResponseSchema>;

@@ -1,6 +1,8 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
 import {
   type Database,
+  enqueueRunRequest,
+  findEventAutomationsByTrigger,
   updateUserIntegrationStatusByConnectionId,
   upsertUserIntegration,
 } from "@cheatcode/db";
@@ -61,6 +63,14 @@ export async function handleComposioWebhookEvent(
   event: unknown,
 ): Promise<ComposioWebhookResult> {
   const payload = ComposioPayloadSchema.parse(event);
+
+  // Trigger events carry a metadata.trigger_id (the id returned by triggers.create).
+  // Route them to matching event-automations via the idempotent outbox.
+  const triggerId = firstString(payload.metadata, ["trigger_id", "triggerId", "triggerName"]);
+  if (triggerId) {
+    return handleTriggerEvent(db, payload, triggerId);
+  }
+
   const connectionId = connectionIdFromData(payload.data);
   const integration =
     integrationFromData(payload.data) ?? integrationFromMetadata(payload.metadata);
@@ -91,6 +101,38 @@ export async function handleComposioWebhookEvent(
     action: "recorded",
     eventType: payload.type,
     ...(userId ? { userId } : {}),
+  };
+}
+
+async function handleTriggerEvent(
+  db: Database,
+  payload: z.infer<typeof ComposioPayloadSchema>,
+  triggerId: string,
+): Promise<ComposioWebhookResult> {
+  const automations = await findEventAutomationsByTrigger(db, triggerId);
+  // Stable per-event id for idempotent dedupe (collapses Composio redeliveries).
+  const dedupeId =
+    firstString(payload.metadata, ["log_id", "logId", "id"]) ??
+    firstString(payload.data, ["id", "message_id", "messageId"]) ??
+    `${triggerId}:${payload.timestamp ?? ""}`;
+  // Bounded, normalized event context the run can use; never the full raw payload.
+  const normalized = { context: JSON.stringify(payload.data).slice(0, 1000) };
+  let enqueued = 0;
+  for (const automation of automations) {
+    const requestId = await enqueueRunRequest(db, {
+      automationId: automation.id,
+      dedupeKey: `event:${automation.id}:${dedupeId}`,
+      normalized,
+      source: "event",
+      userId: automation.userId,
+    });
+    if (requestId) {
+      enqueued += 1;
+    }
+  }
+  return {
+    action: enqueued > 0 ? "automations_triggered" : "automation_trigger_no_match",
+    eventType: payload.type,
   };
 }
 

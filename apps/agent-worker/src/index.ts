@@ -4,6 +4,7 @@ import {
   createThreadMessage,
   findGeneratedOutputOwner,
   getThread,
+  listGeneratedOutputsByUser,
   withUserContext,
 } from "@cheatcode/db";
 import { AgentWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
@@ -17,6 +18,7 @@ import {
 } from "@cheatcode/observability";
 import {
   ApprovalDecisionRequestSchema,
+  GeneratedOutputsResponseSchema,
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
   SandboxFileKeySchema,
@@ -57,6 +59,7 @@ import {
   verifyAgentMaintenanceRequest,
 } from "./internal-maintenance";
 import {
+  createSignedOutputDownloadUrl,
   OutputDownloadQuerySchema,
   OutputIdSchema,
   verifySignedOutputDownload,
@@ -243,6 +246,33 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
       runStatesDeleted,
     }),
   );
+});
+
+agentApp.get("/v1/outputs", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const { db, close } = createDb(c.env.HYPERDRIVE);
+  try {
+    const records = await listGeneratedOutputsByUser(db, UserId(userId), new Date());
+    const outputs = await Promise.all(
+      records.map(async (record) => ({
+        id: record.id,
+        kind: record.kind,
+        filename: record.filename,
+        mimeType: record.mimeType,
+        sizeBytes: record.sizeBytes,
+        createdAt: record.createdAt.toISOString(),
+        expiresAt: record.expiresAt ? record.expiresAt.toISOString() : null,
+        downloadUrl: await createSignedOutputDownloadUrl({
+          baseUrl: c.env.OUTPUT_DOWNLOAD_BASE_URL,
+          outputId: record.id,
+          secret: c.env.OUTPUT_DOWNLOAD_SIGNING_SECRET,
+        }),
+      })),
+    );
+    return Response.json(GeneratedOutputsResponseSchema.parse({ outputs }));
+  } finally {
+    c.executionCtx.waitUntil(close());
+  }
 });
 
 agentApp.get("/v1/outputs/:outputId/download", async (c) => {

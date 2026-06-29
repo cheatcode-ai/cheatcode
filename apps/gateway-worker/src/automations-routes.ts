@@ -28,6 +28,7 @@ import {
 import { Cron } from "croner";
 import { z } from "zod";
 import { requireVerifiedClerkEmail } from "./authenticate";
+import { deleteAutomationTrigger, registerAutomationTrigger } from "./automation-triggers";
 import type { GatewayEnv } from "./index";
 import { enforceActiveProjectLimit } from "./limits";
 
@@ -157,6 +158,16 @@ export async function createAutomationRoute(
       });
       return automationToSummary(row);
     });
+    // For event automations, register the Composio trigger (fail-soft) and persist its
+    // triggerId so the webhook handler can route events to this automation.
+    if (input.kind === "event" && input.triggerSlug) {
+      const triggerId = await registerAutomationTrigger(env, userId, input.triggerSlug);
+      if (triggerId) {
+        await withUserContext(db, userId, (tx) =>
+          updateAutomation(tx, userId, AutomationId(summary.id), { triggerId }),
+        );
+      }
+    }
     return Response.json(AutomationSummarySchema.parse(summary), { status: 201 });
   } finally {
     ctx.waitUntil(close());
@@ -227,6 +238,9 @@ export async function deleteAutomationRoute(
     const row = await withUserContext(db, userId, (tx) => softDeleteAutomation(tx, userId, id));
     if (!row) {
       throw notFound("Automation not found");
+    }
+    if (row.triggerId) {
+      await deleteAutomationTrigger(env, row.triggerId);
     }
     return new Response(null, { status: 204 });
   } finally {
