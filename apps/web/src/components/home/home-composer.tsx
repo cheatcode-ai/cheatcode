@@ -354,13 +354,16 @@ export function HomeComposer({
             <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">
               <div>
                 {skillCreatorMode ? (
-                  <div className="px-4 pt-3">
-                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full bg-[#f7f7f7] pr-1.5 pl-2.5 font-medium text-[#86641d] text-[12px]">
-                      <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5" />
+                  <div className="px-3 pt-3">
+                    <span className="inline-flex h-7 items-center gap-1.5 rounded-full border border-black/[0.06] bg-[#f5f5f5] py-0.5 pr-1 pl-2.5 font-medium text-[#1b1b1b] text-[13px]">
+                      <CheatcodeMark
+                        aria-hidden="true"
+                        className="h-3.5 w-3.5 shrink-0 text-[#a9842e]"
+                      />
                       Skill Creator
                       <button
                         aria-label="Exit Skill Creator"
-                        className="flex h-5 w-5 items-center justify-center rounded-full text-[#a9842e] transition-colors hover:bg-white/70 hover:text-[#86641d]"
+                        className="flex h-5 w-5 items-center justify-center rounded-full text-[#8a8a8a] transition-colors hover:bg-black/[0.04] hover:text-[#1b1b1b]"
                         onClick={() => setSkillCreatorMode(false)}
                         type="button"
                       >
@@ -487,13 +490,13 @@ const SKILL_CREATOR_SUGGESTIONS = [
 
 function SkillCreatorSuggestions({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="mx-auto mt-6 w-full max-w-[448px] overflow-hidden rounded-[17px] border border-[#f1f1f1] bg-white">
-      <p className="px-3.5 pt-2.5 pb-0.5 font-medium text-[#a0a0a0] text-[12px]">Create skills</p>
-      <ul className="pb-1">
+    <div className="mx-auto mt-6 w-full max-w-[448px] rounded-[17px] border border-[#f1f1f1] bg-white p-1.5">
+      <p className="px-2 pt-1 pb-1 font-medium text-[#a0a0a0] text-[12px]">Create skills</p>
+      <ul>
         {SKILL_CREATOR_SUGGESTIONS.map((suggestion) => (
           <li key={suggestion}>
             <button
-              className="flex w-full items-center gap-2.5 rounded-[11px] px-3.5 py-1.5 text-left font-medium text-[#1b1b1b] text-[13px] leading-5 transition-colors hover:bg-[#f7f7f7]"
+              className="flex w-full items-center gap-2.5 rounded-[11px] px-2 py-1.5 text-left font-medium text-[#1b1b1b] text-[13px] leading-5 transition-colors hover:bg-[#f7f7f7]"
               onClick={() => onPick(suggestion)}
               type="button"
             >
