@@ -131,11 +131,13 @@ export function HomeComposer({
   initialPromptKey,
   initialSkill,
   initialTool,
+  skillCreator = false,
 }: {
   initialPrompt?: string | undefined;
   initialPromptKey?: string | undefined;
   initialSkill?: string | undefined;
   initialTool?: IntegrationName | undefined;
+  skillCreator?: boolean | undefined;
 }) {
   const initial = useMemo(() => resolveInitialSkill(initialSkill ?? null), [initialSkill]);
   const handoffPrompt = usePromptHandoff(initialPromptKey);
@@ -325,7 +327,11 @@ export function HomeComposer({
 
   return (
     <div className="mt-6 w-full">
-      <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
+      {skillCreator ? (
+        <SkillCreatorSuggestions onPick={(text) => setValue(text)} />
+      ) : (
+        <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
+      )}
       <form
         className="cheatcode-home-composer-form mt-8 w-full md:pointer-events-none md:fixed md:right-0 md:bottom-8 md:left-0 md:z-20 md:flex md:justify-center md:pl-64"
         onSubmit={submit}
@@ -457,6 +463,41 @@ type AttachmentStatus = {
   text: string;
   tone: "error" | "ok";
 };
+
+const SKILL_CREATOR_SUGGESTIONS = [
+  "Create a skill that drafts follow-up emails from meeting notes",
+  "Create a skill that summarizes Linear issues into a weekly digest",
+  "Create a skill that turns screenshots into bug reports",
+  "Create a skill that researches a company before sales calls",
+] as const;
+
+function SkillCreatorSuggestions({ onPick }: { onPick: (text: string) => void }) {
+  return (
+    <div className="mx-auto w-full max-w-[708px]">
+      <div className="flex items-center gap-2">
+        <span className="inline-flex h-6 items-center gap-1.5 rounded-full bg-[#f7f7f7] px-2.5 font-medium text-[#86641d] text-[12px]">
+          <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5" />
+          Skill Creator
+        </span>
+        <span className="text-[#8a8a8a] text-[13px]">
+          Describe a reusable skill — I’ll author it and save it to your skills.
+        </span>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        {SKILL_CREATOR_SUGGESTIONS.map((suggestion) => (
+          <button
+            className="rounded-[14px] border border-[#f1f1f1] bg-white px-3 py-2.5 text-left font-medium text-[#1b1b1b] text-[13px] transition-colors hover:border-[#ececec] hover:bg-[#fafafa]"
+            key={suggestion}
+            onClick={() => onPick(suggestion)}
+            type="button"
+          >
+            {suggestion}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 function HomeQuickActions({
   activeIntentId,

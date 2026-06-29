@@ -340,9 +340,45 @@ export const skillBundledFileSchema = z
   .regex(/^[A-Za-z0-9._-]+$/)
   .refine((value) => !value.includes(".."), "Bundled skill file names cannot traverse paths.");
 
+/** Loose skill name — accepts both bundled (enum) names and the user's custom skill names. */
+export const invokeSkillNameSchema = z.string().trim().min(1).max(80);
+
 export const skillInvokeInputSchema = z
   .object({
-    skillName: skillNameSchema.describe("Name of the bundled skill to load."),
+    skillName: invokeSkillNameSchema.describe("Name of the bundled or custom skill to load."),
+  })
+  .strict();
+
+export const skillCreateInputSchema = z
+  .object({
+    body: z
+      .string()
+      .trim()
+      .min(1)
+      .max(40_000)
+      .describe("Full markdown instructions for the skill (the operating procedure)."),
+    category: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .optional()
+      .describe('One of "Builder & Apps", "Research & Docs", "Data & Media".'),
+    description: z
+      .string()
+      .trim()
+      .min(1)
+      .max(400)
+      .describe("One line: what the skill does and when to use it."),
+    name: z.string().trim().min(1).max(80).describe("Short skill name."),
+    tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+  })
+  .strict();
+
+export const skillCreateOutputSchema = z
+  .object({
+    name: z.string(),
+    saved: z.boolean(),
   })
   .strict();
 

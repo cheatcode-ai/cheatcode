@@ -7,9 +7,11 @@ import {
   type SkillManifestEntry,
 } from "@cheatcode/skills/manifest";
 import { useAuth } from "@clerk/nextjs";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import type { ComponentType } from "react";
 import { useMemo, useState } from "react";
+import { toast } from "sonner";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import {
   BriefcaseBusiness,
@@ -22,7 +24,9 @@ import {
   Search,
   Smartphone,
   Telescope,
+  Trash2,
 } from "@/components/ui/icons";
+import { deleteUserSkill, listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { emitSkillUseClicked } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
 
@@ -104,15 +108,12 @@ export function SkillsCatalog() {
             value={search}
           />
         </label>
-        <button
-          aria-disabled="true"
-          className="inline-flex h-8 shrink-0 cursor-not-allowed items-center justify-center rounded-full bg-[#ededed] px-5 font-medium text-[#a0a0a0] text-[14px]"
-          disabled
-          title="Custom skills aren’t available yet — the catalog above is curated. Coming soon."
-          type="button"
+        <Link
+          className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] px-5 font-medium text-[14px] text-white transition-colors hover:bg-[#2c2c2c]"
+          href="/?mode=skill-creator"
         >
           Create skill
-        </button>
+        </Link>
       </div>
       <div className="scrollbar-hide mt-8 flex gap-2 overflow-x-auto pb-1">
         {TABS.map((candidate) => (
@@ -132,6 +133,8 @@ export function SkillsCatalog() {
           </button>
         ))}
       </div>
+
+      <UserSkillsSection getToken={getToken} />
 
       <div className="mt-9 flex flex-col gap-4 md:hidden">
         {filtered.map((skill) => (
@@ -156,6 +159,66 @@ export function SkillsCatalog() {
         <p className="mt-10 text-center text-[#8a8a8a] text-[14px]">No skills match your search</p>
       ) : null}
     </div>
+  );
+}
+
+function UserSkillsSection({ getToken }: { getToken: () => Promise<null | string> }) {
+  const queryClient = useQueryClient();
+  const skillsQuery = useQuery({
+    queryFn: () => listUserSkills(getToken),
+    queryKey: USER_SKILLS_QUERY,
+    staleTime: 30_000,
+  });
+  const deleteMutation = useMutation({
+    mutationFn: (id: string) => deleteUserSkill(getToken, id),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not delete that skill"),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
+      toast.success("Skill deleted");
+    },
+  });
+  const skills = skillsQuery.data ?? [];
+  if (skills.length === 0) {
+    return null;
+  }
+
+  return (
+    <section className="mt-8">
+      <h2 className="font-semibold text-[#1b1b1b] text-[15px]">Your skills</h2>
+      <ul className="mt-3 grid gap-3 sm:grid-cols-2">
+        {skills.map((skill) => (
+          <li
+            className="group flex items-center gap-3 rounded-[18px] border-2 border-[#f7f7f7] bg-white p-3 transition-[border-color] hover:border-[#ececec]"
+            key={skill.id}
+          >
+            <span className="flex size-6 shrink-0 items-center justify-center rounded-[14px] bg-[#f7f7f7] text-[#86641d]">
+              <CheatcodeMark aria-hidden="true" className="h-4 w-4" />
+            </span>
+            <span className="flex min-w-0 flex-1 flex-col">
+              <span className="truncate font-medium text-[#1b1b1b] text-[14px]">{skill.name}</span>
+              <span className="truncate text-[#8a8a8a] text-[12px]">{skill.description}</span>
+            </span>
+            <Link
+              className="shrink-0 font-medium text-[#707070] text-[13px] transition-colors hover:text-[#1b1b1b]"
+              href={`/?prompt=${encodeURIComponent(`/${skill.name} `)}`}
+              onClick={() => emitSkillUseClicked(getToken)}
+            >
+              Use
+            </Link>
+            <button
+              aria-label={`Delete ${skill.name}`}
+              className="flex size-7 shrink-0 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-[#f7f7f7] hover:text-red-600 disabled:opacity-45"
+              disabled={deleteMutation.isPending && deleteMutation.variables === skill.id}
+              onClick={() => deleteMutation.mutate(skill.id)}
+              type="button"
+            >
+              <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

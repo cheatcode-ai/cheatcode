@@ -11,6 +11,7 @@ type InitialComposerParams = {
   prompt?: string | undefined;
   promptKey?: string | undefined;
   skill?: string | undefined;
+  skillCreator?: boolean | undefined;
   tool?: IntegrationName | undefined;
 };
 
@@ -23,6 +24,7 @@ export function HomeComposerFromSearchParams() {
       prompt: validInitialPrompt(searchParams.get("prompt")),
       promptKey: validInitialPromptKey(searchParams.get("promptKey")),
       skill: validInitialSkill(searchParams.get("skill")),
+      skillCreator: searchParams.get("mode") === "skill-creator",
       tool: validInitialTool(searchParams.get("tool")),
     });
   }, []);
@@ -37,7 +39,8 @@ export function HomeComposerFromSearchParams() {
       initialPromptKey={params.promptKey}
       initialSkill={params.skill}
       initialTool={params.tool}
-      key={`${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}`}
+      key={`${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}:${params.skillCreator ? "sc" : ""}`}
+      skillCreator={params.skillCreator}
     />
   );
 }

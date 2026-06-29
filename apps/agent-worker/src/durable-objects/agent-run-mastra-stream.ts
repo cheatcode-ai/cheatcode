@@ -5,6 +5,7 @@ import { stepCountIs } from "ai";
 import { resolveWithAbortTimeout } from "./abort-timeout";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
+import { resolveUserSkillContext } from "./agent-run-user-skills";
 import { readMastraChunk } from "./agent-run-utils";
 import { resolveAgentToolCredentials } from "./agent-tool-credentials";
 import type { LlmCredential } from "./llm-provider";
@@ -39,6 +40,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
     run: input,
     setRunStage,
   });
+  const { userSkills, userSkillStore } = await resolveUserSkillContext(env, input.userId);
   logger.info("agent_tool_credentials_resolved", {
     composioConfigured: Boolean(toolCredentials.composioApiKey),
     exaConfigured: Boolean(toolCredentials.exaApiKey),
@@ -78,6 +80,8 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
             openaiApiKey: credential.provider === "openai" ? credential.apiKey : undefined,
             openrouterApiKey: credential.provider === "openrouter" ? credential.apiKey : undefined,
             researchFanoutSubagentLimit: input.researchFanoutSubagentLimit,
+            userSkills,
+            userSkillStore,
           },
         ),
         // DeepSeek V4 defaults to thinking mode; disable it so tool-calling stays a clean

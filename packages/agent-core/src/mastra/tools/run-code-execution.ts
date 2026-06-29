@@ -29,6 +29,10 @@ import {
   AGENT_DISPLAY_NAME_CONTEXT_KEY,
   GLOBAL_MEMORY_CONTEXT_KEY,
   MASTER_INSTRUCTIONS_CONTEXT_KEY,
+  USER_SKILL_STORE_CONTEXT_KEY,
+  USER_SKILLS_CONTEXT_KEY,
+  type UserSkillRuntime,
+  type UserSkillStore,
 } from "../system-prompt";
 import { APPROVAL_BROKER_CONTEXT_KEY, type ApprovalBroker } from "./approval-context";
 import { mastraRunCode } from "./registry";
@@ -52,6 +56,8 @@ export interface CodeRequestContextOptions {
   openaiApiKey?: string | undefined;
   openrouterApiKey?: string | undefined;
   researchFanoutSubagentLimit?: number | undefined;
+  userSkills?: UserSkillRuntime[] | undefined;
+  userSkillStore?: UserSkillStore | undefined;
 }
 
 export function createCodeRequestContext(
@@ -88,6 +94,8 @@ function contextEntries(
     [FIRECRAWL_API_KEY_CONTEXT_KEY, options.firecrawlApiKey],
     [RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY, options.researchFanoutSubagentLimit],
     [APPROVAL_BROKER_CONTEXT_KEY, options.approvalBroker],
+    [USER_SKILLS_CONTEXT_KEY, options.userSkills],
+    [USER_SKILL_STORE_CONTEXT_KEY, options.userSkillStore],
   ];
 }
 

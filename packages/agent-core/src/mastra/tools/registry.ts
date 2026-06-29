@@ -93,6 +93,7 @@ import {
   FIRECRAWL_API_KEY_CONTEXT_KEY,
   RESEARCH_FANOUT_SUBAGENT_LIMIT_CONTEXT_KEY,
 } from "../research-context";
+import { userSkillStoreFromRequestContext, userSkillsFromRequestContext } from "../system-prompt";
 import {
   DeepResearchFanoutInputSchema,
   DeepResearchInputSchema,
@@ -125,6 +126,8 @@ import {
   runCodeOutputSchema,
   shellExecInputSchema,
   shellOutputSchema,
+  skillCreateInputSchema,
+  skillCreateOutputSchema,
   skillInvokeInputSchema,
   skillInvokeOutputSchema,
   skillReadReferenceInputSchema,
@@ -746,18 +749,56 @@ export const mastraSkillInvoke = createTool({
     "Load the full instructions for a bundled Cheatcode skill. Use when the request matches a listed skill description.",
   inputSchema: skillInvokeInputSchema,
   outputSchema: skillInvokeOutputSchema,
-  execute: async (input) => {
+  execute: async (input, context) => {
     const parsedInput = skillInvokeInputSchema.parse(input);
-    const skill = requiredSkill(parsedInput.skillName);
+    const bundled = getSkillByName(parsedInput.skillName);
+    if (bundled) {
+      return {
+        assets: sortedRecordKeys(bundled.assets),
+        compatibility: bundled.compatibility,
+        description: bundled.description,
+        instructions: bundled.body,
+        license: bundled.license,
+        name: bundled.name,
+        references: sortedRecordKeys(bundled.references),
+      };
+    }
+    const userSkill = userSkillsFromRequestContext(requestContextFromToolContext(context)).find(
+      (skill) => skill.name === parsedInput.skillName,
+    );
+    if (!userSkill) {
+      throw new Error(`Skill not found: ${parsedInput.skillName}`);
+    }
     return {
-      assets: sortedRecordKeys(skill.assets),
-      compatibility: skill.compatibility,
-      description: skill.description,
-      instructions: skill.body,
-      license: skill.license,
-      name: skill.name,
-      references: sortedRecordKeys(skill.references),
+      assets: [],
+      description: userSkill.description,
+      instructions: userSkill.body,
+      name: userSkill.name,
+      references: [],
     };
+  },
+});
+
+export const mastraSkillCreate = createTool({
+  id: "skill_create",
+  description:
+    "Save a reusable custom skill for this user. Use in Skill Creator mode once the skill (name, one-line description, and markdown instructions) is ready. Re-using a name updates that skill.",
+  inputSchema: skillCreateInputSchema,
+  outputSchema: skillCreateOutputSchema,
+  execute: async (input, context) => {
+    const parsed = skillCreateInputSchema.parse(input);
+    const store = userSkillStoreFromRequestContext(requestContextFromToolContext(context));
+    if (!store) {
+      throw new Error("Saving skills is not available in this run.");
+    }
+    await store.save({
+      body: parsed.body,
+      description: parsed.description,
+      name: parsed.name,
+      ...(parsed.category ? { category: parsed.category } : {}),
+      ...(parsed.tags ? { tags: parsed.tags } : {}),
+    });
+    return { name: parsed.name, saved: true };
   },
 });
 
