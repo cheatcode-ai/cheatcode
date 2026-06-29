@@ -105,8 +105,10 @@ export function SkillsCatalog() {
           />
         </label>
         <button
-          className="inline-flex h-8 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] px-5 font-medium text-[14px] text-white shadow-[0_0_1px_rgba(0,0,0,0.24)] disabled:opacity-100"
+          aria-disabled="true"
+          className="inline-flex h-8 shrink-0 cursor-not-allowed items-center justify-center rounded-full bg-[#ededed] px-5 font-medium text-[#a0a0a0] text-[14px]"
           disabled
+          title="Custom skills aren’t available yet — the catalog above is curated. Coming soon."
           type="button"
         >
           Create skill

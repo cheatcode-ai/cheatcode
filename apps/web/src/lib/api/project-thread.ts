@@ -51,7 +51,7 @@ export async function bootstrapProjectThread(
 export async function listProjects(
   getToken: () => Promise<null | string>,
 ): Promise<ProjectSummary[]> {
-  const response = await authorizedFetch(getToken, "/v1/projects?limit=50");
+  const response = await authorizedFetch(getToken, "/v1/projects?limit=100");
   const page = ProjectPageSchema.parse(await response.json());
   return page.data;
 }

@@ -70,10 +70,9 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         kind: "paragraph",
-        text: "Ask a research question and Cheatcode fans out parallel agents, gathers sources, and returns a report with citations you can verify.",
+        text: "Ask a research question and Cheatcode fans out parallel agents across the live web — searching, fetching sources, and cross-checking claims — then synthesizes a report with citations you can verify. Use it for competitor briefs, market scans, or deep dives, and the findings flow straight into a deck or doc.",
       },
     ],
-    draft: true,
     id: "research",
     title: "Research",
   },
@@ -81,10 +80,13 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         kind: "paragraph",
-        text: "Describe a trigger and an action and Cheatcode runs the workflow for you — on a schedule or in response to events.",
+        text: "Turn a recurring task into an automation that runs without you. Describe a schedule (“every morning at 8am, summarize the Mag 7”) or an event in a connected app (“when an invoice email arrives, file it in Notion”) and Cheatcode runs the agent and delivers the result to Slack, Notion, or email.",
+      },
+      {
+        kind: "footnote",
+        text: "Manage automations, watch their run history, and pause or delete them from the Automations page.",
       },
     ],
-    draft: true,
     id: "automate",
     title: "Automate",
   },
@@ -92,10 +94,9 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         kind: "paragraph",
-        text: "Skills are multi-step operating procedures the agent loads on demand. Connect tools and data sources to extend what your agents can do.",
+        text: "Skills are multi-step operating procedures the agent loads on demand — building pitch decks, running deep research, analyzing CSVs, designing landing pages, and more. Integrations connect your real tools and data: link GitHub, Gmail, Slack, Notion, Linear, and hundreds of other apps so agents can act on your accounts, not just talk about them.",
       },
     ],
-    draft: true,
     id: "skills-and-integrations",
     title: "Skills & integrations",
   },
@@ -103,10 +104,9 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         kind: "paragraph",
-        text: "Agents can drive a real browser to complete tasks on the web. Take over the live session whenever you want to steer.",
+        text: "Agents drive a real browser to get things done on the web — logging in, filling forms, navigating pages, and pulling out data. You can watch the session live in the Computer panel and take over at any point to steer, then hand control back.",
       },
     ],
-    draft: true,
     id: "browser-use",
     title: "Browser use",
   },
@@ -114,14 +114,14 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         items: [
-          "Where does my work live? Everything lands in your project files, ready to download.",
-          "What does it cost? Bring your own provider keys and pay providers directly.",
-          "Can I edit the output? Yes — code, docs, and decks are all editable.",
+          "Where does my work live? Everything lands in your project’s files and the Artifacts page, ready to download.",
+          "What does it cost? Bring your own provider keys and pay the providers directly, or use a Cheatcode plan.",
+          "Can I edit the output? Yes — code, docs, and decks are all editable, and you can keep iterating by chatting.",
+          "Can I share a run? Share any run as a read-only replay, and anyone can fork it to try it themselves.",
         ],
         kind: "bullets",
       },
     ],
-    draft: true,
     id: "faq",
     title: "FAQ",
   },
