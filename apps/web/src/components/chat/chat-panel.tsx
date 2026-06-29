@@ -9,7 +9,7 @@ import {
 } from "@cheatcode/types";
 import { ModalShell } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport } from "ai";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -19,7 +19,7 @@ import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner
 import { Check, Globe, Link as LinkIcon, Monitor, SlidersHorizontal } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
-import { createReplayShare, updateReplayShare } from "@/lib/api/replays";
+import { createReplayShare, fetchReplayShareForThread, updateReplayShare } from "@/lib/api/replays";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 import { cn } from "@/lib/ui/cn";
@@ -344,8 +344,29 @@ function ShareRunDialog({
   threadId: string;
 }) {
   const { getToken } = useAuth();
+  const queryClient = useQueryClient();
   const [shareId, setShareId] = useState<null | string>(null);
   const [copied, setCopied] = useState(false);
+  const shareQueryKey = ["replay-share", threadId];
+
+  // On open, look up any existing active share so the dialog shows the link + revoke
+  // instead of always offering "create".
+  const existingShareQuery = useQuery({
+    enabled: open,
+    queryFn: () => fetchReplayShareForThread(getToken, threadId),
+    queryKey: shareQueryKey,
+    staleTime: 0,
+  });
+  const fetchedShareId = existingShareQuery.data?.id ?? null;
+  const shareFetched = existingShareQuery.isFetched;
+  useEffect(() => {
+    if (fetchedShareId) {
+      setShareId(fetchedShareId);
+    } else if (shareFetched) {
+      setShareId(null);
+    }
+  }, [fetchedShareId, shareFetched]);
+
   const shareUrl = shareId
     ? `${typeof window === "undefined" ? "" : window.location.origin}/replay/${shareId}`
     : "";
@@ -354,7 +375,10 @@ function ShareRunDialog({
     mutationFn: () => createReplayShare(getToken, threadId),
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Could not create a share link"),
-    onSuccess: (share) => setShareId(share.id),
+    onSuccess: (share) => {
+      setShareId(share.id);
+      queryClient.setQueryData(shareQueryKey, share);
+    },
   });
 
   const revokeMutation = useMutation({
@@ -364,6 +388,7 @@ function ShareRunDialog({
     onSuccess: () => {
       setShareId(null);
       setCopied(false);
+      queryClient.setQueryData(shareQueryKey, null);
       toast.success("Sharing stopped — the link no longer works");
     },
   });

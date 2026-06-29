@@ -91,7 +91,11 @@ import {
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
 import { featuredReplaysRoute, replayByIdRoute } from "./replay-routes";
-import { createReplayShareRoute, updateReplayShareRoute } from "./replay-share-routes";
+import {
+  createReplayShareRoute,
+  getThreadReplayShareRoute,
+  updateReplayShareRoute,
+} from "./replay-share-routes";
 import { searchWorkspaceRoute } from "./search-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
@@ -300,6 +304,11 @@ export const gatewayRoutes = gatewayApp
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "PATCH /v1/replays/:id");
     return updateReplayShareRoute(c.env, c.executionCtx, c.req.raw, userId, c.req.param("id"));
+  })
+  .get("/v1/threads/:threadId/replay-share", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "GET /v1/threads/:threadId/replay-share");
+    return getThreadReplayShareRoute(c.env, c.executionCtx, userId, c.req.param("threadId"));
   })
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);

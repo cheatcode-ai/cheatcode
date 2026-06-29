@@ -112,6 +112,7 @@ export {
 } from "./projects";
 export type { ReplayShareRecord } from "./replays";
 export {
+  findActiveReplayShareByThread,
   findReplayShareById,
   listExistingThreadIds,
   listReplayMessages,

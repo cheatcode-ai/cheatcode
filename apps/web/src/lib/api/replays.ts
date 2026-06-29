@@ -73,6 +73,19 @@ export async function createReplayShare(
   return ReplayShareSchema.parse(await response.json());
 }
 
+/** Returns the caller's active share for a thread, or null. Authenticated. */
+export async function fetchReplayShareForThread(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<ReplayShare | null> {
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/threads/${encodeURIComponent(threadId)}/replay-share`,
+  );
+  const body = (await response.json()) as { share: unknown };
+  return body.share ? ReplayShareSchema.parse(body.share) : null;
+}
+
 /** Changes visibility and/or revokes a replay share the caller owns. Authenticated. */
 export async function updateReplayShare(
   getToken: () => Promise<null | string>,

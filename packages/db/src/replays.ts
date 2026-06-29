@@ -99,6 +99,30 @@ export async function upsertReplayShare(
 }
 
 /**
+ * Returns the caller's active (non-revoked) share for one of their threads, or null.
+ * Runs inside `withUserContext`; lets the share dialog show an existing link + revoke
+ * instead of always offering "create".
+ */
+export async function findActiveReplayShareByThread(
+  db: Database,
+  input: { userId: UserId; threadId: ThreadId },
+): Promise<ReplayShareRecord | null> {
+  const rows = await db
+    .select(REPLAY_SHARE_COLUMNS)
+    .from(replayShares)
+    .where(
+      and(
+        eq(replayShares.threadId, input.threadId),
+        eq(replayShares.userId, input.userId),
+        isNull(replayShares.revokedAt),
+      ),
+    )
+    .limit(1);
+  const row = rows[0];
+  return row ? replayShareFromRow(row) : null;
+}
+
+/**
  * Public read lookup by share token — NO user filter (a share grants public access).
  * Returns the row even when revoked/private so the route applies the access policy
  * and a uniform 404. Reuses the operator-replay convention of bypassing user scope.

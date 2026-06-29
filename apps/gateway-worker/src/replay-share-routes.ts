@@ -1,5 +1,6 @@
 import {
   createDb,
+  findActiveReplayShareByThread,
   getThread,
   getUserAccount,
   type ReplayShareRecord,
@@ -12,6 +13,7 @@ import {
   CreateReplayShareSchema,
   ReplayShareSchema,
   ThreadId,
+  type ThreadId as ThreadIdType,
   UpdateReplayShareSchema,
   type UserId,
 } from "@cheatcode/types";
@@ -93,6 +95,28 @@ export async function createReplayShareRoute(
 }
 
 /**
+ * `GET /v1/threads/:threadId/replay-share` — the caller's active share for this run,
+ * or `{ share: null }`. Lets the share dialog show the existing link + revoke on open.
+ */
+export async function getThreadReplayShareRoute(
+  env: GatewayEnv,
+  ctx: ExecutionContext,
+  userId: UserId,
+  rawThreadId: string,
+): Promise<Response> {
+  const threadId = parseThreadId(rawThreadId);
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    const record = await withUserContext(db, userId, (tx) =>
+      findActiveReplayShareByThread(tx, { threadId, userId }),
+    );
+    return Response.json({ share: record ? shareResponse(record) : null });
+  } finally {
+    ctx.waitUntil(close());
+  }
+}
+
+/**
  * `PATCH /v1/replays/:id` — change visibility and/or revoke a share the caller owns.
  */
 export async function updateReplayShareRoute(
@@ -133,6 +157,14 @@ function parseShareId(value: string): string {
     throw new APIError(400, "invalid_path_param", "Invalid replay share id", { retriable: false });
   }
   return parsed.data;
+}
+
+function parseThreadId(value: string): ThreadIdType {
+  const parsed = IdParamSchema.safeParse(value);
+  if (!parsed.success) {
+    throw new APIError(400, "invalid_path_param", "Invalid thread id", { retriable: false });
+  }
+  return ThreadId(parsed.data);
 }
 
 function shareTitle(title: string | null): string {
