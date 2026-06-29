@@ -5,7 +5,11 @@ import {
   FeaturedReplaysSchema,
   type PublicReplay,
   PublicReplaySchema,
+  type ReplayShare,
+  ReplayShareSchema,
+  type UpdateReplayShare,
 } from "@cheatcode/types";
+import { authorizedFetch } from "@/lib/api/authorized-fetch";
 
 /**
  * Carries the gateway HTTP status so `ReplayView` can render branded
@@ -52,4 +56,32 @@ export async function fetchFeaturedReplays(): Promise<FeaturedReplays> {
     return { data: [] };
   }
   return FeaturedReplaysSchema.parse(await response.json());
+}
+
+/**
+ * Publishes one of the caller's own runs as a read-only replay (idempotent: the
+ * gateway returns the existing active share for the thread). Authenticated.
+ */
+export async function createReplayShare(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<ReplayShare> {
+  const response = await authorizedFetch(getToken, "/v1/replays", {
+    body: JSON.stringify({ threadId }),
+    method: "POST",
+  });
+  return ReplayShareSchema.parse(await response.json());
+}
+
+/** Changes visibility and/or revokes a replay share the caller owns. Authenticated. */
+export async function updateReplayShare(
+  getToken: () => Promise<null | string>,
+  id: string,
+  input: UpdateReplayShare,
+): Promise<ReplayShare> {
+  const response = await authorizedFetch(getToken, `/v1/replays/${encodeURIComponent(id)}`, {
+    body: JSON.stringify(input),
+    method: "PATCH",
+  });
+  return ReplayShareSchema.parse(await response.json());
 }

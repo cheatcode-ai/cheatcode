@@ -110,7 +110,14 @@ export {
   softDeleteProject,
   updateProject,
 } from "./projects";
-export { listExistingThreadIds, listReplayMessages } from "./replays";
+export type { ReplayShareRecord } from "./replays";
+export {
+  findReplayShareById,
+  listExistingThreadIds,
+  listReplayMessages,
+  updateReplayShare,
+  upsertReplayShare,
+} from "./replays";
 export type { EntitlementResourceLimitInput } from "./resource-limits";
 export { applyEntitlementResourceLimits } from "./resource-limits";
 export type {

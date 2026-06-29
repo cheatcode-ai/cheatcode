@@ -1,5 +1,7 @@
 import {
   createDb,
+  type Database,
+  findReplayShareById,
   listExistingThreadIds,
   listReplayMessages,
   type MessageRecord,
@@ -73,13 +75,11 @@ export async function replayByIdRoute(
 ): Promise<Response> {
   const slug = parseReplaySlug(rawId);
   const entry = FEATURED_REPLAYS.find((candidate) => candidate.id === slug);
-  if (!entry) {
-    throwReplayNotFound(slug, "unknown_slug");
-  }
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
+    const resolved = entry ? manifestReplay(entry) : await sharedReplay(db, slug);
     const rows = await listReplayMessages(db, {
-      threadId: ThreadId(entry.threadId),
+      threadId: resolved.threadId,
       limit: REPLAY_MESSAGE_LIMIT,
     });
     const messages = sanitizedReplayMessages(rows);
@@ -89,27 +89,70 @@ export async function replayByIdRoute(
     const payload = PublicReplaySchema.parse({
       messages,
       replay: {
-        authorName: entry.authorName ?? DEFAULT_AUTHOR_NAME,
-        date: messages.at(-1)?.createdAt ?? null,
-        id: entry.id,
-        title: entry.title,
+        authorName: resolved.authorName,
+        date: resolved.date ?? messages.at(-1)?.createdAt ?? null,
+        id: slug,
+        title: resolved.title,
       },
     });
     const body = JSON.stringify(payload);
-    createLogger().info("replay_featured_view", {
+    createLogger().info("replay_view", {
       id: slug,
       messageCount: payload.messages.length,
       payloadBytes: new TextEncoder().encode(body).byteLength,
+      source: resolved.source,
     });
     return new Response(body, {
       headers: {
-        "Cache-Control": REPLAY_CACHE_CONTROL,
+        // User shares can be revoked, so they are not edge-cached; manifest replays are.
+        "Cache-Control": resolved.source === "manifest" ? REPLAY_CACHE_CONTROL : "no-store",
         "Content-Type": "application/json; charset=utf-8",
       },
     });
   } finally {
     ctx.waitUntil(close());
   }
+}
+
+interface ResolvedReplay {
+  authorName: string;
+  date: string | null;
+  source: "manifest" | "share";
+  threadId: ThreadId;
+  title: string;
+}
+
+function manifestReplay(entry: FeaturedReplayConfig): ResolvedReplay {
+  return {
+    authorName: entry.authorName ?? DEFAULT_AUTHOR_NAME,
+    date: null,
+    source: "manifest",
+    threadId: ThreadId(entry.threadId),
+    title: entry.title,
+  };
+}
+
+/**
+ * Resolves a user-published share token to its source thread. A revoked, private,
+ * missing, or soft-deleted share collapses to the same uniform 404 as an unknown
+ * manifest slug — no oracle distinguishes the cases.
+ */
+async function sharedReplay(db: Database, slug: string): Promise<ResolvedReplay> {
+  const share = await findReplayShareById(db, slug);
+  if (!share || share.revokedAt !== null || share.visibility === "private") {
+    throwReplayNotFound(slug, "unknown_slug");
+  }
+  const existing = await listExistingThreadIds(db, { threadIds: [share.threadId] });
+  if (existing.length === 0) {
+    throwReplayNotFound(slug, "empty_thread");
+  }
+  return {
+    authorName: share.authorName,
+    date: share.createdAt.toISOString(),
+    source: "share",
+    threadId: share.threadId,
+    title: share.title,
+  };
 }
 
 function parseReplaySlug(rawId: string): string {

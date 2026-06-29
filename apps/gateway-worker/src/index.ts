@@ -91,6 +91,7 @@ import {
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
 import { featuredReplaysRoute, replayByIdRoute } from "./replay-routes";
+import { createReplayShareRoute, updateReplayShareRoute } from "./replay-share-routes";
 import { searchWorkspaceRoute } from "./search-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import { listUsageDailyRoute } from "./usage-routes";
@@ -289,6 +290,17 @@ export const gatewayRoutes = gatewayApp
   // MUST be chained before ":id" so it is not captured as a slug.
   .get("/v1/replays/featured", (c) => featuredReplaysRoute(c.env, c.executionCtx))
   .get("/v1/replays/:id", (c) => replayByIdRoute(c.env, c.executionCtx, c.req.param("id")))
+  // Authenticated: publish / manage a share of one of the caller's own runs.
+  .post("/v1/replays", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "POST /v1/replays");
+    return createReplayShareRoute(c.env, c.executionCtx, c.req.raw, userId);
+  })
+  .patch("/v1/replays/:id", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "PATCH /v1/replays/:id");
+    return updateReplayShareRoute(c.env, c.executionCtx, c.req.raw, userId, c.req.param("id"));
+  })
   .get("/v1/me", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/me");

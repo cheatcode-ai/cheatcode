@@ -43,6 +43,13 @@
       "when": 1782718822595,
       "tag": "0005_absent_sir_ram",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782728652925,
+      "tag": "0006_dashing_magneto",
+      "breakpoints": true
     }
   ]
 }

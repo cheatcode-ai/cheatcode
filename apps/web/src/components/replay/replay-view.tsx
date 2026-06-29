@@ -498,9 +498,10 @@ function RemoteReplayView({ id }: { id: string }) {
 
 function ReplayTranscript({ replay }: { replay: PublicReplay }) {
   const messages = replay.messages.map(toUiMessage);
+  const tryHref = useMemo(() => forkHref(replay.messages), [replay.messages]);
   return (
     <div className="flex h-screen flex-col bg-white text-[#1b1b1b]">
-      <ReplayHeader replay={replay.replay} />
+      <ReplayHeader replay={replay.replay} tryHref={tryHref} />
       <div className="flex min-h-0 flex-1 flex-col">
         <MessageList messages={messages} />
       </div>
@@ -508,7 +509,13 @@ function ReplayTranscript({ replay }: { replay: PublicReplay }) {
   );
 }
 
-function ReplayHeader({ replay }: { replay: PublicReplay["replay"] }) {
+function ReplayHeader({
+  replay,
+  tryHref,
+}: {
+  replay: PublicReplay["replay"];
+  tryHref: null | string;
+}) {
   return (
     <header className="flex shrink-0 items-center justify-between gap-4 border-[#f1f1f1] border-b bg-white px-4 py-3 font-mono">
       <div className="flex flex-col gap-1">
@@ -519,14 +526,41 @@ function ReplayHeader({ replay }: { replay: PublicReplay["replay"] }) {
           {replay.date ? ` - ${formatDate(replay.date)}` : ""}
         </p>
       </div>
-      <Link
-        className="shrink-0 text-[#707070] text-[11px] uppercase tracking-wider hover:text-[#1b1b1b]"
-        href="/"
-      >
-        Cheatcode
-      </Link>
+      <div className="flex shrink-0 items-center gap-3">
+        {tryHref ? (
+          <Link
+            className="paper-focus-ring inline-flex h-8 items-center rounded-full bg-[#1b1b1b] px-3 font-medium font-sans text-[13px] text-white transition-all duration-200 hover:bg-black"
+            href={tryHref}
+          >
+            Try it yourself
+          </Link>
+        ) : null}
+        <Link
+          className="text-[#707070] text-[11px] uppercase tracking-wider hover:text-[#1b1b1b]"
+          href="/"
+        >
+          Cheatcode
+        </Link>
+      </div>
     </header>
   );
+}
+
+/**
+ * Forks the replay by reusing the source run's initial prompt. Pure client-side:
+ * routes to the home composer, which bootstraps a BRAND-NEW project owned by the
+ * current visitor — the shared/source thread is never touched (ownership-safe).
+ */
+function forkHref(messages: PublicReplay["messages"]): null | string {
+  const firstUser = messages.find((message) => message.role === "user");
+  if (!firstUser) {
+    return null;
+  }
+  const text = firstUser.parts
+    .map((part) => (part.type === "text" && typeof part["text"] === "string" ? part["text"] : ""))
+    .join("")
+    .trim();
+  return text.length > 0 ? `/?prompt=${encodeURIComponent(text)}` : null;
 }
 
 function ReplayLoading() {

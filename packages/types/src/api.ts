@@ -668,6 +668,39 @@ export const FeaturedReplaysSchema = z
   })
   .strict();
 
+/** Visibility of a user-published replay share. `private` hides it without losing the row. */
+export const ReplayVisibilitySchema = z.enum(["private", "unlisted", "public"]);
+
+/** A user-published replay share. `id` is the public, link-shareable token. */
+export const ReplayShareSchema = z
+  .object({
+    createdAt: z.string().datetime(),
+    id: z.string().uuid(),
+    revoked: z.boolean(),
+    threadId: z.string().uuid(),
+    visibility: ReplayVisibilitySchema,
+  })
+  .strict();
+
+/** Body of `POST /v1/replays`: publish one of the caller's own runs as a replay. */
+export const CreateReplayShareSchema = z
+  .object({
+    threadId: z.string().uuid(),
+    visibility: ReplayVisibilitySchema.optional(),
+  })
+  .strict();
+
+/** Body of `PATCH /v1/replays/:id`: change visibility and/or revoke the share. */
+export const UpdateReplayShareSchema = z
+  .object({
+    revoke: z.boolean().optional(),
+    visibility: ReplayVisibilitySchema.optional(),
+  })
+  .strict()
+  .refine((value) => Object.keys(value).length > 0, {
+    message: "At least one replay share field is required.",
+  });
+
 export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
 export type ApprovalDecisionResponse = z.infer<typeof ApprovalDecisionResponseSchema>;
 export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
@@ -733,6 +766,10 @@ export type UsageDailyTotalsResponse = z.infer<typeof UsageDailyTotalsResponseSc
 export type FeaturedReplays = z.infer<typeof FeaturedReplaysSchema>;
 export type PublicReplay = z.infer<typeof PublicReplaySchema>;
 export type PublicReplayMessage = z.infer<typeof PublicReplayMessageSchema>;
+export type CreateReplayShare = z.infer<typeof CreateReplayShareSchema>;
+export type ReplayShare = z.infer<typeof ReplayShareSchema>;
+export type ReplayVisibility = z.infer<typeof ReplayVisibilitySchema>;
+export type UpdateReplayShare = z.infer<typeof UpdateReplayShareSchema>;
 
 // ---------------------------------------------------------------------------
 // Automations (bud-parity: scheduled + event-triggered agent runs)

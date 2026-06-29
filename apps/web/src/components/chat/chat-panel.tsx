@@ -16,9 +16,10 @@ import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
-import { Monitor, SlidersHorizontal } from "@/components/ui/icons";
+import { Check, Globe, Link as LinkIcon, Monitor, SlidersHorizontal } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread, updateProject } from "@/lib/api/project-thread";
+import { createReplayShare, updateReplayShare } from "@/lib/api/replays";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 import { cn } from "@/lib/ui/cn";
@@ -256,7 +257,7 @@ export function ChatPanel({
         previewPanelOpen && hasPreviewSurface ? "xl:w-[584px] xl:flex-none" : "",
       )}
     >
-      <ChatContextRow project={project} title={threadTitle} />
+      <ChatContextRow project={project} threadId={threadId} title={threadTitle} />
       <StreamReconnectBanner />
       <MessageList messages={deferredMessages} />
       <PromptComposer
@@ -278,14 +279,17 @@ export function ChatPanel({
 
 function ChatContextRow({
   project,
+  threadId,
   title,
 }: {
   project: ProjectSummary | null;
+  threadId: string;
   title: null | string | undefined;
 }) {
   const projectName = project?.name?.trim() || "new project";
   const titleText = title?.trim() || "New task";
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
 
   return (
     <header className="flex h-[54px] shrink-0 items-center gap-3 px-4 pt-3 text-[#1b1b1b]">
@@ -294,6 +298,17 @@ function ChatContextRow({
         <span className="truncate">{projectName}</span>
       </span>
       <h1 className="min-w-0 flex-1 truncate font-semibold text-[15px]">{titleText}</h1>
+      {project ? (
+        <button
+          aria-label="Share this run"
+          className="flex h-7 shrink-0 items-center gap-1.5 rounded-full px-2.5 text-[#8a8a8a] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+          onClick={() => setShareOpen(true)}
+          type="button"
+        >
+          <LinkIcon aria-hidden="true" className="h-4 w-4" />
+          <span className="hidden sm:inline">Share</span>
+        </button>
+      ) : null}
       {project ? (
         <button
           aria-label="Project settings"
@@ -312,7 +327,137 @@ function ChatContextRow({
           project={project}
         />
       ) : null}
+      {project ? (
+        <ShareRunDialog onClose={() => setShareOpen(false)} open={shareOpen} threadId={threadId} />
+      ) : null}
     </header>
+  );
+}
+
+function ShareRunDialog({
+  onClose,
+  open,
+  threadId,
+}: {
+  onClose: () => void;
+  open: boolean;
+  threadId: string;
+}) {
+  const { getToken } = useAuth();
+  const [shareId, setShareId] = useState<null | string>(null);
+  const [copied, setCopied] = useState(false);
+  const shareUrl = shareId
+    ? `${typeof window === "undefined" ? "" : window.location.origin}/replay/${shareId}`
+    : "";
+
+  const createMutation = useMutation({
+    mutationFn: () => createReplayShare(getToken, threadId),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not create a share link"),
+    onSuccess: (share) => setShareId(share.id),
+  });
+
+  const revokeMutation = useMutation({
+    mutationFn: (id: string) => updateReplayShare(getToken, id, { revoke: true }),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not stop sharing"),
+    onSuccess: () => {
+      setShareId(null);
+      setCopied(false);
+      toast.success("Sharing stopped — the link no longer works");
+    },
+  });
+
+  const copyLink = () => {
+    if (!shareUrl) {
+      return;
+    }
+    void navigator.clipboard
+      .writeText(shareUrl)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1800);
+      })
+      .catch(() => toast.error("Could not copy the link"));
+  };
+
+  return (
+    <ModalShell
+      ariaLabel="Share this run"
+      className="m-auto w-full max-w-lg"
+      onClose={onClose}
+      open={open}
+    >
+      <div className="flex flex-col gap-4 p-5 text-[#1b1b1b]">
+        <div className="flex items-center gap-2">
+          <Globe aria-hidden="true" className="h-5 w-5 text-[#8a8a8a]" />
+          <h2 className="font-semibold text-[18px]">Share this run</h2>
+        </div>
+        <p className="text-[#5f5f5f] text-[14px] leading-6">
+          Publish a read-only replay of this run. Anyone with the link can watch the transcript and
+          fork it into their own project — secrets, preview URLs, and download links are stripped.
+        </p>
+        {shareId ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 rounded-lg border border-[#ececec] bg-[#f7f7f7] px-3 py-2">
+              <input
+                aria-label="Replay link"
+                className="min-w-0 flex-1 bg-transparent text-[#1b1b1b] text-[13px] outline-none"
+                readOnly
+                value={shareUrl}
+              />
+              <button
+                className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full bg-[#1b1b1b] px-3 font-medium text-[13px] text-white transition-colors hover:bg-black"
+                onClick={copyLink}
+                type="button"
+              >
+                {copied ? (
+                  <Check aria-hidden="true" className="h-4 w-4" />
+                ) : (
+                  <LinkIcon aria-hidden="true" className="h-4 w-4" />
+                )}
+                {copied ? "Copied" : "Copy"}
+              </button>
+            </div>
+            <div className="flex justify-between">
+              <button
+                className="text-[#b42318] text-[13px] hover:underline disabled:opacity-50"
+                disabled={revokeMutation.isPending}
+                onClick={() => revokeMutation.mutate(shareId)}
+                type="button"
+              >
+                {revokeMutation.isPending ? "Stopping…" : "Stop sharing"}
+              </button>
+              <button
+                className="rounded-md border border-[#ececec] px-3 py-1.5 text-[#1b1b1b] text-[14px] hover:bg-[#f7f7f7]"
+                onClick={onClose}
+                type="button"
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="flex justify-end gap-2">
+            <button
+              className="rounded-md border border-[#ececec] px-3 py-1.5 text-[#1b1b1b] text-[14px] hover:bg-[#f7f7f7]"
+              onClick={onClose}
+              type="button"
+            >
+              Cancel
+            </button>
+            <button
+              className="inline-flex items-center gap-2 rounded-md bg-[#1b1b1b] px-3 py-1.5 font-medium text-[14px] text-white transition-colors hover:bg-black disabled:opacity-50"
+              disabled={createMutation.isPending}
+              onClick={() => createMutation.mutate()}
+              type="button"
+            >
+              {createMutation.isPending ? "Creating…" : "Create share link"}
+            </button>
+          </div>
+        )}
+      </div>
+    </ModalShell>
   );
 }
 
