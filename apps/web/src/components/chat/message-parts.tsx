@@ -1,16 +1,32 @@
+"use client";
+
 import type { CheatcodeUIMessage } from "@cheatcode/types";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
 import {
   ApprovalDecisionBlock,
   ApprovalRequestBlock,
   ModelFallbackBlock,
 } from "@/components/chat/approval-parts";
-import { Download, ExternalLink } from "@/components/ui/icons";
+import {
+  ChevronDown,
+  Code,
+  Download,
+  ExternalLink,
+  FileSpreadsheet,
+  FileText,
+  Folder,
+  Image as ImageIcon,
+  Link as LinkIcon,
+  Loader2,
+  Presentation,
+} from "@/components/ui/icons";
+import { cn } from "@/lib/ui/cn";
 
 const MAX_TOOL_STRING_LENGTH = 600;
 const MAX_TOOL_ARRAY_ITEMS = 6;
 const MAX_TOOL_OBJECT_KEYS = 16;
+const MAX_TOOL_ARG_LENGTH = 96;
 const LARGE_TOOL_FIELDS = new Set([
   "base64",
   "code",
@@ -24,43 +40,81 @@ const LARGE_TOOL_FIELDS = new Set([
 
 type MessagePart = CheatcodeUIMessage["parts"][number];
 type ArtifactData = Extract<MessagePart, { type: "data-artifact" }>["data"];
-type SandboxStatusData = Extract<MessagePart, { type: "data-sandbox-status" }>["data"];
-type PlanData = Extract<MessagePart, { type: "data-plan" }>["data"];
-type QuotaData = Extract<MessagePart, { type: "data-quota" }>["data"];
-type TaskStatusData = Extract<MessagePart, { type: "data-task-status" }>["data"];
 type TakeoverData = Extract<MessagePart, { type: "data-takeover" }>["data"];
-type TaskStatusById = ReadonlyMap<string, TaskStatusData>;
+type ThinkingData = Extract<MessagePart, { type: "data-thinking" }>["data"];
+
+type RenderItem =
+  | { kind: "tools"; key: string; parts: MessagePart[] }
+  | { kind: "part"; key: string; part: MessagePart };
 
 export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
-  const taskStatusById = collectTaskStatuses(message.parts);
   const resolvedApprovalIds = collectResolvedApprovals(message.parts);
-  const hasPlan = message.parts.some((part) => part.type === "data-plan");
+  const items = buildRenderItems(message.id, message.parts);
+  const deliverables = message.parts
+    .filter((part) => part.type === "data-artifact")
+    .map((part) => (part as Extract<MessagePart, { type: "data-artifact" }>).data);
 
   return (
     <div className="space-y-3">
-      {message.parts.map((part, partIndex) => (
-        <MessagePartView
-          hideTaskStatusBlocks={hasPlan}
-          key={partKey(message.id, part, partIndex)}
-          part={part}
-          resolvedApprovalIds={resolvedApprovalIds}
-          taskStatusById={taskStatusById}
-        />
-      ))}
+      {items.map((item) =>
+        item.kind === "tools" ? (
+          <ToolGroup key={item.key} parts={item.parts} />
+        ) : (
+          <MessagePartView
+            key={item.key}
+            part={item.part}
+            resolvedApprovalIds={resolvedApprovalIds}
+          />
+        ),
+      )}
+      {deliverables.length > 0 ? <DeliverablesBlock items={deliverables} /> : null}
     </div>
   );
 }
 
+/**
+ * Group the flat part list for rendering (bud parity): consecutive tool calls collapse
+ * into a single visual cluster, `data-seq`/`data-artifact` parts are transparent (the
+ * former is an invisible resume marker, the latter is collected into the trailing
+ * Deliverables block), and everything else renders inline in place.
+ */
+function buildRenderItems(messageId: string, parts: MessagePart[]): RenderItem[] {
+  const items: RenderItem[] = [];
+  let run: { parts: MessagePart[]; startIndex: number } | null = null;
+  const flush = () => {
+    if (run) {
+      items.push({ kind: "tools", key: `${messageId}:tools:${run.startIndex}`, parts: run.parts });
+      run = null;
+    }
+  };
+  parts.forEach((part, index) => {
+    if (part.type === "data-seq" || part.type === "data-artifact") {
+      return;
+    }
+    if (isToolPart(part)) {
+      if (!run) {
+        run = { parts: [], startIndex: index };
+      }
+      run.parts.push(part);
+      return;
+    }
+    flush();
+    items.push({ kind: "part", key: partKey(messageId, part, index), part });
+  });
+  flush();
+  return items;
+}
+
+function isToolPart(part: MessagePart): boolean {
+  return part.type.startsWith("tool-") || part.type === "dynamic-tool" || part.type === "data-tool";
+}
+
 function MessagePartView({
-  hideTaskStatusBlocks,
   part,
   resolvedApprovalIds,
-  taskStatusById,
 }: {
-  hideTaskStatusBlocks: boolean;
   part: MessagePart;
   resolvedApprovalIds: ReadonlySet<string>;
-  taskStatusById: TaskStatusById;
 }) {
   if (part.type === "text") {
     return (
@@ -75,31 +129,21 @@ function MessagePartView({
   }
 
   if (part.type === "data-thinking") {
-    return <DataBlock title={part.data.delta ? "thinking" : "thought"} value={part.data.text} />;
+    return <ThinkingBlock data={part.data} />;
   }
 
-  if (part.type === "data-sandbox-status") {
-    return <SandboxStatusBlock data={part.data} />;
-  }
-
-  if (part.type === "data-artifact") {
-    return <ArtifactBlock data={part.data} />;
-  }
-
-  if (part.type === "data-budget") {
-    return <DataBlock title="budget" value={formatBudget(part.data)} />;
-  }
-
-  if (part.type === "data-plan") {
-    return <PlanBlock data={part.data} taskStatusById={taskStatusById} />;
-  }
-
-  if (part.type === "data-task-status") {
-    return <TaskStatusPart data={part.data} hidden={hideTaskStatusBlocks} />;
-  }
-
-  if (part.type === "data-quota") {
-    return <QuotaBlock data={part.data} />;
+  // Internal orchestration plumbing is not shown in the transcript (bud parity):
+  // the plan/task-status/budget/quota are agent bookkeeping, sandbox state lives in
+  // the Computer panel, and data-artifact is collected into the Deliverables block.
+  if (
+    part.type === "data-sandbox-status" ||
+    part.type === "data-artifact" ||
+    part.type === "data-budget" ||
+    part.type === "data-plan" ||
+    part.type === "data-task-status" ||
+    part.type === "data-quota"
+  ) {
+    return null;
   }
 
   if (part.type === "data-takeover") {
@@ -115,8 +159,8 @@ function MessagePartView({
     return null;
   }
 
-  if (part.type.startsWith("tool-")) {
-    return <DataBlock title={part.type.replace("tool-", "")} value={toolPayload(part)} />;
+  if (isToolPart(part)) {
+    return <ToolGroup parts={[part]} />;
   }
 
   return <DataBlock title={part.type} value={formatUnknown(part)} />;
@@ -143,52 +187,318 @@ function renderApprovalPart(
   return null;
 }
 
-function TaskStatusPart({ data, hidden }: { data: TaskStatusData; hidden: boolean }) {
-  if (hidden) {
-    return null;
-  }
-  return <TaskStatusBlock data={data} />;
-}
+// ---------------------------------------------------------------------------
+// Thinking / reasoning — collapsed "Thought for Xs" row (bud parity)
+// ---------------------------------------------------------------------------
 
-function PlanBlock({ data, taskStatusById }: { data: PlanData; taskStatusById: TaskStatusById }) {
+function ThinkingBlock({ data }: { data: ThinkingData }) {
+  const [open, setOpen] = useState(false);
+  const streaming = data.delta;
+  const label = streaming
+    ? "Thinking…"
+    : typeof data.durationMs === "number" && data.durationMs > 0
+      ? `Thought for ${formatThinkingDuration(data.durationMs)}`
+      : "Thought";
+  const canExpand = !streaming && data.text.trim().length > 0;
+
   return (
-    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
-      <div className="mb-3 text-[10px] text-thread-text-muted">plan</div>
-      <div className="space-y-2">
-        {data.tasks.map((task) => {
-          const update = taskStatusById.get(task.id);
-          const status = update?.status ?? task.status;
-          return (
-            <div className="flex items-start gap-3" key={task.id}>
-              <span className={statusDotClass(status)} />
-              <div className="min-w-0 flex-1">
-                <div className="text-thread-text-primary">{task.title}</div>
-                <div className="mt-1 text-[9px] text-thread-text-muted uppercase tracking-[0.2em]">
-                  {status}
-                </div>
-                {update?.error ? <div className="mt-1 text-red-300">{update.error}</div> : null}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-      {data.parallelGroups.length > 0 ? (
-        <div className="mt-3 text-[10px] text-thread-text-muted">
-          {data.parallelGroups.length} execution group{data.parallelGroups.length === 1 ? "" : "s"}
+    <div className="cc-fade-in">
+      <button
+        className="flex items-center gap-1.5 text-[#9b9b9b] text-[13px] transition-colors hover:text-[#585858] disabled:cursor-default disabled:hover:text-[#9b9b9b]"
+        disabled={!canExpand}
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        {streaming ? (
+          <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+        ) : (
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              "h-3 w-3 text-[#b8b8b8] transition-transform",
+              canExpand ? "" : "opacity-0",
+              open ? "" : "-rotate-90",
+            )}
+          />
+        )}
+        <span className="font-medium">{label}</span>
+      </button>
+      {open && canExpand ? (
+        <div className="mt-1.5 ml-[18px] whitespace-pre-wrap border-[#ececec] border-l pl-3 text-[#707070] text-[13px] leading-6">
+          {data.text}
         </div>
       ) : null}
     </div>
   );
 }
 
-function collectTaskStatuses(parts: MessagePart[]): TaskStatusById {
-  const statuses = new Map<string, TaskStatusData>();
-  for (const part of parts) {
-    if (part.type === "data-task-status") {
-      statuses.set(part.data.taskId, part.data);
+function formatThinkingDuration(ms: number): string {
+  const seconds = ms / 1000;
+  if (seconds < 10) {
+    return `${seconds.toFixed(1)}s`;
+  }
+  if (seconds < 60) {
+    return `${Math.round(seconds)}s`;
+  }
+  const minutes = Math.floor(seconds / 60);
+  const remainder = Math.round(seconds % 60);
+  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
+}
+
+// ---------------------------------------------------------------------------
+// Tool calls — semantic "Read <path> (+N more)" rows (bud parity)
+// ---------------------------------------------------------------------------
+
+type ToolVerbSpec = { verb: string; argKeys?: string[] };
+
+const TOOL_VERBS: Record<string, ToolVerbSpec> = {
+  fs_read: { verb: "Read", argKeys: ["path", "file", "filePath"] },
+  fs_write: { verb: "Wrote", argKeys: ["path", "file", "filePath"] },
+  fs_delete: { verb: "Deleted", argKeys: ["path", "file"] },
+  fs_list: { verb: "Listed", argKeys: ["path", "dir", "directory"] },
+  fs_search: { verb: "Searched files", argKeys: ["query", "pattern", "q"] },
+  shell_exec: { verb: "Ran", argKeys: ["command", "cmd"] },
+  shell_terminal: { verb: "Ran", argKeys: ["command", "cmd"] },
+  shell_start_process: { verb: "Started", argKeys: ["command", "cmd"] },
+  shell_kill_process: { verb: "Stopped a process" },
+  start_dev_server: { verb: "Started the dev server" },
+  git_clone: { verb: "Cloned", argKeys: ["repo", "url"] },
+  git_commit: { verb: "Committed", argKeys: ["message"] },
+  git_push: { verb: "Pushed changes" },
+  git_status: { verb: "Checked git status" },
+  browser_open: { verb: "Opened", argKeys: ["url"] },
+  browser_act: { verb: "Acted in the browser", argKeys: ["action", "instruction"] },
+  browser_extract: { verb: "Extracted from a page", argKeys: ["url"] },
+  browser_observe: { verb: "Observed a page" },
+  browser_screenshot: { verb: "Captured a screenshot" },
+  data_analyze_csv: { verb: "Analyzed", argKeys: ["path", "file"] },
+  data_chart: { verb: "Built a chart" },
+  data_scrape_to_csv: { verb: "Scraped to CSV", argKeys: ["url"] },
+  docs_generate_docx: { verb: "Generated a document" },
+  docs_generate_pdf: { verb: "Generated a PDF" },
+  docs_generate_slides: { verb: "Generated slides" },
+  docs_generate_xlsx: { verb: "Generated a spreadsheet" },
+  firecrawl_scrape: { verb: "Scraped", argKeys: ["url"] },
+  firecrawl_search: { verb: "Searched the web", argKeys: ["query", "q"] },
+  firecrawl_extract: { verb: "Extracted", argKeys: ["url"] },
+  search_web: { verb: "Searched the web", argKeys: ["query", "q"] },
+  search_web_advanced: { verb: "Searched the web", argKeys: ["query", "q"] },
+  search_company: { verb: "Researched a company", argKeys: ["company", "name", "query"] },
+  research_competitor: { verb: "Researched competitors", argKeys: ["query", "company"] },
+  research_deep: { verb: "Researched", argKeys: ["query", "topic"] },
+  research_fanout: { verb: "Researched", argKeys: ["query", "topic"] },
+  composio_execute: { verb: "Ran an app action", argKeys: ["tool", "action", "slug"] },
+  composio_list_tools: { verb: "Listed app actions" },
+  sandbox_create: { verb: "Created the sandbox" },
+  sandbox_destroy: { verb: "Tore down the sandbox" },
+  sandbox_snapshot: { verb: "Snapshotted the sandbox" },
+  sandbox_restore: { verb: "Restored the sandbox" },
+  skill_create: { verb: "Created a skill", argKeys: ["name", "slug"] },
+  skill_invoke: { verb: "Used skill", argKeys: ["name", "slug", "skill"] },
+  skill_read_reference: { verb: "Read a skill reference", argKeys: ["path", "name"] },
+};
+
+function ToolGroup({ parts }: { parts: MessagePart[] }) {
+  const rows = collapseToolRuns(parts);
+  return (
+    <div className="space-y-1">
+      {rows.map((row) => (
+        <ToolRow key={row.key} parts={row.parts} />
+      ))}
+    </div>
+  );
+}
+
+function collapseToolRuns(parts: MessagePart[]): { key: string; parts: MessagePart[] }[] {
+  const rows: { key: string; parts: MessagePart[] }[] = [];
+  let index = 0;
+  while (index < parts.length) {
+    const type = parts[index]?.type;
+    let end = index + 1;
+    while (end < parts.length && parts[end]?.type === type) {
+      end += 1;
+    }
+    rows.push({ key: `${type}:${index}`, parts: parts.slice(index, end) });
+    index = end;
+  }
+  return rows;
+}
+
+function ToolRow({ parts }: { parts: MessagePart[] }) {
+  const [open, setOpen] = useState(false);
+  const first = parts[0];
+  if (!first) {
+    return null;
+  }
+  const { verb, arg } = describeTool(first);
+  const extra = parts.length - 1;
+
+  return (
+    <div className="cc-fade-in">
+      <button
+        className="group flex w-full items-center gap-1.5 text-left text-[#585858] text-[13px] transition-colors hover:text-[#1b1b1b]"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            "h-3 w-3 shrink-0 text-[#c4c4c4] transition-transform group-hover:text-[#9b9b9b]",
+            open ? "" : "-rotate-90",
+          )}
+        />
+        <span className="shrink-0">{verb}</span>
+        {arg ? (
+          <code className="truncate rounded bg-[#f4f4f4] px-1.5 py-0.5 font-mono text-[#1b1b1b] text-[12px]">
+            {arg}
+          </code>
+        ) : null}
+        {extra > 0 ? <span className="shrink-0 text-[#9b9b9b]">(+{extra} more)</span> : null}
+      </button>
+      {open ? (
+        <div className="mt-1.5 ml-[18px] space-y-1.5 border-[#ececec] border-l pl-3">
+          {parts.map((part, partIndex) => (
+            <pre
+              className="overflow-x-auto whitespace-pre-wrap break-words font-mono text-[#707070] text-[11px]"
+              // biome-ignore lint/suspicious/noArrayIndexKey: tool calls in a collapsed run have no stable id
+              key={partIndex}
+            >
+              {toolPayload(part)}
+            </pre>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function describeTool(part: MessagePart): { verb: string; arg: string | null } {
+  const { name, input } = toolNameAndInput(part);
+  const spec = TOOL_VERBS[name];
+  const verb = spec?.verb ?? humanizeToolName(name);
+  if (!spec?.argKeys) {
+    return { verb, arg: null };
+  }
+  for (const key of spec.argKeys) {
+    const value = input[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return { verb, arg: shortenArg(value.trim()) };
     }
   }
-  return statuses;
+  return { verb, arg: null };
+}
+
+function toolNameAndInput(part: MessagePart): {
+  name: string;
+  input: Record<string, unknown>;
+} {
+  const record = asRecord(part);
+  if (part.type === "data-tool") {
+    const data = asRecord(record["data"]);
+    return { input: asRecord(data["input"]), name: stringRecordField(data, "toolName") };
+  }
+  if (part.type === "dynamic-tool") {
+    return {
+      input: asRecord(record["input"] ?? record["args"]),
+      name: stringRecordField(record, "toolName"),
+    };
+  }
+  return {
+    input: asRecord(record["input"] ?? record["args"]),
+    name: part.type.replace("tool-", ""),
+  };
+}
+
+function humanizeToolName(name: string): string {
+  if (!name) {
+    return "Ran a tool";
+  }
+  const spaced = name.replace(/[_-]+/g, " ").trim();
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function shortenArg(value: string): string {
+  const collapsed = value.replace(/\s+/g, " ");
+  if (collapsed.length <= MAX_TOOL_ARG_LENGTH) {
+    return collapsed;
+  }
+  return `${collapsed.slice(0, MAX_TOOL_ARG_LENGTH - 1)}…`;
+}
+
+// ---------------------------------------------------------------------------
+// Deliverables — grouped artifact chips (bud parity)
+// ---------------------------------------------------------------------------
+
+function DeliverablesBlock({ items }: { items: ArtifactData[] }) {
+  return (
+    <div className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3">
+      <div className="mb-2 text-[10px] text-thread-text-muted uppercase tracking-[0.18em]">
+        Deliverables
+      </div>
+      <div className="space-y-1.5">
+        {items.map((item) => (
+          <DeliverableChip data={item} key={item.outputId} />
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function DeliverableChip({ data }: { data: ArtifactData }) {
+  const Icon = deliverableIcon(data.kind, data.mimeType);
+  const label = data.filename ?? artifactFallbackName(data);
+  const isLink = data.kind === "link";
+  const sizeLabel = typeof data.sizeBytes === "number" ? formatBytes(data.sizeBytes) : null;
+  const meta = [data.kind, sizeLabel].filter(Boolean).join(" · ");
+
+  return (
+    <div className="flex items-center gap-2.5 rounded-[10px] border border-[#f1f1f1] bg-white px-2.5 py-2">
+      <Icon aria-hidden="true" className="h-4 w-4 shrink-0 text-[#585858]" />
+      <div className="min-w-0 flex-1">
+        <div className="truncate text-[#1b1b1b] text-[13px]">{label}</div>
+        <div className="text-[#9b9b9b] text-[11px]">{meta}</div>
+      </div>
+      <a
+        className="inline-flex shrink-0 items-center gap-1.5 text-[#585858] text-[12px] transition-colors hover:text-[#1b1b1b]"
+        href={data.downloadUrl}
+        rel="noreferrer"
+        target="_blank"
+        {...(isLink ? {} : { download: true })}
+      >
+        {isLink ? (
+          <ExternalLink aria-hidden="true" className="h-3.5 w-3.5" />
+        ) : (
+          <Download aria-hidden="true" className="h-3.5 w-3.5" />
+        )}
+        {isLink ? "open" : "download"}
+      </a>
+    </div>
+  );
+}
+
+function deliverableIcon(kind: ArtifactData["kind"], mimeType: string) {
+  if (kind === "folder") {
+    return Folder;
+  }
+  if (kind === "link") {
+    return LinkIcon;
+  }
+  if (kind === "slide") {
+    return Presentation;
+  }
+  if (kind === "xlsx") {
+    return FileSpreadsheet;
+  }
+  if (kind === "image" || mimeType.startsWith("image/")) {
+    return ImageIcon;
+  }
+  if (kind === "pdf" || kind === "docx") {
+    return FileText;
+  }
+  if (mimeType.startsWith("text/") || mimeType.includes("json")) {
+    return Code;
+  }
+  return FileText;
 }
 
 function collectResolvedApprovals(parts: MessagePart[]): ReadonlySet<string> {
@@ -201,51 +511,12 @@ function collectResolvedApprovals(parts: MessagePart[]): ReadonlySet<string> {
   return resolved;
 }
 
-function TaskStatusBlock({ data }: { data: TaskStatusData }) {
-  return (
-    <DataBlock
-      title={`task ${data.status}`}
-      value={[`id: ${data.taskId}`, data.error ? `error: ${data.error}` : ""]
-        .filter(Boolean)
-        .join("\n")}
-    />
-  );
-}
-
-function SandboxStatusBlock({ data }: { data: SandboxStatusData }) {
-  return <DataBlock title="sandbox" value={sandboxStatusSummary(data)} />;
-}
-
-function sandboxStatusSummary(data: SandboxStatusData): string {
-  const lines: string[] = [data.status];
-  if (data.previewUrl) {
-    lines.push(`preview: ${data.previewUrl}`);
-  }
-  if (data.expoUrl) {
-    lines.push(`expo go: ${data.expoUrl}`);
-  }
-  return lines.join("\n");
-}
-
-function QuotaBlock({ data }: { data: QuotaData }) {
-  const remaining = Math.max(0, data.remaining);
-  return (
-    <DataBlock
-      title="quota"
-      value={[
-        `${data.feature}: ${remaining.toLocaleString()} / ${data.limit.toLocaleString()} remaining`,
-        `resets: ${new Date(data.resetAt * 1000).toLocaleString()}`,
-      ].join("\n")}
-    />
-  );
-}
-
 function TakeoverBlock({ data }: { data: TakeoverData }) {
   if (!data.available || !data.vncUrl) {
     return <DataBlock title="takeover" value="not available" />;
   }
   return (
-    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
+    <div className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
       <div className="mb-2 text-[10px] text-thread-text-muted">takeover</div>
       <a
         className="inline-flex items-center gap-2 text-thread-accent underline-offset-4 hover:underline"
@@ -263,37 +534,6 @@ function TakeoverBlock({ data }: { data: TakeoverData }) {
   );
 }
 
-function ArtifactBlock({ data }: { data: ArtifactData }) {
-  const label = data.filename ?? artifactFallbackName(data);
-  const sizeLabel = typeof data.sizeBytes === "number" ? formatBytes(data.sizeBytes) : null;
-
-  return (
-    <div className="rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary">
-      <div className="mb-2 text-[10px] text-thread-text-muted">artifact</div>
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="truncate text-thread-text-primary">{label}</div>
-          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-thread-text-muted">
-            <span>{data.kind}</span>
-            <span>{data.mimeType}</span>
-            {sizeLabel ? <span>{sizeLabel}</span> : null}
-          </div>
-        </div>
-        <a
-          className="inline-flex shrink-0 items-center gap-1.5 text-thread-accent underline-offset-4 hover:underline"
-          download
-          href={data.downloadUrl}
-          rel="noreferrer"
-          target="_blank"
-        >
-          <Download aria-hidden="true" className="h-3.5 w-3.5" />
-          download
-        </a>
-      </div>
-    </div>
-  );
-}
-
 function artifactFallbackName(data: ArtifactData): string {
   const extension = artifactExtension(data.kind, data.mimeType);
   return extension ? `${data.kind}-${data.outputId.slice(0, 8)}.${extension}` : data.kind;
@@ -305,6 +545,9 @@ function artifactExtension(kind: ArtifactData["kind"], mimeType: string): string
   }
   if (kind === "xlsx" || kind === "docx" || kind === "pdf") {
     return kind;
+  }
+  if (kind === "folder" || kind === "link") {
+    return null;
   }
   if (mimeType === "image/svg+xml") {
     return "svg";
@@ -331,20 +574,6 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-function statusDotClass(status: TaskStatusData["status"]): string {
-  const base = "mt-1.5 h-2 w-2 shrink-0 rounded-full";
-  if (status === "completed") {
-    return `${base} bg-emerald-400`;
-  }
-  if (status === "running") {
-    return `${base} bg-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.55)]`;
-  }
-  if (status === "failed" || status === "canceled") {
-    return `${base} bg-red-400`;
-  }
-  return `${base} bg-thread-text-muted`;
-}
-
 function DataBlock({
   title,
   tone = "default",
@@ -368,19 +597,10 @@ function DataBlock({
   );
 }
 
-function formatBudget(data: {
-  capUsd: number;
-  tokensIn: number;
-  tokensOut: number;
-  usdSpent: number;
-}) {
-  return [
-    `spent: $${data.usdSpent.toFixed(4)} / $${data.capUsd.toFixed(2)}`,
-    `tokens: ${data.tokensIn.toLocaleString()} in, ${data.tokensOut.toLocaleString()} out`,
-  ].join("\n");
-}
-
 function toolPayload(part: MessagePart): string {
+  if (part.type === "data-tool") {
+    return formatUnknown(summarizeToolValue(toolNameAndInput(part).input, 0));
+  }
   const record = asRecord(part);
   const output = record["output"] ?? record["result"] ?? record["input"] ?? record;
   return formatUnknown(summarizeToolValue(output, 0));
@@ -390,16 +610,22 @@ function partKey(messageId: string, part: MessagePart, partIndex: number): strin
   if (part.type === "text") {
     return `${messageId}:${partIndex}:text:${part.text.slice(0, 80)}`;
   }
+  // Stable key independent of streaming text so the collapsed reasoning row keeps its
+  // expand state and does not re-fire its entrance fade on every delta.
+  if (part.type === "data-thinking") {
+    return `${messageId}:${partIndex}:thinking`;
+  }
   if (part.type === "data-artifact") {
     return `${messageId}:${partIndex}:artifact:${part.data.outputId}`;
   }
   if (part.type === "data-seq") {
     return `${messageId}:${partIndex}:seq:${part.data.seq}`;
   }
-  if (part.type.startsWith("tool-")) {
+  if (isToolPart(part)) {
     const record = asRecord(part);
+    const source = part.type === "data-tool" ? asRecord(record["data"]) : record;
     const id =
-      stringRecordField(record, "toolCallId") ||
+      stringRecordField(source, "toolCallId") ||
       stringRecordField(record, "id") ||
       stringRecordField(record, "state");
     return `${messageId}:${partIndex}:${part.type}:${id}`;

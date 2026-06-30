@@ -1,12 +1,12 @@
 "use client";
 
-import type { ProjectSummary, SearchResultThread, Thread } from "@cheatcode/types";
+import type { ProjectSummary, Thread } from "@cheatcode/types";
 import { ConfirmDialog, ModalShell } from "@cheatcode/ui";
 import { useAuth, useClerk, useUser } from "@clerk/nextjs";
 import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AuthModal, type AuthMode } from "@/components/auth/auth-modal";
@@ -14,9 +14,11 @@ import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import {
   ArrowUpRight,
   ChevronDown,
+  ChevronRight,
   CreditCard,
   FileText,
   Link as LinkIcon,
+  Loader2,
   type LucideIcon,
   Menu,
   Monitor,
@@ -25,17 +27,21 @@ import {
   PanelLeftOpen,
   PanelRightOpen,
   Pencil,
+  Plus,
   Smartphone,
   Trash2,
   TrendingUp,
   User,
 } from "@/components/ui/icons";
 import {
+  createChat,
   deleteProject,
+  deleteThread,
   listProjects,
   listProjectThreads,
   listRecentThreads,
   updateProject,
+  updateThread,
 } from "@/lib/api/project-thread";
 import { formatHoursUsed, useSandboxUsageQuery } from "@/lib/hooks/use-billing";
 import { isNavItemActive, type NavItem, WORKSPACE_NAV } from "@/lib/navigation/nav-model";
@@ -45,12 +51,19 @@ import { cn } from "@/lib/ui/cn";
 type SidebarVariant = "full" | "rail";
 type FullSidebarMode = "docked" | "overlay";
 
+interface SidebarChat {
+  activeRunId: string | null;
+  id: string;
+  title: string | null;
+}
+
 interface SidebarProject {
   appType: "general" | "mobile" | "web";
   href: string | null;
   id: string;
   name: string;
   threadId: string | null;
+  threads: SidebarChat[];
 }
 
 const PRIMARY_NAV = navItems("primary");
@@ -96,12 +109,11 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   const pathname = usePathname();
   const queryClient = useQueryClient();
   const router = useRouter();
-  const searchParams = useSearchParams();
   const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const setSidebarCollapsed = useAppStore((state) => state.setSidebarCollapsed);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
-  const activeThreadId = searchParams.get("thread");
+  const activeThreadId = activeChatIdFromPathname(pathname);
   const sidebarProjects = useSidebarProjects(getToken, Boolean(isSignedIn));
   const sidebarChats = useSidebarChats(getToken, Boolean(isSignedIn));
   const [authMode, setAuthMode] = useState<AuthMode | null>(null);
@@ -124,7 +136,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
       void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
       void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
-      if (pathname === "/projects" && activeThreadId === project.threadId) {
+      if (project.threads.some((thread) => thread.id === activeThreadId)) {
         router.push("/");
       }
     },
@@ -259,15 +271,18 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
         open={pendingDelete !== null}
         title={pendingDelete ? `Delete ${pendingDelete.name}?` : "Delete project?"}
       />
-      <RenameProjectDialog
+      <RenameDialog
         busy={renameMutation.isPending}
+        heading="Rename project"
+        initialName={pendingRename?.name ?? ""}
+        inputAriaLabel="Project name"
         onCancel={() => setPendingRename(null)}
         onSubmit={(name) => {
           if (pendingRename) {
             renameMutation.mutate({ name, project: pendingRename });
           }
         }}
-        project={pendingRename}
+        open={pendingRename !== null}
       />
       <AuthModal
         id="sidebar-auth-modal"
@@ -441,7 +456,6 @@ function ExpandedSidebarContent({
               <ProjectList
                 activeThreadId={activeThreadId}
                 deleteMutation={deleteMutation}
-                isActivePath={pathname === "/projects"}
                 onDelete={onDelete}
                 onRename={onRename}
                 projects={sidebarProjects}
@@ -763,6 +777,19 @@ function isExternalHref(href: string): boolean {
   return href.startsWith("http") || href.startsWith("mailto:");
 }
 
+/**
+ * Active chat id = the last segment of the `/chats/[chatId]` workspace route.
+ * Any other route has no active chat, so the sidebar highlights nothing.
+ */
+function activeChatIdFromPathname(pathname: string): string | null {
+  const segments = pathname.split("/");
+  if (segments[1] !== "chats") {
+    return null;
+  }
+  const id = segments[2];
+  return id ? decodeURIComponent(id) : null;
+}
+
 function sidebarBackdropClass(isOverlay: boolean): string {
   return cn(
     "fixed inset-0 z-40 bg-black/10 backdrop-blur-sm",
@@ -890,6 +917,93 @@ function SidebarHelpCard({ item, pathname }: { item: NavItem; pathname: string }
   );
 }
 
+/**
+ * Shared chat rename/delete actions (mutations + confirm/rename dialogs), used by
+ * both the flat "Chats" list and the nested project→chats folders so per-chat
+ * affordances stay identical everywhere. Returns the dialog elements to render.
+ */
+function useChatActions(activeThreadId: string | null) {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const [pendingDelete, setPendingDelete] = useState<SidebarChat | null>(null);
+  const [pendingRename, setPendingRename] = useState<SidebarChat | null>(null);
+
+  const invalidateChats = () => {
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+  };
+  const deleteMutation = useMutation({
+    mutationFn: (chat: SidebarChat) => deleteThread(getToken, chat.id),
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Chat delete failed");
+    },
+    onSettled: () => setPendingDelete(null),
+    onSuccess: (_result, chat) => {
+      toast.success("Chat deleted");
+      invalidateChats();
+      if (activeThreadId === chat.id) {
+        router.push("/");
+      }
+    },
+  });
+  const renameMutation = useMutation({
+    mutationFn: ({ chat, title }: { chat: SidebarChat; title: string }) =>
+      updateThread(getToken, chat.id, { title }),
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Chat rename failed");
+    },
+    onSettled: () => setPendingRename(null),
+    onSuccess: (result) => {
+      toast.success(`Renamed to ${result.title ?? "New chat"}`);
+      invalidateChats();
+    },
+  });
+
+  const dialogs = (
+    <>
+      <ConfirmDialog
+        busy={deleteMutation.isPending}
+        cancelLabel="Cancel"
+        confirmLabel="Delete chat"
+        description="This removes the chat and its messages. The project and its files stay."
+        destructive
+        id="sidebar-delete-chat-dialog"
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) {
+            deleteMutation.mutate(pendingDelete);
+          }
+        }}
+        open={pendingDelete !== null}
+        title={pendingDelete ? `Delete ${pendingDelete.title || "New chat"}?` : "Delete chat?"}
+      />
+      <RenameDialog
+        busy={renameMutation.isPending}
+        heading="Rename chat"
+        initialName={pendingRename?.title ?? ""}
+        inputAriaLabel="Chat name"
+        onCancel={() => setPendingRename(null)}
+        onSubmit={(title) => {
+          if (pendingRename) {
+            renameMutation.mutate({ chat: pendingRename, title });
+          }
+        }}
+        open={pendingRename !== null}
+      />
+    </>
+  );
+
+  return {
+    dialogs,
+    isDeleting: (id: string) => deleteMutation.isPending && deleteMutation.variables?.id === id,
+    isRenaming: (id: string) =>
+      renameMutation.isPending && renameMutation.variables?.chat.id === id,
+    onDelete: setPendingDelete,
+    onRename: setPendingRename,
+  };
+}
+
 function ChatList({
   activeThreadId,
   chats,
@@ -897,6 +1011,8 @@ function ChatList({
   activeThreadId: string | null;
   chats: ReturnType<typeof useSidebarChats>;
 }) {
+  const actions = useChatActions(activeThreadId);
+
   if (chats.isLoading) {
     return <ProjectSkeletonRows />;
   }
@@ -904,146 +1020,66 @@ function ChatList({
     return <div className="px-2 py-2 text-[#a0a0a0] text-[12px]">No chats yet</div>;
   }
   return (
-    <div className="space-y-1 py-1">
-      {chats.items.slice(0, 12).map((chat) => (
-        <ChatRow activeThreadId={activeThreadId} chat={chat} key={chat.id} />
-      ))}
-    </div>
+    <>
+      <div className="space-y-1 py-1">
+        {chats.items.slice(0, 12).map((chat) => (
+          <ChatRow
+            activeThreadId={activeThreadId}
+            chat={{ activeRunId: chat.activeRunId ?? null, id: chat.id, title: chat.title }}
+            isDeleting={actions.isDeleting(chat.id)}
+            isRenaming={actions.isRenaming(chat.id)}
+            key={chat.id}
+            onDelete={actions.onDelete}
+            onRename={actions.onRename}
+          />
+        ))}
+      </div>
+      {actions.dialogs}
+    </>
   );
 }
 
 function ChatRow({
   activeThreadId,
   chat,
-}: {
-  activeThreadId: string | null;
-  chat: SearchResultThread;
-}) {
-  const isActive = activeThreadId === chat.id;
-  return (
-    <Link
-      className={cn(
-        "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[13px] leading-[19.5px] transition-colors",
-        isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
-      )}
-      href={`/projects?thread=${encodeURIComponent(chat.id)}`}
-    >
-      <span className="min-w-0 flex-1 truncate">{chat.title || "Untitled chat"}</span>
-    </Link>
-  );
-}
-
-function ProjectList({
-  activeThreadId,
-  deleteMutation,
-  isActivePath,
-  onDelete,
-  onRename,
-  projects,
-  renameMutation,
-}: {
-  activeThreadId: string | null;
-  deleteMutation: { isPending: boolean; variables?: SidebarProject | undefined };
-  isActivePath: boolean;
-  onDelete: (project: SidebarProject) => void;
-  onRename: (project: SidebarProject) => void;
-  projects: ReturnType<typeof useSidebarProjects>;
-  renameMutation: {
-    isPending: boolean;
-    variables?: { name: string; project: SidebarProject } | undefined;
-  };
-}) {
-  if (projects.isLoading) {
-    return <ProjectSkeletonRows />;
-  }
-  if (projects.items.length === 0) {
-    return <div className="px-2 py-2 text-[#a0a0a0] text-[12px]">No projects yet</div>;
-  }
-  return (
-    <div className="space-y-1 py-1">
-      {projects.items.slice(0, 6).map((project) => (
-        <ProjectRow
-          activeThreadId={activeThreadId}
-          isActivePath={isActivePath}
-          isDeleting={deleteMutation.isPending && deleteMutation.variables?.id === project.id}
-          isRenaming={
-            renameMutation.isPending && renameMutation.variables?.project.id === project.id
-          }
-          key={project.id}
-          onDelete={onDelete}
-          onRename={onRename}
-          project={project}
-        />
-      ))}
-    </div>
-  );
-}
-
-function ProjectRow({
-  activeThreadId,
   isDeleting,
-  isActivePath,
   isRenaming,
   onDelete,
   onRename,
-  project,
 }: {
   activeThreadId: string | null;
+  chat: SidebarChat;
   isDeleting: boolean;
-  isActivePath: boolean;
   isRenaming: boolean;
-  onDelete: (project: SidebarProject) => void;
-  onRename: (project: SidebarProject) => void;
-  project: SidebarProject;
+  onDelete: (chat: SidebarChat) => void;
+  onRename: (chat: SidebarChat) => void;
 }) {
-  const projectHref = project.href;
-  const isActive = isActivePath && activeThreadId === project.threadId;
-  const Icon = project.appType === "mobile" ? Smartphone : Monitor;
-  const rowClassName = cn(
-    "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[13px] leading-[19.5px] transition-colors",
-    isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
-  );
-
+  const isActive = activeThreadId === chat.id;
+  // Non-null while a run is in flight — mirrors bud's trailing running-chat spinner.
+  const isRunning = Boolean(chat.activeRunId);
   return (
     <div className="group/row relative">
-      {projectHref ? (
-        <Link className={rowClassName} href={projectHref}>
-          <ProjectRowContent Icon={Icon} project={project} />
-        </Link>
-      ) : (
-        <div className={cn(rowClassName, "cursor-default")}>
-          <ProjectRowContent Icon={Icon} project={project} />
-        </div>
-      )}
-      <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
-        {projectHref ? (
-          <>
-            <button
-              aria-label={`Copy link to ${project.name}`}
-              className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-              onClick={(event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                copyProjectLink(projectHref, project.name);
-              }}
-              type="button"
-            >
-              <LinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
-            </button>
-            <a
-              aria-label={`Open ${project.name} in a new tab`}
-              className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-              href={projectHref}
-              onClick={(event) => event.stopPropagation()}
-              rel="noopener noreferrer"
-              target="_blank"
-            >
-              <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
-            </a>
-          </>
+      <Link
+        className={cn(
+          "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+          isActive
+            ? "bg-white text-[#1b1b1b]"
+            : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
+        )}
+        href={`/chats/${encodeURIComponent(chat.id)}`}
+      >
+        <span className="min-w-0 flex-1 truncate pr-12">{chat.title || "New chat"}</span>
+        {isRunning ? (
+          <Loader2
+            aria-label="Run in progress"
+            className="h-3.5 w-3.5 shrink-0 animate-spin text-[#f8af2c] transition-opacity group-hover/row:opacity-0"
+            role="img"
+          />
         ) : null}
+      </Link>
+      <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
         <button
-          aria-label={`Rename ${project.name}`}
+          aria-label={`Rename ${chat.title || "chat"}`}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45",
             isRenaming && "text-[#1b1b1b]",
@@ -1052,14 +1088,14 @@ function ProjectRow({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onRename(project);
+            onRename(chat);
           }}
           type="button"
         >
           <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
         <button
-          aria-label={`Delete ${project.name}`}
+          aria-label={`Delete ${chat.title || "chat"}`}
           className={cn(
             "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45",
             isDeleting && "text-red-600",
@@ -1068,16 +1104,234 @@ function ProjectRow({
           onClick={(event) => {
             event.preventDefault();
             event.stopPropagation();
-            onDelete(project);
+            onDelete(chat);
           }}
           type="button"
         >
           <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
         </button>
-        <span className="hidden h-6 w-6 items-center justify-center text-[#c7c7c7] md:flex">
-          <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
-        </span>
       </div>
+    </div>
+  );
+}
+
+function ProjectList({
+  activeThreadId,
+  deleteMutation,
+  onDelete,
+  onRename,
+  projects,
+  renameMutation,
+}: {
+  activeThreadId: string | null;
+  deleteMutation: { isPending: boolean; variables?: SidebarProject | undefined };
+  onDelete: (project: SidebarProject) => void;
+  onRename: (project: SidebarProject) => void;
+  projects: ReturnType<typeof useSidebarProjects>;
+  renameMutation: {
+    isPending: boolean;
+    variables?: { name: string; project: SidebarProject } | undefined;
+  };
+}) {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+  const router = useRouter();
+  const chatActions = useChatActions(activeThreadId);
+  const newChatMutation = useMutation({
+    mutationFn: (projectId: string) => createChat(getToken, { projectId }),
+    onError: (error) => {
+      toast.error(error instanceof Error ? error.message : "Couldn't start a chat");
+    },
+    onSuccess: (thread) => {
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+      router.push(`/chats/${encodeURIComponent(thread.id)}`);
+    },
+  });
+
+  if (projects.isLoading) {
+    return <ProjectSkeletonRows />;
+  }
+  if (projects.items.length === 0) {
+    return <div className="px-2 py-2 text-[#a0a0a0] text-[12px]">No projects yet</div>;
+  }
+  return (
+    <>
+      <div className="space-y-1 py-1">
+        {projects.items.slice(0, 6).map((project) => (
+          <ProjectRow
+            activeThreadId={activeThreadId}
+            chatActions={chatActions}
+            isCreatingChat={newChatMutation.isPending && newChatMutation.variables === project.id}
+            isDeleting={deleteMutation.isPending && deleteMutation.variables?.id === project.id}
+            isRenaming={
+              renameMutation.isPending && renameMutation.variables?.project.id === project.id
+            }
+            key={project.id}
+            onDelete={onDelete}
+            onNewChat={(projectId) => newChatMutation.mutate(projectId)}
+            onRename={onRename}
+            project={project}
+          />
+        ))}
+      </div>
+      {chatActions.dialogs}
+    </>
+  );
+}
+
+function ProjectRow({
+  activeThreadId,
+  chatActions,
+  isCreatingChat,
+  isDeleting,
+  isRenaming,
+  onDelete,
+  onNewChat,
+  onRename,
+  project,
+}: {
+  activeThreadId: string | null;
+  chatActions: ReturnType<typeof useChatActions>;
+  isCreatingChat: boolean;
+  isDeleting: boolean;
+  isRenaming: boolean;
+  onDelete: (project: SidebarProject) => void;
+  onNewChat: (projectId: string) => void;
+  onRename: (project: SidebarProject) => void;
+  project: SidebarProject;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const projectHref = project.href;
+  const hasThreads = project.threads.length > 0;
+  const isActive = project.threads.some((thread) => thread.id === activeThreadId);
+  const Icon = project.appType === "mobile" ? Smartphone : Monitor;
+  const rowClassName = cn(
+    "relative flex h-8 w-full items-center gap-1 rounded-full pr-[9px] pl-1 text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+    isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
+  );
+
+  return (
+    <div>
+      <div className="group/row relative">
+        <div className={rowClassName}>
+          {hasThreads ? (
+            <button
+              aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:text-[#1b1b1b]"
+              onClick={() => setExpanded((value) => !value)}
+              type="button"
+            >
+              <ChevronRight
+                aria-hidden="true"
+                className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
+              />
+            </button>
+          ) : (
+            <span className="w-5 shrink-0" />
+          )}
+          {projectHref ? (
+            <Link className="flex min-w-0 flex-1 items-center gap-2" href={projectHref}>
+              <ProjectRowContent Icon={Icon} project={project} />
+            </Link>
+          ) : (
+            <div className="flex min-w-0 flex-1 cursor-default items-center gap-2">
+              <ProjectRowContent Icon={Icon} project={project} />
+            </div>
+          )}
+        </div>
+        <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
+          {projectHref ? (
+            <>
+              <button
+                aria-label={`Copy link to ${project.name}`}
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+                onClick={(event) => {
+                  event.preventDefault();
+                  event.stopPropagation();
+                  copyProjectLink(projectHref, project.name);
+                }}
+                type="button"
+              >
+                <LinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+              <a
+                aria-label={`Open ${project.name} in a new tab`}
+                className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+                href={projectHref}
+                onClick={(event) => event.stopPropagation()}
+                rel="noopener noreferrer"
+                target="_blank"
+              >
+                <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+              </a>
+            </>
+          ) : null}
+          <button
+            aria-label={`Rename ${project.name}`}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45",
+              isRenaming && "text-[#1b1b1b]",
+            )}
+            disabled={isRenaming}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRename(project);
+            }}
+            type="button"
+          >
+            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+          <button
+            aria-label={`Delete ${project.name}`}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45",
+              isDeleting && "text-red-600",
+            )}
+            disabled={isDeleting}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onDelete(project);
+            }}
+            type="button"
+          >
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+          <span className="hidden h-6 w-6 items-center justify-center text-[#c7c7c7] md:flex">
+            <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
+          </span>
+        </div>
+      </div>
+      {expanded ? (
+        <div className="mt-0.5 ml-[18px] flex flex-col gap-0.5 border-[#ededed] border-l pl-2">
+          {project.threads.map((chat) => (
+            <ChatRow
+              activeThreadId={activeThreadId}
+              chat={chat}
+              isDeleting={chatActions.isDeleting(chat.id)}
+              isRenaming={chatActions.isRenaming(chat.id)}
+              key={chat.id}
+              onDelete={chatActions.onDelete}
+              onRename={chatActions.onRename}
+            />
+          ))}
+          <button
+            className="flex h-7 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[#8a8a8a] text-[12px] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:opacity-50"
+            disabled={isCreatingChat}
+            onClick={() => onNewChat(project.id)}
+            type="button"
+          >
+            {isCreatingChat ? (
+              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+            )}
+            <span>New chat</span>
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -1114,26 +1368,32 @@ function MobileSidebarButton({ onClick }: { onClick: () => void }) {
   );
 }
 
-function RenameProjectDialog({
+function RenameDialog({
   busy,
+  heading,
+  initialName,
+  inputAriaLabel,
   onCancel,
   onSubmit,
-  project,
+  open,
 }: {
   busy: boolean;
+  heading: string;
+  initialName: string;
+  inputAriaLabel: string;
   onCancel: () => void;
   onSubmit: (name: string) => void;
-  project: SidebarProject | null;
+  open: boolean;
 }) {
   const [draft, setDraft] = useState("");
   useEffect(() => {
-    if (project) {
-      setDraft(project.name);
+    if (open) {
+      setDraft(initialName);
     }
-  }, [project]);
+  }, [open, initialName]);
   const trimmed = draft.trim();
-  const canSubmit = trimmed.length > 0 && trimmed.length <= 120 && trimmed !== project?.name;
-  const titleId = "sidebar-rename-project-dialog-title";
+  const canSubmit = trimmed.length > 0 && trimmed.length <= 120 && trimmed !== initialName;
+  const titleId = "sidebar-rename-dialog-title";
 
   return (
     <ModalShell
@@ -1143,7 +1403,7 @@ function RenameProjectDialog({
           onCancel();
         }
       }}
-      open={project !== null}
+      open={open}
     >
       <form
         className="flex flex-col gap-4 p-5"
@@ -1155,10 +1415,10 @@ function RenameProjectDialog({
         }}
       >
         <h2 className="font-semibold text-base text-foreground" id={titleId}>
-          Rename project
+          {heading}
         </h2>
         <input
-          aria-label="Project name"
+          aria-label={inputAriaLabel}
           className="h-9 w-full rounded-md border border-border bg-background px-3 text-foreground text-sm outline-none focus:border-foreground/40"
           disabled={busy}
           maxLength={120}
@@ -1228,7 +1488,7 @@ function useSidebarProjects(getToken: () => Promise<null | string>, enabled: boo
     })),
   });
   const items = projects.map((project, index) =>
-    sidebarProjectFromApi(project, threadQueries[index]?.data?.[0] ?? null),
+    sidebarProjectFromApi(project, threadQueries[index]?.data ?? []),
   );
 
   return {
@@ -1237,13 +1497,19 @@ function useSidebarProjects(getToken: () => Promise<null | string>, enabled: boo
   };
 }
 
-function sidebarProjectFromApi(project: ProjectSummary, thread: Thread | null): SidebarProject {
+function sidebarProjectFromApi(project: ProjectSummary, threads: Thread[]): SidebarProject {
+  const newest = threads[0] ?? null;
   return {
     appType: sidebarAppType(project.mode),
-    href: thread ? `/projects?thread=${encodeURIComponent(thread.id)}` : null,
+    href: newest ? `/chats/${encodeURIComponent(newest.id)}` : null,
     id: project.id,
-    name: project.name || "Unnamed project",
-    threadId: thread?.id ?? null,
+    name: project.name,
+    threadId: newest?.id ?? null,
+    threads: threads.map((thread) => ({
+      activeRunId: thread.activeRunId,
+      id: thread.id,
+      title: thread.title,
+    })),
   };
 }
 

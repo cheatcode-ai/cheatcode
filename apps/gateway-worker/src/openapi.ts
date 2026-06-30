@@ -443,7 +443,7 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
       activeRunId: nullableStringSchema({ format: "uuid" }),
       createdAt: stringSchema({ format: "date-time" }),
       id: stringSchema({ format: "uuid" }),
-      projectId: stringSchema({ format: "uuid" }),
+      projectId: nullableStringSchema({ format: "uuid" }),
       title: nullableStringSchema(),
       updatedAt: stringSchema({ format: "date-time" }),
     },

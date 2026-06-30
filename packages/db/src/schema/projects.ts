@@ -10,6 +10,17 @@ export interface ProjectSettings {
   importRepoUrl?: string;
 }
 
+/**
+ * Build intent captured on a (project-less) chat at creation, consumed exactly once
+ * when its first run lazily materializes the project (chat-first model). After that
+ * the project owns these via its `mode`/`settings`; the thread copy is vestigial.
+ */
+export interface ThreadLaunchIntent {
+  mode?: string;
+  importRepoUrl?: string;
+  defaultModel?: string;
+}
+
 export interface DirectoryBackupHandle {
   id: string;
   dir: string;
@@ -38,13 +49,15 @@ export const threads = pgTable(
   v2TableName("threads"),
   {
     id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-    projectId: uuid("project_id")
-      .notNull()
-      .references(() => projects.id, { onDelete: "cascade" }),
+    // Nullable (chat-first): a chat exists with no project until its first run lazily
+    // creates one. The FK already tolerates null; cascade-on-project-delete unchanged.
+    projectId: uuid("project_id").references(() => projects.id, { onDelete: "cascade" }),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     title: text("title"),
+    // Build intent for the lazy first-run project materialization (project-less chats).
+    launchIntent: jsonb("launch_intent").$type<ThreadLaunchIntent | null>(),
     activeRunId: uuid("active_run_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

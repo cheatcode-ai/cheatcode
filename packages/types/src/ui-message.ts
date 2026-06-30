@@ -82,13 +82,19 @@ export type CheatcodeDataParts = {
     v: 1;
     filename?: string;
     outputId: string;
-    kind: "slide" | "pdf" | "image" | "video" | "audio" | "xlsx" | "docx";
+    kind: "slide" | "pdf" | "image" | "video" | "audio" | "xlsx" | "docx" | "folder" | "link";
     downloadUrl: string;
     mimeType: string;
     sizeBytes?: number;
   };
   quota: { v: 1; feature: string; remaining: number; limit: number; resetAt: number };
-  thinking: { v: 1; text: string; delta: boolean };
+  // `durationMs` (optional) lets the transcript render bud's "Thought for Xs"; emitted
+  // by the agent worker on the final (delta:false) thinking part when available.
+  thinking: { v: 1; text: string; delta: boolean; durationMs?: number };
+  // One per agent tool call — renders the bud-style "Read <path> (+N more)" transcript
+  // rows. `input` is the (truncated) tool arguments; the renderer maps tool name + the
+  // primary arg to a human verb. Emitted on the `tool-call` chunk.
+  tool: { v: 1; toolName: string; toolCallId?: string; input?: Record<string, unknown> };
   error: { v: 1; code: string; message: string; retriable: boolean };
   seq: { v: 1; seq: number };
   "approval-request": ApprovalRequestData; // → "data-approval-request"

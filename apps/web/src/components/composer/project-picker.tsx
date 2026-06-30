@@ -126,7 +126,7 @@ function ProjectRows({
           onClick={() => onSelect(project)}
           type="button"
         >
-          <span className="min-w-0 truncate">{project.name || "Untitled project"}</span>
+          <span className="min-w-0 truncate">{project.name}</span>
           {project.readOnly ? (
             <span className="shrink-0 text-[#a0a0a0] text-[11px]">read-only</span>
           ) : null}

@@ -12,8 +12,10 @@ import {
   type MessageRecord,
   type ProjectSummaryRecord,
   softDeleteProject,
+  softDeleteThread,
   type ThreadRecord,
   updateProject,
+  updateThread,
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
@@ -31,6 +33,7 @@ import {
   ThreadSchema,
   UIMessageRecordSchema,
   UpdateProjectSchema,
+  UpdateThreadSchema,
   type UserId,
 } from "@cheatcode/types";
 import { z } from "zod";
@@ -197,25 +200,44 @@ export async function listProjectThreadsRoute(
   }
 }
 
-export async function createThreadRoute(
+/**
+ * `POST /v1/threads` — create a chat (chat-first). With no `projectId` the chat is
+ * project-less; its `mode`/`importRepoUrl`/`defaultModel` ride the thread as launch
+ * intent until the first run lazily materializes the project. With `projectId` set
+ * it's the deliberate "add a chat to an existing project" grouping.
+ */
+export async function createChatRoute(
   env: ProjectRouteEnv,
   ctx: ExecutionContext,
   request: Request,
-  projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
   const parsedInput = CreateThreadSchema.safeParse(await request.json());
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread payload", parsedInput.error);
   }
+  const input = parsedInput.data;
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const thread = await withUserContext(db, userId, async (tx) => {
-      await requireWritableProject(tx, projectId, userId);
+      if (input.projectId) {
+        const projectId = ProjectId(input.projectId);
+        await requireWritableProject(tx, projectId, userId);
+        return createThread(tx, {
+          projectId,
+          userId,
+          ...(input.title === undefined ? {} : { title: input.title }),
+        });
+      }
+      const launchIntent = {
+        ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
+        ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
+        ...(input.mode === undefined ? {} : { mode: input.mode }),
+      };
       return createThread(tx, {
-        projectId,
         userId,
-        ...(parsedInput.data.title === undefined ? {} : { title: parsedInput.data.title }),
+        ...(Object.keys(launchIntent).length > 0 ? { launchIntent } : {}),
+        ...(input.title === undefined ? {} : { title: input.title }),
       });
     });
     return Response.json(ThreadSchema.parse(threadResponse(thread)), { status: 201 });
@@ -237,6 +259,51 @@ export async function getThreadRoute(
       throw notFound("Thread not found");
     }
     return Response.json(ThreadSchema.parse(threadResponse(thread)));
+  } finally {
+    ctx.waitUntil(close());
+  }
+}
+
+export async function updateThreadRoute(
+  env: ProjectRouteEnv,
+  ctx: ExecutionContext,
+  request: Request,
+  threadId: ThreadIdType,
+  userId: UserId,
+): Promise<Response> {
+  const parsedInput = UpdateThreadSchema.safeParse(await request.json());
+  if (!parsedInput.success) {
+    throw invalidRequestBody("Invalid thread update payload", parsedInput.error);
+  }
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    const thread = await withUserContext(db, userId, (tx) =>
+      updateThread(tx, { threadId, title: parsedInput.data.title, userId }),
+    );
+    if (!thread) {
+      throw notFound("Thread not found");
+    }
+    return Response.json(ThreadSchema.parse(threadResponse(thread)));
+  } finally {
+    ctx.waitUntil(close());
+  }
+}
+
+export async function deleteThreadRoute(
+  env: ProjectRouteEnv,
+  ctx: ExecutionContext,
+  threadId: ThreadIdType,
+  userId: UserId,
+): Promise<Response> {
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    const deleted = await withUserContext(db, userId, (tx) =>
+      softDeleteThread(tx, { threadId, userId }),
+    );
+    if (!deleted) {
+      throw notFound("Thread not found");
+    }
+    return new Response(null, { status: 204 });
   } finally {
     ctx.waitUntil(close());
   }

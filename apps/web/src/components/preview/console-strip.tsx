@@ -1,8 +1,8 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { ChevronDown } from "@/components/ui/icons";
-import { type ConsoleLine, type ConsoleSeverity, consoleSummary } from "@/lib/preview/console";
+import { ChevronDown, Plus } from "@/components/ui/icons";
+import type { ConsoleLine, ConsoleSeverity } from "@/lib/preview/console";
 import { usePreviewConsole } from "@/lib/preview/use-preview-console";
 import { useAppStore } from "@/lib/store/app-store";
 import { emitConsoleStripOpened } from "@/lib/telemetry/user-events";
@@ -13,13 +13,7 @@ import { cn } from "@/lib/ui/cn";
  * expanded ∧ sandbox ready it polls the dev-server console over HTTP (no
  * streaming - DOs own streaming). pid-based resets are handled in the store.
  */
-export function ConsoleStrip({
-  previewUrl,
-  threadId,
-}: {
-  previewUrl: string | null;
-  threadId: string;
-}) {
+export function ConsoleStrip({ threadId }: { threadId: string }) {
   const { getToken } = useAuth();
   const consoleLines = useAppStore((state) => state.consoleLines);
   const consoleProcess = useAppStore((state) => state.consoleProcess);
@@ -38,26 +32,51 @@ export function ConsoleStrip({
   };
 
   return (
-    <div className="shrink-0 border-thread-border-subtle border-t bg-white">
-      <button
-        className="flex w-full items-center justify-between px-3 py-2 transition-colors hover:bg-thread-hover"
-        onClick={toggle}
-        type="button"
-      >
-        <span className="font-mono text-[11px] text-thread-text-muted">Console</span>
-        <span className="flex min-w-0 items-center gap-2">
-          <span className="truncate font-mono text-[10px] text-thread-text-secondary">
-            {consoleSummary(consoleProcess, previewUrl)}
-          </span>
+    <div
+      className={cn(
+        "flex shrink-0 flex-col border-[#f1f1f1] border-t bg-white",
+        consoleStripOpen ? "h-[200px]" : "h-[34px]",
+      )}
+    >
+      <div className="flex h-[34px] shrink-0 items-center px-2 py-[5px]">
+        <button
+          aria-expanded={consoleStripOpen}
+          aria-label={consoleStripOpen ? "Collapse console" : "Expand console"}
+          className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f1f1f1] hover:text-[#1b1b1b]"
+          onClick={toggle}
+          type="button"
+        >
           <ChevronDown
             aria-hidden="true"
-            className={cn(
-              "h-3.5 w-3.5 shrink-0 transition-transform",
-              consoleStripOpen ? "" : "-rotate-90",
-            )}
+            className={cn("h-3.5 w-3.5 transition-transform", consoleStripOpen ? "" : "-rotate-90")}
           />
-        </span>
-      </button>
+        </button>
+        <button
+          aria-selected="true"
+          className="ml-3 flex h-5 items-center rounded-full font-medium text-[#1b1b1b] text-[14px] transition-colors hover:text-[#1b1b1b]"
+          onClick={() => {
+            if (!consoleStripOpen) {
+              toggle();
+            }
+          }}
+          role="tab"
+          type="button"
+        >
+          Console
+        </button>
+        <button
+          aria-label="New terminal"
+          className="ml-[5px] flex h-[22px] w-[22px] items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f1f1f1] hover:text-[#1b1b1b]"
+          onClick={() => {
+            if (!consoleStripOpen) {
+              toggle();
+            }
+          }}
+          type="button"
+        >
+          <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+        </button>
+      </div>
       {consoleStripOpen ? (
         <ConsoleLines
           lines={consoleLines}
@@ -80,16 +99,14 @@ function ConsoleLines({
 }) {
   if (noProcess && lines.length === 0) {
     return (
-      <div className="px-3 py-4 font-mono text-[10px] text-thread-text-muted">
+      <div className="min-h-0 flex-1 border-[#f1f1f1] border-t px-3 py-4 font-mono text-[#8a8a8a] text-[11px]">
         No dev server running
       </div>
     );
   }
   return (
-    <div className="chat-scrollbar max-h-48 overflow-y-auto bg-[#fafafa] px-3 py-2 font-mono text-[10px]">
-      {truncated ? (
-        <div className="mb-1 text-thread-text-muted">earlier output truncated</div>
-      ) : null}
+    <div className="chat-scrollbar min-h-0 flex-1 overflow-y-auto border-[#f1f1f1] border-t bg-[#fafafa] px-3 py-2 font-mono text-[11px]">
+      {truncated ? <div className="mb-1 text-[#8a8a8a]">earlier output truncated</div> : null}
       {lines.map((line) => (
         <pre
           className={cn("whitespace-pre-wrap break-words", severityClass(line.severity))}
@@ -105,10 +122,10 @@ function ConsoleLines({
 
 function severityClass(severity: ConsoleSeverity): string {
   if (severity === "error") {
-    return "text-red-300";
+    return "text-red-700";
   }
   if (severity === "warn") {
-    return "text-amber-300";
+    return "text-amber-700";
   }
-  return "text-thread-text-secondary";
+  return "text-[#383a42]";
 }

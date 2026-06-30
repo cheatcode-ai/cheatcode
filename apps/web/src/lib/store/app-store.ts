@@ -7,6 +7,7 @@ import { type AgentModelId, DEFAULT_AGENT_MODEL_ID, isAgentModelId } from "@/lib
 import { type ConsoleLine, mergeConsoleLines } from "@/lib/preview/console";
 
 export type PreviewTab = "app" | "browser" | "env" | "files" | "terminal";
+export type PreviewDevice = "desktop" | "tablet" | "phone";
 export type ConnectionState = "online" | "offline";
 
 interface ConsoleCursor {
@@ -24,7 +25,6 @@ const PREVIEW_PATH_HISTORY_MAX = 50;
 interface AppStore {
   activePreviewTab: PreviewTab;
   agentModelId: AgentModelId;
-  budgetCapUsdByThread: Record<string, number | null>;
   connectionState: ConnectionState;
   consoleCursor: ConsoleCursor;
   consoleLines: ConsoleLine[];
@@ -33,6 +33,7 @@ interface AppStore {
   consoleTruncated: boolean;
   draftByThread: Record<string, string>;
   expoUrl: string | null;
+  previewDevice: PreviewDevice;
   previewPanelOpen: boolean;
   previewPath: string;
   previewPathHistory: string[];
@@ -56,11 +57,11 @@ interface AppStore {
   resetPreviewNavigation: () => void;
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
-  setBudgetCapUsd: (threadId: string, value: number | null) => void;
   setConnectionState: (state: ConnectionState) => void;
   setConsoleStripOpen: (open: boolean) => void;
   setDraft: (threadId: string, value: string) => void;
   setExpoUrl: (url: string | null) => void;
+  setPreviewDevice: (device: PreviewDevice) => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setPreviewUrl: (url: string | null) => void;
   setSandboxStatus: (status: SandboxState) => void;
@@ -71,7 +72,7 @@ interface AppStore {
 
 type PersistedAppStore = Pick<
   AppStore,
-  "activePreviewTab" | "agentModelId" | "budgetCapUsdByThread" | "sidebarCollapsed"
+  "activePreviewTab" | "agentModelId" | "previewDevice" | "sidebarCollapsed"
 >;
 
 export const useAppStore = create<AppStore>()(
@@ -79,15 +80,15 @@ export const useAppStore = create<AppStore>()(
     (set) => ({
       activePreviewTab: "app",
       agentModelId: DEFAULT_AGENT_MODEL_ID,
-      budgetCapUsdByThread: {},
       connectionState: "online",
       consoleCursor: { stderr: 0, stdout: 0 },
       consoleLines: [],
       consoleProcess: null,
-      consoleStripOpen: false,
+      consoleStripOpen: true,
       consoleTruncated: false,
       draftByThread: {},
       expoUrl: null,
+      previewDevice: "desktop",
       previewPanelOpen: false,
       previewPath: "/",
       previewPathHistory: [],
@@ -145,10 +146,6 @@ export const useAppStore = create<AppStore>()(
       resetPreviewNavigation: () => set({ previewPath: "/", previewPathHistory: [] }),
       setActivePreviewTab: (tab) => set({ activePreviewTab: tab }),
       setAgentModelId: (agentModelId) => set({ agentModelId }),
-      setBudgetCapUsd: (threadId, value) =>
-        set((state) => ({
-          budgetCapUsdByThread: { ...state.budgetCapUsdByThread, [threadId]: value },
-        })),
       setConnectionState: (connectionState) => set({ connectionState }),
       setConsoleStripOpen: (consoleStripOpen) => set({ consoleStripOpen }),
       setDraft: (threadId, value) =>
@@ -156,6 +153,7 @@ export const useAppStore = create<AppStore>()(
           draftByThread: { ...state.draftByThread, [threadId]: value },
         })),
       setExpoUrl: (expoUrl) => set({ expoUrl }),
+      setPreviewDevice: (previewDevice) => set({ previewDevice }),
       setPreviewPanelOpen: (previewPanelOpen) => set({ previewPanelOpen }),
       setPreviewUrl: (previewUrl) => set({ previewUrl }),
       setSandboxStatus: (sandboxStatus) => set({ sandboxStatus }),
@@ -168,11 +166,11 @@ export const useAppStore = create<AppStore>()(
       partialize: (state): PersistedAppStore => ({
         activePreviewTab: state.activePreviewTab,
         agentModelId: state.agentModelId,
-        budgetCapUsdByThread: state.budgetCapUsdByThread,
+        previewDevice: state.previewDevice,
         sidebarCollapsed: state.sidebarCollapsed,
       }),
       migrate: migratePersistedState,
-      version: 6,
+      version: 8,
       skipHydration: true,
       storage: createJSONStorage(() => localStorage),
     },
@@ -184,14 +182,14 @@ function migratePersistedState(persistedState: unknown): PersistedAppStore {
     return {
       activePreviewTab: "app",
       agentModelId: DEFAULT_AGENT_MODEL_ID,
-      budgetCapUsdByThread: {},
+      previewDevice: "desktop",
       sidebarCollapsed: false,
     };
   }
   return {
     activePreviewTab: migratePreviewTab(persistedState["activePreviewTab"]),
     agentModelId: migrateAgentModelId(persistedState["agentModelId"]),
-    budgetCapUsdByThread: migrateBudgetCaps(persistedState["budgetCapUsdByThread"]),
+    previewDevice: migratePreviewDevice(persistedState["previewDevice"]),
     sidebarCollapsed: persistedState["sidebarCollapsed"] === true,
   };
 }
@@ -212,24 +210,15 @@ function migratePreviewTab(value: unknown): PreviewTab {
   return "app";
 }
 
-function migrateAgentModelId(value: unknown): AgentModelId {
-  return isAgentModelId(value) ? value : DEFAULT_AGENT_MODEL_ID;
+function migratePreviewDevice(value: unknown): PreviewDevice {
+  if (value === "desktop" || value === "tablet" || value === "phone") {
+    return value;
+  }
+  return "desktop";
 }
 
-function migrateBudgetCaps(value: unknown): Record<string, number | null> {
-  if (!isRecord(value)) {
-    return {};
-  }
-  const output: Record<string, number | null> = {};
-  for (const [threadId, budgetCapUsd] of Object.entries(value)) {
-    if (budgetCapUsd === null) {
-      output[threadId] = null;
-    }
-    if (typeof budgetCapUsd === "number" && budgetCapUsd > 0 && budgetCapUsd <= 5) {
-      output[threadId] = budgetCapUsd;
-    }
-  }
-  return output;
+function migrateAgentModelId(value: unknown): AgentModelId {
+  return isAgentModelId(value) ? value : DEFAULT_AGENT_MODEL_ID;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

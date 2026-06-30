@@ -6,10 +6,10 @@ import {
   ProjectId as toProjectId,
   ThreadId as toThreadId,
 } from "@cheatcode/types";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import type { RunPersonalization } from "./profiles";
-import { attachProjectSandboxWithLimit } from "./projects";
+import { attachProjectSandboxWithLimit, countActiveProjects, createProject } from "./projects";
 import {
   type AgentRunConfig,
   type AgentRunError,
@@ -17,6 +17,7 @@ import {
   entitlements,
   type ProjectSettings,
   projects,
+  type ThreadLaunchIntent,
   threads,
   usageEvents,
 } from "./schema";
@@ -24,6 +25,33 @@ import {
 export type AgentRunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "canceled";
 
 const DEFAULT_RUN_BUDGET_CAP_USD = 5;
+
+/**
+ * Total wall-clock minutes the agent "worked" for this user since the start of
+ * today in `timezone` (a CF-edge IANA zone; pass "UTC" as a safe default). Sums
+ * finished runs' (finishedAt − startedAt). Powers bud's "cheatcode worked Nm
+ * today" home headline.
+ */
+export async function sumWorkedMinutesToday(
+  db: Database,
+  userId: UserId,
+  timezone: string,
+): Promise<number> {
+  const rows = await db
+    .select({
+      seconds: sql<string>`coalesce(sum(extract(epoch from (${agentRuns.finishedAt} - ${agentRuns.startedAt}))), 0)`,
+    })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, userId),
+        isNotNull(agentRuns.finishedAt),
+        sql`${agentRuns.finishedAt} >= date_trunc('day', now() at time zone ${timezone}) at time zone ${timezone}`,
+      ),
+    );
+  const seconds = Number(rows[0]?.seconds ?? 0);
+  return Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds / 60) : 0;
+}
 
 export interface AgentRunHandle {
   budgetCapUsd?: number;
@@ -41,10 +69,13 @@ export interface AgentRunHandle {
 export interface CreateAgentRunInput {
   agentName: string;
   budgetCapUsd?: number;
+  /** Active-project quota ceiling, enforced when this run lazily creates the chat's project. */
+  maxActiveProjects: number;
   maxConcurrentSandboxes?: number;
   modelId?: string;
   personalization?: RunPersonalization;
-  sandboxId?: string;
+  /** Resolves the sandbox DO name from the (possibly just-created) project id. */
+  resolveSandboxName: (projectId: string) => Promise<string>;
   source: "web" | "api";
   threadId: ThreadId;
   userId: UserId;
@@ -54,6 +85,7 @@ export type CreateAgentRunResult =
   | { run: AgentRunHandle; type: "created" }
   | { type: "thread-not-found" }
   | { archiveAfter: Date | null; type: "project-read-only" }
+  | { limit: number; type: "project-limit-reached"; used: number }
   | { limit: number; sandboxCount: number; type: "sandbox-limit-reached" }
   | { run: AgentRunHandle; type: "active-run-exists" };
 
@@ -99,6 +131,10 @@ export async function createAgentRunForThread(
   input: CreateAgentRunInput,
 ): Promise<CreateAgentRunResult> {
   return db.transaction(async (tx) => {
+    const ensured = await ensureProjectForRun(tx as Database, input);
+    if (ensured) {
+      return ensured;
+    }
     const thread = await findThreadForRun(tx as Database, input);
     if (!thread) {
       return { type: "thread-not-found" };
@@ -140,6 +176,77 @@ export async function createAgentRunForThread(
   });
 }
 
+/**
+ * Chat-first lazy project materialization. Locks the thread row; if it has no
+ * project yet (a project-less chat reaching its first run), enforces the active-
+ * project quota and creates the project from the chat's launch intent, named from
+ * the chat title. Runs inside the run-creation transaction so a later sandbox or
+ * active-run block rolls the new project back. Returns a terminal result on
+ * failure, or null once a project exists.
+ */
+async function ensureProjectForRun(
+  db: Database,
+  input: CreateAgentRunInput,
+): Promise<CreateAgentRunResult | null> {
+  const [locked] = await db
+    .select({
+      launchIntent: threads.launchIntent,
+      projectId: threads.projectId,
+      title: threads.title,
+    })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.id, input.threadId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .for("update")
+    .limit(1);
+  if (!locked) {
+    return { type: "thread-not-found" };
+  }
+  if (locked.projectId) {
+    return null;
+  }
+  const used = await countActiveProjects(db, input.userId);
+  if (used >= input.maxActiveProjects) {
+    return { limit: input.maxActiveProjects, type: "project-limit-reached", used };
+  }
+  const intent: ThreadLaunchIntent = locked.launchIntent ?? {};
+  const project = await createProject(db, {
+    mode: intent.mode ?? "general",
+    name: projectNameFromTitle(locked.title),
+    userId: input.userId,
+    ...(intent.defaultModel ? { defaultModel: intent.defaultModel } : {}),
+    ...(intent.importRepoUrl ? { importRepoUrl: intent.importRepoUrl } : {}),
+  });
+  await db
+    .update(threads)
+    .set({ projectId: project.id, updatedAt: sql`now()` })
+    .where(and(eq(threads.id, input.threadId), isNull(threads.projectId)));
+  return null;
+}
+
+/** Concise kebab project name from the chat's first prompt (bud's `simple-todo-app`). */
+function projectNameFromTitle(title: string | null): string {
+  const stripped = (title ?? "")
+    .toLowerCase()
+    .replace(
+      /^(please\s+|can you\s+|could you\s+|build( me)?\s+|create\s+|make\s+|a\s+|an\s+|the\s+)+/g,
+      "",
+    );
+  const slug = stripped
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .split("-")
+    .filter(Boolean)
+    .slice(0, 5)
+    .join("-");
+  return slug || "new-project";
+}
+
 async function blockedRunCreationResult(
   db: Database,
   input: CreateAgentRunInput,
@@ -167,13 +274,13 @@ async function attachSandboxForRun(
   input: CreateAgentRunInput,
   thread: ThreadForRunRow,
 ): Promise<CreateAgentRunResult | null> {
-  if (!input.sandboxId || input.maxConcurrentSandboxes === undefined) {
+  if (input.maxConcurrentSandboxes === undefined) {
     return null;
   }
   const result = await attachProjectSandboxWithLimit(db, {
     maxConcurrentSandboxes: input.maxConcurrentSandboxes,
     projectId: toProjectId(thread.projectId),
-    sandboxId: input.sandboxId,
+    sandboxId: await input.resolveSandboxName(thread.projectId),
     userId: input.userId,
   });
   if (result.type === "limit-reached") {
@@ -229,7 +336,8 @@ async function findThreadForRun(
       id: threads.id,
       masterInstructions: projects.masterInstructions,
       overQuota: projects.overQuota,
-      projectId: threads.projectId,
+      // Non-null via the innerJoin (and ensureProjectForRun guarantees a project by now).
+      projectId: projects.id,
       projectMode: projects.mode,
       projectSettings: projects.settings,
     })
@@ -347,7 +455,7 @@ export async function findActiveAgentRunForThread(
   const rows = await db
     .select({
       modelId: agentRuns.modelId,
-      projectId: threads.projectId,
+      projectId: projects.id,
       projectMode: projects.mode,
       runId: agentRuns.id,
       status: agentRuns.status,
@@ -378,7 +486,7 @@ export async function findAgentRunForUser(
   const rows = await db
     .select({
       modelId: agentRuns.modelId,
-      projectId: threads.projectId,
+      projectId: projects.id,
       projectMode: projects.mode,
       runId: agentRuns.id,
       status: agentRuns.status,

@@ -7,6 +7,7 @@ import {
   messages,
   type ProjectSettings,
   projects,
+  type ThreadLaunchIntent,
   threads,
 } from "./schema";
 
@@ -50,7 +51,8 @@ export interface ThreadRecord {
   activeRunId: string | null;
   createdAt: Date;
   id: ThreadId;
-  projectId: ProjectId;
+  launchIntent: ThreadLaunchIntent | null;
+  projectId: ProjectId | null;
   title: string | null;
   updatedAt: Date;
 }
@@ -290,6 +292,7 @@ export async function listProjectThreads(
       activeRunId: true,
       createdAt: true,
       id: true,
+      launchIntent: true,
       projectId: true,
       title: true,
       updatedAt: true,
@@ -306,12 +309,18 @@ export async function listProjectThreads(
 
 export async function createThread(
   db: Database,
-  input: { projectId: ProjectId; title?: string; userId: UserId },
+  input: {
+    launchIntent?: ThreadLaunchIntent;
+    projectId?: ProjectId | null;
+    title?: string;
+    userId: UserId;
+  },
 ): Promise<ThreadRecord> {
   const rows = await db
     .insert(threads)
     .values({
-      projectId: input.projectId,
+      ...(input.projectId ? { projectId: input.projectId } : {}),
+      ...(input.launchIntent ? { launchIntent: input.launchIntent } : {}),
       ...(input.title ? { title: input.title } : {}),
       userId: input.userId,
     })
@@ -323,6 +332,43 @@ export async function createThread(
   return threadFromRow(row);
 }
 
+export async function updateThread(
+  db: Database,
+  input: { threadId: ThreadId; title: string; userId: UserId },
+): Promise<ThreadRecord | null> {
+  const rows = await db
+    .update(threads)
+    .set({ title: input.title, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(threads.id, input.threadId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .returning(threadReturningColumns());
+  const row = rows[0];
+  return row ? threadFromRow(row) : null;
+}
+
+export async function softDeleteThread(
+  db: Database,
+  input: { threadId: ThreadId; userId: UserId },
+): Promise<boolean> {
+  const rows = await db
+    .update(threads)
+    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(threads.id, input.threadId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .returning({ id: threads.id });
+  return rows.length > 0;
+}
+
 export async function getThread(
   db: Database,
   input: { threadId: ThreadId; userId: UserId },
@@ -332,6 +378,7 @@ export async function getThread(
       activeRunId: true,
       createdAt: true,
       id: true,
+      launchIntent: true,
       projectId: true,
       title: true,
       updatedAt: true,
@@ -669,6 +716,7 @@ function threadReturningColumns() {
     activeRunId: threads.activeRunId,
     createdAt: threads.createdAt,
     id: threads.id,
+    launchIntent: threads.launchIntent,
     projectId: threads.projectId,
     title: threads.title,
     updatedAt: threads.updatedAt,
@@ -719,7 +767,8 @@ function threadFromRow(row: {
   activeRunId: string | null;
   createdAt: Date;
   id: string;
-  projectId: string;
+  launchIntent: ThreadLaunchIntent | null;
+  projectId: string | null;
   title: string | null;
   updatedAt: Date;
 }): ThreadRecord {
@@ -727,7 +776,8 @@ function threadFromRow(row: {
     activeRunId: row.activeRunId,
     createdAt: row.createdAt,
     id: toThreadId(row.id),
-    projectId: toProjectId(row.projectId),
+    launchIntent: row.launchIntent,
+    projectId: row.projectId ? toProjectId(row.projectId) : null,
     title: row.title,
     updatedAt: row.updatedAt,
   };

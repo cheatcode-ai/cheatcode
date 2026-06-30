@@ -150,6 +150,7 @@ export function AgentsPanel() {
                     providerLabel={CATALOG_PROVIDER_LABELS[model.provider]}
                   />
                 }
+                description={model.description}
                 expanded={expandedSourceId === rowId}
                 icon={<ModelIcon label={model.label} provider={model.provider} />}
                 key={model.id}
@@ -291,6 +292,7 @@ function shortModelLabel(label: string): string {
 
 function ModelRow({
   control,
+  description,
   expanded,
   icon,
   label,
@@ -300,6 +302,7 @@ function ModelRow({
   sourceLabel,
 }: {
   control: ReactNode;
+  description?: string;
   expanded: boolean;
   icon: ReactNode;
   label: string;
@@ -335,6 +338,11 @@ function ModelRow({
                 )}
               />
             </button>
+            {description ? (
+              <p className="mt-0.5 line-clamp-1 text-[#9a9a9a] text-[12px] leading-4">
+                {description}
+              </p>
+            ) : null}
           </div>
         </div>
         <div className="shrink-0">{control}</div>

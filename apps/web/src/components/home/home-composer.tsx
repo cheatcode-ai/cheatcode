@@ -8,6 +8,7 @@ import {
   SandboxUsageSummaryResponseSchema,
 } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   type ChangeEvent,
@@ -21,6 +22,7 @@ import {
   useState,
 } from "react";
 import { toast } from "sonner";
+import { AuthModal } from "@/components/auth/auth-modal";
 import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
 import { AddMenu } from "@/components/composer/add-menu";
 import {
@@ -40,6 +42,8 @@ import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { ArrowUp, Globe, Smartphone, Star, TrendingUp, X, Zap } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
+import { createChat, surfaceToMode, threadTitle } from "@/lib/api/project-thread";
+import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { detectSlashToken } from "@/lib/input/caret-tokens";
 import {
   appendPromptAttachment,
@@ -181,10 +185,16 @@ export function HomeComposer({
   const [attachmentStatus, setAttachmentStatus] = useState<AttachmentStatus | null>(null);
   const [value, setValue] = useState(initialPrompt ?? "");
   const [skillCreatorMode, setSkillCreatorMode] = useState(skillCreator);
+  const [authRedirectTo, setAuthRedirectTo] = useState<string | null>(null);
   const typewriterPlaceholder = useTypewriterPlaceholder();
   const intent = INTENTS.find((candidate) => candidate.id === intentId) ?? null;
   const placeholder = intent ? intent.placeholder : typewriterPlaceholder;
   const canSubmit = value.trim().length > 0;
+  const { data: userSkills } = useQuery({
+    queryFn: () => listUserSkills(getToken),
+    queryKey: USER_SKILLS_QUERY,
+    staleTime: 60_000,
+  });
   const triggers = useComposerTriggers({
     onChange: setValue,
     onInsert: (_kind, item) => {
@@ -195,7 +205,7 @@ export function HomeComposer({
     textareaRef,
     value,
   });
-  const slashItems = slashSkillItems(triggers.query);
+  const slashItems = slashSkillItems(triggers.query, userSkills ?? []);
   const isMenuOpen = triggers.kind === "slash" && triggers.isActive && slashItems.length > 0;
 
   useEffect(() => {
@@ -222,7 +232,7 @@ export function HomeComposer({
       void launchExisting(selectedProject, prompt);
       return;
     }
-    startPrompt(prompt, resolveSubmitSurface(repoUrl, intentId, intent, skillChip));
+    void startPrompt(prompt, resolveSubmitSurface(repoUrl, intentId, intent, skillChip));
   }
 
   async function launchExisting(project: ProjectSummary, prompt: string) {
@@ -234,7 +244,8 @@ export function HomeComposer({
         );
         return;
       }
-      router.push(`/projects?${buildExistingProjectParams(result.threadId, prompt).toString()}`);
+      const handoff = buildExistingProjectParams(prompt).toString();
+      router.push(`/chats/${encodeURIComponent(result.threadId)}?${handoff}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not open that project.");
     }
@@ -293,14 +304,30 @@ export function HomeComposer({
     }
   }
 
-  function startPrompt(prompt: string, surface: "mobile" | "web" | null) {
-    const params = buildLaunchParams({
-      model: agentModelRequestValue(agentModelId) ?? null,
-      prompt,
-      repo: repoUrl,
-      surface,
-    });
-    router.push(`/projects?${params.toString()}`);
+  async function startPrompt(prompt: string, surface: "mobile" | "web" | null) {
+    const model = agentModelRequestValue(agentModelId) ?? null;
+    const token = await getToken();
+    if (!token) {
+      // Unauthenticated: open sign-in in place and preserve the typed prompt across
+      // auth via the URL handoff, landing back on home (no API call without a token).
+      // Once signed in the prompt is restored in the composer and submitted as an
+      // authenticated chat create.
+      const params = buildLaunchParams({ model, prompt, repo: repoUrl, surface });
+      setAuthRedirectTo(`/?${params.toString()}`);
+      return;
+    }
+    try {
+      const thread = await createChat(getToken, {
+        title: threadTitle(prompt),
+        mode: surfaceToMode(surface),
+        ...(repoUrl ? { importRepoUrl: repoUrl } : {}),
+        ...(model ? { defaultModel: model } : {}),
+      });
+      const handoff = buildExistingProjectParams(prompt).toString();
+      router.push(`/chats/${encodeURIComponent(thread.id)}?${handoff}`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not start that chat.");
+    }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
@@ -483,6 +510,14 @@ export function HomeComposer({
         >
           {attachmentStatus.text}
         </p>
+      ) : null}
+      {authRedirectTo ? (
+        <AuthModal
+          mode="sign-up"
+          onClose={() => setAuthRedirectTo(null)}
+          open={true}
+          redirectTo={authRedirectTo}
+        />
       ) : null}
     </div>
   );

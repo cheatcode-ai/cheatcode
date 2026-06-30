@@ -15,6 +15,7 @@ import {
   type UIMessageRecord,
   UIMessageRecordSchema,
   type UpdateProject,
+  type UpdateThread,
 } from "@cheatcode/types";
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
 
@@ -22,32 +23,28 @@ const ThreadMessagePageSchema = Paginated(UIMessageRecordSchema);
 const ProjectPageSchema = Paginated(ProjectSummarySchema);
 const ThreadPageSchema = Paginated(ThreadSchema);
 
-export interface ProjectThreadBootstrapInput {
-  defaultModel?: string | undefined;
-  importRepoUrl?: string | undefined;
-  prompt: string | null;
-  surface: string | null;
-}
-
-export interface ProjectThreadBootstrapResult {
-  projectId: string;
-  threadId: string;
-}
-
-export async function bootstrapProjectThread(
+/**
+ * The single chat-creation entry point. Project-less when `projectId` is omitted —
+ * the chat's first run lazily creates + names the project — or attached to an
+ * existing project when `projectId` is present. The launch intent
+ * (`mode`/`importRepoUrl`/`defaultModel`) rides the thread and is consumed once, at
+ * first-run project creation.
+ */
+export async function createChat(
   getToken: () => Promise<null | string>,
-  input: ProjectThreadBootstrapInput,
-): Promise<ProjectThreadBootstrapResult> {
-  const project = await createProject(getToken, {
-    ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
-    ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
-    mode: projectMode(input),
-    name: projectName(input),
+  input: {
+    defaultModel?: string;
+    importRepoUrl?: string;
+    mode?: string;
+    projectId?: string;
+    title?: string;
+  },
+): Promise<Thread> {
+  const response = await authorizedFetch(getToken, "/v1/threads", {
+    body: JSON.stringify(input),
+    method: "POST",
   });
-  const thread = await createProjectThread(getToken, project.id, {
-    title: threadTitle(input.prompt),
-  });
-  return { projectId: project.id, threadId: thread.id };
+  return ThreadSchema.parse(await response.json());
 }
 
 export async function listProjects(
@@ -93,6 +90,27 @@ export async function getThread(
 ): Promise<Thread> {
   const response = await authorizedFetch(getToken, `/v1/threads/${encodeURIComponent(threadId)}`);
   return ThreadSchema.parse(await response.json());
+}
+
+export async function updateThread(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+  input: UpdateThread,
+): Promise<Thread> {
+  const response = await authorizedFetch(getToken, `/v1/threads/${encodeURIComponent(threadId)}`, {
+    body: JSON.stringify(input),
+    method: "PATCH",
+  });
+  return ThreadSchema.parse(await response.json());
+}
+
+export async function deleteThread(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<void> {
+  await authorizedFetch(getToken, `/v1/threads/${encodeURIComponent(threadId)}`, {
+    method: "DELETE",
+  });
 }
 
 export async function updateProject(
@@ -162,35 +180,6 @@ export async function listThreadMessages(
   return messages;
 }
 
-async function createProject(
-  getToken: () => Promise<null | string>,
-  input: {
-    budgetCapUsd?: number;
-    defaultModel?: string;
-    importRepoUrl?: string;
-    mode: "app-builder" | "app-builder-mobile" | "general";
-    name: string;
-  },
-) {
-  const response = await authorizedFetch(getToken, "/v1/projects", {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
-  return ProjectSummarySchema.parse(await response.json());
-}
-
-export async function createProjectThread(
-  getToken: () => Promise<null | string>,
-  projectId: string,
-  input: { title: string },
-): Promise<Thread> {
-  const response = await authorizedFetch(getToken, `/v1/projects/${projectId}/threads`, {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
-  return ThreadSchema.parse(await response.json());
-}
-
 function messageRecordToUiMessage(record: UIMessageRecord): CheatcodeUIMessage | null {
   const role = uiMessageRole(record.role);
   if (!role) {
@@ -214,22 +203,20 @@ function uiMessageRole(value: string): CheatcodeUIMessage["role"] | null {
   return null;
 }
 
-function projectName(input: ProjectThreadBootstrapInput): string {
-  return threadTitle(input.prompt);
-}
-
-function projectMode(
-  input: ProjectThreadBootstrapInput,
+/** Maps a composer build surface to the chat's launch-intent mode. */
+export function surfaceToMode(
+  surface: string | null,
 ): "app-builder" | "app-builder-mobile" | "general" {
-  if (input.surface === "mobile") {
+  if (surface === "mobile") {
     return "app-builder-mobile";
   }
-  return input.surface === "web" ? "app-builder" : "general";
+  return surface === "web" ? "app-builder" : "general";
 }
 
+/** Derives a chat's title from its first prompt; an empty/absent prompt reads "New chat". */
 export function threadTitle(prompt: string | null): string {
   if (!prompt) {
-    return "Untitled project";
+    return "New chat";
   }
   const trimmed = prompt.trim().replace(/\s+/g, " ");
   if (trimmed.length <= 80) {

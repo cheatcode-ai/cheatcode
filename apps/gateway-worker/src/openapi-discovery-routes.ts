@@ -79,8 +79,8 @@ export const discoverySchemas: Record<string, JsonValue> = {
     additionalProperties: false,
     properties: {
       id: stringSchema({ format: "uuid" }),
-      projectId: stringSchema({ format: "uuid" }),
-      projectName: stringSchema(),
+      projectId: nullableStringSchema({ format: "uuid" }),
+      projectName: nullableStringSchema(),
       title: stringSchema(),
       type: { const: "thread", type: "string" },
       updatedAt: stringSchema({ format: "date-time" }),

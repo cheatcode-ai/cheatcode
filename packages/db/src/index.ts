@@ -108,7 +108,9 @@ export {
   saveProjectBackupById,
   saveSandboxProjectBackup,
   softDeleteProject,
+  softDeleteThread,
   updateProject,
+  updateThread,
 } from "./projects";
 export type { ReplayShareRecord } from "./replays";
 export {
@@ -134,6 +136,7 @@ export {
   findActiveAgentRunForThread,
   findAgentRunForUser,
   recordAgentRunUsage,
+  sumWorkedMinutesToday,
   updateAgentRunStatus,
 } from "./runs";
 export type {

@@ -357,14 +357,14 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
     if (!thread) {
       throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
     }
-    const sandboxName = await projectSandboxName(userId, thread.projectId);
     const policy = await runEntitlementPolicy(c.env, userId);
     const result = await withUserContext(db, UserId(userId), (tx) =>
       createAgentRunForThread(tx, {
         agentName: body.agentName ?? DEFAULT_AGENT_NAME,
+        maxActiveProjects: policy.maxProjects,
         maxConcurrentSandboxes: policy.maxConcurrentSandboxes,
         personalization,
-        sandboxId: sandboxName,
+        resolveSandboxName: (projectId) => projectSandboxName(userId, projectId),
         source: "web",
         threadId: parsedThreadId,
         userId: parsedUserId,
@@ -399,6 +399,13 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
         retriable: false,
       });
     }
+    if (result.type === "project-limit-reached") {
+      throw new APIError(403, "permission_plan_required", "Active project limit reached", {
+        details: { limit: result.limit, used: result.used },
+        hint: "Upgrade your plan or archive an existing project before starting another one.",
+        retriable: false,
+      });
+    }
     await withUserContext(db, UserId(userId), (tx) =>
       createThreadMessage(tx, {
         agentRunId: result.run.runId,
@@ -408,6 +415,7 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
         userId: UserId(userId),
       }),
     );
+    const sandboxName = await projectSandboxName(userId, result.run.projectId);
     const warmedSandbox = await sandboxForProject(c.env, userId, result.run.projectId);
     c.executionCtx.waitUntil(syncSandboxQuotaPeriod(warmedSandbox, policy.quotaPeriodEnd));
     const response = await startAgentRun(

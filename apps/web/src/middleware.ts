@@ -7,6 +7,7 @@ import { NextResponse } from "next/server";
 // public "/replay" page is intentionally NOT matched so it stays unauthenticated.
 const isProtectedRoute = createRouteMatcher([
   "/projects(.*)",
+  "/chats(.*)",
   "/settings(.*)",
   "/skills(.*)",
   "/tools(.*)",

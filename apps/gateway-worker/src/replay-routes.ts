@@ -27,6 +27,8 @@ const DEFAULT_AUTHOR_NAME = "the Cheatcode team";
 
 /** Public slug format: lower-kebab, 1–64 chars, leading alphanumeric (replays plan §4.1). */
 const ReplaySlugSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/);
+/** User share tokens are uuidv7 ids; guards the uuid-column lookup from non-UUID slugs. */
+const ReplayShareIdSchema = z.string().uuid();
 
 interface SanitizedReplayMessage {
   createdAt: string;
@@ -138,6 +140,12 @@ function manifestReplay(entry: FeaturedReplayConfig): ResolvedReplay {
  * manifest slug — no oracle distinguishes the cases.
  */
 async function sharedReplay(db: Database, slug: string): Promise<ResolvedReplay> {
+  // Share tokens are uuidv7 ids. A kebab slug that passed the format regex but
+  // isn't a UUID can't be a real share — and querying the uuid `id` column with it
+  // would throw (invalid uuid syntax → 500), so collapse it to the uniform 404.
+  if (!ReplayShareIdSchema.safeParse(slug).success) {
+    throwReplayNotFound(slug, "unknown_slug");
+  }
   const share = await findReplayShareById(db, slug);
   if (!share || share.revokedAt !== null || share.visibility === "private") {
     throwReplayNotFound(slug, "unknown_slug");

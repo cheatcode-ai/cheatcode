@@ -64,6 +64,13 @@
       "when": 1782759325849,
       "tag": "0008_fixed_maggott",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782824355026,
+      "tag": "0009_vengeful_mother_askani",
+      "breakpoints": true
     }
   ]
 }

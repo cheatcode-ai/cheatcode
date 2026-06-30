@@ -31,5 +31,9 @@ packages/skills/src/generated.ts
 /*.png
 .gemini-clipboard/
 
+# Local agent tooling + QA artifacts (not product code)
+/.agents/
+/.codex/
+
 # Claude Code transient session state
 .claude/last-session.json

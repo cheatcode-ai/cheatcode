@@ -55,8 +55,8 @@ export function mastraChunkToUiChunks(chunk: unknown): UIMessageChunk[] {
     return textDeltaChunks(record);
   }
 
-  if (chunkType === "tool-call" && isSandboxToolChunk(record)) {
-    return [sandboxStatusChunk("starting")];
+  if (chunkType === "tool-call") {
+    return toolCallChunks(record);
   }
 
   if (chunkType === "tool-result" && isSandboxToolChunk(record)) {
@@ -217,6 +217,67 @@ function sandboxStatusChunk(status: "ready" | "starting", previewUrl?: string): 
     type: "data-sandbox-status",
     data: previewUrl ? { v: 1, status, previewUrl } : { v: 1, status },
   };
+}
+
+const MAX_TOOL_INPUT_KEYS = 8;
+const MAX_TOOL_INPUT_STRING = 256;
+
+// Surface every tool call as a transcript row (bud parity). Sandbox tools also drive
+// the Computer-panel status; non-sandbox tools only get the row.
+function toolCallChunks(record: Record<string, unknown>): UIMessageChunk[] {
+  const payload = chunkPayload(record);
+  const toolName = stringField(payload, "toolName");
+  if (!toolName) {
+    return [];
+  }
+  const chunks: UIMessageChunk[] = [toolActivityChunk(payload, toolName)];
+  if (SANDBOX_TOOL_NAMES.has(toolName)) {
+    chunks.push(sandboxStatusChunk("starting"));
+  }
+  return chunks;
+}
+
+function toolActivityChunk(payload: Record<string, unknown>, toolName: string): UIMessageChunk {
+  const toolCallId = stringField(payload, "toolCallId");
+  const input = toolInputFromPayload(payload);
+  return {
+    type: "data-tool",
+    data: {
+      v: 1,
+      toolName,
+      ...(toolCallId ? { toolCallId } : {}),
+      ...(input ? { input } : {}),
+    },
+  };
+}
+
+// Keep the persisted part small: only scalar args, capped count + string length. The
+// transcript row needs the path/command/url/query, not the full (possibly huge) payload.
+function toolInputFromPayload(
+  payload: Record<string, unknown>,
+): Record<string, unknown> | undefined {
+  for (const key of ["args", "input", "toolInput", "arguments"]) {
+    const raw = asRecord(payload[key]);
+    if (Object.keys(raw).length > 0) {
+      return truncateToolInput(raw);
+    }
+  }
+  return undefined;
+}
+
+function truncateToolInput(input: Record<string, unknown>): Record<string, unknown> {
+  const output: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(input).slice(0, MAX_TOOL_INPUT_KEYS)) {
+    if (typeof value === "string") {
+      output[key] =
+        value.length > MAX_TOOL_INPUT_STRING ? `${value.slice(0, MAX_TOOL_INPUT_STRING)}…` : value;
+    } else if (typeof value === "number" || typeof value === "boolean") {
+      output[key] = value;
+    } else if (Array.isArray(value)) {
+      output[key] = `[${value.length} item(s)]`;
+    }
+  }
+  return output;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

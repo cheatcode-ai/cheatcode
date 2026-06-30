@@ -8,7 +8,7 @@ export { agentRuns, messages } from "./messages";
 export { generatedOutputs } from "./outputs";
 export type { OnboardingStateValue } from "./profiles";
 export { userProfiles } from "./profiles";
-export type { DirectoryBackupHandle, ProjectSettings } from "./projects";
+export type { DirectoryBackupHandle, ProjectSettings, ThreadLaunchIntent } from "./projects";
 export { projects, threads } from "./projects";
 export { replayShares } from "./replays";
 export { userSkills } from "./skills";

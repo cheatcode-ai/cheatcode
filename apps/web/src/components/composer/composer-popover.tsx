@@ -18,7 +18,7 @@ export interface ComposerMenuItem {
 
 /**
  * Presentational listbox anchored above the composer. Styling mirrors the
- * existing `BudgetCapMenu` idiom. Keyboard navigation/selection is owned by
+ * composer's other floating control menus. Keyboard navigation/selection is owned by
  * `useComposerTriggers`; this component only renders rows and forwards
  * hover/click intent. `onMouseDown` is used (not `onClick`) with
  * `preventDefault` so committing a row never blurs the textarea.

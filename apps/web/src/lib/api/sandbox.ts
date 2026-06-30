@@ -33,8 +33,9 @@ export async function listSandboxFiles(
   getToken: () => Promise<null | string>,
   threadId: string,
   path: string,
+  recursive = false,
 ) {
-  const response = await authorizedFetch(getToken, sandboxFilesPath(threadId, path));
+  const response = await authorizedFetch(getToken, sandboxFilesPath(threadId, path, recursive));
   return SandboxFileListSchema.parse(await response.json());
 }
 
@@ -80,8 +81,8 @@ export function compareFileEntries(left: SandboxFileEntry, right: SandboxFileEnt
   return left.relativePath.localeCompare(right.relativePath);
 }
 
-function sandboxFilesPath(threadId: string, path: string): string {
-  const query = new URLSearchParams({ path });
+function sandboxFilesPath(threadId: string, path: string, recursive: boolean): string {
+  const query = new URLSearchParams({ path, recursive: String(recursive) });
   return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/files?${query.toString()}`;
 }
 

@@ -55,6 +55,7 @@ export interface RunEntitlementPolicy {
   dailyCostCapUsd?: number;
   dailyCostUsdAtRunStart: number;
   maxConcurrentSandboxes: number;
+  maxProjects: number;
   quotaPeriodEnd: string;
   quotaWarning?: SandboxHoursQuotaWarning;
   researchFanoutSubagentLimit: number;
@@ -76,6 +77,12 @@ export async function sandboxForThread(
     if (!thread) {
       throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
     }
+    if (!thread.projectId) {
+      throw new APIError(404, "not_found_project", "This chat has no workspace yet", {
+        hint: "Send a message to start the first run, which creates the project sandbox.",
+        retriable: false,
+      });
+    }
     return sandboxForProject(env, userId, thread.projectId);
   } finally {
     await close();
@@ -89,7 +96,7 @@ export async function sandboxForProject(
 ): Promise<DurableObjectStub<ProjectSandbox>> {
   const sandboxName = await projectSandboxName(userId, projectId);
   const sandbox = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName));
-  await sandbox.registerOwner(userId);
+  await sandbox.registerOwner(userId, sandboxName);
   return sandbox;
 }
 
@@ -108,6 +115,10 @@ export async function requireWritableThreadProject(
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
       if (!thread) {
         throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+      }
+      if (!thread.projectId) {
+        // Project-less chat (no first run yet): nothing to gate — the run creates it.
+        return;
       }
       const state = await getProjectWriteState(tx, {
         projectId: thread.projectId,
@@ -212,6 +223,7 @@ export async function runEntitlementPolicy(
         dailyCostUsdAtRunStart,
         ...(limits.dailyCostCapUsd === null ? {} : { dailyCostCapUsd: limits.dailyCostCapUsd }),
         maxConcurrentSandboxes: entitlement.maxConcurrentSandboxes,
+        maxProjects: entitlement.maxProjects,
         quotaPeriodEnd: periodEnd.toISOString(),
         ...(quotaWarning ? { quotaWarning } : {}),
         researchFanoutSubagentLimit: Math.min(
@@ -490,7 +502,7 @@ async function sandboxForLegacyThread(
 ): Promise<DurableObjectStub<ProjectSandbox>> {
   const sandboxName = await projectSandboxName(userId, threadId);
   const sandbox = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName));
-  await sandbox.registerOwner(userId);
+  await sandbox.registerOwner(userId, sandboxName);
   return sandbox;
 }
 

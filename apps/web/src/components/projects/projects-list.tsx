@@ -355,9 +355,9 @@ function useProjectsGrid(getToken: () => Promise<null | string>) {
 function gridItemFromApi(project: ProjectSummary, thread: Thread | null): ProjectGridItem {
   return {
     appType: gridAppType(project.mode),
-    href: thread ? `/projects?thread=${encodeURIComponent(thread.id)}` : null,
+    href: thread ? `/chats/${encodeURIComponent(thread.id)}` : null,
     id: project.id,
-    name: project.name || "Unnamed project",
+    name: project.name,
     updatedAt: project.updatedAt,
   };
 }

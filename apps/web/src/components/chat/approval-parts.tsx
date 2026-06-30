@@ -14,7 +14,7 @@ import { decideRunApproval } from "@/lib/api/project-thread";
 type ApprovalChoice = "allow" | "deny";
 
 const CARD_CLASS =
-  "rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary";
+  "cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 font-mono text-[11px] text-thread-text-secondary";
 const LABEL_CLASS = "mb-2 text-[10px] text-thread-text-muted";
 const BUTTON_CLASS =
   "rounded-full border border-thread-border px-3 py-1 text-[11px] text-thread-text-primary transition-colors hover:bg-thread-hover disabled:cursor-not-allowed disabled:opacity-40";

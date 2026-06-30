@@ -219,7 +219,11 @@ export class DaytonaClient {
     this.toolboxUrl = stripTrailingSlash(config.toolboxUrl ?? DEFAULT_DAYTONA_TOOLBOX_URL);
     this.target = config.target;
     this.organizationId = config.organizationId;
-    this.fetchImpl = config.fetchImpl ?? fetch;
+    // Bind to globalThis: the global `fetch` must keep the global scope as its
+    // receiver. Calling it as a method (`this.fetchImpl(...)`) otherwise rebinds
+    // `this` to the client instance, which workerd rejects with "Illegal
+    // invocation: function called with incorrect 'this' reference."
+    this.fetchImpl = config.fetchImpl ?? fetch.bind(globalThis);
   }
 
   // ----- control plane: sandbox lifecycle -----

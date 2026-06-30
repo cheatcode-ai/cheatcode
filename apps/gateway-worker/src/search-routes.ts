@@ -65,6 +65,7 @@ export async function listRecentThreadsRoute(
 
 function toThreadResult(record: WorkspaceThreadSearchRecord): SearchResult {
   return {
+    activeRunId: record.activeRunId,
     id: record.id,
     projectId: record.projectId,
     projectName: record.projectName,
@@ -96,6 +97,7 @@ function toSearchResult(record: WorkspaceSearchRecord): SearchResult {
     };
   }
   return {
+    activeRunId: record.activeRunId,
     id: record.id,
     projectId: record.projectId,
     projectName: record.projectName,

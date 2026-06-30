@@ -1,6 +1,6 @@
 import type { ProjectId, ThreadId, UserId } from "@cheatcode/types";
 import { ProjectId as toProjectId, ThreadId as toThreadId } from "@cheatcode/types";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { projects, threads } from "./schema";
 
@@ -21,9 +21,12 @@ export interface WorkspaceThreadSearchRecord {
   type: "thread";
   id: ThreadId;
   title: string;
-  projectId: ProjectId;
-  projectName: string;
+  /** Null for a project-less chat (chat-first: no project until its first run). */
+  projectId: ProjectId | null;
+  projectName: string | null;
   updatedAt: Date;
+  /** Non-null while a run is in flight — backs the sidebar's running-chat spinner. */
+  activeRunId: string | null;
 }
 
 export type WorkspaceSearchRecord = WorkspaceProjectSearchRecord | WorkspaceThreadSearchRecord;
@@ -79,13 +82,16 @@ export async function searchWorkspace(
       updatedAt: threads.updatedAt,
       projectId: projects.id,
       projectName: projects.name,
+      activeRunId: threads.activeRunId,
     })
     .from(threads)
-    .innerJoin(projects, and(eq(projects.id, threads.projectId), isNull(projects.deletedAt)))
+    .leftJoin(projects, eq(projects.id, threads.projectId))
     .where(
       and(
         eq(threads.userId, userId),
         isNull(threads.deletedAt),
+        // Include project-less chats; exclude chats whose project was soft-deleted.
+        or(isNull(threads.projectId), isNull(projects.deletedAt)),
         sql`${threads.title} ilike ${pattern} escape '\\'`,
       ),
     )
@@ -104,9 +110,10 @@ export async function searchWorkspace(
     type: "thread",
     id: toThreadId(row.id),
     title: row.title ?? "",
-    projectId: toProjectId(row.projectId),
+    projectId: row.projectId ? toProjectId(row.projectId) : null,
     projectName: row.projectName,
     updatedAt: row.updatedAt,
+    activeRunId: row.activeRunId,
   }));
 
   return [...projectResults, ...threadResults];
@@ -131,17 +138,18 @@ export async function listRecentThreads(
       updatedAt: threads.updatedAt,
       projectId: projects.id,
       projectName: projects.name,
+      activeRunId: threads.activeRunId,
     })
     .from(threads)
-    .innerJoin(
-      projects,
+    .leftJoin(projects, and(eq(projects.id, threads.projectId), eq(projects.userId, userId)))
+    .where(
       and(
-        eq(projects.id, threads.projectId),
-        eq(projects.userId, userId),
-        isNull(projects.deletedAt),
+        eq(threads.userId, userId),
+        isNull(threads.deletedAt),
+        // Include project-less chats; exclude chats whose project was soft-deleted.
+        or(isNull(threads.projectId), isNull(projects.deletedAt)),
       ),
     )
-    .where(and(eq(threads.userId, userId), isNull(threads.deletedAt)))
     .orderBy(desc(threads.updatedAt))
     .limit(limit);
 
@@ -149,8 +157,9 @@ export async function listRecentThreads(
     type: "thread",
     id: toThreadId(row.id),
     title: row.title ?? "",
-    projectId: toProjectId(row.projectId),
+    projectId: row.projectId ? toProjectId(row.projectId) : null,
     projectName: row.projectName,
     updatedAt: row.updatedAt,
+    activeRunId: row.activeRunId,
   }));
 }

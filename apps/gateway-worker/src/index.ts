@@ -77,9 +77,10 @@ import { listAgentsRoute, listToolsRoute } from "./metadata-routes";
 import { OPENAPI_DOCUMENT, openApiDocsHtml } from "./openapi";
 import { getMyProfileRoute, updateMyProfileRoute } from "./profile-routes";
 import {
+  createChatRoute,
   createProjectRoute,
-  createThreadRoute,
   deleteProjectRoute,
+  deleteThreadRoute,
   getProjectRoute,
   getThreadRoute,
   listProjectsRoute,
@@ -88,6 +89,7 @@ import {
   parseProjectParam,
   parseThreadParam,
   updateProjectRoute,
+  updateThreadRoute,
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
 import { featuredReplaysRoute, replayByIdRoute } from "./replay-routes";
@@ -388,7 +390,7 @@ export const gatewayRoutes = gatewayApp
   .get("/v1/greeting", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/greeting");
-    return greetingRoute(c.executionCtx, c.req.raw);
+    return greetingRoute(c.env, c.executionCtx, c.req.raw, userId);
   })
 
   .get("/v1/projects", async (c) => {
@@ -449,22 +451,39 @@ export const gatewayRoutes = gatewayApp
     );
   })
 
-  .post("/v1/projects/:projectId/threads", async (c) => {
+  .post("/v1/threads", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/projects/:projectId/threads");
-    return createThreadRoute(
-      c.env,
-      c.executionCtx,
-      c.req.raw,
-      parseProjectParam(c.req.param("projectId")),
-      userId,
-    );
+    await rateLimit(c, userId, "POST /v1/threads");
+    return createChatRoute(c.env, c.executionCtx, c.req.raw, userId);
   })
 
   .get("/v1/threads/:threadId", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/threads/:threadId");
     return getThreadRoute(c.env, c.executionCtx, parseThreadParam(c.req.param("threadId")), userId);
+  })
+
+  .patch("/v1/threads/:threadId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "PATCH /v1/threads/:threadId");
+    return updateThreadRoute(
+      c.env,
+      c.executionCtx,
+      c.req.raw,
+      parseThreadParam(c.req.param("threadId")),
+      userId,
+    );
+  })
+
+  .delete("/v1/threads/:threadId", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    await rateLimit(c, userId, "DELETE /v1/threads/:threadId");
+    return deleteThreadRoute(
+      c.env,
+      c.executionCtx,
+      parseThreadParam(c.req.param("threadId")),
+      userId,
+    );
   })
 
   .get("/v1/threads/:threadId/messages", async (c) => {

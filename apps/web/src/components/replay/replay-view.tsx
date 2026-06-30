@@ -204,19 +204,29 @@ function ReplayPreparingSkeleton({ replay }: { replay: SeededReplay }) {
   return (
     <div className="flex min-h-0 flex-1 flex-col justify-center">
       <ReplayPromptCard replay={replay} />
-      <div className="mt-5 space-y-3" role="status">
-        <span className="sr-only">Preparing replay</span>
-        {[0, 1, 2].map((row) => (
-          <div
-            className="rounded-[18px] border border-[#f1f1f1] bg-white p-4 shadow-[0_0_1px_rgba(0,0,0,0.08)]"
-            key={row}
-          >
-            <div className="h-3 w-24 rounded-full bg-[#f1f1f1]" />
-            <div className="mt-3 h-3 w-full rounded-full bg-[#f7f7f7]" />
-            <div className="mt-2 h-3 w-3/4 rounded-full bg-[#f7f7f7]" />
-          </div>
-        ))}
-      </div>
+      <ReplaySkeletonRows />
+    </div>
+  );
+}
+
+/**
+ * Shared "preparing" pulse rows. Used by both the seeded player and the real
+ * shared-replay player so the two loading states stay visually identical.
+ */
+function ReplaySkeletonRows() {
+  return (
+    <div className="mt-5 space-y-3" role="status">
+      <span className="sr-only">Preparing replay</span>
+      {[0, 1, 2].map((row) => (
+        <div
+          className="rounded-[18px] border border-[#f1f1f1] bg-white p-4 shadow-[0_0_1px_rgba(0,0,0,0.08)]"
+          key={row}
+        >
+          <div className="h-3 w-24 rounded-full bg-[#f1f1f1]" />
+          <div className="mt-3 h-3 w-full rounded-full bg-[#f7f7f7]" />
+          <div className="mt-2 h-3 w-3/4 rounded-full bg-[#f7f7f7]" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -396,14 +406,20 @@ function ReplayBottomBar({
   onSkip,
   onWatchAgain,
   phase,
+  progress,
   tryHref,
 }: {
   onSkip: () => void;
   onWatchAgain: () => void;
   phase: ReplayPhase;
-  tryHref: string;
+  progress?: number;
+  tryHref: null | string;
 }) {
   const isComplete = phase === "complete";
+  // Progress is opt-in (real replays only) and only meaningful while playing —
+  // seeded cards omit it, the preparing skeleton speaks for itself, and the
+  // done state reads "Watch again" instead of a stuck 100% bar.
+  const showProgress = typeof progress === "number" && phase === "playing";
   const status =
     phase === "preparing"
       ? "Cheatcode is preparing the replay..."
@@ -413,36 +429,58 @@ function ReplayBottomBar({
 
   return (
     <div className="bud-composer-shell sticky bottom-3 mt-auto rounded-[24px] p-px">
-      <div className="flex min-h-14 items-center justify-between gap-3 rounded-[21px] bg-white/95 px-4">
-        <div className="flex min-w-0 items-center gap-2 text-[#707070] text-[14px]">
-          <CheatcodeMark aria-hidden="true" className="h-4 w-4 text-[#f8af2c]" />
-          <span className="truncate">{status}</span>
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          {isComplete ? (
-            <button
-              className="paper-focus-ring inline-flex h-8 items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 font-medium text-[13px] transition-all duration-200 hover:bg-[#f7f7f7]"
-              onClick={onWatchAgain}
-              type="button"
+      <div className="rounded-[21px] bg-white/95">
+        {showProgress ? (
+          <div className="px-4 pt-2.5">
+            <div
+              aria-hidden="true"
+              className="h-1 w-full overflow-hidden rounded-full bg-[#f1f1f1]"
             >
-              <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
-              Watch again
-            </button>
-          ) : (
-            <button
-              className="paper-focus-ring inline-flex h-8 items-center rounded-full border border-[#f1f1f1] bg-white px-3 font-medium text-[13px] transition-all duration-200 hover:bg-[#f7f7f7]"
-              onClick={onSkip}
-              type="button"
-            >
-              Skip to results
-            </button>
-          )}
-          <Link
-            className="paper-focus-ring inline-flex h-8 items-center rounded-full bg-[#1b1b1b] px-3 font-medium text-[13px] text-white transition-all duration-200 hover:bg-black"
-            href={tryHref}
-          >
-            Try it yourself
-          </Link>
+              <div
+                className="h-full rounded-full bg-[#f8af2c] transition-[width] duration-500 ease-out motion-reduce:transition-none"
+                style={{ width: `${progress}%` }}
+              />
+            </div>
+          </div>
+        ) : null}
+        <div className="flex min-h-14 items-center justify-between gap-3 px-4">
+          <div className="flex min-w-0 items-center gap-2 text-[#707070] text-[14px]">
+            <CheatcodeMark aria-hidden="true" className="h-4 w-4 text-[#f8af2c]" />
+            <span className="truncate">{status}</span>
+            {showProgress ? (
+              <span className="shrink-0 font-medium text-[#9b9b9b] text-[13px] tabular-nums">
+                {progress}%
+              </span>
+            ) : null}
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {isComplete ? (
+              <button
+                className="paper-focus-ring inline-flex h-8 items-center gap-2 rounded-full border border-[#f1f1f1] bg-white px-3 font-medium text-[13px] transition-all duration-200 hover:bg-[#f7f7f7]"
+                onClick={onWatchAgain}
+                type="button"
+              >
+                <RefreshCw aria-hidden="true" className="h-3.5 w-3.5" />
+                Watch again
+              </button>
+            ) : (
+              <button
+                className="paper-focus-ring inline-flex h-8 items-center rounded-full border border-[#f1f1f1] bg-white px-3 font-medium text-[13px] transition-all duration-200 hover:bg-[#f7f7f7]"
+                onClick={onSkip}
+                type="button"
+              >
+                Skip to results
+              </button>
+            )}
+            {tryHref ? (
+              <Link
+                className="paper-focus-ring inline-flex h-8 items-center rounded-full bg-[#1b1b1b] px-3 font-medium text-[13px] text-white transition-all duration-200 hover:bg-black"
+                href={tryHref}
+              >
+                Try it yourself
+              </Link>
+            ) : null}
+          </div>
         </div>
       </div>
     </div>
@@ -493,56 +531,125 @@ function RemoteReplayView({ id }: { id: string }) {
       />
     );
   }
-  return <ReplayTranscript replay={replay} />;
+  return <RemoteReplayExperience replay={replay} />;
 }
 
-function ReplayTranscript({ replay }: { replay: PublicReplay }) {
-  const messages = replay.messages.map(toUiMessage);
+/**
+ * Real shared-replay player. Generalizes the seeded experience (skeleton →
+ * progressive reveal → results) to a sanitized backend transcript: messages are
+ * revealed on a timer, a progress % is derived from revealed/total, and the
+ * shared {@link ReplayBottomBar} adds Skip / Watch again alongside the existing
+ * client-side "Try it yourself" fork. Presentational only — no extra fetches.
+ */
+function RemoteReplayExperience({ replay }: { replay: PublicReplay }) {
+  const messages = useMemo(() => replay.messages.map(toUiMessage), [replay.messages]);
   const tryHref = useMemo(() => forkHref(replay.messages), [replay.messages]);
+  const total = messages.length;
+  const { phase, revealed, skipToResults, watchAgain } = useRevealPlayback(total);
+  const visibleMessages = useMemo(() => messages.slice(0, revealed), [messages, revealed]);
+  const progress = total === 0 ? 100 : Math.round((revealed / total) * 100);
+
   return (
-    <div className="flex h-screen flex-col bg-white text-[#1b1b1b]">
-      <ReplayHeader replay={replay.replay} tryHref={tryHref} />
+    <div className="relative flex h-screen flex-col bg-white text-[#1b1b1b] md:pl-[var(--cheatcode-sidebar-offset,16rem)]">
+      <Suspense fallback={null}>
+        <AppSidebar variant="full" />
+      </Suspense>
+      <RemoteReplayHeader replay={replay.replay} />
       <div className="flex min-h-0 flex-1 flex-col">
-        <MessageList messages={messages} />
+        {phase === "preparing" ? (
+          <RemoteReplaySkeleton />
+        ) : (
+          <MessageList messages={visibleMessages} />
+        )}
       </div>
+      <footer className="shrink-0 px-4 pb-4">
+        <div className="mx-auto w-full max-w-3xl">
+          <ReplayBottomBar
+            onSkip={skipToResults}
+            onWatchAgain={watchAgain}
+            phase={phase}
+            progress={progress}
+            tryHref={tryHref}
+          />
+        </div>
+      </footer>
     </div>
   );
 }
 
-function ReplayHeader({
-  replay,
-  tryHref,
-}: {
-  replay: PublicReplay["replay"];
-  tryHref: null | string;
-}) {
+/**
+ * Drives the reveal cadence for a real transcript. Mirrors the seeded player's
+ * phases (`preparing` → `playing` → `complete`) but paces by message instead of
+ * seeded step data, so the caller's progress derives from revealed/total.
+ */
+function useRevealPlayback(total: number) {
+  const [phase, setPhase] = useState<ReplayPhase>("preparing");
+  const [revealed, setRevealed] = useState(0);
+
+  useEffect(() => {
+    if (phase === "preparing") {
+      const timeout = window.setTimeout(() => {
+        setRevealed(total > 0 ? 1 : 0);
+        setPhase(total > 1 ? "playing" : "complete");
+      }, PREPARING_DELAY_MS);
+      return () => window.clearTimeout(timeout);
+    }
+    if (phase !== "playing") {
+      return;
+    }
+    if (revealed >= total) {
+      const timeout = window.setTimeout(() => setPhase("complete"), FINISH_DELAY_MS);
+      return () => window.clearTimeout(timeout);
+    }
+    const timeout = window.setTimeout(() => {
+      setRevealed((current) => Math.min(current + 1, total));
+    }, STEP_DELAY_MS);
+    return () => window.clearTimeout(timeout);
+  }, [phase, revealed, total]);
+
+  function skipToResults() {
+    setRevealed(total);
+    setPhase("complete");
+  }
+
+  function watchAgain() {
+    setRevealed(total > 0 ? 1 : 0);
+    setPhase(total > 1 ? "playing" : "complete");
+  }
+
+  return { phase, revealed, skipToResults, watchAgain };
+}
+
+function RemoteReplayHeader({ replay }: { replay: PublicReplay["replay"] }) {
   return (
-    <header className="flex shrink-0 items-center justify-between gap-4 border-[#f1f1f1] border-b bg-white px-4 py-3 font-mono">
-      <div className="flex flex-col gap-1">
-        <span className="text-[#a0a0a0] text-[9px] uppercase tracking-[0.28em]">Replay</span>
-        <h1 className="font-medium text-[#1b1b1b] text-sm">{replay.title}</h1>
-        <p className="text-[#8a8a8a] text-[11px]">
-          {replay.authorName}
-          {replay.date ? ` - ${formatDate(replay.date)}` : ""}
-        </p>
-      </div>
-      <div className="flex shrink-0 items-center gap-3">
-        {tryHref ? (
-          <Link
-            className="paper-focus-ring inline-flex h-8 items-center rounded-full bg-[#1b1b1b] px-3 font-medium font-sans text-[13px] text-white transition-all duration-200 hover:bg-black"
-            href={tryHref}
-          >
-            Try it yourself
-          </Link>
-        ) : null}
+    <header className="shrink-0 px-5 pt-5 pb-2">
+      <div className="mx-auto flex w-full max-w-3xl items-center gap-3">
         <Link
-          className="text-[#707070] text-[11px] uppercase tracking-wider hover:text-[#1b1b1b]"
+          className="paper-focus-ring inline-flex w-fit shrink-0 items-center gap-1 rounded-full px-2 py-1 font-medium text-[#707070] text-[14px] transition-colors hover:text-[#1b1b1b]"
           href="/"
         >
-          Cheatcode
+          <span aria-hidden="true">‹</span>
+          Back
         </Link>
+        <span className="min-w-0 flex-1 truncate text-center font-medium text-[#585858] text-[13px]">
+          {replay.title}
+        </span>
+        <span className="shrink-0 text-[#9b9b9b] text-[12px]">
+          {replay.authorName}
+          {replay.date ? ` · ${formatDate(replay.date)}` : ""}
+        </span>
       </div>
     </header>
+  );
+}
+
+function RemoteReplaySkeleton() {
+  return (
+    <div className="chat-scrollbar min-h-0 flex-1 overflow-y-auto px-4">
+      <div className="mx-auto w-full max-w-3xl pt-2 pb-6">
+        <ReplaySkeletonRows />
+      </div>
+    </div>
   );
 }
 

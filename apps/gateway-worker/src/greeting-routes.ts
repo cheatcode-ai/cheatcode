@@ -1,6 +1,11 @@
+import { createDb, sumWorkedMinutesToday, withUserContext } from "@cheatcode/db";
 import { createLogger } from "@cheatcode/observability";
-import { type GreetingResponse, GreetingResponseSchema } from "@cheatcode/types";
+import { type GreetingResponse, GreetingResponseSchema, type UserId } from "@cheatcode/types";
 import { z } from "zod";
+
+export interface GreetingRouteEnv {
+  HYPERDRIVE: Hyperdrive;
+}
 
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const WEATHER_FETCH_TIMEOUT_MS = 1_500;
@@ -42,15 +47,50 @@ interface ResolvedGeo {
  * failure degrades to `weather: null` while still answering HTTP 200; the client
  * falls back to a time-only greeting. Never returns a server clock.
  */
-export async function greetingRoute(ctx: ExecutionContext, request: Request): Promise<Response> {
+export async function greetingRoute(
+  env: GreetingRouteEnv,
+  ctx: ExecutionContext,
+  request: Request,
+  userId: UserId,
+): Promise<Response> {
   const geo = resolveGeo(request);
-  const weather = await resolveWeather(ctx, geo);
+  const [weather, workedMinutesToday] = await Promise.all([
+    resolveWeather(ctx, geo),
+    resolveWorkedMinutesToday(env, ctx, userId, geo.timezone),
+  ]);
   const response: GreetingResponse = {
     city: geo.city,
     timezone: geo.timezone,
     weather,
+    workedMinutesToday,
   };
   return Response.json(GreetingResponseSchema.parse(response));
+}
+
+/**
+ * Best-effort daily run-minutes total for the home headline. Any DB failure
+ * degrades to 0 (the headline falls back to "ready to build") rather than
+ * failing the greeting — mirrors the weather path's resilience.
+ */
+async function resolveWorkedMinutesToday(
+  env: GreetingRouteEnv,
+  ctx: ExecutionContext,
+  userId: UserId,
+  timezone: string | null,
+): Promise<number> {
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    return await withUserContext(db, userId, (tx) =>
+      sumWorkedMinutesToday(tx, userId, timezone ?? "UTC"),
+    );
+  } catch (error) {
+    createLogger().warn("greeting_worked_minutes_failed", {
+      reason: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  } finally {
+    ctx.waitUntil(close());
+  }
 }
 
 function resolveGeo(request: Request): ResolvedGeo {

@@ -8,6 +8,25 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+.cheatcode-workspace-frame {
+  padding-top: 8px;
+  padding-right: 8px;
+  padding-bottom: 8px;
+  padding-left: 8px;
+}
+
+@media (min-width: 768px) {
+  .cheatcode-workspace-frame {
+    padding-left: 56px;
+  }
+}
+
+@media (max-width: 767px) {
+  .cheatcode-workspace-frame {
+    padding-left: 8px;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -906,6 +925,14 @@
     animation: none;
   }
   .cc-fade-in {
+    animation: none;
+  }
+  /* Static spinners/pulses still convey state without the continuous motion.
+     This block is unlayered, so it overrides Tailwind's layered utilities. */
+  .animate-spin {
+    animation: none;
+  }
+  .animate-pulse {
     animation: none;
   }
 }

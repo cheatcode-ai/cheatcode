@@ -99,6 +99,7 @@ const ENSURE_STARTED_DELAY_MS = 2_000;
 const SANDBOX_OWNER_USER_ID_KEY = "sandbox_owner_user_id";
 const DAYTONA_ID_KEY = "daytona_sandbox_id";
 const RUN_LEASES_KEY = "run_leases";
+const SANDBOX_NAME_KEY = "sandbox_name";
 const PROC_PREFIX = "proc:";
 
 const OwnerUserIdSchema = z.string().uuid();
@@ -117,10 +118,37 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   private daytonaClient: DaytonaClient | undefined;
   private daytonaId: string | undefined;
   private startedVerifiedAtMs = 0;
+  private cachedSandboxName: string | undefined;
+
+  constructor(ctx: DurableObjectState, env: ProjectSandboxEnv) {
+    super(ctx, env);
+    // `ctx.id.name` is only populated when the DO is addressed via idFromName, and the
+    // runtime drops it when it reconstructs the object (alarm wake / eviction / local
+    // restart). Persist the name once we ever see it so sandboxName() can recover it on
+    // those reconstructions instead of throwing and 500-ing every files/metering call.
+    void ctx.blockConcurrencyWhile(async () => {
+      const stored = await ctx.storage.get<string>(SANDBOX_NAME_KEY);
+      const fromId = ctx.id.name;
+      if (fromId) {
+        this.cachedSandboxName = fromId;
+        if (stored !== fromId) {
+          await ctx.storage.put(SANDBOX_NAME_KEY, fromId);
+        }
+      } else if (typeof stored === "string") {
+        this.cachedSandboxName = stored;
+      }
+    });
+  }
 
   // ----- ownership + quota -----
 
-  public async registerOwner(userId: string): Promise<void> {
+  public async registerOwner(userId: string, sandboxName?: string): Promise<void> {
+    // The caller addressed us via idFromName(sandboxName); persist it so a later
+    // alarm-/eviction-reconstructed instance (which loses ctx.id.name) recovers the name.
+    if (sandboxName && this.cachedSandboxName !== sandboxName) {
+      this.cachedSandboxName = sandboxName;
+      await this.ctx.storage.put(SANDBOX_NAME_KEY, sandboxName);
+    }
     const parsedUserId = OwnerUserIdSchema.parse(userId);
     const existingUserId = await this.ownerUserId();
     if (existingUserId && existingUserId !== parsedUserId) {
@@ -753,7 +781,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   }
 
   private sandboxName(): string {
-    const name = this.ctx.id.name;
+    const name = this.cachedSandboxName ?? this.ctx.id.name;
     if (!name) {
       throw new Error("ProjectSandbox must be addressed with idFromName().");
     }

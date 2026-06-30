@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { FeaturedReplays } from "@/components/home/featured-replays";
 import { HomeComposerFromSearchParams } from "@/components/home/home-composer-from-search-params";
 import { HomeGreeting } from "@/components/home/home-greeting";
+import { HomeHeadline } from "@/components/home/home-headline";
 import { HomeSessionChrome } from "@/components/home/home-session-chrome";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
@@ -23,9 +24,7 @@ export default function HomePage({
           <Suspense fallback={<div className="mb-2 h-4 w-40 rounded-full bg-[#f7f7f7]" />}>
             <HomeGreeting />
           </Suspense>
-          <h1 className="mt-1 text-center font-bold text-[24px] leading-8 tracking-[-0.01em]">
-            cheatcode ready to build
-          </h1>
+          <HomeHeadline />
           <HomeComposerFromSearchParams />
           <Suspense fallback={<div className="mt-6 h-32 w-full rounded-2xl bg-[#f7f7f7]" />}>
             <HomeFeaturedSlot searchParams={searchParams} />

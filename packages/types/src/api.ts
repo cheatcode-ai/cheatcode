@@ -37,7 +37,17 @@ export const CreateProjectSchema = z
 
 export const CreateThreadSchema = z
   .object({
+    defaultModel: z.string().trim().min(1).max(200).optional(),
+    importRepoUrl: GitHubRepoUrlSchema.optional(),
+    mode: z.enum(["app-builder", "app-builder-mobile", "general"]).optional(),
+    projectId: z.string().uuid().optional(),
     title: z.string().trim().min(1).max(200).optional(),
+  })
+  .strict();
+
+export const UpdateThreadSchema = z
+  .object({
+    title: z.string().trim().min(1).max(200),
   })
   .strict();
 
@@ -79,7 +89,7 @@ export const ThreadSchema = z
     activeRunId: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     id: z.string().uuid(),
-    projectId: z.string().uuid(),
+    projectId: z.string().uuid().nullable(),
     title: z.string().nullable(),
     updatedAt: z.string().datetime(),
   })
@@ -588,9 +598,13 @@ export const SearchResultThreadSchema = z
     type: z.literal("thread"),
     id: z.string().uuid(),
     title: z.string(),
-    projectId: z.string().uuid(),
-    projectName: z.string(),
+    projectId: z.string().uuid().nullable(),
+    projectName: z.string().nullable(),
     updatedAt: z.string().datetime(),
+    // Non-null while a run is in flight (backs the sidebar's running-chat spinner).
+    // Optional so a new web bundle tolerates a gateway response that predates this
+    // field while the two Workers deploy independently.
+    activeRunId: z.string().uuid().nullable().optional(),
   })
   .strict();
 
@@ -630,6 +644,9 @@ export const GreetingResponseSchema = z
       })
       .strict()
       .nullable(),
+    // Optional so a new web bundle tolerates a gateway response that predates this
+    // field while the two Workers deploy independently.
+    workedMinutesToday: z.number().int().nonnegative().optional(),
   })
   .strict();
 
@@ -786,6 +803,7 @@ export type Thread = z.infer<typeof ThreadSchema>;
 export type ToolSummary = z.infer<typeof ToolSummarySchema>;
 export type UIMessageRecord = z.infer<typeof UIMessageRecordSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
+export type UpdateThread = z.infer<typeof UpdateThreadSchema>;
 export type UpsertProviderKey = z.infer<typeof UpsertProviderKeySchema>;
 export type SandboxConsoleLine = z.infer<typeof SandboxConsoleLineSchema>;
 export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;

@@ -115,14 +115,12 @@ export function CommandPalette() {
                   key={project.id}
                   onSelect={() =>
                     navigate(
-                      project.latestThreadId
-                        ? `/projects?thread=${project.latestThreadId}`
-                        : "/projects",
+                      project.latestThreadId ? `/chats/${project.latestThreadId}` : "/projects",
                     )
                   }
                   value={`project-${project.id}`}
                 >
-                  <span className="min-w-0 flex-1 truncate">{project.name || "Untitled"}</span>
+                  <span className="min-w-0 flex-1 truncate">{project.name}</span>
                 </Command.Item>
               ))}
             </Command.Group>
@@ -137,12 +135,10 @@ export function CommandPalette() {
                 <Command.Item
                   className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[14px] data-[selected=true]:bg-[#f7f7f7]"
                   key={thread.id}
-                  onSelect={() => navigate(`/projects?thread=${thread.id}`)}
+                  onSelect={() => navigate(`/chats/${thread.id}`)}
                   value={`thread-${thread.id}`}
                 >
-                  <span className="min-w-0 flex-1 truncate">
-                    {thread.title || "Untitled thread"}
-                  </span>
+                  <span className="min-w-0 flex-1 truncate">{thread.title || "New chat"}</span>
                   <span className="shrink-0 truncate text-[#a0a0a0] text-[12px]">
                     {thread.projectName}
                   </span>

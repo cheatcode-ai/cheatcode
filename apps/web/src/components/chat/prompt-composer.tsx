@@ -1,6 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
+import { useQuery } from "@tanstack/react-query";
 import {
   type ChangeEvent,
   type FormEvent,
@@ -23,7 +24,8 @@ import {
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
-import { ArrowUp, DollarSign, Mic, Paperclip, Square } from "@/components/ui/icons";
+import { ArrowUp, Mic, Paperclip, Square } from "@/components/ui/icons";
+import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import {
@@ -37,11 +39,9 @@ import { cn } from "@/lib/ui/cn";
 
 const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
 const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
-type ComposerControlMenu = "budget" | "model";
+type ComposerControlMenu = "model";
 
 interface PromptComposerProps {
-  budgetCapUsd: number | null;
-  onBudgetChange: (value: number | null) => void;
   onChange: (value: string) => void;
   onStop: () => void;
   onSubmit: (value: string) => void;
@@ -51,8 +51,6 @@ interface PromptComposerProps {
 }
 
 export function PromptComposer({
-  budgetCapUsd,
-  onBudgetChange,
   onChange,
   onStop,
   onSubmit,
@@ -61,6 +59,11 @@ export function PromptComposer({
   value,
 }: PromptComposerProps) {
   const { getToken } = useAuth();
+  const { data: userSkills } = useQuery({
+    queryFn: () => listUserSkills(getToken),
+    queryKey: USER_SKILLS_QUERY,
+    staleTime: 60_000,
+  });
   const isRunning = status === "streaming" || status === "submitted";
   const elapsedSeconds = useElapsedSeconds(isRunning);
   const canSubmit = value.trim().length > 0 && !isRunning;
@@ -100,7 +103,8 @@ export function PromptComposer({
     query: triggers.query,
     threadId,
   });
-  const menuItems = triggers.kind === "mention" ? mentionItems : slashSkillItems(triggers.query);
+  const menuItems =
+    triggers.kind === "mention" ? mentionItems : slashSkillItems(triggers.query, userSkills ?? []);
   const isMenuOpen = triggers.isActive && menuItems.length > 0;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -219,12 +223,6 @@ export function PromptComposer({
                   onOpenChange={(open) => setOpenControlMenu(open ? "model" : null)}
                   open={openControlMenu === "model"}
                   variant="thread"
-                />
-                <BudgetCapControl
-                  isOpen={openControlMenu === "budget"}
-                  onChange={onBudgetChange}
-                  onOpenChange={(open) => setOpenControlMenu(open ? "budget" : null)}
-                  value={budgetCapUsd}
                 />
                 <VoiceInputButton isDisabled={isRunning} voiceInput={voiceInput} />
                 <SendActionButton canSubmit={canSubmit} isRunning={isRunning} />
@@ -507,127 +505,4 @@ function voiceErrorMessage(error: string): string {
     return "No speech detected";
   }
   return "Voice input failed";
-}
-
-const BUDGET_OPTIONS: readonly { label: string; value: number | null }[] = [
-  { label: "No cap", value: null },
-  { label: "$2", value: 2 },
-  { label: "$5", value: 5 },
-  { label: "$10", value: 10 },
-] as const;
-
-const BUDGET_CAP_MAX_USD = 50;
-
-function parseCustomBudget(raw: string): null | number {
-  const parsed = Number.parseFloat(raw);
-  if (!Number.isFinite(parsed) || parsed <= 0 || parsed > BUDGET_CAP_MAX_USD) {
-    return null;
-  }
-  return Math.round(parsed * 100) / 100;
-}
-
-function BudgetCapControl({
-  isOpen,
-  onChange,
-  onOpenChange,
-  value,
-}: {
-  isOpen: boolean;
-  onChange: (value: number | null) => void;
-  onOpenChange: (open: boolean) => void;
-  value: number | null;
-}) {
-  const label = value === null ? "No cap" : `$${value}`;
-
-  return (
-    <div className="relative hidden sm:block">
-      <button
-        aria-expanded={isOpen}
-        aria-label="Set run budget cap"
-        className="flex h-7 items-center gap-1.5 rounded-full px-2 text-[#707070] text-[12px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-        onClick={() => onOpenChange(!isOpen)}
-        type="button"
-      >
-        <DollarSign aria-hidden="true" className="h-3.5 w-3.5" />
-        <span>{label}</span>
-      </button>
-      {isOpen ? (
-        <BudgetCapMenu
-          onSelect={(next) => {
-            onChange(next);
-            onOpenChange(false);
-          }}
-          value={value}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function BudgetCapMenu({
-  onSelect,
-  value,
-}: {
-  onSelect: (value: number | null) => void;
-  value: number | null;
-}) {
-  const isCustomValue = value !== null && BUDGET_OPTIONS.every((option) => option.value !== value);
-  const [customDraft, setCustomDraft] = useState(isCustomValue ? String(value) : "");
-
-  function commitCustom() {
-    const parsed = parseCustomBudget(customDraft);
-    if (parsed !== null) {
-      onSelect(parsed);
-    }
-  }
-
-  return (
-    <div className="absolute right-0 bottom-10 z-30 w-36 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
-      {BUDGET_OPTIONS.map((option) => (
-        <button
-          className={cn(
-            "flex h-8 w-full items-center justify-between rounded-xl px-2 text-[12px] transition-colors",
-            option.value === value
-              ? "bg-[#f7f7f7] text-[#1b1b1b]"
-              : "text-[#707070] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
-          )}
-          key={option.label}
-          onClick={() => onSelect(option.value)}
-          onPointerDown={(event) => {
-            event.preventDefault();
-            onSelect(option.value);
-          }}
-          type="button"
-        >
-          <span>{option.label}</span>
-          {option.value === value ? <span className="text-[#a0a0a0]">set</span> : null}
-        </button>
-      ))}
-      <div
-        className={cn(
-          "flex h-8 w-full items-center gap-1 px-2",
-          isCustomValue ? "rounded-xl bg-[#f7f7f7]" : undefined,
-        )}
-      >
-        <span className={cn("text-[12px]", isCustomValue ? "text-[#1b1b1b]" : "text-[#707070]")}>
-          $
-        </span>
-        <input
-          aria-label="Custom budget cap in dollars"
-          className="w-full border-none bg-transparent text-[#1b1b1b] text-[12px] outline-none placeholder:text-[#a0a0a0]"
-          inputMode="decimal"
-          onBlur={commitCustom}
-          onChange={(event) => setCustomDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              commitCustom();
-            }
-          }}
-          placeholder="custom"
-          value={customDraft}
-        />
-      </div>
-    </div>
-  );
 }
