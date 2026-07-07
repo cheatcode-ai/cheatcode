@@ -15,6 +15,7 @@ import { useMutation } from "@tanstack/react-query";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { Sparkle } from "@/components/onboarding/onboarding-icons";
 import {
   BasicsStep,
   IntroStep,
@@ -177,7 +178,13 @@ export function OnboardingFlow() {
       recordStep("basics", "skipped");
       advance();
     },
-    onCheckout: (tier) => checkoutMutation.mutate(tier),
+    onCheckout: (tier) => {
+      if (availableTiers.has(tier)) {
+        checkoutMutation.mutate(tier);
+      } else {
+        toast.info("That plan isn't available yet - bring your own keys to start building now.");
+      }
+    },
     onIntro: () => {
       recordStep("intro", "done");
       advance();
@@ -202,11 +209,7 @@ export function OnboardingFlow() {
     },
   };
 
-  return (
-    <div className="w-full max-w-[392px] rounded-[28px] border border-[#f1f1f1] bg-[#f8f8f8] p-1 shadow-[0_18px_70px_rgba(0,0,0,0.08)]">
-      <div className="rounded-[24px] bg-white p-8">{renderStep(stepName, stepProps)}</div>
-    </div>
-  );
+  return renderStep(stepName, stepProps);
 }
 
 function renderStep(stepName: OnboardingStep, props: StepProps): ReactNode {
@@ -260,51 +263,64 @@ function useCheckoutMutation(getToken: () => Promise<null | string>) {
 
 function StatusCard({ label }: { label: string }) {
   return (
-    <div className="flex w-full max-w-[392px] flex-col items-center gap-4 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
-      <Loader2 aria-hidden="true" className="h-6 w-6 animate-spin text-[#a0a0a0]" />
-      <p className="text-[#707070] text-sm">{label}</p>
+    <div className="flex flex-col items-center gap-4 text-center">
+      <Sparkle />
+      <p className="flex items-center gap-2 font-medium text-[#585858] text-[14px] leading-[18px]">
+        <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+        {label}
+      </p>
+    </div>
+  );
+}
+
+function StatusShell({
+  detail,
+  isPending,
+  onRetry,
+  title,
+}: {
+  detail: string;
+  isPending: boolean;
+  onRetry: () => void;
+  title: string;
+}) {
+  return (
+    <div className="flex max-w-[360px] flex-col items-center gap-4 text-center">
+      <Sparkle />
+      <p className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{title}</p>
+      <p className="font-medium text-[#585858] text-[13px] leading-[18px]">{detail}</p>
+      <button
+        className="mt-1 flex h-8 items-center gap-2 rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isPending}
+        onClick={onRetry}
+        type="button"
+      >
+        {isPending ? <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" /> : null}
+        Retry
+      </button>
     </div>
   );
 }
 
 function RetryCard({ isPending, onRetry }: { isPending: boolean; onRetry: () => void }) {
   return (
-    <div className="flex w-full max-w-[392px] flex-col items-center gap-5 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
-      <p className="text-[#1b1b1b] text-sm">Finishing setup...</p>
-      <p className="max-w-sm text-[#707070] text-xs leading-relaxed">
-        Your progress is saved. We could not refresh your session - retry to finish, or this
-        resolves on the next sign-in.
-      </p>
-      <button
-        className="inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6 font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={isPending}
-        onClick={onRetry}
-        type="button"
-      >
-        {isPending ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
-        Retry
-      </button>
-    </div>
+    <StatusShell
+      detail="Your progress is saved. We could not refresh your session - retry to finish, or this resolves on the next sign-in."
+      isPending={isPending}
+      onRetry={onRetry}
+      title="Finishing setup..."
+    />
   );
 }
 
 function LoadErrorCard({ isPending, onRetry }: { isPending: boolean; onRetry: () => void }) {
   return (
-    <div className="flex w-full max-w-[392px] flex-col items-center gap-5 rounded-[28px] border border-[#f1f1f1] bg-white p-12 text-center">
-      <p className="text-[#1b1b1b] text-sm">Setup could not load</p>
-      <p className="max-w-sm text-[#707070] text-xs leading-relaxed">
-        We could not reach your profile. Check the local server and try again.
-      </p>
-      <button
-        className="inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6 font-medium text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-        disabled={isPending}
-        onClick={onRetry}
-        type="button"
-      >
-        {isPending ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
-        Retry
-      </button>
-    </div>
+    <StatusShell
+      detail="We could not reach your profile. Check the connection and try again."
+      isPending={isPending}
+      onRetry={onRetry}
+      title="Setup could not load"
+    />
   );
 }
 

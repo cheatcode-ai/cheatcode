@@ -1,52 +1,57 @@
 "use client";
 
 import type { PaidBillingTier } from "@cheatcode/types";
-import Link from "next/link";
 import { type ReactNode, useState } from "react";
-import { Check, ExternalLink, Loader2 } from "@/components/ui/icons";
+import {
+  GitHubMark,
+  IconBrowser,
+  IconComputer,
+  IconKeys,
+  IconPhone,
+  IconSkills,
+  ReturnArrow,
+  SearchIcon,
+  Sparkle,
+} from "@/components/onboarding/onboarding-icons";
 import { cn } from "@/lib/ui/cn";
 
-const INTRO_BULLETS = [
-  "A full computer - a sandboxed Linux box for code, shells, and files.",
-  "A full browser - I navigate, click, and hand control back when you want it.",
-  "Skills & integrations - connect your tools and reusable skills.",
-  "Your models, your keys - bring your own provider keys; nothing is marked up.",
-  "Live phone previews - watch mobile apps update as I build them.",
-] as const;
+// The 15-series "Bud System" onboarding: a card-less, viewport-centered flow where the agent
+// introduces itself. Every measurement (Geist 14px, #1B1B1B ink, 32px pills, 14px-radius cards)
+// is lifted verbatim from the Paper artboards 15b–15f so this renders pixel-identical.
+
+type FeatureRow = { icon: ReactNode; key: string; lead?: string; strong: string; trail?: string };
+
+const FEATURE_ROWS: readonly FeatureRow[] = [
+  { icon: <IconComputer />, key: "computer", lead: "a full", strong: "computer" },
+  { icon: <IconBrowser />, key: "browser", lead: "a full", strong: "browser" },
+  { icon: <IconSkills />, key: "skills", strong: "skills", trail: "& integrations" },
+  { icon: <IconKeys />, key: "keys", lead: "your models,", strong: "your keys" },
+  { icon: <IconPhone />, key: "phone", lead: "live", strong: "phone previews" },
+];
 
 const TOOL_ROWS = [
-  { description: "Create repos, open pull requests, and read your code.", name: "GitHub" },
-  { description: "Read and update pages and databases.", name: "Notion" },
-  { description: "Post messages and read the channels you choose.", name: "Slack" },
-] as const;
-
-const BASIC_ROWS = [
   {
-    cta: "Open automations",
-    description: 'Automate routine work - e.g. "Every morning at 8, draft a social pack."',
-    href: "/automations",
-    title: "Automations",
+    badge: <GitHubMark />,
+    description: "Inspect repositories, issues, pull requests, commits, and code.",
+    name: "GitHub",
   },
   {
-    cta: "Browse skills",
-    description: 'Teach reusable skills - e.g. "Create an invoice-chaser skill."',
-    href: "/skills",
-    title: "Custom skills",
+    badge: <LetterBadge color="#1B1B1B" letter="N" />,
+    description: "Search pages, update content, query databases, and manage comments.",
+    name: "Notion",
   },
   {
-    cta: null,
-    description: "This is the computer I use - a persistent sandbox per project for real work.",
-    href: null,
-    title: "Your agent computer",
+    badge: <LetterBadge color="#4A154B" letter="S" />,
+    description: "Search conversations, manage channels, messages, and files.",
+    name: "Slack",
   },
 ] as const;
 
-// Sandbox-hour allowances mirror PLAN_CATALOG in @cheatcode/billing (design 15f).
 const TIERS = [
-  { bullet: "60 sandbox-hours / month", name: "Pro", price: "$25", tier: "pro" },
-  { bullet: "140 sandbox-hours / month", name: "Premium", price: "$50", tier: "premium" },
-  { bullet: "320 sandbox-hours / month", name: "Ultra", price: "$99", tier: "ultra" },
-  { bullet: "800 sandbox-hours / month", name: "Max", price: "$200", tier: "max" },
+  { bullet: "60 sandbox hours / month", name: "Pro", price: "$25/mo", tier: "pro" },
+  { bullet: "140 sandbox hours / month", name: "Premium", price: "$50/mo", tier: "premium" },
+  { bullet: "320 sandbox hours / month", name: "Ultra", price: "$99/mo", tier: "ultra" },
+  { bullet: "800 sandbox hours / month", name: "Max", price: "$200/mo", tier: "max" },
 ] as const satisfies readonly {
   bullet: string;
   name: string;
@@ -56,20 +61,30 @@ const TIERS = [
 
 export function IntroStep({ onContinue }: { onContinue: () => void }) {
   return (
-    <div className="space-y-6">
-      <StepHeader subtitle="I'm your agent team. I have:" title="Welcome to Cheatcode" />
-      <ul className="space-y-3">
-        {INTRO_BULLETS.map((bullet) => (
-          <li className="flex gap-3 text-[#707070] text-sm" key={bullet}>
-            <Check aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0 text-[#5b9a73]" />
-            <span>{bullet}</span>
-          </li>
-        ))}
-      </ul>
-      <StepFooter>
-        <ContinueButton onClick={onContinue} />
-      </StepFooter>
-    </div>
+    <Shell width={360}>
+      <Sparkle />
+      <div className="flex justify-center pt-11 pb-1.5 text-[#1B1B1B] text-[14px] leading-[18px]">
+        <span className="font-medium">I'm your&nbsp;</span>
+        <span className="font-bold">agent team</span>
+        <span className="font-medium">. I have:</span>
+      </div>
+      {FEATURE_ROWS.map((row) => (
+        <div
+          className="flex w-[200px] shrink-0 items-center gap-[9px] whitespace-nowrap pt-3 text-[#1B1B1B] text-[14px] leading-[18px]"
+          key={row.key}
+        >
+          <span className="mr-[9px] flex shrink-0">{row.icon}</span>
+          {row.lead ? <span className="font-medium">{row.lead}</span> : null}
+          <span className="font-semibold underline decoration-1 underline-offset-2">
+            {row.strong}
+          </span>
+          {row.trail ? <span className="font-medium">{row.trail}</span> : null}
+        </div>
+      ))}
+      <Actions className="pt-11">
+        <PrimaryPill onClick={onContinue}>Continue</PrimaryPill>
+      </Actions>
+    </Shell>
   );
 }
 
@@ -83,79 +98,95 @@ export function NameStep({
   onSkip: () => void;
 }) {
   const [name, setName] = useState(initialName);
+  const empty = name.trim().length === 0;
   return (
-    <div className="space-y-6">
-      <StepHeader progress="1 / 4" title="First, give your agents a name" />
+    <Shell width={360}>
+      <Sparkle />
+      <Eyebrow>1/4</Eyebrow>
+      <StepTitle>First, give your agents a name</StepTitle>
       <input
-        className="h-12 w-full rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 text-[#1b1b1b] text-sm outline-none placeholder:text-[#b5b5b5] focus:border-[#dedede] focus:bg-white"
+        aria-label="Agent name"
+        className="mt-[22px] h-[34px] w-[204px] rounded-full bg-[#F7F7F7] px-4 text-center font-medium text-[#1B1B1B] text-[14px] leading-[18px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] outline-none placeholder:text-[#B5B5B5] focus:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
         maxLength={80}
         onChange={(event) => setName(event.target.value)}
-        placeholder="Give your agent a name"
+        onKeyDown={(event) => {
+          if (event.key === "Enter" && !empty) {
+            onContinue(name.trim());
+          }
+        }}
+        placeholder="Name your agent"
         value={name}
       />
-      <StepFooter>
-        <SkipButton onClick={onSkip} />
-        <ContinueButton onClick={() => onContinue(name.trim())} />
-      </StepFooter>
-    </div>
+      <Actions className="pt-11">
+        <SkipPill onClick={onSkip} />
+        <PrimaryPill disabled={empty} onClick={() => onContinue(name.trim())}>
+          Continue
+        </PrimaryPill>
+      </Actions>
+    </Shell>
   );
 }
 
 export function ToolsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
   return (
-    <div className="space-y-6">
-      <StepHeader progress="2 / 4" title="Second, give me access to your tools" />
-      <div className="space-y-3">
+    <Shell width={440}>
+      <Sparkle />
+      <Eyebrow>2/4</Eyebrow>
+      <StepTitle>Second, give me access to your tools.</StepTitle>
+      <div className="mt-[22px] flex h-8 w-full items-center gap-2 rounded-full bg-white px-3 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+        <SearchIcon />
+        <span className="font-medium text-[#9B9B9B] text-[14px] leading-[18px]">Search skills</span>
+      </div>
+      <div className="flex w-full flex-col gap-2 pt-2.5">
         {TOOL_ROWS.map((tool) => (
-          <div
-            className="flex items-center justify-between gap-4 rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 py-3"
-            key={tool.name}
-          >
-            <div className="min-w-0">
-              <div className="font-medium text-[#1b1b1b] text-sm">{tool.name}</div>
-              <p className="mt-0.5 text-[#8a8a8a] text-xs">{tool.description}</p>
-            </div>
-            <Link
-              className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#f1f1f1] bg-white px-3 py-2 text-[#4f4f4f] text-xs transition-colors hover:border-[#dedede] hover:text-[#1b1b1b]"
-              href="/tools"
-            >
-              Connect
-              <ExternalLink aria-hidden="true" className="h-3 w-3" />
-            </Link>
-          </div>
+          <ToolCard key={tool.name} tool={tool} />
         ))}
       </div>
-      <StepFooter>
-        <SkipButton onClick={onSkip} />
-        <ContinueButton onClick={onContinue}>Next</ContinueButton>
-      </StepFooter>
-    </div>
+      <Actions className="pt-9">
+        <SkipPill onClick={onSkip} />
+        <PrimaryPill onClick={onContinue}>Next</PrimaryPill>
+      </Actions>
+    </Shell>
   );
 }
 
 export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
   return (
-    <div className="space-y-6">
-      <StepHeader progress="3 / 4" title="3 basic things" />
-      <div className="space-y-3">
-        {BASIC_ROWS.map((row) => (
-          <div
-            className="rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] px-4 py-3"
-            key={row.title}
-          >
-            <div className="flex items-center justify-between gap-3">
-              <div className="font-medium text-[#1b1b1b] text-sm">{row.title}</div>
-              {row.cta ? <BasicCta cta={row.cta} href={row.href} /> : null}
-            </div>
-            <p className="mt-1 text-[#8a8a8a] text-xs leading-relaxed">{row.description}</p>
-          </div>
-        ))}
-      </div>
-      <StepFooter>
-        <SkipButton onClick={onSkip} />
-        <ContinueButton onClick={onContinue} />
-      </StepFooter>
-    </div>
+    <Shell width={440}>
+      <Sparkle />
+      <Eyebrow>3/4</Eyebrow>
+      <StepTitle>Third, these are the 3 basic things you need to know about me:</StepTitle>
+      <NumberedLine className="pt-[22px]">1. I can run autonomously:</NumberedLine>
+      <BasicCard>
+        <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+          Every morning at 8, draft a social pack
+        </span>
+        <span className="flex-1" />
+        <PreviewPill>Create</PreviewPill>
+      </BasicCard>
+      <NumberedLine className="pt-[18px]">2. You can teach me custom skills:</NumberedLine>
+      <BasicCard>
+        <div className="flex flex-col gap-px">
+          <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+            Create invoice-chaser skill
+          </span>
+          <span className="font-medium text-[#585858] text-[12px] leading-4">
+            Chase overdue invoices end-to-end — list, filter, draft follow-ups…
+          </span>
+        </div>
+        <span className="flex-1" />
+        <PreviewPill>Create</PreviewPill>
+      </BasicCard>
+      <NumberedLine className="pt-[18px]">
+        3. And this is the{" "}
+        <span className="font-semibold underline decoration-1 underline-offset-2">computer</span> I
+        use to code, store files, and browse.
+      </NumberedLine>
+      <Actions className="pt-9">
+        <SkipPill onClick={onSkip} />
+        <PrimaryPill onClick={onContinue}>Continue</PrimaryPill>
+      </Actions>
+    </Shell>
   );
 }
 
@@ -171,9 +202,11 @@ export function PlanStep({
   onComplete: (target: string) => void;
 }) {
   return (
-    <div className="space-y-6">
-      <StepHeader progress="4 / 4" title="Last thing, add sandbox time to start building" />
-      <div className="grid gap-3 sm:grid-cols-2">
+    <Shell width={360}>
+      <Sparkle />
+      <Eyebrow>4/4</Eyebrow>
+      <StepTitle>Last thing, add sandbox time to start building.</StepTitle>
+      <div className="flex w-full flex-col gap-2 pt-[22px]">
         {TIERS.map((tier) => (
           <PlanCard
             available={availableTiers.has(tier.tier)}
@@ -184,12 +217,32 @@ export function PlanStep({
           />
         ))}
       </div>
-      <div className="flex flex-col gap-2 pt-2 sm:flex-row sm:justify-between">
-        <SkipButton onClick={() => onComplete("/settings/api-keys")}>
-          Not ready for a plan? Bring your own keys
-        </SkipButton>
-        <SkipButton onClick={() => onComplete("/")}>Start from home</SkipButton>
+      <button
+        className="mt-5 flex h-[30px] items-center rounded-full bg-[#F4F4F4] px-3.5 font-medium text-[#1B1B1B] text-[13px] leading-4 transition-colors hover:bg-[#ececec]"
+        onClick={() => onComplete("/settings/api-keys")}
+        type="button"
+      >
+        Not ready for a plan? Bring your own keys
+      </button>
+      <button
+        className="pt-3.5 font-medium text-[#1B1B1B] text-[14px] leading-[18px] hover:underline"
+        onClick={() => onComplete("/")}
+        type="button"
+      >
+        See the dashboard first
+      </button>
+    </Shell>
+  );
+}
+
+function ToolCard({ tool }: { tool: (typeof TOOL_ROWS)[number] }) {
+  return (
+    <div className="flex flex-col gap-0.5 rounded-[14px] bg-white px-3.5 py-2.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+      <div className="flex items-center gap-2">
+        <span className="flex shrink-0">{tool.badge}</span>
+        <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{tool.name}</span>
       </div>
+      <p className="font-medium text-[#585858] text-[13px] leading-4">{tool.description}</p>
     </div>
   );
 }
@@ -206,91 +259,124 @@ function PlanCard({
   tier: { bullet: string; name: string; price: string; tier: PaidBillingTier };
 }) {
   return (
-    <div className="flex flex-col justify-between rounded-[18px] border border-[#f1f1f1] bg-[#fafafa] p-5">
-      <div>
-        <div className="flex items-baseline justify-between">
-          <span className="font-medium text-[#1b1b1b]">{tier.name}</span>
-          <span className="font-mono text-[#4f4f4f] text-sm">{tier.price}/mo</span>
+    <div className="flex items-center rounded-[14px] bg-[#FAFAF9] py-2 pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+      <div className="flex flex-col gap-px">
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-semibold text-[#1B1B1B] text-[14px] leading-[18px]">
+            {tier.name}
+          </span>
+          <span className="font-bold text-[#1B1B1B] text-[14px] leading-[18px]">{tier.price}</span>
         </div>
-        <p className="mt-2 text-[#8a8a8a] text-xs">{tier.bullet}</p>
+        <span className="font-medium text-[#585858] text-[12px] leading-4">{tier.bullet}</span>
       </div>
-      {available ? (
-        <button
-          className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-[#1b1b1b] px-4 font-medium text-sm text-white transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
-          disabled={isBusy}
-          onClick={() => onCheckout(tier.tier)}
-          type="button"
-        >
-          {isBusy ? <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" /> : null}
-          Upgrade to {tier.name}
-        </button>
-      ) : (
-        <div className="mt-4 flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] text-[#a0a0a0] text-xs">
-          Coming soon
-        </div>
-      )}
+      <span className="flex-1" />
+      <button
+        className="flex h-8 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={isBusy || !available}
+        onClick={() => onCheckout(tier.tier)}
+        type="button"
+      >
+        Get {tier.name}
+      </button>
     </div>
   );
 }
 
-function BasicCta({ cta, href }: { cta: string; href: string | null }) {
-  if (!href) {
-    return <span className="text-[#a0a0a0] text-xs">{cta}</span>;
-  }
+function LetterBadge({ color, letter }: { color: string; letter: string }) {
   return (
-    <Link className="text-[#1b1b1b] text-xs underline-offset-2 hover:underline" href={href}>
-      {cta}
-    </Link>
+    <span
+      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] font-semibold text-[9px] text-white leading-3"
+      style={{ backgroundColor: color }}
+    >
+      {letter}
+    </span>
   );
 }
 
-function StepHeader({
-  progress,
-  subtitle,
-  title,
+function Shell({ children, width }: { children: ReactNode; width: 360 | 440 }) {
+  return (
+    <div
+      className="flex w-full flex-col items-center"
+      style={{ maxWidth: width, fontSynthesis: "none" }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function Eyebrow({ children }: { children: ReactNode }) {
+  return <p className="pt-[26px] font-medium text-[#585858] text-[13px] leading-4">{children}</p>;
+}
+
+function StepTitle({ children }: { children: ReactNode }) {
+  return (
+    <h1 className="pt-2.5 text-center font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+      {children}
+    </h1>
+  );
+}
+
+function NumberedLine({ children, className }: { children: ReactNode; className?: string }) {
+  return (
+    <p className={cn("w-full font-medium text-[#1B1B1B] text-[14px] leading-[18px]", className)}>
+      {children}
+    </p>
+  );
+}
+
+function BasicCard({ children }: { children: ReactNode }) {
+  return (
+    <div className="mt-2.5 flex w-full items-center rounded-[14px] bg-[#FAFAF9] py-[9px] pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+      {children}
+    </div>
+  );
+}
+
+// Illustrative preview action on the Basics screen — the design shows a "Create" pill next to each
+// example, but it is a preview of capability, not a live action during first-run.
+function PreviewPill({ children }: { children: ReactNode }) {
+  return (
+    <span className="flex h-8 shrink-0 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px]">
+      {children}
+    </span>
+  );
+}
+
+function Actions({ children, className }: { children: ReactNode; className?: string }) {
+  return <div className={cn("flex items-center gap-2.5", className)}>{children}</div>;
+}
+
+function PrimaryPill({
+  children,
+  disabled,
+  onClick,
 }: {
-  progress?: string;
-  subtitle?: string;
-  title: string;
+  children: ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
 }) {
-  return (
-    <header className="space-y-2">
-      {progress ? (
-        <p className="font-mono text-[#a0a0a0] text-[10px] uppercase tracking-[0.24em]">
-          {progress}
-        </p>
-      ) : null}
-      <h1 className="font-bold text-[#1b1b1b] text-[24px] leading-[32px] tracking-normal">
-        {title}
-      </h1>
-      {subtitle ? <p className="text-[#707070] text-sm leading-relaxed">{subtitle}</p> : null}
-    </header>
-  );
-}
-
-function StepFooter({ children }: { children: ReactNode }) {
-  return <div className="flex items-center justify-between gap-3 pt-2">{children}</div>;
-}
-
-function ContinueButton({ children, onClick }: { children?: ReactNode; onClick: () => void }) {
   return (
     <button
       className={cn(
-        "inline-flex h-11 items-center justify-center rounded-full bg-[#1b1b1b] px-6",
-        "font-medium text-white transition-colors hover:bg-black",
+        "flex h-8 items-center gap-2 rounded-full px-3.5 font-medium text-[14px] leading-[18px] transition-colors",
+        disabled
+          ? "cursor-not-allowed bg-[#ABABA8] text-white/90"
+          : "bg-[#1B1B1B] text-white hover:bg-black",
       )}
+      disabled={disabled}
       onClick={onClick}
       type="button"
     >
-      {children ?? "Continue"}
+      {children}
+      <ReturnArrow />
     </button>
   );
 }
 
-function SkipButton({ children, onClick }: { children?: ReactNode; onClick: () => void }) {
+function SkipPill({ children, onClick }: { children?: ReactNode; onClick: () => void }) {
   return (
     <button
-      className="inline-flex h-11 items-center justify-center rounded-full px-4 text-[#707070] text-sm transition-colors hover:bg-[#fafafa] hover:text-[#1b1b1b]"
+      className="flex h-8 items-center rounded-full bg-white px-3.5 font-medium text-[#1B1B1B] text-[14px] leading-[18px] shadow-[inset_0_0_2px_0_rgba(0,0,0,0.02),0_0_1px_0_rgba(0,0,0,0.08)] transition-colors hover:bg-[#fafafa]"
       onClick={onClick}
       type="button"
     >
