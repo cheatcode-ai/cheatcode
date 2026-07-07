@@ -69,7 +69,7 @@ interface SidebarProject {
 }
 
 const PRIMARY_NAV = navItems("primary");
-const WORKSPACE_SECTION_NAV = navItems("workspace").filter((item) => item.id !== "tools");
+const WORKSPACE_SECTION_NAV = navItems("workspace");
 const FOOTER_NAV = navItems("footer");
 const CREDIT_BAR_KEYS = Array.from({ length: 50 }, (_, index) => `credit-bar-${index}`);
 const BUD_ACCOUNT_FONT = 'circular, "circular Fallback", sans-serif';

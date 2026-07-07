@@ -306,10 +306,9 @@ function BrandLogo({
   return (
     <span
       className={cn(
-        "flex shrink-0 items-center justify-center overflow-hidden rounded-[14px]",
+        "flex shrink-0 items-center justify-center overflow-hidden rounded-full bg-white shadow-[0_0_0_1px_#ececec]",
         boxClass,
       )}
-      style={{ backgroundImage: gradientForSlug(slug) }}
     >
       {failed ? (
         <span className="font-bold text-[#1b1b1b]/70 text-[10px]">{initials(displayName)}</span>
@@ -771,16 +770,4 @@ function initials(displayName: string): string {
     .join("")
     .toUpperCase();
   return joined || "?";
-}
-
-// Deterministic soft gradient per toolkit slug — keeps each logo tile visually
-// distinct across the whole catalog without per-brand styling. Inline style (not a
-// Tailwind class) because the hue is computed at runtime.
-function gradientForSlug(slug: string): string {
-  let hash = 0;
-  for (let index = 0; index < slug.length; index += 1) {
-    hash = (hash * 31 + slug.charCodeAt(index)) % 360;
-  }
-  const hue = hash;
-  return `linear-gradient(135deg, hsl(${hue} 62% 93%), hsl(${(hue + 36) % 360} 58% 88%))`;
 }
