@@ -238,10 +238,10 @@ export function BasicsStep({
       <BasicCard>
         <div className="flex flex-col gap-px">
           <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
-            Create invoice-chaser skill
+            Invoice-chaser skill
           </span>
           <span className="font-medium text-[#585858] text-[12px] leading-4">
-            Chase overdue invoices end-to-end — list, filter, draft follow-ups…
+            Chase overdue invoices, end to end.
           </span>
         </div>
         <span className="flex-1" />
