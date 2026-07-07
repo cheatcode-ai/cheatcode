@@ -19,7 +19,7 @@ import {
   type SandboxSearchFilesResult,
   type SandboxWriteFileResult,
 } from "@cheatcode/tools-code";
-import type { SandboxConsoleSnapshot } from "@cheatcode/types";
+import type { SandboxConsoleSnapshot, SandboxFilePreview } from "@cheatcode/types";
 import { z } from "zod";
 import { type SandboxExecAuditEntry, writeExecAudit } from "./project-sandbox-audit";
 import { listSandboxFiles } from "./project-sandbox-files";
@@ -34,6 +34,8 @@ import { buildPreviewUrl } from "./project-sandbox-preview";
 import { emptyConsoleSnapshot, sliceProcessLogs } from "./project-sandbox-process-logs";
 import {
   commandToShellString,
+  type ProjectCodeServerInput,
+  ProjectCodeServerInputSchema,
   type ProjectCreateBackupInput,
   ProjectCreateBackupInputSchema,
   type ProjectDeleteFileInput,
@@ -46,6 +48,8 @@ import {
   ProjectKillProcessInputSchema,
   type ProjectListFilesInput,
   ProjectListFilesInputSchema,
+  type ProjectPreviewFileInput,
+  ProjectPreviewFileInputSchema,
   type ProjectReadDevServerLogsInput,
   ProjectReadDevServerLogsInputSchema,
   type ProjectReadFileInput,
@@ -54,12 +58,16 @@ import {
   ProjectRestoreBackupInputSchema,
   type ProjectRunCodeInput,
   ProjectRunCodeInputSchema,
+  type ProjectSandboxRuntimeState,
   type ProjectSearchFilesInput,
   ProjectSearchFilesInputSchema,
   type ProjectStartProcessInput,
   ProjectStartProcessInputSchema,
   type ProjectUnexposePortInput,
   ProjectUnexposePortInputSchema,
+  type ProjectWakePreviewInput,
+  ProjectWakePreviewInputSchema,
+  type ProjectWakePreviewResult,
   type ProjectWriteFileInput,
   ProjectWriteFileInputSchema,
 } from "./project-sandbox-runtime";
@@ -83,18 +91,33 @@ export interface ProjectSandboxStatus {
 }
 
 const WORKSPACE_DIR = "/workspace";
+// The app-builder dev server (Next/Expo) always runs here — the fallback cwd when relaunching a
+// dev server whose ProcessRecord predates cwd persistence.
+const APP_BUILDER_DIR = "/workspace/app";
 const ENV_FILE_DIR = "/home/node/.cc-env";
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
-const DEFAULT_IDLE_STOP_MIN = 15;
+// Daytona auto-stops after this many idle minutes. IMPORTANT: preview/proxy traffic does NOT
+// count as activity (only SDK/toolbox calls do), so a live preview would otherwise die mid-view.
+// 30 min softens that; the wake-on-open path (wakePreview) restarts a stopped sandbox + dev server.
+const DEFAULT_IDLE_STOP_MIN = 30;
 const AUTO_ARCHIVE_MIN = 1_440; // 1 day stopped → cold storage
 const NEVER_AUTO_DELETE = -1; // the sandbox disk is the durable store
 const APP_PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
+// Upper bound for a dev server (Expo Metro / Next) to boot when waking a stopped preview.
+const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
+const CODE_SERVER_PORT = 13_340;
+const CODE_SERVER_PROCESS_ID = "code-server";
+const CODE_SERVER_START_TIMEOUT_MS = 120_000;
+const CODE_SERVER_SETTINGS_MARKER =
+  "/home/node/.local/share/code-server/user-data/.cheatcode-settings-v4";
 const DEFAULT_TAKEOVER_TTL_MS = 15 * 60 * 1000;
 const KEEPALIVE_ALARM_MS = 4 * 60 * 1000;
 const MAX_RUN_LEASE_MS = 6 * 60 * 60 * 1000;
 const STARTED_REVERIFY_MS = 30 * 1000;
 const ENSURE_STARTED_ATTEMPTS = 30;
 const ENSURE_STARTED_DELAY_MS = 2_000;
+const MAX_PREVIEW_BYTES = 15 * 1024 * 1024;
+const PREVIEW_DIR = "/workspace/.cheatcode-previews";
 
 const SANDBOX_OWNER_USER_ID_KEY = "sandbox_owner_user_id";
 const DAYTONA_ID_KEY = "daytona_sandbox_id";
@@ -110,9 +133,15 @@ const ProcessRecordSchema = z
     cmdId: z.string(),
     command: z.string(),
     port: z.number().optional(),
+    // cwd + env are persisted so a dev server can be relaunched faithfully after the sandbox
+    // idle-stops and its process dies (wakePreview) — the workspace disk survives the restart.
+    cwd: z.string().optional(),
+    env: z.record(z.string(), z.string()).optional(),
+    startedAtMs: z.number().int().nonnegative().optional(),
   })
   .strict();
 type ProcessRecord = z.infer<typeof ProcessRecordSchema>;
+type NamedProcessRecord = { name: string; record: ProcessRecord };
 
 export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   private daytonaClient: DaytonaClient | undefined;
@@ -231,6 +260,10 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return this.ensureReady();
   }
 
+  public async runtimeSandboxId(): Promise<string> {
+    return this.ensureSandbox();
+  }
+
   // ----- code / exec -----
 
   public async runCode(input: ProjectRunCodeInput): Promise<SandboxRunCodeResult> {
@@ -300,11 +333,14 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const parsed = ProjectStartProcessInputSchema.parse(input);
     const id = await this.ensureSandbox();
     const client = this.client();
-    const name = parsed.processId ?? `process-${crypto.randomUUID()}`;
+    const name =
+      parsed.processId ?? (parsed.waitForPort ? "app-preview" : `process-${crypto.randomUUID()}`);
     const sessionId = `cc-${name}`;
-    if (parsed.processId) {
-      await client.deleteSession(id, sessionId).catch(() => undefined);
-      await this.ctx.storage.delete(`${PROC_PREFIX}${name}`);
+    if (parsed.processId || parsed.waitForPort) {
+      await this.deleteProcessRecord(id, name);
+      if (parsed.waitForPort) {
+        await this.deleteProcessesOnPort(id, parsed.waitForPort.port, name);
+      }
     }
     const cwd = parsed.cwd ?? WORKSPACE_DIR;
     const command = await this.buildSessionCommand(
@@ -322,6 +358,9 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       cmdId,
       command: commandToShellString(parsed.command),
       ...(parsed.waitForPort ? { port: parsed.waitForPort.port } : {}),
+      cwd,
+      ...(parsed.env && Object.keys(parsed.env).length > 0 ? { env: parsed.env } : {}),
+      startedAtMs: Date.now(),
     };
     await this.ctx.storage.put(`${PROC_PREFIX}${name}`, record);
     if (parsed.waitForPort) {
@@ -346,6 +385,22 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       return { content: encodeBase64(bytes), encoding: "base64", path: parsed.path };
     }
     return { content: new TextDecoder().decode(bytes), encoding: "utf8", path: parsed.path };
+  }
+
+  public async previewFile(input: ProjectPreviewFileInput): Promise<SandboxFilePreview> {
+    const parsed = ProjectPreviewFileInputSchema.parse(input);
+    const extension = lowercaseExtension(parsed.path);
+    const imageMime = imageMimeType(extension);
+    if (imageMime) {
+      return this.base64Preview(parsed.path, parsed.path, "image", imageMime);
+    }
+    if (extension === ".pdf") {
+      return this.base64Preview(parsed.path, parsed.path, "pdf", "application/pdf");
+    }
+    if (isOfficePreviewExtension(extension)) {
+      return this.officePdfPreview(parsed.path);
+    }
+    return unsupportedPreview(parsed.path, "No preview renderer is available for this file type.");
   }
 
   public async writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
@@ -411,11 +466,12 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       .getPreviewLink(id, parsed.port)
       .catch(() => undefined);
     const secret = await this.previewSecret();
+    const hostname = this.previewHostname(parsed.hostname);
     const mode = parsed.tokenTtlMs === undefined ? "app" : "takeover";
     const ttlMs =
       parsed.tokenTtlMs ?? (mode === "app" ? APP_PREVIEW_TTL_MS : DEFAULT_TAKEOVER_TTL_MS);
     const built = await buildPreviewUrl({
-      hostname: parsed.hostname ?? this.env.PREVIEW_HOSTNAME ?? "trycheatcode.com",
+      hostname,
       mode,
       port: parsed.port,
       sandboxId: id,
@@ -428,6 +484,92 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       token: built.token,
       url: built.url,
     };
+  }
+
+  public async exposeCodeServer(input: ProjectCodeServerInput): Promise<{
+    expiresAt: string;
+    port: number;
+    url: string;
+    workspacePath: string;
+  }> {
+    const parsed = ProjectCodeServerInputSchema.parse(input);
+    const id = await this.ensureSandbox();
+    await this.ensureCodeServer(id);
+    if (parsed.initialFilePath) {
+      await this.openCodeServerFile(id, parsed.initialFilePath).catch(() => undefined);
+    }
+    const hostname = this.previewHostname(parsed.hostname);
+    await this.client()
+      .getPreviewLink(id, CODE_SERVER_PORT)
+      .catch(() => undefined);
+    const secret = await this.previewSecret();
+    const built = await buildPreviewUrl({
+      hostname,
+      mode: "code",
+      port: CODE_SERVER_PORT,
+      sandboxId: id,
+      secret,
+      ttlMs: APP_PREVIEW_TTL_MS,
+    });
+    return {
+      expiresAt: built.expiresAt,
+      port: CODE_SERVER_PORT,
+      url: codeServerFolderUrl(built.url, parsed.workspacePath),
+      workspacePath: parsed.workspacePath,
+    };
+  }
+
+  // Wake the app preview: start the sandbox if it idle-stopped (Daytona preview traffic does
+  // not reset the auto-stop timer, so this is the common case) and relaunch the dev server from
+  // its stored command if the process died with the VM. Returns a fresh preview URL + liveness.
+  public async wakePreview(input: ProjectWakePreviewInput): Promise<ProjectWakePreviewResult> {
+    const parsed = ProjectWakePreviewInputSchema.parse(input);
+    const id = await this.ensureSandbox();
+    const record = await this.processRecord("app-preview");
+    if (!record?.port) {
+      // No dev server has ever been tracked for this sandbox (e.g. a docs/data project).
+      return { running: false, state: "started" };
+    }
+    const port = record.port;
+    let running = await this.isPortAlive(id, port);
+    if (!running) {
+      await this.relaunchDevServer(id, "app-preview", record);
+      await this.waitForPort(id, port, "/", PREVIEW_WAKE_TIMEOUT_MS).catch(() => undefined);
+      running = await this.isPortAlive(id, port);
+    }
+    await this.client()
+      .getPreviewLink(id, port)
+      .catch(() => undefined);
+    const secret = await this.previewSecret();
+    const hostname = this.previewHostname(parsed.hostname);
+    const built = await buildPreviewUrl({
+      hostname,
+      mode: "app",
+      port,
+      sandboxId: id,
+      secret,
+      ttlMs: APP_PREVIEW_TTL_MS,
+    });
+    return { expiresAt: built.expiresAt, port, running, state: "started", url: built.url };
+  }
+
+  // Current Daytona lifecycle state without forcing a start — the status surface for the
+  // preview panel (kept fresh by sandbox.state.updated webhooks, falls back to a live read).
+  // The stored Daytona sandbox UUID with no upstream call (cache key for the state webhook);
+  // null if this project has never resolved a sandbox.
+  public async existingDaytonaId(): Promise<string | null> {
+    return this.daytonaId ?? (await this.storedDaytonaId());
+  }
+
+  public async sandboxRuntimeState(): Promise<ProjectSandboxRuntimeState> {
+    const existing = await this.existingSandboxId();
+    if (!existing) {
+      return { state: "none" };
+    }
+    const sandbox = await this.client()
+      .getSandbox(existing)
+      .catch(() => null);
+    return { sandboxId: existing, state: sandbox?.state ?? "unknown" };
   }
 
   public async unexposePort(input: ProjectUnexposePortInput): Promise<void> {
@@ -472,33 +614,98 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   ): Promise<SandboxConsoleSnapshot> {
     const parsed = ProjectReadDevServerLogsInputSchema.parse(input);
     const id = await this.existingSandboxId();
-    const record = await this.processRecord(parsed.processId);
-    if (id === null || record === null) {
+    const processes = await this.processRecordsForRead(parsed.processId);
+    if (id === null || processes.length === 0) {
       return emptyConsoleSnapshot({ stderr: parsed.stderrCursor, stdout: parsed.stdoutCursor });
     }
-    try {
-      const buffer = await this.client().getSessionCommandLogs(id, record.sessionId, record.cmdId);
-      const sliced = sliceProcessLogs({
-        lastPid: parsed.lastPid,
-        pid: record.cmdId,
-        stderrCursor: parsed.stderrCursor,
-        stderrText: "",
-        stdoutCursor: parsed.stdoutCursor,
-        stdoutText: buffer,
-        tail: parsed.tail,
-      });
-      return {
-        ...sliced,
-        process: {
-          command: record.command,
-          id: parsed.processId,
+    for (const process of processes) {
+      const { name, record } = process;
+      try {
+        const buffer = await this.client().getSessionCommandLogs(
+          id,
+          record.sessionId,
+          record.cmdId,
+        );
+        const sliced = sliceProcessLogs({
+          lastPid: parsed.lastPid,
           pid: record.cmdId,
-          status: "running",
-        },
-      };
-    } catch (error) {
-      throw this.toUpstreamError(error, "Sandbox console read failed.");
+          stderrCursor: parsed.stderrCursor,
+          stderrText: "",
+          stdoutCursor: parsed.stdoutCursor,
+          stdoutText: buffer,
+          tail: parsed.tail,
+        });
+        return {
+          ...sliced,
+          process: {
+            command: record.command,
+            id: name,
+            pid: record.cmdId,
+            status: "running",
+          },
+        };
+      } catch (error) {
+        if (isMissingDaytonaProcessError(error)) {
+          await this.ctx.storage.delete(`${PROC_PREFIX}${name}`);
+          continue;
+        }
+        throw this.toUpstreamError(error, "Sandbox console read failed.");
+      }
     }
+    return emptyConsoleSnapshot({ stderr: parsed.stderrCursor, stdout: parsed.stdoutCursor });
+  }
+
+  private async base64Preview(
+    sourcePath: string,
+    previewPath: string,
+    kind: "image" | "pdf",
+    mimeType: string,
+  ): Promise<SandboxFilePreview> {
+    const id = await this.ensureSandbox();
+    const bytes = await this.client().downloadFile(id, previewPath);
+    if (bytes.byteLength > MAX_PREVIEW_BYTES) {
+      return unsupportedPreview(sourcePath, "Preview file is too large to display inline.");
+    }
+    return {
+      content: encodeBase64(bytes),
+      encoding: "base64",
+      error: null,
+      kind,
+      mimeType,
+      path: sourcePath,
+      previewPath,
+    };
+  }
+
+  private async officePdfPreview(sourcePath: string): Promise<SandboxFilePreview> {
+    const id = await this.ensureSandbox();
+    if (!(await this.hasLibreOfficeRuntime(id))) {
+      return unsupportedPreview(
+        sourcePath,
+        "Office preview requires the current sandbox image with LibreOffice installed.",
+      );
+    }
+    const outputDir = `${PREVIEW_DIR}/${crypto.randomUUID()}`;
+    const command = [
+      `mkdir -p ${shellQuote(outputDir)}`,
+      `libreoffice --headless --nologo --nofirststartwizard --convert-to pdf --outdir ${shellQuote(
+        outputDir,
+      )} ${shellQuote(sourcePath)}`,
+    ].join(" && ");
+    const converted = await this.client()
+      .execute(id, {
+        command,
+        cwd: WORKSPACE_DIR,
+        timeout: timeoutSeconds(90_000),
+      })
+      .catch((error: unknown) => {
+        throw this.toUpstreamError(error, "Office preview conversion failed.");
+      });
+    if (converted.exitCode !== 0) {
+      return unsupportedPreview(sourcePath, conversionErrorMessage(converted.result ?? ""));
+    }
+    const previewPath = `${outputDir}/${withoutExtension(basename(sourcePath))}.pdf`;
+    return this.base64Preview(sourcePath, previewPath, "pdf", "application/pdf");
   }
 
   // ----- backup / restore (sandbox disk is the durable store) -----
@@ -524,13 +731,16 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
 
   public async destroySandbox(): Promise<SandboxDestroyResult> {
     await recordSandboxUsageBestEffort(await this.meteringContext());
+    const client = await this.ensureClient();
     try {
-      await this.client().deleteSandbox(this.sandboxName());
+      await client.deleteSandbox(this.sandboxName()).catch((error: unknown) => {
+        if (!isMissingDaytonaResourceError(error)) {
+          throw error;
+        }
+      });
       const id = this.daytonaId;
       if (id && id !== this.sandboxName()) {
-        await this.client()
-          .deleteSandbox(id)
-          .catch(() => undefined);
+        await client.deleteSandbox(id).catch(() => undefined);
       }
     } catch (error) {
       throw this.toUpstreamError(error, "Daytona sandbox deletion failed.");
@@ -635,8 +845,28 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
         autoDeleteInterval: NEVER_AUTO_DELETE,
       });
     } catch (error) {
+      if (isDaytonaNameConflictError(error)) {
+        const existing = await this.findExistingSandboxAfterCreateConflict(client, name);
+        if (existing) {
+          return existing;
+        }
+      }
       throw this.toUpstreamError(error, "Daytona sandbox failed to start.");
     }
+  }
+
+  private async findExistingSandboxAfterCreateConflict(
+    client: DaytonaClient,
+    name: string,
+  ): Promise<DaytonaSandbox | null> {
+    const byName = await client.getSandbox(name).catch(() => null);
+    if (byName && !isDestroyed(byName)) {
+      return byName;
+    }
+    const byLabel = await client
+      .listSandboxesByLabels({ app: "cheatcode", sandboxId: name })
+      .catch(() => [] as DaytonaSandbox[]);
+    return byLabel.find((sandbox) => !isDestroyed(sandbox)) ?? null;
   }
 
   private async ensureStarted(client: DaytonaClient, sandbox: DaytonaSandbox): Promise<void> {
@@ -724,6 +954,34 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return `cd ${shellQuote(cwd)} && set -a && . ${shellQuote(envPath)} && rm -f ${shellQuote(envPath)} && set +a && ${rawCommand}`;
   }
 
+  // Single-shot liveness probe for a dev server port (inside the sandbox).
+  private async isPortAlive(id: string, port: number): Promise<boolean> {
+    const probe = await this.client()
+      .execute(id, {
+        command: `curl -sf -o /dev/null --max-time 3 http://localhost:${port}/`,
+        timeout: 5,
+      })
+      .catch(() => null);
+    return probe?.exitCode === 0;
+  }
+
+  // Re-exec a stored dev-server command in a fresh toolbox session. Called after a VM restart,
+  // where the workspace disk survives but the process (and its session) are gone.
+  private async relaunchDevServer(id: string, name: string, record: ProcessRecord): Promise<void> {
+    const sessionId = record.sessionId || `cc-${name}`;
+    const cwd = record.cwd ?? APP_BUILDER_DIR;
+    await this.client()
+      .createSession(id, sessionId)
+      .catch(() => undefined);
+    const command = await this.buildSessionCommand(id, sessionId, cwd, record.command, record.env);
+    const exec = await this.client().execSessionCommand(id, sessionId, command, true);
+    await this.ctx.storage.put(`${PROC_PREFIX}${name}`, {
+      ...record,
+      cmdId: exec.cmdId ?? sessionId,
+      startedAtMs: Date.now(),
+    } satisfies ProcessRecord);
+  }
+
   private async waitForPort(
     id: string,
     port: number,
@@ -746,6 +1004,124 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     }
   }
 
+  private async hasLibreOfficeRuntime(id: string): Promise<boolean> {
+    const probe = await this.client()
+      .execute(id, {
+        command: "command -v libreoffice >/dev/null",
+        timeout: 5,
+      })
+      .catch(() => null);
+    return probe?.exitCode === 0;
+  }
+
+  private async ensureCodeServer(id: string): Promise<void> {
+    if (
+      (await this.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000)) &&
+      (await this.hasCodeServerSettingsMarker(id))
+    ) {
+      return;
+    }
+    if (!(await this.hasCodeServerRuntime(id))) {
+      throw new APIError(502, "sandbox_failed_to_start", "code-server is not installed", {
+        hint: "Start a new project sandbox from the current Daytona snapshot to use the Files viewer.",
+        retriable: false,
+      });
+    }
+    await this.deleteProcessRecord(id, CODE_SERVER_PROCESS_ID);
+    await this.deleteProcessesOnPort(id, CODE_SERVER_PORT, CODE_SERVER_PROCESS_ID);
+    await this.client()
+      .execute(id, {
+        command: "pkill -f code-server || true",
+        timeout: 5,
+      })
+      .catch(() => null);
+    await this.startProcess({
+      command: ["bash", "-lc", codeServerStartCommand()],
+      cwd: WORKSPACE_DIR,
+      env: {
+        CODE_SERVER_PORT: String(CODE_SERVER_PORT),
+        CODE_SERVER_TRUSTED_ORIGINS: "localhost:8787,*.localhost:8787,*.trycheatcode.com",
+        CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
+      },
+      keepAliveTimeoutMs: 0,
+      maxRestarts: 3,
+      processId: CODE_SERVER_PROCESS_ID,
+      restartOnFailure: true,
+      timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
+      waitForPort: {
+        path: "/",
+        port: CODE_SERVER_PORT,
+        timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
+      },
+    });
+    if (await this.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000)) {
+      return;
+    }
+    throw new APIError(502, "sandbox_failed_to_start", "Unable to start code-server", {
+      hint: "Rebuild the Daytona sandbox snapshot with code-server, then retry the Files tab.",
+      retriable: true,
+    });
+  }
+
+  private async hasCodeServerRuntime(id: string): Promise<boolean> {
+    const probe = await this.client()
+      .execute(id, {
+        command: "command -v code-server >/dev/null",
+        timeout: 5,
+      })
+      .catch(() => null);
+    return probe?.exitCode === 0;
+  }
+
+  private async hasCodeServerSettingsMarker(id: string): Promise<boolean> {
+    const probe = await this.client()
+      .execute(id, {
+        command: `test -f ${shellQuote(CODE_SERVER_SETTINGS_MARKER)}`,
+        timeout: 5,
+      })
+      .catch(() => null);
+    return probe?.exitCode === 0;
+  }
+
+  private async openCodeServerFile(id: string, path: string): Promise<void> {
+    await this.client().execute(id, {
+      command: [
+        "CODE_SERVER_USER_DATA_DIR=/home/node/.local/share/code-server/user-data",
+        "CODE_SERVER_EXTENSIONS_DIR=/home/node/.local/share/code-server/extensions",
+        "code-server",
+        "--user-data-dir /home/node/.local/share/code-server/user-data",
+        "--extensions-dir /home/node/.local/share/code-server/extensions",
+        "--reuse-window",
+        shellQuote(path),
+        ">/tmp/cheatcode-code-server-open-file.log 2>&1 || true",
+      ].join(" "),
+      timeout: 15,
+    });
+  }
+
+  private async httpPortReady(
+    id: string,
+    port: number,
+    path: string,
+    timeoutMs: number,
+  ): Promise<boolean> {
+    const deadline = Date.now() + timeoutMs;
+    const url = `http://localhost:${port}${path}`;
+    while (Date.now() < deadline) {
+      const probe = await this.client()
+        .execute(id, {
+          command: `curl -sf -o /dev/null --max-time 3 ${shellQuote(url)}`,
+          timeout: 5,
+        })
+        .catch(() => null);
+      if (probe?.exitCode === 0) {
+        return true;
+      }
+      await sleep(1_000);
+    }
+    return false;
+  }
+
   private async meteringContext(): Promise<SandboxMeteringContext> {
     return {
       env: this.env,
@@ -765,6 +1141,13 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return secret;
   }
 
+  private previewHostname(hostname: string | undefined): string {
+    if (this.env.PREVIEW_HOSTNAME && (hostname === undefined || hostname === "trycheatcode.com")) {
+      return this.env.PREVIEW_HOSTNAME;
+    }
+    return hostname ?? this.env.PREVIEW_HOSTNAME ?? "trycheatcode.com";
+  }
+
   private async runLeases(): Promise<Array<{ runId: string; startedMs: number }>> {
     return RunLeasesSchema.parse((await this.ctx.storage.get(RUN_LEASES_KEY)) ?? []);
   }
@@ -773,6 +1156,52 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const value = await this.ctx.storage.get(`${PROC_PREFIX}${name}`);
     const parsed = ProcessRecordSchema.safeParse(value);
     return parsed.success ? parsed.data : null;
+  }
+
+  private async processRecordsForRead(name: string): Promise<NamedProcessRecord[]> {
+    const exact = await this.processRecord(name);
+    const records = await this.ctx.storage.list({ prefix: PROC_PREFIX });
+    const fallback: NamedProcessRecord[] = [];
+    for (const [key, value] of records) {
+      const parsed = ProcessRecordSchema.safeParse(value);
+      if (!parsed.success) {
+        continue;
+      }
+      const candidate = { name: key.slice(PROC_PREFIX.length), record: parsed.data };
+      if (candidate.name === CODE_SERVER_PROCESS_ID) {
+        continue;
+      }
+      if (candidate.name !== name) {
+        fallback.push(candidate);
+      }
+    }
+    fallback.sort((left, right) => compareProcessRecords(left.record, right.record));
+    return exact ? [{ name, record: exact }, ...fallback] : fallback;
+  }
+
+  private async deleteProcessRecord(id: string, name: string): Promise<void> {
+    const record = await this.processRecord(name);
+    if (record) {
+      await this.client()
+        .deleteSession(id, record.sessionId)
+        .catch(() => undefined);
+    }
+    await this.ctx.storage.delete(`${PROC_PREFIX}${name}`);
+  }
+
+  private async deleteProcessesOnPort(id: string, port: number, exceptName: string): Promise<void> {
+    const records = await this.ctx.storage.list({ prefix: PROC_PREFIX });
+    for (const [key, value] of records) {
+      const parsed = ProcessRecordSchema.safeParse(value);
+      const name = key.slice(PROC_PREFIX.length);
+      if (!parsed.success || name === exceptName || parsed.data.port !== port) {
+        continue;
+      }
+      await this.client()
+        .deleteSession(id, parsed.data.sessionId)
+        .catch(() => undefined);
+      await this.ctx.storage.delete(key);
+    }
   }
 
   private async storedDaytonaId(): Promise<string | null> {
@@ -832,8 +1261,96 @@ function isFailedState(state: string): boolean {
   return state === "error" || state === "build_failed";
 }
 
+function compareProcessRecords(left: ProcessRecord, right: ProcessRecord): number {
+  return (right.startedAtMs ?? 0) - (left.startedAtMs ?? 0);
+}
+
+function isMissingDaytonaProcessError(error: unknown): boolean {
+  return error instanceof DaytonaApiError && (error.status === 404 || error.status === 410);
+}
+
+function isDaytonaNameConflictError(error: unknown): boolean {
+  if (!(error instanceof DaytonaApiError) || error.status !== 409) {
+    return false;
+  }
+  const message = error.message.toLowerCase();
+  return message.includes("already exists") || message.includes("conflict");
+}
+
+function isMissingDaytonaResourceError(error: unknown): boolean {
+  return error instanceof DaytonaApiError && (error.status === 404 || error.status === 410);
+}
+
 function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
+}
+
+function lowercaseExtension(path: string): string {
+  const filename = basename(path).toLowerCase();
+  const dot = filename.lastIndexOf(".");
+  return dot === -1 ? "" : filename.slice(dot);
+}
+
+function imageMimeType(extension: string): string | null {
+  if (extension === ".png") {
+    return "image/png";
+  }
+  if (extension === ".jpg" || extension === ".jpeg") {
+    return "image/jpeg";
+  }
+  if (extension === ".gif") {
+    return "image/gif";
+  }
+  if (extension === ".webp") {
+    return "image/webp";
+  }
+  if (extension === ".svg") {
+    return "image/svg+xml";
+  }
+  return null;
+}
+
+function isOfficePreviewExtension(extension: string): boolean {
+  return [
+    ".doc",
+    ".docx",
+    ".odp",
+    ".ods",
+    ".odt",
+    ".pot",
+    ".potx",
+    ".pps",
+    ".ppsx",
+    ".ppt",
+    ".pptx",
+    ".xls",
+    ".xlsx",
+  ].includes(extension);
+}
+
+function unsupportedPreview(path: string, error: string): SandboxFilePreview {
+  return {
+    content: null,
+    encoding: null,
+    error,
+    kind: "unsupported",
+    mimeType: null,
+    path,
+    previewPath: null,
+  };
+}
+
+function conversionErrorMessage(output: string): string {
+  const trimmed = output.trim();
+  if (!trimmed) {
+    return "Office preview conversion failed.";
+  }
+  return trimmed.length > 1_000 ? `${trimmed.slice(0, 997)}...` : trimmed;
+}
+
+function withoutExtension(filename: string): string {
+  const dot = filename.lastIndexOf(".");
+  return dot <= 0 ? filename : filename.slice(0, dot);
 }
 
 function buildGrepCommand(input: ProjectSearchFilesInput): string {
@@ -870,6 +1387,11 @@ function dirname(path: string): string {
   return index <= 0 ? "/" : path.slice(0, index);
 }
 
+function basename(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index === -1 ? path : path.slice(index + 1);
+}
+
 function encodeBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) {
@@ -885,6 +1407,140 @@ function decodeBase64(value: string): Uint8Array {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
+}
+
+function codeServerFolderUrl(rawUrl: string, folderPath: string): string {
+  const url = new URL(rawUrl);
+  url.searchParams.set("folder", folderPath);
+  return url.toString();
+}
+
+function codeServerStartCommand(): string {
+  const settingsJson = JSON.stringify(
+    {
+      "breadcrumbs.enabled": false,
+      "chat.commandCenter.enabled": false,
+      "editor.fontFamily": "Menlo, Monaco, 'Courier New', monospace",
+      "editor.fontSize": 13,
+      "editor.lineHeight": 20,
+      "editor.minimap.enabled": false,
+      "explorer.confirmDelete": false,
+      "explorer.confirmDragAndDrop": false,
+      "explorer.openEditors.visible": 0,
+      "files.autoSave": "afterDelay",
+      "files.autoSaveDelay": 800,
+      "muty-pptviewer.libreOfficePath": "/usr/bin/libreoffice",
+      "security.workspace.trust.enabled": false,
+      "telemetry.telemetryLevel": "off",
+      "update.showReleaseNotes": false,
+      "window.commandCenter": true,
+      "window.menuBarVisibility": "hidden",
+      "window.titleBarStyle": "custom",
+      "workbench.activityBar.location": "hidden",
+      "workbench.activityBar.visible": false,
+      "workbench.colorCustomizations": {
+        "activityBar.background": "#f8f8f8",
+        "activityBar.foreground": "#1a1a1a",
+        "activityBar.inactiveForeground": "#616161",
+        "editor.background": "#ffffff",
+        "editor.foreground": "#616161",
+        "editorGroupHeader.tabsBackground": "#f8f8f8",
+        "panel.background": "#ffffff",
+        "sideBar.background": "#f8f8f8",
+        "sideBar.foreground": "#1a1a1a",
+        "sideBarTitle.foreground": "#1a1a1a",
+        "statusBar.background": "#f8f8f8",
+        "tab.activeBackground": "#ffffff",
+        "tab.activeForeground": "#1a1a1a",
+        "tab.inactiveBackground": "#f8f8f8",
+        "tab.inactiveForeground": "#616161",
+        "titleBar.activeBackground": "#f8f8f8",
+        "titleBar.activeForeground": "#1a1a1a",
+        "titleBar.inactiveBackground": "#f8f8f8",
+        "titleBar.inactiveForeground": "#616161",
+      },
+      "workbench.colorTheme": "Default Light Modern",
+      "workbench.editor.empty.hint": "hidden",
+      "workbench.editor.enablePreview": false,
+      "workbench.editorAssociations": {
+        "*.ppt": "muty-pptviewer.preview",
+        "*.pptx": "muty-pptviewer.preview",
+      },
+      "workbench.layoutControl.enabled": false,
+      "workbench.panel.defaultLocation": "bottom",
+      "workbench.secondarySideBar.defaultVisibility": "hidden",
+      "workbench.startupEditor": "none",
+      "workbench.statusBar.visible": false,
+      "workbench.tips.enabled": false,
+      "workbench.welcomePage.walkthroughs.openOnInstall": false,
+    },
+    null,
+    2,
+  );
+  const portDefault = shellExpansion("CODE_SERVER_PORT:-13340");
+  const workspaceDefault = shellExpansion("CODE_SERVER_WORKSPACE:-/workspace");
+  const userDataDefault = shellExpansion(
+    "CODE_SERVER_USER_DATA_DIR:-/home/node/.local/share/code-server/user-data",
+  );
+  const extensionsDefault = shellExpansion(
+    "CODE_SERVER_EXTENSIONS_DIR:-/home/node/.local/share/code-server/extensions",
+  );
+  const trustedOriginsDefault = shellExpansion(
+    "CODE_SERVER_TRUSTED_ORIGINS:-localhost:8787,*.localhost:8787,*.trycheatcode.com",
+  );
+  const trustedOriginListExpansion = shellExpansion("TRUSTED_ORIGIN_LIST[@]");
+  const trustedOriginTrimLeading = shellExpansion(
+    `TRUSTED_ORIGIN#"${shellExpansion("TRUSTED_ORIGIN%%[![:space:]]*")}"`,
+  );
+  const trustedOriginTrimTrailing = shellExpansion(
+    `TRUSTED_ORIGIN%"${shellExpansion("TRUSTED_ORIGIN##*[![:space:]]}")}"`,
+  );
+  const portExpansion = shellExpansion("PORT");
+  return [
+    "set -euo pipefail",
+    `PORT="${portDefault}"`,
+    `WORKSPACE="${workspaceDefault}"`,
+    `USER_DATA_DIR="${userDataDefault}"`,
+    `EXTENSIONS_DIR="${extensionsDefault}"`,
+    `TRUSTED_ORIGINS="${trustedOriginsDefault}"`,
+    'mkdir -p "$USER_DATA_DIR/User" "$EXTENSIONS_DIR"',
+    "cat > \"$USER_DATA_DIR/User/settings.json\" <<'JSON'",
+    settingsJson,
+    "JSON",
+    "cat > \"$USER_DATA_DIR/User/keybindings.json\" <<'JSON'",
+    "[]",
+    "JSON",
+    'rm -rf "$USER_DATA_DIR/User/workspaceStorage"',
+    'touch "$USER_DATA_DIR/.cheatcode-settings-v4"',
+    "export CS_DISABLE_GETTING_STARTED_OVERRIDE=1",
+    'EXTRA_FLAGS=""',
+    'if code-server --help 2>/dev/null | grep -q -- "--disable-getting-started-override"; then',
+    '  EXTRA_FLAGS="$EXTRA_FLAGS --disable-getting-started-override"',
+    "fi",
+    'if code-server --help 2>/dev/null | grep -q -- "--disable-workspace-trust"; then',
+    '  EXTRA_FLAGS="$EXTRA_FLAGS --disable-workspace-trust"',
+    "fi",
+    'IFS="," read -r -a TRUSTED_ORIGIN_LIST <<< "$TRUSTED_ORIGINS"',
+    `for TRUSTED_ORIGIN in "${trustedOriginListExpansion}"; do`,
+    `  TRUSTED_ORIGIN="${trustedOriginTrimLeading}"`,
+    `  TRUSTED_ORIGIN="${trustedOriginTrimTrailing}"`,
+    '  if [ -n "$TRUSTED_ORIGIN" ]; then',
+    '    EXTRA_FLAGS="$EXTRA_FLAGS --trusted-origins $TRUSTED_ORIGIN"',
+    "  fi",
+    "done",
+    'exec code-server "$WORKSPACE" \\',
+    "  --auth none \\",
+    `  --bind-addr "0.0.0.0:${portExpansion}" \\`,
+    "  --disable-telemetry \\",
+    "  --disable-update-check \\",
+    '  --extensions-dir "$EXTENSIONS_DIR" \\',
+    '  --user-data-dir "$USER_DATA_DIR" \\',
+    "  $EXTRA_FLAGS",
+  ].join("\n");
+}
+
+function shellExpansion(expression: string): string {
+  return ["$", "{", expression, "}"].join("");
 }
 
 function sleep(ms: number): Promise<void> {

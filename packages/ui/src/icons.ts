@@ -38,6 +38,7 @@ export {
   LogOut,
   Megaphone,
   Menu,
+  MessageCircle,
   Mic,
   Monitor,
   MoreHorizontal,

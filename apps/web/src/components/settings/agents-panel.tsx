@@ -105,7 +105,7 @@ export function AgentsPanel() {
   return (
     <div className="text-[#1b1b1b]">
       <SettingsHeading
-        description="Choose which models appear in Cheatcode, set routing preferences, and connect your subscriptions or API keys."
+        description="Choose which models appear in Cheatcode, set routing preferences, and connect your API keys."
         title="Models"
       />
       <section className="rounded-3xl bg-[#f7f7f7] p-1">
@@ -171,7 +171,6 @@ export function AgentsPanel() {
           </p>
         ) : null}
       </section>
-      <SubscriptionsSection />
       <div className="mt-6">
         <ProviderKeysPanel
           activeProvider={activeKeyProvider}
@@ -528,37 +527,5 @@ function ModelToggle({
         />
       )}
     </button>
-  );
-}
-
-function SubscriptionsSection() {
-  // ChatGPT Plus/Pro has no official third-party linking API, and capturing web-session
-  // credentials would violate OpenAI's terms. We surface this honestly instead of a
-  // misleading "coming soon" toast, and point users at the supported OpenAI API-key path.
-  return (
-    <section className="mt-6 rounded-3xl bg-[#f7f7f7] p-1">
-      <div className="px-4 py-2">
-        <p className="font-medium text-[#707070] text-[14px]">Subscriptions</p>
-        <p className="mt-2 font-medium text-[#1b1b1b] text-[14px]">Bring your own OpenAI access.</p>
-      </div>
-      <div className="mt-2 overflow-hidden rounded-[21px] bg-white ring-1 ring-[#f1f1f1]/70">
-        <div className="flex min-h-16 items-center justify-between gap-3 px-4 py-4">
-          <div className="min-w-0">
-            <p className="font-medium text-[#1b1b1b] text-[14px]">ChatGPT Plus/Pro</p>
-            <p className="text-[#a0a0a0] text-[12px]">
-              Not linkable — OpenAI has no subscription API. Add an OpenAI API key under API keys to
-              use GPT models.
-            </p>
-          </div>
-          <button
-            className="inline-flex h-8 shrink-0 cursor-not-allowed items-center justify-center rounded-full bg-[#ededed] px-3 font-medium text-[#a0a0a0] text-[14px]"
-            disabled
-            type="button"
-          >
-            Unavailable
-          </button>
-        </div>
-      </div>
-    </section>
   );
 }

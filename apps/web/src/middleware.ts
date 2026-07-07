@@ -3,8 +3,7 @@ import { NextResponse } from "next/server";
 
 // Shared protected-route matcher. The onboarding gate wraps every protected
 // route, so app routes added by other clusters (discovery-misc "/101(.*)",
-// automations "/automations(.*)") MUST be appended here to stay gated. The
-// public "/replay" page is intentionally NOT matched so it stays unauthenticated.
+// automations "/automations(.*)") MUST be appended here to stay gated.
 const isProtectedRoute = createRouteMatcher([
   "/projects(.*)",
   "/chats(.*)",
@@ -30,7 +29,7 @@ const middleware = clerkMiddleware(async (auth, request) => {
     return NextResponse.redirect(new URL("/onboarding", request.url));
   }
   if (complete && isOnboardingRoute(request)) {
-    return NextResponse.redirect(new URL("/projects", request.url));
+    return NextResponse.redirect(new URL("/", request.url));
   }
   return undefined;
 });

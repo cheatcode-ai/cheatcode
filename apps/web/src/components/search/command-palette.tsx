@@ -114,9 +114,7 @@ export function CommandPalette() {
                   className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-[14px] data-[selected=true]:bg-[#f7f7f7]"
                   key={project.id}
                   onSelect={() =>
-                    navigate(
-                      project.latestThreadId ? `/chats/${project.latestThreadId}` : "/projects",
-                    )
+                    navigate(project.latestThreadId ? `/chats/${project.latestThreadId}` : "/")
                   }
                   value={`project-${project.id}`}
                 >

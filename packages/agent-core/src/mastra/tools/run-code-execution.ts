@@ -29,6 +29,8 @@ import {
   AGENT_DISPLAY_NAME_CONTEXT_KEY,
   GLOBAL_MEMORY_CONTEXT_KEY,
   MASTER_INSTRUCTIONS_CONTEXT_KEY,
+  PROMPT_PROJECT_MODE_CONTEXT_KEY,
+  PROMPT_TASK_MESSAGE_CONTEXT_KEY,
   USER_SKILL_STORE_CONTEXT_KEY,
   USER_SKILLS_CONTEXT_KEY,
   type UserSkillRuntime,
@@ -55,7 +57,9 @@ export interface CodeRequestContextOptions {
   modelId?: string | undefined;
   openaiApiKey?: string | undefined;
   openrouterApiKey?: string | undefined;
+  projectMode?: string | undefined;
   researchFanoutSubagentLimit?: number | undefined;
+  taskMessage?: string | undefined;
   userSkills?: UserSkillRuntime[] | undefined;
   userSkillStore?: UserSkillStore | undefined;
 }
@@ -81,6 +85,8 @@ function contextEntries(
     [MASTER_INSTRUCTIONS_CONTEXT_KEY, options.masterInstructions],
     [AGENT_DISPLAY_NAME_CONTEXT_KEY, options.agentDisplayName],
     [GLOBAL_MEMORY_CONTEXT_KEY, options.globalMemory],
+    [PROMPT_PROJECT_MODE_CONTEXT_KEY, options.projectMode],
+    [PROMPT_TASK_MESSAGE_CONTEXT_KEY, options.taskMessage],
     [ANTHROPIC_API_KEY_CONTEXT_KEY, options.anthropicApiKey],
     [COMPOSIO_API_KEY_CONTEXT_KEY, options.composioApiKey],
     [COMPOSIO_CONNECTED_ACCOUNTS_CONTEXT_KEY, options.composioConnectedAccounts],

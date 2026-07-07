@@ -1,9 +1,10 @@
 /**
  * Pure helpers for the preview URL bar. The preview iframe is cross-origin
- * (Daytona preview-proxy host / local `/__sandbox/<b64host>` proxy), so we can only know and
- * control the *entry URL* we assign — never the live SPA location after in-app
- * navigation (`contentWindow.location` throws `SecurityError`). The bar shows
- * the last commanded URL, not where the app actually is (preview-surface §A5).
+ * (Daytona preview-proxy host / local `.localhost` host, with legacy
+ * `/__sandbox/<b64host>` support), so we can only know and control the *entry
+ * URL* we assign — never the live SPA location after in-app navigation
+ * (`contentWindow.location` throws `SecurityError`). The bar shows the last
+ * commanded URL, not where the app actually is (preview-surface §A5).
  */
 
 const SANDBOX_PROXY_PREFIX = "/__sandbox/";
@@ -13,7 +14,7 @@ interface SplitPreviewUrl {
   path: string;
 }
 
-/** Origin to navigate within. Preserves the local-dev `/__sandbox/<host>` prefix. */
+/** Origin to navigate within. Preserves the legacy local-dev `/__sandbox/<host>` prefix. */
 export function previewOrigin(previewUrl: string): string {
   const split = splitPreviewUrl(previewUrl);
   return split === null ? previewUrl : split.base;
@@ -38,21 +39,27 @@ export function normalizePreviewPath(input: string, previewUrl: string): null | 
   return trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
 }
 
-/** Origin + path, with the existing `cc_preview_reload` token when bumped. */
+/** Origin + path, preserving preview auth and adding `cc_preview_reload` when bumped. */
 export function buildPreviewIframeSrc(
   previewUrl: string,
   path: string,
   reloadToken: number,
 ): string {
-  const origin = previewOrigin(previewUrl);
+  const split = splitPreviewUrl(previewUrl);
+  const origin = split?.base ?? previewUrl;
   const normalizedPath = path.startsWith("/") ? path : `/${path}`;
   const base = `${origin}${normalizedPath}`;
-  if (reloadToken <= 0) {
-    return base;
-  }
   try {
     const url = new URL(base);
-    url.searchParams.set("cc_preview_reload", String(reloadToken));
+    const source = new URL(previewUrl);
+    for (const [key, value] of source.searchParams) {
+      if (!url.searchParams.has(key)) {
+        url.searchParams.set(key, value);
+      }
+    }
+    if (reloadToken > 0) {
+      url.searchParams.set("cc_preview_reload", String(reloadToken));
+    }
     return url.toString();
   } catch {
     return base;

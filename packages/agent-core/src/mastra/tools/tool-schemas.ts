@@ -190,9 +190,9 @@ export const startDevServerInputSchema = z
       .string()
       .min(1)
       .max(255)
-      .default("trycheatcode.com")
-      .describe("Preview hostname expected by the web client."),
-    name: z.string().min(1).max(100).default("preview").describe("Preview name."),
+      .optional()
+      .describe("Preview hostname override; omit to use the active environment."),
+    name: z.string().min(1).max(100).default("app-preview").describe("Preview name."),
     port: z
       .number()
       .int()

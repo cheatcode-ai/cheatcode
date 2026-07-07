@@ -3,8 +3,8 @@ import {
   createDb,
   createThreadMessage,
   findGeneratedOutputOwner,
+  getProject,
   getThread,
-  listGeneratedOutputsByUser,
   withUserContext,
 } from "@cheatcode/db";
 import { AgentWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
@@ -18,15 +18,21 @@ import {
 } from "@cheatcode/observability";
 import {
   ApprovalDecisionRequestSchema,
-  GeneratedOutputsResponseSchema,
+  ProjectId,
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
+  type SandboxFileEntry,
   SandboxFileKeySchema,
   SandboxFileListSchema,
   SandboxFilePathSchema,
+  SandboxFilePreviewSchema,
   SandboxFileSchema,
   SandboxFileWriteSchema,
+  SandboxIdeSessionSchema,
+  SandboxPreviewStatusSchema,
+  SandboxPreviewWakeSchema,
   SandboxTerminalCommandSchema,
+  SandboxTerminalContextSchema,
   SandboxTerminalResultSchema,
   ThreadId,
   UpdateSandboxFileSchema,
@@ -52,14 +58,15 @@ import {
   withRunLocation,
 } from "./agent-routing";
 import { AgentRun } from "./durable-objects/agent-run";
+import { expoUrlFromPreview } from "./durable-objects/agent-run-app-builder";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
 import { formatAgentRouteError } from "./error-handling";
 import {
   parseInternalMaintenanceJson,
   verifyAgentMaintenanceRequest,
 } from "./internal-maintenance";
+import { resolveLocalPreviewOrigin, tryHandleLocalPreviewRequest } from "./local-preview";
 import {
-  createSignedOutputDownloadUrl,
   OutputDownloadQuerySchema,
   OutputIdSchema,
   verifySignedOutputDownload,
@@ -77,19 +84,31 @@ import {
 
 export { AgentRun, ProjectSandbox };
 
+const AgentSandboxTerminalResultSchema = SandboxTerminalResultSchema.extend({
+  cwd: SandboxFilePathSchema.optional(),
+});
+
 export interface AgentEnv extends AnalyticsBindings {
   AGENT_RUN: DurableObjectNamespace<AgentRun>;
   COMPOSIO_API_KEY?: WorkerSecret;
+  DAYTONA_API_KEY: WorkerSecret;
+  DAYTONA_API_URL: string;
+  DAYTONA_ORG_ID?: string;
+  DAYTONA_TARGET: string;
   HYPERDRIVE: Hyperdrive;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: string;
+  PREVIEW_TOKEN_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME?: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
   QUOTA_TRACKER?: DurableObjectNamespace;
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
   R2_OUTPUTS_BUCKET_NAME?: string;
+  // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), keyed by sandbox UUID.
+  // Optional so the preview-status endpoint falls back to a live read when unbound.
+  SANDBOX_STATE?: KVNamespace;
 }
 
 const DEFAULT_PREVIEW_HOSTNAME = "trycheatcode.com";
@@ -98,6 +117,8 @@ const START_VNC_SCRIPT = "/opt/cheatcode/start-vnc.sh";
 const TAKEOVER_PORT = 6080;
 const TAKEOVER_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_SANDBOX_FILE_LIST_ROOT = "/workspace/app/src/app";
+const SANDBOX_WORKSPACE_ROOT = "/workspace";
+const TERMINAL_DISPLAY_WORKSPACE = "/home/user/computer";
 
 const PreviewHostnameSchema = z.string().trim().min(1).max(255).default(DEFAULT_PREVIEW_HOSTNAME);
 const QueryBooleanSchema = z.enum(["false", "true"]).transform((value) => value === "true");
@@ -155,6 +176,9 @@ function requestId(): string {
 }
 
 function withRequestId(response: Response, id: string): Response {
+  if (response.status === 101 || response.webSocket) {
+    return response;
+  }
   const wrapped = new Response(response.body, response);
   wrapped.headers.set("X-Request-Id", id);
   return wrapped;
@@ -202,6 +226,37 @@ agentApp.use("*", async (c, next) => {
 
 agentApp.get("/health", (c) => c.json({ ok: true, worker: "agent" }));
 
+agentApp.get("/__internal/local-preview-origin", async (c) => {
+  const previewUrl = c.req.header("X-Cheatcode-Local-Preview-Url");
+  const previewHost = c.req.header("X-Cheatcode-Local-Preview-Host");
+  if (!previewUrl || !previewHost) {
+    throw new APIError(400, "invalid_request_body", "Missing local preview origin headers", {
+      retriable: false,
+    });
+  }
+  const headers = new Headers({ Host: previewHost });
+  const cookie = c.req.header("X-Cheatcode-Local-Preview-Cookie");
+  if (cookie) headers.set("Cookie", cookie);
+  const origin = c.req.header("Origin");
+  if (origin) headers.set("Origin", origin);
+  const referer = c.req.header("Referer");
+  if (referer) headers.set("Referer", referer);
+  const clientHost = c.req.header("X-Cheatcode-Local-Preview-Client-Host");
+  if (clientHost) headers.set("X-Cheatcode-Local-Preview-Client-Host", clientHost);
+  const resolved = await resolveLocalPreviewOrigin(new Request(previewUrl, { headers }), c.env);
+  if (!resolved) {
+    throw new APIError(404, "invalid_request_body", "Local preview origin not found", {
+      retriable: false,
+    });
+  }
+  return c.json({
+    originalHost: resolved.originalHost,
+    signed: resolved.origin.signed,
+    token: resolved.origin.token,
+    url: resolved.origin.url,
+  });
+});
+
 agentApp.post("/internal/users/:userId/delete-state", async (c) => {
   const rawBody = await c.req.raw.text();
   await verifyAgentMaintenanceRequest({
@@ -246,33 +301,6 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
       runStatesDeleted,
     }),
   );
-});
-
-agentApp.get("/v1/outputs", async (c) => {
-  const userId = readGatewayUserId(c.req.raw.headers);
-  const { db, close } = createDb(c.env.HYPERDRIVE);
-  try {
-    const records = await listGeneratedOutputsByUser(db, UserId(userId), new Date());
-    const outputs = await Promise.all(
-      records.map(async (record) => ({
-        id: record.id,
-        kind: record.kind,
-        filename: record.filename,
-        mimeType: record.mimeType,
-        sizeBytes: record.sizeBytes,
-        createdAt: record.createdAt.toISOString(),
-        expiresAt: record.expiresAt ? record.expiresAt.toISOString() : null,
-        downloadUrl: await createSignedOutputDownloadUrl({
-          baseUrl: c.env.OUTPUT_DOWNLOAD_BASE_URL,
-          outputId: record.id,
-          secret: c.env.OUTPUT_DOWNLOAD_SIGNING_SECRET,
-        }),
-      })),
-    );
-    return Response.json(GeneratedOutputsResponseSchema.parse({ outputs }));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
 });
 
 agentApp.get("/v1/outputs/:outputId/download", async (c) => {
@@ -552,6 +580,74 @@ agentApp.get("/v1/threads/:threadId/sandbox/files", async (c) => {
   return c.json(SandboxFileListSchema.parse(result));
 });
 
+agentApp.get("/v1/threads/:threadId/sandbox/ide", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  await requireWritableThreadProject(c.env, userId, threadId);
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  const files = await sandbox.listFiles({
+    includeHidden: false,
+    path: SANDBOX_WORKSPACE_ROOT,
+    recursive: true,
+  });
+  const workspacePath = inferTerminalCwd(files.files, project?.name ?? null);
+  const initialFilePath = selectInitialCodeServerFile(files.files, workspacePath);
+  const session = await sandbox.exposeCodeServer({
+    hostname: resolvePreviewHostname(c.env),
+    ...(initialFilePath ? { initialFilePath } : {}),
+    workspacePath,
+  });
+  return c.json(
+    SandboxIdeSessionSchema.parse({
+      ...session,
+      displayWorkspacePath: terminalDisplayCwd(session.workspacePath),
+    }),
+  );
+});
+
+// Wake the app preview when the user opens the Computer panel: start the sandbox if it
+// idle-stopped and relaunch the dev server if its process died. Returns a fresh preview URL.
+agentApp.post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  await requireWritableThreadProject(c.env, userId, threadId);
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  const result = await sandbox.wakePreview({ hostname: resolvePreviewHostname(c.env) });
+  // exp:// deep link only makes sense for the Expo Metro port (8081); null for web/local.
+  const expoUrl = result.url && result.port === 8081 ? expoUrlFromPreview(result.url) : null;
+  return c.json(SandboxPreviewWakeSchema.parse({ ...result, ...(expoUrl ? { expoUrl } : {}) }));
+});
+
+// Current sandbox lifecycle state for the preview panel (polled while the panel is open so the
+// UI can show a booting spinner or a paused/resume affordance without hitting a dead iframe).
+agentApp.get("/v1/threads/:threadId/sandbox/preview/status", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  await requireWritableThreadProject(c.env, userId, threadId);
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  // Prefer the webhook-fed cache (Daytona sandbox.state.updated) keyed by the sandbox UUID —
+  // no Daytona API call. Fall back to a live read when the cache is cold.
+  const daytonaId = await sandbox.existingDaytonaId();
+  const cached = daytonaId ? await readSandboxStateCache(c.env, daytonaId) : null;
+  const runtime = cached ?? (await sandbox.sandboxRuntimeState());
+  return c.json(
+    SandboxPreviewStatusSchema.parse({
+      running: runtime.state === "started",
+      state: runtime.state,
+      ...(cached?.updatedAt ? { updatedAt: cached.updatedAt } : {}),
+    }),
+  );
+});
+
 agentApp.get("/v1/threads/:threadId/sandbox/file", async (c) => {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId"));
@@ -560,6 +656,15 @@ agentApp.get("/v1/threads/:threadId/sandbox/file", async (c) => {
   const sandbox = await sandboxForThread(c.env, userId, threadId);
   const file = await sandbox.readFile({ path, ...(encoding ? { encoding } : {}) });
   return c.json(SandboxFileSchema.parse(file));
+});
+
+agentApp.get("/v1/threads/:threadId/sandbox/file-preview", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  const path = SandboxFilePathSchema.parse(c.req.query("path"));
+  const sandbox = await sandboxForThread(c.env, userId, threadId);
+  const preview = await sandbox.previewFile({ path });
+  return c.json(SandboxFilePreviewSchema.parse(preview));
 });
 
 agentApp.patch("/v1/threads/:threadId/sandbox/file", async (c) => {
@@ -611,18 +716,53 @@ agentApp.patch("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
   return c.json(SandboxFileWriteSchema.parse(result));
 });
 
+agentApp.get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const threadId = parseThreadRouteParam(c.req.param("threadId"));
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  const files = await sandbox.listFiles({
+    includeHidden: false,
+    path: SANDBOX_WORKSPACE_ROOT,
+    recursive: true,
+  });
+  const cwd = inferTerminalCwd(files.files, project?.name ?? null);
+  return c.json(
+    SandboxTerminalContextSchema.parse({
+      cwd,
+      displayCwd: terminalDisplayCwd(cwd),
+      displayWorkspacePath: TERMINAL_DISPLAY_WORKSPACE,
+      host: project ? await sandbox.runtimeSandboxId() : threadId.slice(0, 12),
+    }),
+  );
+});
+
 agentApp.post("/v1/threads/:threadId/sandbox/terminal", async (c) => {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId"));
   const body = SandboxTerminalCommandSchema.parse(await c.req.json());
   await requireWritableThreadProject(c.env, userId, threadId);
-  const sandbox = await sandboxForThread(c.env, userId, threadId);
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  const cwdMarker = `__CHEATCODE_CWD_${crypto.randomUUID()}__`;
   const result = await sandbox.exec({
-    command: ["sh", "-lc", body.command],
+    command: ["sh", "-lc", withTerminalCwdMarker(body.command, cwdMarker)],
     cwd: body.cwd,
     timeoutMs: body.timeoutMs,
   });
-  return c.json(SandboxTerminalResultSchema.parse(result));
+  const output = extractTerminalCwd(result.stdout, cwdMarker);
+  return c.json(
+    AgentSandboxTerminalResultSchema.parse({
+      ...result,
+      command: body.command,
+      cwd: output.cwd,
+      stdout: output.stdout,
+    }),
+  );
 });
 
 agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
@@ -658,6 +798,254 @@ function takeoverEmbedUrl(previewUrl: string, password: string): string {
   return url.toString();
 }
 
+async function terminalProjectForThread(
+  env: AgentEnv,
+  userId: string,
+  threadId: string,
+): Promise<{ id: string; name: string } | null> {
+  if (!isUuidRouteParam(threadId)) {
+    return null;
+  }
+  const parsedUserId = UserId(userId);
+  const { db, close } = createDb(env.HYPERDRIVE);
+  try {
+    return await withUserContext(db, parsedUserId, async (tx) => {
+      const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
+      if (!thread) {
+        throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+      }
+      if (!thread.projectId) {
+        return null;
+      }
+      const project = await getProject(tx, {
+        projectId: ProjectId(thread.projectId),
+        userId: parsedUserId,
+      });
+      if (!project) {
+        throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+      }
+      return { id: project.id, name: project.name };
+    });
+  } finally {
+    await close();
+  }
+}
+
+function inferTerminalCwd(files: SandboxFileEntry[], projectName: null | string): string {
+  const topLevelDirs = files.filter(
+    (file) =>
+      file.type === "directory" &&
+      file.path.startsWith(`${SANDBOX_WORKSPACE_ROOT}/`) &&
+      !file.path.slice(SANDBOX_WORKSPACE_ROOT.length + 1).includes("/"),
+  );
+  if (topLevelDirs.length === 0) {
+    return SANDBOX_WORKSPACE_ROOT;
+  }
+  if (topLevelDirs.length === 1) {
+    return topLevelDirs[0]?.path ?? SANDBOX_WORKSPACE_ROOT;
+  }
+  const scored = topLevelDirs
+    .map((dir) => ({
+      dir,
+      score: terminalDirectoryScore(dir, files, projectName),
+    }))
+    .sort((left, right) => right.score - left.score || left.dir.name.localeCompare(right.dir.name));
+  const best = scored[0];
+  return best && best.score > 0 ? best.dir.path : SANDBOX_WORKSPACE_ROOT;
+}
+
+function terminalDirectoryScore(
+  dir: SandboxFileEntry,
+  files: SandboxFileEntry[],
+  projectName: null | string,
+): number {
+  const tokenScore = tokenOverlapScore(projectName, dir.name);
+  const hasEntryFile = files.some(
+    (file) =>
+      file.type === "file" &&
+      file.path.startsWith(`${dir.path}/`) &&
+      APP_ENTRY_FILE_NAMES.has(file.name),
+  );
+  return tokenScore + (hasEntryFile ? 10 : 0);
+}
+
+const APP_ENTRY_FILE_NAMES = new Set([
+  "app.js",
+  "index.html",
+  "next.config.js",
+  "package.json",
+  "vite.config.js",
+]);
+
+const CODE_SERVER_IGNORED_SEGMENTS = new Set([
+  ".git",
+  ".next",
+  ".turbo",
+  "dist",
+  "node_modules",
+  "out",
+]);
+
+const CODE_SERVER_DELIVERABLE_EXTENSIONS = new Set([
+  ".doc",
+  ".docx",
+  ".odp",
+  ".ods",
+  ".odt",
+  ".pdf",
+  ".ppt",
+  ".pptx",
+  ".xls",
+  ".xlsx",
+]);
+
+const CODE_SERVER_ENTRY_RELATIVE_PATHS = [
+  "index.html",
+  "package.json",
+  "src/app/page.tsx",
+  "src/app/page.jsx",
+  "src/App.tsx",
+  "src/App.jsx",
+  "src/main.tsx",
+  "src/main.jsx",
+  "app.js",
+  "main.py",
+  "README.md",
+];
+
+function selectInitialCodeServerFile(
+  files: SandboxFileEntry[],
+  workspacePath: string,
+): string | undefined {
+  const candidates = files
+    .filter((file) => file.type === "file" && isCodeServerCandidate(file.path, workspacePath))
+    .sort(
+      (left, right) =>
+        codeServerFileScore(right, workspacePath) - codeServerFileScore(left, workspacePath),
+    );
+  return candidates[0]?.path;
+}
+
+function isCodeServerCandidate(path: string, workspacePath: string): boolean {
+  if (!path.startsWith(`${workspacePath}/`)) {
+    return false;
+  }
+  const relativePath = path.slice(workspacePath.length + 1);
+  return !relativePath.split("/").some((segment) => CODE_SERVER_IGNORED_SEGMENTS.has(segment));
+}
+
+function codeServerFileScore(file: SandboxFileEntry, workspacePath: string): number {
+  const relativePath = file.path.slice(workspacePath.length + 1);
+  const extension = extensionOf(file.name);
+  if (CODE_SERVER_DELIVERABLE_EXTENSIONS.has(extension)) {
+    return 1_000 - relativePath.split("/").length;
+  }
+  const entryIndex = CODE_SERVER_ENTRY_RELATIVE_PATHS.indexOf(relativePath);
+  if (entryIndex !== -1) {
+    return 900 - entryIndex;
+  }
+  if (APP_ENTRY_FILE_NAMES.has(file.name)) {
+    return 800;
+  }
+  if (isLikelySourceExtension(extension)) {
+    return 500 - relativePath.split("/").length;
+  }
+  return 100 - relativePath.length / 1_000;
+}
+
+function extensionOf(filename: string): string {
+  const dotIndex = filename.lastIndexOf(".");
+  return dotIndex <= 0 ? "" : filename.slice(dotIndex).toLowerCase();
+}
+
+function isLikelySourceExtension(extension: string): boolean {
+  return [".css", ".html", ".js", ".jsx", ".json", ".md", ".py", ".ts", ".tsx"].includes(extension);
+}
+
+function tokenOverlapScore(left: null | string, right: string): number {
+  const leftTokens = normalizedTokens(left ?? "");
+  const rightTokens = normalizedTokens(right);
+  if (leftTokens.length === 0 || rightTokens.length === 0) {
+    return 0;
+  }
+  return rightTokens.filter((token) => leftTokens.includes(token)).length;
+}
+
+function normalizedTokens(value: string): string[] {
+  return value
+    .toLowerCase()
+    .split(/[^a-z0-9]+/u)
+    .filter(Boolean);
+}
+
+function terminalDisplayCwd(cwd: string): string {
+  if (cwd === SANDBOX_WORKSPACE_ROOT) {
+    return TERMINAL_DISPLAY_WORKSPACE;
+  }
+  if (cwd.startsWith(`${SANDBOX_WORKSPACE_ROOT}/`)) {
+    return `${TERMINAL_DISPLAY_WORKSPACE}/${cwd.slice(SANDBOX_WORKSPACE_ROOT.length + 1)}`;
+  }
+  return cwd;
+}
+
+const SandboxStateCacheSchema = z
+  .object({ state: z.string().min(1).max(50), updatedAt: z.string().optional() })
+  .strict();
+
+export const sandboxStateCacheKey = (daytonaId: string): string => `sbx:${daytonaId}`;
+
+// Read the webhook-fed sandbox lifecycle state (written by webhooks-worker on
+// Daytona sandbox.state.updated). Returns null when unbound, absent, or malformed.
+async function readSandboxStateCache(
+  env: AgentEnv,
+  daytonaId: string,
+): Promise<z.infer<typeof SandboxStateCacheSchema> | null> {
+  if (!env.SANDBOX_STATE) {
+    return null;
+  }
+  const raw = await env.SANDBOX_STATE.get(sandboxStateCacheKey(daytonaId)).catch(() => null);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = SandboxStateCacheSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+function withTerminalCwdMarker(command: string, marker: string): string {
+  return `${command}
+__cc_terminal_status=$?
+printf '\\n%s%s\\n' ${shellQuote(marker)} "$PWD"
+exit "$__cc_terminal_status"`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
+}
+
+function extractTerminalCwd(stdout: string, marker: string): { cwd?: string; stdout: string } {
+  const lines = stdout.split(/\r?\n/u);
+  const keptLines: string[] = [];
+  let cwd: string | undefined;
+  for (const line of lines) {
+    if (line.startsWith(marker)) {
+      const nextCwd = line.slice(marker.length).trim();
+      if (nextCwd.length > 0) {
+        cwd = nextCwd;
+      }
+      continue;
+    }
+    keptLines.push(line);
+  }
+  return {
+    ...(cwd === undefined ? {} : { cwd }),
+    stdout: keptLines.join("\n"),
+  };
+}
+
 function resolvePreviewHostname(env: AgentEnv): string {
   return PreviewHostnameSchema.parse(env.PREVIEW_HOSTNAME);
 }
@@ -685,8 +1073,14 @@ const agentHandler = {
     AgentWorkerEnvSchema.parse(env);
     const id = request.headers.get("X-Request-Id") ?? requestId();
     try {
-      const requestWithId = new Request(request);
-      requestWithId.headers.set("X-Request-Id", id);
+      const requestWithId = isWebSocketUpgrade(request) ? request : new Request(request);
+      if (!isWebSocketUpgrade(requestWithId)) {
+        requestWithId.headers.set("X-Request-Id", id);
+      }
+      const localPreview = await tryHandleLocalPreviewRequest(requestWithId, env);
+      if (localPreview) {
+        return withRequestId(localPreview, id);
+      }
       const response = await agentApp.fetch(requestWithId, env, ctx);
       return withRequestId(response, id);
     } catch (error) {
@@ -708,6 +1102,10 @@ const agentHandler = {
     }
   },
 };
+
+function isWebSocketUpgrade(request: Request): boolean {
+  return (request.headers.get("Upgrade") ?? "").toLowerCase() === "websocket";
+}
 
 export default withErrorHandler(agentHandler, {
   errorCategory: "agent",

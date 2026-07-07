@@ -72,7 +72,7 @@ export function OnboardingFlow() {
   const [phase, setPhase] = useState<Phase>("loading");
   const [stepIndex, setStepIndex] = useState(0);
   const guardedRef = useRef(false);
-  const pendingTargetRef = useRef("/projects");
+  const pendingTargetRef = useRef("/");
   const profile = profileQuery.data;
   const { mutateAsync } = mutation;
   const checkoutMutation = useCheckoutMutation(getToken);
@@ -108,11 +108,11 @@ export function OnboardingFlow() {
     }
     guardedRef.current = true;
     if (profile.onboardingCompletedAt) {
-      void completeOnboarding("/projects");
+      void completeOnboarding("/");
       return;
     }
     if (checkoutSucceeded) {
-      void completeOnboarding("/projects", "done");
+      void completeOnboarding("/", "done");
       return;
     }
     setStepIndex(resumeIndex(profile.onboardingState.steps));
@@ -187,7 +187,7 @@ export function OnboardingFlow() {
       advance();
     },
     onPlanComplete: (target: string) =>
-      void completeOnboarding(target, target === "/projects" ? "done" : "skipped"),
+      void completeOnboarding(target, target === "/" ? "done" : "skipped"),
     onToolsContinue: () => {
       recordStep("tools", "done");
       advance();

@@ -3,7 +3,7 @@ import type { createLogger } from "@cheatcode/observability";
 import type { CodeRuntimeContext } from "@cheatcode/tools-code";
 import type { UIMessageChunk } from "ai";
 import type { StartRunInput } from "./agent-run-schemas";
-import { formatRunCodeFallbackOutput, runCodeFallbackIntro } from "./agent-run-utils";
+import { formatRunCodeFallbackOutput } from "./agent-run-utils";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 
@@ -24,11 +24,6 @@ export async function runRunCodeFallback({
 }: RunCodeFallbackOptions): Promise<void> {
   logger.warn("mastra_first_chunk_timeout_fallback", { timeoutMs: 45_000 });
   setRunStage("Running Python in the sandbox after model timeout.");
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: runCodeFallbackIntro(),
-  });
   const result = await executeRunCodeTool(createSandboxReadinessRunCodeInput(input.messageText), {
     sandbox,
   });

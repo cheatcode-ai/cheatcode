@@ -285,7 +285,7 @@ export async function softDeleteProject(
 
 export async function listProjectThreads(
   db: Database,
-  input: { projectId: ProjectId; userId: UserId },
+  input: { limit?: number; projectId: ProjectId; userId: UserId },
 ): Promise<ThreadRecord[]> {
   const rows = await db.query.threads.findMany({
     columns: {
@@ -303,6 +303,7 @@ export async function listProjectThreads(
       eq(threads.userId, input.userId),
       isNull(threads.deletedAt),
     ),
+    ...(input.limit === undefined ? {} : { limit: input.limit }),
   });
   return rows.map(threadFromRow);
 }

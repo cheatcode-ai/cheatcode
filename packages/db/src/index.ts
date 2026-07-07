@@ -63,11 +63,10 @@ export {
   listProviderKeyRevalidationTargets,
   purgeUserProviderKeySecrets,
 } from "./lifecycle";
-export type { GeneratedOutputRecord, SaveGeneratedOutputInput } from "./outputs";
+export type { SaveGeneratedOutputInput } from "./outputs";
 export {
   findGeneratedOutputOwner,
   hasGeneratedOutputForUser,
-  listGeneratedOutputsByUser,
   saveGeneratedOutput,
 } from "./outputs";
 export type { RunPersonalization, UpsertUserProfileInput, UserProfileRecord } from "./profiles";
@@ -112,15 +111,6 @@ export {
   updateProject,
   updateThread,
 } from "./projects";
-export type { ReplayShareRecord } from "./replays";
-export {
-  findActiveReplayShareByThread,
-  findReplayShareById,
-  listExistingThreadIds,
-  listReplayMessages,
-  updateReplayShare,
-  upsertReplayShare,
-} from "./replays";
 export type { EntitlementResourceLimitInput } from "./resource-limits";
 export { applyEntitlementResourceLimits } from "./resource-limits";
 export type {

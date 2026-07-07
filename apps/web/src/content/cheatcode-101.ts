@@ -3,14 +3,11 @@
  * runtime fs — same philosophy as the bundled skills). Verbatim design copy is
  * used where the artboard provided it; below-the-fold sections carry
  * accurate-to-product placeholder copy flagged `draft` for the content pass.
- * `replayCard` blocks render as inert placeholders until the replays cluster
- * activates them via `replaySlug`.
  */
 export type Cheatcode101Block =
   | { items: string[]; kind: "bullets" }
   | { kind: "footnote"; text: string }
-  | { kind: "paragraph"; text: string }
-  | { kind: "replayCard"; replaySlug: string; title: string };
+  | { kind: "paragraph"; text: string };
 
 export interface Cheatcode101Section {
   blocks: Cheatcode101Block[];
@@ -39,9 +36,8 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
         text: "Describe an app and Cheatcode scaffolds it, writes the code, and gives you a live preview you can interact with. Keep chatting to iterate, then ship when it is ready.",
       },
       {
-        kind: "replayCard",
-        replaySlug: "build-ship-habit-tracker",
-        title: "Build & ship a habit tracker",
+        kind: "paragraph",
+        text: "The same chat keeps the project, files, preview, and terminal together so you can keep iterating without losing context.",
       },
     ],
     id: "build-and-ship",
@@ -54,9 +50,8 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
         text: "Turn rough notes into polished decks and documents. Agents research, draft, and format the output for you.",
       },
       {
-        kind: "replayCard",
-        replaySlug: "deck-from-seed-round-notes",
-        title: "Deck from seed-round notes",
+        kind: "paragraph",
+        text: "Generated files appear in the project computer and deliverables list, so you can inspect or download them without leaving the chat.",
       },
       {
         kind: "footnote",
@@ -114,10 +109,10 @@ export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
     blocks: [
       {
         items: [
-          "Where does my work live? Everything lands in your project’s files and the Artifacts page, ready to download.",
+          "Where does my work live? Everything lands in your project files or in the chat where it was generated, ready to download.",
           "What does it cost? Bring your own provider keys and pay the providers directly, or use a Cheatcode plan.",
           "Can I edit the output? Yes — code, docs, and decks are all editable, and you can keep iterating by chatting.",
-          "Can I share a run? Share any run as a read-only replay, and anyone can fork it to try it themselves.",
+          "Can I share a run? Not yet — keep the work in your project and download deliverables when you need to hand them off.",
         ],
         kind: "bullets",
       },

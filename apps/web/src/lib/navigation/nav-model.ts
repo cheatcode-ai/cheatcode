@@ -25,7 +25,7 @@ export type NavItemId =
 
 export type NavSection = "footer" | "primary" | "workspace";
 
-export type NavTarget = { href: string; kind: "route"; matchPrefix: string };
+export type NavTarget = { href: string; kind: "route"; matchPrefix: string } | { kind: "action" };
 
 export interface NavItem {
   description?: string;
@@ -60,7 +60,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     label: "Projects",
     section: "primary",
     status: "active",
-    target: { href: "/projects", kind: "route", matchPrefix: "/projects" },
+    target: { kind: "action" },
   },
   {
     icon: CheatcodeMark,

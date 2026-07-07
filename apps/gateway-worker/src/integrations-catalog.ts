@@ -20,8 +20,11 @@ export interface IntegrationCatalogEnv {
 }
 
 const COMPOSIO_BASE_URL = "https://backend.composio.dev";
-const CATALOG_CACHE_KEY = "composio:catalog:v3";
+const CATALOG_CACHE_KEY = "composio:catalog:v6";
 const CATALOG_CACHE_TTL_SECONDS = 21_600; // 6h — the Composio catalog rarely changes.
+// Composio caps a toolkit page at 500. Fetch the 500 most-used toolkits (covers all the
+// popular one-click-connectable apps) rather than paginating the full ~1500 — pulling
+// and parsing every page overruns the Worker isolate.
 const TOOLKIT_FETCH_LIMIT = 500;
 // Composio exposes a long tail of niche categories; surface the most populated ones
 // as filter tabs (sorted by app count) and keep the rest reachable via "All" + search.
@@ -31,8 +34,8 @@ const CATEGORY_ACRONYMS = new Set(["ai", "api", "crm", "hr", "seo", "sms", "url"
 type CatalogToolkit = Omit<ToolkitCatalogEntry, "connectedAt" | "status" | "updatedAt">;
 type CachedCatalog = { categories: ToolkitCategory[]; toolkits: CatalogToolkit[] };
 
-// Composio returns richer toolkit objects; keep only the fields the catalog needs.
-// Unknown keys are stripped by the default (non-strict) object parse.
+// Composio returns richer toolkit objects (camelCase via the SDK); keep only the
+// fields the catalog needs. Unknown keys are stripped by the default object parse.
 const ComposioToolkitSchema = z.object({
   composioManagedAuthSchemes: z.array(z.string()).optional(),
   meta: z
@@ -65,21 +68,31 @@ export async function getIntegrationCatalog(
   env: IntegrationCatalogEnv,
   userId: UserId,
 ): Promise<IntegrationCatalog> {
-  const [catalog, records] = await Promise.all([
-    loadToolkitCatalog(env),
-    listUserIntegrations(db, userId),
-  ]);
-  const recordBySlug = new Map(records.map((record) => [record.integration, record]));
-  const toolkits = catalog.toolkits.map((toolkit) => {
-    const record = recordBySlug.get(toolkit.name);
-    return {
-      ...toolkit,
-      connectedAt: record?.connectedAt.toISOString() ?? null,
-      status: record ? normalizeIntegrationStatus(record.status) : "not_connected",
-      updatedAt: record?.updatedAt.toISOString() ?? null,
-    };
-  });
-  return IntegrationCatalogSchema.parse({ categories: catalog.categories, toolkits });
+  try {
+    const [catalog, records] = await Promise.all([
+      loadToolkitCatalog(env),
+      listUserIntegrations(db, userId),
+    ]);
+    const recordBySlug = new Map(records.map((record) => [record.integration, record]));
+    const toolkits = catalog.toolkits.map((toolkit) => {
+      const record = recordBySlug.get(toolkit.name);
+      return {
+        ...toolkit,
+        connectedAt: record?.connectedAt.toISOString() ?? null,
+        status: record ? normalizeIntegrationStatus(record.status) : "not_connected",
+        updatedAt: record?.updatedAt.toISOString() ?? null,
+      };
+    });
+    return IntegrationCatalogSchema.parse({ categories: catalog.categories, toolkits });
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+    throw new APIError(503, "upstream_provider_outage", "Unable to build the Composio catalog", {
+      details: { error: error instanceof Error ? error.message.slice(0, 300) : String(error) },
+      retriable: true,
+    });
+  }
 }
 
 const TOOLKIT_ACTION_LIMIT = 8;
@@ -149,7 +162,7 @@ async function fetchToolkitCatalog(env: IntegrationCatalogEnv): Promise<CachedCa
     const response = await composio.toolkits.get({
       limit: TOOLKIT_FETCH_LIMIT,
       managedBy: "composio",
-      sortBy: "alphabetically",
+      sortBy: "usage",
     });
     return buildCatalog(ComposioToolkitsSchema.parse(response));
   } catch (error) {
@@ -168,6 +181,14 @@ function buildCatalog(toolkits: z.infer<typeof ComposioToolkitsSchema>): CachedC
     if (!IntegrationNameSchema.safeParse(toolkit.slug).success) {
       continue;
     }
+    // Show only one-click-connectable toolkits (Composio-managed auth, or no auth) —
+    // the same curated set Bud surfaces. Toolkits that need the user's own API key or
+    // OAuth app are skipped rather than shown with a dead Connect button.
+    const connectable =
+      (toolkit.noAuth ?? false) || (toolkit.composioManagedAuthSchemes?.length ?? 0) > 0;
+    if (!connectable) {
+      continue;
+    }
     const categories = toolkit.meta?.categories ?? [];
     for (const category of categories) {
       const existing = categoryInfo.get(category.slug);
@@ -178,10 +199,7 @@ function buildCatalog(toolkits: z.infer<typeof ComposioToolkitsSchema>): CachedC
     }
     entries.push({
       categorySlugs: categories.map((category) => category.slug),
-      // One-click connectable only when Composio provides managed auth (or the toolkit
-      // needs none). Toolkits requiring the user's own credentials are still browsable.
-      connectable:
-        (toolkit.noAuth ?? false) || (toolkit.composioManagedAuthSchemes?.length ?? 0) > 0,
+      connectable: true,
       description: toolkit.meta?.description ?? "",
       displayName: toolkit.name,
       name: toolkit.slug,

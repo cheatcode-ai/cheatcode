@@ -68,6 +68,7 @@ import {
 import { getIntegrationCatalog, listToolkitActions } from "./integrations-catalog";
 import { buildLimitsSnapshot, enforceByokProviderSlotLimit } from "./limits";
 import {
+  localPreviewOriginRequest,
   resolveLocalPreviewProxyRequest,
   resolveLocalSandboxPreviewHost,
   rewriteLocalPreviewRequest,
@@ -92,12 +93,6 @@ import {
   updateThreadRoute,
 } from "./project-routes";
 import { ensureFallbackRateLimitHeaders, rateLimit, withRateLimitHeaders } from "./rate-limit";
-import { featuredReplaysRoute, replayByIdRoute } from "./replay-routes";
-import {
-  createReplayShareRoute,
-  getThreadReplayShareRoute,
-  updateReplayShareRoute,
-} from "./replay-share-routes";
 import { listRecentThreadsRoute, searchWorkspaceRoute } from "./search-routes";
 import { createUserSkillRoute, deleteUserSkillRoute, listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
@@ -127,6 +122,15 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
 type GatewayContext = Context<{ Bindings: GatewayEnv }>;
 const InternalMaintenanceBodySchema = z.object({}).strict();
 const InternalMaintenanceUserIdSchema = z.string().uuid();
+const LocalPreviewOriginResponseSchema = z.object({
+  originalHost: z.string().min(1),
+  signed: z.boolean(),
+  token: z.string(),
+  url: z.string().url(),
+});
+const DAYTONA_TOKEN_HEADER = "x-daytona-preview-token";
+const DAYTONA_SKIP_WARNING_HEADER = "X-Daytona-Skip-Preview-Warning";
+const FORWARDED_HOST_HEADER = "X-Forwarded-Host";
 const GATEWAY_SECURITY_HEADERS = {
   contentSecurityPolicy: {
     baseUri: ["'self'"],
@@ -136,6 +140,7 @@ const GATEWAY_SECURITY_HEADERS = {
       "https://web.trycheatcode.com",
       "http://localhost:3000",
       "http://localhost:8787",
+      "ws://localhost:8787",
       "wss://*.trycheatcode.com",
     ],
     defaultSrc: ["'self'"],
@@ -159,6 +164,9 @@ function requestId(): string {
 }
 
 function withRequestId(response: Response, id: string): Response {
+  if (response.status === 101 || response.webSocket) {
+    return response;
+  }
   const wrapped = new Response(response.body, response);
   wrapped.headers.set("X-Request-Id", id);
   return wrapped;
@@ -291,28 +299,7 @@ export const gatewayRoutes = gatewayApp
   .post("/v1/user-events", async (c) => {
     return clientUserEventRoute(c, optionalTelemetryUser);
   })
-  .get("/v1/outputs", (c) => forwardAgentRequest(c, "GET /v1/outputs"))
   .get("/v1/outputs/:outputId/download", (c) => c.env.AGENT.fetch(c.req.raw))
-  // Public, unauthenticated featured-replay reads (replays plan §4). "featured"
-  // MUST be chained before ":id" so it is not captured as a slug.
-  .get("/v1/replays/featured", (c) => featuredReplaysRoute(c.env, c.executionCtx))
-  .get("/v1/replays/:id", (c) => replayByIdRoute(c.env, c.executionCtx, c.req.param("id")))
-  // Authenticated: publish / manage a share of one of the caller's own runs.
-  .post("/v1/replays", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/replays");
-    return createReplayShareRoute(c.env, c.executionCtx, c.req.raw, userId);
-  })
-  .patch("/v1/replays/:id", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "PATCH /v1/replays/:id");
-    return updateReplayShareRoute(c.env, c.executionCtx, c.req.raw, userId, c.req.param("id"));
-  })
-  .get("/v1/threads/:threadId/replay-share", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/threads/:threadId/replay-share");
-    return getThreadReplayShareRoute(c.env, c.executionCtx, userId, c.req.param("threadId"));
-  })
   .get("/v1/skills", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/skills");
@@ -773,8 +760,24 @@ export const gatewayRoutes = gatewayApp
     return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/files");
   })
 
+  .get("/v1/threads/:threadId/sandbox/ide", async (c) => {
+    return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/ide");
+  })
+
+  .post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
+    return forwardAgentRequest(c, "POST /v1/threads/:threadId/sandbox/preview/wake");
+  })
+
+  .get("/v1/threads/:threadId/sandbox/preview/status", async (c) => {
+    return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/preview/status");
+  })
+
   .get("/v1/threads/:threadId/sandbox/file", async (c) => {
     return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/file");
+  })
+
+  .get("/v1/threads/:threadId/sandbox/file-preview", async (c) => {
+    return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/file-preview");
   })
 
   .patch("/v1/threads/:threadId/sandbox/file", async (c) => {
@@ -787,6 +790,10 @@ export const gatewayRoutes = gatewayApp
 
   .patch("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
     return forwardAgentRequest(c, "PATCH /v1/threads/:threadId/sandbox/files/:fileKey");
+  })
+
+  .get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
+    return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/terminal/context");
   })
 
   .post("/v1/threads/:threadId/sandbox/terminal", async (c) => {
@@ -838,8 +845,17 @@ const gatewayHandler = {
     const logger = createLogger({ requestId: id });
     try {
       GatewayWorkerEnvSchema.parse(env);
-      const requestWithId = new Request(request);
-      requestWithId.headers.set("X-Request-Id", id);
+      const originalLocalPreviewHost = resolveLocalSandboxPreviewHost(request);
+      const requestWithId = isWebSocketUpgrade(request) ? request : new Request(request);
+      if (!isWebSocketUpgrade(requestWithId)) {
+        requestWithId.headers.set("X-Request-Id", id);
+      }
+      if (isWebSocketUpgrade(request)) {
+        const originRequest = localPreviewOriginRequest(request);
+        if (originRequest) {
+          return await proxyLocalPreviewWebSocket(request, env, originRequest);
+        }
+      }
       const localPreviewProxy = resolveLocalPreviewProxyRequest(requestWithId);
       if (localPreviewProxy) {
         return withLocalPreviewCookie(
@@ -848,7 +864,8 @@ const gatewayHandler = {
           localPreviewProxy.encodedHost,
         );
       }
-      const localPreviewHost = resolveLocalSandboxPreviewHost(requestWithId);
+      const localPreviewHost =
+        originalLocalPreviewHost ?? resolveLocalSandboxPreviewHost(requestWithId);
       if (localPreviewHost) {
         return withRequestId(
           await env.AGENT.fetch(rewriteLocalPreviewRequest(requestWithId, localPreviewHost)),
@@ -872,6 +889,80 @@ const gatewayHandler = {
     }
   },
 };
+
+async function proxyLocalPreviewWebSocket(
+  request: Request,
+  env: GatewayEnv,
+  originRequest: {
+    clientHost: string;
+    cookie?: string;
+    host: string;
+    origin?: string;
+    referer?: string;
+    url: string;
+  },
+): Promise<Response> {
+  const headers = new Headers({
+    "X-Cheatcode-Local-Preview-Client-Host": originRequest.clientHost,
+    "X-Cheatcode-Local-Preview-Host": originRequest.host,
+    "X-Cheatcode-Local-Preview-Url": originRequest.url,
+  });
+  if (originRequest.cookie) {
+    headers.set("X-Cheatcode-Local-Preview-Cookie", originRequest.cookie);
+  }
+  if (originRequest.origin) {
+    headers.set("Origin", originRequest.origin);
+  }
+  if (originRequest.referer) {
+    headers.set("Referer", originRequest.referer);
+  }
+  const originResponse = await env.AGENT.fetch(
+    new Request("http://agent.internal/__internal/local-preview-origin", { headers }),
+  );
+  if (!originResponse.ok) {
+    return originResponse;
+  }
+  const origin = LocalPreviewOriginResponseSchema.parse(await originResponse.json());
+  const localUrl = new URL(originRequest.url);
+  const upstreamUrl = localPreviewUpstreamUrl(origin.url, localUrl);
+
+  const websocketRequest = new Request(upstreamUrl.toString(), request);
+  websocketRequest.headers.delete("Host");
+  websocketRequest.headers.delete("Cookie");
+  if (!origin.signed) {
+    websocketRequest.headers.set(DAYTONA_TOKEN_HEADER, origin.token);
+  }
+  websocketRequest.headers.set(DAYTONA_SKIP_WARNING_HEADER, "true");
+  websocketRequest.headers.set(FORWARDED_HOST_HEADER, origin.originalHost);
+  const browserOrigin =
+    request.headers.get("Origin") ??
+    `${new URL(originRequest.url).protocol}//${origin.originalHost}`;
+  const browserProtocol = new URL(browserOrigin).protocol.replace(":", "");
+  websocketRequest.headers.set("Origin", browserOrigin);
+  websocketRequest.headers.set("Forwarded", `host=${origin.originalHost};proto=${browserProtocol}`);
+  websocketRequest.headers.set("X-Forwarded-Proto", browserProtocol);
+  const response = await fetch(websocketRequest);
+  if (response.webSocket) {
+    return new Response(null, { status: 101, webSocket: response.webSocket });
+  }
+  return response;
+}
+
+function localPreviewUpstreamUrl(originUrl: string, requestUrl: URL): URL {
+  const upstreamUrl = new URL(originUrl);
+  const requestParams = new URLSearchParams(requestUrl.search);
+  upstreamUrl.pathname = requestUrl.pathname;
+  for (const [key, value] of requestParams) {
+    upstreamUrl.searchParams.append(key, value);
+  }
+  upstreamUrl.searchParams.delete("__cc_pt");
+  upstreamUrl.searchParams.delete("cc_preview_reload");
+  return upstreamUrl;
+}
+
+function isWebSocketUpgrade(request: Request): boolean {
+  return (request.headers.get("Upgrade") ?? "").toLowerCase() === "websocket";
+}
 
 export default withErrorHandler(gatewayHandler, {
   errorCategory: "gateway",

@@ -48,6 +48,10 @@ interface RunAppBuilderOptions {
   input: AgentRunAppBuilderInput;
   logger: AgentRunLogger;
   sandbox: ProjectSandboxStub;
+  // Harness workspace setup runs before the model streams; its progress is status
+  // chrome (run stage / Computer panel), never visible answer prose. Anything the
+  // model needs to know (e.g. the live preview URL) is handed to it as agentContextNote.
+  setRunStage: (stage: string) => void;
 }
 
 export async function runAppBuilder(
@@ -67,38 +71,45 @@ export async function runAppBuilder(
   if (shouldBootstrap && input.importRepoUrl) {
     return importRepoWorkspace({ ...options, repoUrl: input.importRepoUrl });
   }
-  await runTemplateAppBuilder({ ...options, mobile, shouldBootstrap });
-  return {};
+  return runTemplateAppBuilder({ ...options, mobile, shouldBootstrap });
 }
 
 async function runTemplateAppBuilder(
   options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
-): Promise<void> {
+): Promise<{ agentContextNote: string }> {
   const { env, input, logger, mobile, sandbox } = options;
   await prepareTemplateWorkspace(options);
   await clearBuildCache(sandbox, mobile);
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
-  await startTemplatePreview(options);
+  const preview = await startTemplatePreview(options);
+  return { agentContextNote: templateContextNote(mobile, preview) };
+}
+
+function templateContextNote(
+  mobile: boolean,
+  preview: { previewUrl: string; expoUrl: string | null },
+): string {
+  const stack = mobile ? "Expo Router" : "Next.js";
+  const web = mobile
+    ? " The preview is the app rendered on web (react-native-web) inside a phone frame, so verify it there in the browser."
+    : "";
+  const expo = preview.expoUrl
+    ? ` The user can also scan the Expo Go QR code shown beside the preview (${preview.expoUrl}) to run it on a real device.`
+    : "";
+  return `[context] A ${stack} workspace is scaffolded in ${APP_BUILDER_DIR} and its live preview is already running at ${preview.previewUrl}. Build the user's app by editing files under ${APP_BUILDER_DIR}; the preview hot-reloads on save.${web}${expo}`;
 }
 
 async function prepareTemplateWorkspace(
   options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
 ): Promise<void> {
-  const { append, input, logger, mobile, sandbox, shouldBootstrap } = options;
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: mobile
-      ? "Preparing the Expo workspace and live preview...\n"
-      : "Preparing the Next.js workspace and live preview...\n",
-  });
+  const { input, logger, mobile, sandbox, setRunStage, shouldBootstrap } = options;
+  setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
   if (!shouldBootstrap) {
-    await append({
-      type: "text-delta",
-      id: "answer",
-      delta: "Using the restored app workspace for this follow-up...\n",
-    });
+    setRunStage("Restoring the app workspace.");
     await installAppBuilderDependencies(sandbox, logger, mobile);
+    if (mobile) {
+      await ensureExpoWebSupport(sandbox, logger);
+    }
     return;
   }
   await resetAppBuilderDirectory(sandbox);
@@ -108,41 +119,29 @@ async function prepareTemplateWorkspace(
     await scaffoldAppBuilder(sandbox, logger);
   }
   await installAppBuilderDependencies(sandbox, logger, mobile);
-  if (!mobile) {
-    await append({
-      type: "text-delta",
-      id: "answer",
-      delta: "Seeding the app files before the agent customizes them...\n",
-    });
+  if (mobile) {
+    await ensureExpoWebSupport(sandbox, logger);
+  } else {
+    setRunStage("Seeding the starter files.");
     await writeAppBuilderFiles(input, sandbox);
   }
 }
 
 async function startTemplatePreview(
   options: RunAppBuilderOptions & { mobile: boolean },
-): Promise<void> {
-  const { append, env, mobile, sandbox } = options;
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: "Starting the dev server and exposing the preview URL...\n",
-  });
+): Promise<{ previewUrl: string; expoUrl: string | null }> {
+  const { append, env, mobile, sandbox, setRunStage } = options;
+  setRunStage("Starting the dev server.");
   const preview = mobile
     ? await startExpoDevServer(env, sandbox)
     : await startAppBuilderDevServer(env, sandbox);
-  const previewUrl = clientPreviewUrl(preview.previewUrl, resolvePreviewHostname(env));
+  const previewUrl = preview.previewUrl;
   const expoUrl = mobile ? expoUrlFromPreview(preview.previewUrl) : null;
   await append({
     type: "data-sandbox-status",
     data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
   });
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: expoUrl
-      ? `Preview is running:\n\n${previewUrl}\n\nScan the QR code in the App panel with Expo Go to test on a real device (${expoUrl}).\n\nContinuing with the agent build in ${APP_BUILDER_DIR}...\n`
-      : `Preview is running:\n\n${previewUrl}\n\nContinuing with the agent build in ${APP_BUILDER_DIR}...\n`,
-  });
+  return { previewUrl, expoUrl };
 }
 
 // First import run only: clone the public GitHub repo over the empty workspace,
@@ -152,7 +151,7 @@ async function startTemplatePreview(
 async function importRepoWorkspace(
   options: RunAppBuilderOptions & { repoUrl: string },
 ): Promise<{ agentContextNote: string }> {
-  const { append, env, input, logger, repoUrl, sandbox } = options;
+  const { append, env, input, logger, repoUrl, sandbox, setRunStage } = options;
   const startedAt = Date.now();
   const repoRef = parseGitHubRepo(repoUrl);
   if (!repoRef) {
@@ -161,18 +160,14 @@ async function importRepoWorkspace(
     throw repoImportError("The import URL must be a public https github.com repository.");
   }
   logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: `Cloning ${repoRef.path} into ${APP_BUILDER_DIR}...\n`,
-  });
+  setRunStage(`Cloning ${repoRef.path}.`);
   await resetAppBuilderDirectory(sandbox);
   await cloneRepoOrThrow({ env, input, logger, repoRef, repoUrl, sandbox });
   await markImportedWorkspace(sandbox);
   const installRan = await installImportedDependencies(sandbox, logger);
   await clearBuildCache(sandbox, isMobileBuild(input));
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
-  await emitImportReady(append, repoUrl);
+  await emitImportReady(append);
   logger.info("repo_import_succeeded", {
     durationMs: Date.now() - startedAt,
     installRan,
@@ -189,12 +184,8 @@ async function importRepoWorkspace(
 async function restoreImportedWorkspace(
   options: RunAppBuilderOptions,
 ): Promise<{ agentContextNote: string }> {
-  const { append, env, input, logger, sandbox } = options;
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: "Using the imported app workspace for this follow-up...\n",
-  });
+  const { append, env, input, logger, sandbox, setRunStage } = options;
+  setRunStage("Restoring the imported workspace.");
   await installImportedDependencies(sandbox, logger);
   await clearBuildCache(sandbox, isMobileBuild(input));
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
@@ -306,13 +297,10 @@ async function pathExists(sandbox: ProjectSandboxStub, path: string): Promise<bo
   return result.success;
 }
 
-async function emitImportReady(append: AppendChunk, repoUrl: string): Promise<void> {
+async function emitImportReady(append: AppendChunk): Promise<void> {
+  // The import outcome is handed to the model via agentContextNote (importedContextNote),
+  // so it narrates the next steps itself — only the sandbox-ready chrome is emitted here.
   await append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
-  await append({
-    type: "text-delta",
-    id: "answer",
-    delta: `Imported ${repoUrl}. The agent will inspect the project and start the dev server.\n`,
-  });
 }
 
 function emitImportEvent(
@@ -424,11 +412,16 @@ async function startExpoDevServer(
 ): Promise<{ previewUrl: string }> {
   return executeStartDevServer(
     {
+      // `--web` makes the single Metro dev server also serve the react-native-web
+      // build as a real web page at `/` (iframe-renderable in the Computer panel),
+      // while the SAME server keeps answering exp:// manifests for Expo Go — so we
+      // get both the in-panel preview and the QR from one process on port 8081.
       command: [
         "pnpm",
         "exec",
         "expo",
         "start",
+        "--web",
         "--host",
         "lan",
         "--port",
@@ -636,21 +629,116 @@ async function installAppBuilderDependencies(
   );
 }
 
-function resolvePreviewHostname(env: AgentRunAppBuilderEnv): string {
-  return PreviewHostnameSchema.parse(env.PREVIEW_HOSTNAME);
+// Expo web (react-native-web) is what makes `expo start --web` render a real page in
+// the Computer panel iframe. The default template ships react-dom + react-native-web
+// but NOT @expo/metro-runtime, and the Metro web bundler must be selected — so ensure
+// all three deps are present (SDK-matched via `expo install`) and pin web.bundler=metro.
+// Idempotent: the dep check short-circuits restores where they're already installed.
+async function ensureExpoWebSupport(
+  sandbox: ProjectSandboxStub,
+  logger: AgentRunLogger,
+): Promise<void> {
+  const alreadyInstalled = await executeShellTerminal(
+    {
+      command:
+        "test -d node_modules/react-native-web && test -d node_modules/react-dom && test -d node_modules/@expo/metro-runtime",
+      cwd: APP_BUILDER_DIR,
+      timeoutMs: 10_000,
+    },
+    { sandbox },
+  );
+  if (!alreadyInstalled.success) {
+    try {
+      await executeShellExec(
+        {
+          command: [
+            "pnpm",
+            "exec",
+            "expo",
+            "install",
+            "react-dom",
+            "react-native-web",
+            "@expo/metro-runtime",
+          ],
+          cwd: APP_BUILDER_DIR,
+          env: { CI: "1", EXPO_NO_TELEMETRY: "1" },
+          timeoutMs: 240_000,
+        },
+        { sandbox },
+      );
+      logger.info("sandbox_expo_web_deps_installed", {});
+    } catch (error) {
+      logger.warn("sandbox_expo_web_deps_failed", {
+        error: error instanceof Error ? error.message : "Unknown expo web dependency error",
+      });
+    }
+  }
+  // Force the Metro web bundler + single-page output for Expo Router web. `output:"single"`
+  // serves a client-rendered SPA (one index.html) instead of per-request server rendering,
+  // which does `new URL(req.url)` behind the proxy and throws. Best-effort: a no-op when the
+  // project uses app.config.* instead of app.json. (The client-side base path is handled by
+  // serving mobile previews under a clean subdomain URL — see buildPreviewUrl — because the
+  // Expo dev server ignores experiments.baseUrl / EXPO_BASE_URL.)
+  await executeShellExec(
+    {
+      command: [
+        "node",
+        "-e",
+        'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo=j.expo||{};j.expo.web={...(j.expo.web||{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2));}catch(e){}',
+      ],
+      cwd: APP_BUILDER_DIR,
+      timeoutMs: 15_000,
+    },
+    { sandbox },
+  );
+  await ensureMetroForwardedHostFix(sandbox);
 }
 
-export function clientPreviewUrl(previewUrl: string, previewHostname: string): string {
-  if (previewHostname !== "localhost:8787") {
-    return previewUrl;
-  }
-  const parsed = new URL(previewUrl);
-  if (!parsed.hostname.endsWith(".localhost")) {
-    return previewUrl;
-  }
-  const encodedHost = btoa(parsed.host)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-  return `http://localhost:8787/__sandbox/${encodedHost}${parsed.pathname}${parsed.search}${parsed.hash}`;
+// The preview proxy chain (gateway → Daytona's multi-hop edge) delivers `X-Forwarded-Host` to
+// the sandbox as a COMMA-SEPARATED LIST (e.g. "gateway.trycheatcode.com, 8081-<id>.daytonaproxy01.net").
+// Metro's Server._processRequest does `new URL(req.url, "http://" + xForwardedHost)`, and a
+// comma-list host is an invalid URL — so every `.bundle` request 500s ("TypeError: Invalid URL")
+// and the web preview renders blank. This can't be fixed upstream (the list is assembled inside
+// Daytona), so we normalise the header in Metro's own config via `enhanceMiddleware`, which runs
+// before `_processRequest`. Wraps any existing metro.config.js; idempotent via the marker grep.
+async function ensureMetroForwardedHostFix(sandbox: ProjectSandboxStub): Promise<void> {
+  const script = [
+    'if [ -f metro.config.js ] && grep -q "x-forwarded-host" metro.config.js; then exit 0; fi',
+    "if [ -f metro.config.js ]; then mv metro.config.js metro.config.base.js; fi",
+    "cat > metro.config.js <<'METROEOF'",
+    METRO_FORWARDED_HOST_CONFIG,
+    "METROEOF",
+  ].join("\n");
+  await executeShellExec(
+    { command: ["bash", "-lc", script], cwd: APP_BUILDER_DIR, timeoutMs: 15_000 },
+    { sandbox },
+  );
+}
+
+const METRO_FORWARDED_HOST_CONFIG = `// Cheatcode: normalise the comma-separated X-Forwarded-Host the preview proxy chain injects so
+// Metro's Server can parse the request URL. Wraps the project's base config (or Expo's default).
+let config;
+try {
+  config = require("./metro.config.base.js");
+} catch (e) {
+  config = require("expo/metro-config").getDefaultConfig(__dirname);
+}
+const baseEnhance = config.server && config.server.enhanceMiddleware;
+config.server = Object.assign({}, config.server, {
+  enhanceMiddleware: (middleware, server) => {
+    const inner = baseEnhance ? baseEnhance(middleware, server) : middleware;
+    return (req, res, next) => {
+      const xfh = req.headers["x-forwarded-host"];
+      if (typeof xfh === "string" && xfh.indexOf(",") !== -1) {
+        req.headers["x-forwarded-host"] = xfh.split(",")[0].trim();
+      }
+      return inner(req, res, next);
+    };
+  },
+});
+module.exports = config;
+`;
+
+function resolvePreviewHostname(env: AgentRunAppBuilderEnv): string {
+  return PreviewHostnameSchema.parse(env.PREVIEW_HOSTNAME);
 }

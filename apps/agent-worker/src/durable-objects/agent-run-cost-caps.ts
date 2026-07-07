@@ -33,6 +33,8 @@ export interface BudgetAccountingDeps {
   append: (chunk: UIMessageChunk) => Promise<void>;
   closeSubscribers: () => void;
   ctx: DurableObjectState;
+  /** Closes the open answer text segment (if any) before an error/finish chunk. */
+  endOpenAnswerText: () => Promise<void>;
   env: AgentRunEnv;
   markCompleted: (input: StartRunInput) => Promise<void>;
 }
@@ -73,7 +75,6 @@ export async function recordBudgetDelta(
 export async function appendCostCapExhausted(
   deps: BudgetAccountingDeps,
   input: StartRunInput,
-  isAnswerTextOpen: boolean,
   exhaustion: CostCapExhaustion,
 ): Promise<void> {
   emitUserEvent(deps.env, {
@@ -85,9 +86,7 @@ export async function appendCostCapExhausted(
     userId: input.userId,
   });
   await deps.append(exhaustion.chunk);
-  if (isAnswerTextOpen) {
-    await deps.append({ id: "answer", type: "text-end" });
-  }
+  await deps.endOpenAnswerText();
   await appendStoredBudgetStatus(deps, input);
   await deps.append({ finishReason: "stop", type: "finish" });
   await deps.markCompleted(input);
@@ -99,13 +98,12 @@ export async function enforceCostCaps(
   deps: BudgetAccountingDeps,
   input: StartRunInput,
   snapshot: { usdSpent: number },
-  isAnswerTextOpen: boolean,
 ): Promise<void> {
   const exhaustion = costCapExhaustion(input, snapshot.usdSpent);
   if (!exhaustion) {
     return;
   }
-  await appendCostCapExhausted(deps, input, isAnswerTextOpen, exhaustion);
+  await appendCostCapExhausted(deps, input, exhaustion);
   throw new APIError(402, exhaustion.code, exhaustion.message, {
     retriable: false,
   });
@@ -122,7 +120,6 @@ export async function enforceFreeDeepseekCap(
   deps: BudgetAccountingDeps,
   input: StartRunInput,
   snapshot: { tokensIn: number; tokensOut: number },
-  isAnswerTextOpen: boolean,
 ): Promise<void> {
   if (getRunStateValue(deps.ctx, "credit_source") !== "platform_free") {
     return;
@@ -132,9 +129,7 @@ export async function enforceFreeDeepseekCap(
     return;
   }
   await deps.append(freeDeepseekQuotaReachedChunk());
-  if (isAnswerTextOpen) {
-    await deps.append({ id: "answer", type: "text-end" });
-  }
+  await deps.endOpenAnswerText();
   await appendStoredBudgetStatus(deps, input);
   await deps.append({ finishReason: "stop", type: "finish" });
   await deps.markCompleted(input);

@@ -1,20 +1,20 @@
 # @cheatcode/preview-proxy
 
 Custom Cloudflare Worker that sits in front of every Daytona sandbox preview. It
-serves the wildcard host `*.preview.trycheatcode.com`, authenticates the viewer
+serves the wildcard host `*.trycheatcode.com`, authenticates the viewer
 with a short-lived Cheatcode access token, resolves the real Daytona preview
 origin, and transparently proxies HTTP **and** WebSocket traffic (Vite HMR +
 noVNC websockify) with the Daytona preview headers injected.
 
 This replaces the previous flow where the browser embedded the Blaxel/Daytona
 preview URL (with a `bl_preview_token` / `?token=` query string) directly. Now
-the browser only ever talks to `*.preview.trycheatcode.com`; the Daytona origin
+the browser only ever talks to `*.trycheatcode.com`; the Daytona origin
 and its per-sandbox token never leave the edge.
 
 ## Host contract
 
 ```
-{sandboxId}--{port}.preview.trycheatcode.com
+{sandboxId}--{port}.trycheatcode.com
 ```
 
 - `--` (double-dash) separates the sandbox id from the port so that sandbox ids
@@ -34,7 +34,7 @@ The token is a dot-delimited string:
 | `sandboxId` | Daytona sandbox id (dot-free DNS label).                            |
 | `port`      | Target sandbox port.                                                |
 | `exp`       | Expiry, epoch **milliseconds**.                                     |
-| `mode`      | `app` (normal preview) or `takeover` (noVNC interactive takeover).  |
+| `mode`      | `app` (normal preview), `code` (embedded Files viewer), or `takeover` (noVNC interactive takeover). |
 | `sig`       | `hmacSha256Base64("{sandboxId}.{port}.{exp}.{mode}", PREVIEW_TOKEN_SECRET)` |
 
 `sig` is **standard** base64 (from `@cheatcode/auth`'s `hmacSha256Base64`). The
@@ -67,7 +67,7 @@ cc_pt=<token>; HttpOnly; Secure; SameSite=None; Path=/; Max-Age=<until exp>
 
 then strips `__cc_pt` from the URL forwarded to the origin so the token never
 leaks. `SameSite=None; Secure` is required because the preview renders inside a
-cross-site iframe (`web.trycheatcode.com` -> `*.preview.trycheatcode.com`). The
+cross-site iframe (`app.trycheatcode.com`/`trycheatcode.com` -> `*.trycheatcode.com`). The
 first navigation carries `__cc_pt`; every subsequent same-origin request (assets,
 HMR/WebSocket, noVNC) reuses the `cc_pt` cookie.
 
@@ -119,10 +119,10 @@ the shared `@cheatcode/observability` emitters.
 
 ## DNS / route setup
 
-- Route: `*.preview.trycheatcode.com/*` on zone `trycheatcode.com`.
-- DNS: a **proxied** wildcard record `*.preview` -> the zone (orange-cloud) so
+- Route: `*.trycheatcode.com/*` on zone `trycheatcode.com`.
+- DNS: a **proxied** wildcard record `*` -> the zone (orange-cloud) so
   Cloudflare terminates TLS and runs this Worker for every sub-subdomain.
-- TLS: the wildcard `*.preview.trycheatcode.com` is one label deep beyond
+- TLS: the wildcard `*.trycheatcode.com` is one label deep beyond
   `trycheatcode.com`; Cloudflare Universal SSL covers a single wildcard level, so
   no extra certificate is required. (If preview hosts ever gain another label,
   Advanced Certificate Manager / a custom cert would be needed.)

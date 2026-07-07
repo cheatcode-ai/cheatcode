@@ -7,28 +7,30 @@ import { useMutation, useQueries, useQuery, useQueryClient } from "@tanstack/rea
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { AuthModal, type AuthMode } from "@/components/auth/auth-modal";
+import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/search/command-palette";
+import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import {
   ArrowUpRight,
   ChevronDown,
   ChevronRight,
   CreditCard,
-  FileText,
+  Folder,
   Link as LinkIcon,
   Loader2,
   type LucideIcon,
   Menu,
-  Monitor,
+  MessageCircle,
   MoreHorizontal,
   MoreVertical,
   PanelLeftOpen,
   PanelRightOpen,
   Pencil,
   Plus,
-  Smartphone,
+  Search,
   Trash2,
   TrendingUp,
   User,
@@ -67,12 +69,17 @@ interface SidebarProject {
 }
 
 const PRIMARY_NAV = navItems("primary");
-const WORKSPACE_SECTION_NAV = navItems("workspace");
+const WORKSPACE_SECTION_NAV = navItems("workspace").filter((item) => item.id !== "tools");
 const FOOTER_NAV = navItems("footer");
 const CREDIT_BAR_KEYS = Array.from({ length: 50 }, (_, index) => `credit-bar-${index}`);
-const SIDEBAR_MORE_LINKS = [
+const BUD_ACCOUNT_FONT = 'circular, "circular Fallback", sans-serif';
+const BUD_ACCOUNT_AMOUNT_FONT = "Inter, var(--font-geist-sans), sans-serif";
+const ACCOUNT_DROPDOWN_LINKS = [
+  { href: "/settings/billing", icon: CreditCard, label: "Pricing" },
+  { href: "/settings/billing", icon: TrendingUp, label: "Usage" },
+] as const satisfies readonly SidebarMenuLinkItem[];
+const SETTINGS_MENU_LINKS = [
   { href: "/settings/account", icon: User, label: "Account" },
-  { href: "/artifacts", icon: FileText, label: "Artifacts" },
   { href: "/settings/billing", icon: CreditCard, label: "Pricing" },
   { href: "/settings/billing", icon: TrendingUp, label: "Usage" },
 ] as const satisfies readonly SidebarMenuLinkItem[];
@@ -113,6 +120,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   const sidebarOpen = useAppStore((state) => state.sidebarOpen);
   const setSidebarCollapsed = useAppStore((state) => state.setSidebarCollapsed);
   const setSidebarOpen = useAppStore((state) => state.setSidebarOpen);
+  const isDesktopViewport = useIsDesktopViewport();
   const activeThreadId = activeChatIdFromPathname(pathname);
   const sidebarProjects = useSidebarProjects(getToken, Boolean(isSignedIn));
   const sidebarChats = useSidebarChats(getToken, Boolean(isSignedIn));
@@ -159,6 +167,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   });
   const isOverlay = mode === "overlay";
   const isDockedCollapsed = !isOverlay && sidebarCollapsed;
+  const sidebarIsHidden = isOverlay ? !sidebarOpen : !isDesktopViewport && !sidebarOpen;
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -170,7 +179,7 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
     }
     document.documentElement.style.setProperty(
       "--cheatcode-sidebar-offset",
-      isDockedCollapsed ? "4rem" : "16rem",
+      isDockedCollapsed ? "56px" : "240px",
     );
   }, [isDockedCollapsed, isOverlay]);
 
@@ -200,11 +209,13 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
         />
       ) : null}
       <aside
+        aria-hidden={sidebarIsHidden}
         className={cn(
-          "fixed top-2 bottom-2 left-2 z-50 flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-[24px] border-2 border-[#f7f7f7] bg-transparent p-0.5 shadow-none transition-[width,transform] duration-200",
-          isDockedCollapsed ? "w-12" : "w-60",
+          "fixed top-2 bottom-2 left-2 z-50 flex max-h-[calc(100vh-16px)] flex-col overflow-hidden rounded-[24px] border-2 border-[#f7f7f7] bg-transparent p-0.5 shadow-none transition-[width,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+          isDockedCollapsed ? "w-12" : "w-[240px]",
           sidebarTransformClass(isOverlay, sidebarOpen),
         )}
+        inert={sidebarIsHidden ? true : undefined}
       >
         {isDockedCollapsed ? (
           <SidebarRailContent onExpand={() => setSidebarCollapsed(false)} pathname={pathname} />
@@ -294,6 +305,20 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   );
 }
 
+function useIsDesktopViewport(): boolean {
+  const [isDesktop, setIsDesktop] = useState(true);
+
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setIsDesktop(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  return isDesktop;
+}
+
 function ExpandedSidebarContent({
   accountOpen,
   activeThreadId,
@@ -360,99 +385,154 @@ function ExpandedSidebarContent({
 }) {
   return (
     <div className="flex size-full flex-col overflow-hidden rounded-[20.5px] bg-white">
-      <div className="flex min-h-0 flex-1 flex-col rounded-b-[20.5px] bg-[#f7f7f7]">
-        <div className="flex h-10 shrink-0 items-center p-0.5">
-          <div className="flex w-full items-center justify-between gap-2 overflow-hidden p-0.5">
-            {isLoaded && !isSignedIn ? (
-              <button
-                aria-label="Sign in to Cheatcode"
-                className="paper-focus-ring flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md font-medium text-[#1b1b1b] text-[14px] leading-5 transition-opacity hover:opacity-80"
-                onClick={() => onAuthModeChange("sign-in")}
-                type="button"
-              >
-                <SidebarProfileAvatar brand displayName="cheatcode" initial="" imageUrl={null} />
-                <span className="min-w-0 truncate">cheatcode</span>
-              </button>
-            ) : (
-              <button
-                aria-label={`Account: ${displayName}`}
-                aria-expanded={accountOpen}
-                className="paper-focus-ring flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md font-medium text-[#1b1b1b] text-[14px] leading-5 transition-opacity hover:opacity-80"
-                onClick={onToggleAccount}
-                title={displayName}
-                type="button"
-              >
-                <SidebarProfileAvatar
-                  displayName={displayName}
-                  imageUrl={profileImageUrl}
-                  initial={initial}
-                />
-                <span className="min-w-0 truncate text-left">{displayName}</span>
-              </button>
+      <div className="flex min-h-0 flex-1 flex-col gap-[15px] rounded-b-[20.5px] bg-[#f7f7f7]">
+        <div className="flex shrink-0 items-center p-0.5">
+          <div
+            className={cn(
+              "flex w-full flex-col rounded-[19px] transition-colors duration-200",
+              accountOpen && isSignedIn ? "bg-white" : "bg-transparent",
             )}
-            {!isOverlay ? (
-              <button
-                aria-label="Collapse sidebar"
-                className="paper-focus-ring flex size-7 shrink-0 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-                onClick={onCollapse}
-                title="Collapse sidebar"
-                type="button"
+            style={{ fontFamily: BUD_ACCOUNT_FONT }}
+          >
+            <div className="flex w-full items-center justify-between gap-2 overflow-hidden p-0.5">
+              {isLoaded && !isSignedIn ? (
+                <button
+                  aria-label="Sign in to Cheatcode"
+                  className="paper-focus-ring flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md font-medium text-[#1b1b1b] text-[14px] leading-5 transition-opacity hover:opacity-80"
+                  onClick={() => onAuthModeChange("sign-in")}
+                  type="button"
+                >
+                  <SidebarProfileAvatar brand displayName="cheatcode" initial="" imageUrl={null} />
+                  <span className="min-w-0 truncate">cheatcode</span>
+                </button>
+              ) : (
+                <button
+                  aria-label={`Account: ${displayName}`}
+                  aria-expanded={accountOpen}
+                  className="paper-focus-ring flex min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-md font-medium text-[#1b1b1b] text-[14px] leading-5 transition-opacity hover:opacity-80"
+                  onClick={onToggleAccount}
+                  title={displayName}
+                  type="button"
+                >
+                  <SidebarProfileAvatar
+                    displayName={displayName}
+                    imageUrl={profileImageUrl}
+                    initial={initial}
+                  />
+                  <span className="min-w-0 truncate text-left">{displayName}</span>
+                </button>
+              )}
+              {!isOverlay ? (
+                <div className="flex shrink-0 items-center gap-0.5">
+                  <BudTooltip label="Search" shortcut={["⌘", "K"]} side="bottom">
+                    <button
+                      aria-label="Search"
+                      className="paper-focus-ring flex size-7 shrink-0 items-center justify-center rounded-full text-[#5f5f5f] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.97] motion-reduce:transition-none"
+                      onClick={() => window.dispatchEvent(new Event(OPEN_COMMAND_PALETTE_EVENT))}
+                      type="button"
+                    >
+                      <Search aria-hidden="true" className="h-4 w-4" />
+                    </button>
+                  </BudTooltip>
+                  <BudTooltip label="Collapse sidebar" side="bottom">
+                    <button
+                      aria-label="Collapse sidebar"
+                      className="paper-focus-ring flex size-7 shrink-0 items-center justify-center rounded-full text-[#5f5f5f] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.97] motion-reduce:transition-none"
+                      onClick={onCollapse}
+                      type="button"
+                    >
+                      <PanelRightOpen aria-hidden="true" className="h-4 w-4" />
+                    </button>
+                  </BudTooltip>
+                </div>
+              ) : null}
+            </div>
+            {isSignedIn ? (
+              <div
+                aria-hidden={!accountOpen}
+                className={cn(
+                  "grid overflow-hidden transition-[grid-template-rows,opacity] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
+                  accountOpen ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
+                )}
+                inert={accountOpen ? undefined : true}
               >
-                <PanelRightOpen aria-hidden="true" className="h-4 w-4" />
-              </button>
+                <div className="min-h-0 overflow-hidden">
+                  <SidebarAccountMenu
+                    displayName={displayName}
+                    email={primaryEmail}
+                    getToken={getToken}
+                    onNavigate={onCloseAccount}
+                    onSignOut={signOut}
+                  />
+                </div>
+              </div>
             ) : null}
           </div>
         </div>
 
-        {accountOpen && isSignedIn ? (
-          <SidebarAccountMenu
-            displayName={displayName}
-            email={primaryEmail}
-            getToken={getToken}
-            onNavigate={onCloseAccount}
-            onSignOut={signOut}
-          />
-        ) : null}
-
-        <div
-          className={cn(
-            "relative min-h-0 flex-1 overflow-hidden",
-            accountOpen && isSignedIn ? "mt-0" : "mt-[15px]",
-          )}
-        >
-          <nav aria-label="Primary" className="flex flex-col gap-1 px-1 pb-1">
-            {/* Chat-first: only "New chat" is a top-level row; Projects moves into the
-                secondary collapsible below, so it isn't duplicated here. */}
+        <div className="relative min-h-0 flex-1 overflow-hidden">
+          <nav aria-label="Navigation" className="flex flex-col gap-0.5 px-1 pb-1">
             {PRIMARY_NAV.filter((item) => item.id !== "projects").map((item) => (
               <SidebarNavRow item={item} key={item.id} pathname={pathname} />
             ))}
             <button
               aria-expanded={chatsOpen}
-              className="paper-focus-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-              onClick={() => onChatsOpenChange((current) => !current)}
+              aria-label={chatsOpen ? "Collapse chats" : "Expand chats"}
+              className="paper-focus-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.99] motion-reduce:transition-none"
+              onClick={() => {
+                if (!chatsOpen) {
+                  onProjectsOpenChange(() => false);
+                }
+                onChatsOpenChange((current) => !current);
+              }}
               type="button"
             >
-              <span>Chats</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <MessageCircle aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">Chats</span>
+              </span>
               <ChevronDown
                 aria-hidden="true"
-                className={cn("h-3.5 w-3.5 transition-transform", chatsOpen && "rotate-180")}
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+                  chatsOpen && "rotate-180",
+                )}
               />
             </button>
-            {chatsOpen ? <ChatList activeThreadId={activeThreadId} chats={sidebarChats} /> : null}
+            <SidebarCollapseRegion open={chatsOpen}>
+              <ChatList activeThreadId={activeThreadId} chats={sidebarChats} />
+            </SidebarCollapseRegion>
 
+            <div className="flex flex-none flex-col gap-0.5 pt-4">
+              {WORKSPACE_SECTION_NAV.map((item) => (
+                <SidebarNavRow item={item} key={item.id} pathname={pathname} />
+              ))}
+            </div>
             <button
               aria-expanded={projectsOpen}
-              className="paper-focus-ring mt-2 flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-              onClick={() => onProjectsOpenChange((current) => !current)}
+              aria-label={projectsOpen ? "Collapse projects" : "Expand projects"}
+              className="paper-focus-ring flex min-h-8 w-full items-center justify-between gap-2 rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[13px] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.99] motion-reduce:transition-none"
+              onClick={() => {
+                if (!projectsOpen) {
+                  onChatsOpenChange(() => false);
+                }
+                onProjectsOpenChange((current) => !current);
+              }}
               type="button"
             >
-              <span>Projects</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+                <span className="min-w-0 truncate">Projects</span>
+              </span>
               <ChevronDown
                 aria-hidden="true"
-                className={cn("h-3.5 w-3.5 transition-transform", projectsOpen && "rotate-180")}
+                className={cn(
+                  "h-3.5 w-3.5 transition-transform duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transition-none",
+                  projectsOpen && "rotate-180",
+                )}
               />
             </button>
-            {projectsOpen ? (
+            <SidebarCollapseRegion open={projectsOpen}>
               <ProjectList
                 activeThreadId={activeThreadId}
                 deleteMutation={deleteMutation}
@@ -461,13 +541,7 @@ function ExpandedSidebarContent({
                 projects={sidebarProjects}
                 renameMutation={renameMutation}
               />
-            ) : null}
-          </nav>
-
-          <nav aria-label="Workspace" className="mt-4 flex flex-col gap-1 px-1 pb-1">
-            {WORKSPACE_SECTION_NAV.map((item) => (
-              <SidebarNavRow item={item} key={item.id} pathname={pathname} />
-            ))}
+            </SidebarCollapseRegion>
           </nav>
         </div>
 
@@ -552,8 +626,11 @@ function SidebarAccountMenu({
   onSignOut: () => void;
 }) {
   return (
-    <div className="mx-0.5 -mt-0.5 flex shrink-0 flex-col gap-1 p-1 pb-[5px]">
-      <div className="flex h-8 min-w-0 items-center gap-2 px-[9px] py-1.5">
+    <div
+      className="flex shrink-0 flex-col gap-0.5 p-1 pb-[5px]"
+      style={{ fontFamily: BUD_ACCOUNT_FONT }}
+    >
+      <div className="flex min-w-0 items-center gap-2 px-[9px] py-1.5">
         <p className="min-w-0 flex-1 truncate font-medium text-[#5f5f5f] text-[13px] leading-[19.5px]">
           {email ?? displayName}
         </p>
@@ -566,12 +643,12 @@ function SidebarAccountMenu({
         </Link>
       </div>
       <SidebarCreditsCard getToken={getToken} onNavigate={onNavigate} />
-      <div className="flex flex-col gap-1">
-        {SIDEBAR_MORE_LINKS.map((item) => (
+      <div className="flex flex-col gap-0.5">
+        {ACCOUNT_DROPDOWN_LINKS.map((item) => (
           <SidebarAccountMenuLink item={item} key={item.label} onNavigate={onNavigate} />
         ))}
         <button
-          className="paper-focus-ring flex h-8 w-full items-center rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[14px] leading-5 transition-colors hover:bg-white hover:text-[#1b1b1b]"
+          className="paper-focus-ring flex h-8 w-full items-center rounded-full px-[9px] py-1.5 text-left font-medium text-[#5f5f5f] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
           onClick={onSignOut}
           type="button"
         >
@@ -599,14 +676,14 @@ function SidebarCreditsCard({
 
   return (
     <Link
-      className="paper-focus-ring flex h-[88px] flex-col gap-2.5 rounded-2xl border border-[#e6e6e6] bg-[#f7f7f7] p-2.5 pt-1 text-left transition-opacity hover:opacity-90"
+      className="paper-focus-ring flex h-[87px] w-full flex-col gap-2.5 rounded-2xl border border-[#f7f7f7] bg-[#f7f7f7] p-2.5 pt-1 text-left transition-opacity hover:opacity-90"
       href="/settings/billing"
       onClick={onNavigate}
     >
       <div className="flex w-full items-center justify-between">
         <span className="font-medium text-[#1b1b1b] text-[13px] leading-[19.5px]">Credits</span>
       </div>
-      <div className="flex items-baseline gap-1.5">
+      <div className="flex items-baseline gap-1.5" style={{ fontFamily: BUD_ACCOUNT_AMOUNT_FONT }}>
         <span className="font-bold text-[#1b1b1b] text-lg tabular-nums leading-none">
           {usedLabel}
         </span>
@@ -636,7 +713,7 @@ function SidebarAccountMenuLink({
 }) {
   const external = isExternalHref(item.href);
   const className =
-    "paper-focus-ring flex h-8 w-full items-center rounded-full px-[9px] py-1.5 font-medium text-[#5f5f5f] text-[14px] leading-5 transition-colors hover:bg-white hover:text-[#1b1b1b]";
+    "paper-focus-ring flex h-8 w-full items-center rounded-full px-[9px] py-1.5 font-medium text-[#5f5f5f] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]";
 
   if (external) {
     return (
@@ -687,7 +764,7 @@ function SidebarSettingsMenu({
             )}
           >
             <div className="flex flex-col gap-1">
-              {SIDEBAR_MORE_LINKS.map((item) => (
+              {SETTINGS_MENU_LINKS.map((item) => (
                 <SidebarMenuLink
                   interactive={open}
                   item={item}
@@ -768,6 +845,23 @@ function SidebarMenuLink({
   );
 }
 
+function SidebarCollapseRegion({ children, open }: { children: ReactNode; open: boolean }) {
+  return (
+    <div
+      aria-hidden={!open}
+      className={cn(
+        "grid overflow-hidden transition-[grid-template-rows,opacity,transform] duration-200 ease-[cubic-bezier(0.23,1,0.32,1)] motion-reduce:transform-none motion-reduce:transition-none",
+        open
+          ? "translate-y-0 grid-rows-[1fr] opacity-100"
+          : "pointer-events-none -translate-y-1 grid-rows-[0fr] opacity-0",
+      )}
+      inert={open ? undefined : true}
+    >
+      <div className="min-h-0 overflow-hidden">{children}</div>
+    </div>
+  );
+}
+
 function formatCompactHours(value: number): string {
   const formatted = formatHoursUsed(value);
   return formatted.endsWith(".0") ? formatted.slice(0, -2) : formatted;
@@ -807,62 +901,105 @@ function sidebarTransformClass(isOverlay: boolean, sidebarOpen: boolean): string
 }
 
 function SidebarRailContent({ onExpand, pathname }: { onExpand: () => void; pathname: string }) {
-  const items = [...PRIMARY_NAV, ...WORKSPACE_SECTION_NAV, ...FOOTER_NAV].filter(
-    (item) => item.id !== "cheatcode-101" && item.id !== "settings",
-  );
+  const newTaskItem = PRIMARY_NAV.find((item) => item.id === "new-task");
+  const projectItem = PRIMARY_NAV.find((item) => item.id === "projects");
   const settingsItem = FOOTER_NAV.find((item) => item.id === "settings");
 
   return (
-    <div className="flex size-full flex-col overflow-hidden rounded-[20.5px]">
-      <div className="flex h-[57px] shrink-0 items-start justify-center pt-2">
-        <button
-          aria-label="Expand sidebar"
-          className="paper-focus-ring flex size-7 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-          onClick={onExpand}
-          title="Expand sidebar"
-          type="button"
-        >
-          <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
-        </button>
+    <div className="flex size-full flex-col overflow-hidden rounded-[20.5px] bg-white">
+      <div className="flex min-h-0 flex-1 flex-col gap-[15px] rounded-b-[20.5px] bg-[#f7f7f7]">
+        <div className="flex h-10 shrink-0 items-center p-0.5">
+          <div className="flex w-full items-center justify-center p-1">
+            <BudTooltip label="Expand sidebar" side="right">
+              <button
+                aria-label="Expand sidebar"
+                className="paper-focus-ring flex size-7 items-center justify-center rounded-full text-[#5f5f5f] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.97] motion-reduce:transition-none"
+                onClick={onExpand}
+                type="button"
+              >
+                <PanelLeftOpen aria-hidden="true" className="h-4 w-4" />
+              </button>
+            </BudTooltip>
+          </div>
+        </div>
+        <div className="relative min-h-0 flex-1">
+          <nav aria-label="Workspace rail" className="flex h-full flex-col gap-0.5 px-1 pb-1">
+            {newTaskItem ? <SidebarRailLink item={newTaskItem} pathname={pathname} /> : null}
+            <BudTooltip className="w-full" label="Chats" side="right">
+              <button
+                aria-label="Chats"
+                className="paper-focus-ring flex h-8 w-full shrink-0 items-center rounded-full px-[9px] text-[#5f5f5f] transition-[background-color,color,transform] duration-150 ease-out hover:bg-white hover:text-[#1b1b1b] active:scale-[0.97] motion-reduce:transition-none"
+                onClick={onExpand}
+                type="button"
+              >
+                <MessageCircle aria-hidden="true" className="h-3.5 w-3.5" />
+              </button>
+            </BudTooltip>
+            {WORKSPACE_SECTION_NAV.map((item) => (
+              <SidebarRailLink item={item} key={item.id} pathname={pathname} />
+            ))}
+            {projectItem ? (
+              <BudTooltip className="w-full" label="Projects" side="right">
+                <button
+                  aria-label="Projects"
+                  className={cn(
+                    "paper-focus-ring flex h-8 w-full shrink-0 items-center rounded-full px-[9px] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:transition-none",
+                    isNavItemActive(projectItem, pathname)
+                      ? "bud-lifted-surface bg-white text-[#1b1b1b]"
+                      : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
+                  )}
+                  onClick={onExpand}
+                  type="button"
+                >
+                  <Folder aria-hidden="true" className="h-3.5 w-3.5" />
+                </button>
+              </BudTooltip>
+            ) : null}
+          </nav>
+        </div>
       </div>
-      <nav aria-label="Workspace rail" className="flex flex-1 flex-col gap-1 px-1 pb-1">
-        {items.map((item) => {
-          const active = isNavItemActive(item, pathname);
-          return (
-            <Link
-              aria-label={item.label}
-              aria-current={active ? "page" : undefined}
-              className={cn(
-                "paper-focus-ring flex h-8 w-full shrink-0 items-center rounded-full px-[9px] transition-colors",
-                active
-                  ? "bud-lifted-surface bg-white text-[#1b1b1b]"
-                  : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
-              )}
-              href={item.target.href}
-              key={item.id}
-            >
-              <item.icon aria-hidden="true" className="h-3.5 w-3.5" />
-            </Link>
-          );
-        })}
-      </nav>
-      {settingsItem ? (
-        <Link
-          aria-label="Settings"
-          aria-current={isNavItemActive(settingsItem, pathname) ? "page" : undefined}
-          className={cn(
-            "paper-focus-ring flex min-h-8 w-full items-center px-[13px] py-1.5 transition-colors",
-            isNavItemActive(settingsItem, pathname)
-              ? "text-[#1b1b1b]"
-              : "text-[#5f5f5f] hover:text-[#1b1b1b]",
-          )}
-          href={settingsItem.target.href}
-          title="Settings"
-        >
-          <MoreVertical aria-hidden="true" className="h-3.5 w-3.5" />
-        </Link>
+      {settingsItem?.target.kind === "route" ? (
+        <BudTooltip className="w-full" label="Settings" side="right">
+          <Link
+            aria-label="Settings"
+            aria-current={isNavItemActive(settingsItem, pathname) ? "page" : undefined}
+            className={cn(
+              "paper-focus-ring flex min-h-8 w-full items-center px-[13px] py-1.5 transition-colors",
+              isNavItemActive(settingsItem, pathname)
+                ? "text-[#1b1b1b]"
+                : "text-[#5f5f5f] hover:text-[#1b1b1b]",
+            )}
+            href={settingsItem.target.href}
+          >
+            <MoreVertical aria-hidden="true" className="h-3.5 w-3.5" />
+          </Link>
+        </BudTooltip>
       ) : null}
     </div>
+  );
+}
+
+function SidebarRailLink({ item, pathname }: { item: NavItem; pathname: string }) {
+  if (item.target.kind !== "route") {
+    return null;
+  }
+  const active = isNavItemActive(item, pathname);
+  return (
+    <BudTooltip className="w-full" label={item.label} side="right">
+      <Link
+        aria-label={item.label}
+        aria-current={active ? "page" : undefined}
+        className={cn(
+          "paper-focus-ring flex h-8 w-full shrink-0 items-center rounded-full px-[9px] transition-[background-color,color,transform] duration-150 ease-out active:scale-[0.97] motion-reduce:transition-none",
+          active
+            ? "bud-lifted-surface bg-white text-[#1b1b1b]"
+            : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
+        )}
+        href={item.target.href}
+      >
+        <item.icon aria-hidden="true" className="h-3.5 w-3.5" />
+      </Link>
+    </BudTooltip>
   );
 }
 
@@ -877,6 +1014,9 @@ function IconRail({ onExpand }: { onExpand: () => void }) {
 }
 
 function SidebarNavRow({ item, pathname }: { item: NavItem; pathname: string }) {
+  if (item.target.kind !== "route") {
+    return null;
+  }
   const active = isNavItemActive(item, pathname);
   return (
     <Link
@@ -896,6 +1036,9 @@ function SidebarNavRow({ item, pathname }: { item: NavItem; pathname: string }) 
 }
 
 function SidebarHelpCard({ item, pathname }: { item: NavItem; pathname: string }) {
+  if (item.target.kind !== "route") {
+    return null;
+  }
   const active = isNavItemActive(item, pathname);
   return (
     <Link
@@ -1021,7 +1164,7 @@ function ChatList({
   }
   return (
     <>
-      <div className="space-y-1 py-1">
+      <div className="space-y-0.5 py-1">
         {chats.items.slice(0, 12).map((chat) => (
           <ChatRow
             activeThreadId={activeThreadId}
@@ -1078,38 +1221,42 @@ function ChatRow({
         ) : null}
       </Link>
       <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
-        <button
-          aria-label={`Rename ${chat.title || "chat"}`}
-          className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45",
-            isRenaming && "text-[#1b1b1b]",
-          )}
-          disabled={isRenaming}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onRename(chat);
-          }}
-          type="button"
-        >
-          <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-        </button>
-        <button
-          aria-label={`Delete ${chat.title || "chat"}`}
-          className={cn(
-            "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45",
-            isDeleting && "text-red-600",
-          )}
-          disabled={isDeleting}
-          onClick={(event) => {
-            event.preventDefault();
-            event.stopPropagation();
-            onDelete(chat);
-          }}
-          type="button"
-        >
-          <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-        </button>
+        <BudTooltip label={`Rename ${chat.title || "chat"}`}>
+          <button
+            aria-label={`Rename ${chat.title || "chat"}`}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45",
+              isRenaming && "text-[#1b1b1b]",
+            )}
+            disabled={isRenaming}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onRename(chat);
+            }}
+            type="button"
+          >
+            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+        </BudTooltip>
+        <BudTooltip label={`Delete ${chat.title || "chat"}`}>
+          <button
+            aria-label={`Delete ${chat.title || "chat"}`}
+            className={cn(
+              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45",
+              isDeleting && "text-red-600",
+            )}
+            disabled={isDeleting}
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onDelete(chat);
+            }}
+            type="button"
+          >
+            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+          </button>
+        </BudTooltip>
       </div>
     </div>
   );
@@ -1157,7 +1304,7 @@ function ProjectList({
   }
   return (
     <>
-      <div className="space-y-1 py-1">
+      <div className="space-y-0.5 py-1">
         {projects.items.slice(0, 6).map((project) => (
           <ProjectRow
             activeThreadId={activeThreadId}
@@ -1202,107 +1349,76 @@ function ProjectRow({
   project: SidebarProject;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const projectHref = project.href;
   const hasThreads = project.threads.length > 0;
   const isActive = project.threads.some((thread) => thread.id === activeThreadId);
-  const Icon = project.appType === "mobile" ? Smartphone : Monitor;
   const rowClassName = cn(
-    "relative flex h-8 w-full items-center gap-1 rounded-full pr-[9px] pl-1 text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+    "relative flex h-8 w-full items-center gap-1 rounded-full pr-1 pl-1 text-left font-medium text-[13px] leading-[19.5px] transition-colors",
     isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
   );
+  const closeMenu = () => setMenuOpen(false);
 
   return (
     <div>
       <div className="group/row relative">
         <div className={rowClassName}>
           {hasThreads ? (
-            <button
-              aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
-              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:text-[#1b1b1b]"
-              onClick={() => setExpanded((value) => !value)}
-              type="button"
-            >
-              <ChevronRight
-                aria-hidden="true"
-                className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
-              />
-            </button>
+            <BudTooltip label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}>
+              <button
+                aria-label={expanded ? `Collapse ${project.name}` : `Expand ${project.name}`}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:text-[#1b1b1b]"
+                onClick={() => setExpanded((value) => !value)}
+                type="button"
+              >
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn("h-3.5 w-3.5 transition-transform", expanded && "rotate-90")}
+                />
+              </button>
+            </BudTooltip>
           ) : (
             <span className="w-5 shrink-0" />
           )}
           {projectHref ? (
-            <Link className="flex min-w-0 flex-1 items-center gap-2" href={projectHref}>
-              <ProjectRowContent Icon={Icon} project={project} />
+            <Link className="flex min-w-0 flex-1 items-center gap-2 pr-1" href={projectHref}>
+              <ProjectRowContent project={project} />
             </Link>
           ) : (
-            <div className="flex min-w-0 flex-1 cursor-default items-center gap-2">
-              <ProjectRowContent Icon={Icon} project={project} />
+            <div className="flex min-w-0 flex-1 cursor-default items-center gap-2 pr-1">
+              <ProjectRowContent project={project} />
             </div>
           )}
+          <BudTooltip label={`Open ${project.name} folder menu`}>
+            <button
+              aria-expanded={menuOpen}
+              aria-label={`Open ${project.name} folder menu`}
+              className={cn(
+                "paper-focus-ring flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[#a0a0a0] opacity-0 transition-[background-color,color,opacity] hover:bg-white hover:text-[#1b1b1b] group-hover/row:opacity-100",
+                menuOpen && "bg-white text-[#1b1b1b] opacity-100",
+              )}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                setMenuOpen((current) => !current);
+              }}
+              type="button"
+            >
+              <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </BudTooltip>
         </div>
-        <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center opacity-0 transition-opacity group-hover/row:opacity-100">
-          {projectHref ? (
-            <>
-              <button
-                aria-label={`Copy link to ${project.name}`}
-                className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-                onClick={(event) => {
-                  event.preventDefault();
-                  event.stopPropagation();
-                  copyProjectLink(projectHref, project.name);
-                }}
-                type="button"
-              >
-                <LinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
-              </button>
-              <a
-                aria-label={`Open ${project.name} in a new tab`}
-                className="flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-                href={projectHref}
-                onClick={(event) => event.stopPropagation()}
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
-              </a>
-            </>
-          ) : null}
-          <button
-            aria-label={`Rename ${project.name}`}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45",
-              isRenaming && "text-[#1b1b1b]",
-            )}
-            disabled={isRenaming}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onRename(project);
-            }}
-            type="button"
-          >
-            <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
-          </button>
-          <button
-            aria-label={`Delete ${project.name}`}
-            className={cn(
-              "flex h-6 w-6 items-center justify-center rounded-full text-[#a0a0a0] transition-colors hover:bg-white hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-45",
-              isDeleting && "text-red-600",
-            )}
-            disabled={isDeleting}
-            onClick={(event) => {
-              event.preventDefault();
-              event.stopPropagation();
-              onDelete(project);
-            }}
-            type="button"
-          >
-            <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
-          </button>
-          <span className="hidden h-6 w-6 items-center justify-center text-[#c7c7c7] md:flex">
-            <MoreHorizontal aria-hidden="true" className="h-4 w-4" />
-          </span>
-        </div>
+        {menuOpen ? (
+          <ProjectFolderMenu
+            isDeleting={isDeleting}
+            isRenaming={isRenaming}
+            onClose={closeMenu}
+            onDelete={onDelete}
+            onRename={onRename}
+            project={project}
+            projectHref={projectHref}
+          />
+        ) : null}
       </div>
       {expanded ? (
         <div className="mt-0.5 ml-[18px] flex flex-col gap-0.5 border-[#ededed] border-l pl-2">
@@ -1317,31 +1433,105 @@ function ProjectRow({
               onRename={chatActions.onRename}
             />
           ))}
-          <button
-            className="flex h-7 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[#8a8a8a] text-[12px] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:opacity-50"
-            disabled={isCreatingChat}
-            onClick={() => onNewChat(project.id)}
-            type="button"
-          >
-            {isCreatingChat ? (
-              <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
-            ) : (
-              <Plus aria-hidden="true" className="h-3.5 w-3.5" />
-            )}
-            <span>New chat</span>
-          </button>
+          <BudTooltip disabled={isCreatingChat} label={`New chat in ${project.name}`}>
+            <button
+              className="flex h-7 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[#8a8a8a] text-[12px] transition-colors hover:bg-white hover:text-[#1b1b1b] disabled:opacity-50"
+              disabled={isCreatingChat}
+              onClick={() => onNewChat(project.id)}
+              type="button"
+            >
+              {isCreatingChat ? (
+                <Loader2 aria-hidden="true" className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Plus aria-hidden="true" className="h-3.5 w-3.5" />
+              )}
+              <span>New chat</span>
+            </button>
+          </BudTooltip>
         </div>
       ) : null}
     </div>
   );
 }
 
-function ProjectRowContent({ Icon, project }: { Icon: typeof Monitor; project: SidebarProject }) {
+function ProjectRowContent({ project }: { project: SidebarProject }) {
   return (
     <>
-      <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate pr-16">{project.name}</span>
+      <Folder aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">{project.name}</span>
     </>
+  );
+}
+
+function ProjectFolderMenu({
+  isDeleting,
+  isRenaming,
+  onClose,
+  onDelete,
+  onRename,
+  project,
+  projectHref,
+}: {
+  isDeleting: boolean;
+  isRenaming: boolean;
+  onClose: () => void;
+  onDelete: (project: SidebarProject) => void;
+  onRename: (project: SidebarProject) => void;
+  project: SidebarProject;
+  projectHref: null | string;
+}) {
+  return (
+    <div className="absolute top-8 right-1 z-20 w-40 rounded-xl border border-[#ededed] bg-white p-1 shadow-[0_12px_32px_rgba(0,0,0,0.12)]">
+      {projectHref ? (
+        <>
+          <button
+            className="paper-focus-ring flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+            onClick={() => {
+              copyProjectLink(projectHref, project.name);
+              onClose();
+            }}
+            type="button"
+          >
+            <LinkIcon aria-hidden="true" className="h-3.5 w-3.5" />
+            <span className="min-w-0 truncate">Copy link</span>
+          </button>
+          <a
+            className="paper-focus-ring flex h-8 w-full items-center gap-2 rounded-lg px-2 font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+            href={projectHref}
+            onClick={onClose}
+            rel="noopener noreferrer"
+            target="_blank"
+          >
+            <ArrowUpRight aria-hidden="true" className="h-3.5 w-3.5" />
+            <span className="min-w-0 truncate">Open preview</span>
+          </a>
+        </>
+      ) : null}
+      <button
+        className="paper-focus-ring flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={isRenaming}
+        onClick={() => {
+          onRename(project);
+          onClose();
+        }}
+        type="button"
+      >
+        <Pencil aria-hidden="true" className="h-3.5 w-3.5" />
+        <span className="min-w-0 truncate">Rename</span>
+      </button>
+      <button
+        className="paper-focus-ring flex h-8 w-full items-center gap-2 rounded-lg px-2 text-left font-medium text-[#8b2d1b] text-[13px] transition-colors hover:bg-[#fff0eb] disabled:cursor-not-allowed disabled:opacity-45"
+        disabled={isDeleting}
+        onClick={() => {
+          onDelete(project);
+          onClose();
+        }}
+        type="button"
+      >
+        <Trash2 aria-hidden="true" className="h-3.5 w-3.5" />
+        <span className="min-w-0 truncate">Delete</span>
+      </button>
+    </div>
   );
 }
 

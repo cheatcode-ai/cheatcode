@@ -267,6 +267,7 @@ function applyLocalWorkerOverrides(configPath: string, config: ConfigRecord): Co
     ...config,
     vars: {
       ...existingVars,
+      OUTPUT_DOWNLOAD_BASE_URL: "http://127.0.0.1:8787",
       PREVIEW_HOSTNAME: "localhost:8787",
     },
   };

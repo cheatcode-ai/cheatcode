@@ -7,9 +7,9 @@ export { SKILLS };
 
 export function buildSystemPromptSection(skills: BundledSkill[] = SKILLS): string {
   return [
-    "## Available Skills",
+    "## Skills",
     "",
-    "Match user requests to these descriptions, then invoke the matching skill when detailed instructions are needed.",
+    "These are proven playbooks for specific jobs. When a request matches one of these descriptions, load its full step-by-step instructions with skill_invoke (by name) before you start, and follow them.",
     "",
     ...skills.map((skill) => `- **${skill.name}**: ${skill.description}`),
   ].join("\n");

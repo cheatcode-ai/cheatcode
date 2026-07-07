@@ -51,7 +51,3 @@ export function formatRunCodeFallbackOutput(
   }
   return `${lines.join("\n")}\n`;
 }
-
-export function runCodeFallbackIntro(): string {
-  return "Model stream timed out before the first chunk; running Python directly through runCode.\n";
-}

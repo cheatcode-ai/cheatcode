@@ -268,16 +268,34 @@ function toolInputFromPayload(
 function truncateToolInput(input: Record<string, unknown>): Record<string, unknown> {
   const output: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(input).slice(0, MAX_TOOL_INPUT_KEYS)) {
-    if (typeof value === "string") {
-      output[key] =
-        value.length > MAX_TOOL_INPUT_STRING ? `${value.slice(0, MAX_TOOL_INPUT_STRING)}…` : value;
-    } else if (typeof value === "number" || typeof value === "boolean") {
-      output[key] = value;
-    } else if (Array.isArray(value)) {
-      output[key] = `[${value.length} item(s)]`;
+    const coerced = truncateToolValue(value);
+    if (coerced !== undefined) {
+      output[key] = coerced;
     }
   }
   return output;
+}
+
+function truncateToolValue(value: unknown): string | number | boolean | undefined {
+  if (typeof value === "string") {
+    return clampToolString(value);
+  }
+  if (typeof value === "number" || typeof value === "boolean") {
+    return value;
+  }
+  // argv-style string arrays (e.g. shell_exec `command`) read best as the joined command
+  // line — that is what the "Ran <command>" transcript row shows (bud parity). Non-string
+  // arrays stay summarized by length.
+  if (Array.isArray(value)) {
+    return value.length > 0 && value.every((item) => typeof item === "string")
+      ? clampToolString(value.join(" "))
+      : `[${value.length} item(s)]`;
+  }
+  return undefined;
+}
+
+function clampToolString(value: string): string {
+  return value.length > MAX_TOOL_INPUT_STRING ? `${value.slice(0, MAX_TOOL_INPUT_STRING)}…` : value;
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -46,9 +46,6 @@ export function Cheatcode101SectionView({ section }: { section: Cheatcode101Sect
 }
 
 function blockKey(block: Cheatcode101Block): string {
-  if (block.kind === "replayCard") {
-    return `replay-${block.replaySlug}`;
-  }
   if (block.kind === "bullets") {
     return `bullets-${block.items[0] ?? ""}`;
   }
@@ -80,27 +77,5 @@ function Cheatcode101BlockView({ block }: { block: Cheatcode101Block }) {
       </p>
     );
   }
-  return <ReplayCardPlaceholder replaySlug={block.replaySlug} title={block.title} />;
-}
-
-function ReplayCardPlaceholder({ replaySlug, title }: { replaySlug: string; title: string }) {
-  return (
-    <div
-      className="flex items-center justify-between gap-4 rounded-[18px] border border-[#f1f1f1] bg-white px-4 py-3"
-      data-replay-slug={replaySlug}
-    >
-      <div className="min-w-0">
-        <p className="truncate font-medium text-[#1b1b1b] text-sm">{title}</p>
-        <p className="font-mono text-[#a0a0a0] text-[10px] uppercase tracking-[0.18em]">Replay</p>
-      </div>
-      <button
-        className="shrink-0 cursor-not-allowed rounded-full border border-[#f1f1f1] px-3 py-1.5 font-mono text-[#8a8a8a] text-[10px] uppercase tracking-widest opacity-70"
-        disabled
-        title="Replays are coming soon"
-        type="button"
-      >
-        Open replay
-      </button>
-    </div>
-  );
+  return null;
 }

@@ -9,7 +9,7 @@
   "vars": {
     "DAYTONA_API_URL": "https://app.daytona.io/api",
     "DAYTONA_TARGET": "us",
-    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-20260703-1125z",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
     "PREVIEW_HOSTNAME": "trycheatcode.com",
     "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
@@ -83,6 +83,15 @@
     {
       "binding": "R2_OUTPUTS",
       "bucket_name": "cheatcode-outputs"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      // Daytona sandbox lifecycle cache (webhooks-worker writes on sandbox.state.updated); read by
+      // the preview-status endpoint to avoid polling Daytona. Falls back to a live read when cold.
+      "binding": "SANDBOX_STATE",
+      "id": "af927eb58bcc481c97e5bf5323fc2907",
+      "preview_id": "af927eb58bcc481c97e5bf5323fc2907"
     }
   ],
   "analytics_engine_datasets": [

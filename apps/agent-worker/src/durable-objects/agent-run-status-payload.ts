@@ -35,8 +35,11 @@ export function agentRunStatusPayload(input: StatusPayloadInput): unknown {
 
 function statusSummary(input: StatusPayloadInput): string {
   const summary = summarizeAgentRunRows(input.replayRows, input.status);
-  if (input.status === "running" && summary === "Running code in the project sandbox...") {
-    return getRunStateValue(input.ctx, "run_stage") ?? summary;
+  // While running, the transcript summary is the model's own words. Before any
+  // model text arrives it is empty, so fall back to the internal run stage (and a
+  // neutral default) rather than showing a blank status line.
+  if (input.status === "running" && summary.trim().length === 0) {
+    return getRunStateValue(input.ctx, "run_stage") ?? "Working…";
   }
   return summary;
 }

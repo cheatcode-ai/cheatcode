@@ -6,21 +6,31 @@ import {
   type CheatcodeUIMessage,
   ErrorResponseSchema,
   type ProjectSummary,
+  type Thread,
 } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { DefaultChatTransport } from "ai";
-import { useRouter } from "next/navigation";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { MessageList } from "@/components/chat/message-list";
 import { PromptComposer } from "@/components/chat/prompt-composer";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
-import { Plus } from "@/components/ui/icons";
+import { BudTooltip } from "@/components/ui/bud-tooltip";
+import { FolderOpen, Plus, Search } from "@/components/ui/icons";
 import { agentModelRequestValue } from "@/lib/agent-models";
-import { cancelRun, createChat, getThread } from "@/lib/api/project-thread";
+import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
+import {
+  cancelRun,
+  createChat,
+  getThread,
+  listProjectThreads,
+  threadTitle,
+} from "@/lib/api/project-thread";
 import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
+import { cn } from "@/lib/ui/cn";
 
 const EMPTY_MESSAGES: CheatcodeUIMessage[] = [];
 
@@ -40,9 +50,9 @@ export function ChatPanel({
   threadId: string;
 }) {
   const { getToken } = useAuth();
+  const router = useRouter();
   const queryClient = useQueryClient();
   const draft = useAppStore((state) => state.draftByThread[threadId] ?? "");
-  const activePreviewTab = useAppStore((state) => state.activePreviewTab);
   const agentModelId = useAppStore((state) => state.agentModelId);
   const resetConsole = useAppStore((state) => state.resetConsole);
   const resetPreviewNavigation = useAppStore((state) => state.resetPreviewNavigation);
@@ -85,8 +95,6 @@ export function ChatPanel({
       }
       if (part.type === "data-sandbox-status") {
         applySandboxStatus(part.data, {
-          activePreviewTab,
-          resetPreviewNavigation,
           setActivePreviewTab,
           setExpoUrl,
           setPreviewPanelOpen,
@@ -111,28 +119,38 @@ export function ChatPanel({
   const latestSandboxPreviewUrl = latestSandboxPreview?.previewUrl ?? null;
   const latestSandboxExpoUrl = latestSandboxPreview?.expoUrl ?? null;
   const latestSandboxStatusValue = latestSandboxStatus?.status ?? null;
+  const latestSandboxSnapshotKey = [
+    latestSandboxStatusValue,
+    latestSandboxPreviewUrl,
+    latestSandboxExpoUrl,
+  ].join("|");
+  const appliedSandboxSnapshotRef = useRef<string | null>(null);
+  const defaultedProjectFilesRef = useRef<string | null>(null);
 
-  // ChatPanel remounts per thread (key={threadId}), so this clears the previous
-  // thread's preview/expo/console/nav state exactly once before the
-  // message-derived effect runs.
+  // ChatPanel remounts per thread (key={threadId}); reset the previous thread's
+  // console + preview-nav on mount. These don't overlap the sandbox surface below,
+  // and resetting twice (React dev double-invoke) is idempotent.
   useEffect(() => {
-    setPreviewUrl(null);
-    setExpoUrl(null);
-    setSandboxStatus("cold");
-    setPreviewPanelOpen(false);
     resetConsole();
     resetPreviewNavigation();
-  }, [
-    resetConsole,
-    resetPreviewNavigation,
-    setExpoUrl,
-    setPreviewPanelOpen,
-    setPreviewUrl,
-    setSandboxStatus,
-  ]);
+  }, [resetConsole, resetPreviewNavigation]);
 
+  // Single owner of the thread's sandbox/preview surface, derived from its messages:
+  // restore a live preview (or sandbox status) when the thread has one, otherwise
+  // reset to cold. Guarded by a per-distinct-state ref so it applies once — not on
+  // every streamed message, and idempotent under React's dev double-invoke of effects
+  // (a previously separate unguarded reset would clobber the just-restored preview,
+  // showing "No preview available" after a reload — see preview re-hydration).
   useEffect(() => {
+    if (appliedSandboxSnapshotRef.current === latestSandboxSnapshotKey) {
+      return;
+    }
+    appliedSandboxSnapshotRef.current = latestSandboxSnapshotKey;
     if (!latestSandboxStatusValue) {
+      setPreviewUrl(null);
+      setExpoUrl(null);
+      setSandboxStatus("cold");
+      setPreviewPanelOpen(false);
       return;
     }
     applySandboxStatus(
@@ -145,8 +163,6 @@ export function ChatPanel({
           }
         : { v: 1, status: latestSandboxStatusValue },
       {
-        activePreviewTab,
-        resetPreviewNavigation,
         setActivePreviewTab,
         setExpoUrl,
         setPreviewPanelOpen,
@@ -157,15 +173,25 @@ export function ChatPanel({
   }, [
     latestSandboxExpoUrl,
     latestSandboxPreviewUrl,
+    latestSandboxSnapshotKey,
     latestSandboxStatusValue,
-    activePreviewTab,
-    resetPreviewNavigation,
     setActivePreviewTab,
     setExpoUrl,
     setPreviewPanelOpen,
     setPreviewUrl,
     setSandboxStatus,
   ]);
+
+  useEffect(() => {
+    if (!project || latestSandboxStatusValue || latestSandboxPreviewUrl) {
+      return;
+    }
+    if (defaultedProjectFilesRef.current === project.id) {
+      return;
+    }
+    defaultedProjectFilesRef.current = project.id;
+    setActivePreviewTab("files");
+  }, [latestSandboxPreviewUrl, latestSandboxStatusValue, project, setActivePreviewTab]);
 
   useEffect(() => {
     const updateConnectionState = () => {
@@ -193,8 +219,23 @@ export function ChatPanel({
   }, [resumeStream, status]);
 
   const submitText = useCallback(
-    (text: string) => {
+    (text: string, targetProject: ProjectSummary | null) => {
       if (text.length === 0) {
+        return;
+      }
+      const shouldSendInCurrentThread =
+        (project === null && targetProject === null) || project?.id === targetProject?.id;
+      if (!shouldSendInCurrentThread) {
+        void routePromptToProjectTarget({
+          getToken,
+          prompt: text,
+          queryClient,
+          router,
+          selectedModel: selectedModel ?? null,
+          setDraft,
+          targetProject,
+          threadId,
+        });
         return;
       }
       hasSubmittedRef.current = true;
@@ -206,11 +247,24 @@ export function ChatPanel({
             ...(selectedModel ? { model: selectedModel } : {}),
           },
         },
-      );
+      ).catch(() => {
+        hasSubmittedRef.current = false;
+        setDraft(threadId, text);
+      });
       setDraft(threadId, "");
       onSubmitDraft?.();
     },
-    [onSubmitDraft, selectedModel, sendMessage, setDraft, threadId],
+    [
+      getToken,
+      onSubmitDraft,
+      project,
+      queryClient,
+      router,
+      selectedModel,
+      sendMessage,
+      setDraft,
+      threadId,
+    ],
   );
 
   function stopRun() {
@@ -220,22 +274,26 @@ export function ChatPanel({
 
   useEffect(() => {
     const prompt = autoSubmitPrompt?.trim();
-    if (!prompt || autoSubmittedPromptRef.current === prompt || draft.trim() !== prompt) {
+    if (!prompt || autoSubmittedPromptRef.current === prompt) {
       return;
     }
     autoSubmittedPromptRef.current = prompt;
-    submitText(prompt);
-  }, [autoSubmitPrompt, draft, submitText]);
+    if (draft.trim() !== prompt) {
+      setDraft(threadId, prompt);
+    }
+    submitText(prompt, project);
+  }, [autoSubmitPrompt, draft, project, setDraft, submitText, threadId]);
 
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-white">
-      <ChatContextRow project={project} title={threadTitle} />
+      <ChatContextRow project={project} threadId={threadId} title={threadTitle} />
       <StreamReconnectBanner />
-      <MessageList messages={deferredMessages} />
+      <MessageList isStreaming={status === "streaming"} messages={deferredMessages} />
       <PromptComposer
         onChange={(value) => setDraft(threadId, value)}
         onStop={stopRun}
         onSubmit={submitText}
+        project={project}
         status={status}
         threadId={threadId}
         value={draft}
@@ -246,16 +304,23 @@ export function ChatPanel({
 
 function ChatContextRow({
   project,
+  threadId,
   title,
 }: {
   project: ProjectSummary | null;
+  threadId: string;
   title: null | string | undefined;
 }) {
   const titleText = title?.trim() || "New chat";
   const newChatLabel = project?.name ? `New chat in ${project.name}` : "New chat";
   const { getToken } = useAuth();
+  const pathname = usePathname();
   const router = useRouter();
   const queryClient = useQueryClient();
+  const folderChatsRef = useRef<HTMLDivElement | null>(null);
+  const folderContextKey = `${pathname}:${project?.id ?? "no-project"}:${threadId}`;
+  const previousFolderContextKey = useRef(folderContextKey);
+  const [folderChatsOpen, setFolderChatsOpen] = useState(false);
   const newChatMutation = useMutation({
     mutationFn: (projectId: string) => createChat(getToken, { projectId }),
     onError: (error) => {
@@ -268,32 +333,240 @@ function ChatContextRow({
     },
   });
 
+  useEffect(() => {
+    if (previousFolderContextKey.current === folderContextKey) {
+      return;
+    }
+    previousFolderContextKey.current = folderContextKey;
+    setFolderChatsOpen(false);
+  }, [folderContextKey]);
+
+  useEffect(() => {
+    if (!folderChatsOpen) {
+      return;
+    }
+
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (folderChatsRef.current?.contains(target)) {
+        return;
+      }
+      setFolderChatsOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setFolderChatsOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", closeOnOutsidePointer);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeOnOutsidePointer);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [folderChatsOpen]);
+
   return (
-    <header className="hidden h-12 shrink-0 items-center px-2 py-1 text-[#1b1b1b] md:flex">
-      <button
-        className="min-w-0 max-w-[250px] truncate rounded-full px-3 py-1.5 text-left font-medium text-[#1b1b1b] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7]"
-        title={titleText}
-        type="button"
-      >
-        {titleText}
-      </button>
-      <div className="ml-auto flex items-center gap-0.5">
+    <div className="contents" ref={folderChatsRef}>
+      <header className="hidden h-12 shrink-0 items-center px-2 py-1 text-[#1b1b1b] md:flex">
         <button
-          aria-label={newChatLabel}
-          className="flex h-7 w-7 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] disabled:opacity-50"
-          disabled={!project || newChatMutation.isPending}
-          onClick={() => {
-            if (project) {
-              newChatMutation.mutate(project.id);
-            }
-          }}
+          className="min-w-0 max-w-[250px] truncate rounded-full px-3 py-1.5 text-left font-medium text-[#1b1b1b] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7]"
+          title={titleText}
           type="button"
         >
-          <Plus aria-hidden="true" className="h-4 w-4" />
+          {titleText}
         </button>
-      </div>
-    </header>
+        <div className="ml-auto flex items-center gap-0.5">
+          <BudTooltip label={newChatLabel} side="bottom">
+            <button
+              aria-label={newChatLabel}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] disabled:opacity-50"
+              disabled={!project || newChatMutation.isPending}
+              onClick={() => {
+                if (project) {
+                  newChatMutation.mutate(project.id);
+                }
+              }}
+              type="button"
+            >
+              <Plus aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </BudTooltip>
+          <BudTooltip label="Folder chats" side="bottom">
+            <button
+              aria-label="Folder chats"
+              aria-pressed={folderChatsOpen}
+              className="flex h-7 w-7 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] disabled:opacity-50"
+              disabled={!project}
+              onClick={() => setFolderChatsOpen((current) => !current)}
+              type="button"
+            >
+              <FolderOpen aria-hidden="true" className="h-4 w-4" />
+            </button>
+          </BudTooltip>
+        </div>
+      </header>
+      {folderChatsOpen && project ? (
+        <FolderChatsSearch
+          activeThreadId={threadId}
+          onSelect={() => setFolderChatsOpen(false)}
+          project={project}
+        />
+      ) : null}
+    </div>
   );
+}
+
+function FolderChatsSearch({
+  activeThreadId,
+  onSelect,
+  project,
+}: {
+  activeThreadId: string;
+  onSelect: () => void;
+  project: ProjectSummary;
+}) {
+  const { getToken } = useAuth();
+  const router = useRouter();
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [query, setQuery] = useState("");
+  const threadQuery = useQuery({
+    enabled: Boolean(project.id),
+    queryFn: () => listProjectThreads(getToken, project.id, 50),
+    queryKey: ["folder-chats", project.id],
+    retry: false,
+    staleTime: 30_000,
+  });
+  const visibleThreads = filterFolderThreads(threadQuery.data ?? [], query);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+
+  return (
+    <div className="absolute top-12 right-2 left-2 z-30 hidden md:block">
+      <div className="rounded-[18px] border border-[#f1f1f1] bg-white p-1 shadow-[0_14px_36px_rgba(0,0,0,0.08)]">
+        <label className="relative block">
+          <span className="sr-only">Search...</span>
+          <Search
+            aria-hidden="true"
+            className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-[#8a8a8a]"
+          />
+          <input
+            aria-label="Search..."
+            className="h-10 w-full rounded-[14px] bg-[#f7f7f7] pr-3 pl-9 font-medium text-[#1b1b1b] text-[14px] outline-none placeholder:text-[#a0a0a0] focus:bg-white focus:shadow-[0_0_0_1px_#dedede]"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search..."
+            ref={inputRef}
+            value={query}
+          />
+        </label>
+        <div className="mt-1 max-h-52 overflow-y-auto">
+          {threadQuery.isPending ? (
+            <p className="px-3 py-2 text-[#a0a0a0] text-[12px]">Loading chats...</p>
+          ) : visibleThreads.length === 0 ? (
+            <p className="px-3 py-2 text-[#a0a0a0] text-[12px]">No chats in {project.name}</p>
+          ) : (
+            visibleThreads.map((thread) => {
+              const title = thread.title?.trim() || "New chat";
+              return (
+                <button
+                  aria-current={thread.id === activeThreadId ? "page" : undefined}
+                  className={cn(
+                    "flex h-9 w-full items-center rounded-[12px] px-3 text-left font-medium text-[13px] transition-colors",
+                    thread.id === activeThreadId
+                      ? "bg-[#f7f7f7] text-[#1b1b1b]"
+                      : "text-[#5f5f5f] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
+                  )}
+                  key={thread.id}
+                  onClick={() => {
+                    onSelect();
+                    router.push(`/chats/${encodeURIComponent(thread.id)}`);
+                  }}
+                  type="button"
+                >
+                  <span className="min-w-0 truncate">{title}</span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+async function routePromptToProjectTarget({
+  getToken,
+  prompt,
+  queryClient,
+  router,
+  selectedModel,
+  setDraft,
+  targetProject,
+  threadId,
+}: {
+  getToken: () => Promise<null | string>;
+  prompt: string;
+  queryClient: ReturnType<typeof useQueryClient>;
+  router: ReturnType<typeof useRouter>;
+  selectedModel: null | string;
+  setDraft: (threadId: string, value: string) => void;
+  targetProject: ProjectSummary | null;
+  threadId: string;
+}) {
+  try {
+    const targetThreadId = targetProject
+      ? await threadIdForExistingProject(getToken, targetProject, prompt)
+      : await threadIdForNewProject(getToken, prompt, selectedModel);
+    if (!targetThreadId) {
+      return;
+    }
+    const handoff = buildExistingProjectParams(prompt).toString();
+    setDraft(threadId, "");
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+    void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+    router.push(`/chats/${encodeURIComponent(targetThreadId)}?${handoff}`);
+  } catch (error) {
+    toast.error(error instanceof Error ? error.message : "Could not open that folder.");
+  }
+}
+
+async function threadIdForExistingProject(
+  getToken: () => Promise<null | string>,
+  project: ProjectSummary,
+  prompt: string,
+): Promise<null | string> {
+  const result = await launchIntoProject(getToken, project.id, prompt);
+  if (result.busy) {
+    toast.error(
+      "That project's latest chat is busy - wait for the run to finish or pick another folder.",
+    );
+    return null;
+  }
+  return result.threadId;
+}
+
+async function threadIdForNewProject(
+  getToken: () => Promise<null | string>,
+  prompt: string,
+  selectedModel: null | string,
+): Promise<string> {
+  const thread = await createChat(getToken, {
+    initialPrompt: prompt,
+    title: threadTitle(prompt),
+    ...(selectedModel ? { defaultModel: selectedModel } : {}),
+  });
+  return thread.id;
+}
+
+function filterFolderThreads(threads: readonly Thread[], query: string): readonly Thread[] {
+  const trimmed = query.trim().toLowerCase();
+  if (trimmed.length === 0) {
+    return threads;
+  }
+  return threads.filter((thread) => (thread.title ?? "New chat").toLowerCase().includes(trimmed));
 }
 
 type SandboxStatusData = Extract<
@@ -302,9 +575,7 @@ type SandboxStatusData = Extract<
 >["data"];
 
 interface SandboxStatusActions {
-  activePreviewTab: PreviewTab;
-  resetPreviewNavigation: () => void;
-  setActivePreviewTab: (tab: "app") => void;
+  setActivePreviewTab: (tab: PreviewTab) => void;
   setExpoUrl: (url: null | string) => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setPreviewUrl: (url: null | string) => void;
@@ -313,18 +584,27 @@ interface SandboxStatusActions {
 
 function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActions): void {
   actions.setSandboxStatus(data.status);
-  if (data.status === "starting") {
-    actions.setPreviewUrl(null);
-    actions.setExpoUrl(null);
-    actions.setPreviewPanelOpen(true);
-    actions.resetPreviewNavigation();
-  }
+  // Which Computer tab opens follows what the run produces (bud parity):
+  //   web app with a live dev server → Browser tab (the running preview);
+  //   docs / data / file work with no preview → Files tab (the workspace).
+  // A running preview is STICKY for the life of the thread — every sandbox tool call
+  // emits its own starting/ready pair, so we never null the URL or flip away from an
+  // established preview mid-run. Only a NEW previewUrl replaces it; thread switch resets.
   if (data.previewUrl) {
     actions.setPreviewUrl(data.previewUrl);
     actions.setExpoUrl(data.expoUrl ?? null);
-    if (actions.activePreviewTab !== "files") {
-      actions.setActivePreviewTab("app");
-    }
+    actions.setActivePreviewTab("app");
+    actions.setPreviewPanelOpen(true);
+    return;
+  }
+  if (data.status === "starting") {
+    actions.setPreviewPanelOpen(true);
+    return;
+  }
+  // Ready/working with no preview: a docs/data/file run → surface the Files workspace,
+  // unless a live preview is already established for this thread (web app, sticky).
+  if (data.status !== "cold" && useAppStore.getState().previewUrl === null) {
+    actions.setActivePreviewTab("files");
     actions.setPreviewPanelOpen(true);
   }
 }

@@ -318,6 +318,7 @@ export function HomeComposer({
     }
     try {
       const thread = await createChat(getToken, {
+        initialPrompt: prompt,
         title: threadTitle(prompt),
         mode: surfaceToMode(surface),
         ...(repoUrl ? { importRepoUrl: repoUrl } : {}),

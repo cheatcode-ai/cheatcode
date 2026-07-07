@@ -22,6 +22,7 @@ import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import {
   CreateProjectSchema,
+  type CreateThread,
   CreateThreadSchema,
   Paginated,
   PaginationQuerySchema,
@@ -191,7 +192,11 @@ export async function listProjectThreadsRoute(
   try {
     const threadRows = await withUserContext(db, userId, async (tx) => {
       await requireProject(tx, projectId, userId);
-      return listProjectThreads(tx, { projectId, userId });
+      return listProjectThreads(tx, {
+        ...(pagination.cursor === undefined ? { limit: pagination.limit + 1 } : {}),
+        projectId,
+        userId,
+      });
     });
     const page = paginate(threadRows.map(threadResponse), pagination);
     return Response.json(Paginated(ThreadSchema).parse(page));
@@ -219,31 +224,52 @@ export async function createChatRoute(
   const input = parsedInput.data;
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const thread = await withUserContext(db, userId, async (tx) => {
-      if (input.projectId) {
-        const projectId = ProjectId(input.projectId);
-        await requireWritableProject(tx, projectId, userId);
-        return createThread(tx, {
-          projectId,
-          userId,
-          ...(input.title === undefined ? {} : { title: input.title }),
-        });
-      }
-      const launchIntent = {
-        ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
-        ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
-        ...(input.mode === undefined ? {} : { mode: input.mode }),
-      };
-      return createThread(tx, {
-        userId,
-        ...(Object.keys(launchIntent).length > 0 ? { launchIntent } : {}),
-        ...(input.title === undefined ? {} : { title: input.title }),
-      });
-    });
+    const thread = await withUserContext(db, userId, (tx) =>
+      createThreadForRequest(tx, input, userId),
+    );
     return Response.json(ThreadSchema.parse(threadResponse(thread)), { status: 201 });
   } finally {
     ctx.waitUntil(close());
   }
+}
+
+type CreateThreadDb = Parameters<typeof createThread>[0];
+type CreateThreadInsert = Parameters<typeof createThread>[1];
+
+async function createThreadForRequest(
+  db: CreateThreadDb,
+  input: CreateThread,
+  userId: UserId,
+): Promise<ThreadRecord> {
+  if (input.projectId) {
+    const projectId = ProjectId(input.projectId);
+    await requireWritableProject(db, projectId, userId);
+    return createThread(db, {
+      projectId,
+      userId,
+      ...(input.title === undefined ? {} : { title: input.title }),
+    });
+  }
+
+  const launchIntent = threadLaunchIntent(input);
+  return createThread(db, {
+    userId,
+    ...(hasLaunchIntent(launchIntent) ? { launchIntent } : {}),
+    ...(input.title === undefined ? {} : { title: input.title }),
+  });
+}
+
+function threadLaunchIntent(input: CreateThread): NonNullable<CreateThreadInsert["launchIntent"]> {
+  return {
+    ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
+    ...(input.initialPrompt === undefined ? {} : { initialPrompt: input.initialPrompt }),
+    ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
+    ...(input.mode === undefined ? {} : { mode: input.mode }),
+  };
+}
+
+function hasLaunchIntent(launchIntent: NonNullable<CreateThreadInsert["launchIntent"]>): boolean {
+  return Object.keys(launchIntent).length > 0;
 }
 
 export async function getThreadRoute(
@@ -422,6 +448,10 @@ function threadResponse(thread: ThreadRecord) {
     activeRunId: thread.activeRunId,
     createdAt: thread.createdAt.toISOString(),
     id: thread.id,
+    pendingInitialPrompt:
+      thread.projectId === null && thread.activeRunId === null
+        ? (thread.launchIntent?.initialPrompt ?? null)
+        : null,
     projectId: thread.projectId,
     title: thread.title,
     updatedAt: thread.updatedAt.toISOString(),

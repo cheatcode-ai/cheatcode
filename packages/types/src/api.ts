@@ -38,6 +38,7 @@ export const CreateProjectSchema = z
 export const CreateThreadSchema = z
   .object({
     defaultModel: z.string().trim().min(1).max(200).optional(),
+    initialPrompt: z.string().trim().min(1).max(20_000).optional(),
     importRepoUrl: GitHubRepoUrlSchema.optional(),
     mode: z.enum(["app-builder", "app-builder-mobile", "general"]).optional(),
     projectId: z.string().uuid().optional(),
@@ -89,6 +90,7 @@ export const ThreadSchema = z
     activeRunId: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     id: z.string().uuid(),
+    pendingInitialPrompt: z.string().nullable().optional(),
     projectId: z.string().uuid().nullable(),
     title: z.string().nullable(),
     updatedAt: z.string().datetime(),
@@ -392,6 +394,18 @@ export const SandboxFileSchema = z
   })
   .strict();
 
+export const SandboxFilePreviewSchema = z
+  .object({
+    content: z.string().max(30_000_000).nullable(),
+    encoding: z.literal("base64").nullable(),
+    error: z.string().max(1_000).nullable(),
+    kind: z.enum(["image", "pdf", "unsupported"]),
+    mimeType: z.string().min(1).max(200).nullable(),
+    path: SandboxFilePathSchema,
+    previewPath: SandboxFilePathSchema.nullable(),
+  })
+  .strict();
+
 export const UpdateSandboxFileSchema = z
   .object({
     content: z.string().max(2_000_000),
@@ -413,7 +427,7 @@ export const SandboxFileWriteSchema = z
 export const SandboxTerminalCommandSchema = z
   .object({
     command: z.string().min(1).max(2_000),
-    cwd: SandboxFilePathSchema.default("/workspace/app"),
+    cwd: SandboxFilePathSchema.default("/workspace"),
     timeoutMs: z.number().int().positive().max(60_000).default(30_000),
   })
   .strict();
@@ -421,11 +435,60 @@ export const SandboxTerminalCommandSchema = z
 export const SandboxTerminalResultSchema = z
   .object({
     command: z.string(),
+    cwd: SandboxFilePathSchema.optional(),
     durationMs: z.number().int().nonnegative().optional(),
     exitCode: z.number().int(),
     stderr: z.string(),
     stdout: z.string(),
     success: z.boolean(),
+  })
+  .strict();
+
+export const SandboxTerminalContextSchema = z
+  .object({
+    cwd: SandboxFilePathSchema,
+    displayCwd: z.string().min(1).max(1_000),
+    displayWorkspacePath: z.string().min(1).max(200),
+    host: z.string().min(1).max(200),
+  })
+  .strict();
+
+export const SandboxIdeSessionSchema = z
+  .object({
+    displayWorkspacePath: z.string().min(1).max(1_000),
+    expiresAt: z.string().datetime(),
+    port: z.number().int().positive().max(65_535),
+    url: z.string().url(),
+    workspacePath: SandboxFilePathSchema,
+  })
+  .strict();
+
+/**
+ * Response of waking the app preview: the sandbox is (re)started and the dev server relaunched
+ * if it had idle-stopped. `running` reports whether the dev-server port answered; `url` is a
+ * fresh preview URL. Empty `url` means no dev server is tracked for this sandbox.
+ */
+export const SandboxPreviewWakeSchema = z
+  .object({
+    expiresAt: z.string().datetime().optional(),
+    expoUrl: z.string().optional(),
+    port: z.number().int().positive().max(65_535).optional(),
+    running: z.boolean(),
+    state: z.string().min(1).max(50),
+    url: z.string().url().optional(),
+  })
+  .strict();
+
+/**
+ * Current sandbox lifecycle state for the preview panel. Kept fresh by Daytona
+ * `sandbox.state.updated` webhooks (falls back to a live read). `running` is true only in the
+ * `started` state; the panel uses this to show a booting spinner or a paused/resume affordance.
+ */
+export const SandboxPreviewStatusSchema = z
+  .object({
+    running: z.boolean(),
+    state: z.string().min(1).max(50),
+    updatedAt: z.string().datetime().optional(),
   })
   .strict();
 
@@ -650,87 +713,6 @@ export const GreetingResponseSchema = z
   })
   .strict();
 
-/**
- * One sanitized message in a public replay transcript. Carries only the fields
- * the gateway exposes after `sanitizeReplayParts` — `agentRunId`/`userId`/
- * `threadId` never leave the gateway, and only `user`/`assistant` roles survive.
- */
-export const PublicReplayMessageSchema = z
-  .object({
-    createdAt: z.string().datetime(),
-    id: z.string().uuid(),
-    parts: z.array(MessagePartSchema),
-    role: z.enum(["assistant", "user"]),
-  })
-  .strict();
-
-/** Response of `GET /v1/replays/:id`: the sanitized read-only transcript. */
-export const PublicReplaySchema = z
-  .object({
-    messages: z.array(PublicReplayMessageSchema),
-    replay: z
-      .object({
-        // Operator-authored; defaulted "the Cheatcode team" by the route.
-        authorName: z.string(),
-        // Latest message createdAt, or null when the timeline is empty.
-        date: z.string().datetime().nullable(),
-        // The public manifest slug (never the internal thread UUID).
-        id: z.string(),
-        title: z.string(),
-      })
-      .strict(),
-  })
-  .strict();
-
-/** Response of `GET /v1/replays/featured`: curated home-card rows. Empty `data` hides the card. */
-export const FeaturedReplaysSchema = z
-  .object({
-    data: z.array(
-      z
-        .object({
-          accentKind: z.enum(["app", "deck", "research", "data", "landing", "social"]).optional(),
-          id: z.string(),
-          previewText: z.string(),
-          title: z.string(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-
-/** Visibility of a user-published replay share. `private` hides it without losing the row. */
-export const ReplayVisibilitySchema = z.enum(["private", "unlisted", "public"]);
-
-/** A user-published replay share. `id` is the public, link-shareable token. */
-export const ReplayShareSchema = z
-  .object({
-    createdAt: z.string().datetime(),
-    id: z.string().uuid(),
-    revoked: z.boolean(),
-    threadId: z.string().uuid(),
-    visibility: ReplayVisibilitySchema,
-  })
-  .strict();
-
-/** Body of `POST /v1/replays`: publish one of the caller's own runs as a replay. */
-export const CreateReplayShareSchema = z
-  .object({
-    threadId: z.string().uuid(),
-    visibility: ReplayVisibilitySchema.optional(),
-  })
-  .strict();
-
-/** Body of `PATCH /v1/replays/:id`: change visibility and/or revoke the share. */
-export const UpdateReplayShareSchema = z
-  .object({
-    revoke: z.boolean().optional(),
-    visibility: ReplayVisibilitySchema.optional(),
-  })
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "At least one replay share field is required.",
-  });
-
 /** A user-created skill (client-safe projection; `body` only travels on detail/create). */
 export const UserSkillSchema = z
   .object({
@@ -814,21 +796,19 @@ export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
 export type SandboxFileKey = z.infer<typeof SandboxFileKeySchema>;
 export type SandboxFileList = z.infer<typeof SandboxFileListSchema>;
 export type SandboxFilePath = z.infer<typeof SandboxFilePathSchema>;
+export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;
 export type SandboxFileWrite = z.infer<typeof SandboxFileWriteSchema>;
+export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
+export type SandboxPreviewWake = z.infer<typeof SandboxPreviewWakeSchema>;
+export type SandboxPreviewStatus = z.infer<typeof SandboxPreviewStatusSchema>;
 export type SandboxTerminalCommand = z.infer<typeof SandboxTerminalCommandSchema>;
+export type SandboxTerminalContext = z.infer<typeof SandboxTerminalContextSchema>;
 export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
 export type UpdateSandboxFile = z.infer<typeof UpdateSandboxFileSchema>;
 export type UpdateSandboxPathFile = z.infer<typeof UpdateSandboxPathFileSchema>;
 export type UsageDailyQuery = z.infer<typeof UsageDailyQuerySchema>;
 export type UsageDailyTotal = z.infer<typeof UsageDailyTotalSchema>;
 export type UsageDailyTotalsResponse = z.infer<typeof UsageDailyTotalsResponseSchema>;
-export type FeaturedReplays = z.infer<typeof FeaturedReplaysSchema>;
-export type PublicReplay = z.infer<typeof PublicReplaySchema>;
-export type PublicReplayMessage = z.infer<typeof PublicReplayMessageSchema>;
-export type CreateReplayShare = z.infer<typeof CreateReplayShareSchema>;
-export type ReplayShare = z.infer<typeof ReplayShareSchema>;
-export type ReplayVisibility = z.infer<typeof ReplayVisibilitySchema>;
-export type UpdateReplayShare = z.infer<typeof UpdateReplayShareSchema>;
 export type CreateUserSkill = z.infer<typeof CreateUserSkillSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;
 export type UserSkillsResponse = z.infer<typeof UserSkillsResponseSchema>;
@@ -980,25 +960,3 @@ export const UpdateMeSchema = z
 
 export type MeResponse = z.infer<typeof MeResponseSchema>;
 export type UpdateMe = z.infer<typeof UpdateMeSchema>;
-
-// --- Generated outputs / artifacts (GET /v1/outputs) ---
-
-export const GeneratedOutputSummarySchema = z
-  .object({
-    id: z.string().uuid(),
-    kind: z.string(),
-    filename: z.string(),
-    mimeType: z.string(),
-    sizeBytes: z.number().int().nonnegative(),
-    createdAt: z.string().datetime(),
-    expiresAt: z.string().datetime().nullable(),
-    downloadUrl: z.string().url(),
-  })
-  .strict();
-
-export const GeneratedOutputsResponseSchema = z
-  .object({ outputs: z.array(GeneratedOutputSummarySchema) })
-  .strict();
-
-export type GeneratedOutputSummary = z.infer<typeof GeneratedOutputSummarySchema>;
-export type GeneratedOutputsResponse = z.infer<typeof GeneratedOutputsResponseSchema>;

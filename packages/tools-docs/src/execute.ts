@@ -29,6 +29,9 @@ const SandboxArtifactSchema = z
 
 type SandboxArtifact = z.infer<typeof SandboxArtifactSchema>;
 
+const MAX_WORKSPACE_ARTIFACT_BASE64_CHARS = 2_000_000;
+const WORKSPACE_ROOT = "/workspace";
+
 export async function executeGenerateSlides(
   input: GenerateSlidesInput,
   runtimeContext: CodeRuntimeContext,
@@ -132,6 +135,7 @@ async function runArtifactScript(
   }
 
   const generated = parseSandboxArtifact(result.stdout ?? "");
+  await writeWorkspaceArtifact(runtimeContext, generated);
   return runtimeContext.artifacts.put({
     contentType: generated.mimeType,
     data: base64ToBytes(generated.base64),
@@ -139,6 +143,72 @@ async function runArtifactScript(
     kind,
     metadata,
   });
+}
+
+async function writeWorkspaceArtifact(
+  runtimeContext: CodeRuntimeContext,
+  artifact: SandboxArtifact,
+): Promise<void> {
+  if (!runtimeContext.sandbox.writeFile) {
+    return;
+  }
+  if (artifact.base64.length > MAX_WORKSPACE_ARTIFACT_BASE64_CHARS) {
+    return;
+  }
+  try {
+    const directory = await resolveWorkspaceArtifactDirectory(runtimeContext);
+    await runtimeContext.sandbox.writeFile({
+      content: artifact.base64,
+      encoding: "base64",
+      path: `${directory}/${artifact.filename}`,
+    });
+  } catch {
+    // Artifact storage is the durable deliverable path; workspace writes are a live-files convenience.
+  }
+}
+
+async function resolveWorkspaceArtifactDirectory(
+  runtimeContext: CodeRuntimeContext,
+): Promise<string> {
+  if (!runtimeContext.sandbox.listFiles) {
+    return WORKSPACE_ROOT;
+  }
+  const result = await runtimeContext.sandbox.listFiles({
+    includeHidden: false,
+    path: WORKSPACE_ROOT,
+  });
+  const directories = result.files
+    .filter((file) => file.type === "directory" && isLikelyProjectDirectory(file.relativePath))
+    .toSorted(compareWorkspaceDirectoryPreference);
+  return directories[0]?.path ?? WORKSPACE_ROOT;
+}
+
+function isLikelyProjectDirectory(path: string): boolean {
+  const name = path.toLowerCase();
+  return name !== "node_modules" && name !== ".git" && name !== "data";
+}
+
+function compareWorkspaceDirectoryPreference(
+  left: { relativePath: string },
+  right: { relativePath: string },
+): number {
+  const leftScore = workspaceDirectoryPreferenceScore(left.relativePath);
+  const rightScore = workspaceDirectoryPreferenceScore(right.relativePath);
+  if (leftScore !== rightScore) {
+    return leftScore - rightScore;
+  }
+  return left.relativePath.localeCompare(right.relativePath);
+}
+
+function workspaceDirectoryPreferenceScore(path: string): number {
+  const name = path.toLowerCase();
+  if (name === "app" || name.endsWith("-app")) {
+    return 0;
+  }
+  if (name.includes("dashboard") || name.includes("site") || name.includes("web")) {
+    return 1;
+  }
+  return 2;
 }
 
 function parseSandboxArtifact(stdout: string): SandboxArtifact {

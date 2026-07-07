@@ -94,6 +94,12 @@ export const ProjectReadFileInputSchema = z
   })
   .strict();
 
+export const ProjectPreviewFileInputSchema = z
+  .object({
+    path: WorkspaceFilePathSchema,
+  })
+  .strict();
+
 export const ProjectWriteFileInputSchema = z
   .object({
     path: WorkspaceFilePathSchema,
@@ -163,10 +169,24 @@ export const ProjectExposePortInputSchema = z
   })
   .strict();
 
+export const ProjectCodeServerInputSchema = z
+  .object({
+    hostname: z.string().min(1).max(255).optional(),
+    initialFilePath: WorkspaceFilePathSchema.optional(),
+    workspacePath: WorkspacePathSchema.default("/workspace"),
+  })
+  .strict();
+
 export const ProjectUnexposePortInputSchema = z
   .object({
     name: z.string().min(1).max(100).optional(),
     port: z.number().int().positive().max(65_535),
+  })
+  .strict();
+
+export const ProjectWakePreviewInputSchema = z
+  .object({
+    hostname: z.string().min(1).max(255).optional(),
   })
   .strict();
 
@@ -192,6 +212,7 @@ export const ProjectRestoreBackupInputSchema = z
 
 export type ProjectExecInput = z.input<typeof ProjectExecInputSchema>;
 export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSchema>;
+export type ProjectPreviewFileInput = z.input<typeof ProjectPreviewFileInputSchema>;
 export type ProjectReadFileInput = z.input<typeof ProjectReadFileInputSchema>;
 export type ProjectWriteFileInput = z.input<typeof ProjectWriteFileInputSchema>;
 export type ProjectListFilesInput = z.input<typeof ProjectListFilesInputSchema>;
@@ -199,7 +220,24 @@ export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSche
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;
 export type ProjectKillProcessInput = z.input<typeof ProjectKillProcessInputSchema>;
 export type ProjectExposePortInput = z.input<typeof ProjectExposePortInputSchema>;
+export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectUnexposePortInput = z.input<typeof ProjectUnexposePortInputSchema>;
+export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;
+
+/** Result of waking a preview: the (possibly restarted) dev-server preview URL + liveness. */
+export interface ProjectWakePreviewResult {
+  running: boolean;
+  state: string;
+  port?: number;
+  url?: string;
+  expiresAt?: string;
+}
+
+/** Current Daytona lifecycle state for the project's sandbox (webhook/status surface). */
+export interface ProjectSandboxRuntimeState {
+  state: string;
+  sandboxId?: string;
+}
 export type ProjectCreateBackupInput = z.input<typeof ProjectCreateBackupInputSchema>;
 export type ProjectRestoreBackupInput = z.input<typeof ProjectRestoreBackupInputSchema>;
 

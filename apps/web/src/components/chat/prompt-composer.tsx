@@ -1,5 +1,6 @@
 "use client";
 
+import type { ProjectSummary } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import {
@@ -19,11 +20,13 @@ import {
 import { ComposerPopover } from "@/components/composer/composer-popover";
 import { useMentionFileItems } from "@/components/composer/mention-file-source";
 import { ModelMenu } from "@/components/composer/model-menu";
+import { ProjectPicker } from "@/components/composer/project-picker";
 import { slashSkillItems } from "@/components/composer/slash-skill-source";
 import {
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
+import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { ArrowUp, Mic, Paperclip, Square } from "@/components/ui/icons";
 import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
@@ -40,11 +43,14 @@ import { cn } from "@/lib/ui/cn";
 const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
 const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
 type ComposerControlMenu = "model";
+const PROMPT_COMPOSER_FORM_BASE =
+  "absolute right-0 bottom-0 left-0 z-10 bg-gradient-to-t from-white via-white/95 to-transparent pt-14 transition-[padding-bottom] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none";
 
 interface PromptComposerProps {
   onChange: (value: string) => void;
   onStop: () => void;
-  onSubmit: (value: string) => void;
+  onSubmit: (value: string, project: ProjectSummary | null) => void;
+  project: ProjectSummary | null;
   status: RunStatus;
   threadId: string;
   value: string;
@@ -54,6 +60,7 @@ export function PromptComposer({
   onChange,
   onStop,
   onSubmit,
+  project,
   status,
   threadId,
   value,
@@ -70,7 +77,9 @@ export function PromptComposer({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [openControlMenu, setOpenControlMenu] = useState<ComposerControlMenu | null>(null);
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(project);
   const sandboxReady = useAppStore((state) => state.sandboxStatus === "ready");
+  const computerOpen = useComputerPanelOpen();
   const attachments = usePromptAttachments({ currentValue: value, onChange });
   const voiceInput = useVoiceInput({
     currentValue: value,
@@ -107,6 +116,10 @@ export function PromptComposer({
     triggers.kind === "mention" ? mentionItems : slashSkillItems(triggers.query, userSkills ?? []);
   const isMenuOpen = triggers.isActive && menuItems.length > 0;
 
+  useEffect(() => {
+    setSelectedProject(project);
+  }, [project]);
+
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (isRunning) {
@@ -141,15 +154,13 @@ export function PromptComposer({
         skill: selectedSkill,
         tool: null,
       }),
+      selectedProject,
     );
     setSelectedSkill(null);
   }
 
   return (
-    <form
-      className="absolute right-0 bottom-0 left-0 z-10 bg-gradient-to-t from-white via-white/95 to-transparent pt-14 pb-10"
-      onSubmit={handleSubmit}
-    >
+    <form className={promptComposerFormClass(computerOpen)} onSubmit={handleSubmit}>
       <div className="relative z-10 mx-auto flex w-full max-w-[740px] flex-col justify-end px-3 sm:px-4">
         {isMenuOpen ? (
           <ComposerPopover
@@ -209,14 +220,21 @@ export function PromptComposer({
                   tabIndex={-1}
                   type="file"
                 />
-                <button
-                  aria-label="Attach file"
-                  className="paper-focus-ring flex h-7 w-7 items-center justify-center rounded-full text-[#707070] transition-colors hover:bg-white hover:text-[#1b1b1b]"
-                  onClick={() => attachments.inputRef.current?.click()}
-                  type="button"
-                >
-                  <Paperclip aria-hidden="true" className="h-4 w-4" />
-                </button>
+                <BudTooltip label="Upload file">
+                  <button
+                    aria-label="Upload file"
+                    className="paper-focus-ring flex h-7 w-7 items-center justify-center rounded-full text-[#707070] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+                    onClick={() => attachments.inputRef.current?.click()}
+                    type="button"
+                  >
+                    <Paperclip aria-hidden="true" className="h-4 w-4" />
+                  </button>
+                </BudTooltip>
+                <ProjectPicker
+                  onSelect={setSelectedProject}
+                  selectedProject={selectedProject}
+                  variant="thread"
+                />
               </div>
               <div className="z-10 flex items-center gap-2">
                 <ModelMenu
@@ -236,6 +254,15 @@ export function PromptComposer({
   );
 }
 
+function useComputerPanelOpen(): boolean {
+  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
+  return previewPanelOpen;
+}
+
+function promptComposerFormClass(computerOpen: boolean): string {
+  return cn(PROMPT_COMPOSER_FORM_BASE, computerOpen ? "pb-2" : "pb-10");
+}
+
 function VoiceInputButton({
   isDisabled,
   voiceInput,
@@ -245,45 +272,52 @@ function VoiceInputButton({
 }) {
   const disabled = !voiceInput.isSupported || isDisabled;
   return (
-    <button
-      aria-label={voiceInput.isListening ? "Stop voice input" : "Start voice input"}
-      className={cn(
-        "hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex",
-        voiceInput.isListening
-          ? "bg-red-500/10 text-red-600"
-          : "text-[#707070] hover:bg-white hover:text-[#1b1b1b]",
-        disabled && "cursor-not-allowed opacity-45",
-      )}
-      disabled={disabled}
-      onClick={voiceInput.toggle}
-      type="button"
+    <BudTooltip
+      disabled={!voiceInput.isSupported}
+      label={voiceInput.isListening ? "Stop voice input" : "Voice input"}
     >
-      {voiceInput.isListening ? (
-        <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
-      ) : (
-        <Mic aria-hidden="true" className="h-4 w-4" />
-      )}
-    </button>
+      <button
+        aria-label={voiceInput.isListening ? "Stop voice input" : "Start voice input"}
+        className={cn(
+          "hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex",
+          voiceInput.isListening
+            ? "bg-red-500/10 text-red-600"
+            : "text-[#707070] hover:bg-white hover:text-[#1b1b1b]",
+          disabled && "cursor-not-allowed opacity-45",
+        )}
+        disabled={disabled}
+        onClick={voiceInput.toggle}
+        type="button"
+      >
+        {voiceInput.isListening ? (
+          <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+        ) : (
+          <Mic aria-hidden="true" className="h-4 w-4" />
+        )}
+      </button>
+    </BudTooltip>
   );
 }
 
 function SendActionButton({ canSubmit, isRunning }: { canSubmit: boolean; isRunning: boolean }) {
   return (
-    <button
-      aria-label={isRunning ? "Stop agent" : "Send message"}
-      className={cn(
-        "paper-focus-ring flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] text-white transition-colors hover:bg-black",
-        !canSubmit && !isRunning && "cursor-not-allowed bg-[#f1f1f1] text-[#a0a0a0]",
-      )}
-      disabled={!canSubmit && !isRunning}
-      type="submit"
-    >
-      {isRunning ? (
-        <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
-      ) : (
-        <ArrowUp aria-hidden="true" className="h-4 w-4" />
-      )}
-    </button>
+    <BudTooltip label={isRunning ? "Stop agent" : "Send message"}>
+      <button
+        aria-label={isRunning ? "Stop agent" : "Send message"}
+        className={cn(
+          "paper-focus-ring flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-[#1b1b1b] text-white transition-colors hover:bg-black",
+          !canSubmit && !isRunning && "cursor-not-allowed bg-[#f1f1f1] text-[#a0a0a0]",
+        )}
+        disabled={!canSubmit && !isRunning}
+        type="submit"
+      >
+        {isRunning ? (
+          <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
+        ) : (
+          <ArrowUp aria-hidden="true" className="h-4 w-4" />
+        )}
+      </button>
+    </BudTooltip>
   );
 }
 

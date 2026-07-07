@@ -2,6 +2,7 @@
 
 import { GitHubRepoUrlSchema } from "@cheatcode/types";
 import { type KeyboardEvent, useState } from "react";
+import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { Paperclip, Plus } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
@@ -52,18 +53,20 @@ export function AddMenu({
 
   return (
     <div className="relative">
-      <button
-        aria-expanded={isOpen}
-        aria-label="Add to prompt"
-        className={cn(
-          "paper-focus-ring flex h-8 w-8 items-center justify-center rounded-full",
-          "bg-white text-[#4f4f4f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
-        )}
-        onClick={() => setIsOpen((current) => !current)}
-        type="button"
-      >
-        <Plus aria-hidden="true" className="h-4 w-4" />
-      </button>
+      <BudTooltip label="Add to prompt">
+        <button
+          aria-expanded={isOpen}
+          aria-label="Add to prompt"
+          className={cn(
+            "paper-focus-ring flex h-8 w-8 items-center justify-center rounded-full",
+            "bg-white text-[#4f4f4f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
+          )}
+          onClick={() => setIsOpen((current) => !current)}
+          type="button"
+        >
+          <Plus aria-hidden="true" className="h-4 w-4" />
+        </button>
+      </BudTooltip>
       {isOpen ? (
         <div className="absolute bottom-full left-0 z-30 mb-2 flex w-72 flex-col gap-1 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
           <button

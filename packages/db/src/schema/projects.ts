@@ -16,6 +16,7 @@ export interface ProjectSettings {
  * the project owns these via its `mode`/`settings`; the thread copy is vestigial.
  */
 export interface ThreadLaunchIntent {
+  initialPrompt?: string;
   mode?: string;
   importRepoUrl?: string;
   defaultModel?: string;

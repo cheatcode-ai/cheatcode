@@ -45,13 +45,6 @@
       "breakpoints": true
     },
     {
-      "idx": 6,
-      "version": "7",
-      "when": 1782728652925,
-      "tag": "0006_dashing_magneto",
-      "breakpoints": true
-    },
-    {
       "idx": 7,
       "version": "7",
       "when": 1782736991161,
@@ -70,6 +63,13 @@
       "version": "7",
       "when": 1782824355026,
       "tag": "0009_vengeful_mother_askani",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1783406964249,
+      "tag": "0010_drop_obsolete_share_table",
       "breakpoints": true
     }
   ]

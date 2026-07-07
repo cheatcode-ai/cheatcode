@@ -14,6 +14,7 @@ import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks"
 import { Hono } from "hono";
 import { runAutomationTick } from "./automation-runner";
 import { verifyComposioWebhook } from "./composio";
+import { cacheSandboxState, DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
 import { verifyInternalAlert } from "./internal-alert";
 import {
   enqueueAnalyticsWatchdog,
@@ -51,6 +52,7 @@ export interface WebhooksEnv
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;
   COMPOSIO_WEBHOOK_SECRET?: WorkerSecret;
+  DAYTONA_WEBHOOK_SIGNING_SECRET?: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
   GATEWAY?: Fetcher;
   HYPERDRIVE: HyperdriveConnection;
@@ -62,6 +64,9 @@ export interface WebhooksEnv
   R2_OUTPUTS: R2Bucket;
   R2_SNAPSHOTS: R2Bucket;
   R2_UPLOADS: R2Bucket;
+  // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
+  // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
+  SANDBOX_STATE?: KVNamespace;
 }
 
 function requestId(): string {
@@ -262,6 +267,35 @@ webhooksApp.post("/composio", async (c) => {
     rawBody,
   });
   return c.json({ ok: true, ...result });
+});
+
+// Daytona sandbox lifecycle events → refresh the sandbox-state cache so the preview panel can
+// show boot/paused state without polling Daytona. Lightweight + idempotent (no workflow queue).
+webhooksApp.post("/daytona", async (c) => {
+  const rawBody = await c.req.raw.text();
+  const secret = await readOptionalSecret(
+    c.env.DAYTONA_WEBHOOK_SIGNING_SECRET,
+    "DAYTONA_WEBHOOK_SIGNING_SECRET",
+  );
+  const verified = await verifyDaytonaWebhook(
+    secret ?? null,
+    rawBody,
+    c.req.header("x-signature") ?? null,
+  );
+  if (!verified) {
+    return c.json({ error: "invalid_signature" }, 401);
+  }
+  let payload: unknown = null;
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    payload = null;
+  }
+  const parsed = DaytonaWebhookSchema.safeParse(payload);
+  if (parsed.success) {
+    await cacheSandboxState(c.env.SANDBOX_STATE, parsed.data, new Date().toISOString());
+  }
+  return c.json({ ok: true });
 });
 
 webhooksApp.post("/internal/alert", async (c) => {

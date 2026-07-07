@@ -9,6 +9,10 @@ import {
   type ProjectSummary,
   ProjectSummarySchema,
   RecentThreadsResponseSchema,
+  type SandboxPreviewStatus,
+  SandboxPreviewStatusSchema,
+  type SandboxPreviewWake,
+  SandboxPreviewWakeSchema,
   type SearchResultThread,
   type Thread,
   ThreadSchema,
@@ -27,13 +31,14 @@ const ThreadPageSchema = Paginated(ThreadSchema);
  * The single chat-creation entry point. Project-less when `projectId` is omitted —
  * the chat's first run lazily creates + names the project — or attached to an
  * existing project when `projectId` is present. The launch intent
- * (`mode`/`importRepoUrl`/`defaultModel`) rides the thread and is consumed once, at
- * first-run project creation.
+ * (`initialPrompt`/`mode`/`importRepoUrl`/`defaultModel`) rides the thread and is
+ * consumed once, at first-run project creation.
  */
 export async function createChat(
   getToken: () => Promise<null | string>,
   input: {
     defaultModel?: string;
+    initialPrompt?: string;
     importRepoUrl?: string;
     mode?: string;
     projectId?: string;
@@ -47,6 +52,33 @@ export async function createChat(
   return ThreadSchema.parse(await response.json());
 }
 
+// Wake the app preview when the Computer panel opens: starts a stopped sandbox and relaunches
+// the dev server. Returns a fresh preview URL (empty when no dev server is tracked).
+export async function wakeSandboxPreview(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<SandboxPreviewWake> {
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/threads/${encodeURIComponent(threadId)}/sandbox/preview/wake`,
+    { method: "POST" },
+  );
+  return SandboxPreviewWakeSchema.parse(await response.json());
+}
+
+// Current sandbox lifecycle state (webhook-fed; falls back to a live read), polled while the
+// Computer panel is open to detect a sandbox that idle-stopped mid-view.
+export async function getSandboxPreviewStatus(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<SandboxPreviewStatus> {
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/threads/${encodeURIComponent(threadId)}/sandbox/preview/status`,
+  );
+  return SandboxPreviewStatusSchema.parse(await response.json());
+}
+
 export async function listProjects(
   getToken: () => Promise<null | string>,
 ): Promise<ProjectSummary[]> {
@@ -58,10 +90,11 @@ export async function listProjects(
 export async function listProjectThreads(
   getToken: () => Promise<null | string>,
   projectId: string,
+  limit = 5,
 ): Promise<Thread[]> {
   const response = await authorizedFetch(
     getToken,
-    `/v1/projects/${encodeURIComponent(projectId)}/threads?limit=5`,
+    `/v1/projects/${encodeURIComponent(projectId)}/threads?limit=${limit}`,
   );
   const page = ThreadPageSchema.parse(await response.json());
   return page.data;

@@ -188,7 +188,7 @@ export function PlanStep({
         <SkipButton onClick={() => onComplete("/settings/api-keys")}>
           Not ready for a plan? Bring your own keys
         </SkipButton>
-        <SkipButton onClick={() => onComplete("/projects")}>See the dashboard first</SkipButton>
+        <SkipButton onClick={() => onComplete("/")}>Start from home</SkipButton>
       </div>
     </div>
   );

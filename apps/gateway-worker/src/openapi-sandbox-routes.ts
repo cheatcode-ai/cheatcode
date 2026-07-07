@@ -49,6 +49,32 @@ export const sandboxSchemas: Record<string, JsonValue> = {
     required: ["cursor", "lines", "process", "reset", "truncated"],
     type: "object",
   },
+  SandboxIdeSession: {
+    additionalProperties: false,
+    properties: {
+      displayWorkspacePath: stringSchema(),
+      expiresAt: stringSchema({ format: "date-time" }),
+      port: { maximum: 65_535, minimum: 1, type: "integer" },
+      url: stringSchema({ format: "uri" }),
+      workspacePath: stringSchema(),
+    },
+    required: ["displayWorkspacePath", "expiresAt", "port", "url", "workspacePath"],
+    type: "object",
+  },
+  SandboxFilePreview: {
+    additionalProperties: false,
+    properties: {
+      content: { anyOf: [stringSchema(), { type: "null" }] },
+      encoding: { anyOf: [{ enum: ["base64"], type: "string" }, { type: "null" }] },
+      error: { anyOf: [stringSchema(), { type: "null" }] },
+      kind: { enum: ["image", "pdf", "unsupported"], type: "string" },
+      mimeType: { anyOf: [stringSchema(), { type: "null" }] },
+      path: stringSchema(),
+      previewPath: { anyOf: [stringSchema(), { type: "null" }] },
+    },
+    required: ["content", "encoding", "error", "kind", "mimeType", "path", "previewPath"],
+    type: "object",
+  },
 };
 
 const sandboxEncodingParameter: JsonValue = {
@@ -105,12 +131,31 @@ export const sandboxRoutes: OpenApiRoute[] = [
   },
   {
     method: "get",
+    operationId: "openSandboxIde",
+    path: "/v1/threads/{threadId}/sandbox/ide",
+    responses: { "200": jsonResponse("Sandbox IDE session", schemaRef("SandboxIdeSession")) },
+    security: [{ bearerAuth: [] }],
+    summary: "Open the thread's embedded Files viewer",
+    tags: ["sandbox"],
+  },
+  {
+    method: "get",
     operationId: "readSandboxFile",
     parameters: [sandboxFilePathParameter, sandboxEncodingParameter],
     path: "/v1/threads/{threadId}/sandbox/file",
     responses: { "200": jsonResponse("Sandbox file", schemaRef("SandboxFile")) },
     security: [{ bearerAuth: [] }],
     summary: "Read a sandbox file by path",
+    tags: ["sandbox"],
+  },
+  {
+    method: "get",
+    operationId: "previewSandboxFile",
+    parameters: [sandboxFilePathParameter],
+    path: "/v1/threads/{threadId}/sandbox/file-preview",
+    responses: { "200": jsonResponse("Sandbox file preview", schemaRef("SandboxFilePreview")) },
+    security: [{ bearerAuth: [] }],
+    summary: "Preview a sandbox file by path",
     tags: ["sandbox"],
   },
   {
@@ -141,6 +186,15 @@ export const sandboxRoutes: OpenApiRoute[] = [
     responses: { "200": jsonResponse("Sandbox file write", schemaRef("SandboxFileWrite")) },
     security: [{ bearerAuth: [] }],
     summary: "Write a sandbox file by encoded key",
+    tags: ["sandbox"],
+  },
+  {
+    method: "get",
+    operationId: "readSandboxTerminalContext",
+    path: "/v1/threads/{threadId}/sandbox/terminal/context",
+    responses: { "200": jsonResponse("Terminal context", schemaRef("TerminalContext")) },
+    security: [{ bearerAuth: [] }],
+    summary: "Read sandbox terminal prompt context",
     tags: ["sandbox"],
   },
   {

@@ -11,7 +11,13 @@ const LIST_TOP_PADDING = 24;
 const LIST_BOTTOM_PADDING = 160;
 const ESTIMATED_MESSAGE_HEIGHT = 180;
 
-export function MessageList({ messages }: { messages: CheatcodeUIMessage[] }) {
+export function MessageList({
+  messages,
+  isStreaming,
+}: {
+  messages: CheatcodeUIMessage[];
+  isStreaming: boolean;
+}) {
   const parentRef = useRef<HTMLDivElement>(null);
   const latestMessage = messages.at(-1);
   const latestMessageId = latestMessage?.id ?? "";
@@ -65,7 +71,10 @@ export function MessageList({ messages }: { messages: CheatcodeUIMessage[] }) {
                 transform: `translateY(${virtualItem.start + LIST_TOP_PADDING}px)`,
               }}
             >
-              <MessageBubble message={message} />
+              <MessageBubble
+                message={message}
+                streaming={isStreaming && virtualItem.index === messages.length - 1}
+              />
             </div>
           );
         })}
@@ -92,19 +101,21 @@ function EmptyThread() {
   );
 }
 
-function MessageBubble({ message }: { message: CheatcodeUIMessage }) {
+function MessageBubble({
+  message,
+  streaming,
+}: {
+  message: CheatcodeUIMessage;
+  streaming: boolean;
+}) {
   const isUser = message.role === "user";
 
   return (
-    <article
-      className={cn(
-        "cc-fade-in group relative px-2",
-        isUser ? "ms-auto w-full max-w-[78%]" : "w-full max-w-full",
-      )}
-    >
+    <article className="cc-fade-in group relative w-full max-w-full px-2">
       <div
         className={cn(
-          isUser && "rounded-[16px] bg-[var(--thread-user-message-bg)] px-4 py-3 text-[#1b1b1b]",
+          isUser &&
+            "min-h-8 rounded-[16px] bg-[var(--thread-user-message-bg)] px-3.5 py-1 text-[#1b1b1b] transition-colors duration-150 hover:bg-[#f7f7f7]",
           !isUser && "py-1",
         )}
       >
@@ -112,10 +123,9 @@ function MessageBubble({ message }: { message: CheatcodeUIMessage }) {
           <div className="mb-3 flex items-center gap-2 text-[13px]">
             <span className="text-[#f8af2c]">*</span>
             <span className="font-semibold text-[#1b1b1b]">cheatcode</span>
-            <span className="text-[#a0a0a0]">- sonnet-4.6</span>
           </div>
         )}
-        <MessageParts message={message} />
+        <MessageParts message={message} streaming={streaming} />
       </div>
     </article>
   );

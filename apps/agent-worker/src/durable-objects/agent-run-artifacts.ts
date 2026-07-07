@@ -26,6 +26,7 @@ interface ArtifactEnv extends AnalyticsBindings {
   HYPERDRIVE: Hyperdrive;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: string;
+  PREVIEW_HOSTNAME?: string;
   R2_OUTPUTS: R2Bucket;
   R2_OUTPUTS_BUCKET_NAME?: string;
 }
@@ -142,10 +143,18 @@ async function resolveArtifactProjectId(
 
 function signedOutputUrl(outputId: string, env: ArtifactEnv): Promise<string> {
   return createSignedOutputDownloadUrl({
-    baseUrl: env.OUTPUT_DOWNLOAD_BASE_URL,
+    baseUrl: outputDownloadBaseUrl(env),
     outputId,
     secret: env.OUTPUT_DOWNLOAD_SIGNING_SECRET,
   });
+}
+
+function outputDownloadBaseUrl(env: ArtifactEnv): string | undefined {
+  const previewHostname = env.PREVIEW_HOSTNAME?.trim();
+  if (previewHostname === "localhost:8787" || previewHostname === "127.0.0.1:8787") {
+    return `http://${previewHostname}`;
+  }
+  return env.OUTPUT_DOWNLOAD_BASE_URL;
 }
 
 async function closeDatabase(dbHandle: DatabaseHandle, logger: AgentRunLogger): Promise<void> {

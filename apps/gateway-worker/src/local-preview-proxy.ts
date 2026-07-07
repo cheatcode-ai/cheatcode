@@ -1,11 +1,22 @@
 const LOCAL_PREVIEW_COOKIE_NAME = "__cheatcode_preview_host";
+const LOCAL_PREVIEW_CLIENT_HOST_HEADER = "X-Cheatcode-Local-Preview-Client-Host";
 const LOCAL_PREVIEW_ENCODED_HOST_PATTERN = /^[A-Za-z0-9_-]{1,512}$/;
-const LOCAL_PREVIEW_HOST_PATTERN = /^\d{4,5}-[a-z0-9-]+-[a-z0-9_]+\.localhost$/;
+const LOCAL_PREVIEW_HOST_PATTERN =
+  /^(?:\d{4,5}-[a-z0-9-]+-[a-z0-9_]+|[a-z0-9-]+--\d{1,5})\.localhost$/;
 const LOCAL_PREVIEW_PATH_PREFIX = "/__sandbox/";
 
 export interface LocalPreviewProxyRequest {
   encodedHost?: string;
   request: Request;
+}
+
+export interface LocalPreviewOriginRequest {
+  clientHost: string;
+  cookie?: string;
+  host: string;
+  origin?: string;
+  referer?: string;
+  url: string;
 }
 
 export function resolveLocalPreviewProxyRequest(request: Request): LocalPreviewProxyRequest | null {
@@ -25,6 +36,9 @@ export function withLocalPreviewCookie(
   id: string,
   encodedHost?: string,
 ): Response {
+  if (response.status === 101 || response.webSocket) {
+    return response;
+  }
   const wrapped = new Response(response.body, response);
   wrapped.headers.set("X-Request-Id", id);
   if (encodedHost) {
@@ -34,6 +48,18 @@ export function withLocalPreviewCookie(
     );
   }
   return wrapped;
+}
+
+export function localPreviewOriginRequest(request: Request): LocalPreviewOriginRequest | null {
+  const proxy = resolveLocalPreviewProxyRequest(request);
+  if (proxy) {
+    return originRequestFromRewrittenRequest(proxy.request);
+  }
+  const localPreviewHost = resolveLocalSandboxPreviewHost(request);
+  if (!localPreviewHost) {
+    return null;
+  }
+  return originRequestFromRewrittenRequest(rewriteLocalPreviewRequest(request, localPreviewHost));
 }
 
 export function resolveLocalSandboxPreviewHost(request: Request): string | null {
@@ -60,7 +86,15 @@ export function rewriteLocalPreviewRequest(
     url.pathname = pathname;
   }
   const headers = new Headers(request.headers);
+  const clientHost = headers.get("Host") ?? url.host;
+  headers.set(LOCAL_PREVIEW_CLIENT_HOST_HEADER, clientHost);
   headers.set("Host", host);
+  if (isWebSocketUpgrade(request)) {
+    const websocketRequest = new Request(url.toString(), request);
+    websocketRequest.headers.set(LOCAL_PREVIEW_CLIENT_HOST_HEADER, clientHost);
+    websocketRequest.headers.set("Host", host);
+    return websocketRequest;
+  }
   const init: RequestInit = {
     headers,
     method: request.method,
@@ -70,6 +104,24 @@ export function rewriteLocalPreviewRequest(
     init.body = request.body;
   }
   return new Request(url.toString(), init);
+}
+
+function originRequestFromRewrittenRequest(request: Request): LocalPreviewOriginRequest {
+  const clientHost =
+    request.headers.get(LOCAL_PREVIEW_CLIENT_HOST_HEADER) ??
+    request.headers.get("Host") ??
+    new URL(request.url).host;
+  const cookie = request.headers.get("Cookie");
+  const origin = request.headers.get("Origin");
+  const referer = request.headers.get("Referer");
+  return {
+    clientHost,
+    ...(cookie ? { cookie } : {}),
+    host: request.headers.get("Host") ?? new URL(request.url).host,
+    ...(origin ? { origin } : {}),
+    ...(referer ? { referer } : {}),
+    url: request.url,
+  };
 }
 
 function rewriteLocalPreviewPathRequest(request: Request): LocalPreviewProxyRequest | null {
@@ -154,6 +206,10 @@ function resolveLocalPreviewHostHeader(request: Request, headerName: string): st
 function isLocalPreviewHost(host: string): boolean {
   const { hostname } = splitHost(host);
   return LOCAL_PREVIEW_HOST_PATTERN.test(hostname);
+}
+
+function isWebSocketUpgrade(request: Request): boolean {
+  return (request.headers.get("Upgrade") ?? "").toLowerCase() === "websocket";
 }
 
 function splitHost(host: string): { hostname: string; port?: string } {

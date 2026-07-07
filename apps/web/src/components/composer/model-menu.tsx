@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { Check, ChevronDown, SlidersHorizontal } from "@/components/ui/icons";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import {
@@ -77,21 +78,23 @@ export function ModelMenu({
 
   return (
     <div className="relative" ref={menuRef}>
-      <button
-        aria-expanded={isOpen}
-        aria-label={`Model: ${activeOption.label}`}
-        className={cn(
-          variant === "home"
-            ? "mr-1 hidden h-7 max-w-[190px] items-center gap-2 rounded-lg px-2 font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] md:flex"
-            : "hidden h-7 max-w-[190px] items-center gap-2 rounded-lg px-2 font-medium text-[#707070] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b] md:flex",
-        )}
-        onClick={() => setIsOpen(!isOpen)}
-        type="button"
-      >
-        <ProviderIcon className="h-4 w-4 shrink-0" option={activeOption} />
-        <span className="truncate">{modelMenuLabel(activeOption)}</span>
-        <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
-      </button>
+      <BudTooltip label="Model">
+        <button
+          aria-expanded={isOpen}
+          aria-label={`Model: ${activeOption.label}`}
+          className={cn(
+            variant === "home"
+              ? "mr-1 hidden h-7 max-w-[190px] items-center gap-2 rounded-lg px-2 font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] md:flex"
+              : "hidden h-7 max-w-[190px] items-center gap-2 rounded-lg px-2 font-medium text-[#707070] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b] md:flex",
+          )}
+          onClick={() => setIsOpen(!isOpen)}
+          type="button"
+        >
+          <ProviderIcon className="h-4 w-4 shrink-0" option={activeOption} />
+          <span className="truncate">{modelMenuLabel(activeOption)}</span>
+          <ChevronDown aria-hidden="true" className="h-3.5 w-3.5" />
+        </button>
+      </BudTooltip>
       {renderMenu ? (
         <ModelMenuList
           activeId={activeOption.id}

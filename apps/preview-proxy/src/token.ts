@@ -9,13 +9,13 @@ import type { PreviewTarget } from "./host";
  * `sig = hmacSha256Base64(`${sandboxId}.${port}.${exp}.${mode}`, PREVIEW_TOKEN_SECRET)`
  * (STANDARD base64 — the base64 alphabet has no `.`, so a token always splits
  * into exactly five segments because `sandboxId` is a dot-free DNS label).
- * `exp` is an epoch-millisecond expiry; `mode` is `app` or `takeover`.
+ * `exp` is an epoch-millisecond expiry; `mode` is `app`, `code`, or `takeover`.
  */
-export type PreviewTokenMode = "app" | "takeover";
+export type PreviewTokenMode = "app" | "code" | "takeover";
 
 const QUERY_TOKEN_PARAM = "__cc_pt";
 const COOKIE_TOKEN_NAME = "cc_pt";
-const PREVIEW_TOKEN_MODES = new Set<PreviewTokenMode>(["app", "takeover"]);
+const PREVIEW_TOKEN_MODES = new Set<PreviewTokenMode>(["app", "code", "takeover"]);
 
 export interface VerifiedPreviewToken {
   readonly exp: number;

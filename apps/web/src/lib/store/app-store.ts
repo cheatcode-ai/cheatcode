@@ -6,7 +6,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { type AgentModelId, DEFAULT_AGENT_MODEL_ID, isAgentModelId } from "@/lib/agent-models";
 import { type ConsoleLine, mergeConsoleLines } from "@/lib/preview/console";
 
-export type PreviewTab = "app" | "browser" | "env" | "files" | "terminal";
+export type PreviewTab = "app" | "files";
 export type PreviewDevice = "desktop" | "tablet" | "phone";
 export type ConnectionState = "online" | "offline";
 
@@ -84,7 +84,7 @@ export const useAppStore = create<AppStore>()(
       consoleCursor: { stderr: 0, stdout: 0 },
       consoleLines: [],
       consoleProcess: null,
-      consoleStripOpen: true,
+      consoleStripOpen: false,
       consoleTruncated: false,
       draftByThread: {},
       expoUrl: null,
@@ -195,17 +195,11 @@ function migratePersistedState(persistedState: unknown): PersistedAppStore {
 }
 
 function migratePreviewTab(value: unknown): PreviewTab {
-  if (
-    value === "app" ||
-    value === "browser" ||
-    value === "env" ||
-    value === "files" ||
-    value === "terminal"
-  ) {
-    return value;
-  }
-  if (value === "code" || value === "data") {
+  if (value === "files" || value === "code" || value === "data" || value === "env") {
     return "files";
+  }
+  if (value === "app" || value === "browser" || value === "terminal") {
+    return "app";
   }
   return "app";
 }

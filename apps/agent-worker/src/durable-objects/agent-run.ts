@@ -85,6 +85,10 @@ import { type AgentRunSnapshotStatus, snapshotAgentRunStatus } from "./run-summa
 
 const INTERNAL_USER_HEADER = "X-Cheatcode-User-Id";
 const MINIMUM_RUN_BUDGET_USD = 0.01;
+// Visible activity rows that end the current answer text segment (a new narration run
+// after one of these becomes its own text part). Hidden chrome (sandbox-status, budget,
+// plan) and collected deliverables (data-artifact) do NOT break a segment.
+const ANSWER_SEGMENT_BREAK_TYPES = new Set<string>(["data-tool", "data-thinking"]);
 type Subscriber = { controller: ReadableStreamDefaultController<UIMessageChunk> };
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 export class AgentRun extends DurableObject<AgentRunEnv> {
@@ -92,6 +96,16 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private cancelRequested = false;
   private readonly subscribers = new Set<Subscriber>();
   private readonly approvals: RunApprovalController;
+  // Answer-text segmentation state (see appendAnswerSegmented): the id of the open
+  // text part, and a monotonic counter for unique per-segment ids within a run.
+  private openAnswerSegmentId: string | null = null;
+  private answerSegmentCount = 0;
+  // Backstop state: whether the model's last visible action was answer text (it
+  // delivered a closing), and whether a preview / downloadable deliverable appeared —
+  // so a run that ends on a bare tool call still closes with a useful message.
+  private lastVisibleWasAnswerText = false;
+  private sawPreviewUrl = false;
+  private sawArtifact = false;
 
   public constructor(ctx: DurableObjectState, env: AgentRunEnv) {
     super(ctx, env);
@@ -344,7 +358,16 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async run(input: StartRunInput, abortController: AbortController): Promise<void> {
     const logger = createLogger({ threadId: input.threadId, userId: input.userId });
     logger.info("agent_run_started", { mastra_agent_ready: Boolean(mastra.getAgent("general")) });
-    let isAnswerTextOpen = false;
+    // Answer text is streamed as SEGMENTS, not one envelope: each contiguous run of
+    // model narration opens its own text part, and a tool/thought row closes it. The
+    // trailing segment is the model's final answer; the earlier ones are the
+    // step-by-step working the transcript folds into the activity disclosure. Segments
+    // open lazily (openAnswerSegmentId), so there is no run-start text-start here.
+    this.openAnswerSegmentId = null;
+    this.answerSegmentCount = 0;
+    this.lastVisibleWasAnswerText = false;
+    this.sawPreviewUrl = false;
+    this.sawArtifact = false;
     const sandbox = this.env.PROJECT_SANDBOX.get(
       this.env.PROJECT_SANDBOX.idFromName(input.sandboxName),
     );
@@ -353,8 +376,6 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     try {
       await this.persistRunStatus(input, "running");
       await this.append({ type: "start" });
-      await this.append({ type: "text-start", id: "answer" });
-      isAnswerTextOpen = true;
       await appendBudgetStatus(this.accountingDeps(), input, ZERO_BUDGET_SNAPSHOT);
       await this.append(runPlanChunk());
       if (input.quotaWarning) {
@@ -362,20 +383,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       }
       const startupCostCap = costCapExhaustion(input, MINIMUM_RUN_BUDGET_USD);
       if (startupCostCap) {
-        await appendCostCapExhausted(
-          this.accountingDeps(),
-          input,
-          isAnswerTextOpen,
-          startupCostCap,
-        );
+        await appendCostCapExhausted(this.accountingDeps(), input, startupCostCap);
         await persistAssistantMessage({ env: this.env, input, logger, rows: this.replayRows(0) });
         return;
       }
-      await this.append({
-        type: "text-delta",
-        id: "answer",
-        delta: "Running code in the project sandbox...\n",
-      });
+      // Sandbox startup is status chrome (Computer panel + run stage), never
+      // visible answer prose — the model owns the transcript from its first token.
       await this.append({
         type: "data-sandbox-status",
         data: { v: 1, status: "starting" },
@@ -410,9 +423,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         tokensOut: 0,
         usd: MINIMUM_RUN_BUDGET_USD,
       });
-      await enforceCostCaps(this.accountingDeps(), input, sandboxBudget, isAnswerTextOpen);
+      await enforceCostCaps(this.accountingDeps(), input, sandboxBudget);
       await this.append(runTaskStatusChunk("stream-results", "completed"));
-      await this.append({ type: "text-end", id: "answer" });
+      await this.appendClosingBackstop();
+      await this.ensureAnswerSegmentEnded();
       await this.append({ type: "finish", finishReason: "stop" });
       this.setStatus("completed");
       await persistAssistantMessage({ env: this.env, input, logger, rows: this.replayRows(0) });
@@ -447,9 +461,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           retriable: streamError.retriable,
         },
       });
-      if (isAnswerTextOpen) {
-        await this.append({ type: "text-end", id: "answer" });
-      }
+      await this.ensureAnswerSegmentEnded();
       await this.append({ type: "finish", finishReason: "error" });
       this.setStatus("failed");
       await persistAssistantMessage({ env: this.env, input, logger, rows: this.replayRows(0) });
@@ -508,6 +520,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         input,
         logger,
         sandbox,
+        setRunStage: (stage) => this.setRunStage(stage),
       });
       if (this.isRunCanceled()) {
         return "completed";
@@ -577,10 +590,81 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async appendMastraChunk(chunk: unknown): Promise<number> {
     let appendedCount = 0;
     for (const uiChunk of mastraChunkToUiChunks(chunk)) {
-      await this.append(uiChunk);
-      appendedCount += 1;
+      appendedCount += await this.appendAnswerSegmented(uiChunk);
     }
     return appendedCount;
+  }
+
+  /**
+   * Streams model output as answer SEGMENTS: a contiguous run of text-deltas becomes
+   * one text part, and any activity row (a tool call or a thought) closes it so the
+   * next run starts a fresh part. The transcript folds every segment except the
+   * trailing one into the activity disclosure and shows the last as the final answer.
+   */
+  private async appendAnswerSegmented(uiChunk: UIMessageChunk): Promise<number> {
+    if (uiChunk.type === "text-delta") {
+      this.lastVisibleWasAnswerText = true;
+      let count = 0;
+      if (this.openAnswerSegmentId === null) {
+        this.openAnswerSegmentId = `answer-${this.answerSegmentCount}`;
+        this.answerSegmentCount += 1;
+        await this.append({ type: "text-start", id: this.openAnswerSegmentId });
+        count += 1;
+      }
+      await this.append({ ...uiChunk, id: this.openAnswerSegmentId });
+      return count + 1;
+    }
+    if (ANSWER_SEGMENT_BREAK_TYPES.has(uiChunk.type)) {
+      this.lastVisibleWasAnswerText = false;
+      const closed = await this.ensureAnswerSegmentEnded();
+      await this.append(uiChunk);
+      return closed + 1;
+    }
+    await this.append(uiChunk);
+    return 1;
+  }
+
+  /** Notes whether a preview or downloadable deliverable appeared (drives the closing backstop). */
+  private trackClosingSignals(uiChunk: UIMessageChunk): void {
+    if (uiChunk.type === "data-artifact") {
+      this.sawArtifact = true;
+      return;
+    }
+    if (uiChunk.type === "data-sandbox-status") {
+      const data = (uiChunk as { data?: { previewUrl?: unknown } }).data;
+      if (typeof data?.previewUrl === "string" && data.previewUrl.length > 0) {
+        this.sawPreviewUrl = true;
+      }
+    }
+  }
+
+  /**
+   * Guarantees the run closes with a message. Models sometimes end their turn on a bare
+   * verification tool call (e.g. opening the preview) without writing a summary, which
+   * would leave the transcript with no answer and force the user to re-prompt. When that
+   * happens, append a short closing that points at the deliverable the run produced.
+   */
+  private async appendClosingBackstop(): Promise<void> {
+    if (this.lastVisibleWasAnswerText) {
+      return;
+    }
+    const closing = this.sawPreviewUrl
+      ? "Done — your app is built and running. Open the live preview in the Computer panel to see it, and tell me what you'd like to change."
+      : this.sawArtifact
+        ? "Done — your file is ready to download from the deliverables above. Let me know if you'd like any changes."
+        : "Done — I've finished the work; you can review it in the Computer panel. Let me know if you'd like any changes.";
+    await this.appendAnswerSegmented({ type: "text-delta", id: "answer", delta: closing });
+  }
+
+  /** Closes the open answer text segment (if any). Returns chunks appended (0 or 1). */
+  private async ensureAnswerSegmentEnded(): Promise<number> {
+    if (this.openAnswerSegmentId === null) {
+      return 0;
+    }
+    const id = this.openAnswerSegmentId;
+    this.openAnswerSegmentId = null;
+    await this.append({ type: "text-end", id });
+    return 1;
   }
 
   private accountingDeps(): BudgetAccountingDeps {
@@ -588,6 +672,9 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       append: (chunk) => this.append(chunk),
       closeSubscribers: () => this.closeSubscribers(),
       ctx: this.ctx,
+      endOpenAnswerText: async () => {
+        await this.ensureAnswerSegmentEnded();
+      },
       env: this.env,
       markCompleted: async (input) => {
         this.setStatus("completed");
@@ -611,8 +698,8 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         tokensOut: usage.tokensOut,
         usd: usage.costUsd ?? 0,
       });
-      await enforceCostCaps(this.accountingDeps(), input, snapshot, true);
-      await enforceFreeDeepseekCap(this.accountingDeps(), input, snapshot, true);
+      await enforceCostCaps(this.accountingDeps(), input, snapshot);
+      await enforceFreeDeepseekCap(this.accountingDeps(), input, snapshot);
     }
     return appendedCount;
   }
@@ -630,6 +717,9 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (this.isRunCanceled() && !options?.allowAfterCancelRequest) {
       return;
     }
+    // Central point every chunk flows through (model stream AND app-builder harness), so
+    // the closing backstop notices a preview/deliverable no matter which path emitted it.
+    this.trackClosingSignals(chunk);
     const sequencedChunk = { chunk, seq: appendAgentRunMessagePart(this.ctx, chunk) };
     emitFirstVisibleChunkMetric(this.ctx, this.env, chunk);
     for (const subscriber of this.subscribers) {

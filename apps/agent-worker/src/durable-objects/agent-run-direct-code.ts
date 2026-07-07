@@ -23,11 +23,6 @@ export async function runDirectRunCode(
 ): Promise<void> {
   deps.logger.info("direct_run_code_started", { language: runCodeInput.language });
   deps.setRunStage("Running requested code in the sandbox.");
-  await deps.append({
-    delta: `Running requested ${runCodeInput.language} directly in the sandbox.\n`,
-    id: "answer",
-    type: "text-delta",
-  });
   await deps.append({ data: { status: "starting", v: 1 }, type: "data-sandbox-status" });
   const result = await executeRunCodeTool(runCodeInput, {
     artifacts: deps.artifacts,

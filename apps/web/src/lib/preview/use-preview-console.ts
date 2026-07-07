@@ -33,6 +33,7 @@ export function usePreviewConsole(threadId: string, enabled: boolean): PreviewCo
       const { consoleCursor, consoleProcess } = useAppStore.getState();
       const snapshot = await readSandboxConsole(getToken, threadId, {
         lastPid: consoleProcess?.pid ?? undefined,
+        processId: consoleProcess?.id ?? undefined,
         stderrCursor: consoleCursor.stderr,
         stdoutCursor: consoleCursor.stdout,
       });

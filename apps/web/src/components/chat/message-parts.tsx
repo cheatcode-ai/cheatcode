@@ -47,9 +47,15 @@ type RenderItem =
   | { kind: "tools"; key: string; parts: MessagePart[] }
   | { kind: "part"; key: string; part: MessagePart };
 
-export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
+export function MessageParts({
+  message,
+  streaming,
+}: {
+  message: CheatcodeUIMessage;
+  streaming: boolean;
+}) {
   const resolvedApprovalIds = collectResolvedApprovals(message.parts);
-  const items = buildRenderItems(message.id, message.parts);
+  const { items } = buildTimeline(message.id, message.parts, streaming);
   const deliverables = message.parts
     .filter((part) => part.type === "data-artifact")
     .map((part) => (part as Extract<MessagePart, { type: "data-artifact" }>).data);
@@ -57,8 +63,8 @@ export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
   return (
     <div className="space-y-3">
       {items.map((item) =>
-        item.kind === "tools" ? (
-          <ToolGroup key={item.key} parts={item.parts} />
+        item.kind === "activity" ? (
+          <ActivityDisclosure key={item.key} parts={item.parts} streaming={streaming} />
         ) : (
           <MessagePartView
             key={item.key}
@@ -72,25 +78,190 @@ export function MessageParts({ message }: { message: CheatcodeUIMessage }) {
   );
 }
 
+type TimelineItem =
+  | { kind: "activity"; key: string; parts: MessagePart[] }
+  | { kind: "part"; key: string; part: MessagePart };
+
 /**
- * Group the flat part list for rendering (bud parity): consecutive tool calls collapse
- * into a single visual cluster, `data-seq`/`data-artifact` parts are transparent (the
- * former is an invisible resume marker, the latter is collected into the trailing
- * Deliverables block), and everything else renders inline in place.
+ * Split an assistant message into its working ACTIVITY and its final ANSWER (bud parity).
+ * The last non-empty text segment is the answer; every earlier text segment, tool call,
+ * and thought is a working step folded into a collapsed activity disclosure. Interactive
+ * parts (errors, approvals, takeover) break the run and render inline in place. Chrome
+ * (`data-sandbox-status`/plan/budget…), resume markers, and artifacts are transparent
+ * (artifacts are collected into the trailing Deliverables block).
  */
-function buildRenderItems(messageId: string, parts: MessagePart[]): RenderItem[] {
-  const items: RenderItem[] = [];
+function buildTimeline(
+  messageId: string,
+  parts: MessagePart[],
+  streaming: boolean,
+): { items: TimelineItem[]; hasAnswer: boolean } {
+  // While the run is live, keep every part inside the (auto-expanded) activity
+  // disclosure so steps stream in without the final-answer segment popping in and out
+  // as the model alternates text and tools. The answer is extracted once it settles.
+  const finalAnswerIndex = streaming ? -1 : lastAnswerTextIndex(parts);
+  const items: TimelineItem[] = [];
+  let activity: { parts: MessagePart[]; startIndex: number } | null = null;
+  const flush = () => {
+    if (activity) {
+      items.push({
+        kind: "activity",
+        key: `${messageId}:activity:${activity.startIndex}`,
+        parts: activity.parts,
+      });
+      activity = null;
+    }
+  };
+  parts.forEach((part, index) => {
+    if (part.type === "data-seq" || part.type === "data-artifact" || isHiddenPart(part)) {
+      return;
+    }
+    if (index === finalAnswerIndex || !isStepPart(part)) {
+      flush();
+      items.push({ kind: "part", key: partKey(messageId, part, index), part });
+      return;
+    }
+    if (!activity) {
+      activity = { parts: [], startIndex: index };
+    }
+    activity.parts.push(part);
+  });
+  flush();
+  return { items, hasAnswer: finalAnswerIndex >= 0 };
+}
+
+/**
+ * The final answer is the model's closing prose. Prefer the TRAILING narration — the last
+ * non-empty text segment with no tool/thought after it (the clean "Done, I built…" case).
+ * If the run ended on a tool with no closing text, fall back to the last non-empty text
+ * segment so an answer still surfaces rather than an empty disclosure. -1 means no text at all.
+ */
+function lastAnswerTextIndex(parts: MessagePart[]): number {
+  const trailing = trailingTextIndex(parts);
+  return trailing === -1 ? lastNonEmptyTextIndex(parts) : trailing;
+}
+
+/** The last non-empty text segment reachable from the end before any tool/thought. */
+function trailingTextIndex(parts: MessagePart[]): number {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    const part = parts[index];
+    if (isNonEmptyText(part)) {
+      return index;
+    }
+    if (part && (isToolPart(part) || part.type === "data-thinking")) {
+      return -1;
+    }
+  }
+  return -1;
+}
+
+function lastNonEmptyTextIndex(parts: MessagePart[]): number {
+  for (let index = parts.length - 1; index >= 0; index -= 1) {
+    if (isNonEmptyText(parts[index])) {
+      return index;
+    }
+  }
+  return -1;
+}
+
+function isNonEmptyText(
+  part: MessagePart | undefined,
+): part is Extract<MessagePart, { type: "text" }> {
+  return part?.type === "text" && part.text.trim().length > 0;
+}
+
+/** Working steps folded into the disclosure: intermediate narration, tool calls, thoughts. */
+function isStepPart(part: MessagePart): boolean {
+  return part.type === "text" || part.type === "data-thinking" || isToolPart(part);
+}
+
+/** Internal chrome that never renders in the transcript (mirrors MessagePartView's nulls). */
+function isHiddenPart(part: MessagePart): boolean {
+  return (
+    part.type === "data-sandbox-status" ||
+    part.type === "data-budget" ||
+    part.type === "data-plan" ||
+    part.type === "data-task-status" ||
+    part.type === "data-quota"
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Activity disclosure — collapsed "Worked · N steps" timeline (bud parity)
+// ---------------------------------------------------------------------------
+
+function ActivityDisclosure({ parts, streaming }: { parts: MessagePart[]; streaming: boolean }) {
+  const [open, setOpen] = useState(false);
+  const isOpen = open || streaming;
+  const toolCount = parts.filter((part) => isToolPart(part)).length;
+  const rows = buildActivityRows(parts);
+  const label = streaming ? "Working…" : activityLabel(rows.length, toolCount);
+
+  return (
+    <div className="cc-fade-in">
+      <button
+        className="group flex items-center gap-1.5 text-[#9b9b9b] text-[13px] transition-colors hover:text-[#585858]"
+        onClick={() => setOpen((value) => !value)}
+        type="button"
+      >
+        {streaming ? (
+          <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
+        ) : (
+          <ChevronDown
+            aria-hidden="true"
+            className={cn(
+              "h-3 w-3 text-[#c4c4c4] transition-transform group-hover:text-[#9b9b9b]",
+              isOpen ? "" : "-rotate-90",
+            )}
+          />
+        )}
+        <span className="font-medium">{label}</span>
+      </button>
+      {isOpen ? (
+        <div className="mt-2 ml-[5px] space-y-2 border-[#ececec] border-l pl-4">
+          {rows.map((row) =>
+            row.kind === "tools" ? (
+              <ToolGroup key={row.key} parts={row.parts} />
+            ) : row.part.type === "data-thinking" ? (
+              <ThinkingBlock data={(row.part as { data: ThinkingData }).data} key={row.key} />
+            ) : (
+              <ActivityNarration key={row.key} text={(row.part as { text: string }).text} />
+            ),
+          )}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ActivityNarration({ text }: { text: string }) {
+  if (text.trim().length === 0) {
+    return null;
+  }
+  return (
+    <div className="chat-markdown max-w-none text-[#707070] text-[13px] leading-6">
+      <MarkdownResponse>{text}</MarkdownResponse>
+    </div>
+  );
+}
+
+function activityLabel(stepCount: number, toolCount: number): string {
+  if (toolCount > 0) {
+    return `Worked · ${toolCount} tool call${toolCount === 1 ? "" : "s"}`;
+  }
+  return `Worked · ${stepCount} step${stepCount === 1 ? "" : "s"}`;
+}
+
+/** Cluster consecutive tool parts into one ToolGroup; text/thought steps stay standalone. */
+function buildActivityRows(parts: MessagePart[]): RenderItem[] {
+  const rows: RenderItem[] = [];
   let run: { parts: MessagePart[]; startIndex: number } | null = null;
   const flush = () => {
     if (run) {
-      items.push({ kind: "tools", key: `${messageId}:tools:${run.startIndex}`, parts: run.parts });
+      rows.push({ kind: "tools", key: `tools:${run.startIndex}`, parts: run.parts });
       run = null;
     }
   };
   parts.forEach((part, index) => {
-    if (part.type === "data-seq" || part.type === "data-artifact") {
-      return;
-    }
     if (isToolPart(part)) {
       if (!run) {
         run = { parts: [], startIndex: index };
@@ -99,10 +270,10 @@ function buildRenderItems(messageId: string, parts: MessagePart[]): RenderItem[]
       return;
     }
     flush();
-    items.push({ kind: "part", key: partKey(messageId, part, index), part });
+    rows.push({ kind: "part", key: `step:${index}`, part });
   });
   flush();
-  return items;
+  return rows;
 }
 
 function isToolPart(part: MessagePart): boolean {
@@ -252,6 +423,7 @@ function formatThinkingDuration(ms: number): string {
 type ToolVerbSpec = { verb: string; argKeys?: string[] };
 
 const TOOL_VERBS: Record<string, ToolVerbSpec> = {
+  runCode: { verb: "Ran", argKeys: ["code"] },
   fs_read: { verb: "Read", argKeys: ["path", "file", "filePath"] },
   fs_write: { verb: "Wrote", argKeys: ["path", "file", "filePath"] },
   fs_delete: { verb: "Deleted", argKeys: ["path", "file"] },
@@ -294,7 +466,7 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   sandbox_snapshot: { verb: "Snapshotted the sandbox" },
   sandbox_restore: { verb: "Restored the sandbox" },
   skill_create: { verb: "Created a skill", argKeys: ["name", "slug"] },
-  skill_invoke: { verb: "Used skill", argKeys: ["name", "slug", "skill"] },
+  skill_invoke: { verb: "Used skill", argKeys: ["skillName", "name", "slug", "skill"] },
   skill_read_reference: { verb: "Read a skill reference", argKeys: ["path", "name"] },
 };
 
@@ -431,7 +603,10 @@ function shortenArg(value: string): string {
 
 function DeliverablesBlock({ items }: { items: ArtifactData[] }) {
   return (
-    <div className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3">
+    <div
+      className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3"
+      data-chat-deliverables="true"
+    >
       <div className="mb-2 text-[10px] text-thread-text-muted uppercase tracking-[0.18em]">
         Deliverables
       </div>

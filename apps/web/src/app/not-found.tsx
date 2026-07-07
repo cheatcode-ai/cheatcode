@@ -6,7 +6,6 @@ import { WORKSPACE_NAV } from "@/lib/navigation/nav-model";
 // so routes live in one place.
 const QUICK_LINKS: readonly { id: string; label: string }[] = [
   { id: "new-task", label: "Home" },
-  { id: "projects", label: "Workspace" },
   { id: "skills", label: "Skills" },
   { id: "tools", label: "Tools" },
 ];

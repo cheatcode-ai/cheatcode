@@ -49,7 +49,7 @@ export function emptyConsoleSnapshot(cursor: {
     cursor: { stderr: cursor.stderr, stdout: cursor.stdout },
     lines: [],
     process: null,
-    reset: false,
+    reset: true,
     truncated: false,
   };
 }

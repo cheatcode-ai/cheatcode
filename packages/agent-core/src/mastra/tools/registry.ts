@@ -339,7 +339,7 @@ function researchFanoutLimitFromContext(requestContext: unknown): number {
 export const mastraRunCode = createTool({
   id: "runCode",
   description:
-    "Run Python or JavaScript code in the project sandbox. Use for deterministic code execution and data work.",
+    "Run a short, self-contained Python or JavaScript snippet inline in the sandbox for a quick throwaway computation. It cannot install packages or save files. For real project code, generated files, or anything needing dependencies, use fs_write plus shell_exec instead.",
   inputSchema: runCodeInputSchema,
   outputSchema: runCodeOutputSchema,
   execute: async (input, context) => {

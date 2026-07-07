@@ -122,6 +122,12 @@
       "binding": "ENTITLEMENTS_CACHE",
       "id": "9f160d052a5540f2a3aa70ced948c532",
       "preview_id": "9f160d052a5540f2a3aa70ced948c532"
+    },
+    {
+      // Daytona sandbox lifecycle cache (sandbox.state.updated webhook → preview-status endpoint).
+      "binding": "SANDBOX_STATE",
+      "id": "af927eb58bcc481c97e5bf5323fc2907",
+      "preview_id": "af927eb58bcc481c97e5bf5323fc2907"
     }
   ],
   "r2_buckets": [

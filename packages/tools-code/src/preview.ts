@@ -8,7 +8,7 @@ export const StartDevServerInputSchema = z
     command: z.array(z.string().min(1)).min(1).max(128),
     cwd: z.string().min(1).max(500),
     env: z.record(z.string(), z.string()).optional(),
-    hostname: z.string().min(1).max(255).default("trycheatcode.com"),
+    hostname: z.string().min(1).max(255).optional(),
     keepAliveTimeoutMs: z
       .number()
       .int()
@@ -16,7 +16,7 @@ export const StartDevServerInputSchema = z
       .max(24 * 60 * 60 * 1000)
       .default(60 * 60 * 1000),
     maxRestarts: z.number().int().min(0).max(25).default(3),
-    name: z.string().min(1).max(100).default("preview"),
+    name: z.string().min(1).max(100).default("app-preview"),
     port: z.number().int().positive().max(65_535).default(5173),
     restartOnFailure: z.boolean().default(true),
     timeoutMs: z.number().int().positive().max(600_000).default(120_000),
@@ -47,6 +47,7 @@ export async function executeStartDevServer(
     env: { ...parsedInput.env, PORT: String(parsedInput.port) },
     keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
     maxRestarts: parsedInput.maxRestarts,
+    processId: parsedInput.name,
     restartOnFailure: parsedInput.restartOnFailure,
     timeoutMs: parsedInput.timeoutMs,
     waitForPort: {
@@ -56,7 +57,7 @@ export async function executeStartDevServer(
   });
   await clearExistingExposure(runtimeContext, parsedInput.name, parsedInput.port);
   const exposed = await callSandboxMethod(runtimeContext.sandbox, "exposePort", {
-    hostname: parsedInput.hostname,
+    ...(parsedInput.hostname ? { hostname: parsedInput.hostname } : {}),
     name: parsedInput.name,
     port: parsedInput.port,
   });

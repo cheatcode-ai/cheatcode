@@ -93,6 +93,7 @@ async function forwardWebSocket(input: ProxyInput, origin: PreviewOrigin): Promi
   wsRequest.headers.set(DAYTONA_TOKEN_HEADER, origin.token);
   wsRequest.headers.set(DAYTONA_SKIP_WARNING_HEADER, "true");
   wsRequest.headers.set(FORWARDED_HOST_HEADER, input.originalHost);
+  wsRequest.headers.set("Origin", new URL(origin.url).origin);
   const response = await fetch(wsRequest);
   if (response.webSocket) {
     return new Response(null, { status: 101, webSocket: response.webSocket });

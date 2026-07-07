@@ -3,12 +3,15 @@
 import {
   type SandboxConsoleSnapshot,
   SandboxConsoleSnapshotSchema,
-  type SandboxFile,
   type SandboxFileEntry,
   SandboxFileListSchema,
-  SandboxFileSchema,
-  SandboxFileWriteSchema,
-  UpdateSandboxPathFileSchema,
+  type SandboxIdeSession,
+  SandboxIdeSessionSchema,
+  SandboxTerminalCommandSchema,
+  type SandboxTerminalContext,
+  SandboxTerminalContextSchema,
+  type SandboxTerminalResult,
+  SandboxTerminalResultSchema,
 } from "@cheatcode/types";
 import { authorizedFetch } from "@/lib/api/authorized-fetch";
 
@@ -39,36 +42,37 @@ export async function listSandboxFiles(
   return SandboxFileListSchema.parse(await response.json());
 }
 
-export async function readSandboxFile(
+export async function runSandboxTerminal(
   getToken: () => Promise<null | string>,
   threadId: string,
-  path: string,
-): Promise<SandboxFile> {
-  const response = await authorizedFetch(getToken, sandboxFilePath(threadId, path));
-  return SandboxFileSchema.parse(await response.json());
-}
-
-export async function updateSandboxFile(
-  getToken: () => Promise<null | string>,
-  threadId: string,
-  path: string,
-  content: string,
-): Promise<SandboxFile> {
-  const body = UpdateSandboxPathFileSchema.parse({ content, path });
-  const response = await authorizedFetch(getToken, sandboxFilePath(threadId, path), {
+  command: string,
+  cwd?: string,
+): Promise<SandboxTerminalResult> {
+  const body = SandboxTerminalCommandSchema.parse({
+    command,
+    ...(cwd === undefined ? {} : { cwd }),
+  });
+  const response = await authorizedFetch(getToken, sandboxTerminalPath(threadId), {
     body: JSON.stringify(body),
-    method: "PATCH",
+    method: "POST",
   });
-  const write = SandboxFileWriteSchema.parse(await response.json());
-  return SandboxFileSchema.parse({
-    content,
-    encoding: body.encoding,
-    path: write.path,
-  });
+  return SandboxTerminalResultSchema.parse(await response.json());
 }
 
-export function sandboxFileQueryKey(threadId: string, path: string) {
-  return ["sandbox-file", threadId, path] as const;
+export async function readSandboxTerminalContext(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<SandboxTerminalContext> {
+  const response = await authorizedFetch(getToken, sandboxTerminalContextPath(threadId));
+  return SandboxTerminalContextSchema.parse(await response.json());
+}
+
+export async function openSandboxIde(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<SandboxIdeSession> {
+  const response = await authorizedFetch(getToken, sandboxIdePath(threadId));
+  return SandboxIdeSessionSchema.parse(await response.json());
 }
 
 export function compareFileEntries(left: SandboxFileEntry, right: SandboxFileEntry): number {
@@ -86,9 +90,16 @@ function sandboxFilesPath(threadId: string, path: string, recursive: boolean): s
   return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/files?${query.toString()}`;
 }
 
-function sandboxFilePath(threadId: string, path: string): string {
-  const query = new URLSearchParams({ path });
-  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/file?${query.toString()}`;
+function sandboxTerminalPath(threadId: string): string {
+  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/terminal`;
+}
+
+function sandboxTerminalContextPath(threadId: string): string {
+  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/terminal/context`;
+}
+
+function sandboxIdePath(threadId: string): string {
+  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/ide`;
 }
 
 function sandboxConsolePath(threadId: string, query: SandboxConsoleQueryInput): string {

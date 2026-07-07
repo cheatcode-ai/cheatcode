@@ -104,7 +104,6 @@ export function buildOpenApiDocument(options: {
       { name: "threads" },
       { name: "runs" },
       { name: "outputs" },
-      { name: "replays" },
       { name: "metadata" },
       { name: "sandbox" },
       { name: "integrations" },

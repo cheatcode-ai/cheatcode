@@ -16,7 +16,6 @@ import {
   stringSchema,
 } from "./openapi-builder";
 import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
-import { replayRoutes, replaySchemas } from "./openapi-replay-routes";
 import { runControlRoutes, runControlSchemas } from "./openapi-run-control-routes";
 import { sandboxRoutes, sandboxSchemas } from "./openapi-sandbox-routes";
 import {
@@ -111,6 +110,11 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
   CreateThread: {
     additionalProperties: false,
     properties: {
+      defaultModel: stringSchema({ maxLength: 200, minLength: 1 }),
+      importRepoUrl: stringSchema({ maxLength: 300, minLength: 1 }),
+      initialPrompt: stringSchema({ maxLength: 20_000, minLength: 1 }),
+      mode: { enum: ["app-builder", "app-builder-mobile", "general"], type: "string" },
+      projectId: stringSchema({ format: "uuid" }),
       title: stringSchema({ maxLength: 200, minLength: 1 }),
     },
     type: "object",
@@ -428,6 +432,7 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
     additionalProperties: false,
     properties: {
       command: stringSchema(),
+      cwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
       durationMs: { minimum: 0, type: "integer" },
       exitCode: { type: "integer" },
       stderr: stringSchema(),
@@ -435,6 +440,17 @@ const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
       success: { type: "boolean" },
     },
     required: ["command", "exitCode", "stderr", "stdout", "success"],
+    type: "object",
+  },
+  TerminalContext: {
+    additionalProperties: false,
+    properties: {
+      cwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
+      displayCwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
+      displayWorkspacePath: stringSchema({ maxLength: 200, minLength: 1 }),
+      host: stringSchema({ maxLength: 200, minLength: 1 }),
+    },
+    required: ["cwd", "displayCwd", "displayWorkspacePath", "host"],
     type: "object",
   },
   Thread: {
@@ -704,7 +720,6 @@ const routes: OpenApiRoute[] = [
     summary: "Download a signed generated output",
     tags: ["outputs"],
   },
-  ...replayRoutes,
   {
     method: "get",
     operationId: "listTools",
@@ -859,7 +874,6 @@ export const OPENAPI_DOCUMENT = buildOpenApiDocument({
     ...accountSchemas,
     ...billingSchemas,
     ...discoverySchemas,
-    ...replaySchemas,
     ...runControlSchemas,
     ...sandboxSchemas,
   },

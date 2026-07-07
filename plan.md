@@ -1992,7 +1992,7 @@ before the AgentRun Durable Object starts.
 
 ## 9. Sandbox Strategy (Daytona)
 
-> **⚠️ MIGRATED Blaxel → Daytona (2026-06-14).** The sandbox backend is now **Daytona**, called via a REST-over-fetch client (`packages/tools-code/src/daytona-client.ts`) from the `ProjectSandbox` DO — no SDK in Workers. Key differences from the Blaxel design described in the subsections below (which is retained for historical context): the **sandbox disk is the durable store** (no Volumes; `autoDeleteInterval=-1`, auto-archive for cold storage); previews go through a self-hosted **`apps/preview-proxy`** worker (`preview.trycheatcode.com`) that injects the Daytona preview token + skip-warning headers (the browser only sees a Cheatcode HMAC token); `exec` merges stderr into stdout and timeouts are in seconds; long-running processes use **toolbox sessions** with DO-persisted records; active runs hold a **run-lease** (`beginRun`/`endRun`) that pins `autoStopInterval=0` + a keepalive alarm; metering accrues only during run-leases. **Authoritative implementation docs:** [`docs/plans/blaxel-to-daytona-migration.md`](./docs/plans/blaxel-to-daytona-migration.md), [`docs/plans/daytona-rest-reference.md`](./docs/plans/daytona-rest-reference.md), [`docs/plans/daytona-egress-broker.md`](./docs/plans/daytona-egress-broker.md). The Blaxel `@blaxel/core` SDK, `BL_*` env vars, and `blaxel.toml` are removed from code; `BL_*` secrets are retained until post-QA for rollback.
+> **⚠️ MIGRATED Blaxel → Daytona (2026-06-14).** The sandbox backend is now **Daytona**, called via a REST-over-fetch client (`packages/tools-code/src/daytona-client.ts`) from the `ProjectSandbox` DO — no SDK in Workers. Key differences from the Blaxel design described in the subsections below (which is retained for historical context): the **sandbox disk is the durable store** (no Volumes; `autoDeleteInterval=-1`, auto-archive for cold storage); previews go through a self-hosted **`apps/preview-proxy`** worker on signed `*.trycheatcode.com` sandbox hosts that injects the Daytona preview token + skip-warning headers (the browser only sees a Cheatcode HMAC token); `exec` merges stderr into stdout and timeouts are in seconds; long-running processes use **toolbox sessions** with DO-persisted records; active runs hold a **run-lease** (`beginRun`/`endRun`) that pins `autoStopInterval=0` + a keepalive alarm; metering accrues only during run-leases. The Computer Files surface starts a pinned in-sandbox `code-server` process on port **13340** and exposes it through the same signed preview-token path as app previews; generated PPTX/DOCX/XLSX/PDF deliverables stay in `/workspace` and are opened from the IDE. **Authoritative implementation docs:** [`docs/plans/blaxel-to-daytona-migration.md`](./docs/plans/blaxel-to-daytona-migration.md), [`docs/plans/daytona-rest-reference.md`](./docs/plans/daytona-rest-reference.md), [`docs/plans/daytona-egress-broker.md`](./docs/plans/daytona-egress-broker.md). The Blaxel `@blaxel/core` SDK, `BL_*` env vars, and `blaxel.toml` are removed from code; `BL_*` secrets are retained until post-QA for rollback.
 
 ### 9.1 Sandbox image (`infra/containers/sandbox/Dockerfile`)
 
@@ -2057,14 +2057,14 @@ RUN npx create-next-app@16.2.6 /home/node/cheatcode-next-template --yes --ts --t
   && npx --yes create-expo-app@latest /home/node/cheatcode-expo-template --template default --no-install \
   && rm -rf /home/node/cheatcode-next-template/.next /home/node/cheatcode-next-template/node_modules
 
-EXPOSE 5173 8000 6080 8081
+EXPOSE 5173 8000 6080 8081 13340
 
 ENTRYPOINT ["/entrypoint.sh"]
 ```
 
-`infra/containers/sandbox/` is committed: **`blaxel.toml`** (`type = "sandbox"`, `name = "cheatcode-sandbox"`, `runtime.generation = "mk3"`, memory and port metadata), **`entrypoint.sh`** (starts `/usr/local/bin/sandbox-api`, waits for it on 127.0.0.1:8080, then keeps the sandbox process alive), **`browser-driver/`** (`package.json` pinning `@browserbasehq/stagehand` 3.2.0 + its `playwright`; `package-lock.json` so `npm ci` is bit-exact; `server.js` — the only browser-driver entrypoint, a persistent in-sandbox Stagehand driver bound only to 127.0.0.1:9323), **`scripts/`** (`start-browser.sh`, `start-vnc.sh` — static argv-invoked runtime startup helpers used by browser tools and takeover, not test drivers), and **`requirements.txt`** (pinned Python libs — `pandas`, `numpy`, `matplotlib`, `openpyxl`, `pillow`, `ipython`, etc., each at an exact version). The Node doc/data runtime under `/opt/cheatcode-doc-runtime` includes the pinned document libraries plus `react`, `react-dom`, `recharts`, and `arquero`, so `packages/tools-data` can render fixed-size Recharts SVG through sandbox SSR without bundling Recharts into Workers. Playwright's Chromium lives at the fixed `PLAYWRIGHT_BROWSERS_PATH` and Stagehand launches it through the Playwright API — there is no fixed CDP port to expose (§9.4). Browser-driver behavior is validated only in the final direct `agent-browser` product QA gate by exercising browser tools and takeover through the real UI and checking logs; no one-shot browser driver, build-time browser smoke script, or custom browser QA wrapper is part of V2.
+`infra/containers/sandbox/` is committed: **`blaxel.toml`** (`type = "sandbox"`, `name = "cheatcode-sandbox"`, `runtime.generation = "mk3"`, memory and port metadata), **`entrypoint.sh`** (starts `/usr/local/bin/sandbox-api`, waits for it on 127.0.0.1:8080, then keeps the sandbox process alive), **`browser-driver/`** (`package.json` pinning `@browserbasehq/stagehand` 3.2.0 + its `playwright`; `package-lock.json` so `npm ci` is bit-exact; `server.js` — the only browser-driver entrypoint, a persistent in-sandbox Stagehand driver bound only to 127.0.0.1:9323), **`scripts/`** (`start-browser.sh`, `start-vnc.sh`, `start-code-server.sh` — static argv-invoked runtime startup helpers used by browser tools, takeover, and IDE preview, not test drivers), and **`requirements.txt`** (pinned Python libs — `pandas`, `numpy`, `matplotlib`, `openpyxl`, `pillow`, `ipython`, etc., each at an exact version). The Node doc/data runtime under `/opt/cheatcode-doc-runtime` includes the pinned document libraries plus `react`, `react-dom`, `recharts`, and `arquero`, so `packages/tools-data` can render fixed-size Recharts SVG through sandbox SSR without bundling Recharts into Workers. The image also bakes `code-server@4.117.0` plus OpenVSX viewers for PPTX/PPSX/POTX, PDF, DOCX/DOTX/Office files, XLS/XLSX, CSV/TSV/TAB, ODS, SQLite/GeoPackage databases, archives, tables, Parquet, notebooks, Draw.io diagrams, XMind maps, font files, PSD/HEIC/TIFF/ICNS assets, Java class files, and Mermaid-flavored Markdown so generated deliverables can open inside the Files tab without pushing them through R2 download URLs; the Code Server startup script pins default editor associations for those formats. Playwright's Chromium lives at the fixed `PLAYWRIGHT_BROWSERS_PATH` and Stagehand launches it through the Playwright API — there is no fixed CDP port to expose (§9.4). Browser-driver behavior is validated only in the final direct `agent-browser` product QA gate by exercising browser tools and takeover through the real UI and checking logs; no one-shot browser driver, build-time browser smoke script, or custom browser QA wrapper is part of V2.
 
-Blaxel reserves ports **80**, **443**, and **8080** for system/sandbox API behavior. The image may start the Blaxel sandbox API on localhost:8080, but Cheatcode must never expose 8080 as a user preview. Cheatcode-generated dev servers must bind to **5173** for frontend previews or **8000** for API/static servers. Mobile (`app-builder-mobile`) projects scaffold from the baked Expo template and run `expo start` on **8081** (Metro); the web App tab shows the Expo web preview plus an Expo Go QR code whose value is the 8081 Blaxel preview link protocol-swapped to `exps://` for on-device testing (omitted for .localhost dev hosts). Preview URLs are managed through Blaxel `sandbox.previews.createIfNotExists()`; ports for previews are dynamically opened as needed.
+Blaxel reserved ports **80**, **443**, and **8080** for system/sandbox API behavior; Daytona keeps the same product rule: Cheatcode must never expose 8080 as a user preview. Cheatcode-generated dev servers bind to **5173** for frontend previews or **8000** for API/static servers. Mobile (`app-builder-mobile`) projects scaffold from the baked Expo template and run `expo start` on **8081** (Metro). The IDE binds to **13340** and is exposed only through a signed Cheatcode preview URL minted by `ProjectSandbox.exposeCodeServer()`. Preview ports are dynamically opened as needed.
 
 ### 9.2 Sandbox lifecycle
 
@@ -2887,14 +2887,17 @@ export function MessageList({ messages, isStreaming }: Props) {
 ### 10.7 Preview panel (Activity-wrapped)
 
 `apps/web/src/components/preview/preview-side-panel.tsx` owns the desktop preview
-surface. It exposes the V1-style tab set in this exact order: **Preview**,
-**Browser**, **Terminal**, **Code**. Each tab body is wrapped in React
-`<Activity>` so iframe, noVNC, terminal, and editor state survive tab switches.
-The panel opens only when the current thread has a Blaxel preview URL or a
-non-cold sandbox status; the close/open rail state and active tab live in
-Zustand.
+surface. It exposes the Bud-style tab set in this order: **Files**, **Browser**.
+Each tab body is wrapped in React `<Activity>` so the app iframe and sandbox IDE
+state survive tab switches. The panel opens only when the current thread has a
+preview URL or a non-cold sandbox status; the close/open rail state and active
+tab live in Zustand.
 
-Heavy preview/editor dependencies, PDF.js, and Mermaid are lazy via `next/dynamic` where used. V1 does not ship Monaco or xterm.js because neither dependency is pinned in §4; file editing uses the in-app sandbox editor and terminal commands run through the authenticated POST route. Tab state stored in Zustand so user-initiated switches persist; URL state via `nuqs` only if we want deep-linking to a specific tab (V1: no).
+The Files tab requests `GET /v1/threads/{threadId}/sandbox/ide`, which starts
+the per-project `code-server` toolbox process and embeds the signed preview URL
+in an iframe. The legacy in-app file tree remains a fallback for old sandbox
+snapshots or IDE startup failures; terminal commands still run through the
+authenticated POST route and the console strip remains cursor-polled.
 
 **Browser URL bar + console strip + phone bezel (design 22/23).** The preview URL bar shows
 the **entry URL only** — cross-origin iframes hide SPA navigation, so back/refresh operate on
@@ -3338,7 +3341,6 @@ All V1 features mapped to packages/services:
 | **Skills catalog (search/tabs/Use) + `/101` docs + ASCII 404 + confirm dialog + sidebar IA** | `generated-manifest.ts` + `?skill=` deep-link + in-app content route + `packages/ui` `ConfirmDialog` + `WORKSPACE_NAV` registry (discovery-misc) |
 | **Theme switcher** | next-themes localStorage, `defaultTheme="system"`, no `forcedTheme` (§10.11) |
 | **Preview console strip + URL bar + phone bezel** | `GET /v1/threads/:id/sandbox/console` (cursor-poll), entry-URL-only bar, `DeviceFrame` by `project.mode` (§23.2 #50) |
-| **Featured replays (operator-curated, read-only)** | `FEATURED_REPLAYS` manifest + 2 public routes + sanitizer (§14.7) |
 
 ---
 
@@ -4322,7 +4324,7 @@ app.use('*', secureHeaders({
     imgSrc: ["'self'", 'data:', 'https:'],
     // Gateway is HTTPS only (REST + SSE — no WSS). WSS is only the sandbox
     // terminal/noVNC on the preview wildcard domain.
-    connectSrc: ["'self'", 'https://gateway.trycheatcode.com', 'wss://*.preview.trycheatcode.com'],
+    connectSrc: ["'self'", 'https://gateway.trycheatcode.com', 'wss://*.trycheatcode.com'],
     frameAncestors: ["'none'"],
   },
   strictTransportSecurity: 'max-age=31536000; includeSubDomains; preload',
@@ -4346,18 +4348,10 @@ app.use('/v1/*', cors({
 
 On signup form and future public form surfaces — Cloudflare Turnstile free.
 
-**Public replay surface — operator-curated READ only (no user shares).** V1 ships an
-**operator-curated featured-replay READ surface**: a checked-in `FEATURED_REPLAYS` manifest
-(`apps/gateway-worker/src/featured-replays.ts`, same class of artifact as the bundled-skills
-const — slug-keyed, git-reviewed) plus **two unauthenticated routes** (`GET /v1/replays/featured`,
-`GET /v1/replays/:id`, both `security:[]`) that return **sanitized read-only transcripts** over
-existing `v2_messages`/`v2_threads`. There are **NO user shares, no share tokens, no publishing,
-no revoke, no `v2_replay_shares` table, and no migration**. A defense-in-depth sanitization
-allowlist (`replay-sanitize.ts`, reusing `redactSecrets`) strips `previewUrl`/`expoUrl`,
-artifact downloads (chips stay metadata-only), and any non-allowlisted fields before the
-transcript leaves the gateway. Featured pages are indexable (operator-vetted marketing demos);
-`/v1/replays/*` uses the existing `public.read` advisory rate-limit headers. Empty manifest →
-the home "Watch replays" card is hidden.
+**Replay/share pages are intentionally removed.** V2 has no public replay routes,
+no homepage replay cards, no user-published replay shares, and no replay-share
+table. The only remaining “replay” terminology in the codebase refers to
+internal stream/idempotency replay used for reconnect safety.
 
 ### 14.8 Audit log
 
@@ -5762,12 +5756,9 @@ Both files cap at ~200 lines so they don't blow the agent's context budget. They
 | 50 | GET | `/v1/threads/{threadId}/sandbox/console` | JWT | `?cursor&lastPid` (cursor-poll, NOT streaming) | `SandboxConsole` (log slice + pid + cursor + `reset`) | 200 | `read.expensive` (cost 5, 60 polls/min, own bucket `${userId}:${route}`) |
 | 51 | GET | `/v1/search` | JWT | `?q` | `SearchResults` (projects + threads, ILIKE; no message text) | 200 | `read.cheap` |
 | 52 | GET | `/v1/greeting` | JWT | — | `Greeting` (time-of-day + Open-Meteo weather; `weather: null` fallback) | 200 | `read.cheap` |
-| 53 | GET | `/v1/replays/featured` | **public** `security:[]` | — | `FeaturedReplays` (curated manifest) | 200 | `public.read` |
-| 54 | GET | `/v1/replays/{id}` | **public** `security:[]` | — | `PublicReplay` (sanitized read-only transcript; `id` = manifest slug, not a token) | 200/404 | `public.read` |
 
-**Approval / replay / preview notes:**
+**Approval / preview notes:**
 - Row 49 (approvals) resolves a paused gated tool call (§8.6); 404 if no such pending approval, 409 if already decided or the deadline passed (default-deny).
-- Rows 53–54 are **unauthenticated** operator-curated featured replays — **no** share/publish/revoke routes exist (decision #9); both carry `security:[]` and use the existing `public.read` advisory rate-limit headers.
 - Row 50 is cursor-poll, never streaming — DOs still own all streaming (§23.5). The client echoes the last-seen Blaxel `pid` as `lastPid`; a differing non-null pid forces `reset:true` + slice-from-0.
 - The composer Add-menu GitHub import rides `POST/PATCH /v1/projects` via `settings.importRepoUrl` (no new route); `POST /v1/user-events` extends its event enum (append-only) for composer/preview/search telemetry.
 
