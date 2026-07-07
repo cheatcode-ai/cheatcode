@@ -18,7 +18,6 @@
     "@cheatcode/types": "workspace:*",
     "@cheatcode/ui": "workspace:*",
     "@clerk/nextjs": "catalog:",
-    "@clerk/themes": "^2.4.57",
     "@clerk/ui": "catalog:",
     "@hookform/resolvers": "catalog:",
     "@streamdown/code": "catalog:",
