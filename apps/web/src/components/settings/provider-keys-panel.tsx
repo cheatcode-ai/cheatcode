@@ -304,11 +304,16 @@ function CompactProviderKeysPanel({
                   <button
                     aria-controls={providerPanelId(provider)}
                     aria-expanded={isExpanded}
-                    className="inline-flex h-8 items-center justify-center rounded-full bg-[#1b1b1b] px-3 font-medium text-[14px] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_3px_rgba(0,0,0,0.2)] transition-colors hover:bg-black"
+                    className={cn(
+                      "inline-flex h-8 items-center justify-center rounded-full px-4 font-medium text-[14px] transition-colors",
+                      summary
+                        ? "border border-[#e6e6e6] bg-white text-[#1b1b1b] hover:bg-[#f7f7f7]"
+                        : "bg-[#1b1b1b] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.18),0_1px_3px_rgba(0,0,0,0.2)] hover:bg-black",
+                    )}
                     onClick={() => onSelect(provider)}
                     type="button"
                   >
-                    {summary ? "Manage" : "Configure"}
+                    {summary ? "Edit" : "Configure"}
                   </button>
                 </div>
                 {isExpanded ? (

@@ -110,9 +110,9 @@ export function AgentsPanel() {
       />
       <section className="rounded-3xl bg-[#f7f7f7] p-1">
         <div className="flex items-center px-4 pt-2 pb-3">
-          <span className="font-medium text-[#707070] text-[14px]">Agent Models</span>
+          <span className="font-medium text-[#585858] text-[14px]">Agent Models</span>
         </div>
-        <div className="overflow-hidden rounded-[21px] bg-white ring-1 ring-[#f1f1f1]/70">
+        <div className="flex flex-col rounded-[21px] bg-white ring-1 ring-[#f1f1f1]/70">
           <ModelRow
             control={<span className="text-[#707070] text-[13px] underline">Always on</span>}
             expanded={expandedSourceId === "auto"}
@@ -321,7 +321,9 @@ function ModelRow({
         <div className="flex min-w-0 items-center gap-3">
           {icon}
           <div className="min-w-0">
-            <div className="truncate font-medium text-[#1b1b1b] text-[16px] leading-6">{label}</div>
+            <div className="truncate font-medium text-[#1b1b1b] text-[15px] leading-[19px]">
+              {label}
+            </div>
             <button
               aria-expanded={expanded}
               className="flex max-w-full items-center gap-1 rounded-full text-[#666666] text-[14px] leading-5 outline-none transition-colors duration-150 hover:text-[#1b1b1b] focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/10"
@@ -377,45 +379,52 @@ function ModelSourceList({
         open ? "translate-y-0 opacity-100" : "-translate-y-1 opacity-0",
       )}
     >
-      <div className="relative pl-5">
-        <span
-          aria-hidden="true"
-          className="absolute top-0 bottom-[17px] left-0 w-px bg-[#e7e7e7]"
-        />
-        <div className="flex flex-col gap-1">
-          {choices.map((choice) => (
+      <div className="relative flex flex-col pl-8">
+        {choices.map((choice, index) => {
+          const isLast = index === choices.length - 1;
+          const branch = choice.active ? "#1b1b1b" : "#e3e3e3";
+          return (
             <div className="group/item relative z-10" key={choice.id}>
+              {/* rounded elbow from the tree line into this item */}
               <span
                 aria-hidden="true"
-                className="absolute top-1/2 left-0 h-px w-3 -translate-x-5 -translate-y-1/2 bg-[#e7e7e7]"
+                className="absolute top-2 -left-8 z-10 h-2.5 w-4 rounded-bl-[10px] border-b-[1.5px] border-l-[1.5px]"
+                style={{ borderColor: branch }}
               />
+              {/* line segment above the elbow (dark on the selected branch) */}
+              <span
+                aria-hidden="true"
+                className="absolute top-0 -left-8 h-2 w-[1.5px]"
+                style={{ backgroundColor: branch }}
+              />
+              {/* line segment continuing down to the next item */}
+              {isLast ? null : (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-2 -bottom-1 -left-8 w-[1.5px] bg-[#e3e3e3]"
+                />
+              )}
+              {/* filled check node at the elbow end, only for the active source */}
+              {choice.active ? (
+                <span
+                  aria-hidden="true"
+                  className="absolute top-[18px] -left-3.5 z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#1b1b1b] text-white"
+                >
+                  <Check aria-hidden="true" className="size-2.5" strokeWidth={2.5} />
+                </span>
+              ) : null}
               <button
                 aria-current={choice.active ? "true" : undefined}
-                className={cn(
-                  "-ml-3 flex h-[35px] w-full items-center gap-3 rounded-[10px] px-3 py-[5.5px] text-left font-medium text-[#1b1b1b] text-[16px] leading-6 outline-none transition-[background-color,box-shadow] duration-150",
-                  choice.active
-                    ? "bg-white shadow-[inset_0_0_0_1px_rgba(0,0,0,0.03)]"
-                    : "hover:bg-white/80",
-                )}
+                className="flex h-[35px] w-full items-center rounded-[10px] px-3 text-left font-medium text-[#1b1b1b] text-[15px] leading-[19px] outline-none transition-colors duration-150 hover:bg-black/[0.04]"
                 onClick={() => onSelect(choice)}
                 tabIndex={open ? 0 : -1}
                 type="button"
               >
-                <span
-                  className={cn(
-                    "flex size-4 shrink-0 items-center justify-center rounded-full",
-                    choice.active ? "bg-[#222222] text-white" : "bg-transparent",
-                  )}
-                >
-                  {choice.active ? (
-                    <Check aria-hidden="true" className="size-3" strokeWidth={2.5} />
-                  ) : null}
-                </span>
                 <span className="min-w-0 truncate">{choice.label}</span>
               </button>
             </div>
-          ))}
-        </div>
+          );
+        })}
       </div>
     </div>
   );
