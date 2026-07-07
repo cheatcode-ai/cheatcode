@@ -39,9 +39,19 @@ jobs:
           daytona login --api-key "$DAYTONA_API_KEY"
       - name: Build & publish snapshot
         run: |
-          # Idempotent: drop the previous snapshot of this name (existing sandboxes
-          # are unaffected — they already hold their own copy) then rebuild.
+          # Idempotent: drop the previous snapshot of this name (existing sandboxes are
+          # unaffected — they already hold their own copy) then rebuild. The delete is ASYNC
+          # when the snapshot is referenced by active sandboxes, so wait for the name to free
+          # before creating (else create fails with a name conflict). Trailing space in the grep
+          # matches only the exact name, not e.g. cheatcode-sandbox-viewer-bundle.
           daytona snapshot delete cheatcode-sandbox 2>/dev/null || true
+          for i in $(seq 1 60); do
+            if ! daytona snapshot list 2>/dev/null | grep -q "cheatcode-sandbox "; then
+              echo "snapshot name freed after ~$((i*5))s"
+              break
+            fi
+            sleep 5
+          done
           daytona snapshot create cheatcode-sandbox \
             -f infra/containers/sandbox/Dockerfile \
             -c infra/containers/sandbox \
