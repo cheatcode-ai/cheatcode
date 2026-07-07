@@ -186,10 +186,20 @@ export function HomeComposer({
   const [value, setValue] = useState(initialPrompt ?? "");
   const [skillCreatorMode, setSkillCreatorMode] = useState(skillCreator);
   const [authRedirectTo, setAuthRedirectTo] = useState<string | null>(null);
+  // In-flight submit guard: without it, rapid double/triple clicks fire multiple createChat
+  // calls → duplicate threads in the sidebar. The ref blocks re-entry synchronously (setState
+  // is async); the state also disables the button. Only the non-navigating paths reset it —
+  // a successful submit navigates away and unmounts this component.
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submittingRef = useRef(false);
+  const endSubmitting = useCallback(() => {
+    submittingRef.current = false;
+    setIsSubmitting(false);
+  }, []);
   const typewriterPlaceholder = useTypewriterPlaceholder();
   const intent = INTENTS.find((candidate) => candidate.id === intentId) ?? null;
   const placeholder = intent ? intent.placeholder : typewriterPlaceholder;
-  const canSubmit = value.trim().length > 0;
+  const canSubmit = value.trim().length > 0 && !isSubmitting;
   const { data: userSkills } = useQuery({
     queryFn: () => listUserSkills(getToken),
     queryKey: USER_SKILLS_QUERY,
@@ -218,9 +228,11 @@ export function HomeComposer({
 
   function submit(event?: FormEvent<HTMLFormElement>) {
     event?.preventDefault();
-    if (!canSubmit) {
+    if (!canSubmit || submittingRef.current) {
       return;
     }
+    submittingRef.current = true;
+    setIsSubmitting(true);
     const trimmed = value.trim();
     const skill = resolveSubmitSkill(repoUrl, intent, skillChip);
     const prompt = composePromptWithComposerContext({
@@ -242,12 +254,14 @@ export function HomeComposer({
         toast.error(
           "That project's latest thread is busy - wait for the run to finish or pick another project.",
         );
+        endSubmitting();
         return;
       }
       const handoff = buildExistingProjectParams(prompt).toString();
       router.push(`/chats/${encodeURIComponent(result.threadId)}?${handoff}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not open that project.");
+      endSubmitting();
     }
   }
 
@@ -314,6 +328,7 @@ export function HomeComposer({
       // authenticated chat create.
       const params = buildLaunchParams({ model, prompt, repo: repoUrl, surface });
       setAuthRedirectTo(`/?${params.toString()}`);
+      endSubmitting();
       return;
     }
     try {
@@ -328,6 +343,7 @@ export function HomeComposer({
       router.push(`/chats/${encodeURIComponent(thread.id)}?${handoff}`);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : "Could not start that chat.");
+      endSubmitting();
     }
   }
 

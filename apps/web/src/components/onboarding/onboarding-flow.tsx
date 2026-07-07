@@ -89,6 +89,10 @@ export function OnboardingFlow() {
           onboardingStep: { status: planStatus, step: "plan" },
         });
         await user?.reload();
+        // Force a fresh session token so the middleware's `metadata.onboarding_complete` claim
+        // reflects the just-set public metadata — otherwise navigating bounces back to /onboarding
+        // on the stale JWT.
+        await getToken({ skipCache: true });
       } catch {
         setPhase("retry");
         return;
@@ -99,7 +103,7 @@ export function OnboardingFlow() {
         setPhase("retry");
       }
     },
-    [mutateAsync, router, user],
+    [getToken, mutateAsync, router, user],
   );
 
   useEffect(() => {
