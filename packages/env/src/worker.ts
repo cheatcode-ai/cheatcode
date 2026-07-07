@@ -92,6 +92,7 @@ export const AgentWorkerEnvSchema = z
     R2_AUDIT: z.custom<R2Bucket>(),
     R2_OUTPUTS: z.custom<R2Bucket>(),
     R2_OUTPUTS_BUCKET_NAME: z.string().min(1).optional(),
+    SANDBOX_STATE: z.custom<KVNamespace>().optional(),
   })
   .strict();
 
@@ -115,8 +116,10 @@ export const WebhooksWorkerEnvSchema = z
     CLOUDFLARE_ANALYTICS_API_TOKEN: OptionalWorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
+    DAYTONA_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
     ENTITLEMENTS_CACHE: z.custom<KVNamespace>(),
     GATEWAY: z.custom<Fetcher>().optional(),
+    SANDBOX_STATE: z.custom<KVNamespace>().optional(),
     HYPERDRIVE: HyperdriveSchema,
     INTERNAL_ALERT_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
     INTERNAL_ALERT_WEBHOOK_URL: z.string().url().optional(),
