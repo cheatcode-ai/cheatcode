@@ -1,18 +1,25 @@
 "use client";
 
-import type { PaidBillingTier } from "@cheatcode/types";
+import type { IntegrationName, PaidBillingTier } from "@cheatcode/types";
+import { useAuth } from "@clerk/nextjs";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
+import { toast } from "sonner";
 import {
-  GitHubMark,
+  GitHubLogo,
   IconBrowser,
   IconComputer,
   IconKeys,
   IconPhone,
   IconSkills,
+  NotionLogo,
   ReturnArrow,
   SearchIcon,
+  SlackLogo,
   Sparkle,
 } from "@/components/onboarding/onboarding-icons";
+import { Check } from "@/components/ui/icons";
+import { connectIntegration, INTEGRATIONS_QUERY, listIntegrations } from "@/lib/api/integrations";
 import { cn } from "@/lib/ui/cn";
 
 // The 15-series "Bud System" onboarding: a card-less, viewport-centered flow where the agent
@@ -31,21 +38,29 @@ const FEATURE_ROWS: readonly FeatureRow[] = [
 
 const TOOL_ROWS = [
   {
-    badge: <GitHubMark />,
     description: "Inspect repositories, issues, pull requests, commits, and code.",
+    logo: <GitHubLogo />,
     name: "GitHub",
+    slug: "github",
   },
   {
-    badge: <LetterBadge color="#1B1B1B" letter="N" />,
     description: "Search pages, update content, query databases, and manage comments.",
+    logo: <NotionLogo />,
     name: "Notion",
+    slug: "notion",
   },
   {
-    badge: <LetterBadge color="#4A154B" letter="S" />,
     description: "Search conversations, manage channels, messages, and files.",
+    logo: <SlackLogo />,
     name: "Slack",
+    slug: "slack",
   },
-] as const;
+] as const satisfies readonly {
+  description: string;
+  logo: ReactNode;
+  name: string;
+  slug: IntegrationName;
+}[];
 
 const TIERS = [
   { bullet: "60 sandbox hours / month", name: "Pro", price: "$25/mo", tier: "pro" },
@@ -128,19 +143,66 @@ export function NameStep({
 }
 
 export function ToolsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
+  const { getToken } = useAuth();
+  const queryClient = useQueryClient();
+  const [query, setQuery] = useState("");
+  const integrationsQuery = useQuery({
+    queryFn: () => listIntegrations(getToken),
+    queryKey: INTEGRATIONS_QUERY,
+    staleTime: 30_000,
+  });
+  const connected = new Set(
+    (integrationsQuery.data ?? []).filter((row) => row.status === "active").map((row) => row.name),
+  );
+  const connect = useMutation({
+    mutationFn: (slug: IntegrationName) => connectIntegration(getToken, slug),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Could not start that connection."),
+    onSuccess: (oauthUrl) => {
+      // Open OAuth consent in a new tab so first-run onboarding stays put; connected state
+      // refreshes when the user returns and the query refetches.
+      window.open(oauthUrl, "_blank", "noopener,noreferrer");
+      void queryClient.invalidateQueries({ queryKey: INTEGRATIONS_QUERY });
+    },
+  });
+  const needle = query.trim().toLowerCase();
+  const rows = needle
+    ? TOOL_ROWS.filter(
+        (tool) =>
+          tool.name.toLowerCase().includes(needle) ||
+          tool.description.toLowerCase().includes(needle),
+      )
+    : TOOL_ROWS;
   return (
     <Shell width={440}>
       <Sparkle />
       <Eyebrow>2/4</Eyebrow>
       <StepTitle>Second, give me access to your tools.</StepTitle>
-      <div className="mt-[22px] flex h-8 w-full items-center gap-2 rounded-full bg-white px-3 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+      <div className="mt-[22px] flex h-8 w-full items-center gap-2 rounded-full bg-white px-3 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)] focus-within:shadow-[0_0_0_1px_rgba(0,0,0,0.12)]">
         <SearchIcon />
-        <span className="font-medium text-[#9B9B9B] text-[14px] leading-[18px]">Search skills</span>
+        <input
+          aria-label="Search skills"
+          className="w-full bg-transparent font-medium text-[#1B1B1B] text-[14px] leading-[18px] outline-none placeholder:text-[#9B9B9B]"
+          onChange={(event) => setQuery(event.target.value)}
+          placeholder="Search skills"
+          value={query}
+        />
       </div>
       <div className="flex w-full flex-col gap-2 pt-2.5">
-        {TOOL_ROWS.map((tool) => (
-          <ToolCard key={tool.name} tool={tool} />
+        {rows.map((tool) => (
+          <ToolCard
+            connected={connected.has(tool.slug)}
+            key={tool.name}
+            onConnect={() => connect.mutate(tool.slug)}
+            pending={connect.isPending && connect.variables === tool.slug}
+            tool={tool}
+          />
         ))}
+        {rows.length === 0 ? (
+          <p className="py-3 text-center font-medium text-[#585858] text-[13px] leading-4">
+            No skills match "{query}".
+          </p>
+        ) : null}
       </div>
       <Actions className="pt-9">
         <SkipPill onClick={onSkip} />
@@ -150,7 +212,15 @@ export function ToolsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
   );
 }
 
-export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onSkip: () => void }) {
+export function BasicsStep({
+  onComplete,
+  onContinue,
+  onSkip,
+}: {
+  onComplete: (target: string) => void;
+  onContinue: () => void;
+  onSkip: () => void;
+}) {
   return (
     <Shell width={440}>
       <Sparkle />
@@ -162,7 +232,7 @@ export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onS
           Every morning at 8, draft a social pack
         </span>
         <span className="flex-1" />
-        <PreviewPill>Create</PreviewPill>
+        <PreviewPill onClick={() => onComplete("/automations")}>Create</PreviewPill>
       </BasicCard>
       <NumberedLine className="pt-[18px]">2. You can teach me custom skills:</NumberedLine>
       <BasicCard>
@@ -175,7 +245,7 @@ export function BasicsStep({ onContinue, onSkip }: { onContinue: () => void; onS
           </span>
         </div>
         <span className="flex-1" />
-        <PreviewPill>Create</PreviewPill>
+        <PreviewPill onClick={() => onComplete("/skills")}>Create</PreviewPill>
       </BasicCard>
       <NumberedLine className="pt-[18px]">
         3. And this is the{" "}
@@ -235,14 +305,43 @@ export function PlanStep({
   );
 }
 
-function ToolCard({ tool }: { tool: (typeof TOOL_ROWS)[number] }) {
+function ToolCard({
+  connected,
+  onConnect,
+  pending,
+  tool,
+}: {
+  connected: boolean;
+  onConnect: () => void;
+  pending: boolean;
+  tool: (typeof TOOL_ROWS)[number];
+}) {
   return (
-    <div className="flex flex-col gap-0.5 rounded-[14px] bg-white px-3.5 py-2.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
-      <div className="flex items-center gap-2">
-        <span className="flex shrink-0">{tool.badge}</span>
-        <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{tool.name}</span>
+    <div className="flex items-center gap-3 rounded-[14px] border border-[#f0f0f0] bg-white px-3.5 py-3 shadow-[0_1px_2px_0_rgba(0,0,0,0.04)] transition-all hover:border-[#e4e4e4] hover:shadow-[0_2px_10px_0_rgba(0,0,0,0.06)]">
+      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#f0f0f0] bg-[#fbfbfb]">
+        {tool.logo}
+      </span>
+      <div className="min-w-0 flex-1">
+        <div className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{tool.name}</div>
+        <p className="mt-0.5 truncate font-medium text-[#8a8a8a] text-[12px] leading-4">
+          {tool.description}
+        </p>
       </div>
-      <p className="font-medium text-[#585858] text-[13px] leading-4">{tool.description}</p>
+      {connected ? (
+        <span className="flex shrink-0 items-center gap-1 font-medium text-[#5b9a73] text-[13px] leading-[18px]">
+          <Check aria-hidden="true" className="h-3.5 w-3.5" />
+          Connected
+        </span>
+      ) : (
+        <button
+          className="flex h-8 shrink-0 items-center rounded-full border border-[#e6e6e6] bg-white px-3.5 font-medium text-[#1B1B1B] text-[13px] leading-[18px] transition-colors hover:border-[#d4d4d4] hover:bg-[#fafafa] disabled:opacity-60"
+          disabled={pending}
+          onClick={onConnect}
+          type="button"
+        >
+          {pending ? "Connecting…" : "Connect"}
+        </button>
+      )}
     </div>
   );
 }
@@ -279,17 +378,6 @@ function PlanCard({
         Get {tier.name}
       </button>
     </div>
-  );
-}
-
-function LetterBadge({ color, letter }: { color: string; letter: string }) {
-  return (
-    <span
-      className="flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-[3px] font-semibold text-[9px] text-white leading-3"
-      style={{ backgroundColor: color }}
-    >
-      {letter}
-    </span>
   );
 }
 
@@ -332,13 +420,17 @@ function BasicCard({ children }: { children: ReactNode }) {
   );
 }
 
-// Illustrative preview action on the Basics screen — the design shows a "Create" pill next to each
-// example, but it is a preview of capability, not a live action during first-run.
-function PreviewPill({ children }: { children: ReactNode }) {
+// The Basics "Create" pill jumps straight to building that thing — it finishes onboarding and
+// routes to Automations / Skills so the example is a real shortcut, not a dead preview.
+function PreviewPill({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
-    <span className="flex h-8 shrink-0 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px]">
+    <button
+      className="flex h-8 shrink-0 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black"
+      onClick={onClick}
+      type="button"
+    >
       {children}
-    </span>
+    </button>
   );
 }
 

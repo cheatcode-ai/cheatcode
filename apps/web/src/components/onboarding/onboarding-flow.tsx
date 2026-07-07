@@ -227,7 +227,13 @@ function renderStep(stepName: OnboardingStep, props: StepProps): ReactNode {
     case "tools":
       return <ToolsStep onContinue={props.onToolsContinue} onSkip={props.onToolsSkip} />;
     case "basics":
-      return <BasicsStep onContinue={props.onBasicsContinue} onSkip={props.onBasicsSkip} />;
+      return (
+        <BasicsStep
+          onComplete={props.onPlanComplete}
+          onContinue={props.onBasicsContinue}
+          onSkip={props.onBasicsSkip}
+        />
+      );
     case "plan":
       return (
         <PlanStep
