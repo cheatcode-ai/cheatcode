@@ -1,34 +1,11 @@
-import { dark } from "@clerk/themes";
+import type { SignIn } from "@clerk/nextjs";
+import { dark } from "@clerk/ui/themes";
+import type { ComponentProps } from "react";
 
-// Dark auth modal matching cheatcode V1. V2 runs Clerk's new @clerk/ui theming, which ignores
-// the legacy `baseTheme` preset for colors — the palette is driven by `variables` (the original
-// light modal set colorBackground:#fff here). We keep `baseTheme: dark` as the base and set the
-// dark palette + a few element overrides so Clerk's native chrome renders fully dark and native.
-export const clerkAuthAppearance = {
-  baseTheme: dark,
-  elements: {
-    card: "!border-0 !bg-[#161616] !shadow-none",
-    cardBox: "!bg-[#161616] !shadow-none",
-    developmentMode: "!hidden",
-    footer: "!border-[#262626] !border-t !bg-[#121212]",
-    footerActionLink: "!text-[#f2f2f2] hover:!text-white",
-    footerActionText: "!text-[#9a9a9a]",
-    formButtonPrimary: "!bg-white !text-[#111111] hover:!bg-[#e6e6e6]",
-    formFieldInput: "!border-[#2f2f2f] !bg-[#1f1f1f] !text-[#ededed] placeholder:!text-[#6f6f6f]",
-    headerSubtitle: "!text-[#a1a1a1]",
-    headerTitle: "!text-[#f2f2f2]",
-    rootBox: "!mx-auto !w-full",
-    socialButtonsBlockButton: "!border-[#2f2f2f] !bg-[#1f1f1f] !text-[#ededed] hover:!bg-[#262626]",
-  },
-  variables: {
-    borderRadius: "10px",
-    colorBackground: "#161616",
-    colorInputBackground: "#1f1f1f",
-    colorInputText: "#ededed",
-    colorNeutral: "#ffffff",
-    colorPrimary: "#ffffff",
-    colorText: "#ededed",
-    colorTextSecondary: "#a1a1a1",
-    fontFamily: "var(--font-geist-sans), Arial, sans-serif",
-  },
-};
+// Clerk's out-of-the-box dark theme, verbatim. V2 renders Clerk via @clerk/ui, whose native themes
+// live in "@clerk/ui/themes" (NOT the legacy @clerk/themes). The stock `dark` prebuilt appearance is
+// applied as-is (no custom overrides); the cast only reconciles @clerk/ui's `| undefined` optionals
+// with our exactOptionalPropertyTypes — the object is exactly what Clerk ships.
+export const clerkAuthAppearance = dark as unknown as NonNullable<
+  ComponentProps<typeof SignIn>["appearance"]
+>;
