@@ -38,17 +38,17 @@ export function AuthModal({
       onClose={onClose}
       open={true}
     >
-      <div className="relative mx-auto max-h-[calc(100vh-2rem)] overflow-y-auto">
+      <div className="relative mx-auto max-h-[calc(100vh-2rem)] w-fit overflow-y-auto">
         <span className="sr-only" id={titleId}>
           {isSignIn ? "Sign in to Cheatcode" : "Create your account"}
         </span>
         <button
           aria-label="Close authentication modal"
-          className="absolute top-4 right-6 z-10 flex h-8 w-8 items-center justify-center rounded-full text-white/60 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/25"
+          className="absolute top-3.5 right-3.5 z-10 flex h-8 w-8 items-center justify-center rounded-full text-white/50 outline-none transition-colors hover:bg-white/10 hover:text-white focus-visible:ring-2 focus-visible:ring-white/25"
           onClick={onClose}
           type="button"
         >
-          <X aria-hidden="true" className="h-5 w-5" />
+          <X aria-hidden="true" className="h-4 w-4" />
         </button>
         {isSignIn ? (
           <SignIn
