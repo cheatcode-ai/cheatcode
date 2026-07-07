@@ -35,6 +35,8 @@ jobs:
           chmod +x daytona
           sudo mv daytona /usr/local/bin/daytona
           daytona version
+          # The CLI no longer auto-reads DAYTONA_API_KEY; a profile must be created explicitly.
+          daytona login --api-key "$DAYTONA_API_KEY"
       - name: Build & publish snapshot
         run: |
           # Idempotent: drop the previous snapshot of this name (existing sandboxes

@@ -120,7 +120,9 @@ RUN npx create-next-app@16.2.6 /home/node/cheatcode-next-template --yes --ts --t
 # default template, but @expo/metro-runtime does not) so `expo start --web` renders the
 # app as a web page in the Computer-panel iframe. `expo install` picks SDK-matched
 # versions; web.bundler=metro selects the Metro web bundler for Expo Router.
-RUN npx --yes create-expo-app@latest /home/node/cheatcode-expo-template --template default --no-install \
+# Install (not --no-install) so `expo` exists for `expo install` to resolve SDK-matched web-dep
+# versions; those land in package.json, then node_modules is dropped (runtime pnpm-installs it).
+RUN npx --yes create-expo-app@latest /home/node/cheatcode-expo-template --template default \
   && cd /home/node/cheatcode-expo-template \
   && CI=1 EXPO_NO_TELEMETRY=1 npx --yes expo install react-dom react-native-web @expo/metro-runtime \
   && node -e 'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo=j.expo||{};j.expo.web={...(j.expo.web||{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2));}catch(e){}' \
