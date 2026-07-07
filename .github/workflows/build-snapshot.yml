@@ -27,8 +27,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Daytona CLI
+        # Direct release-binary download — the old install.sh URL now 404s, and `-sf` hid it as a
+        # silent exit 127. `-sSf` fails loudly if the URL ever breaks again.
         run: |
-          curl -sf -L https://download.daytona.io/daytona/install.sh | sudo bash
+          curl -sSfL -o daytona \
+            "https://github.com/daytonaio/daytona/releases/latest/download/daytona-linux-amd64"
+          chmod +x daytona
+          sudo mv daytona /usr/local/bin/daytona
           daytona version
       - name: Build & publish snapshot
         run: |
