@@ -41,7 +41,7 @@ jobs:
         run: |
           # Idempotent: drop the previous snapshot of this name (existing sandboxes
           # are unaffected — they already hold their own copy) then rebuild.
-          daytona snapshot delete cheatcode-sandbox -y 2>/dev/null || true
+          daytona snapshot delete cheatcode-sandbox 2>/dev/null || true
           daytona snapshot create cheatcode-sandbox \
             -f infra/containers/sandbox/Dockerfile \
             -c infra/containers/sandbox \
