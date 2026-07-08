@@ -128,8 +128,8 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<SidebarProject | null>(null);
   const [pendingRename, setPendingRename] = useState<SidebarProject | null>(null);
-  const [chatsOpen, setChatsOpen] = useState(true);
-  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const deleteMutation = useMutation({
     mutationFn: (project: SidebarProject) => deleteProject(getToken, project.id),
