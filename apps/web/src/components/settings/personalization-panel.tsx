@@ -74,7 +74,7 @@ function PersonalizationForm({ profile }: { profile: UserProfile }) {
 
       <section className="rounded-[24px] bg-[#f7f7f7] p-5">
         <FieldLabel
-          helper="Preferences and instructions for Cheatcode. No need to set the name here - that's handled above."
+          helper="Preferences and instructions for Cheatcode. No need to set the name here — that's handled above."
           label="Memory"
         />
         <div className="mt-5 rounded-[20px] bg-white p-px">
@@ -83,7 +83,7 @@ function PersonalizationForm({ profile }: { profile: UserProfile }) {
             maxLength={MEMORY_MAX}
             onChange={(event) => update("memory", event.target.value)}
             placeholder={
-              'Preferences and instructions - e.g. "I prefer short bullet points", "Always cite sources"...'
+              'Preferences and instructions — e.g. "I prefer short bullet points", "Always cite sources"...'
             }
             value={form.memory}
           />

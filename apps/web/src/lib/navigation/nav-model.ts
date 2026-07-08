@@ -129,7 +129,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     label: "Settings",
     section: "footer",
     status: "active",
-    target: { href: "/settings", kind: "route", matchPrefix: "/settings" },
+    target: { href: "/settings/account", kind: "route", matchPrefix: "/settings" },
   },
 ];
 

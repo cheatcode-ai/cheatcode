@@ -746,34 +746,26 @@ function SidebarSettingsMenu({
   open: boolean;
 }) {
   return (
-    <>
+    <div className="relative">
       <div
         aria-hidden={!open}
+        inert={open ? undefined : true}
         className={cn(
-          "grid overflow-hidden transition-[grid-template-rows,opacity,transform,margin-bottom] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transform-none motion-reduce:transition-none",
-          open
-            ? "mb-1 translate-y-0 grid-rows-[1fr] opacity-100"
-            : "mb-0 translate-y-1 grid-rows-[0fr] opacity-0",
+          "absolute right-0 bottom-full left-0 z-50 mb-1 origin-bottom transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transform-none motion-reduce:transition-none",
+          open ? "translate-y-0 opacity-100" : "pointer-events-none translate-y-1 opacity-0",
         )}
       >
-        <div className="min-h-0 overflow-hidden">
-          <div
-            className={cn(
-              "mx-1 rounded-[20px] bg-white px-3 py-3 shadow-[0_1px_0_rgba(0,0,0,0.04),0_8px_22px_rgba(0,0,0,0.04)] transition-[transform,box-shadow] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transform-none motion-reduce:transition-none",
-              open ? "translate-y-0" : "translate-y-1",
-            )}
-          >
-            <div className="flex flex-col gap-1">
-              {SETTINGS_MENU_LINKS.map((item) => (
-                <SidebarMenuLink
-                  interactive={open}
-                  item={item}
-                  key={item.label}
-                  onNavigate={onNavigate}
-                  open={open}
-                />
-              ))}
-            </div>
+        <div className="mx-1 rounded-[20px] bg-white px-3 py-3 shadow-[0_1px_0_rgba(0,0,0,0.04),0_10px_28px_rgba(0,0,0,0.12)]">
+          <div className="flex flex-col gap-1">
+            {SETTINGS_MENU_LINKS.map((item) => (
+              <SidebarMenuLink
+                interactive={open}
+                item={item}
+                key={item.label}
+                onNavigate={onNavigate}
+                open={open}
+              />
+            ))}
           </div>
         </div>
       </div>
@@ -791,7 +783,7 @@ function SidebarSettingsMenu({
         </span>
         <span className="min-w-0 truncate">Settings</span>
       </button>
-    </>
+    </div>
   );
 }
 
