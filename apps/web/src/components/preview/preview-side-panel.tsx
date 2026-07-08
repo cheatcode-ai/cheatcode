@@ -121,8 +121,8 @@ export function PreviewSidePanel({
             setActivePreviewTab={setActivePreviewTab}
             setPreviewPanelOpen={setPreviewPanelOpen}
           />
-          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[24px] border-2 border-[#f1f1f1] bg-white">
-            <div className="-mx-0.5 -mt-0.5 min-h-0 min-w-0 flex-1 rounded-[24px] border-2 border-[#f1f1f1] p-0.5">
+          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[24px] border border-[#f1f1f1] bg-white shadow-[0_0_1px_rgba(0,0,0,0.08)]">
+            <div className="min-h-0 min-w-0 flex-1 rounded-[24px] p-0.5">
               <PanelBody
                 activePreviewTab={activePreviewTab}
                 device={previewDevice}
@@ -190,7 +190,7 @@ function PanelTabs({
 
   return (
     <div className="hidden h-12 w-full shrink-0 items-center justify-between overflow-visible px-[3px] md:flex">
-      <div className="flex">
+      <div className="inline-flex items-center gap-1 rounded-full bg-[#f7f7f7] p-0.5 shadow-[0_0_1px_rgba(0,0,0,0.08)]">
         {TABS.map((tab) => (
           <BudTooltip key={tab.value} label={tab.label} side="bottom">
             <button
@@ -198,8 +198,8 @@ function PanelTabs({
               className={cn(
                 "flex h-7 items-center justify-center whitespace-nowrap rounded-full px-3 font-medium text-[14px] transition-colors",
                 activePreviewTab === tab.value
-                  ? "bg-white text-[#1b1b1b] shadow-[0_1px_2px_rgba(0,0,0,0.08),0_0_0_1px_rgba(0,0,0,0.04)]"
-                  : "text-[#5f5f5f] hover:text-[#1b1b1b]",
+                  ? "bg-white text-[#1b1b1b] shadow-[0_1px_5px_rgba(0,0,0,0.08)]"
+                  : "text-[#707070] hover:text-[#1b1b1b]",
               )}
               onClick={() => setActivePreviewTab(tab.value)}
               role="tab"
