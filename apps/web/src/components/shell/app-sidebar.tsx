@@ -676,7 +676,7 @@ function SidebarCreditsCard({
 
   return (
     <Link
-      className="paper-focus-ring flex h-[87px] w-full flex-col gap-2.5 rounded-2xl border border-[#f7f7f7] bg-[#f7f7f7] p-2.5 pt-1 text-left transition-opacity hover:opacity-90"
+      className="paper-focus-ring flex h-[87px] w-full flex-col gap-2.5 rounded-2xl bg-[#f7f7f7] p-2.5 pt-1 text-left transition-opacity hover:opacity-90"
       href="/settings/billing"
       onClick={onNavigate}
     >
@@ -809,12 +809,12 @@ function SidebarMenuLink({
   const external = isExternalHref(item.href);
   const content = (
     <>
-      <item.icon aria-hidden="true" className="h-4 w-4 shrink-0" />
+      <item.icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate">{item.label}</span>
     </>
   );
   const className = cn(
-    "paper-focus-ring flex h-9 w-full items-center gap-3 rounded-full px-2 font-medium text-[#5f5f5f] text-[14px] leading-5 transition-[background-color,color,opacity,transform] duration-200 ease-out hover:bg-[#f7f7f7] hover:text-[#1b1b1b] motion-reduce:transform-none motion-reduce:transition-none",
+    "paper-focus-ring flex h-8 w-full items-center gap-2 rounded-full px-[9px] font-medium text-[#5f5f5f] text-[14px] leading-5 transition-[background-color,color,opacity,transform] duration-200 ease-out hover:bg-[#f7f7f7] hover:text-[#1b1b1b] motion-reduce:transform-none motion-reduce:transition-none",
     open ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
   );
 
@@ -1204,7 +1204,7 @@ function ChatRow({
     <div className="group/row relative">
       <Link
         className={cn(
-          "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+          "relative flex h-8 w-full items-center gap-2 rounded-full px-[9px] text-left font-medium text-[14px] leading-5 transition-colors",
           isActive
             ? "bg-white text-[#1b1b1b]"
             : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
@@ -1354,7 +1354,7 @@ function ProjectRow({
   const hasThreads = project.threads.length > 0;
   const isActive = project.threads.some((thread) => thread.id === activeThreadId);
   const rowClassName = cn(
-    "relative flex h-8 w-full items-center gap-1 rounded-full pr-1 pl-1 text-left font-medium text-[13px] leading-[19.5px] transition-colors",
+    "relative flex h-8 w-full items-center gap-1 rounded-full pr-1 pl-1 text-left font-medium text-[14px] leading-5 transition-colors",
     isActive ? "bg-white text-[#1b1b1b]" : "text-[#5f5f5f] hover:bg-white hover:text-[#1b1b1b]",
   );
   const closeMenu = () => setMenuOpen(false);
