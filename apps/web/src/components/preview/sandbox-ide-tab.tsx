@@ -2,6 +2,7 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
+import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { PanelLeftOpen } from "@/components/ui/icons";
@@ -130,9 +131,15 @@ export function SandboxIdeTab({
 function IdePlaceholder({ label }: { label: string }) {
   return (
     <div className="grid h-full min-h-[420px] place-items-center bg-[#fafafa]">
-      <div className="text-center">
-        <div className="mx-auto mb-4 h-2 w-2 rounded-full bg-thread-status-warning" />
-        <div className="text-[12px] text-thread-text-muted">{label}</div>
+      <div className="flex flex-col items-center gap-4 text-center">
+        <Image
+          alt=""
+          className="cc-loading-mark h-12 w-12"
+          height={48}
+          src="/cheatcode-symbol.png"
+          width={48}
+        />
+        <div className="text-[13px] text-thread-text-muted">{label}</div>
       </div>
     </div>
   );

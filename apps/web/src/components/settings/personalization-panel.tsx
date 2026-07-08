@@ -61,14 +61,16 @@ function PersonalizationForm({ profile }: { profile: UserProfile }) {
     <div className="w-full space-y-7">
       <section className="rounded-[24px] bg-[#f7f7f7] p-5">
         <FieldLabel helper="Cheatcode will answer to this name." label="Your Cheatcode's Name" />
-        <div className="mt-5 rounded-[20px] bg-white p-px">
-          <input
-            className="h-12 w-full bg-transparent px-4 font-medium text-[#1b1b1b] text-[14px] outline-none placeholder:text-[#6f7782]"
-            maxLength={80}
-            onChange={(event) => update("name", event.target.value)}
-            placeholder="Give your Cheatcode a name"
-            value={form.name}
-          />
+        <div className="group mt-5 rounded-[20px] bg-white p-px">
+          <div className="rounded-[19px] bg-gradient-to-b from-[#f7f7f7] to-transparent transition-[box-shadow] duration-200 group-focus-within:shadow-[inset_0_0_40px_0_oklch(0.93_0.06_70_/_0.4)]">
+            <input
+              className="h-12 w-full bg-transparent px-4 font-medium text-[#1b1b1b] text-[14px] outline-none placeholder:text-[#6f7782]"
+              maxLength={80}
+              onChange={(event) => update("name", event.target.value)}
+              placeholder="Give your Cheatcode a name"
+              value={form.name}
+            />
+          </div>
         </div>
       </section>
 
@@ -77,16 +79,18 @@ function PersonalizationForm({ profile }: { profile: UserProfile }) {
           helper="Preferences and instructions for Cheatcode. No need to set the name here — that's handled above."
           label="Memory"
         />
-        <div className="mt-5 rounded-[20px] bg-white p-px">
-          <textarea
-            className="min-h-[200px] w-full resize-none bg-transparent px-4 py-3 font-medium text-[#1b1b1b] text-[14px] leading-5 outline-none placeholder:text-[#6f7782]"
-            maxLength={MEMORY_MAX}
-            onChange={(event) => update("memory", event.target.value)}
-            placeholder={
-              'Preferences and instructions — e.g. "I prefer short bullet points", "Always cite sources"...'
-            }
-            value={form.memory}
-          />
+        <div className="group mt-5 rounded-[20px] bg-white p-px">
+          <div className="rounded-[19px] bg-gradient-to-b from-[#f7f7f7] to-transparent transition-[box-shadow] duration-200 group-focus-within:shadow-[inset_0_0_40px_0_oklch(0.93_0.06_70_/_0.4)]">
+            <textarea
+              className="min-h-[200px] w-full resize-none bg-transparent px-4 py-3 font-medium text-[#1b1b1b] text-[14px] leading-5 outline-none placeholder:text-[#6f7782]"
+              maxLength={MEMORY_MAX}
+              onChange={(event) => update("memory", event.target.value)}
+              placeholder={
+                'Preferences and instructions — e.g. "I prefer short bullet points", "Always cite sources"...'
+              }
+              value={form.memory}
+            />
+          </div>
         </div>
       </section>
 

@@ -32,6 +32,29 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* bud-style loading breathe for the Cheatcode mark (booting sandbox / opening files) */
+@keyframes cc-breathe {
+  0%,
+  100% {
+    transform: scale(0.92);
+    opacity: 0.35;
+  }
+  50% {
+    transform: scale(1);
+    opacity: 0.72;
+  }
+}
+.cc-loading-mark {
+  animation: cc-breathe 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+  will-change: transform, opacity;
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-loading-mark {
+    animation: none;
+    opacity: 0.5;
+  }
+}
+
 .cheatcode-workspace-frame {
   padding-top: 8px;
   padding-right: 8px;

@@ -32,10 +32,6 @@ export function DeviceFrame({ children, device }: { children: ReactNode; device:
           // CSS (container-query units): width fills the panel height, clamped to its width.
           style={{ aspectRatio: "390 / 844", width: "min(100cqw, calc(100cqh * 390 / 844))" }}
         >
-          <div
-            aria-hidden
-            className="pointer-events-none absolute top-[9px] left-1/2 z-10 h-[24px] w-[86px] -translate-x-1/2 rounded-full bg-[#1b1b1b]"
-          />
           {children}
         </div>
       ) : (
