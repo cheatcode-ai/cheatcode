@@ -12,6 +12,7 @@ import { AppSidebar } from "@/components/shell/app-sidebar";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
 import { useAppStore } from "@/lib/store/app-store";
+import { cn } from "@/lib/ui/cn";
 
 /**
  * The home page (`/`). Reuses the same {@link WorkspaceRunLayout} shell as the
@@ -53,14 +54,14 @@ export function HomeWorkspace() {
           ) : null
         }
         computerOpen={computerVisible}
-        content={<HomeContentPane />}
+        content={<HomeContentPane computerOpen={computerVisible} />}
         hasPreviewSurface={hasComputer}
       />
     </div>
   );
 }
 
-function HomeContentPane() {
+function HomeContentPane({ computerOpen }: { computerOpen: boolean }) {
   // The quick-action pills belong in the greeting cluster (below the headline),
   // but their intent state is owned by the composer at the bottom of the pane and
   // is entangled with the composer's skill/repo/project state, textarea focus, and
@@ -81,7 +82,7 @@ function HomeContentPane() {
           <div className="mt-6 w-full" ref={setQuickActionsSlot} />
         </div>
       </div>
-      <div className="shrink-0 px-6 pb-8">
+      <div className={cn("shrink-0 px-6", computerOpen ? "pb-2" : "pb-10")}>
         <HomeComposerFromSearchParams quickActionsSlot={quickActionsSlot} />
       </div>
     </div>
@@ -106,9 +107,14 @@ function useHomeComputerSidebarCollapse(active: boolean): void {
       }
       return;
     }
+    // Collapse the rail ONCE when the computer opens (saving the prior state to
+    // restore on close), but let the user re-expand it while the computer stays
+    // open — bud keeps the sidebar expandable in this state. Guarding on the ref
+    // (not re-collapsing on every sidebarCollapsed change) is what makes the
+    // Expand-sidebar button work here.
     if (previousSidebarCollapsedRef.current === null) {
       previousSidebarCollapsedRef.current = sidebarCollapsed;
+      setSidebarCollapsed(true);
     }
-    setSidebarCollapsed(true);
   }, [active, setSidebarCollapsed, sidebarCollapsed]);
 }

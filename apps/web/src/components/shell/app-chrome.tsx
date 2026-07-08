@@ -38,10 +38,14 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Collapse the rail ONCE when the preview opens (saving the prior state to
+    // restore on close), but let the user re-expand it while the preview stays
+    // open. Guarding on the ref — rather than re-collapsing on every
+    // sidebarCollapsed change — is what makes the Expand-sidebar button work here.
     if (previousSidebarCollapsedRef.current === null) {
       previousSidebarCollapsedRef.current = sidebarCollapsed;
+      setSidebarCollapsed(true);
     }
-    setSidebarCollapsed(true);
   }, [isWorkspace, previewPanelOpen, setSidebarCollapsed, sidebarCollapsed]);
 
   return (
