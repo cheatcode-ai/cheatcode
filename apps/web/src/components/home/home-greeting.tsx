@@ -33,7 +33,7 @@ export function HomeGreeting() {
   }
   const clock = CLOCK_FORMATTER.format(now).replace(/\s+/g, "");
   return (
-    <p className="mt-4 text-center font-medium text-[#5f5f5f] text-[13px] leading-[19.5px]">
+    <p className="mt-4 text-center font-medium text-[#1b1b1b] text-[16px] leading-[24px]">
       {`${clock}${weatherSuffix(greeting ?? null)}`}
     </p>
   );

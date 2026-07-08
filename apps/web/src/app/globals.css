@@ -384,7 +384,7 @@
   --thread-accent-purple-glow: rgba(248, 175, 44, 0.18);
 
   /* Thread Message Bubbles */
-  --thread-user-message-bg: #efefef;
+  --thread-user-message-bg: #f5f5f5;
   --thread-assistant-message-bg: #ffffff;
   --thread-assistant-message-border: #f1f1f1;
 
@@ -667,7 +667,7 @@
     padding: 0.2em 0.4em;
     font-size: 0.85em;
     font-family: var(--font-mono);
-    background-color: rgba(9, 9, 11, 0.95);
+    background-color: #f5f5f5;
     border-radius: 3px;
     word-break: break-word;
   }

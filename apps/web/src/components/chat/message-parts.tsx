@@ -521,7 +521,7 @@ function ToolRow({ parts }: { parts: MessagePart[] }) {
         />
         <span className="shrink-0">{verb}</span>
         {arg ? (
-          <code className="truncate rounded bg-[#f4f4f4] px-1.5 py-0.5 font-mono text-[#1b1b1b] text-[12px]">
+          <code className="truncate rounded bg-[#f5f5f5] px-1.5 py-0.5 font-mono text-[#1b1b1b] text-[12px]">
             {arg}
           </code>
         ) : null}
