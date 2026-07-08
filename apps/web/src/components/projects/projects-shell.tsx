@@ -7,10 +7,10 @@ import { parseAsString, useQueryStates } from "nuqs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { PreviewSidePanel } from "@/components/preview/preview-side-panel";
+import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
 import { getProject, getThread, listThreadMessages } from "@/lib/api/project-thread";
 import { consumePromptHandoff } from "@/lib/input/prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
-import { cn } from "@/lib/ui/cn";
 
 const PROMPT_URL_STATE = {
   model: parseAsString,
@@ -33,8 +33,6 @@ export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string })
     initialMessagesQuery.data ?? null,
   );
   const hasProject = projectId !== null;
-  const workspaceLayoutClass = useWorkspaceLayoutClass(hasProject);
-  const chatColumnClass = useChatColumnClass(hasProject);
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
   const previewUrl = useAppStore((state) => state.previewUrl);
@@ -62,12 +60,16 @@ export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string })
   }
 
   return (
-    <div
-      className={workspaceLayoutClass}
-      data-computer-open={previewPanelOpen ? "true" : "false"}
-      data-preview-surface={hasPreviewSurface ? "true" : "false"}
-    >
-      <section className={cn("cc-agent-chat-pane", chatColumnClass)}>
+    <WorkspaceRunLayout
+      computer={
+        <PreviewSidePanel
+          deliverableCount={deliverableCount}
+          project={projectQuery.data ?? null}
+          threadId={threadId}
+        />
+      }
+      computerOpen={previewPanelOpen}
+      content={
         <ChatPanel
           autoSubmitPrompt={prompt}
           initialMessages={initialMessagesQuery.data ?? []}
@@ -77,14 +79,9 @@ export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string })
           threadTitle={threadQuery.data?.title ?? null}
           threadId={threadId}
         />
-      </section>
-      <RunPanelDivider hasProject={hasProject} />
-      <PreviewSidePanel
-        deliverableCount={deliverableCount}
-        project={projectQuery.data ?? null}
-        threadId={threadId}
-      />
-    </div>
+      }
+      hasPreviewSurface={hasPreviewSurface}
+    />
   );
 }
 
@@ -178,52 +175,6 @@ function hasPromptUrlState(
   return Boolean(
     urlState.model ?? urlState.prompt ?? urlState.promptKey ?? urlState.repo ?? urlState.surface,
   );
-}
-
-function useWorkspaceLayoutClass(hasProject: boolean): string {
-  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
-  const previewUrl = useAppStore((state) => state.previewUrl);
-  const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const hasPreviewSurface = hasProject || previewUrl !== null || sandboxStatus !== "cold";
-  return cn(
-    "cc-agent-run-layout min-h-0 min-w-0 flex-1",
-    hasPreviewSurface && previewPanelOpen
-      ? "flex flex-col motion-reduce:transition-none md:flex-row"
-      : null,
-    hasPreviewSurface && !previewPanelOpen
-      ? "flex flex-col motion-reduce:transition-none md:flex-row"
-      : null,
-    !hasPreviewSurface ? "flex" : null,
-  );
-}
-
-function RunPanelDivider({ hasProject }: { hasProject: boolean }) {
-  const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
-  const previewUrl = useAppStore((state) => state.previewUrl);
-  const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const hasPreviewSurface = hasProject || previewUrl !== null || sandboxStatus !== "cold";
-  if (!hasPreviewSurface) {
-    return null;
-  }
-  return (
-    <div
-      aria-hidden="true"
-      className={cn(
-        "group relative z-10 hidden w-px shrink-0 cursor-col-resize transition-opacity duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none md:block",
-        "cc-agent-run-divider",
-        previewPanelOpen ? "opacity-100" : "opacity-0",
-      )}
-    >
-      <div className="absolute inset-y-0 left-1/2 w-4 -translate-x-1/2" />
-    </div>
-  );
-}
-
-function useChatColumnClass(hasProject: boolean): string {
-  const previewUrl = useAppStore((state) => state.previewUrl);
-  const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const hasPreviewSurface = hasProject || previewUrl !== null || sandboxStatus !== "cold";
-  return cn("flex min-w-0 flex-col", hasPreviewSurface ? "min-h-0" : "flex-1");
 }
 
 function useThreadQuery(getToken: () => Promise<null | string>, threadId: null | string) {

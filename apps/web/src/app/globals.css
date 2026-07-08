@@ -566,38 +566,6 @@
   }
 }
 
-/* Home "computer open" split — content collapses to a narrow left column and the
-   Computer panel takes the wide right side (bud parity). Left UNLAYERED on purpose:
-   inside @layer utilities these lose to the elements' own Tailwind utilities
-   (px-6 / max-w / right-0); unlayered rules win. Reserve = viewport minus the
-   sidebar rail minus the ~32rem content column, matching the panel's own width. */
-@media (min-width: 768px) {
-  html.cheatcode-home-computer-open .cheatcode-home-main {
-    padding-right: calc(100vw - var(--cheatcode-sidebar-offset, 4rem) - 32rem);
-    transition: padding-right 200ms ease;
-  }
-
-  html.cheatcode-home-computer-open .cheatcode-home-center {
-    max-width: 30rem;
-    transition: max-width 200ms ease;
-  }
-
-  html.cheatcode-home-computer-open .cheatcode-home-composer-form {
-    right: calc(100vw - var(--cheatcode-sidebar-offset, 4rem) - 32rem);
-    padding-left: var(--cheatcode-sidebar-offset, 4rem);
-    width: auto;
-    transition:
-      right 200ms ease,
-      width 200ms ease,
-      padding-left 200ms ease;
-  }
-
-  html.cheatcode-home-computer-open .cheatcode-home-composer-shell {
-    max-width: 30rem;
-    transition: max-width 200ms ease;
-  }
-}
-
 /* Custom styles for Markdown chat content */
 .prose.chat-markdown {
   /* Ensure reasonable spacing */
