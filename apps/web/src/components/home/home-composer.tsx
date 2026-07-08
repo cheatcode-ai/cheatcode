@@ -407,7 +407,7 @@ export function HomeComposer({
                 onSelectIndex={(index) => triggers.commitIndex(index, slashItems)}
               />
             ) : null}
-            <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">
+            <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2 transition-[box-shadow] duration-200 focus-within:shadow-[inset_0_0_40px_0_oklch(0.93_0.06_70_/_0.4)]">
               <div>
                 {skillCreatorMode ? (
                   <div className="px-3 pt-3">

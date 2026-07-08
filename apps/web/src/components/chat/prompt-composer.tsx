@@ -179,7 +179,7 @@ export function PromptComposer({
             isRunning && "bud-composer-working",
           )}
         >
-          <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2">
+          <div className="bud-composer-fill flex min-h-[124px] flex-col justify-between rounded-[21px] px-2 pb-2 transition-[box-shadow] duration-200 focus-within:shadow-[inset_0_0_40px_0_oklch(0.93_0.06_70_/_0.4)]">
             <div className="flex min-h-[80px] flex-col gap-1 px-0">
               <ComposerContextChips
                 className="px-2 pt-3"
