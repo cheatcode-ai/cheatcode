@@ -218,6 +218,24 @@ export function ChatPanel({
     };
   }, [resumeStream, status]);
 
+  // The Computer panel stays collapsed while the run streams (so users never see an
+  // unfinished scaffold preview) and auto-opens exactly once when the run transitions from
+  // running → finished — but only if a preview surface exists. The ref transition guard
+  // ensures it fires once per completion.
+  const previousStatusRef = useRef(status);
+  useEffect(() => {
+    const wasRunning =
+      previousStatusRef.current === "streaming" || previousStatusRef.current === "submitted";
+    previousStatusRef.current = status;
+    if (!wasRunning || status !== "ready") {
+      return;
+    }
+    const store = useAppStore.getState();
+    if (store.previewUrl !== null || store.sandboxStatus !== "cold") {
+      store.setPreviewPanelOpen(true);
+    }
+  }, [status]);
+
   const submitText = useCallback(
     (text: string, targetProject: ProjectSummary | null) => {
       if (text.length === 0) {
@@ -584,7 +602,9 @@ interface SandboxStatusActions {
 
 function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActions): void {
   actions.setSandboxStatus(data.status);
-  // Which Computer tab opens follows what the run produces (bud parity):
+  // Updates preview state only — it never opens the Computer panel. The panel stays
+  // collapsed while the run streams and is opened once, on completion, by an effect in
+  // ChatPanel. Here we only pick which tab WILL be shown when it opens (bud parity):
   //   web app with a live dev server → Browser tab (the running preview);
   //   docs / data / file work with no preview → Files tab (the workspace).
   // A running preview is STICKY for the life of the thread — every sandbox tool call
@@ -594,18 +614,12 @@ function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActio
     actions.setPreviewUrl(data.previewUrl);
     actions.setExpoUrl(data.expoUrl ?? null);
     actions.setActivePreviewTab("app");
-    actions.setPreviewPanelOpen(true);
-    return;
-  }
-  if (data.status === "starting") {
-    actions.setPreviewPanelOpen(true);
     return;
   }
   // Ready/working with no preview: a docs/data/file run → surface the Files workspace,
   // unless a live preview is already established for this thread (web app, sticky).
   if (data.status !== "cold" && useAppStore.getState().previewUrl === null) {
     actions.setActivePreviewTab("files");
-    actions.setPreviewPanelOpen(true);
   }
 }
 

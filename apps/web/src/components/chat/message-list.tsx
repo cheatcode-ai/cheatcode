@@ -5,6 +5,8 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import Image from "next/image";
 import { useEffect, useRef } from "react";
 import { MessageParts } from "@/components/chat/message-parts";
+import { WorkingIndicator } from "@/components/chat/status-pill";
+import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { cn } from "@/lib/ui/cn";
 
 const LIST_TOP_PADDING = 24;
@@ -109,6 +111,7 @@ function MessageBubble({
   streaming: boolean;
 }) {
   const isUser = message.role === "user";
+  const elapsed = useElapsedSeconds(streaming);
 
   return (
     <article className="cc-fade-in group relative w-full max-w-full px-2">
@@ -119,14 +122,35 @@ function MessageBubble({
           !isUser && "py-1",
         )}
       >
-        {isUser ? null : (
-          <div className="mb-3 flex items-center gap-2 text-[13px]">
-            <span className="text-[#f8af2c]">*</span>
-            <span className="font-semibold text-[#1b1b1b]">cheatcode</span>
-          </div>
-        )}
+        {isUser ? null : <AssistantHeader elapsedSeconds={elapsed} streaming={streaming} />}
         <MessageParts message={message} streaming={streaming} />
       </div>
     </article>
+  );
+}
+
+// While the run streams, the header shows the "Working • Ns" animation; when the run ends
+// it restores the static "* cheatcode" label. `streaming` is true only for the last
+// assistant message during a live run, so the label auto-restores on completion.
+function AssistantHeader({
+  elapsedSeconds,
+  streaming,
+}: {
+  elapsedSeconds: number;
+  streaming: boolean;
+}) {
+  if (streaming) {
+    return (
+      <WorkingIndicator
+        className="mb-3 flex items-center gap-2 text-[#a0a0a0] text-[13px]"
+        elapsedSeconds={elapsedSeconds}
+      />
+    );
+  }
+  return (
+    <div className="mb-3 flex items-center gap-2 text-[13px]">
+      <span className="text-[#f8af2c]">*</span>
+      <span className="font-semibold text-[#1b1b1b]">cheatcode</span>
+    </div>
   );
 }

@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { type RunStatus, WorkingIndicator } from "@/components/chat/status-pill";
+import type { RunStatus } from "@/components/chat/status-pill";
 import {
   ComposerContextChips,
   composePromptWithComposerContext,
@@ -29,7 +29,6 @@ import {
 import { BudTooltip } from "@/components/ui/bud-tooltip";
 import { ArrowUp, Mic, Paperclip, Square } from "@/components/ui/icons";
 import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
-import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import {
   appendPromptAttachment,
@@ -72,7 +71,6 @@ export function PromptComposer({
     staleTime: 60_000,
   });
   const isRunning = status === "streaming" || status === "submitted";
-  const elapsedSeconds = useElapsedSeconds(isRunning);
   const canSubmit = value.trim().length > 0 && !isRunning;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [openControlMenu, setOpenControlMenu] = useState<ComposerControlMenu | null>(null);
@@ -171,7 +169,6 @@ export function PromptComposer({
             onSelectIndex={(index) => triggers.commitIndex(index, menuItems)}
           />
         ) : null}
-        {isRunning ? <WorkingIndicator elapsedSeconds={elapsedSeconds} /> : null}
         <div
           className={cn(
             "bud-composer-shell w-full overflow-visible rounded-[24px] p-px",
