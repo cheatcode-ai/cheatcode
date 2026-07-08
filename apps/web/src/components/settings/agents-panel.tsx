@@ -254,15 +254,13 @@ function modelSourceChoices(
     providers = ["deepseek"];
   }
 
-  const choices: ModelSourceChoice[] = [
-    accessState === "free"
-      ? { active: true, id: "credits", label: "Cheatcode Credits" }
-      : {
-          active: false,
-          id: "credits",
-          label: "Cheatcode Credits",
-          unavailableMessage: "Cheatcode credits are available for DeepSeek V4.",
-        },
+  // Cheatcode Credits is only a real source for the free model (DeepSeek); every other model
+  // routes through a provider/API key, so we don't list credits there at all.
+  const choices: ModelSourceChoice[] = [];
+  if (accessState === "free") {
+    choices.push({ active: true, id: "credits", label: "Cheatcode Credits" });
+  }
+  choices.push(
     ...providers.map(
       (provider): ModelSourceChoice => ({
         active: provider === model.provider && accessState === "active",
@@ -271,7 +269,7 @@ function modelSourceChoices(
         provider,
       }),
     ),
-  ];
+  );
 
   return choices.map((choice) => {
     if (!choice.provider) {
@@ -410,7 +408,7 @@ function ModelSourceList({
                   aria-hidden="true"
                   className="absolute top-[18px] -left-3.5 z-10 flex size-4 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-[#1b1b1b] text-white"
                 >
-                  <Check aria-hidden="true" className="size-2.5" strokeWidth={2.5} />
+                  <Check aria-hidden="true" className="size-3" strokeWidth={2.5} />
                 </span>
               ) : null}
               <button
