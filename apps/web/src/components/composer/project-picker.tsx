@@ -126,8 +126,8 @@ export function ProjectPicker({
           className={cn(
             "paper-focus-ring inline-flex h-8 max-w-[160px] items-center gap-1.5 rounded-full font-medium transition-[background-color,color,transform] duration-200 active:scale-[0.99]",
             variant === "thread"
-              ? "bg-white px-3 text-[#4f4f4f] text-[12px] shadow-[0_0_0_1px_rgba(0,0,0,0.06)] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
-              : "border border-[#f1f1f1] bg-white px-3 text-[#4f4f4f] text-[12px] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
+              ? "bg-white px-3 text-[#5f5f5f] text-[12px] shadow-[0_0_0_1px_rgba(0,0,0,0.06)] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+              : "border border-[#f1f1f1] bg-white px-3 text-[#5f5f5f] text-[12px] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
           )}
           onClick={() => setIsOpen((current) => !current)}
           type="button"
@@ -158,7 +158,7 @@ export function ProjectPicker({
             value={search}
           />
           <button
-            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
             onClick={() => {
               onSelect(null);
               setIsOpen(false);
@@ -254,7 +254,7 @@ function ProjectRows({
                 ? "cursor-not-allowed text-[#c7c7c7]"
                 : selectedProjectId === project.id
                   ? "bg-[#f7f7f7] text-[#1b1b1b]"
-                  : "text-[#4f4f4f] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
+                  : "text-[#5f5f5f] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
             )}
             disabled={project.readOnly}
             onClick={() => onSelect(project)}
@@ -294,7 +294,7 @@ function ProjectRows({
           {openProjectMenuId === project.id ? (
             <div className="mx-1 mb-1 flex flex-col gap-1 rounded-xl bg-[#f7f7f7] p-1">
               <button
-                className="flex h-8 w-full items-center rounded-lg px-2 text-left font-medium text-[#4f4f4f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
+                className="flex h-8 w-full items-center rounded-lg px-2 text-left font-medium text-[#5f5f5f] text-[13px] transition-colors hover:bg-white hover:text-[#1b1b1b]"
                 onClick={() => {
                   onRename(project);
                   onMenuOpenChange(null);

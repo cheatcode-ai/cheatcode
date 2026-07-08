@@ -14,13 +14,13 @@ export default function ProjectsPage() {
           <h1 className="font-semibold text-[#1b1b1b] text-[24px] leading-8">Page not found</h1>
           <div className="mt-8 flex flex-col justify-center gap-3 sm:flex-row">
             <Link
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] bg-white px-5 font-medium text-[#4f4f4f] transition-colors hover:border-[#dedede] hover:bg-[#fafafa] hover:text-[#1b1b1b]"
+              className="inline-flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] bg-white px-5 font-medium text-[#5f5f5f] transition-colors hover:border-[#dedede] hover:bg-[#fafafa] hover:text-[#1b1b1b]"
               href="/"
             >
               Home
             </Link>
             <Link
-              className="inline-flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] bg-white px-5 font-medium text-[#4f4f4f] transition-colors hover:border-[#dedede] hover:bg-[#fafafa] hover:text-[#1b1b1b]"
+              className="inline-flex h-10 items-center justify-center rounded-full border border-[#f1f1f1] bg-white px-5 font-medium text-[#5f5f5f] transition-colors hover:border-[#dedede] hover:bg-[#fafafa] hover:text-[#1b1b1b]"
               href="/automations"
             >
               Automations

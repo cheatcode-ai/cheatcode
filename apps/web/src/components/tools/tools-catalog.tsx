@@ -182,8 +182,8 @@ function CategoryTabs({
             className={cn(
               "h-8 shrink-0 rounded-full border px-3 font-medium text-[13px] leading-5 transition-colors",
               active
-                ? "border-[#ececec] bg-white text-[#1b1b1b]"
-                : "border-transparent bg-white text-[#9a9a9a] hover:text-[#1b1b1b]",
+                ? "border-[#f1f1f1] bg-white text-[#1b1b1b]"
+                : "border-transparent bg-white text-[#8a8a8a] hover:text-[#1b1b1b]",
             )}
             key={tab.slug}
             onClick={() => onSelect(tab.slug)}

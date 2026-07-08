@@ -110,7 +110,7 @@ export function AgentsPanel() {
       />
       <section className="rounded-3xl bg-[#f7f7f7] p-1">
         <div className="flex items-center px-4 pt-2 pb-3">
-          <span className="font-medium text-[#585858] text-[14px]">Agent Models</span>
+          <span className="font-medium text-[#5f5f5f] text-[14px]">Agent Models</span>
         </div>
         <div className="flex flex-col rounded-[21px] bg-white ring-1 ring-[#f1f1f1]/70">
           <ModelRow

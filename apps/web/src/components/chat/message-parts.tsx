@@ -508,7 +508,7 @@ function ToolRow({ parts }: { parts: MessagePart[] }) {
   return (
     <div className="cc-fade-in">
       <button
-        className="group flex w-full items-center gap-1.5 text-left text-[#585858] text-[13px] transition-colors hover:text-[#1b1b1b]"
+        className="group flex w-full items-center gap-1.5 text-left text-[#5f5f5f] text-[13px] transition-colors hover:text-[#1b1b1b]"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >

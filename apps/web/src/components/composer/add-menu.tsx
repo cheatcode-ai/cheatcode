@@ -59,7 +59,7 @@ export function AddMenu({
           aria-label="Add to prompt"
           className={cn(
             "paper-focus-ring flex h-8 w-8 items-center justify-center rounded-full",
-            "bg-white text-[#4f4f4f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
+            "bg-white text-[#5f5f5f] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
           )}
           onClick={() => setIsOpen((current) => !current)}
           type="button"
@@ -70,7 +70,7 @@ export function AddMenu({
       {isOpen ? (
         <div className="absolute bottom-full left-0 z-30 mb-2 flex w-72 flex-col gap-1 rounded-2xl border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_60px_rgba(0,0,0,0.12)]">
           <button
-            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+            className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
             onClick={() => {
               onUploadClick();
               close();
@@ -106,7 +106,7 @@ export function AddMenu({
             </div>
           ) : (
             <button
-              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#4f4f4f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
+              className="flex h-9 w-full items-center gap-2 rounded-xl px-3 text-[#5f5f5f] text-[13px] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b]"
               onClick={() => setShowImport(true)}
               type="button"
             >

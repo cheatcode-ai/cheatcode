@@ -92,7 +92,7 @@ function PersonalizationForm({ profile }: { profile: UserProfile }) {
 
       <div className="flex justify-end">
         <button
-          className="paper-focus-ring inline-flex h-9 items-center justify-center rounded-full bg-[#253548] px-4 font-medium text-[14px] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_3px_rgba(0,0,0,0.18)] transition hover:bg-[#1d2b3c] disabled:cursor-not-allowed disabled:bg-[#98a1ae] disabled:opacity-70 disabled:shadow-none"
+          className="paper-focus-ring inline-flex h-9 items-center justify-center rounded-full bg-[#1b1b1b] px-4 font-medium text-[14px] text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.16),0_1px_3px_rgba(0,0,0,0.18)] transition hover:bg-black disabled:cursor-not-allowed disabled:opacity-70 disabled:shadow-none"
           disabled={mutation.isPending || !isDirty}
           onClick={handleSave}
           type="button"

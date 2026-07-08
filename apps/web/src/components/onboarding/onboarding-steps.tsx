@@ -23,7 +23,7 @@ import { connectIntegration, INTEGRATIONS_QUERY, listIntegrations } from "@/lib/
 import { cn } from "@/lib/ui/cn";
 
 // The 15-series "Bud System" onboarding: a card-less, viewport-centered flow where the agent
-// introduces itself. Every measurement (Geist 14px, #1B1B1B ink, 32px pills, 14px-radius cards)
+// introduces itself. Every measurement (Geist 14px, #1b1b1b ink, 32px pills, 14px-radius cards)
 // is lifted verbatim from the Paper artboards 15b–15f so this renders pixel-identical.
 
 type FeatureRow = { icon: ReactNode; key: string; lead?: string; strong: string; trail?: string };
@@ -78,14 +78,14 @@ export function IntroStep({ onContinue }: { onContinue: () => void }) {
   return (
     <Shell width={360}>
       <Sparkle />
-      <div className="flex justify-center pt-11 pb-1.5 text-[#1B1B1B] text-[14px] leading-[18px]">
+      <div className="flex justify-center pt-11 pb-1.5 text-[#1b1b1b] text-[14px] leading-[18px]">
         <span className="font-medium">I'm your&nbsp;</span>
         <span className="font-bold">agent team</span>
         <span className="font-medium">. I have:</span>
       </div>
       {FEATURE_ROWS.map((row) => (
         <div
-          className="flex w-[200px] shrink-0 items-center gap-[9px] whitespace-nowrap pt-3 text-[#1B1B1B] text-[14px] leading-[18px]"
+          className="flex w-[200px] shrink-0 items-center gap-[9px] whitespace-nowrap pt-3 text-[#1b1b1b] text-[14px] leading-[18px]"
           key={row.key}
         >
           <span className="mr-[9px] flex shrink-0">{row.icon}</span>
@@ -121,7 +121,7 @@ export function NameStep({
       <StepTitle>First, give your agents a name</StepTitle>
       <input
         aria-label="Agent name"
-        className="mt-[22px] h-[34px] w-[204px] rounded-full bg-[#F7F7F7] px-4 text-center font-medium text-[#1B1B1B] text-[14px] leading-[18px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] outline-none placeholder:text-[#B5B5B5] focus:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
+        className="mt-[22px] h-[34px] w-[204px] rounded-full bg-[#f7f7f7] px-4 text-center font-medium text-[#1b1b1b] text-[14px] leading-[18px] shadow-[inset_0_0_0_1px_rgba(0,0,0,0.04)] outline-none placeholder:text-[#b5b5b5] focus:shadow-[inset_0_0_0_1px_rgba(0,0,0,0.12)]"
         maxLength={80}
         onChange={(event) => setName(event.target.value)}
         onKeyDown={(event) => {
@@ -182,7 +182,7 @@ export function ToolsStep({ onContinue, onSkip }: { onContinue: () => void; onSk
         <SearchIcon />
         <input
           aria-label="Search skills"
-          className="w-full bg-transparent font-medium text-[#1B1B1B] text-[14px] leading-[18px] outline-none placeholder:text-[#9B9B9B]"
+          className="w-full bg-transparent font-medium text-[#1b1b1b] text-[14px] leading-[18px] outline-none placeholder:text-[#9b9b9b]"
           onChange={(event) => setQuery(event.target.value)}
           placeholder="Search skills"
           value={query}
@@ -228,7 +228,7 @@ export function BasicsStep({
       <StepTitle>Third, these are the 3 basic things you need to know about me:</StepTitle>
       <NumberedLine className="pt-[22px]">1. I can run autonomously:</NumberedLine>
       <BasicCard>
-        <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+        <span className="font-medium text-[#1b1b1b] text-[14px] leading-[18px]">
           Every morning at 8, draft a social pack
         </span>
         <span className="flex-1" />
@@ -237,7 +237,7 @@ export function BasicsStep({
       <NumberedLine className="pt-[18px]">2. You can teach me custom skills:</NumberedLine>
       <BasicCard>
         <div className="flex flex-col gap-px">
-          <span className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+          <span className="font-medium text-[#1b1b1b] text-[14px] leading-[18px]">
             Invoice-chaser skill
           </span>
           <span className="font-medium text-[#585858] text-[12px] leading-4">
@@ -288,14 +288,14 @@ export function PlanStep({
         ))}
       </div>
       <button
-        className="mt-5 flex h-[30px] items-center rounded-full bg-[#F4F4F4] px-3.5 font-medium text-[#1B1B1B] text-[13px] leading-4 transition-colors hover:bg-[#ececec]"
+        className="mt-5 flex h-[30px] items-center rounded-full bg-[#f4f4f4] px-3.5 font-medium text-[#1b1b1b] text-[13px] leading-4 transition-colors hover:bg-[#ececec]"
         onClick={() => onComplete("/settings/api-keys")}
         type="button"
       >
         Not ready for a plan? Bring your own keys
       </button>
       <button
-        className="pt-3.5 font-medium text-[#1B1B1B] text-[14px] leading-[18px] hover:underline"
+        className="pt-3.5 font-medium text-[#1b1b1b] text-[14px] leading-[18px] hover:underline"
         onClick={() => onComplete("/")}
         type="button"
       >
@@ -322,7 +322,7 @@ function ToolCard({
         {tool.logo}
       </span>
       <div className="min-w-0 flex-1">
-        <div className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{tool.name}</div>
+        <div className="font-medium text-[#1b1b1b] text-[14px] leading-[18px]">{tool.name}</div>
         <p className="mt-0.5 truncate font-medium text-[#8a8a8a] text-[12px] leading-4">
           {tool.description}
         </p>
@@ -334,7 +334,7 @@ function ToolCard({
         </span>
       ) : (
         <button
-          className="flex h-8 shrink-0 items-center rounded-full border border-[#e6e6e6] bg-white px-3.5 font-medium text-[#1B1B1B] text-[13px] leading-[18px] transition-colors hover:border-[#d4d4d4] hover:bg-[#fafafa] disabled:opacity-60"
+          className="flex h-8 shrink-0 items-center rounded-full border border-[#e6e6e6] bg-white px-3.5 font-medium text-[#1b1b1b] text-[13px] leading-[18px] transition-colors hover:border-[#d4d4d4] hover:bg-[#fafafa] disabled:opacity-60"
           disabled={pending}
           onClick={onConnect}
           type="button"
@@ -358,19 +358,19 @@ function PlanCard({
   tier: { bullet: string; name: string; price: string; tier: PaidBillingTier };
 }) {
   return (
-    <div className="flex items-center rounded-[14px] bg-[#FAFAF9] py-2 pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+    <div className="flex items-center rounded-[14px] bg-[#fafaf9] py-2 pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
       <div className="flex flex-col gap-px">
         <div className="flex items-baseline gap-1.5">
-          <span className="font-semibold text-[#1B1B1B] text-[14px] leading-[18px]">
+          <span className="font-semibold text-[#1b1b1b] text-[14px] leading-[18px]">
             {tier.name}
           </span>
-          <span className="font-bold text-[#1B1B1B] text-[14px] leading-[18px]">{tier.price}</span>
+          <span className="font-bold text-[#1b1b1b] text-[14px] leading-[18px]">{tier.price}</span>
         </div>
         <span className="font-medium text-[#585858] text-[12px] leading-4">{tier.bullet}</span>
       </div>
       <span className="flex-1" />
       <button
-        className="flex h-8 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+        className="flex h-8 items-center rounded-full bg-[#1b1b1b] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
         disabled={isBusy || !available}
         onClick={() => onCheckout(tier.tier)}
         type="button"
@@ -398,7 +398,7 @@ function Eyebrow({ children }: { children: ReactNode }) {
 
 function StepTitle({ children }: { children: ReactNode }) {
   return (
-    <h1 className="pt-2.5 text-center font-medium text-[#1B1B1B] text-[14px] leading-[18px]">
+    <h1 className="pt-2.5 text-center font-medium text-[#1b1b1b] text-[14px] leading-[18px]">
       {children}
     </h1>
   );
@@ -406,7 +406,7 @@ function StepTitle({ children }: { children: ReactNode }) {
 
 function NumberedLine({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p className={cn("w-full font-medium text-[#1B1B1B] text-[14px] leading-[18px]", className)}>
+    <p className={cn("w-full font-medium text-[#1b1b1b] text-[14px] leading-[18px]", className)}>
       {children}
     </p>
   );
@@ -414,7 +414,7 @@ function NumberedLine({ children, className }: { children: ReactNode; className?
 
 function BasicCard({ children }: { children: ReactNode }) {
   return (
-    <div className="mt-2.5 flex w-full items-center rounded-[14px] bg-[#FAFAF9] py-[9px] pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
+    <div className="mt-2.5 flex w-full items-center rounded-[14px] bg-[#fafaf9] py-[9px] pr-1.5 pl-3.5 shadow-[0_0_1px_0_rgba(0,0,0,0.12),0_1px_2px_0_rgba(0,0,0,0.04)]">
       {children}
     </div>
   );
@@ -425,7 +425,7 @@ function BasicCard({ children }: { children: ReactNode }) {
 function PreviewPill({ children, onClick }: { children: ReactNode; onClick: () => void }) {
   return (
     <button
-      className="flex h-8 shrink-0 items-center rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black"
+      className="flex h-8 shrink-0 items-center rounded-full bg-[#1b1b1b] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black"
       onClick={onClick}
       type="button"
     >
@@ -452,8 +452,8 @@ function PrimaryPill({
       className={cn(
         "flex h-8 items-center gap-2 rounded-full px-3.5 font-medium text-[14px] leading-[18px] transition-colors",
         disabled
-          ? "cursor-not-allowed bg-[#ABABA8] text-white/90"
-          : "bg-[#1B1B1B] text-white hover:bg-black",
+          ? "cursor-not-allowed bg-[#ababa8] text-white/90"
+          : "bg-[#1b1b1b] text-white hover:bg-black",
       )}
       disabled={disabled}
       onClick={onClick}
@@ -468,7 +468,7 @@ function PrimaryPill({
 function SkipPill({ children, onClick }: { children?: ReactNode; onClick: () => void }) {
   return (
     <button
-      className="flex h-8 items-center rounded-full bg-white px-3.5 font-medium text-[#1B1B1B] text-[14px] leading-[18px] shadow-[inset_0_0_2px_0_rgba(0,0,0,0.02),0_0_1px_0_rgba(0,0,0,0.08)] transition-colors hover:bg-[#fafafa]"
+      className="flex h-8 items-center rounded-full bg-white px-3.5 font-medium text-[#1b1b1b] text-[14px] leading-[18px] shadow-[inset_0_0_2px_0_rgba(0,0,0,0.02),0_0_1px_0_rgba(0,0,0,0.08)] transition-colors hover:bg-[#fafafa]"
       onClick={onClick}
       type="button"
     >

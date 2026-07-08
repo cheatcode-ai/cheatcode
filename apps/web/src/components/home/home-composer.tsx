@@ -630,7 +630,7 @@ function HomeQuickAction({
       onClick={onClick}
       type="button"
     >
-      <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#4f4f4f]" />
+      <Icon aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-[#5f5f5f]" />
       <span className="min-w-0 truncate">{label}</span>
     </button>
   );

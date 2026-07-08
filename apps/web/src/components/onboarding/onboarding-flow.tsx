@@ -293,10 +293,10 @@ function StatusShell({
   return (
     <div className="flex max-w-[360px] flex-col items-center gap-4 text-center">
       <Sparkle />
-      <p className="font-medium text-[#1B1B1B] text-[14px] leading-[18px]">{title}</p>
+      <p className="font-medium text-[#1b1b1b] text-[14px] leading-[18px]">{title}</p>
       <p className="font-medium text-[#585858] text-[13px] leading-[18px]">{detail}</p>
       <button
-        className="mt-1 flex h-8 items-center gap-2 rounded-full bg-[#1B1B1B] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
+        className="mt-1 flex h-8 items-center gap-2 rounded-full bg-[#1b1b1b] px-3.5 font-medium text-[14px] text-white leading-[18px] transition-colors hover:bg-black disabled:cursor-not-allowed disabled:opacity-60"
         disabled={isPending}
         onClick={onRetry}
         type="button"

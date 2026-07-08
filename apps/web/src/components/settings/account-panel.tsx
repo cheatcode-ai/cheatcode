@@ -50,7 +50,7 @@ export function AccountPanel() {
         <div className="flex items-center gap-3">
           <p className="text-[#707070] text-[14px]">Couldn’t load your account.</p>
           <button
-            className="rounded-full border border-[#e5e5e5] px-4 py-1.5 font-medium text-[13px] hover:bg-[#f7f7f7]"
+            className="rounded-full border border-[#e6e6e6] px-4 py-1.5 font-medium text-[13px] hover:bg-[#f7f7f7]"
             onClick={() => void meQuery.refetch()}
             type="button"
           >
