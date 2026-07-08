@@ -387,7 +387,7 @@ export function HomeComposer({
       <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
       {skillCreatorMode ? <SkillCreatorSuggestions onPick={(text) => setValue(text)} /> : null}
       <form
-        className="cheatcode-home-composer-form mt-8 w-full md:pointer-events-none md:fixed md:right-0 md:bottom-8 md:left-0 md:z-20 md:flex md:justify-center md:pl-64"
+        className="cheatcode-home-composer-form mt-8 w-full md:pointer-events-none md:fixed md:right-0 md:bottom-8 md:left-0 md:z-20 md:flex md:justify-center md:pl-[var(--cheatcode-sidebar-offset,16rem)]"
         onSubmit={submit}
       >
         <div className="relative z-10 mx-auto flex w-full max-w-[708px] flex-col gap-0 md:pointer-events-auto">
