@@ -154,7 +154,7 @@ function HomeComputerPanel({
   return (
     <aside
       aria-label="Computer"
-      className="fixed top-3.5 right-3.5 bottom-3.5 z-30 hidden w-[calc(100vw-var(--cheatcode-sidebar-offset,4rem)-32rem)] min-w-[420px] max-w-[760px] flex-col overflow-hidden bg-white md:flex"
+      className="fixed top-3.5 right-3.5 bottom-3.5 z-30 hidden w-[calc(100vw-var(--cheatcode-sidebar-offset,4rem)-34rem)] min-w-[420px] flex-col overflow-hidden bg-white md:flex"
     >
       <div className="flex h-10 shrink-0 items-center justify-between pr-36">
         <div
