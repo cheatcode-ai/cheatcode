@@ -382,7 +382,7 @@ function ModelSourceList({
       <div className="relative flex flex-col pl-8">
         {choices.map((choice, index) => {
           const isLast = index === choices.length - 1;
-          const branch = choice.active ? "#1b1b1b" : "#e3e3e3";
+          const branch = choice.active ? "#1b1b1b" : "#d0d0d0";
           return (
             <div className="group/item relative z-10" key={choice.id}>
               {/* rounded elbow from the tree line into this item */}
@@ -401,7 +401,7 @@ function ModelSourceList({
               {isLast ? null : (
                 <span
                   aria-hidden="true"
-                  className="absolute top-2 -bottom-1 -left-8 w-[1.5px] bg-[#e3e3e3]"
+                  className="absolute top-2 -bottom-1 -left-8 w-[1.5px] bg-[#d0d0d0]"
                 />
               )}
               {/* filled check node at the elbow end, only for the active source */}
