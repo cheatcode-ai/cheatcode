@@ -15,7 +15,11 @@ type InitialComposerParams = {
   tool?: IntegrationName | undefined;
 };
 
-export function HomeComposerFromSearchParams() {
+export function HomeComposerFromSearchParams({
+  quickActionsSlot,
+}: {
+  quickActionsSlot?: HTMLElement | null | undefined;
+}) {
   const [params, setParams] = useState<InitialComposerParams | null>(null);
 
   useEffect(() => {
@@ -30,7 +34,7 @@ export function HomeComposerFromSearchParams() {
   }, []);
 
   if (!params) {
-    return <HomeComposer />;
+    return <HomeComposer quickActionsSlot={quickActionsSlot} />;
   }
 
   return (
@@ -40,6 +44,7 @@ export function HomeComposerFromSearchParams() {
       initialSkill={params.skill}
       initialTool={params.tool}
       key={`${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}:${params.skillCreator ? "sc" : ""}`}
+      quickActionsSlot={quickActionsSlot}
       skillCreator={params.skillCreator}
     />
   );

@@ -61,6 +61,14 @@ export function HomeWorkspace() {
 }
 
 function HomeContentPane() {
+  // The quick-action pills belong in the greeting cluster (below the headline),
+  // but their intent state is owned by the composer at the bottom of the pane and
+  // is entangled with the composer's skill/repo/project state, textarea focus, and
+  // search-param seeding. The composer portals the pills into this slot so they
+  // render in the greeting cluster while staying in the composer's React tree —
+  // the intent wiring flows through the React tree, not the DOM, so it is
+  // unchanged. See `HomeComposer`.
+  const [quickActionsSlot, setQuickActionsSlot] = useState<HTMLElement | null>(null);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-white">
       <div className="chat-scrollbar flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10">
@@ -70,10 +78,11 @@ function HomeContentPane() {
             <HomeGreeting />
           </Suspense>
           <HomeHeadline />
+          <div className="mt-6 w-full" ref={setQuickActionsSlot} />
         </div>
       </div>
       <div className="shrink-0 px-6 pb-8">
-        <HomeComposerFromSearchParams />
+        <HomeComposerFromSearchParams quickActionsSlot={quickActionsSlot} />
       </div>
     </div>
   );

@@ -21,6 +21,7 @@ import {
   useRef,
   useState,
 } from "react";
+import { createPortal } from "react-dom";
 import { toast } from "sonner";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
@@ -161,12 +162,14 @@ export function HomeComposer({
   initialPromptKey,
   initialSkill,
   initialTool,
+  quickActionsSlot,
   skillCreator = false,
 }: {
   initialPrompt?: string | undefined;
   initialPromptKey?: string | undefined;
   initialSkill?: string | undefined;
   initialTool?: IntegrationName | undefined;
+  quickActionsSlot?: HTMLElement | null | undefined;
   skillCreator?: boolean | undefined;
 }) {
   const initial = useMemo(() => resolveInitialSkill(initialSkill ?? null), [initialSkill]);
@@ -384,7 +387,15 @@ export function HomeComposer({
 
   return (
     <div className="mt-6 w-full">
-      <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />
+      {/* The pills live in the greeting cluster (above), but their intent state is
+          owned here — a portal keeps them in this React subtree so `intentId` /
+          `selectQuickIntent` stay wired while rendering into the greeting slot. */}
+      {quickActionsSlot
+        ? createPortal(
+            <HomeQuickActions activeIntentId={intentId} onIntentClick={selectQuickIntent} />,
+            quickActionsSlot,
+          )
+        : null}
       {skillCreatorMode ? <SkillCreatorSuggestions onPick={(text) => setValue(text)} /> : null}
       <form className="mt-8 w-full" onSubmit={submit}>
         <div className="relative z-10 mx-auto flex w-full max-w-[708px] flex-col gap-0">
