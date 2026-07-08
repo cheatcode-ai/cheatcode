@@ -190,6 +190,17 @@ export const ProjectWakePreviewInputSchema = z
   })
   .strict();
 
+export const ProjectSignedPreviewUrlInputSchema = z
+  .object({
+    port: z.number().int().positive().max(65_535),
+    expiresInSeconds: z
+      .number()
+      .int()
+      .positive()
+      .max(24 * 60 * 60),
+  })
+  .strict();
+
 export const ProjectCreateBackupInputSchema = z
   .object({
     dir: WorkspacePathSchema.default("/workspace"),
@@ -223,6 +234,7 @@ export type ProjectExposePortInput = z.input<typeof ProjectExposePortInputSchema
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectUnexposePortInput = z.input<typeof ProjectUnexposePortInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;
+export type ProjectSignedPreviewUrlInput = z.input<typeof ProjectSignedPreviewUrlInputSchema>;
 
 /** Result of waking a preview: the (possibly restarted) dev-server preview URL + liveness. */
 export interface ProjectWakePreviewResult {
@@ -231,6 +243,9 @@ export interface ProjectWakePreviewResult {
   port?: number;
   url?: string;
   expiresAt?: string;
+  // exp(s):// deep link for the Expo Go QR — only present for a mobile (Metro/8081) dev server,
+  // regenerated from a fresh signed preview URL on every wake.
+  expoUrl?: string;
 }
 
 /** Current Daytona lifecycle state for the project's sandbox (webhook/status surface). */

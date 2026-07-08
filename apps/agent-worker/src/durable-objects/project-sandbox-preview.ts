@@ -57,6 +57,22 @@ export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<Buil
   return { expiresAt: new Date(exp).toISOString(), url, token };
 }
 
+/**
+ * Turn a Daytona-signed preview URL (`https://8081-<token>.daytonaproxy01.net`) into an Expo Go
+ * deep link by swapping the scheme: `https://` → `exps://` (the daytonaproxy edge is https-only,
+ * so the secure Expo scheme is required) and `http://` → `exp://`. The token stays in the host, so
+ * Expo Go reaches the Metro manifest with no header/cookie. Keeps the full host/path/query and only
+ * trims a trailing slash (unlike the old proxy-derived helper, which dropped the token).
+ */
+export function signedUrlToExpo(url: string): string {
+  const withScheme = url.startsWith("https://")
+    ? `exps://${url.slice("https://".length)}`
+    : url.startsWith("http://")
+      ? `exp://${url.slice("http://".length)}`
+      : url;
+  return withScheme.replace(/\/+$/u, "");
+}
+
 function normalizeHostname(hostname: string): string {
   const trimmed = hostname.trim().toLowerCase();
   const withoutScheme = trimmed.includes("://") ? (trimmed.split("://")[1] ?? trimmed) : trimmed;

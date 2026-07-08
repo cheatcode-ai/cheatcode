@@ -20,12 +20,16 @@ import {
   appBuilderLayoutSource,
   appBuilderPageSource,
 } from "./app-builder-template";
+import { signedUrlToExpo } from "./project-sandbox-preview";
 
 export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
 
 const APP_BUILDER_DIR = "/workspace/app";
 const APP_BUILDER_PORT = 5173;
 const EXPO_METRO_PORT = 8081;
+// 24h is Daytona's max signed-preview TTL; the token rides in the subdomain so Expo Go needs no
+// header, and we re-mint on every dev-server (re)start so it never serves an expired manifest URL.
+const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
 const DEFAULT_PREVIEW_HOSTNAME = "trycheatcode.com";
 const PreviewHostnameSchema = z.string().trim().min(1).max(255).default(DEFAULT_PREVIEW_HOSTNAME);
 
@@ -130,13 +134,12 @@ async function prepareTemplateWorkspace(
 async function startTemplatePreview(
   options: RunAppBuilderOptions & { mobile: boolean },
 ): Promise<{ previewUrl: string; expoUrl: string | null }> {
-  const { append, env, mobile, sandbox, setRunStage } = options;
+  const { append, env, logger, mobile, sandbox, setRunStage } = options;
   setRunStage("Starting the dev server.");
   const preview = mobile
-    ? await startExpoDevServer(env, sandbox)
-    : await startAppBuilderDevServer(env, sandbox);
-  const previewUrl = preview.previewUrl;
-  const expoUrl = mobile ? expoUrlFromPreview(preview.previewUrl) : null;
+    ? await startExpoDevServer(env, sandbox, logger)
+    : { ...(await startAppBuilderDevServer(env, sandbox)), expoUrl: null };
+  const { expoUrl, previewUrl } = preview;
   await append({
     type: "data-sandbox-status",
     data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
@@ -353,15 +356,6 @@ function repoImportError(message: string): APIError {
   });
 }
 
-export function expoUrlFromPreview(previewUrl: string): null | string {
-  const parsed = new URL(previewUrl);
-  if (parsed.hostname.endsWith(".localhost")) {
-    return null;
-  }
-  const scheme = parsed.protocol === "https:" ? "exps" : "exp";
-  return `${scheme}://${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}`;
-}
-
 export async function warmSandbox(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
@@ -409,8 +403,13 @@ function writeAppBuilderFiles(
 async function startExpoDevServer(
   env: AgentRunAppBuilderEnv,
   sandbox: ProjectSandboxStub,
-): Promise<{ previewUrl: string }> {
-  return executeStartDevServer(
+  logger: AgentRunLogger,
+): Promise<{ previewUrl: string; expoUrl: string | null }> {
+  // Mint the signed Metro URL BEFORE starting the server: Expo Go reaches the manifest via this
+  // header-free URL, and Metro must know its public host (EXPO_PACKAGER_PROXY_URL) so the manifest's
+  // launchAsset/bundle URLs point at the signed host instead of 127.0.0.1 (which Expo Go can't hit).
+  const signedUrl = await getSignedMetroUrl(sandbox, logger);
+  const preview = await executeStartDevServer(
     {
       // `--web` makes the single Metro dev server also serve the react-native-web
       // build as a real web page at `/` (iframe-renderable in the Computer panel),
@@ -431,6 +430,7 @@ async function startExpoDevServer(
       env: {
         CI: "1",
         EXPO_NO_TELEMETRY: "1",
+        ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
       },
       hostname: resolvePreviewHostname(env),
       name: "app-preview",
@@ -439,6 +439,33 @@ async function startExpoDevServer(
     },
     { sandbox },
   );
+  return {
+    previewUrl: preview.previewUrl,
+    expoUrl: signedUrl ? signedUrlToExpo(signedUrl) : null,
+  };
+}
+
+// Best-effort: a Daytona-signed preview URL for the Metro port (token in the subdomain). Null when
+// the sandbox stub can't sign (older stub) or the call fails — the run still proceeds without a QR.
+async function getSignedMetroUrl(
+  sandbox: ProjectSandboxStub,
+  logger: AgentRunLogger,
+): Promise<string | null> {
+  if (!sandbox.getSignedPreviewUrl) {
+    return null;
+  }
+  try {
+    const signed = await sandbox.getSignedPreviewUrl({
+      expiresInSeconds: SIGNED_PREVIEW_TTL_SECONDS,
+      port: EXPO_METRO_PORT,
+    });
+    return signed.url;
+  } catch (error) {
+    logger.warn("expo_signed_preview_url_failed", {
+      error: error instanceof Error ? error.message : "Unknown signed preview URL error",
+    });
+    return null;
+  }
 }
 
 async function startAppBuilderDevServer(

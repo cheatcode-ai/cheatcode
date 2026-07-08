@@ -125,6 +125,8 @@ export type {
   SandboxSearchFilesInput,
   SandboxSearchFilesResult,
   SandboxSearchMatch,
+  SandboxSignedPreviewUrlInput,
+  SandboxSignedPreviewUrlResult,
   SandboxStartProcessInput,
   SandboxStatus,
   SandboxTerminalInput,

@@ -30,7 +30,7 @@ import {
   type SandboxMeteringContext,
   setSandboxQuotaPeriod,
 } from "./project-sandbox-metering";
-import { buildPreviewUrl } from "./project-sandbox-preview";
+import { buildPreviewUrl, signedUrlToExpo } from "./project-sandbox-preview";
 import { emptyConsoleSnapshot, sliceProcessLogs } from "./project-sandbox-process-logs";
 import {
   commandToShellString,
@@ -61,6 +61,8 @@ import {
   type ProjectSandboxRuntimeState,
   type ProjectSearchFilesInput,
   ProjectSearchFilesInputSchema,
+  type ProjectSignedPreviewUrlInput,
+  ProjectSignedPreviewUrlInputSchema,
   type ProjectStartProcessInput,
   ProjectStartProcessInputSchema,
   type ProjectUnexposePortInput,
@@ -103,6 +105,12 @@ const DEFAULT_IDLE_STOP_MIN = 30;
 const AUTO_ARCHIVE_MIN = 1_440; // 1 day stopped → cold storage
 const NEVER_AUTO_DELETE = -1; // the sandbox disk is the durable store
 const APP_PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
+// Daytona's signed preview URL (token in the subdomain) TTL — 24h is Daytona's max. Regenerated on
+// every mobile dev-server (re)start so Expo Go always has an unexpired, header-free manifest URL.
+const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
+// Expo Metro dev-server port. A dev server tracked on this port is a mobile build, so its wake path
+// re-mints a signed preview URL + EXPO_PACKAGER_PROXY_URL and returns an exp(s):// deep link.
+const EXPO_METRO_PORT = 8081;
 // Upper bound for a dev server (Expo Metro / Next) to boot when waking a stopped preview.
 const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
 const CODE_SERVER_PORT = 13_340;
@@ -486,6 +494,18 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     };
   }
 
+  // Mint a Daytona-signed preview URL for a port. Unlike the custom token-gated proxy URL, the
+  // token lives in the subdomain, so the URL is reachable with no header/cookie — used to hand
+  // Expo Go a working manifest URL and to set the Metro dev server's EXPO_PACKAGER_PROXY_URL.
+  public async getSignedPreviewUrl(
+    input: ProjectSignedPreviewUrlInput,
+  ): Promise<{ token: string; url: string }> {
+    const parsed = ProjectSignedPreviewUrlInputSchema.parse(input);
+    const id = await this.ensureSandbox();
+    const link = await this.client().getSignedPreviewUrl(id, parsed.port, parsed.expiresInSeconds);
+    return { token: link.token, url: link.url };
+  }
+
   public async exposeCodeServer(input: ProjectCodeServerInput): Promise<{
     expiresAt: string;
     port: number;
@@ -531,9 +551,12 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       return { running: false, state: "started" };
     }
     const port = record.port;
+    // Mobile (Metro/8081): re-mint the header-free signed URL and thread EXPO_PACKAGER_PROXY_URL
+    // into the relaunch env so Metro emits bundle/asset URLs on that host after a restart.
+    const mobile = await this.mobileExpoProxy(id, port, record);
     let running = await this.isPortAlive(id, port);
     if (!running) {
-      await this.relaunchDevServer(id, "app-preview", record);
+      await this.relaunchDevServer(id, "app-preview", mobile?.record ?? record);
       await this.waitForPort(id, port, "/", PREVIEW_WAKE_TIMEOUT_MS).catch(() => undefined);
       running = await this.isPortAlive(id, port);
     }
@@ -550,7 +573,38 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       secret,
       ttlMs: APP_PREVIEW_TTL_MS,
     });
-    return { expiresAt: built.expiresAt, port, running, state: "started", url: built.url };
+    return {
+      expiresAt: built.expiresAt,
+      port,
+      running,
+      state: "started",
+      url: built.url,
+      ...(mobile?.expoUrl ? { expoUrl: mobile.expoUrl } : {}),
+    };
+  }
+
+  // For a mobile Expo dev server (Metro on 8081), mint a fresh 24h signed preview URL (token in the
+  // subdomain, so Expo Go reaches it with no header), thread EXPO_PACKAGER_PROXY_URL into the
+  // relaunch env so Metro's bundle/asset URLs use that signed host, and derive the exps:// deep
+  // link. Returns null for non-mobile ports or when signing is unavailable.
+  private async mobileExpoProxy(
+    id: string,
+    port: number,
+    record: ProcessRecord,
+  ): Promise<{ expoUrl: string; record: ProcessRecord } | null> {
+    if (port !== EXPO_METRO_PORT) {
+      return null;
+    }
+    const signed = await this.client()
+      .getSignedPreviewUrl(id, port, SIGNED_PREVIEW_TTL_SECONDS)
+      .catch(() => null);
+    if (!signed) {
+      return null;
+    }
+    return {
+      expoUrl: signedUrlToExpo(signed.url),
+      record: { ...record, env: { ...record.env, EXPO_PACKAGER_PROXY_URL: signed.url } },
+    };
   }
 
   // Current Daytona lifecycle state without forcing a start — the status surface for the

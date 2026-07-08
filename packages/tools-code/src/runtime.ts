@@ -169,6 +169,21 @@ export interface SandboxUnexposePortInput {
   port: number;
 }
 
+export interface SandboxSignedPreviewUrlInput {
+  port: number;
+  expiresInSeconds: number;
+}
+
+/**
+ * A Daytona-signed preview URL whose access token is encoded in the subdomain
+ * (`https://<port>-<token>.daytonaproxy01.net`), so it needs no header/cookie — the form
+ * Expo Go can reach for exp(s):// deep links and `EXPO_PACKAGER_PROXY_URL`.
+ */
+export interface SandboxSignedPreviewUrlResult {
+  url: string;
+  token: string;
+}
+
 export interface SandboxBackupHandle {
   id: string;
   dir: string;
@@ -197,6 +212,7 @@ export interface SandboxLike {
   ensureReady?(): Promise<SandboxStatus>;
   exec?(input: SandboxExecInput): Promise<SandboxExecResult>;
   exposePort?(input: SandboxExposePortInput): Promise<SandboxExposePortResult>;
+  getSignedPreviewUrl?(input: SandboxSignedPreviewUrlInput): Promise<SandboxSignedPreviewUrlResult>;
   killAllProcesses?(): Promise<number>;
   killProcess?(input: SandboxKillProcessInput): Promise<SandboxKillProcessResult>;
   listFiles?(input: SandboxListFilesInput): Promise<SandboxListFilesResult>;

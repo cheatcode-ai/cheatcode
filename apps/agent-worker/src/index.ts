@@ -58,7 +58,6 @@ import {
   withRunLocation,
 } from "./agent-routing";
 import { AgentRun } from "./durable-objects/agent-run";
-import { expoUrlFromPreview } from "./durable-objects/agent-run-app-builder";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
 import { formatAgentRouteError } from "./error-handling";
 import {
@@ -618,10 +617,10 @@ agentApp.post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
   const sandbox = project
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
+  // wakePreview re-mints the signed Metro URL for a mobile dev server and returns the exp(s)://
+  // deep link directly (expoUrl) — the web/local paths leave it undefined.
   const result = await sandbox.wakePreview({ hostname: resolvePreviewHostname(c.env) });
-  // exp:// deep link only makes sense for the Expo Metro port (8081); null for web/local.
-  const expoUrl = result.url && result.port === 8081 ? expoUrlFromPreview(result.url) : null;
-  return c.json(SandboxPreviewWakeSchema.parse({ ...result, ...(expoUrl ? { expoUrl } : {}) }));
+  return c.json(SandboxPreviewWakeSchema.parse(result));
 });
 
 // Current sandbox lifecycle state for the preview panel (polled while the panel is open so the
