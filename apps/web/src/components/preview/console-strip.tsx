@@ -200,7 +200,7 @@ export function ConsoleStrip({
   return (
     <div
       className={cn(
-        "flex shrink-0 flex-col bg-white transition-[height] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
+        "flex shrink-0 flex-col gap-1 bg-white transition-[height] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
         consoleStripOpen ? "h-[200px]" : "h-[34px]",
       )}
     >
@@ -331,7 +331,7 @@ function ConsoleTerminalPane({
   const commandAfterCursor = command.slice(clampedCursorIndex);
 
   return (
-    <div className="min-h-0 flex-1 border-[#f1f1f1] border-t bg-[#f5f5f5]">
+    <div className="min-h-0 flex-1 overflow-hidden rounded-[16px] bg-[#f5f5f5]">
       <div className="chat-scrollbar h-full overflow-y-auto px-3 py-2 font-mono text-[#232323] text-[12px] leading-[18px]">
         {truncated ? <div className="mb-1 text-[#8a8a8a]">earlier output truncated</div> : null}
         {noProcess && lines.length === 0 && entries.length === 0 ? (
