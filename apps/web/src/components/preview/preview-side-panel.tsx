@@ -136,10 +136,10 @@ export function PreviewSidePanel({
                 threadId={threadId}
               />
             </div>
-            {activePreviewTab === "files" ? (
-              <ConsoleStrip sandboxAvailable={project !== null} threadId={threadId} />
-            ) : null}
           </div>
+          {activePreviewTab === "files" ? (
+            <ConsoleStrip sandboxAvailable={project !== null} threadId={threadId} />
+          ) : null}
         </div>
       </aside>
     </>
