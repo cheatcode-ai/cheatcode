@@ -129,9 +129,9 @@ function MessageBubble({
   );
 }
 
-// While the run streams, the header shows the "Working • Ns" animation; when the run ends
-// it restores the static "* cheatcode" label. `streaming` is true only for the last
-// assistant message during a live run, so the label auto-restores on completion.
+// While the run streams, the header shows the "Working • Ns" animation; once the message
+// is done there is NO header at all (the static "* cheatcode" label is intentionally
+// removed). `streaming` is true only for the last assistant message during a live run.
 function AssistantHeader({
   elapsedSeconds,
   streaming,
@@ -139,18 +139,13 @@ function AssistantHeader({
   elapsedSeconds: number;
   streaming: boolean;
 }) {
-  if (streaming) {
-    return (
-      <WorkingIndicator
-        className="mb-3 flex items-center gap-2 text-[#a0a0a0] text-[13px]"
-        elapsedSeconds={elapsedSeconds}
-      />
-    );
+  if (!streaming) {
+    return null;
   }
   return (
-    <div className="mb-3 flex items-center gap-2 text-[13px]">
-      <span className="text-[#f8af2c]">*</span>
-      <span className="font-semibold text-[#1b1b1b]">cheatcode</span>
-    </div>
+    <WorkingIndicator
+      className="mb-3 flex items-center gap-2 text-[#a0a0a0] text-[13px]"
+      elapsedSeconds={elapsedSeconds}
+    />
   );
 }
