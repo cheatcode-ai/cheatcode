@@ -12,6 +12,7 @@ import {
 } from "../streaming/ui-message-stream";
 import { emitRunAbandoned } from "./agent-run-abandonment";
 import {
+  restartMobilePreview,
   restoreBestEffortSnapshot,
   runAppBuilder,
   snapshotAppBuilderWorkspace,
@@ -510,38 +511,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       input.projectMode === "app-builder-mobile" ||
       isAppBuilderRequest(input.messageText)
     ) {
-      await warmSandbox(sandbox, logger);
-      if (this.isRunCanceled()) {
-        return "completed";
-      }
-      const { agentContextNote } = await runAppBuilder({
-        append: (chunk) => this.append(chunk),
-        env: this.env,
-        input,
-        logger,
-        sandbox,
-        setRunStage: (stage) => this.setRunStage(stage),
-      });
-      if (this.isRunCanceled()) {
-        return "completed";
-      }
-      await streamMastraRunWithFallback(this.streamDriverDeps(), {
-        abortSignal,
-        ...(agentContextNote === undefined ? {} : { agentContextNote }),
-        input,
-        logger,
-        sandbox,
-      });
-      if (this.isRunCanceled()) {
-        return "completed";
-      }
-      await snapshotAppBuilderWorkspace({
-        env: this.env,
-        input,
-        logger,
-        sandbox,
-      });
-      return "continue";
+      return this.executeAppBuilderRunPath(input, sandbox, logger, abortSignal);
     }
     await streamMastraRunWithFallback(this.streamDriverDeps(), {
       abortSignal,
@@ -552,6 +522,58 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (this.isRunCanceled()) {
       return "completed";
     }
+    return "continue";
+  }
+
+  private async executeAppBuilderRunPath(
+    input: StartRunInput,
+    sandbox: ProjectSandboxStub,
+    logger: ReturnType<typeof createLogger>,
+    abortSignal: AbortSignal,
+  ): Promise<"completed" | "continue"> {
+    await warmSandbox(sandbox, logger);
+    if (this.isRunCanceled()) {
+      return "completed";
+    }
+    const { agentContextNote } = await runAppBuilder({
+      append: (chunk) => this.append(chunk),
+      env: this.env,
+      input,
+      logger,
+      sandbox,
+      setRunStage: (stage) => this.setRunStage(stage),
+    });
+    if (this.isRunCanceled()) {
+      return "completed";
+    }
+    await streamMastraRunWithFallback(this.streamDriverDeps(), {
+      abortSignal,
+      ...(agentContextNote === undefined ? {} : { agentContextNote }),
+      input,
+      logger,
+      sandbox,
+    });
+    if (this.isRunCanceled()) {
+      return "completed";
+    }
+    // Mobile Metro can't watch the model's sandbox file edits, so restart it once the edit
+    // stream is done to re-crawl the finished app onto the (unchanged) preview URL. Web/Next.js
+    // hot-reloads via polling and needs no restart.
+    if (input.projectMode === "app-builder-mobile") {
+      await restartMobilePreview({
+        append: (chunk) => this.append(chunk),
+        env: this.env,
+        logger,
+        sandbox,
+        setRunStage: (stage) => this.setRunStage(stage),
+      });
+    }
+    await snapshotAppBuilderWorkspace({
+      env: this.env,
+      input,
+      logger,
+      sandbox,
+    });
     return "continue";
   }
 

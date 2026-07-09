@@ -147,6 +147,26 @@ async function startTemplatePreview(
   return { previewUrl, expoUrl };
 }
 
+// Metro (mobile) starts BEFORE the model edits files, and its file-watcher never observes the
+// agent's Daytona uploadFile writes in the sandbox container (no watchman + unreliable inotify —
+// the same reason the Next.js path force-polls). So its in-memory file-map keeps bundling the
+// scaffold even after the counter lands on disk, and a browser hard-refresh just re-bundles from
+// that stale map. Restarting the dev server once the edit stream completes makes a fresh Metro
+// process re-crawl the workspace and bundle the finished app. startProcess reuses the "app-preview"
+// slot (it kills the old process + frees port 8081), and the port-8081 preview URL is deterministic,
+// so the restart is transparent to the client. Mobile only — web/Next.js hot-reloads via polling.
+export async function restartMobilePreview(
+  options: Pick<RunAppBuilderOptions, "append" | "env" | "logger" | "sandbox" | "setRunStage">,
+): Promise<void> {
+  const { append, env, logger, sandbox, setRunStage } = options;
+  setRunStage("Reloading the preview.");
+  const { expoUrl, previewUrl } = await startExpoDevServer(env, sandbox, logger);
+  await append({
+    type: "data-sandbox-status",
+    data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
+  });
+}
+
 // First import run only: clone the public GitHub repo over the empty workspace,
 // drop the one-shot marker, best-effort install, and hand control to the agent
 // without auto-starting a dev server (framework/port are unknowable). Failure
@@ -415,11 +435,15 @@ async function startExpoDevServer(
       // build as a real web page at `/` (iframe-renderable in the Computer panel),
       // while the SAME server keeps answering exp:// manifests for Expo Go — so we
       // get both the in-panel preview and the QR from one process on port 8081.
+      // `-c` clears Metro's transform/file-map cache on start (boolean flag, order-
+      // independent among the other flags): harmless on the initial boot, and what
+      // makes the post-edit restart (restartMobilePreview) re-crawl from a clean slate.
       command: [
         "pnpm",
         "exec",
         "expo",
         "start",
+        "-c",
         "--web",
         "--host",
         "lan",
