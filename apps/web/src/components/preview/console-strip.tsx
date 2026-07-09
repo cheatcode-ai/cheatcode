@@ -200,7 +200,7 @@ export function ConsoleStrip({
   return (
     <div
       className={cn(
-        "flex shrink-0 flex-col border-[#f1f1f1] border-t bg-white transition-[height] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
+        "flex shrink-0 flex-col bg-white transition-[height] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none",
         consoleStripOpen ? "h-[200px]" : "h-[34px]",
       )}
     >
@@ -214,12 +214,12 @@ export function ConsoleStrip({
         >
           <ChevronDown
             aria-hidden="true"
-            className={cn("h-3.5 w-3.5 transition-transform", consoleStripOpen ? "" : "-rotate-90")}
+            className={cn("h-3.5 w-3.5 transition-transform", consoleStripOpen ? "" : "rotate-180")}
           />
         </button>
         <div
           aria-label="Console tabs"
-          className="chat-scrollbar ml-3 flex min-w-0 max-w-[calc(100%-4rem)] shrink items-center gap-1 overflow-x-auto"
+          className="chat-scrollbar ml-0.5 flex min-w-0 max-w-[calc(100%-4rem)] shrink items-center gap-1 overflow-x-auto"
           role="tablist"
         >
           {consoleTabs.map((tab) => (
@@ -227,14 +227,14 @@ export function ConsoleStrip({
               className={cn(
                 "group flex h-6 shrink-0 items-center rounded-full transition-colors",
                 tab.id === activeConsole?.id
-                  ? "bg-[#f7f7f7] text-[#1b1b1b]"
+                  ? "text-[#1b1b1b]"
                   : "text-[#5f5f5f] hover:bg-[#f7f7f7] hover:text-[#1b1b1b]",
               )}
               key={tab.id}
             >
               <button
                 aria-selected={tab.id === activeConsole?.id}
-                className="flex h-6 items-center whitespace-nowrap rounded-full px-2 font-medium text-[14px]"
+                className="flex h-6 items-center whitespace-nowrap rounded-full px-1 font-medium text-[14px]"
                 onClick={() => {
                   setActiveConsoleId(tab.id);
                   openConsoleStrip();
@@ -265,7 +265,7 @@ export function ConsoleStrip({
         <BudTooltip label="New terminal" side="top">
           <button
             aria-label="New terminal"
-            className="ml-1 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f1f1f1] hover:text-[#1b1b1b]"
+            className="ml-0.5 flex h-[22px] w-[22px] shrink-0 items-center justify-center rounded-full text-[#5f5f5f] transition-colors hover:bg-[#f1f1f1] hover:text-[#1b1b1b]"
             onClick={addConsoleTab}
             type="button"
           >
