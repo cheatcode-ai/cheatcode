@@ -121,8 +121,8 @@ export function PreviewSidePanel({
             setActivePreviewTab={setActivePreviewTab}
             setPreviewPanelOpen={setPreviewPanelOpen}
           />
-          <div className="flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-[24px] border border-[#f1f1f1] bg-white shadow-[0_0_1px_rgba(0,0,0,0.08)]">
-            <div className="min-h-0 min-w-0 flex-1 rounded-[24px] p-0.5">
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden rounded-[24px] border border-[#f1f1f1] bg-white p-0.5 shadow-[0_0_1px_rgba(0,0,0,0.08)]">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-[22px] border border-[#f1f1f1]">
               <PanelBody
                 activePreviewTab={activePreviewTab}
                 device={previewDevice}
@@ -136,10 +136,10 @@ export function PreviewSidePanel({
                 threadId={threadId}
               />
             </div>
+            {activePreviewTab === "files" ? (
+              <ConsoleStrip sandboxAvailable={project !== null} threadId={threadId} />
+            ) : null}
           </div>
-          {activePreviewTab === "files" ? (
-            <ConsoleStrip sandboxAvailable={project !== null} threadId={threadId} />
-          ) : null}
         </div>
       </aside>
     </>
