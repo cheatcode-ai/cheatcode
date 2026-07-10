@@ -218,7 +218,16 @@ Verify it in the browser: open the app's INTERNAL address in the sandbox's heade
 
 const MOBILE_MODULE = `## Building the mobile app
 
-Build the Expo Router screens for a polished, native-feeling app: real screens, real navigation, considered design — no lorem ipsum, no dead buttons. Run Metro and verify the app renders. The preview and Expo Go QR code are shown to the user automatically in the App panel — refer to them naturally, don't paste URLs.`;
+Build the Expo Router screens for a polished, native-feeling app: real screens, real navigation, considered design — no lorem ipsum, no dead buttons. Verify the app renders in the live preview. The preview and Expo Go QR code are shown to the user automatically in the App panel — refer to them naturally, don't paste URLs.`;
+
+// Injected for app-builder / app-builder-mobile runs: their workspace is scaffolded and the dev
+// server is already running and managed BEFORE the agent's turn (see agent-run-app-builder), so any
+// server the model starts itself just fights the managed one for the project's port and breaks the
+// preview (e.g. a hallucinated `npx expo start --web --port 5173 --no-dev-client`). The general path
+// keeps WEB_MODULE's "start the dev server yourself" guidance; this note only applies here.
+const APP_BUILDER_PREVIEW_NOTE = `## Your preview is already running — do not start your own
+
+This project is scaffolded and its dev server + live preview are ALREADY running and managed for you before your turn begins (for a mobile app that's Metro serving the app on web plus the Expo Go QR). Do NOT start, restart, or reconfigure the server yourself — no start_dev_server, \`expo start\`, \`npm run dev\`/\`web\`, or \`npx expo …\`: a second server fights the managed one for the project's port and breaks the preview. Just create and edit files in your workspace and the preview hot-reloads on save. Verify by opening the running app in the sandbox's headed Chromium at its INTERNAL localhost address; it's shown to the user automatically in the Computer/App panel — never paste the preview URL.`;
 
 const DOCS_MODULE = `## Building documents & slides
 
@@ -267,10 +276,10 @@ const DOMAIN_MODULES: Record<DomainKey, string> = {
  */
 function selectDomainModules(projectMode?: string, taskMessage?: string): string[] {
   if (projectMode === "app-builder") {
-    return [WEB_MODULE];
+    return [WEB_MODULE, APP_BUILDER_PREVIEW_NOTE];
   }
   if (projectMode === "app-builder-mobile") {
-    return [MOBILE_MODULE];
+    return [MOBILE_MODULE, APP_BUILDER_PREVIEW_NOTE];
   }
   const domains = classifyDomains(taskMessage ?? "");
   return domains.length > 0 ? domains.map((domain) => DOMAIN_MODULES[domain]) : [GENERALIST_MODULE];

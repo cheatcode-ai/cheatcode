@@ -666,27 +666,42 @@ async function stopProjectPreview(
   }
 }
 
+// Populate `dir` with the CONTENTS of a baked template (`src/.` copies dotfiles too), then verify a
+// package.json landed at the root. Returns false instead of throwing so callers fall back to a
+// generator only on a genuine failure. `dir` is a filesystem-safe /workspace/<slug> path (no shell
+// metacharacters), so the interpolation is safe; the whole script is shell-quoted by the exec layer.
+async function copyTemplateContents(
+  sandbox: ProjectSandboxStub,
+  templateDir: string,
+  dir: string,
+): Promise<boolean> {
+  const copied = await executeShellTerminal(
+    {
+      command: `mkdir -p ${dir} && cp -a ${templateDir}/. ${dir}/ && test -f ${dir}/package.json`,
+      cwd: "/workspace",
+      timeoutMs: 120_000,
+    },
+    { sandbox },
+  );
+  return copied.success;
+}
+
 async function scaffoldExpoApp(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
   dir: string,
 ): Promise<void> {
-  try {
-    await executeShellExec(
-      {
-        command: ["cp", "-a", "/home/node/cheatcode-expo-template", dir],
-        cwd: "/workspace",
-        timeoutMs: 120_000,
-      },
-      { sandbox },
-    );
+  // Copy the template CONTENTS (`src/.` → `dst/`), never `cp -a src dst`: the latter nests as
+  // `dst/cheatcode-expo-template/` when `dst` already exists (the run-start `mkdir -p` of the
+  // workspace dir can win the race), silently yielding a project with no package.json at its root.
+  // `test -f` verifies the layout so we only fall back to a bare create-expo-app — which lacks
+  // expo-router and the web deps (react-dom/react-native-web) that `expo start --web` needs — on a
+  // genuine copy failure, not on the nesting race.
+  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-expo-template", dir)) {
     logger.info("sandbox_expo_template_copied", { targetDir: dir });
     return;
-  } catch (error) {
-    logger.warn("sandbox_expo_template_copy_failed", {
-      error: error instanceof Error ? error.message : "Unknown template copy error",
-    });
   }
+  logger.warn("sandbox_expo_template_copy_failed", { targetDir: dir });
 
   await executeShellExec(
     {
@@ -712,22 +727,13 @@ async function scaffoldAppBuilder(
   logger: AgentRunLogger,
   dir: string,
 ): Promise<void> {
-  try {
-    await executeShellExec(
-      {
-        command: ["cp", "-a", "/home/node/cheatcode-next-template", dir],
-        cwd: "/workspace",
-        timeoutMs: 120_000,
-      },
-      { sandbox },
-    );
+  // Copy template CONTENTS into the project dir (see scaffoldExpoApp): `cp -a src dst` nests as
+  // `dst/cheatcode-next-template/` when `dst` already exists, leaving no package.json at the root.
+  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-next-template", dir)) {
     logger.info("sandbox_next_template_copied", { targetDir: dir });
     return;
-  } catch (error) {
-    logger.warn("sandbox_next_template_copy_failed", {
-      error: error instanceof Error ? error.message : "Unknown template copy error",
-    });
   }
+  logger.warn("sandbox_next_template_copy_failed", { targetDir: dir });
 
   await executeShellExec(
     {

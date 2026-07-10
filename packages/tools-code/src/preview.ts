@@ -57,12 +57,21 @@ export async function executeStartDevServer(
   const cwd = runtimeContext.workspaceDir ?? parsedInput.cwd;
   const slug = deriveWorkspaceSlug(cwd);
   const name = `${APP_PREVIEW_SLOT_PREFIX}${slug}`;
-  const port = await allocateDevServerPort(runtimeContext, slug, parsedInput.isMobile);
+  // A mobile/Expo dev server has exactly one correct invocation: `expo start --web` on the project's
+  // own allocated port. The model sometimes emits a broken variant via start_dev_server — a
+  // hallucinated `--no-dev-client` that makes expo exit, or a hardcoded `--port 5173` that collides
+  // with another project in the shared per-user sandbox — which lands in this project's preview slot
+  // and leaves the panel blank. Normalize any `expo start` command (from the model OR the app-builder,
+  // where it's a no-op) to the canonical form; web (Next/Vite) commands pass through untouched.
+  const isExpo = isExpoStartCommand(parsedInput.command);
+  const isMobile = isExpo || parsedInput.isMobile;
+  const port = await allocateDevServerPort(runtimeContext, slug, isMobile);
+  const command = isExpo ? expoWebCommand(port) : parsedInput.command;
   const process = await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
-    command: parsedInput.command,
+    command,
     cwd,
     env: { ...parsedInput.env, PORT: String(port) },
-    isMobile: parsedInput.isMobile,
+    isMobile,
     keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
     maxRestarts: parsedInput.maxRestarts,
     processId: name,
@@ -87,6 +96,56 @@ export async function executeStartDevServer(
     port: exposed.port,
     status: process.status,
   });
+}
+
+// An `expo start …` invocation, however the model spelled it (npx / pnpm exec / bare, any flags).
+function isExpoStartCommand(command: readonly string[]): boolean {
+  return command.includes("expo") && command.includes("start");
+}
+
+// Restore the curated Expo dependency tree onto the project's package.json. The model routinely
+// rewrites package.json mid-build — pruning packages Metro needs (react-dom, react-native-web,
+// expo-asset) AND downgrading others (e.g. expo-router to a pre-SDK major), which crashes
+// `expo start --web`. Re-merge the baked template's deps with the TEMPLATE's versions authoritative
+// for shared packages (fixes downgrades + restores removals) while keeping any extra packages the
+// app genuinely added. Exit 0 only when something changed, so the caller reinstalls only then —
+// keeping wake-from-idle (deps already correct) fast.
+const RESTORE_EXPO_DEPS_JS = [
+  'const fs=require("fs");',
+  'const t=require("/home/node/cheatcode-expo-template/package.json");',
+  // Pin the web config to a client-rendered SPA on the Metro bundler. Without output:"single" the
+  // Expo web dev server renders per-request and does `new URL(req.url)` behind the preview proxy,
+  // which throws `TypeError: Invalid URL`; the model routinely drops this from app.json. Cheap file
+  // write, applied every start (Metro reads it on boot), independent of the reinstall decision below.
+  "try{",
+  'const aj=process.cwd()+"/app.json";const a=require(aj);a.expo=a.expo||{};',
+  'a.expo.web=Object.assign({},a.expo.web,{bundler:"metro",output:"single"});',
+  'fs.writeFileSync(aj,JSON.stringify(a,null,2)+"\\n");',
+  "}catch(e){}",
+  'const j=process.cwd()+"/package.json";',
+  "const p=require(j);",
+  "const before=JSON.stringify([p.dependencies,p.devDependencies,p.main]);",
+  "p.dependencies=Object.assign({},p.dependencies||{},t.dependencies);",
+  "p.devDependencies=Object.assign({},p.devDependencies||{},t.devDependencies);",
+  "p.main=t.main;",
+  "const after=JSON.stringify([p.dependencies,p.devDependencies,p.main]);",
+  "if(before===after){process.exit(1)}",
+  'fs.writeFileSync(j,JSON.stringify(p,null,2)+"\\n");',
+].join("");
+
+// The one canonical Expo dev-server command. It first self-heals the dependency tree (see above) and
+// reinstalls only if the merge changed anything — so a build that corrupted deps is repaired, while a
+// clean start / wake-from-idle skips straight to Metro. Because this is the command PERSISTED in the
+// process record, it re-heals on restart and wake too. Then Metro: `-c` clears its cache so a finished
+// app re-crawls cleanly; `--web` also answers exp:// manifests for the Expo Go QR; `--host lan` + the
+// project's allocated port keep it reachable and collision-free. `exec` hands the slot to Metro.
+function expoWebCommand(port: number): string[] {
+  const restoreB64 = btoa(RESTORE_EXPO_DEPS_JS);
+  const writeScript = `echo ${restoreB64} | base64 -d > /tmp/cc-restore-expo-deps.js`;
+  const heal =
+    "node /tmp/cc-restore-expo-deps.js && rm -f pnpm-lock.yaml package-lock.json && CI=1 EXPO_NO_TELEMETRY=1 pnpm install --prefer-offline";
+  const startMetro = `exec pnpm exec expo start -c --web --host lan --port ${port}`;
+  return ["sh", "-lc", `${writeScript}; (${heal}) ; ${startMetro}`];
 }
 
 // The project's workspaceSlug = the last non-empty path segment of the cwd (/workspace/<slug>).
