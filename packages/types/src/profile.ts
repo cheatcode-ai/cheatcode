@@ -23,11 +23,10 @@ export const UserProfileSchema = z
     onboardingState: OnboardingStateSchema,
     updatedAt: z.string().datetime().nullable(),
     // Server-computed free DeepSeek allowance, surfaced for the Models page meter.
-    // Optional so a new web bundle tolerates a gateway response that predates this
-    // field while the two workers deploy independently (deploy skew).
-    freeDeepseek: z
-      .object({ limit: z.number().int().positive(), used: z.number().int().nonnegative() })
-      .optional(),
+    freeDeepseek: z.object({
+      limit: z.number().int().positive(),
+      used: z.number().int().nonnegative(),
+    }),
   })
   .strict();
 

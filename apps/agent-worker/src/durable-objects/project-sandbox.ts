@@ -99,9 +99,6 @@ export interface ProjectSandboxStatus {
 }
 
 const WORKSPACE_DIR = "/workspace";
-// Fallback cwd when relaunching a dev server whose ProcessRecord has no persisted cwd (legacy /
-// slug-less projects). Per-project dev servers run in /workspace/<slug> and always persist cwd.
-const APP_BUILDER_DIR = "/workspace/app";
 const ENV_FILE_DIR = "/home/node/.cc-env";
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
 // Daytona auto-stops after this many idle minutes. IMPORTANT: preview/proxy traffic does NOT
@@ -117,10 +114,6 @@ const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
 // Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<workspaceSlug>
 // so multiple projects' servers persist side by side in the one per-user sandbox (bud parity).
 const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
-// Legacy slug-less projects were built into /workspace/app with the slot "app-preview:app" (the
-// app-builder's basename fallback). The status/console/wake routes normalize a null workspaceSlug to
-// this so all of them address the same slot instead of the bare "app-preview" default.
-const LEGACY_APP_SLUG = "app";
 // Single short liveness probe budget for the read-only preview status check (no VM boot).
 const PREVIEW_STATUS_PROBE_TIMEOUT_MS = 3_000;
 // Per-project dev-server port pools. Web previews start at 5173, mobile (Expo Metro) at 8081, each
@@ -136,7 +129,7 @@ const CODE_SERVER_START_TIMEOUT_MS = 120_000;
 const CODE_SERVER_SETTINGS_MARKER =
   "/home/node/.local/share/code-server/user-data/.cheatcode-settings-v5";
 // bud parity: the Explorer header + command center show the opened folder's basename. bud opens a
-// "computer" home folder; cheatcode opens the project dir (e.g. /workspace/app → "APP"). A display
+// "computer" home folder; cheatcode opens the project dir (e.g. /workspace/<slug> → "<SLUG>"). A display
 // symlink outside the workspace lets the IDE header read "COMPUTER" without relocating the project.
 const CODE_SERVER_DISPLAY_DIR = "/home/node/Computer";
 const DEFAULT_TAKEOVER_TTL_MS = 15 * 60 * 1000;
@@ -167,7 +160,7 @@ const ProcessRecordSchema = z
     isMobile: z.boolean().optional(),
     // cwd + env are persisted so a dev server can be relaunched faithfully after the sandbox
     // idle-stops and its process dies (wakePreview) — the workspace disk survives the restart.
-    cwd: z.string().optional(),
+    cwd: z.string(),
     env: z.record(z.string(), z.string()).optional(),
     startedAtMs: z.number().int().nonnegative().optional(),
   })
@@ -710,8 +703,8 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   // WITHOUT booting it (no ensureSandbox), then — only when the VM is started — probe THIS project's
   // own dev-server port so a dead dev server reads as not-running even while the sandbox is up (an
   // idle-stop can kill the dev-server process without stopping the VM). The slot is keyed by
-  // workspaceSlug (defaulting to "app" for legacy slug-less projects), matching start_dev_server +
-  // wakePreview, so each project reports on its own server rather than the shared sandbox state.
+  // workspaceSlug, matching start_dev_server + wakePreview, so each project reports on its own
+  // server rather than the shared sandbox state.
   public async projectPreviewStatus(
     input: ProjectPreviewStatusInput,
   ): Promise<{ running: boolean; state: string }> {
@@ -720,8 +713,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     if (runtime.state !== "started" || !runtime.sandboxId) {
       return { running: false, state: runtime.state };
     }
-    const slug = parsed.workspaceSlug ?? LEGACY_APP_SLUG;
-    const record = await this.processRecord(`${APP_PREVIEW_SLOT_PREFIX}${slug}`);
+    const record = await this.processRecord(`${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`);
     if (!record?.port) {
       // Sandbox is up but this project has no tracked dev server (a docs/data project, or one not
       // started yet) — nothing is serving a preview.
@@ -1189,7 +1181,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   // where the workspace disk survives but the process (and its session) are gone.
   private async relaunchDevServer(id: string, name: string, record: ProcessRecord): Promise<void> {
     const sessionId = record.sessionId || `cc-${name}`;
-    const cwd = record.cwd ?? APP_BUILDER_DIR;
+    const cwd = record.cwd;
     await this.client()
       .createSession(id, sessionId)
       .catch(() => undefined);

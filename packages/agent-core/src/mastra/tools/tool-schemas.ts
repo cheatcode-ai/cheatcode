@@ -89,7 +89,9 @@ export const readFileInputSchema = z
       .refine((path) => path.startsWith("/"), "Sandbox paths must be absolute.")
       .refine(isSafeWorkspacePath, "Path must stay inside /workspace.")
       .refine(isWorkspaceChildPath, "File path must be inside /workspace.")
-      .describe("Absolute file path under /workspace, for example /workspace/app/package.json."),
+      .describe(
+        "Absolute file path under /workspace, for example /workspace/<project>/package.json.",
+      ),
     encoding: encodingSchema.optional().describe("Read text as utf8 or binary data as base64."),
   })
   .strict();

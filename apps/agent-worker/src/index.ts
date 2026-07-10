@@ -12,7 +12,6 @@ import { AgentWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
-  createLogger,
   emitErrorEvent,
   emitPerformanceMetric,
   toAPIError,
@@ -24,7 +23,6 @@ import {
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
   type SandboxFileEntry,
-  SandboxFileKeySchema,
   SandboxFileListSchema,
   SandboxFilePathSchema,
   SandboxFilePreviewSchema,
@@ -37,7 +35,6 @@ import {
   SandboxTerminalContextSchema,
   SandboxTerminalResultSchema,
   ThreadId,
-  UpdateSandboxFileSchema,
   UpdateSandboxPathFileSchema,
   UserId,
 } from "@cheatcode/types";
@@ -56,7 +53,6 @@ import {
   sandboxForUser,
   saveTakeoverState,
   startAgentRun,
-  startLegacyThreadRun,
   syncSandboxQuotaPeriod,
   withRunLocation,
 } from "./agent-routing";
@@ -77,8 +73,6 @@ import { loadRunPersonalization } from "./run-personalization";
 import { parseCreateRunRequestBody } from "./run-request";
 import {
   GatewayUserIdSchema,
-  isUuidRouteParam,
-  legacyProjectSandboxName,
   parseRunRouteParam,
   parseThreadRouteParam,
   readGatewayUserId,
@@ -172,10 +166,6 @@ const TakeoverResponseSchema = z
     vncUrl: z.string().url(),
   })
   .strict();
-const SANDBOX_FILE_PATHS = {
-  "app-page": "/workspace/app/src/app/page.tsx",
-} as const satisfies Record<z.infer<typeof SandboxFileKeySchema>, string>;
-
 export const agentApp = new Hono<{ Bindings: AgentEnv }>();
 
 const ApprovalIdParamSchema = z.string().uuid();
@@ -305,9 +295,6 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
   if (body.scope === "account") {
     await sandbox.destroySandbox();
     await sandbox.deleteDurableState();
-    // Also reclaim any pre-migration per-project sandboxes (keyed by the old projectSandboxName)
-    // so a deleted user's code/files never persist on Daytona after the one-sandbox-per-user cutover.
-    await destroyLegacyProjectSandboxes(c.env, userId, body.projects);
     projectStatesDeleted = body.projects.length;
   } else {
     for (const project of body.projects) {
@@ -327,29 +314,6 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
     }),
   );
 });
-
-// Best-effort teardown of pre-migration per-project sandboxes on account deletion. Addressing a
-// legacy DO that never existed just yields a fresh idle stub whose destroy is a no-op; a missing
-// Daytona sandbox is tolerated so one failure can't block reclaiming the others.
-async function destroyLegacyProjectSandboxes(
-  env: AgentEnv,
-  userId: string,
-  deletedProjects: ReadonlyArray<{ id: string }>,
-): Promise<void> {
-  for (const project of deletedProjects) {
-    try {
-      const legacyName = await legacyProjectSandboxName(userId, project.id);
-      const legacy = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(legacyName));
-      await legacy.destroySandbox();
-      await legacy.deleteDurableState();
-    } catch (error) {
-      createLogger().warn("legacy_project_sandbox_teardown_failed", {
-        error: error instanceof Error ? error.message : String(error),
-        projectId: project.id,
-      });
-    }
-  }
-}
 
 agentApp.get("/v1/outputs/:outputId/download", async (c) => {
   const parsedOutputId = OutputIdSchema.safeParse(c.req.param("outputId"));
@@ -414,9 +378,6 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId"));
   const body = parseCreateRunRequestBody(await c.req.json());
-  if (!isUuidRouteParam(threadId)) {
-    return startLegacyThreadRun(c.env, userId, threadId, body);
-  }
 
   const { db, close } = createDb(c.env.HYPERDRIVE);
   try {
@@ -639,7 +600,7 @@ agentApp.get("/v1/threads/:threadId/sandbox/ide", async (c) => {
     : await sandboxForThread(c.env, userId, threadId);
   // Per-user "computer": a project chat opens its own folder (/workspace/<slug>, header = slug);
   // a project-less chat opens the whole computer root (/workspace, relabelled "COMPUTER").
-  const workspacePath = project?.workspaceSlug
+  const workspacePath = project
     ? workspacePathForSlug(project.workspaceSlug)
     : SANDBOX_WORKSPACE_ROOT;
   // List only the opened project's folder — a recursive walk of the whole /workspace root would let
@@ -680,9 +641,9 @@ agentApp.post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
   // this project's dev server among the sandbox's per-project ones (slot keyed by slug).
   const result = await sandbox.wakePreview({
     hostname: resolvePreviewHostname(c.env),
-    // A project chat wakes its own dev server (slot keyed by slug, normalized to "app" for legacy
-    // slug-less projects); a project-less chat has no dev server to revive, so omit the slug.
-    ...(project ? { workspaceSlug: previewWorkspaceSlug(project.workspaceSlug) } : {}),
+    // A project chat wakes its own dev server (slot keyed by slug); a project-less chat has no
+    // dev server to revive, so omit the slug.
+    ...(project ? { workspaceSlug: project.workspaceSlug } : {}),
   });
   return c.json(SandboxPreviewWakeSchema.parse(result));
 });
@@ -701,9 +662,9 @@ agentApp.get("/v1/threads/:threadId/sandbox/preview/status", async (c) => {
     // Per-project liveness: the shared per-user sandbox can be "started" while THIS project's dev
     // server is dead (idle-stop killed its process), so probe the project's own dev-server port
     // instead of reading only the sandbox state — otherwise the web wake guard never fires and the
-    // preview stays blank. The slot defaults to "app" for legacy slug-less projects (GAP 4).
+    // preview stays blank. The slot is keyed by the project's workspaceSlug.
     const status = await sandbox.projectPreviewStatus({
-      workspaceSlug: previewWorkspaceSlug(project.workspaceSlug),
+      workspaceSlug: project.workspaceSlug,
     });
     return c.json(SandboxPreviewStatusSchema.parse(status));
   }
@@ -755,41 +716,6 @@ agentApp.patch("/v1/threads/:threadId/sandbox/file", async (c) => {
   return c.json(SandboxFileWriteSchema.parse(result));
 });
 
-agentApp.get("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
-  const userId = readGatewayUserId(c.req.raw.headers);
-  const threadId = parseThreadRouteParam(c.req.param("threadId"));
-  const fileKey = SandboxFileKeySchema.parse(c.req.param("fileKey"));
-  const encoding = SandboxReadEncodingQuerySchema.parse(c.req.query("encoding") ?? undefined);
-  const sandbox = await sandboxForThread(c.env, userId, threadId);
-  const file = await sandbox.readFile({
-    path: SANDBOX_FILE_PATHS[fileKey],
-    ...(encoding ? { encoding } : {}),
-  });
-  return c.json(
-    SandboxFileSchema.parse({
-      content: file.content,
-      encoding: file.encoding,
-      key: fileKey,
-      path: file.path,
-    }),
-  );
-});
-
-agentApp.patch("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
-  const userId = readGatewayUserId(c.req.raw.headers);
-  const threadId = parseThreadRouteParam(c.req.param("threadId"));
-  const fileKey = SandboxFileKeySchema.parse(c.req.param("fileKey"));
-  const body = UpdateSandboxFileSchema.parse(await c.req.json());
-  await requireWritableThreadProject(c.env, userId, threadId);
-  const sandbox = await sandboxForThread(c.env, userId, threadId);
-  const result = await sandbox.writeFile({
-    content: body.content,
-    encoding: body.encoding,
-    path: SANDBOX_FILE_PATHS[fileKey],
-  });
-  return c.json(SandboxFileWriteSchema.parse(result));
-});
-
 agentApp.get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId"));
@@ -799,9 +725,7 @@ agentApp.get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
     : await sandboxForThread(c.env, userId, threadId);
   // Per-user "computer": scope the terminal to the project's own folder (/workspace/<slug>) when
   // the chat has a project, otherwise the whole computer root.
-  const cwd = project?.workspaceSlug
-    ? workspacePathForSlug(project.workspaceSlug)
-    : SANDBOX_WORKSPACE_ROOT;
+  const cwd = project ? workspacePathForSlug(project.workspaceSlug) : SANDBOX_WORKSPACE_ROOT;
   return c.json(
     SandboxTerminalContextSchema.parse({
       cwd,
@@ -855,9 +779,7 @@ agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
   const snapshot = await sandbox.readDevServerLogs(
-    project
-      ? { ...query, processId: `app-preview:${previewWorkspaceSlug(project.workspaceSlug)}` }
-      : query,
+    project ? { ...query, processId: `app-preview:${project.workspaceSlug}` } : query,
   );
   return c.json(SandboxConsoleSnapshotSchema.parse(snapshot));
 });
@@ -880,21 +802,11 @@ function takeoverEmbedUrl(previewUrl: string, password: string): string {
   return url.toString();
 }
 
-// Legacy slug-less projects were built into /workspace/app with the dev-server slot "app-preview:app"
-// (the app-builder's basename fallback). Normalize a null workspaceSlug to "app" so the wake, status,
-// and console routes all address that same slot — otherwise they'd miss it and fall back wrongly.
-function previewWorkspaceSlug(workspaceSlug: string | null): string {
-  return workspaceSlug ?? "app";
-}
-
 async function terminalProjectForThread(
   env: AgentEnv,
   userId: string,
   threadId: string,
-): Promise<{ id: string; name: string; workspaceSlug: string | null } | null> {
-  if (!isUuidRouteParam(threadId)) {
-    return null;
-  }
+): Promise<{ id: string; name: string; workspaceSlug: string } | null> {
   const parsedUserId = UserId(userId);
   const { db, close } = createDb(env.HYPERDRIVE);
   try {

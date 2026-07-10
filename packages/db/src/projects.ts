@@ -35,7 +35,7 @@ export interface ProjectSummaryRecord {
   overQuota: boolean;
   readOnly: boolean;
   updatedAt: Date;
-  workspaceSlug: string | null;
+  workspaceSlug: string;
 }
 
 export interface UpdateProjectInput {
@@ -228,14 +228,7 @@ export function workspacePathForSlug(slug: string): string {
   return `/workspace/${slug}`;
 }
 
-/**
- * The `/workspace/app` sentinel: shared by every slug-less (legacy/null) project and used as the
- * app-builder + general-run fallback dir. Reserved in `computeUniqueWorkspaceSlug` so no NEW
- * project can claim slug "app" and later `rm -rf /workspace/app` out from under those runs on delete.
- */
-const LEGACY_APP_SLUG = "app";
-
-/** Postgres unique_violation SQLSTATE, raised by the partial unique index on (user_id, slug). */
+/** Postgres unique_violation SQLSTATE, raised by the unique index on (user_id, slug). */
 const PG_UNIQUE_VIOLATION = "23505";
 const WORKSPACE_SLUG_UNIQUE_INDEX = "v2_projects_user_workspace_slug_uidx";
 const MAX_WORKSPACE_SLUG_ATTEMPTS = 5;
@@ -264,13 +257,8 @@ export async function computeUniqueWorkspaceSlug(
   const rows = await db
     .select({ workspaceSlug: projects.workspaceSlug })
     .from(projects)
-    .where(and(eq(projects.userId, userId), isNotNull(projects.workspaceSlug)));
-  const taken = new Set(
-    rows.map((row) => row.workspaceSlug).filter((slug): slug is string => !!slug),
-  );
-  // Never hand out the `/workspace/app` sentinel — any null-slug project already lives there, and a
-  // NEW project owning slug "app" would let its delete rm -rf the shared folder + app-builder dir.
-  taken.add(LEGACY_APP_SLUG);
+    .where(eq(projects.userId, userId));
+  const taken = new Set(rows.map((row) => row.workspaceSlug));
   const base = filesystemSlug(name);
   if (!taken.has(base)) {
     return base;
@@ -646,6 +634,7 @@ export async function ensureSandboxProject(
       name: input.name,
       sandboxId: input.sandboxId,
       userId: input.userId,
+      workspaceSlug: await computeUniqueWorkspaceSlug(db, input.userId, input.name),
     })
     .returning({ containerBackup: projects.containerBackup, id: projects.id });
 
@@ -890,7 +879,7 @@ function projectSummaryFromRow(row: {
   overQuota: boolean;
   settings: ProjectSettings;
   updatedAt: Date;
-  workspaceSlug: string | null;
+  workspaceSlug: string;
 }): ProjectSummaryRecord {
   return {
     archiveAfter: row.archiveAfter,

@@ -17,19 +17,14 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
-import { AgentRunId, type CreateRun, ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import { AgentRunId, type CreateRun, ThreadId, UserId } from "@cheatcode/types";
 import { z } from "zod";
 import type { AgentRun } from "./durable-objects/agent-run";
 import { DEFAULT_RUN_BUDGET_CAP_USD } from "./durable-objects/agent-run-budget";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
 import type { AgentEnv } from "./index";
 import { extractRunMessageText } from "./run-request";
-import {
-  agentRunObjectName,
-  isUuidRouteParam,
-  legacyAgentRunObjectName,
-  userSandboxName,
-} from "./tenancy";
+import { agentRunObjectName, userSandboxName } from "./tenancy";
 
 const DO_FREE_TIER_DURATION_ERROR = "Exceeded allowed duration in Durable Objects free tier";
 const MAX_RESEARCH_FANOUT_SUBAGENTS = 25;
@@ -66,9 +61,6 @@ export async function sandboxForThread(
   userId: string,
   threadId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
-  if (!isUuidRouteParam(threadId)) {
-    return sandboxForLegacyThread(env, userId);
-  }
   // The sandbox is per-user now: a project-less chat still resolves the same "computer" (its
   // project only scopes the code-server folder, handled by the ide route). We still verify the
   // thread belongs to the user before handing back a sandbox stub.
@@ -111,9 +103,6 @@ export async function requireWritableThreadProject(
   userId: string,
   threadId: string,
 ): Promise<void> {
-  if (!isUuidRouteParam(threadId)) {
-    return;
-  }
   const parsedUserId = UserId(userId);
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
@@ -191,7 +180,7 @@ export async function startAgentRun(
         model: body.model ?? run.modelId,
         modelExplicit: Boolean(body.model?.trim()),
         projectId: run.projectId,
-        ...(run.workspaceSlug ? { workspaceSlug: run.workspaceSlug } : {}),
+        workspaceSlug: run.workspaceSlug,
         ...(run.projectMode ? { projectMode: run.projectMode } : {}),
         ...(policy.quotaWarning ? { quotaWarning: policy.quotaWarning } : {}),
         runId: run.runId,
@@ -380,48 +369,11 @@ function dailyCostCapError(capUsd: number, spentUsd: number, tier: string): APIE
   });
 }
 
-export async function startLegacyThreadRun(
-  env: AgentEnv,
-  userId: string,
-  threadId: string,
-  body: CreateRun,
-): Promise<Response> {
-  const runId = legacyAgentRunObjectName(userId, threadId);
-  const sandboxName = await userSandboxName(userId);
-  const policy = await runEntitlementPolicy(env, userId);
-  await sandboxForLegacyThread(env, userId);
-  return fetchAgentRun(
-    agentRunForLegacyThread(env, userId, threadId),
-    "https://agent-run.internal/start",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        budgetCapUsd: body.budgetCapUsd ?? DEFAULT_RUN_BUDGET_CAP_USD,
-        dailyCostUsdAtRunStart: policy.dailyCostUsdAtRunStart,
-        ...(policy.dailyCostCapUsd === undefined
-          ? {}
-          : { dailyCostCapUsd: policy.dailyCostCapUsd }),
-        disabledModels: [],
-        messageText: extractRunMessageText(body),
-        model: body.model,
-        projectId: sandboxName,
-        runId,
-        sandboxName,
-        threadId,
-        userId,
-      }),
-    },
-  );
-}
-
 export async function activeRunForThreadRoute(
   env: AgentEnv,
   userId: string,
   threadId: string,
 ): Promise<AgentRunHandle | null> {
-  if (!isUuidRouteParam(threadId)) {
-    return legacyRunHandle(userId, threadId);
-  }
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     return await withUserContext(db, UserId(userId), (tx) =>
@@ -440,9 +392,6 @@ export async function runForRoute(
   userId: string,
   runId: string,
 ): Promise<AgentRunHandle> {
-  if (!isUuidRouteParam(runId)) {
-    return legacyRunHandle(userId, runId);
-  }
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const run = await withUserContext(db, UserId(userId), (tx) =>
@@ -500,30 +449,6 @@ export async function consumeTakeoverState(
     method: "POST",
     body: JSON.stringify({ resumeToken, userId }),
   });
-}
-
-function sandboxForLegacyThread(
-  env: AgentEnv,
-  userId: string,
-): Promise<DurableObjectStub<ProjectSandbox>> {
-  return sandboxForUser(env, userId);
-}
-
-function agentRunForLegacyThread(
-  env: AgentEnv,
-  userId: string,
-  threadId: string,
-): DurableObjectStub<AgentRun> {
-  return env.AGENT_RUN.get(env.AGENT_RUN.idFromName(legacyAgentRunObjectName(userId, threadId)));
-}
-
-function legacyRunHandle(userId: string, threadId: string): AgentRunHandle {
-  return {
-    projectId: ProjectId(threadId),
-    runId: AgentRunId(legacyAgentRunObjectName(userId, threadId)),
-    status: "running",
-    threadId: ThreadId(threadId),
-  };
 }
 
 function agentRunUnavailableError(error: unknown): APIError {

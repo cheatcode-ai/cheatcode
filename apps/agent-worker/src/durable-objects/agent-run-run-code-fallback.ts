@@ -26,8 +26,7 @@ export async function runRunCodeFallback({
   setRunStage("Running Python in the sandbox after model timeout.");
   const result = await executeRunCodeTool(createSandboxReadinessRunCodeInput(input.messageText), {
     sandbox,
-    // Slug-less fallback is "/workspace/app" so the slot matches wake/status/console (null → "app").
-    workspaceDir: input.workspaceSlug ? `/workspace/${input.workspaceSlug}` : "/workspace/app",
+    workspaceDir: `/workspace/${input.workspaceSlug}`,
   });
   await append({
     type: "text-delta",

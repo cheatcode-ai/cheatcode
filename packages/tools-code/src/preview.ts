@@ -90,10 +90,14 @@ export async function executeStartDevServer(
 }
 
 // The project's workspaceSlug = the last non-empty path segment of the cwd (/workspace/<slug>).
-// Falls back to "app" for a slug-less cwd, matching the app-builder fallback dir basename.
+// Every run has a project, so the forced cwd is always /workspace/<slug> and yields a slug here.
 function deriveWorkspaceSlug(cwd: string): string {
   const segments = cwd.split("/").filter((segment) => segment.length > 0);
-  return segments[segments.length - 1] ?? "app";
+  const slug = segments[segments.length - 1];
+  if (!slug) {
+    throw new Error(`Cannot derive a workspace slug from cwd: ${cwd}`);
+  }
+  return slug;
 }
 
 // Get-or-assign this project's stable dev-server port from the sandbox's per-project allocator

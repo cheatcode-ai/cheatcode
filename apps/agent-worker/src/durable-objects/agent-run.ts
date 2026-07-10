@@ -498,10 +498,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           logger,
           sandbox,
           setRunStage: (stage) => this.setRunStage(stage),
-          // Slug-less fallback is "/workspace/app" so the dev-server slot matches wake/status/console.
-          workspaceDir: input.workspaceSlug
-            ? `/workspace/${input.workspaceSlug}`
-            : "/workspace/app",
+          workspaceDir: `/workspace/${input.workspaceSlug}`,
         },
         directRunCodeInput,
       );
@@ -534,13 +531,13 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   }
 
   // Best-effort `mkdir -p /workspace/<slug>` at run start. Idempotent; a failure only logs (the
-  // tool calls that follow surface any real filesystem problem). No-op for slug-less legacy runs.
+  // tool calls that follow surface any real filesystem problem).
   private async ensureProjectWorkspaceDir(
     input: StartRunInput,
     sandbox: ProjectSandboxStub,
     logger: ReturnType<typeof createLogger>,
   ): Promise<void> {
-    if (!input.workspaceSlug || !sandbox.exec) {
+    if (!sandbox.exec) {
       return;
     }
     try {

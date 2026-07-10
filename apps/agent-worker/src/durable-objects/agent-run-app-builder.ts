@@ -24,10 +24,6 @@ import { signedUrlToExpo } from "./project-sandbox-preview";
 
 export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
 
-// Fallback app dir for legacy/slug-less runs; per-project runs derive their own dir from the
-// project's workspaceSlug. Ports are NEVER a fixed fallback in the per-user sandbox — each project
-// draws a unique dev-server port from the DO's per-project allocator (see allocateAppPort).
-const DEFAULT_APP_BUILDER_DIR = "/workspace/app";
 // Informational only: the mobile port hint threaded into an imported project's context note. The
 // actual Metro port is allocated per-project by the DO, not fixed to this value.
 const DEFAULT_MOBILE_PORT = 8081;
@@ -113,10 +109,10 @@ async function resolveAppWorkspace(
   logger: AgentRunLogger,
 ): Promise<AppBuilderWorkspace> {
   const mobile = isMobileBuild(input);
-  const dir = input.workspaceSlug ? `/workspace/${input.workspaceSlug}` : DEFAULT_APP_BUILDER_DIR;
+  const dir = `/workspace/${input.workspaceSlug}`;
   // Slot + port key off the project's workspaceSlug so the mobile path matches the start_dev_server
-  // tool + wakePreview (all keyed by slug, not projectId). Slug-less runs fall back to the dir basename.
-  const slug = input.workspaceSlug ?? basename(dir);
+  // tool + wakePreview (all keyed by slug, not projectId).
+  const slug = input.workspaceSlug;
   const slot = `app-preview:${slug}`;
   const port = await allocateAppPort(sandbox, slug, mobile, logger);
   return { dir, mobile, port, slot };

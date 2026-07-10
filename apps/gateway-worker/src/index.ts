@@ -784,14 +784,6 @@ export const gatewayRoutes = gatewayApp
     return forwardAgentRequest(c, "PATCH /v1/threads/:threadId/sandbox/file");
   })
 
-  .get("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
-    return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/files/:fileKey");
-  })
-
-  .patch("/v1/threads/:threadId/sandbox/files/:fileKey", async (c) => {
-    return forwardAgentRequest(c, "PATCH /v1/threads/:threadId/sandbox/files/:fileKey");
-  })
-
   .get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
     return forwardAgentRequest(c, "GET /v1/threads/:threadId/sandbox/terminal/context");
   })

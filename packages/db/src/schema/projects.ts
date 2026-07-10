@@ -47,8 +47,8 @@ export const projects = pgTable(
     mode: text("mode").notNull(),
     // Immutable, filesystem-safe folder name under /workspace in the user's per-user "computer"
     // sandbox (/workspace/<workspaceSlug>). Decoupled from the display `name` so a project rename
-    // never moves its folder. Unique per user. Nullable only for legacy/pre-migration rows.
-    workspaceSlug: text("workspace_slug"),
+    // never moves its folder. Unique per user. Always set (every project owns a workspace folder).
+    workspaceSlug: text("workspace_slug").notNull(),
     masterInstructions: text("master_instructions"),
     sandboxId: text("sandbox_id"),
     containerBackup: jsonb("container_backup").$type<DirectoryBackupHandle | null>(),
@@ -62,10 +62,8 @@ export const projects = pgTable(
   },
   (table) => [
     // Enforces the "workspace_slug unique per user" invariant that /workspace/<slug> folder,
-    // dev-server slot, and port allocation all key on. Partial so legacy null slugs are exempt.
-    uniqueIndex("v2_projects_user_workspace_slug_uidx")
-      .on(table.userId, table.workspaceSlug)
-      .where(sql`workspace_slug is not null`),
+    // dev-server slot, and port allocation all key on.
+    uniqueIndex("v2_projects_user_workspace_slug_uidx").on(table.userId, table.workspaceSlug),
   ],
 );
 

@@ -1,6 +1,10 @@
 "use client";
 
-import type { UpdateUserProfile, UserProfile } from "@cheatcode/types";
+import {
+  FREE_DEEPSEEK_TOKEN_LIMIT,
+  type UpdateUserProfile,
+  type UserProfile,
+} from "@cheatcode/types";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Loader2 } from "@/components/ui/icons";
@@ -11,6 +15,7 @@ const MEMORY_MAX = 8_000;
 const EMPTY_PROFILE: UserProfile = {
   agentDisplayName: null,
   disabledModels: [],
+  freeDeepseek: { limit: FREE_DEEPSEEK_TOKEN_LIMIT, used: 0 },
   globalMemory: null,
   onboardingCompletedAt: null,
   onboardingState: { steps: {} },

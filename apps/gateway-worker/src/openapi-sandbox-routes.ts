@@ -91,7 +91,7 @@ const sandboxFilePathParameter: JsonValue = {
 };
 
 const sandboxFileListParameters: JsonValue[] = [
-  { in: "query", name: "path", schema: { default: "/workspace/app/src/app", type: "string" } },
+  { in: "query", name: "path", schema: { default: "/workspace", type: "string" } },
   { in: "query", name: "recursive", schema: { default: true, type: "boolean" } },
   { in: "query", name: "includeHidden", schema: { default: false, type: "boolean" } },
 ];
@@ -166,26 +166,6 @@ export const sandboxRoutes: OpenApiRoute[] = [
     responses: { "200": jsonResponse("Sandbox file write", schemaRef("SandboxFileWrite")) },
     security: [{ bearerAuth: [] }],
     summary: "Write a sandbox file by path",
-    tags: ["sandbox"],
-  },
-  {
-    method: "get",
-    operationId: "readSandboxFileByKey",
-    parameters: [sandboxEncodingParameter],
-    path: "/v1/threads/{threadId}/sandbox/files/{fileKey}",
-    responses: { "200": jsonResponse("Sandbox file", schemaRef("SandboxFile")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Read a sandbox file by encoded key",
-    tags: ["sandbox"],
-  },
-  {
-    method: "patch",
-    operationId: "writeSandboxFileByKey",
-    path: "/v1/threads/{threadId}/sandbox/files/{fileKey}",
-    requestBody: jsonBody(schemaRef("WriteSandboxFile")),
-    responses: { "200": jsonResponse("Sandbox file write", schemaRef("SandboxFileWrite")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Write a sandbox file by encoded key",
     tags: ["sandbox"],
   },
   {

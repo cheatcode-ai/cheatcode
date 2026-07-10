@@ -63,11 +63,7 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
           {
             artifacts: options.artifactRuntime,
             sandbox,
-            // Slug-less fallback is "/workspace/app" (not "/workspace") so deriveWorkspaceSlug
-            // yields "app", matching what wake/status/console normalize a null slug to.
-            workspaceDir: input.workspaceSlug
-              ? `/workspace/${input.workspaceSlug}`
-              : "/workspace/app",
+            workspaceDir: `/workspace/${input.workspaceSlug}`,
           },
           {
             agentDisplayName: input.agentDisplayName,

@@ -2,9 +2,8 @@ import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 
 export const GatewayUserIdSchema = z.string().uuid();
-export const ThreadRouteParamSchema = z.string().min(1).max(200);
-export const RunRouteParamSchema = z.string().min(1).max(200);
-export const UuidRouteParamSchema = z.string().uuid();
+export const ThreadRouteParamSchema = z.string().uuid();
+export const RunRouteParamSchema = z.string().uuid();
 
 const SANDBOX_ID_PREFIX = "cc";
 const SANDBOX_ID_HEX_LENGTH = 40;
@@ -47,16 +46,8 @@ export function parseRunRouteParam(value: string): string {
   return parsed.data;
 }
 
-export function isUuidRouteParam(value: string): boolean {
-  return UuidRouteParamSchema.safeParse(value).success;
-}
-
 export function agentRunObjectName(runId: string): string {
   return runId;
-}
-
-export function legacyAgentRunObjectName(userId: string, threadId: string): string {
-  return JSON.stringify(["agent-run", userId, threadId]);
 }
 
 // One sandbox ("computer") per user: every project is a subfolder under /workspace in the same
@@ -65,16 +56,6 @@ export async function userSandboxName(userId: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
     textEncoder.encode(JSON.stringify(["user-sandbox", userId])),
-  );
-  return `${SANDBOX_ID_PREFIX}-${toHex(digest).slice(0, SANDBOX_ID_HEX_LENGTH)}`;
-}
-
-// Pre-migration per-PROJECT sandbox name (one sandbox per project). Retained solely so account
-// deletion can also tear down sandboxes provisioned before the one-sandbox-per-user migration.
-export async function legacyProjectSandboxName(userId: string, projectId: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    textEncoder.encode(JSON.stringify(["project-sandbox", userId, projectId])),
   );
   return `${SANDBOX_ID_PREFIX}-${toHex(digest).slice(0, SANDBOX_ID_HEX_LENGTH)}`;
 }

@@ -60,9 +60,7 @@ export const ProjectSummarySchema = z
     createdAt: z.string().datetime(),
     defaultModel: z.string().trim().min(1).max(200).nullable(),
     id: z.string().uuid(),
-    // Nullish (not required) on purpose: lets a new web bundle tolerate a gateway
-    // response that predates this field while the two Workers deploy independently.
-    importRepoUrl: z.string().nullable().optional(),
+    importRepoUrl: z.string().nullable(),
     masterInstructions: z.string().nullable(),
     mode: z.string(),
     name: z.string(),
@@ -351,8 +349,6 @@ export const BillingCatalogResponseSchema = z
 /** Alias of BillingCatalogResponseSchema for catalog-named consumers. */
 export const PlanCatalogResponseSchema = BillingCatalogResponseSchema;
 
-export const SandboxFileKeySchema = z.enum(["app-page"]);
-
 export const SandboxFilePathSchema = z
   .string()
   .min(1)
@@ -389,7 +385,6 @@ export const SandboxFileSchema = z
   .object({
     content: z.string(),
     encoding: z.enum(["utf8", "base64"]),
-    key: SandboxFileKeySchema.optional(),
     path: SandboxFilePathSchema,
   })
   .strict();
@@ -665,9 +660,7 @@ export const SearchResultThreadSchema = z
     projectName: z.string().nullable(),
     updatedAt: z.string().datetime(),
     // Non-null while a run is in flight (backs the sidebar's running-chat spinner).
-    // Optional so a new web bundle tolerates a gateway response that predates this
-    // field while the two Workers deploy independently.
-    activeRunId: z.string().uuid().nullable().optional(),
+    activeRunId: z.string().uuid().nullable(),
   })
   .strict();
 
@@ -707,9 +700,7 @@ export const GreetingResponseSchema = z
       })
       .strict()
       .nullable(),
-    // Optional so a new web bundle tolerates a gateway response that predates this
-    // field while the two Workers deploy independently.
-    workedMinutesToday: z.number().int().nonnegative().optional(),
+    workedMinutesToday: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -793,7 +784,6 @@ export type SandboxConsoleQuery = z.infer<typeof SandboxConsoleQuerySchema>;
 export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
 export type SandboxFile = z.infer<typeof SandboxFileSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
-export type SandboxFileKey = z.infer<typeof SandboxFileKeySchema>;
 export type SandboxFileList = z.infer<typeof SandboxFileListSchema>;
 export type SandboxFilePath = z.infer<typeof SandboxFilePathSchema>;
 export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;

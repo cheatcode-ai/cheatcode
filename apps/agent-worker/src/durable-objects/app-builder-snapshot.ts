@@ -37,7 +37,7 @@ export interface AgentRunAppBuilderInput {
   threadId: string;
   userId: string;
   /** Immutable /workspace subfolder for this project (per-user "computer" sandbox model). */
-  workspaceSlug?: string | undefined;
+  workspaceSlug: string;
 }
 
 export async function snapshotAppBuilderWorkspace({

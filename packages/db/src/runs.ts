@@ -64,8 +64,9 @@ export interface AgentRunHandle {
   runId: AgentRunId;
   status: AgentRunStatus;
   threadId: ThreadId;
-  /** Immutable /workspace subfolder name for the project (per-user sandbox model). */
-  workspaceSlug?: string;
+  /** Immutable /workspace subfolder name for the project (per-user sandbox model). Every run has
+   * a project (ensureProjectForRun creates it before the run), so this is always set. */
+  workspaceSlug: string;
 }
 
 export interface CreateAgentRunInput {
@@ -121,7 +122,7 @@ interface ThreadForRunRow {
   projectId: string;
   projectMode: "app-builder" | "app-builder-mobile" | "general";
   projectSettings: ProjectSettings;
-  workspaceSlug: string | null;
+  workspaceSlug: string;
 }
 
 interface CreatedRunRow {
@@ -262,6 +263,7 @@ async function blockedRunCreationResult(
         runId: thread.activeRunId,
         threadId: thread.id,
         userId: input.userId,
+        workspaceSlug: thread.workspaceSlug,
       }),
       type: "active-run-exists",
     };
@@ -316,8 +318,20 @@ function createdRunHandle(
     runId: toAgentRunId(created.id),
     status: toAgentRunStatus(created.status),
     threadId: toThreadId(thread.id),
-    ...(thread.workspaceSlug ? { workspaceSlug: thread.workspaceSlug } : {}),
+    workspaceSlug: assertWorkspaceSlug(thread.workspaceSlug, thread.id),
   };
+}
+
+/**
+ * Post-migration invariant: every run has a project, so its workspace slug is always set (the DB
+ * column is NOT NULL and every join here is an inner join). This asserts that at the boundary
+ * rather than silently defaulting to a shared folder, surfacing any data corruption loudly.
+ */
+function assertWorkspaceSlug(slug: string | null | undefined, threadId: string): string {
+  if (!slug) {
+    throw new Error(`Thread ${threadId} run is missing a workspace slug`);
+  }
+  return slug;
 }
 
 async function isFirstAgentRunForUser(db: Database, userId: UserId): Promise<boolean> {
@@ -603,7 +617,13 @@ function agentRunConfig(input: CreateAgentRunInput): AgentRunConfig {
 
 async function activeRunHandle(
   db: Database,
-  input: { projectId: string; runId: string; threadId: string; userId: UserId },
+  input: {
+    projectId: string;
+    runId: string;
+    threadId: string;
+    userId: UserId;
+    workspaceSlug: string;
+  },
 ): Promise<AgentRunHandle> {
   const existing = await findAgentRunForUser(db, {
     runId: toAgentRunId(input.runId),
@@ -615,6 +635,7 @@ async function activeRunHandle(
       runId: toAgentRunId(input.runId),
       status: "running",
       threadId: toThreadId(input.threadId),
+      workspaceSlug: input.workspaceSlug,
     }
   );
 }
@@ -626,7 +647,7 @@ function agentRunHandleFromRow(row: {
   runId: string;
   status: string;
   threadId: string;
-  workspaceSlug?: null | string;
+  workspaceSlug: string;
 }): AgentRunHandle {
   return {
     ...(row.modelId ? { modelId: row.modelId } : {}),
@@ -635,7 +656,7 @@ function agentRunHandleFromRow(row: {
     runId: toAgentRunId(row.runId),
     status: toAgentRunStatus(row.status),
     threadId: toThreadId(row.threadId),
-    ...(row.workspaceSlug ? { workspaceSlug: row.workspaceSlug } : {}),
+    workspaceSlug: assertWorkspaceSlug(row.workspaceSlug, row.threadId),
   };
 }
 

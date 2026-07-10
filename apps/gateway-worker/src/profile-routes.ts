@@ -54,18 +54,21 @@ export async function updateMyProfileRoute(
   }
   const body = parsed.data;
   const { db, close } = createDb(env.HYPERDRIVE);
-  let record: UserProfileRecord;
+  let result: { freeDeepseek: FreeDeepseekUsage; record: UserProfileRecord };
   try {
-    record = await withUserContext(db, userId, async (tx) => {
-      return upsertUserProfile(tx, buildProfilePatch(userId, body));
-    });
+    result = await withUserContext(db, userId, async (tx) => ({
+      freeDeepseek: await getFreeDeepseekUsage(tx, userId),
+      record: await upsertUserProfile(tx, buildProfilePatch(userId, body)),
+    }));
   } finally {
     ctx.waitUntil(close());
   }
   if (body.onboardingCompleted === true) {
     await mirrorOnboardingClaim(env, request, userId);
   }
-  return Response.json(UserProfileSchema.parse(profileResponse(record)));
+  return Response.json(
+    UserProfileSchema.parse(profileResponse(result.record, result.freeDeepseek)),
+  );
 }
 
 function buildProfilePatch(userId: UserId, body: UpdateUserProfile): UpsertUserProfileInput {
@@ -119,15 +122,13 @@ async function mirrorOnboardingClaim(
 
 function profileResponse(
   record: UserProfileRecord | null,
-  freeDeepseek?: FreeDeepseekUsage,
+  freeDeepseek: FreeDeepseekUsage,
 ): Record<string, unknown> {
-  // Optional so the update route can omit it (the meter is read from the GET response).
-  const freeDeepseekField = freeDeepseek ? { freeDeepseek } : {};
   if (!record) {
     return {
       agentDisplayName: null,
       disabledModels: [],
-      ...freeDeepseekField,
+      freeDeepseek,
       globalMemory: null,
       onboardingCompletedAt: null,
       onboardingState: { steps: {} },
@@ -137,7 +138,7 @@ function profileResponse(
   return {
     agentDisplayName: record.agentDisplayName,
     disabledModels: record.disabledModels,
-    ...freeDeepseekField,
+    freeDeepseek,
     globalMemory: record.globalMemory,
     onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
     onboardingState: record.onboardingState,

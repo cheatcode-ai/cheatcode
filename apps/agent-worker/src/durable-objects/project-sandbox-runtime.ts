@@ -205,10 +205,10 @@ export const ProjectWakePreviewInputSchema = z
 
 // Read-only preview liveness for the status panel. Names which project's dev server to check —
 // its ProcessRecord slot is keyed by workspaceSlug (matching start_dev_server + wakePreview).
-// Absent/normalized to "app" for legacy slug-less projects; a project-less chat never calls this.
+// Always provided: only a project chat calls this, and every project owns a workspace slug.
 export const ProjectPreviewStatusInputSchema = z
   .object({
-    workspaceSlug: z.string().min(1).max(200).optional(),
+    workspaceSlug: z.string().min(1).max(200),
   })
   .strict();
 

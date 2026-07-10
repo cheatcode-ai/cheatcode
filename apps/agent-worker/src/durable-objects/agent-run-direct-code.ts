@@ -14,8 +14,8 @@ export interface DirectRunCodeDeps {
   logger: ReturnType<typeof createLogger>;
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => void;
-  // The run's project folder (/workspace/<slug>); passed to the code runtime for parity with the
-  // main path, though inline runCode itself has no cwd. Omitted (slug-less) leaves the default.
+  // The run's project folder (/workspace/<slug>), passed to the code runtime for parity with the
+  // main path, though inline runCode itself has no cwd.
   workspaceDir?: string;
 }
 
