@@ -14,6 +14,9 @@ export interface DirectRunCodeDeps {
   logger: ReturnType<typeof createLogger>;
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => void;
+  // The run's project folder (/workspace/<slug>); passed to the code runtime for parity with the
+  // main path, though inline runCode itself has no cwd. Omitted (slug-less) leaves the default.
+  workspaceDir?: string;
 }
 
 /** Executes a compiled direct-runCode snippet in the sandbox (run-control §5.3). */
@@ -27,6 +30,7 @@ export async function runDirectRunCode(
   const result = await executeRunCodeTool(runCodeInput, {
     artifacts: deps.artifacts,
     sandbox: deps.sandbox,
+    ...(deps.workspaceDir ? { workspaceDir: deps.workspaceDir } : {}),
   });
   deps.logger.info("direct_run_code_completed", {
     exitCode: result.exitCode,

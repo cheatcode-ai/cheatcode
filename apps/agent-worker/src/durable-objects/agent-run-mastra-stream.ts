@@ -60,7 +60,11 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
         abortSignal: abortController.signal,
         maxSteps: AGENT_LOOP_MAX_STEPS,
         requestContext: createCodeRequestContext(
-          { artifacts: options.artifactRuntime, sandbox },
+          {
+            artifacts: options.artifactRuntime,
+            sandbox,
+            workspaceDir: input.workspaceSlug ? `/workspace/${input.workspaceSlug}` : "/workspace",
+          },
           {
             agentDisplayName: input.agentDisplayName,
             anthropicApiKey: credential.provider === "anthropic" ? credential.apiKey : undefined,

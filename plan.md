@@ -723,7 +723,7 @@ Thin public entrypoint.
 #### `apps/agent-worker`
 Owns the agent loop.
 - `AgentRun` Durable Object (per agent run state, streaming buffer, resumability)
-- `ProjectSandbox` Durable Object (per project, wraps Blaxel sandbox lifecycle + APIs)
+- `ProjectSandbox` Durable Object (per USER — one "computer" sandbox holding every project as a `/workspace/<slug>` subfolder; wraps Daytona sandbox lifecycle + APIs; see §24.3)
 - Mastra instance from `packages/agent-core`
 - Tool dispatch
 - Streaming SSE responses back through gateway → frontend `useChat`
@@ -761,7 +761,8 @@ export class AgentRun extends DurableObject {
 
 // apps/agent-worker/src/durable-objects/project-sandbox.ts
 export class ProjectSandbox extends DurableObject {
-  // Wraps one named Blaxel sandbox per project.
+  // Wraps one named Daytona sandbox per USER (the "computer"); every project is a
+  // /workspace/<slug> subfolder with its own dev server + port (§24.3).
   // Blaxel standby snapshots preserve process + filesystem state between runs.
   // Exposes: exec, runCode, readFile, writeFile, exposePort, terminal, createBackup, restoreBackup
 }
@@ -1695,7 +1696,7 @@ Explicit "don'ts" from research, for clarity in code reviews:
 5. **No `select *` in RLS policies without supporting composite indexes.**
 6. **No JSONB GIN-index on every JSONB column.** Only those queried by `@>` containment.
 7. **No `drizzle-kit push` in production.** `generate` → review → `migrate`.
-8. **No Supabase Realtime.** Durable Objects own all streaming. The preview console strip is the one read surface that intentionally uses **cursor-based polling**, not streaming (`GET /v1/threads/:id/sandbox/console`, §23.2 #50) — any future console SSE must live on the ProjectSandbox DO. The dev-server process carries the deterministic id **`app-preview`** (set by `executeStartDevServer` via `processId`, with a same-name kill-guard) so the console reader can target it; console log polls wake a standby sandbox (the read-only guard prevents creation, not wake), so the client backs polling off to 30 s when no dev server is reported.
+8. **No Supabase Realtime.** Durable Objects own all streaming. The preview console strip is the one read surface that intentionally uses **cursor-based polling**, not streaming (`GET /v1/threads/:id/sandbox/console`, §23.2 #50) — any future console SSE must live on the ProjectSandbox DO. The dev-server process carries the per-project id **`app-preview:<projectId>`** (set by `executeStartDevServer` via `processId`, with a same-name kill-guard) so the console reader targets the active project's server among the sandbox's per-project ones; console log polls wake a standby sandbox (the read-only guard prevents creation, not wake), so the client backs polling off to 30 s when no dev server is reported.
 9. **No multi-hop FK joins for tenancy checks.** `user_id` denormalized everywhere.
 10. **No `LISTEN/NOTIFY` for agent event streaming.** Durable Objects + SSE only (§10.6).
 11. **No Supabase Storage.** R2 for every byte.
@@ -2064,7 +2065,7 @@ ENTRYPOINT ["/entrypoint.sh"]
 
 `infra/containers/sandbox/` is committed: **`blaxel.toml`** (`type = "sandbox"`, `name = "cheatcode-sandbox"`, `runtime.generation = "mk3"`, memory and port metadata), **`entrypoint.sh`** (starts `/usr/local/bin/sandbox-api`, waits for it on 127.0.0.1:8080, then keeps the sandbox process alive), **`browser-driver/`** (`package.json` pinning `@browserbasehq/stagehand` 3.2.0 + its `playwright`; `package-lock.json` so `npm ci` is bit-exact; `server.js` — the only browser-driver entrypoint, a persistent in-sandbox Stagehand driver bound only to 127.0.0.1:9323), **`scripts/`** (`start-browser.sh`, `start-vnc.sh`, `start-code-server.sh` — static argv-invoked runtime startup helpers used by browser tools, takeover, and IDE preview, not test drivers), and **`requirements.txt`** (pinned Python libs — `pandas`, `numpy`, `matplotlib`, `openpyxl`, `pillow`, `ipython`, etc., each at an exact version). The Node doc/data runtime under `/opt/cheatcode-doc-runtime` includes the pinned document libraries plus `react`, `react-dom`, `recharts`, and `arquero`, so `packages/tools-data` can render fixed-size Recharts SVG through sandbox SSR without bundling Recharts into Workers. The image also bakes `code-server@4.117.0` plus OpenVSX viewers for PPTX/PPSX/POTX, PDF, DOCX/DOTX/Office files, XLS/XLSX, CSV/TSV/TAB, ODS, SQLite/GeoPackage databases, archives, tables, Parquet, notebooks, Draw.io diagrams, XMind maps, font files, PSD/HEIC/TIFF/ICNS assets, Java class files, and Mermaid-flavored Markdown so generated deliverables can open inside the Files tab without pushing them through R2 download URLs; the Code Server startup script pins default editor associations for those formats. Playwright's Chromium lives at the fixed `PLAYWRIGHT_BROWSERS_PATH` and Stagehand launches it through the Playwright API — there is no fixed CDP port to expose (§9.4). Browser-driver behavior is validated only in the final direct `agent-browser` product QA gate by exercising browser tools and takeover through the real UI and checking logs; no one-shot browser driver, build-time browser smoke script, or custom browser QA wrapper is part of V2.
 
-Blaxel reserved ports **80**, **443**, and **8080** for system/sandbox API behavior; Daytona keeps the same product rule: Cheatcode must never expose 8080 as a user preview. Cheatcode-generated dev servers bind to **5173** for frontend previews or **8000** for API/static servers. Mobile (`app-builder-mobile`) projects scaffold from the baked Expo template and run `expo start` on **8081** (Metro). The IDE binds to **13340** and is exposed only through a signed Cheatcode preview URL minted by `ProjectSandbox.exposeCodeServer()`. Preview ports are dynamically opened as needed.
+Blaxel reserved ports **80**, **443**, and **8080** for system/sandbox API behavior; Daytona keeps the same product rule: Cheatcode must never expose 8080 as a user preview. Because one sandbox now hosts every project (§24.3), dev-server ports are **allocated per project** and unique within the sandbox: web/frontend previews from **5173** upward (5173, 5174, …), mobile (`app-builder-mobile`) Expo Metro from **8081** upward. Each project's server persists on its own port; the DO (`allocateProjectPort`) hands out and remembers the assignment. The IDE binds to **13340** and is exposed only through a signed Cheatcode preview URL minted by `ProjectSandbox.exposeCodeServer()`. Preview ports are dynamically opened as needed.
 
 ### 9.2 Sandbox lifecycle
 
@@ -2851,8 +2852,8 @@ shared popover:
 - **Add menu** — Local upload + **GitHub import**. Import writes `settings.importRepoUrl`;
   the app-builder bootstrap git-clones it (public repos only, depth-1, no auto dev server,
   failure code `repo_import_failed`), with one-shot semantics gated by a
-  `/workspace/app/.cheatcode-imported` marker (`.git` backstop) so follow-up runs never
-  re-clone. URLs containing userinfo are rejected; private-repo support via Composio GitHub
+  `/workspace/<slug>/.cheatcode-imported` marker (`.git` backstop) in the project's own
+  subfolder so follow-up runs never re-clone. URLs containing userinfo are rejected; private-repo support via Composio GitHub
   OAuth is the documented v1.5 upgrade path.
 
 #### Long-thread virtualization
@@ -6131,11 +6132,25 @@ source of truth.
 
 ### 24.3 ProjectSandbox DO
 
-One DO per project, identified by a stable lower-case SHA-256-derived sandbox ID
-(`cc-` + 40 hex chars) computed from the internal project/tenant scope. This keeps
-Blaxel sandbox names DNS-safe, under Blaxel's 49-character `metadata.name` limit,
-and tenant-isolated. Wraps Blaxel
-sandbox lifecycle and normalizes it behind the `SandboxLike` tool boundary.
+**One sandbox per USER — a "computer" (bud parity).** Since 2026-07 the sandbox is
+keyed by `userId`, not by project: one DO / one Daytona sandbox per user, identified
+by a stable lower-case SHA-256-derived sandbox ID (`cc-` + 40 hex chars) computed as
+`SHA-256(JSON(["user-sandbox", userId]))` (`userSandboxName()` in `apps/agent-worker/src/tenancy.ts`).
+Every project lives as an **immutable subfolder** `/workspace/<workspaceSlug>` inside that
+one sandbox (the slug is stored on `projects.workspace_slug`, decoupled from the display
+`name` so a rename never moves the folder). The ID stays DNS-safe, under the 49-character
+`metadata.name` limit, and tenant-isolated. Wraps Daytona sandbox lifecycle and normalizes
+it behind the `SandboxLike` tool boundary.
+
+**Per-project dev servers + ports.** Each project runs its own dev server on its own stable
+port — web from 5173+, mobile (Expo Metro) from 8081+, allocated by the DO
+(`allocateProjectPort({ projectId, stack })`, tracked in DO storage, unique within the
+sandbox) — and all of them persist side by side. Each occupies process slot
+`app-preview:<projectId>` (a `ProcessRecord` carrying its port + `isMobile`), so a rebuild of
+one project never stops another's server, and the Browser/preview shows the active project's
+port. The Files tab (code-server, 13340) opens the whole computer (`/workspace`, relabelled
+"COMPUTER" via the display symlink) when the chat has no project, or `/workspace/<slug>`
+directly (header = slug) when it does.
 
 **TypeScript interface:**
 
@@ -6174,7 +6189,7 @@ export interface ProjectSandboxStub {
 }
 ```
 
-The project row stores the Blaxel sandbox name in `projects.sandbox_id`. The legacy `projects.container_backup` JSONB column stays nullable for migration compatibility; V2 snapshot handles are now persistent Blaxel volume handles, not R2 directory backups. Blaxel standby preserves warm process/filesystem state while the sandbox exists, and the per-project volume preserves `/workspace` across sandbox deletion/recreation.
+The project row stores the **per-user** sandbox name in `projects.sandbox_id` — the same value for every one of the user's projects, since they all share the one "computer" sandbox. `projects.workspace_slug` holds the immutable `/workspace/<slug>` folder name. The legacy `projects.container_backup` JSONB column stays nullable for migration compatibility. Under the Daytona model the **sandbox disk is the durable store** (`autoDeleteInterval=-1`, auto-archive for cold storage), so every project's files persist across idle-stop/restart in the shared `/workspace`.
 
 **Lifecycle rules**:
 

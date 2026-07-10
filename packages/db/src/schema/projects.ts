@@ -34,6 +34,10 @@ export const projects = pgTable(v2TableName("projects"), {
     .references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   mode: text("mode").notNull(),
+  // Immutable, filesystem-safe folder name under /workspace in the user's per-user "computer"
+  // sandbox (/workspace/<workspaceSlug>). Decoupled from the display `name` so a project rename
+  // never moves its folder. Unique per user. Nullable only for legacy/pre-migration rows.
+  workspaceSlug: text("workspace_slug"),
   masterInstructions: text("master_instructions"),
   sandboxId: text("sandbox_id"),
   containerBackup: jsonb("container_backup").$type<DirectoryBackupHandle | null>(),

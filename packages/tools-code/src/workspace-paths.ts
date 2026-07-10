@@ -28,6 +28,24 @@ export function isWorkspaceChildPath(path: string): boolean {
   return normalized.startsWith("/workspace/") && normalized !== "/workspace/";
 }
 
+/**
+ * Confines a code-tool cwd/path to the run's project folder. Resolves to `workspaceDir` (falling
+ * back to `/workspace`) when the caller omits the value or points at the `/workspace` root itself;
+ * any explicit sub-path the agent provides is kept as-is. This is what forces a general run's shell
+ * commands, dev server, and directory listings into `/workspace/<slug>` without trusting the model.
+ */
+export function resolveWorkspaceDir(
+  value: string | undefined,
+  workspaceDir: string | undefined,
+): string {
+  const fallback = workspaceDir ?? "/workspace";
+  if (!value) {
+    return fallback;
+  }
+  const normalized = normalizeWorkspacePath(value).replace(/\/+$/, "");
+  return normalized === "/workspace" ? fallback : value;
+}
+
 function isSafeWorkspaceRelativePath(path: string): boolean {
   if (path.startsWith("/") || path.includes("\0")) {
     return false;

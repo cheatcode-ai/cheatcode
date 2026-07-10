@@ -107,6 +107,9 @@ export interface SandboxStartProcessInput extends SandboxExecInput {
   maxRestarts?: number;
   processId?: string;
   restartOnFailure?: boolean;
+  // Marks a mobile (Expo Metro) dev server so the wake path re-mints its signed preview URL — the
+  // per-project port is no longer a reliable "is mobile" signal now that ports are per-project.
+  isMobile?: boolean;
   waitForPort?: {
     port: number;
     path?: string;
@@ -155,6 +158,9 @@ export interface SandboxExposePortInput {
   hostname?: string;
   name?: string;
   tokenTtlMs?: number;
+  // A mobile (Expo web) preview is served under the clean-subdomain URL form so Expo Router can
+  // route from window.location; drives buildPreviewUrl instead of the old port === 8081 check.
+  isMobile?: boolean;
 }
 
 export interface SandboxExposePortResult {
@@ -205,7 +211,15 @@ export interface SandboxRestoreBackupResult {
   success: boolean;
 }
 
+export interface SandboxAllocateProjectPortInput {
+  projectId: string;
+  stack: "web" | "mobile";
+}
+
 export interface SandboxLike {
+  // Stable, per-project dev-server port within the per-user "computer" sandbox (web 5173+,
+  // mobile 8081+). Returns the same port for a given project across runs.
+  allocateProjectPort?(input: SandboxAllocateProjectPortInput): Promise<number>;
   createBackup?(input: SandboxCreateBackupInput): Promise<SandboxBackupHandle>;
   deleteFile?(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
   destroySandbox?(): Promise<SandboxDestroyResult>;
@@ -256,6 +270,10 @@ export interface ArtifactRuntime {
 export interface CodeRuntimeContext {
   artifacts?: ArtifactRuntime | undefined;
   sandbox: SandboxLike;
+  // The project's folder in the per-user sandbox (/workspace/<workspaceSlug>). When set, the code
+  // tools confine a cwd-less or bare-/workspace call to it, so a general run operates inside its
+  // own project folder instead of /workspace root (where every project would collide on port 5173).
+  workspaceDir?: string | undefined;
 }
 
 export function isSandboxLike(value: unknown): value is SandboxLike {
@@ -271,6 +289,7 @@ export const CodeRuntimeContextSchema = z
   .object({
     artifacts: z.custom<ArtifactRuntime>().optional(),
     sandbox: z.custom<SandboxLike>(isSandboxLike),
+    workspaceDir: z.string().optional(),
   })
   .strict();
 

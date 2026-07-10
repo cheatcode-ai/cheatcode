@@ -6,6 +6,7 @@ import {
   getProject,
   getThread,
   withUserContext,
+  workspacePathForSlug,
 } from "@cheatcode/db";
 import { AgentWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
 import {
@@ -77,8 +78,8 @@ import {
   isUuidRouteParam,
   parseRunRouteParam,
   parseThreadRouteParam,
-  projectSandboxName,
   readGatewayUserId,
+  userSandboxName,
 } from "./tenancy";
 
 export { AgentRun, ProjectSandbox };
@@ -115,7 +116,7 @@ const DEFAULT_AGENT_NAME = "general";
 const START_VNC_SCRIPT = "/opt/cheatcode/start-vnc.sh";
 const TAKEOVER_PORT = 6080;
 const TAKEOVER_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_SANDBOX_FILE_LIST_ROOT = "/workspace/app/src/app";
+const DEFAULT_SANDBOX_FILE_LIST_ROOT = "/workspace";
 const SANDBOX_WORKSPACE_ROOT = "/workspace";
 const TERMINAL_DISPLAY_WORKSPACE = "/home/user/computer";
 
@@ -391,7 +392,8 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
         maxActiveProjects: policy.maxProjects,
         maxConcurrentSandboxes: policy.maxConcurrentSandboxes,
         personalization,
-        resolveSandboxName: (projectId) => projectSandboxName(userId, projectId),
+        // One sandbox per user now: the project id no longer keys the sandbox.
+        resolveSandboxName: () => userSandboxName(userId),
         source: "web",
         threadId: parsedThreadId,
         userId: parsedUserId,
@@ -442,7 +444,7 @@ agentApp.post("/v1/threads/:threadId/runs", async (c) => {
         userId: UserId(userId),
       }),
     );
-    const sandboxName = await projectSandboxName(userId, result.run.projectId);
+    const sandboxName = await userSandboxName(userId);
     const warmedSandbox = await sandboxForProject(c.env, userId, result.run.projectId);
     c.executionCtx.waitUntil(syncSandboxQuotaPeriod(warmedSandbox, policy.quotaPeriodEnd));
     const response = await startAgentRun(
@@ -592,8 +594,14 @@ agentApp.get("/v1/threads/:threadId/sandbox/ide", async (c) => {
     path: SANDBOX_WORKSPACE_ROOT,
     recursive: true,
   });
-  const workspacePath = inferTerminalCwd(files.files, project?.name ?? null);
-  const initialFilePath = selectInitialCodeServerFile(files.files, workspacePath);
+  // Per-user "computer": a project chat opens its own folder (/workspace/<slug>, header = slug);
+  // a project-less chat opens the whole computer root (/workspace, relabelled "COMPUTER").
+  const workspacePath = project?.workspaceSlug
+    ? workspacePathForSlug(project.workspaceSlug)
+    : SANDBOX_WORKSPACE_ROOT;
+  const initialFilePath = project
+    ? selectInitialCodeServerFile(files.files, workspacePath)
+    : undefined;
   const session = await sandbox.exposeCodeServer({
     hostname: resolvePreviewHostname(c.env),
     ...(initialFilePath ? { initialFilePath } : {}),
@@ -618,8 +626,12 @@ agentApp.post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
   // wakePreview re-mints the signed Metro URL for a mobile dev server and returns the exp(s)://
-  // deep link directly (expoUrl) — the web/local paths leave it undefined.
-  const result = await sandbox.wakePreview({ hostname: resolvePreviewHostname(c.env) });
+  // deep link directly (expoUrl) — the web/local paths leave it undefined. The workspaceSlug selects
+  // this project's dev server among the sandbox's per-project ones (slot keyed by slug).
+  const result = await sandbox.wakePreview({
+    hostname: resolvePreviewHostname(c.env),
+    ...(project?.workspaceSlug ? { workspaceSlug: project.workspaceSlug } : {}),
+  });
   return c.json(SandboxPreviewWakeSchema.parse(result));
 });
 
@@ -722,12 +734,11 @@ agentApp.get("/v1/threads/:threadId/sandbox/terminal/context", async (c) => {
   const sandbox = project
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
-  const files = await sandbox.listFiles({
-    includeHidden: false,
-    path: SANDBOX_WORKSPACE_ROOT,
-    recursive: true,
-  });
-  const cwd = inferTerminalCwd(files.files, project?.name ?? null);
+  // Per-user "computer": scope the terminal to the project's own folder (/workspace/<slug>) when
+  // the chat has a project, otherwise the whole computer root.
+  const cwd = project?.workspaceSlug
+    ? workspacePathForSlug(project.workspaceSlug)
+    : SANDBOX_WORKSPACE_ROOT;
   return c.json(
     SandboxTerminalContextSchema.parse({
       cwd,
@@ -774,8 +785,15 @@ agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
     stdoutCursor: c.req.query("stdoutCursor") ?? undefined,
     tail: c.req.query("tail") ?? undefined,
   });
-  const sandbox = await sandboxForThread(c.env, userId, threadId);
-  const snapshot = await sandbox.readDevServerLogs(query);
+  // Scope the console to the active project's dev-server slot so a project chat never shows another
+  // project's logs (the per-user sandbox hosts every project's dev server side by side).
+  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const sandbox = project
+    ? await sandboxForProject(c.env, userId, project.id)
+    : await sandboxForThread(c.env, userId, threadId);
+  const snapshot = await sandbox.readDevServerLogs(
+    project ? { ...query, processId: `app-preview:${project.id}` } : query,
+  );
   return c.json(SandboxConsoleSnapshotSchema.parse(snapshot));
 });
 
@@ -801,7 +819,7 @@ async function terminalProjectForThread(
   env: AgentEnv,
   userId: string,
   threadId: string,
-): Promise<{ id: string; name: string } | null> {
+): Promise<{ id: string; name: string; workspaceSlug: string | null } | null> {
   if (!isUuidRouteParam(threadId)) {
     return null;
   }
@@ -823,49 +841,11 @@ async function terminalProjectForThread(
       if (!project) {
         throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
       }
-      return { id: project.id, name: project.name };
+      return { id: project.id, name: project.name, workspaceSlug: project.workspaceSlug };
     });
   } finally {
     await close();
   }
-}
-
-function inferTerminalCwd(files: SandboxFileEntry[], projectName: null | string): string {
-  const topLevelDirs = files.filter(
-    (file) =>
-      file.type === "directory" &&
-      file.path.startsWith(`${SANDBOX_WORKSPACE_ROOT}/`) &&
-      !file.path.slice(SANDBOX_WORKSPACE_ROOT.length + 1).includes("/"),
-  );
-  if (topLevelDirs.length === 0) {
-    return SANDBOX_WORKSPACE_ROOT;
-  }
-  if (topLevelDirs.length === 1) {
-    return topLevelDirs[0]?.path ?? SANDBOX_WORKSPACE_ROOT;
-  }
-  const scored = topLevelDirs
-    .map((dir) => ({
-      dir,
-      score: terminalDirectoryScore(dir, files, projectName),
-    }))
-    .sort((left, right) => right.score - left.score || left.dir.name.localeCompare(right.dir.name));
-  const best = scored[0];
-  return best && best.score > 0 ? best.dir.path : SANDBOX_WORKSPACE_ROOT;
-}
-
-function terminalDirectoryScore(
-  dir: SandboxFileEntry,
-  files: SandboxFileEntry[],
-  projectName: null | string,
-): number {
-  const tokenScore = tokenOverlapScore(projectName, dir.name);
-  const hasEntryFile = files.some(
-    (file) =>
-      file.type === "file" &&
-      file.path.startsWith(`${dir.path}/`) &&
-      APP_ENTRY_FILE_NAMES.has(file.name),
-  );
-  return tokenScore + (hasEntryFile ? 10 : 0);
 }
 
 const APP_ENTRY_FILE_NAMES = new Set([
@@ -959,22 +939,6 @@ function extensionOf(filename: string): string {
 
 function isLikelySourceExtension(extension: string): boolean {
   return [".css", ".html", ".js", ".jsx", ".json", ".md", ".py", ".ts", ".tsx"].includes(extension);
-}
-
-function tokenOverlapScore(left: null | string, right: string): number {
-  const leftTokens = normalizedTokens(left ?? "");
-  const rightTokens = normalizedTokens(right);
-  if (leftTokens.length === 0 || rightTokens.length === 0) {
-    return 0;
-  }
-  return rightTokens.filter((token) => leftTokens.includes(token)).length;
-}
-
-function normalizedTokens(value: string): string[] {
-  return value
-    .toLowerCase()
-    .split(/[^a-z0-9]+/u)
-    .filter(Boolean);
 }
 
 function terminalDisplayCwd(cwd: string): string {

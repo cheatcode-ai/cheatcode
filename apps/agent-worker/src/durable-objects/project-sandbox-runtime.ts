@@ -68,6 +68,7 @@ export const ProjectExecInputSchema = z
   .strict();
 
 export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
+  isMobile: z.boolean().optional(),
   keepAliveTimeoutMs: z
     .number()
     .int()
@@ -158,6 +159,7 @@ export type ProjectReadDevServerLogsInput = z.input<typeof ProjectReadDevServerL
 export const ProjectExposePortInputSchema = z
   .object({
     hostname: z.string().min(1).max(255).optional(),
+    isMobile: z.boolean().default(false),
     name: z.string().min(1).max(100).optional(),
     port: z.number().int().positive().max(65_535),
     tokenTtlMs: z
@@ -166,6 +168,13 @@ export const ProjectExposePortInputSchema = z
       .positive()
       .max(24 * 60 * 60 * 1000)
       .optional(),
+  })
+  .strict();
+
+export const ProjectAllocatePortInputSchema = z
+  .object({
+    projectId: z.string().min(1).max(200),
+    stack: z.enum(["web", "mobile"]),
   })
   .strict();
 
@@ -187,6 +196,10 @@ export const ProjectUnexposePortInputSchema = z
 export const ProjectWakePreviewInputSchema = z
   .object({
     hostname: z.string().min(1).max(255).optional(),
+    // Which project's dev server to wake — its ProcessRecord slot is keyed by the project's
+    // workspaceSlug (matching the start_dev_server tool + app-builder paths). Absent for a
+    // project-less chat, where there is no dev server to revive.
+    workspaceSlug: z.string().min(1).max(200).optional(),
   })
   .strict();
 
@@ -231,6 +244,7 @@ export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSche
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;
 export type ProjectKillProcessInput = z.input<typeof ProjectKillProcessInputSchema>;
 export type ProjectExposePortInput = z.input<typeof ProjectExposePortInputSchema>;
+export type ProjectAllocatePortInput = z.input<typeof ProjectAllocatePortInputSchema>;
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectUnexposePortInput = z.input<typeof ProjectUnexposePortInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;

@@ -24,9 +24,11 @@ import { signedUrlToExpo } from "./project-sandbox-preview";
 
 export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
 
-const APP_BUILDER_DIR = "/workspace/app";
-const APP_BUILDER_PORT = 5173;
-const EXPO_METRO_PORT = 8081;
+// Fallback app dir + ports for legacy/slug-less runs. Per-project runs derive their own dir from
+// the project's workspaceSlug and their own stable port from the sandbox's per-project allocator.
+const DEFAULT_APP_BUILDER_DIR = "/workspace/app";
+const DEFAULT_WEB_PORT = 5173;
+const DEFAULT_MOBILE_PORT = 8081;
 // 24h is Daytona's max signed-preview TTL; the token rides in the subdomain so Expo Go needs no
 // header, and we re-mint on every dev-server (re)start so it never serves an expired manifest URL.
 const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
@@ -42,8 +44,64 @@ interface GitHubRepoRef {
   repo: string;
 }
 
+// The per-project workspace this run builds in: its folder under /workspace, its stable dev-server
+// port within the per-user sandbox, and the process slot that keeps it distinct from other
+// projects' dev servers (all of which persist side by side — bud parity).
+interface AppBuilderWorkspace {
+  dir: string;
+  mobile: boolean;
+  port: number;
+  slot: string;
+}
+
 function isMobileBuild(input: AgentRunAppBuilderInput): boolean {
   return input.projectMode === "app-builder-mobile";
+}
+
+function basename(path: string): string {
+  const index = path.lastIndexOf("/");
+  return index === -1 ? path : path.slice(index + 1);
+}
+
+async function allocateAppPort(
+  sandbox: ProjectSandboxStub,
+  slug: string,
+  mobile: boolean,
+  logger: AgentRunLogger,
+): Promise<number> {
+  if (!sandbox.allocateProjectPort) {
+    logger.warn("app_port_alloc_missing_method", { slug });
+    return mobile ? DEFAULT_MOBILE_PORT : DEFAULT_WEB_PORT;
+  }
+  try {
+    const port = await sandbox.allocateProjectPort({
+      projectId: slug,
+      stack: mobile ? "mobile" : "web",
+    });
+    logger.info("app_port_allocated", { mobile, port, slug });
+    return port;
+  } catch (error) {
+    logger.warn("app_port_alloc_failed", {
+      error: error instanceof Error ? error.message : String(error),
+      slug,
+    });
+    return mobile ? DEFAULT_MOBILE_PORT : DEFAULT_WEB_PORT;
+  }
+}
+
+async function resolveAppWorkspace(
+  sandbox: ProjectSandboxStub,
+  input: AgentRunAppBuilderInput,
+  logger: AgentRunLogger,
+): Promise<AppBuilderWorkspace> {
+  const mobile = isMobileBuild(input);
+  const dir = input.workspaceSlug ? `/workspace/${input.workspaceSlug}` : DEFAULT_APP_BUILDER_DIR;
+  // Slot + port key off the project's workspaceSlug so the mobile path matches the start_dev_server
+  // tool + wakePreview (all keyed by slug, not projectId). Slug-less runs fall back to the dir basename.
+  const slug = input.workspaceSlug ?? basename(dir);
+  const slot = `app-preview:${slug}`;
+  const port = await allocateAppPort(sandbox, slug, mobile, logger);
+  return { dir, mobile, port, slot };
 }
 
 interface RunAppBuilderOptions {
@@ -58,87 +116,97 @@ interface RunAppBuilderOptions {
   setRunStage: (stage: string) => void;
 }
 
+type WorkspaceOptions = RunAppBuilderOptions & { workspace: AppBuilderWorkspace };
+
 export async function runAppBuilder(
   options: RunAppBuilderOptions,
 ): Promise<{ agentContextNote?: string }> {
   const { input, logger, sandbox } = options;
-  await stopBestEffortProcesses(sandbox, logger);
+  const workspace = await resolveAppWorkspace(sandbox, input, logger);
+  // Stop only THIS project's dev server before rebuilding — other projects in the per-user sandbox
+  // keep running (bud parity: every project's dev server persists on its own port).
+  await stopProjectPreview(sandbox, logger, workspace.slot);
+  const workspaceOptions: WorkspaceOptions = { ...options, workspace };
   // Marker/.git gate runs FIRST: an imported repo (any framework shape) must
   // never fall back into the destructive reset + re-clone scaffold path on a
   // follow-up run. See D7 — the marker, not the template-shape check, is the
   // one-shot guarantee.
-  if (await hasImportedAppWorkspace(sandbox)) {
-    return restoreImportedWorkspace(options);
+  if (await hasImportedAppWorkspace(sandbox, workspace.dir)) {
+    return restoreImportedWorkspace(workspaceOptions);
   }
-  const mobile = isMobileBuild(input);
-  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(sandbox, mobile));
+  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(
+    sandbox,
+    workspace.dir,
+    workspace.mobile,
+  ));
   if (shouldBootstrap && input.importRepoUrl) {
-    return importRepoWorkspace({ ...options, repoUrl: input.importRepoUrl });
+    return importRepoWorkspace({ ...workspaceOptions, repoUrl: input.importRepoUrl });
   }
-  return runTemplateAppBuilder({ ...options, mobile, shouldBootstrap });
+  return runTemplateAppBuilder({ ...workspaceOptions, shouldBootstrap });
 }
 
 async function runTemplateAppBuilder(
-  options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
+  options: WorkspaceOptions & { shouldBootstrap: boolean },
 ): Promise<{ agentContextNote: string }> {
-  const { env, input, logger, mobile, sandbox } = options;
+  const { env, input, logger, sandbox, workspace } = options;
   await prepareTemplateWorkspace(options);
-  await clearBuildCache(sandbox, mobile);
+  await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
   const preview = await startTemplatePreview(options);
-  return { agentContextNote: templateContextNote(mobile, preview) };
+  return { agentContextNote: templateContextNote(workspace, preview) };
 }
 
 function templateContextNote(
-  mobile: boolean,
+  workspace: AppBuilderWorkspace,
   preview: { previewUrl: string; expoUrl: string | null },
 ): string {
-  const stack = mobile ? "Expo Router" : "Next.js";
-  const web = mobile
+  const stack = workspace.mobile ? "Expo Router" : "Next.js";
+  const web = workspace.mobile
     ? " The preview is the app rendered on web (react-native-web) inside a phone frame, so verify it there in the browser."
     : "";
   const expo = preview.expoUrl
     ? ` The user can also scan the Expo Go QR code shown beside the preview (${preview.expoUrl}) to run it on a real device.`
     : "";
-  return `[context] A ${stack} workspace is scaffolded in ${APP_BUILDER_DIR} and its live preview is already running at ${preview.previewUrl}. Build the user's app by editing files under ${APP_BUILDER_DIR}; the preview hot-reloads on save.${web}${expo}`;
+  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir} and its live preview is already running at ${preview.previewUrl}. Build the user's app by editing files under ${workspace.dir}; the preview hot-reloads on save.${web}${expo}`;
 }
 
 async function prepareTemplateWorkspace(
-  options: RunAppBuilderOptions & { mobile: boolean; shouldBootstrap: boolean },
+  options: WorkspaceOptions & { shouldBootstrap: boolean },
 ): Promise<void> {
-  const { input, logger, mobile, sandbox, setRunStage, shouldBootstrap } = options;
+  const { input, logger, sandbox, setRunStage, shouldBootstrap, workspace } = options;
+  const mobile = workspace.mobile;
   setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
   if (!shouldBootstrap) {
     setRunStage("Restoring the app workspace.");
-    await installAppBuilderDependencies(sandbox, logger, mobile);
+    await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     if (mobile) {
-      await ensureExpoWebSupport(sandbox, logger);
+      await ensureExpoWebSupport(sandbox, logger, workspace.dir);
     }
     return;
   }
-  await resetAppBuilderDirectory(sandbox);
+  await resetAppBuilderDirectory(sandbox, workspace.dir);
   if (mobile) {
-    await scaffoldExpoApp(sandbox, logger);
+    await scaffoldExpoApp(sandbox, logger, workspace.dir);
   } else {
-    await scaffoldAppBuilder(sandbox, logger);
+    await scaffoldAppBuilder(sandbox, logger, workspace.dir);
   }
-  await installAppBuilderDependencies(sandbox, logger, mobile);
+  await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
   if (mobile) {
-    await ensureExpoWebSupport(sandbox, logger);
+    await ensureExpoWebSupport(sandbox, logger, workspace.dir);
   } else {
     setRunStage("Seeding the starter files.");
-    await writeAppBuilderFiles(input, sandbox);
+    await writeAppBuilderFiles(input, sandbox, workspace.dir);
   }
 }
 
 async function startTemplatePreview(
-  options: RunAppBuilderOptions & { mobile: boolean },
+  options: WorkspaceOptions,
 ): Promise<{ previewUrl: string; expoUrl: string | null }> {
-  const { append, env, logger, mobile, sandbox, setRunStage } = options;
+  const { append, env, logger, sandbox, setRunStage, workspace } = options;
   setRunStage("Starting the dev server.");
-  const preview = mobile
-    ? await startExpoDevServer(env, sandbox, logger)
-    : { ...(await startAppBuilderDevServer(env, sandbox)), expoUrl: null };
+  const preview = workspace.mobile
+    ? await startExpoDevServer(env, sandbox, logger, workspace)
+    : { ...(await startAppBuilderDevServer(env, sandbox, workspace)), expoUrl: null };
   const { expoUrl, previewUrl } = preview;
   await append({
     type: "data-sandbox-status",
@@ -152,15 +220,20 @@ async function startTemplatePreview(
 // the same reason the Next.js path force-polls). So its in-memory file-map keeps bundling the
 // scaffold even after the counter lands on disk, and a browser hard-refresh just re-bundles from
 // that stale map. Restarting the dev server once the edit stream completes makes a fresh Metro
-// process re-crawl the workspace and bundle the finished app. startProcess reuses the "app-preview"
-// slot (it kills the old process + frees port 8081), and the port-8081 preview URL is deterministic,
-// so the restart is transparent to the client. Mobile only — web/Next.js hot-reloads via polling.
+// process re-crawl the workspace and bundle the finished app. startProcess reuses this project's
+// dev-server slot (it kills the old process + frees its port), and the port + preview URL are
+// stable, so the restart is transparent to the client. Mobile only — web/Next.js hot-reloads via
+// polling.
 export async function restartMobilePreview(
-  options: Pick<RunAppBuilderOptions, "append" | "env" | "logger" | "sandbox" | "setRunStage">,
+  options: Pick<
+    RunAppBuilderOptions,
+    "append" | "env" | "input" | "logger" | "sandbox" | "setRunStage"
+  >,
 ): Promise<void> {
-  const { append, env, logger, sandbox, setRunStage } = options;
+  const { append, env, input, logger, sandbox, setRunStage } = options;
   setRunStage("Reloading the preview.");
-  const { expoUrl, previewUrl } = await startExpoDevServer(env, sandbox, logger);
+  const workspace = await resolveAppWorkspace(sandbox, input, logger);
+  const { expoUrl, previewUrl } = await startExpoDevServer(env, sandbox, logger, workspace);
   await append({
     type: "data-sandbox-status",
     data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
@@ -172,9 +245,9 @@ export async function restartMobilePreview(
 // without auto-starting a dev server (framework/port are unknowable). Failure
 // throws repo_import_failed, which rides the existing run() failure path.
 async function importRepoWorkspace(
-  options: RunAppBuilderOptions & { repoUrl: string },
+  options: WorkspaceOptions & { repoUrl: string },
 ): Promise<{ agentContextNote: string }> {
-  const { append, env, input, logger, repoUrl, sandbox, setRunStage } = options;
+  const { append, env, input, logger, repoUrl, sandbox, setRunStage, workspace } = options;
   const startedAt = Date.now();
   const repoRef = parseGitHubRepo(repoUrl);
   if (!repoRef) {
@@ -184,11 +257,11 @@ async function importRepoWorkspace(
   }
   logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
   setRunStage(`Cloning ${repoRef.path}.`);
-  await resetAppBuilderDirectory(sandbox);
-  await cloneRepoOrThrow({ env, input, logger, repoRef, repoUrl, sandbox });
-  await markImportedWorkspace(sandbox);
-  const installRan = await installImportedDependencies(sandbox, logger);
-  await clearBuildCache(sandbox, isMobileBuild(input));
+  await resetAppBuilderDirectory(sandbox, workspace.dir);
+  await cloneRepoOrThrow({ dir: workspace.dir, env, input, logger, repoRef, repoUrl, sandbox });
+  await markImportedWorkspace(sandbox, workspace.dir);
+  const installRan = await installImportedDependencies(sandbox, logger, workspace.dir);
+  await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
   await emitImportReady(append);
   logger.info("repo_import_succeeded", {
@@ -198,28 +271,28 @@ async function importRepoWorkspace(
     repoPath: repoRef.path,
   });
   emitImportEvent(env, input, "repo_import_succeeded");
-  return { agentContextNote: importedContextNote(repoUrl) };
+  return { agentContextNote: importedContextNote(workspace, repoUrl) };
 }
 
 // Every follow-up run of an imported project: re-install best-effort and snapshot,
 // but NEVER reset, re-clone, or auto-start the template dev server (prior agent
 // edits must survive).
 async function restoreImportedWorkspace(
-  options: RunAppBuilderOptions,
+  options: WorkspaceOptions,
 ): Promise<{ agentContextNote: string }> {
-  const { append, env, input, logger, sandbox, setRunStage } = options;
+  const { append, env, input, logger, sandbox, setRunStage, workspace } = options;
   setRunStage("Restoring the imported workspace.");
-  await installImportedDependencies(sandbox, logger);
-  await clearBuildCache(sandbox, isMobileBuild(input));
+  await installImportedDependencies(sandbox, logger, workspace.dir);
+  await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
   await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
   await append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
-  return { agentContextNote: importedContextNote(input.importRepoUrl) };
+  return { agentContextNote: importedContextNote(workspace, input.importRepoUrl) };
 }
 
-async function hasImportedAppWorkspace(sandbox: ProjectSandboxStub): Promise<boolean> {
+async function hasImportedAppWorkspace(sandbox: ProjectSandboxStub, dir: string): Promise<boolean> {
   const result = await executeShellTerminal(
     {
-      command: `test -f ${APP_BUILDER_DIR}/.cheatcode-imported || test -d ${APP_BUILDER_DIR}/.git`,
+      command: `test -f ${dir}/.cheatcode-imported || test -d ${dir}/.git`,
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
@@ -229,6 +302,7 @@ async function hasImportedAppWorkspace(sandbox: ProjectSandboxStub): Promise<boo
 }
 
 async function cloneRepoOrThrow(options: {
+  dir: string;
   env: AgentRunAppBuilderEnv;
   input: AgentRunAppBuilderInput;
   logger: AgentRunLogger;
@@ -239,15 +313,7 @@ async function cloneRepoOrThrow(options: {
   try {
     await executeShellExec(
       {
-        command: [
-          "git",
-          "clone",
-          "--depth",
-          "1",
-          "--single-branch",
-          options.repoUrl,
-          APP_BUILDER_DIR,
-        ],
+        command: ["git", "clone", "--depth", "1", "--single-branch", options.repoUrl, options.dir],
         cwd: "/workspace",
         timeoutMs: 300_000,
       },
@@ -279,10 +345,10 @@ function cloneFailureDetail(error: unknown): { exitCode: number | null; stderr: 
   return { exitCode: null, stderr: error instanceof Error ? error.message.slice(0, 500) : "" };
 }
 
-async function markImportedWorkspace(sandbox: ProjectSandboxStub): Promise<void> {
+async function markImportedWorkspace(sandbox: ProjectSandboxStub, dir: string): Promise<void> {
   await executeShellExec(
     {
-      command: ["touch", `${APP_BUILDER_DIR}/.cheatcode-imported`],
+      command: ["touch", `${dir}/.cheatcode-imported`],
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
@@ -293,16 +359,17 @@ async function markImportedWorkspace(sandbox: ProjectSandboxStub): Promise<void>
 async function installImportedDependencies(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  dir: string,
 ): Promise<boolean> {
-  if (!(await pathExists(sandbox, `${APP_BUILDER_DIR}/package.json`))) {
+  if (!(await pathExists(sandbox, `${dir}/package.json`))) {
     return false;
   }
-  const usesNpm = await pathExists(sandbox, `${APP_BUILDER_DIR}/package-lock.json`);
+  const usesNpm = await pathExists(sandbox, `${dir}/package-lock.json`);
   const command = usesNpm
     ? ["npm", "install", "--no-audit", "--no-fund"]
     : ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"];
   try {
-    await executeShellExec({ command, cwd: APP_BUILDER_DIR, timeoutMs: 300_000 }, { sandbox });
+    await executeShellExec({ command, cwd: dir, timeoutMs: 300_000 }, { sandbox });
     return true;
   } catch (error) {
     logger.warn("repo_import_install_failed", {
@@ -364,9 +431,10 @@ function parseGitHubRepo(url: string): GitHubRepoRef | null {
   return { host: parsed.hostname, owner, path: `${owner}/${repo}`, repo };
 }
 
-function importedContextNote(repoUrl?: string): string {
+function importedContextNote(workspace: AppBuilderWorkspace, repoUrl?: string): string {
   const origin = repoUrl ? ` from ${repoUrl}` : "";
-  return `[context] This project was imported${origin} into ${APP_BUILDER_DIR}. Inspect it, complete any setup, and start the dev server on port 5173 with start_dev_server (Expo on 8081 for mobile).`;
+  const mobilePort = DEFAULT_MOBILE_PORT;
+  return `[context] This project was imported${origin} into ${workspace.dir}. Inspect it, complete any setup, and start the dev server on port ${workspace.port} with start_dev_server (Expo on ${mobilePort} for mobile).`;
 }
 
 function repoImportError(message: string): APIError {
@@ -394,25 +462,26 @@ export async function warmSandbox(
 function writeAppBuilderFiles(
   input: AgentRunAppBuilderInput,
   sandbox: ProjectSandboxStub,
+  dir: string,
 ): Promise<void> {
   return Promise.all([
     executeWriteFile(
       {
-        path: `${APP_BUILDER_DIR}/src/app/layout.tsx`,
+        path: `${dir}/src/app/layout.tsx`,
         content: appBuilderLayoutSource(),
       },
       { sandbox },
     ),
     executeWriteFile(
       {
-        path: `${APP_BUILDER_DIR}/src/app/globals.css`,
+        path: `${dir}/src/app/globals.css`,
         content: appBuilderGlobalStylesSource(),
       },
       { sandbox },
     ),
     executeWriteFile(
       {
-        path: `${APP_BUILDER_DIR}/src/app/page.tsx`,
+        path: `${dir}/src/app/page.tsx`,
         content: appBuilderPageSource(input.messageText),
       },
       { sandbox },
@@ -424,17 +493,18 @@ async function startExpoDevServer(
   env: AgentRunAppBuilderEnv,
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  workspace: AppBuilderWorkspace,
 ): Promise<{ previewUrl: string; expoUrl: string | null }> {
   // Mint the signed Metro URL BEFORE starting the server: Expo Go reaches the manifest via this
   // header-free URL, and Metro must know its public host (EXPO_PACKAGER_PROXY_URL) so the manifest's
   // launchAsset/bundle URLs point at the signed host instead of 127.0.0.1 (which Expo Go can't hit).
-  const signedUrl = await getSignedMetroUrl(sandbox, logger);
+  const signedUrl = await getSignedMetroUrl(sandbox, logger, workspace.port);
   const preview = await executeStartDevServer(
     {
       // `--web` makes the single Metro dev server also serve the react-native-web
       // build as a real web page at `/` (iframe-renderable in the Computer panel),
       // while the SAME server keeps answering exp:// manifests for Expo Go — so we
-      // get both the in-panel preview and the QR from one process on port 8081.
+      // get both the in-panel preview and the QR from one process on the project port.
       // `-c` clears Metro's transform/file-map cache on start (boolean flag, order-
       // independent among the other flags): harmless on the initial boot, and what
       // makes the post-edit restart (restartMobilePreview) re-crawl from a clean slate.
@@ -448,17 +518,18 @@ async function startExpoDevServer(
         "--host",
         "lan",
         "--port",
-        String(EXPO_METRO_PORT),
+        String(workspace.port),
       ],
-      cwd: APP_BUILDER_DIR,
+      cwd: workspace.dir,
       env: {
         CI: "1",
         EXPO_NO_TELEMETRY: "1",
         ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
       },
       hostname: resolvePreviewHostname(env),
-      name: "app-preview",
-      port: EXPO_METRO_PORT,
+      isMobile: true,
+      name: workspace.slot,
+      port: workspace.port,
       timeoutMs: 180_000,
     },
     { sandbox },
@@ -474,6 +545,7 @@ async function startExpoDevServer(
 async function getSignedMetroUrl(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  port: number,
 ): Promise<string | null> {
   if (!sandbox.getSignedPreviewUrl) {
     return null;
@@ -481,7 +553,7 @@ async function getSignedMetroUrl(
   try {
     const signed = await sandbox.getSignedPreviewUrl({
       expiresInSeconds: SIGNED_PREVIEW_TTL_SECONDS,
-      port: EXPO_METRO_PORT,
+      port,
     });
     return signed.url;
   } catch (error) {
@@ -495,6 +567,7 @@ async function getSignedMetroUrl(
 async function startAppBuilderDevServer(
   env: AgentRunAppBuilderEnv,
   sandbox: ProjectSandboxStub,
+  workspace: AppBuilderWorkspace,
 ): Promise<{ previewUrl: string }> {
   return executeStartDevServer(
     {
@@ -507,16 +580,17 @@ async function startAppBuilderDevServer(
         "--hostname",
         "0.0.0.0",
         "--port",
-        String(APP_BUILDER_PORT),
+        String(workspace.port),
       ],
-      cwd: APP_BUILDER_DIR,
+      cwd: workspace.dir,
       env: {
         CHOKIDAR_USEPOLLING: "true",
         WATCHPACK_POLLING: "1000",
       },
       hostname: resolvePreviewHostname(env),
-      name: "app-preview",
-      port: APP_BUILDER_PORT,
+      isMobile: false,
+      name: workspace.slot,
+      port: workspace.port,
       timeoutMs: 180_000,
     },
     { sandbox },
@@ -525,12 +599,13 @@ async function startAppBuilderDevServer(
 
 async function hasExistingAppBuilderWorkspace(
   sandbox: ProjectSandboxStub,
+  dir: string,
   mobile: boolean,
 ): Promise<boolean> {
   const appDir = mobile ? "app" : "src/app";
   const result = await executeShellTerminal(
     {
-      command: `test -f ${APP_BUILDER_DIR}/package.json && test -d ${APP_BUILDER_DIR}/${appDir}`,
+      command: `test -f ${dir}/package.json && test -d ${dir}/${appDir}`,
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
@@ -539,18 +614,22 @@ async function hasExistingAppBuilderWorkspace(
   return result.success;
 }
 
-async function resetAppBuilderDirectory(sandbox: ProjectSandboxStub): Promise<void> {
+async function resetAppBuilderDirectory(sandbox: ProjectSandboxStub, dir: string): Promise<void> {
   await executeShellExec(
-    { command: ["rm", "-rf", APP_BUILDER_DIR], cwd: "/workspace", timeoutMs: 120_000 },
+    { command: ["rm", "-rf", dir], cwd: "/workspace", timeoutMs: 120_000 },
     { sandbox },
   );
 }
 
-async function clearBuildCache(sandbox: ProjectSandboxStub, mobile: boolean): Promise<void> {
+async function clearBuildCache(
+  sandbox: ProjectSandboxStub,
+  dir: string,
+  mobile: boolean,
+): Promise<void> {
   const cacheDir = mobile ? ".expo" : ".next";
   await executeShellExec(
     {
-      command: ["rm", "-rf", `${APP_BUILDER_DIR}/${cacheDir}`],
+      command: ["rm", "-rf", `${dir}/${cacheDir}`],
       cwd: "/workspace",
       timeoutMs: 120_000,
     },
@@ -558,13 +637,14 @@ async function clearBuildCache(sandbox: ProjectSandboxStub, mobile: boolean): Pr
   );
 }
 
-async function stopBestEffortProcesses(
+async function stopProjectPreview(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  slot: string,
 ): Promise<void> {
   try {
-    const killed = await sandbox.killAllProcesses?.();
-    logger.info("sandbox_processes_stopped", { killed: killed ?? 0 });
+    await sandbox.killProcess?.({ processId: slot });
+    logger.info("sandbox_project_preview_stopped", { slot });
   } catch (error) {
     logger.warn("sandbox_process_stop_failed", {
       error: error instanceof Error ? error.message : "Unknown process cleanup error",
@@ -572,17 +652,21 @@ async function stopBestEffortProcesses(
   }
 }
 
-async function scaffoldExpoApp(sandbox: ProjectSandboxStub, logger: AgentRunLogger): Promise<void> {
+async function scaffoldExpoApp(
+  sandbox: ProjectSandboxStub,
+  logger: AgentRunLogger,
+  dir: string,
+): Promise<void> {
   try {
     await executeShellExec(
       {
-        command: ["cp", "-a", "/home/node/cheatcode-expo-template", APP_BUILDER_DIR],
+        command: ["cp", "-a", "/home/node/cheatcode-expo-template", dir],
         cwd: "/workspace",
         timeoutMs: 120_000,
       },
       { sandbox },
     );
-    logger.info("sandbox_expo_template_copied", { targetDir: APP_BUILDER_DIR });
+    logger.info("sandbox_expo_template_copied", { targetDir: dir });
     return;
   } catch (error) {
     logger.warn("sandbox_expo_template_copy_failed", {
@@ -596,7 +680,7 @@ async function scaffoldExpoApp(sandbox: ProjectSandboxStub, logger: AgentRunLogg
         "npx",
         "--yes",
         "create-expo-app@latest",
-        "app",
+        basename(dir),
         "--template",
         "default",
         "--no-install",
@@ -612,17 +696,18 @@ async function scaffoldExpoApp(sandbox: ProjectSandboxStub, logger: AgentRunLogg
 async function scaffoldAppBuilder(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  dir: string,
 ): Promise<void> {
   try {
     await executeShellExec(
       {
-        command: ["cp", "-a", "/home/node/cheatcode-next-template", APP_BUILDER_DIR],
+        command: ["cp", "-a", "/home/node/cheatcode-next-template", dir],
         cwd: "/workspace",
         timeoutMs: 120_000,
       },
       { sandbox },
     );
-    logger.info("sandbox_next_template_copied", { targetDir: APP_BUILDER_DIR });
+    logger.info("sandbox_next_template_copied", { targetDir: dir });
     return;
   } catch (error) {
     logger.warn("sandbox_next_template_copy_failed", {
@@ -635,7 +720,7 @@ async function scaffoldAppBuilder(
       command: [
         "npx",
         "create-next-app@16.2.6",
-        "app",
+        basename(dir),
         "--yes",
         "--ts",
         "--tailwind",
@@ -656,12 +741,13 @@ async function scaffoldAppBuilder(
 async function installAppBuilderDependencies(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  dir: string,
   mobile = false,
 ): Promise<void> {
   const networkTimeoutMs = mobile ? 300_000 : 120_000;
   try {
     await executeShellExec(
-      { command: ["pnpm", "install", "--offline"], cwd: APP_BUILDER_DIR, timeoutMs: 120_000 },
+      { command: ["pnpm", "install", "--offline"], cwd: dir, timeoutMs: 120_000 },
       { sandbox },
     );
     return;
@@ -673,7 +759,7 @@ async function installAppBuilderDependencies(
   await executeShellExec(
     {
       command: ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"],
-      cwd: APP_BUILDER_DIR,
+      cwd: dir,
       timeoutMs: networkTimeoutMs,
     },
     { sandbox },
@@ -688,12 +774,13 @@ async function installAppBuilderDependencies(
 async function ensureExpoWebSupport(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
+  dir: string,
 ): Promise<void> {
   const alreadyInstalled = await executeShellTerminal(
     {
       command:
         "test -d node_modules/react-native-web && test -d node_modules/react-dom && test -d node_modules/@expo/metro-runtime",
-      cwd: APP_BUILDER_DIR,
+      cwd: dir,
       timeoutMs: 10_000,
     },
     { sandbox },
@@ -711,7 +798,7 @@ async function ensureExpoWebSupport(
             "react-native-web",
             "@expo/metro-runtime",
           ],
-          cwd: APP_BUILDER_DIR,
+          cwd: dir,
           env: { CI: "1", EXPO_NO_TELEMETRY: "1" },
           timeoutMs: 240_000,
         },
@@ -737,12 +824,12 @@ async function ensureExpoWebSupport(
         "-e",
         'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo=j.expo||{};j.expo.web={...(j.expo.web||{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2));}catch(e){}',
       ],
-      cwd: APP_BUILDER_DIR,
+      cwd: dir,
       timeoutMs: 15_000,
     },
     { sandbox },
   );
-  await ensureMetroForwardedHostFix(sandbox);
+  await ensureMetroForwardedHostFix(sandbox, dir);
 }
 
 // The preview proxy chain (gateway → Daytona's multi-hop edge) delivers `X-Forwarded-Host` to
@@ -752,7 +839,10 @@ async function ensureExpoWebSupport(
 // and the web preview renders blank. This can't be fixed upstream (the list is assembled inside
 // Daytona), so we normalise the header in Metro's own config via `enhanceMiddleware`, which runs
 // before `_processRequest`. Wraps any existing metro.config.js; idempotent via the marker grep.
-async function ensureMetroForwardedHostFix(sandbox: ProjectSandboxStub): Promise<void> {
+async function ensureMetroForwardedHostFix(
+  sandbox: ProjectSandboxStub,
+  dir: string,
+): Promise<void> {
   const script = [
     'if [ -f metro.config.js ] && grep -q "x-forwarded-host" metro.config.js; then exit 0; fi',
     "if [ -f metro.config.js ]; then mv metro.config.js metro.config.base.js; fi",
@@ -761,7 +851,7 @@ async function ensureMetroForwardedHostFix(sandbox: ProjectSandboxStub): Promise
     "METROEOF",
   ].join("\n");
   await executeShellExec(
-    { command: ["bash", "-lc", script], cwd: APP_BUILDER_DIR, timeoutMs: 15_000 },
+    { command: ["bash", "-lc", script], cwd: dir, timeoutMs: 15_000 },
     { sandbox },
   );
 }

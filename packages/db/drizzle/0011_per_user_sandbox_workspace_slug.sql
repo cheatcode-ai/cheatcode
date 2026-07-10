@@ -1,0 +1,1 @@
+ALTER TABLE "v2_projects" ADD COLUMN "workspace_slug" text;

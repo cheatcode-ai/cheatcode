@@ -35,6 +35,7 @@ export interface ProjectSummaryRecord {
   overQuota: boolean;
   readOnly: boolean;
   updatedAt: Date;
+  workspaceSlug: string | null;
 }
 
 export interface UpdateProjectInput {
@@ -143,6 +144,7 @@ export async function listProjects(db: Database, userId: UserId): Promise<Projec
       overQuota: true,
       settings: true,
       updatedAt: true,
+      workspaceSlug: true,
     },
     orderBy: [desc(projects.updatedAt)],
     where: and(eq(projects.userId, userId), isNull(projects.deletedAt)),
@@ -158,9 +160,14 @@ export async function countActiveProjects(db: Database, userId: UserId): Promise
   return row?.count ?? 0;
 }
 
+/**
+ * Distinct Daytona sandboxes the user has attached. One-sandbox-per-user model: every project
+ * shares the user's single "computer" sandbox, so this is 0 or 1 — the concurrent-sandbox limit
+ * gates on real VMs, not project count.
+ */
 export async function countActiveSandboxProjects(db: Database, userId: UserId): Promise<number> {
   const [row] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql<number>`count(distinct ${projects.sandboxId})::int` })
     .from(projects)
     .where(
       and(eq(projects.userId, userId), isNull(projects.deletedAt), isNotNull(projects.sandboxId)),
@@ -184,6 +191,7 @@ export async function getProject(
       overQuota: true,
       settings: true,
       updatedAt: true,
+      workspaceSlug: true,
     },
     where: and(
       eq(projects.id, input.projectId),
@@ -194,17 +202,65 @@ export async function getProject(
   return row ? projectSummaryFromRow(row) : null;
 }
 
+/** The absolute sandbox folder for a project's immutable workspace slug (/workspace/<slug>). */
+export function workspacePathForSlug(slug: string): string {
+  return `/workspace/${slug}`;
+}
+
+/** Lowercase, filesystem-safe kebab slug (folder name) from a project display name. */
+export function filesystemSlug(name: string): string {
+  const slug = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 40)
+    .replace(/-+$/g, "");
+  return slug || "project";
+}
+
+/**
+ * A per-user-unique workspace slug: derives a filesystem-safe base from `name`, then appends
+ * -2, -3, … until it collides with none of the user's existing project slugs (including
+ * soft-deleted ones, whose sandbox-disk folders may still exist). Queried in the caller's tx.
+ */
+export async function computeUniqueWorkspaceSlug(
+  db: Database,
+  userId: UserId,
+  name: string,
+): Promise<string> {
+  const rows = await db
+    .select({ workspaceSlug: projects.workspaceSlug })
+    .from(projects)
+    .where(and(eq(projects.userId, userId), isNotNull(projects.workspaceSlug)));
+  const taken = new Set(
+    rows.map((row) => row.workspaceSlug).filter((slug): slug is string => !!slug),
+  );
+  const base = filesystemSlug(name);
+  if (!taken.has(base)) {
+    return base;
+  }
+  for (let suffix = 2; suffix < 10_000; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!taken.has(candidate)) {
+      return candidate;
+    }
+  }
+  return `${base}-${Date.now()}`;
+}
+
 export async function createProject(
   db: Database,
   input: CreateProjectInput,
 ): Promise<ProjectSummaryRecord> {
   const settings = initialProjectSettings(input);
+  const workspaceSlug = await computeUniqueWorkspaceSlug(db, input.userId, input.name);
   const rows = await db
     .insert(projects)
     .values({
       masterInstructions: input.masterInstructions,
       mode: input.mode,
       name: input.name,
+      workspaceSlug,
       ...(settings ? { settings } : {}),
       userId: input.userId,
     })
@@ -219,6 +275,7 @@ export async function createProject(
       overQuota: projects.overQuota,
       settings: projects.settings,
       updatedAt: projects.updatedAt,
+      workspaceSlug: projects.workspaceSlug,
     });
   const row = rows[0];
   if (!row) {
@@ -260,6 +317,7 @@ export async function updateProject(
       overQuota: projects.overQuota,
       settings: projects.settings,
       updatedAt: projects.updatedAt,
+      workspaceSlug: projects.workspaceSlug,
     });
   const row = rows[0];
   return row ? projectSummaryFromRow(row) : null;
@@ -746,6 +804,7 @@ function projectSummaryFromRow(row: {
   overQuota: boolean;
   settings: ProjectSettings;
   updatedAt: Date;
+  workspaceSlug: string | null;
 }): ProjectSummaryRecord {
   return {
     archiveAfter: row.archiveAfter,
@@ -761,6 +820,7 @@ function projectSummaryFromRow(row: {
     overQuota: row.overQuota,
     readOnly: row.archivedPendingAction || row.overQuota,
     updatedAt: row.updatedAt,
+    workspaceSlug: row.workspaceSlug,
   };
 }
 

@@ -5,6 +5,9 @@ export const StartRunInputSchema = z
     runId: z.string().min(1),
     threadId: z.string().min(1),
     projectId: z.string().min(1),
+    // Immutable /workspace subfolder for this project in the per-user "computer" sandbox. Absent
+    // for legacy (non-UUID) threads, which fall back to the default app dir.
+    workspaceSlug: z.string().min(1).max(64).optional(),
     sandboxName: z.string().min(1),
     userId: z.string().uuid(),
     messageText: z.string().min(1),

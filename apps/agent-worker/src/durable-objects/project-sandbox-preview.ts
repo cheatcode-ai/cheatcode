@@ -15,10 +15,6 @@ import { hmacSha256Base64 } from "@cheatcode/auth";
 
 export type PreviewTokenMode = "app" | "code" | "takeover";
 
-// The Expo Metro port. Mobile web previews on this port are served under a clean subdomain URL
-// (not the path-prefix form) so the client-side Expo Router can match routes — see buildPreviewUrl.
-const EXPO_PREVIEW_PORT = 8081;
-
 export interface BuildPreviewUrlInput {
   sandboxId: string;
   port: number;
@@ -26,6 +22,10 @@ export interface BuildPreviewUrlInput {
   mode: PreviewTokenMode;
   ttlMs: number;
   secret: string;
+  // Mobile (Expo web) previews are served under the clean-subdomain URL form so the client-side
+  // Expo Router routes from window.location. Replaces the old port === 8081 heuristic now that
+  // each project's Metro runs on its own per-project port.
+  isMobile?: boolean;
 }
 
 export interface BuiltPreviewUrl {
@@ -43,14 +43,13 @@ export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<Buil
   const host = `${input.sandboxId}--${input.port}.${hostname}`;
   const path = `/?__cc_pt=${encodeURIComponent(token)}`;
   if (hostname === "localhost:8787") {
-    // Mobile (Expo, port 8081) previews are served under the subdomain form so the browser path
-    // stays clean (`/`) — Expo Router routes from window.location and the `/__sandbox/<host>` path
-    // prefix yields "Unmatched Route". The local proxy routes this by Host, matching prod's
-    // subdomain routing. Other ports (Next.js on 5173) keep the path form, which they tolerate.
-    const url =
-      input.port === EXPO_PREVIEW_PORT
-        ? `http://${host}${path}`
-        : `http://${hostname}/__sandbox/${encodePreviewHost(host)}${path}`;
+    // Mobile (Expo web) previews are served under the subdomain form so the browser path stays
+    // clean (`/`) — Expo Router routes from window.location and the `/__sandbox/<host>` path prefix
+    // yields "Unmatched Route". The local proxy routes this by Host, matching prod's subdomain
+    // routing. Web (Next.js) previews keep the path form, which they tolerate.
+    const url = input.isMobile
+      ? `http://${host}${path}`
+      : `http://${hostname}/__sandbox/${encodePreviewHost(host)}${path}`;
     return { expiresAt: new Date(exp).toISOString(), token, url };
   }
   const url = `https://${host}${path}`;

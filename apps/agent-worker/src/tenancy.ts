@@ -59,10 +59,12 @@ export function legacyAgentRunObjectName(userId: string, threadId: string): stri
   return JSON.stringify(["agent-run", userId, threadId]);
 }
 
-export async function projectSandboxName(userId: string, threadId: string): Promise<string> {
+// One sandbox ("computer") per user: every project is a subfolder under /workspace in the same
+// sandbox, so the DO name is keyed only by userId. Projects no longer get their own sandbox.
+export async function userSandboxName(userId: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
-    textEncoder.encode(JSON.stringify(["project-sandbox", userId, threadId])),
+    textEncoder.encode(JSON.stringify(["user-sandbox", userId])),
   );
   return `${SANDBOX_ID_PREFIX}-${toHex(digest).slice(0, SANDBOX_ID_HEX_LENGTH)}`;
 }

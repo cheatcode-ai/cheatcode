@@ -34,6 +34,8 @@ import { buildPreviewUrl, signedUrlToExpo } from "./project-sandbox-preview";
 import { emptyConsoleSnapshot, sliceProcessLogs } from "./project-sandbox-process-logs";
 import {
   commandToShellString,
+  type ProjectAllocatePortInput,
+  ProjectAllocatePortInputSchema,
   type ProjectCodeServerInput,
   ProjectCodeServerInputSchema,
   type ProjectCreateBackupInput,
@@ -93,8 +95,8 @@ export interface ProjectSandboxStatus {
 }
 
 const WORKSPACE_DIR = "/workspace";
-// The app-builder dev server (Next/Expo) always runs here — the fallback cwd when relaunching a
-// dev server whose ProcessRecord predates cwd persistence.
+// Fallback cwd when relaunching a dev server whose ProcessRecord has no persisted cwd (legacy /
+// slug-less projects). Per-project dev servers run in /workspace/<slug> and always persist cwd.
 const APP_BUILDER_DIR = "/workspace/app";
 const ENV_FILE_DIR = "/home/node/.cc-env";
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
@@ -108,16 +110,25 @@ const APP_PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 // Daytona's signed preview URL (token in the subdomain) TTL — 24h is Daytona's max. Regenerated on
 // every mobile dev-server (re)start so Expo Go always has an unexpired, header-free manifest URL.
 const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
-// Expo Metro dev-server port. A dev server tracked on this port is a mobile build, so its wake path
-// re-mints a signed preview URL + EXPO_PACKAGER_PROXY_URL and returns an exp(s):// deep link.
-const EXPO_METRO_PORT = 8081;
+// Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<projectId>
+// so multiple projects' servers persist side by side in the one per-user sandbox (bud parity).
+const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
+// Per-project dev-server port pools. Web previews start at 5173, mobile (Expo Metro) at 8081, each
+// incrementing per new project, unique within the sandbox — the port is per-project, not fixed.
+const WEB_PORT_BASE = 5173;
+const MOBILE_PORT_BASE = 8081;
+const PORT_ALLOC_KEY = "port_alloc";
 // Upper bound for a dev server (Expo Metro / Next) to boot when waking a stopped preview.
 const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
 const CODE_SERVER_PORT = 13_340;
 const CODE_SERVER_PROCESS_ID = "code-server";
 const CODE_SERVER_START_TIMEOUT_MS = 120_000;
 const CODE_SERVER_SETTINGS_MARKER =
-  "/home/node/.local/share/code-server/user-data/.cheatcode-settings-v4";
+  "/home/node/.local/share/code-server/user-data/.cheatcode-settings-v5";
+// bud parity: the Explorer header + command center show the opened folder's basename. bud opens a
+// "computer" home folder; cheatcode opens the project dir (e.g. /workspace/app → "APP"). A display
+// symlink outside the workspace lets the IDE header read "COMPUTER" without relocating the project.
+const CODE_SERVER_DISPLAY_DIR = "/home/node/Computer";
 const DEFAULT_TAKEOVER_TTL_MS = 15 * 60 * 1000;
 const KEEPALIVE_ALARM_MS = 4 * 60 * 1000;
 const MAX_RUN_LEASE_MS = 6 * 60 * 60 * 1000;
@@ -141,6 +152,9 @@ const ProcessRecordSchema = z
     cmdId: z.string(),
     command: z.string(),
     port: z.number().optional(),
+    // Mobile (Expo Metro) dev server — the wake path re-mints its signed preview URL. Persisted
+    // because the per-project port is no longer a reliable "is mobile" signal.
+    isMobile: z.boolean().optional(),
     // cwd + env are persisted so a dev server can be relaunched faithfully after the sandbox
     // idle-stops and its process dies (wakePreview) — the workspace disk survives the restart.
     cwd: z.string().optional(),
@@ -150,6 +164,14 @@ const ProcessRecordSchema = z
   .strict();
 type ProcessRecord = z.infer<typeof ProcessRecordSchema>;
 type NamedProcessRecord = { name: string; record: ProcessRecord };
+const PortAllocationSchema = z
+  .object({
+    webNext: z.number().int().positive().default(WEB_PORT_BASE),
+    mobileNext: z.number().int().positive().default(MOBILE_PORT_BASE),
+    ports: z.record(z.string(), z.number().int().positive()).default({}),
+  })
+  .strict();
+type PortAllocation = z.infer<typeof PortAllocationSchema>;
 
 export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   private daytonaClient: DaytonaClient | undefined;
@@ -366,6 +388,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       cmdId,
       command: commandToShellString(parsed.command),
       ...(parsed.waitForPort ? { port: parsed.waitForPort.port } : {}),
+      ...(parsed.isMobile ? { isMobile: true } : {}),
       cwd,
       ...(parsed.env && Object.keys(parsed.env).length > 0 ? { env: parsed.env } : {}),
       startedAtMs: Date.now(),
@@ -480,6 +503,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       parsed.tokenTtlMs ?? (mode === "app" ? APP_PREVIEW_TTL_MS : DEFAULT_TAKEOVER_TTL_MS);
     const built = await buildPreviewUrl({
       hostname,
+      isMobile: parsed.isMobile,
       mode,
       port: parsed.port,
       sandboxId: id,
@@ -492,6 +516,30 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       token: built.token,
       url: built.url,
     };
+  }
+
+  // Get-or-assign this project's stable dev-server port within the per-user sandbox. Web previews
+  // draw from 5173+, mobile (Expo Metro) from 8081+, each unique across the sandbox's projects.
+  public async allocateProjectPort(input: ProjectAllocatePortInput): Promise<number> {
+    const parsed = ProjectAllocatePortInputSchema.parse(input);
+    const alloc = await this.portAllocation();
+    const existing = alloc.ports[parsed.projectId];
+    if (existing !== undefined) {
+      return existing;
+    }
+    const used = new Set(Object.values(alloc.ports));
+    let candidate = parsed.stack === "mobile" ? alloc.mobileNext : alloc.webNext;
+    while (used.has(candidate)) {
+      candidate += 1;
+    }
+    alloc.ports[parsed.projectId] = candidate;
+    if (parsed.stack === "mobile") {
+      alloc.mobileNext = candidate + 1;
+    } else {
+      alloc.webNext = candidate + 1;
+    }
+    await this.ctx.storage.put(PORT_ALLOC_KEY, alloc);
+    return candidate;
   }
 
   // Mint a Daytona-signed preview URL for a port. Unlike the custom token-gated proxy URL, the
@@ -515,6 +563,15 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const parsed = ProjectCodeServerInputSchema.parse(input);
     const id = await this.ensureSandbox();
     await this.ensureCodeServer(id);
+    // bud parity: a project-less chat opens the whole computer (/workspace) via a "Computer"-named
+    // display symlink so the Explorer header reads "COMPUTER" and every project shows as a
+    // subfolder. A project chat opens its own folder (/workspace/<slug>) directly, whose basename
+    // (the slug) becomes the header — no symlink needed. Falls back to the real path on symlink
+    // failure so the Files tab never opens an empty/broken folder.
+    const displayFolder =
+      parsed.workspacePath === WORKSPACE_DIR
+        ? await this.ensureCodeServerDisplayFolder(id, parsed.workspacePath)
+        : parsed.workspacePath;
     if (parsed.initialFilePath) {
       await this.openCodeServerFile(id, parsed.initialFilePath).catch(() => undefined);
     }
@@ -534,7 +591,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return {
       expiresAt: built.expiresAt,
       port: CODE_SERVER_PORT,
-      url: codeServerFolderUrl(built.url, parsed.workspacePath),
+      url: codeServerFolderUrl(built.url, displayFolder),
       workspacePath: parsed.workspacePath,
     };
   }
@@ -545,18 +602,21 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   public async wakePreview(input: ProjectWakePreviewInput): Promise<ProjectWakePreviewResult> {
     const parsed = ProjectWakePreviewInputSchema.parse(input);
     const id = await this.ensureSandbox();
-    const record = await this.processRecord("app-preview");
+    const slot = parsed.workspaceSlug
+      ? `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`
+      : "app-preview";
+    const record = await this.processRecord(slot);
     if (!record?.port) {
-      // No dev server has ever been tracked for this sandbox (e.g. a docs/data project).
+      // No dev server tracked for this project (e.g. a docs/data project or a project-less chat).
       return { running: false, state: "started" };
     }
     const port = record.port;
-    // Mobile (Metro/8081): re-mint the header-free signed URL and thread EXPO_PACKAGER_PROXY_URL
-    // into the relaunch env so Metro emits bundle/asset URLs on that host after a restart.
-    const mobile = await this.mobileExpoProxy(id, port, record);
+    // Mobile: re-mint the header-free signed URL and thread EXPO_PACKAGER_PROXY_URL into the
+    // relaunch env so Metro emits bundle/asset URLs on that host after a restart.
+    const mobile = await this.mobileExpoProxy(id, record);
     let running = await this.isPortAlive(id, port);
     if (!running) {
-      await this.relaunchDevServer(id, "app-preview", mobile?.record ?? record);
+      await this.relaunchDevServer(id, slot, mobile?.record ?? record);
       await this.waitForPort(id, port, "/", PREVIEW_WAKE_TIMEOUT_MS).catch(() => undefined);
       running = await this.isPortAlive(id, port);
     }
@@ -567,6 +627,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const hostname = this.previewHostname(parsed.hostname);
     const built = await buildPreviewUrl({
       hostname,
+      isMobile: record.isMobile === true,
       mode: "app",
       port,
       sandboxId: id,
@@ -583,20 +644,19 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     };
   }
 
-  // For a mobile Expo dev server (Metro on 8081), mint a fresh 24h signed preview URL (token in the
-  // subdomain, so Expo Go reaches it with no header), thread EXPO_PACKAGER_PROXY_URL into the
-  // relaunch env so Metro's bundle/asset URLs use that signed host, and derive the exps:// deep
-  // link. Returns null for non-mobile ports or when signing is unavailable.
+  // For a mobile Expo dev server, mint a fresh 24h signed preview URL (token in the subdomain, so
+  // Expo Go reaches it with no header), thread EXPO_PACKAGER_PROXY_URL into the relaunch env so
+  // Metro's bundle/asset URLs use that signed host, and derive the exps:// deep link. Returns null
+  // for non-mobile dev servers or when signing is unavailable.
   private async mobileExpoProxy(
     id: string,
-    port: number,
     record: ProcessRecord,
   ): Promise<{ expoUrl: string; record: ProcessRecord } | null> {
-    if (port !== EXPO_METRO_PORT) {
+    if (!record.isMobile || record.port === undefined) {
       return null;
     }
     const signed = await this.client()
-      .getSignedPreviewUrl(id, port, SIGNED_PREVIEW_TTL_SECONDS)
+      .getSignedPreviewUrl(id, record.port, SIGNED_PREVIEW_TTL_SECONDS)
       .catch(() => null);
     if (!signed) {
       return null;
@@ -1137,6 +1197,20 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return probe?.exitCode === 0;
   }
 
+  private async ensureCodeServerDisplayFolder(id: string, workspacePath: string): Promise<string> {
+    // A symlink OUTSIDE the workspace (so it can point at /workspace or any subfolder without
+    // self-recursion) whose basename is "Computer". code-server renders that basename as the
+    // Explorer root header + command-center label, matching bud's "COMPUTER". If the link can't be
+    // created we fall back to the real path so the Files tab still opens the project.
+    const probe = await this.client()
+      .execute(id, {
+        command: `ln -sfn ${shellQuote(workspacePath)} ${shellQuote(CODE_SERVER_DISPLAY_DIR)} && test -d ${shellQuote(CODE_SERVER_DISPLAY_DIR)}`,
+        timeout: 10,
+      })
+      .catch(() => null);
+    return probe?.exitCode === 0 ? CODE_SERVER_DISPLAY_DIR : workspacePath;
+  }
+
   private async openCodeServerFile(id: string, path: string): Promise<void> {
     await this.client().execute(id, {
       command: [
@@ -1204,6 +1278,10 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
 
   private async runLeases(): Promise<Array<{ runId: string; startedMs: number }>> {
     return RunLeasesSchema.parse((await this.ctx.storage.get(RUN_LEASES_KEY)) ?? []);
+  }
+
+  private async portAllocation(): Promise<PortAllocation> {
+    return PortAllocationSchema.parse((await this.ctx.storage.get(PORT_ALLOC_KEY)) ?? {});
   }
 
   private async processRecord(name: string): Promise<ProcessRecord | null> {
@@ -1481,8 +1559,15 @@ function codeServerStartCommand(): string {
       "explorer.confirmDelete": false,
       "explorer.confirmDragAndDrop": false,
       "explorer.openEditors.visible": 0,
+      "extensions.ignoreRecommendations": true,
       "files.autoSave": "afterDelay",
       "files.autoSaveDelay": 800,
+      // bud parity: bud's IDE surfaces no git state — its file tree is a single uniform colour with
+      // no A/M/U badges and its editor title bar carries no "Open Changes"/"View File History"
+      // actions. Disabling code-server's git UI (the agent tracks git itself via the toolbox, not
+      // this viewer) reproduces bud's clean tree exactly.
+      "git.decorations.enabled": false,
+      "git.enabled": false,
       "muty-pptviewer.libreOfficePath": "/usr/bin/libreoffice",
       "security.workspace.trust.enabled": false,
       "telemetry.telemetryLevel": "off",
@@ -1565,7 +1650,7 @@ function codeServerStartCommand(): string {
     "[]",
     "JSON",
     'rm -rf "$USER_DATA_DIR/User/workspaceStorage"',
-    'touch "$USER_DATA_DIR/.cheatcode-settings-v4"',
+    'touch "$USER_DATA_DIR/.cheatcode-settings-v5"',
     "export CS_DISABLE_GETTING_STARTED_OVERRIDE=1",
     'EXTRA_FLAGS=""',
     'if code-server --help 2>/dev/null | grep -q -- "--disable-getting-started-override"; then',

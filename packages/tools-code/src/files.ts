@@ -3,7 +3,11 @@ import { tool } from "ai";
 import { z } from "zod";
 import { getCodeRuntimeContext } from "./runtime";
 import { callSandboxMethod } from "./sandbox-methods";
-import { WorkspaceFilePathSchema, WorkspacePathSchema } from "./workspace-paths";
+import {
+  resolveWorkspaceDir,
+  WorkspaceFilePathSchema,
+  WorkspacePathSchema,
+} from "./workspace-paths";
 
 const EncodingSchema = z.enum(["utf8", "base64"]);
 
@@ -168,7 +172,7 @@ export async function executeListFiles(
   const parsedInput = ListFilesInputSchema.parse(input);
   return ListFilesOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "listFiles", {
-      path: parsedInput.path,
+      path: resolveWorkspaceDir(parsedInput.path, runtimeContext.workspaceDir),
       includeHidden: parsedInput.includeHidden,
       recursive: parsedInput.recursive,
     }),
@@ -187,7 +191,7 @@ export async function executeSearchFiles(
       excludeDirs: parsedInput.excludeDirs,
       ...(parsedInput.filePattern ? { filePattern: parsedInput.filePattern } : {}),
       maxResults: parsedInput.maxResults,
-      path: parsedInput.path,
+      path: resolveWorkspaceDir(parsedInput.path, runtimeContext.workspaceDir),
       query: parsedInput.query,
     }),
   );

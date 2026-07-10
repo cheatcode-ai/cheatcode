@@ -31,6 +31,7 @@ import {
   MASTER_INSTRUCTIONS_CONTEXT_KEY,
   PROMPT_PROJECT_MODE_CONTEXT_KEY,
   PROMPT_TASK_MESSAGE_CONTEXT_KEY,
+  PROMPT_WORKSPACE_DIR_CONTEXT_KEY,
   USER_SKILL_STORE_CONTEXT_KEY,
   USER_SKILLS_CONTEXT_KEY,
   type UserSkillRuntime,
@@ -70,6 +71,13 @@ export function createCodeRequestContext(
 ): RequestContext {
   const requestContext = new RequestContext();
   requestContext.set("codeRuntime", runtimeContext);
+  // The project folder travels on the codeRuntime (the tools force cwd to it); mirror it onto the
+  // prompt key so the agent's instructions also name it as the working directory (single source).
+  setOptionalContextValue(
+    requestContext,
+    PROMPT_WORKSPACE_DIR_CONTEXT_KEY,
+    runtimeContext.workspaceDir,
+  );
   for (const [key, value] of contextEntries(options)) {
     setOptionalContextValue(requestContext, key, value);
   }

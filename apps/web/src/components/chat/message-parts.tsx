@@ -194,18 +194,18 @@ function ActivityDisclosure({ parts, streaming }: { parts: MessagePart[]; stream
   const isOpen = open || streaming;
   const toolCount = parts.filter((part) => isToolPart(part)).length;
   const rows = buildActivityRows(parts);
-  const label = streaming ? "Working…" : activityLabel(rows.length, toolCount);
 
   return (
     <div className="cc-fade-in">
-      <button
-        className="group flex items-center gap-1.5 text-[#9b9b9b] text-[13px] transition-colors hover:text-[#585858]"
-        onClick={() => setOpen((value) => !value)}
-        type="button"
-      >
-        {streaming ? (
-          <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" />
-        ) : (
+      {/* While streaming, the run-level "Working • Ns" timer (AssistantHeader) is the single live
+          status — don't duplicate it with a second "Working…" header here; just show the steps.
+          Once done, this collapses into the "Worked · N" disclosure toggle. */}
+      {streaming ? null : (
+        <button
+          className="group flex items-center gap-1.5 text-[#9b9b9b] text-[13px] transition-colors hover:text-[#585858]"
+          onClick={() => setOpen((value) => !value)}
+          type="button"
+        >
           <ChevronDown
             aria-hidden="true"
             className={cn(
@@ -213,9 +213,9 @@ function ActivityDisclosure({ parts, streaming }: { parts: MessagePart[]; stream
               isOpen ? "" : "-rotate-90",
             )}
           />
-        )}
-        <span className="font-medium">{label}</span>
-      </button>
+          <span className="font-medium">{activityLabel(rows.length, toolCount)}</span>
+        </button>
+      )}
       {isOpen ? (
         <div className="mt-2 ml-[5px] space-y-2 border-[#ececec] border-l pl-4">
           {rows.map((row) =>

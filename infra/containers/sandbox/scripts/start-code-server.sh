@@ -19,8 +19,11 @@ cat > "$USER_DATA_DIR/User/settings.json" <<'JSON'
   "explorer.confirmDelete": false,
   "explorer.confirmDragAndDrop": false,
   "explorer.openEditors.visible": 0,
+  "extensions.ignoreRecommendations": true,
   "files.autoSave": "afterDelay",
   "files.autoSaveDelay": 800,
+  "git.decorations.enabled": false,
+  "git.enabled": false,
   "muty-pptviewer.libreOfficePath": "/usr/bin/libreoffice",
   "chat.commandCenter.enabled": false,
   "security.workspace.trust.enabled": false,
@@ -74,7 +77,7 @@ cat > "$USER_DATA_DIR/User/keybindings.json" <<'JSON'
 JSON
 
 rm -rf "$USER_DATA_DIR/User/workspaceStorage"
-touch "$USER_DATA_DIR/.cheatcode-settings-v4"
+touch "$USER_DATA_DIR/.cheatcode-settings-v5"
 export CS_DISABLE_GETTING_STARTED_OVERRIDE=1
 
 EXTRA_FLAGS=""

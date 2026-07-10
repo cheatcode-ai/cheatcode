@@ -71,6 +71,13 @@
       "when": 1783406964249,
       "tag": "0010_drop_obsolete_share_table",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1783602597389,
+      "tag": "0011_per_user_sandbox_workspace_slug",
+      "breakpoints": true
     }
   ]
 }

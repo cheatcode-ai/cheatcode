@@ -3,7 +3,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { getCodeRuntimeContext } from "./runtime";
 import { callSandboxMethod } from "./sandbox-methods";
-import { WorkspacePathSchema } from "./workspace-paths";
+import { resolveWorkspaceDir, WorkspacePathSchema } from "./workspace-paths";
 
 export const ShellExecInputSchema = z
   .object({
@@ -91,7 +91,7 @@ export async function executeShellExec(
   const parsedInput = ShellExecInputSchema.parse(input);
   const result = await callSandboxMethod(runtimeContext.sandbox, "exec", {
     command: parsedInput.command,
-    ...(parsedInput.cwd ? { cwd: parsedInput.cwd } : {}),
+    cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
     ...(parsedInput.env ? { env: parsedInput.env } : {}),
     ...(parsedInput.timeoutMs ? { timeoutMs: parsedInput.timeoutMs } : {}),
   });
@@ -123,7 +123,7 @@ export async function executeShellStartProcess(
   return ShellProcessOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
       command: parsedInput.command,
-      ...(parsedInput.cwd ? { cwd: parsedInput.cwd } : {}),
+      cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
       ...(parsedInput.env ? { env: parsedInput.env } : {}),
       keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
       maxRestarts: parsedInput.maxRestarts,
@@ -155,7 +155,7 @@ export async function executeShellTerminal(
   return ShellExecOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "exec", {
       command: ["sh", "-lc", parsedInput.command],
-      cwd: parsedInput.cwd,
+      cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
       timeoutMs: parsedInput.timeoutMs,
     }),
   );

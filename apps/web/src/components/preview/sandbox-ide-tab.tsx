@@ -20,13 +20,10 @@ function codeServerIframeUrl(url: string, reloadToken: number): string {
 
 export function SandboxIdeTab({
   active,
-  hasProject,
   previewReloadToken,
-  sandboxStatus,
   threadId,
 }: {
   active: boolean;
-  hasProject: boolean;
   previewReloadToken: number;
   previewUrl: string | null;
   sandboxStatus: string;
@@ -35,9 +32,10 @@ export function SandboxIdeTab({
   const { getToken } = useAuth();
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
-  const sandboxReady = hasProject || sandboxStatus === "ready";
+  // Per-user "computer": Files opens even with no project yet — the backend resolves the per-user
+  // sandbox and code-server opens the whole computer root (all projects) or the project folder.
   const ideQuery = useQuery({
-    enabled: active && sandboxReady,
+    enabled: active,
     queryFn: () => openSandboxIde(getToken, threadId),
     queryKey: ["sandbox-ide", threadId],
     refetchOnWindowFocus: false,
@@ -68,9 +66,6 @@ export function SandboxIdeTab({
     });
   };
 
-  if (!sandboxReady) {
-    return <IdePlaceholder label="Files starting" />;
-  }
   if (ideQuery.isPending) {
     return <IdePlaceholder label="Opening Files" />;
   }

@@ -498,6 +498,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           logger,
           sandbox,
           setRunStage: (stage) => this.setRunStage(stage),
+          ...(input.workspaceSlug ? { workspaceDir: `/workspace/${input.workspaceSlug}` } : {}),
         },
         directRunCodeInput,
       );
@@ -506,6 +507,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       }
       return "continue";
     }
+    // Guarantee the project's folder exists before either path streams, so the general agent's
+    // (system-forced) /workspace/<slug> cwd + dev server land in a real directory and the
+    // slug-scoped code-server isn't left staring at a missing workspace.
+    await this.ensureProjectWorkspaceDir(input, sandbox, logger);
     if (
       input.projectMode === "app-builder" ||
       input.projectMode === "app-builder-mobile" ||
@@ -523,6 +528,29 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       return "completed";
     }
     return "continue";
+  }
+
+  // Best-effort `mkdir -p /workspace/<slug>` at run start. Idempotent; a failure only logs (the
+  // tool calls that follow surface any real filesystem problem). No-op for slug-less legacy runs.
+  private async ensureProjectWorkspaceDir(
+    input: StartRunInput,
+    sandbox: ProjectSandboxStub,
+    logger: ReturnType<typeof createLogger>,
+  ): Promise<void> {
+    if (!input.workspaceSlug || !sandbox.exec) {
+      return;
+    }
+    try {
+      await sandbox.exec({
+        command: ["mkdir", "-p", `/workspace/${input.workspaceSlug}`],
+        timeoutMs: 15_000,
+      });
+    } catch (error) {
+      logger.warn("workspace_dir_ensure_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        workspaceSlug: input.workspaceSlug,
+      });
+    }
   }
 
   private async executeAppBuilderRunPath(
@@ -563,6 +591,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       await restartMobilePreview({
         append: (chunk) => this.append(chunk),
         env: this.env,
+        input,
         logger,
         sandbox,
         setRunStage: (stage) => this.setRunStage(stage),

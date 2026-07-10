@@ -1,6 +1,6 @@
 {
-  "id": "0d6b2f96-1d4a-4e10-8bde-70c9115a1499",
-  "prevId": "3ec05dea-3b9a-4302-a3a9-8ab2bcbee9bd",
+  "id": "e1a7ab0f-0621-4550-a558-c6f946789090",
+  "prevId": "0d6b2f96-1d4a-4e10-8bde-70c9115a1499",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1142,6 +1142,12 @@
           "type": "text",
           "primaryKey": false,
           "notNull": true
+        },
+        "workspace_slug": {
+          "name": "workspace_slug",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
         },
         "master_instructions": {
           "name": "master_instructions",

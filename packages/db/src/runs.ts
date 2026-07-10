@@ -64,6 +64,8 @@ export interface AgentRunHandle {
   runId: AgentRunId;
   status: AgentRunStatus;
   threadId: ThreadId;
+  /** Immutable /workspace subfolder name for the project (per-user sandbox model). */
+  workspaceSlug?: string;
 }
 
 export interface CreateAgentRunInput {
@@ -119,6 +121,7 @@ interface ThreadForRunRow {
   projectId: string;
   projectMode: "app-builder" | "app-builder-mobile" | "general";
   projectSettings: ProjectSettings;
+  workspaceSlug: string | null;
 }
 
 interface CreatedRunRow {
@@ -313,6 +316,7 @@ function createdRunHandle(
     runId: toAgentRunId(created.id),
     status: toAgentRunStatus(created.status),
     threadId: toThreadId(thread.id),
+    ...(thread.workspaceSlug ? { workspaceSlug: thread.workspaceSlug } : {}),
   };
 }
 
@@ -340,6 +344,7 @@ async function findThreadForRun(
       projectId: projects.id,
       projectMode: projects.mode,
       projectSettings: projects.settings,
+      workspaceSlug: projects.workspaceSlug,
     })
     .from(threads)
     .innerJoin(projects, eq(projects.id, threads.projectId))
@@ -460,6 +465,7 @@ export async function findActiveAgentRunForThread(
       runId: agentRuns.id,
       status: agentRuns.status,
       threadId: threads.id,
+      workspaceSlug: projects.workspaceSlug,
     })
     .from(threads)
     .innerJoin(agentRuns, eq(agentRuns.id, threads.activeRunId))
@@ -491,6 +497,7 @@ export async function findAgentRunForUser(
       runId: agentRuns.id,
       status: agentRuns.status,
       threadId: agentRuns.threadId,
+      workspaceSlug: projects.workspaceSlug,
     })
     .from(agentRuns)
     .innerJoin(threads, eq(threads.id, agentRuns.threadId))
@@ -619,6 +626,7 @@ function agentRunHandleFromRow(row: {
   runId: string;
   status: string;
   threadId: string;
+  workspaceSlug?: null | string;
 }): AgentRunHandle {
   return {
     ...(row.modelId ? { modelId: row.modelId } : {}),
@@ -627,6 +635,7 @@ function agentRunHandleFromRow(row: {
     runId: toAgentRunId(row.runId),
     status: toAgentRunStatus(row.status),
     threadId: toThreadId(row.threadId),
+    ...(row.workspaceSlug ? { workspaceSlug: row.workspaceSlug } : {}),
   };
 }
 

@@ -7,6 +7,8 @@ export const GLOBAL_MEMORY_CONTEXT_KEY = "globalMemory";
 export const PROMPT_PROJECT_MODE_CONTEXT_KEY = "promptProjectMode";
 /** The user's message — classified to pick domain prompt modules on the general path. */
 export const PROMPT_TASK_MESSAGE_CONTEXT_KEY = "promptTaskMessage";
+/** The run's project folder (/workspace/<slug>) — told to the agent as its working directory. */
+export const PROMPT_WORKSPACE_DIR_CONTEXT_KEY = "promptWorkspaceDir";
 /** The caller's custom skills (full, with body) — read by the prompt + `skill_invoke`. */
 export const USER_SKILLS_CONTEXT_KEY = "userSkills";
 /** Request-scoped capability the `skill_create` tool uses to persist a new user skill. */
@@ -54,6 +56,8 @@ export interface PromptRuntimeContext {
   projectMode?: string;
   /** The user's request text, classified to select domain modules on the general path. */
   taskMessage?: string;
+  /** The run's project folder in the sandbox (/workspace/<slug>) — the agent's working directory. */
+  workspaceDir?: string;
 }
 
 /** Parse the request-context user-skills value into a typed list (defensive — it crosses the DO boundary). */
@@ -113,6 +117,10 @@ export function promptRuntimeContextFromRequestContext(
   if (taskMessage) {
     context.taskMessage = taskMessage;
   }
+  const workspaceDir = trimmedContextValue(requestContext, PROMPT_WORKSPACE_DIR_CONTEXT_KEY);
+  if (workspaceDir) {
+    context.workspaceDir = workspaceDir;
+  }
   return context;
 }
 
@@ -139,6 +147,9 @@ export function buildSystemPrompt(runtimeContext: PromptRuntimeContext = {}): st
       ? `The user calls you "${runtimeContext.agentDisplayName}"; answer to that name.`
       : "",
     CORE_INSTRUCTIONS,
+    runtimeContext.workspaceDir
+      ? `Your project workspace is \`${runtimeContext.workspaceDir}\`. Create, edit, and run everything there (it's your project's folder in the shared computer). Use it as the working directory for shell commands and the dev server.`
+      : "",
     ...selectDomainModules(runtimeContext.projectMode, runtimeContext.taskMessage),
     FINISHING,
     runtimeContext.globalMemory

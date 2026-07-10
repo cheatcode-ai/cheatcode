@@ -26,6 +26,7 @@ export async function runRunCodeFallback({
   setRunStage("Running Python in the sandbox after model timeout.");
   const result = await executeRunCodeTool(createSandboxReadinessRunCodeInput(input.messageText), {
     sandbox,
+    workspaceDir: input.workspaceSlug ? `/workspace/${input.workspaceSlug}` : "/workspace",
   });
   await append({
     type: "text-delta",

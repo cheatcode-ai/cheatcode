@@ -1,3 +1,4 @@
+import { createLogger } from "@cheatcode/observability";
 import { tool } from "ai";
 import { z } from "zod";
 import { getCodeRuntimeContext } from "./runtime";
@@ -9,6 +10,9 @@ export const StartDevServerInputSchema = z
     cwd: z.string().min(1).max(500),
     env: z.record(z.string(), z.string()).optional(),
     hostname: z.string().min(1).max(255).optional(),
+    // Mobile (Expo Metro) dev server: threads through to the ProcessRecord + preview URL so the
+    // wake path and clean-subdomain routing key off the stack, not the (now per-project) port.
+    isMobile: z.boolean().default(false),
     keepAliveTimeoutMs: z
       .number()
       .int()
@@ -36,30 +40,50 @@ export const StartDevServerOutputSchema = z
 export type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
 export type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
 
+// Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<slug>
+// so multiple projects' servers persist side by side in the one per-user sandbox (bud parity).
+const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
+
 export async function executeStartDevServer(
   input: StartDevServerInput,
   runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
 ): Promise<StartDevServerOutput> {
   const parsedInput = StartDevServerInputSchema.parse(input);
+  // The dev server is SYSTEM-confined to the run's project folder: cwd is forced to the run's
+  // workspaceDir (/workspace/<slug>) regardless of what the model passed, and the port + process
+  // slot both key off the LAST path segment of that forced cwd. This is what stops every general
+  // project's dev server from running in /workspace root and colliding on 5173/app-preview:workspace
+  // in the shared per-user sandbox — each project persists on its own stable port + slot (bud parity).
+  const cwd = runtimeContext.workspaceDir ?? parsedInput.cwd;
+  const slug = deriveWorkspaceSlug(cwd);
+  const name = `${APP_PREVIEW_SLOT_PREFIX}${slug}`;
+  const port = await allocateDevServerPort(
+    runtimeContext,
+    slug,
+    parsedInput.isMobile,
+    parsedInput.port,
+  );
   const process = await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
     command: parsedInput.command,
-    cwd: parsedInput.cwd,
-    env: { ...parsedInput.env, PORT: String(parsedInput.port) },
+    cwd,
+    env: { ...parsedInput.env, PORT: String(port) },
+    isMobile: parsedInput.isMobile,
     keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
     maxRestarts: parsedInput.maxRestarts,
-    processId: parsedInput.name,
+    processId: name,
     restartOnFailure: parsedInput.restartOnFailure,
     timeoutMs: parsedInput.timeoutMs,
     waitForPort: {
-      port: parsedInput.port,
+      port,
       timeoutMs: parsedInput.timeoutMs,
     },
   });
-  await clearExistingExposure(runtimeContext, parsedInput.name, parsedInput.port);
+  await clearExistingExposure(runtimeContext, name, port);
   const exposed = await callSandboxMethod(runtimeContext.sandbox, "exposePort", {
     ...(parsedInput.hostname ? { hostname: parsedInput.hostname } : {}),
-    name: parsedInput.name,
-    port: parsedInput.port,
+    isMobile: parsedInput.isMobile,
+    name,
+    port,
   });
   return StartDevServerOutputSchema.parse({
     processId: process.id,
@@ -68,6 +92,42 @@ export async function executeStartDevServer(
     port: exposed.port,
     status: process.status,
   });
+}
+
+// The project's workspaceSlug = the last non-empty path segment of the cwd (/workspace/<slug>).
+// Falls back to "app" for a slug-less cwd, matching the app-builder fallback dir basename.
+function deriveWorkspaceSlug(cwd: string): string {
+  const segments = cwd.split("/").filter((segment) => segment.length > 0);
+  return segments[segments.length - 1] ?? "app";
+}
+
+// Get-or-assign this project's stable dev-server port from the sandbox's per-project allocator
+// (keyed by slug). Falls back to the requested port when the stub predates the allocator.
+async function allocateDevServerPort(
+  runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
+  slug: string,
+  isMobile: boolean,
+  fallbackPort: number,
+): Promise<number> {
+  const logger = createLogger();
+  if (!runtimeContext.sandbox.allocateProjectPort) {
+    logger.warn("dev_server_port_alloc_missing", { fallbackPort, slug });
+    return fallbackPort;
+  }
+  try {
+    const port = await runtimeContext.sandbox.allocateProjectPort({
+      projectId: slug,
+      stack: isMobile ? "mobile" : "web",
+    });
+    logger.info("dev_server_port_allocated", { port, slug });
+    return port;
+  } catch (error) {
+    logger.warn("dev_server_port_alloc_error", {
+      error: error instanceof Error ? error.message : String(error),
+      slug,
+    });
+    return fallbackPort;
+  }
 }
 
 export const startDevServer = tool({

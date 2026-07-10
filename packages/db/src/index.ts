@@ -90,12 +90,14 @@ export type {
 export {
   attachProjectSandbox,
   attachProjectSandboxWithLimit,
+  computeUniqueWorkspaceSlug,
   countActiveProjects,
   countActiveSandboxProjects,
   createProject,
   createThread,
   createThreadMessage,
   ensureSandboxProject,
+  filesystemSlug,
   getProject,
   getProjectWriteState,
   getSandboxProjectById,
@@ -110,6 +112,7 @@ export {
   softDeleteThread,
   updateProject,
   updateThread,
+  workspacePathForSlug,
 } from "./projects";
 export type { EntitlementResourceLimitInput } from "./resource-limits";
 export { applyEntitlementResourceLimits } from "./resource-limits";

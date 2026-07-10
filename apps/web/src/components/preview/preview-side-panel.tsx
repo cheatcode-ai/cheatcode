@@ -56,7 +56,6 @@ export function PreviewSidePanel({
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
   const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
-  const hasPreviewSurface = project !== null || previewUrl !== null || sandboxStatus !== "cold";
   // Mobile projects always render the preview in a phone frame regardless of the user's
   // desktop/tablet/phone toggle (which is for web apps) — the app IS a phone app.
   const isMobile = project?.mode === "app-builder-mobile";
@@ -75,10 +74,9 @@ export function PreviewSidePanel({
     void emitFirstPreviewOpened(getToken).catch(() => undefined);
   }, [getToken, previewPanelOpen, previewUrl]);
 
-  if (!hasPreviewSurface) {
-    return null;
-  }
-
+  // Per-user "computer" model: every user always has a computer sandbox, so the panel is always
+  // available inside a chat. On a project-less new chat, opening it shows the computer root
+  // (all projects) — matching bud's home computer view.
   return (
     <>
       <BudTooltip
@@ -121,8 +119,10 @@ export function PreviewSidePanel({
             setActivePreviewTab={setActivePreviewTab}
             setPreviewPanelOpen={setPreviewPanelOpen}
           />
-          <div className="flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden rounded-[24px] border border-[#f1f1f1] bg-white p-0.5 shadow-[0_0_1px_rgba(0,0,0,0.08)]">
-            <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-[22px] border border-[#f1f1f1]">
+          {/* bud parity: ONE bordered card (border-2, rounded-24) wraps only the content;
+              the console is a plain bar directly below it, never enclosed by the card. */}
+          <div className="flex min-h-0 w-full flex-1 flex-col gap-0.5 overflow-hidden">
+            <div className="min-h-0 min-w-0 flex-1 overflow-hidden rounded-[24px] border-2 border-[#f1f1f1] bg-white p-0.5">
               <PanelBody
                 activePreviewTab={activePreviewTab}
                 device={previewDevice}
@@ -190,7 +190,7 @@ function PanelTabs({
 
   return (
     <div className="hidden h-12 w-full shrink-0 items-center justify-between overflow-visible px-[3px] md:flex">
-      <div className="inline-flex items-center gap-1 rounded-full bg-[#f7f7f7] p-0.5 shadow-[0_0_1px_rgba(0,0,0,0.08)]">
+      <div className="inline-flex items-center gap-0.5 rounded-full bg-[#f7f7f7] p-[3px] shadow-[0_0_1px_rgba(0,0,0,0.08)]">
         {TABS.map((tab) => (
           <BudTooltip key={tab.value} label={tab.label} side="bottom">
             <button
@@ -361,7 +361,6 @@ function PanelBody({
       <Activity mode={activePreviewTab === "files" ? "visible" : "hidden"}>
         <SandboxIdeTab
           active={activePreviewTab === "files"}
-          hasProject={hasProject}
           previewReloadToken={previewReloadToken}
           previewUrl={previewUrl}
           sandboxStatus={sandboxStatus}

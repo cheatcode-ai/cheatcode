@@ -28,7 +28,7 @@ import {
   agentRunObjectName,
   isUuidRouteParam,
   legacyAgentRunObjectName,
-  projectSandboxName,
+  userSandboxName,
 } from "./tenancy";
 
 const DO_FREE_TIER_DURATION_ERROR = "Exceeded allowed duration in Durable Objects free tier";
@@ -67,8 +67,11 @@ export async function sandboxForThread(
   threadId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
   if (!isUuidRouteParam(threadId)) {
-    return sandboxForLegacyThread(env, userId, threadId);
+    return sandboxForLegacyThread(env, userId);
   }
+  // The sandbox is per-user now: a project-less chat still resolves the same "computer" (its
+  // project only scopes the code-server folder, handled by the ide route). We still verify the
+  // thread belongs to the user before handing back a sandbox stub.
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const thread = await withUserContext(db, UserId(userId), (tx) =>
@@ -77,24 +80,27 @@ export async function sandboxForThread(
     if (!thread) {
       throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
     }
-    if (!thread.projectId) {
-      throw new APIError(404, "not_found_project", "This chat has no workspace yet", {
-        hint: "Send a message to start the first run, which creates the project sandbox.",
-        retriable: false,
-      });
-    }
-    return sandboxForProject(env, userId, thread.projectId);
+    return sandboxForUser(env, userId);
   } finally {
     await close();
   }
 }
 
+// The per-user "computer" sandbox. `projectId` is accepted for call-site symmetry but no longer
+// keys the sandbox — every project shares the same per-user Daytona sandbox.
 export async function sandboxForProject(
   env: AgentEnv,
   userId: string,
-  projectId: string,
+  _projectId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
-  const sandboxName = await projectSandboxName(userId, projectId);
+  return sandboxForUser(env, userId);
+}
+
+async function sandboxForUser(
+  env: AgentEnv,
+  userId: string,
+): Promise<DurableObjectStub<ProjectSandbox>> {
+  const sandboxName = await userSandboxName(userId);
   const sandbox = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName));
   await sandbox.registerOwner(userId, sandboxName);
   return sandbox;
@@ -185,6 +191,7 @@ export async function startAgentRun(
         model: body.model ?? run.modelId,
         modelExplicit: Boolean(body.model?.trim()),
         projectId: run.projectId,
+        ...(run.workspaceSlug ? { workspaceSlug: run.workspaceSlug } : {}),
         ...(run.projectMode ? { projectMode: run.projectMode } : {}),
         ...(policy.quotaWarning ? { quotaWarning: policy.quotaWarning } : {}),
         runId: run.runId,
@@ -380,9 +387,9 @@ export async function startLegacyThreadRun(
   body: CreateRun,
 ): Promise<Response> {
   const runId = legacyAgentRunObjectName(userId, threadId);
-  const projectId = await projectSandboxName(userId, threadId);
+  const sandboxName = await userSandboxName(userId);
   const policy = await runEntitlementPolicy(env, userId);
-  await sandboxForLegacyThread(env, userId, threadId);
+  await sandboxForLegacyThread(env, userId);
   return fetchAgentRun(
     agentRunForLegacyThread(env, userId, threadId),
     "https://agent-run.internal/start",
@@ -397,9 +404,9 @@ export async function startLegacyThreadRun(
         disabledModels: [],
         messageText: extractRunMessageText(body),
         model: body.model,
-        projectId,
+        projectId: sandboxName,
         runId,
-        sandboxName: projectId,
+        sandboxName,
         threadId,
         userId,
       }),
@@ -495,15 +502,11 @@ export async function consumeTakeoverState(
   });
 }
 
-async function sandboxForLegacyThread(
+function sandboxForLegacyThread(
   env: AgentEnv,
   userId: string,
-  threadId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
-  const sandboxName = await projectSandboxName(userId, threadId);
-  const sandbox = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName));
-  await sandbox.registerOwner(userId, sandboxName);
-  return sandbox;
+  return sandboxForUser(env, userId);
 }
 
 function agentRunForLegacyThread(
