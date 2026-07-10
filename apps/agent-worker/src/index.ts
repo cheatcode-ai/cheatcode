@@ -52,6 +52,7 @@ import {
   runForRoute,
   sandboxForProject,
   sandboxForThread,
+  sandboxForUser,
   saveTakeoverState,
   startAgentRun,
   startLegacyThreadRun,
@@ -137,8 +138,22 @@ const SandboxFileListQuerySchema = z
 const SandboxReadEncodingQuerySchema = z.enum(["utf8", "base64"]).optional();
 const InternalUserStateDeleteBodySchema = z
   .object({
-    projectIds: z.array(z.string().uuid()).max(1_000),
+    // Per project: id, plus the workspace slug so per-project cleanup can target /workspace/<slug>
+    // in the shared per-user sandbox. `scope` distinguishes the two callers:
+    //   - "project": one project deleted → reclaim ONLY its folder; never destroy the sandbox.
+    //   - "account": user deleted → tear the whole per-user sandbox down exactly once.
+    projects: z
+      .array(
+        z
+          .object({
+            id: z.string().uuid(),
+            workspaceSlug: z.string().min(1).max(200).optional(),
+          })
+          .strict(),
+      )
+      .max(1_000),
     runIds: z.array(z.string().uuid()).max(10_000),
+    scope: z.enum(["project", "account"]).default("account"),
   })
   .strict();
 const InternalUserStateDeleteResponseSchema = z
@@ -281,23 +296,28 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
     }
   }
 
+  // One sandbox per user: resolve it once. Account deletion tears it down; per-project deletion
+  // only reclaims each project's own workspace so the user's OTHER projects survive.
+  const sandbox = await sandboxForUser(c.env, userId);
   let projectStatesDeleted = 0;
-  let projectVolumesDeleted = 0;
-  for (const projectId of body.projectIds) {
-    const sandbox = await sandboxForProject(c.env, userId, projectId);
+  if (body.scope === "account") {
     await sandbox.destroySandbox();
-    if (await sandbox.deleteProjectVolume()) {
-      projectVolumesDeleted += 1;
-    }
     await sandbox.deleteDurableState();
-    projectStatesDeleted += 1;
+    projectStatesDeleted = body.projects.length;
+  } else {
+    for (const project of body.projects) {
+      if (project.workspaceSlug) {
+        await sandbox.cleanupProjectWorkspace({ workspaceSlug: project.workspaceSlug });
+      }
+      projectStatesDeleted += 1;
+    }
   }
 
   return c.json(
     InternalUserStateDeleteResponseSchema.parse({
       ok: true,
       projectStatesDeleted,
-      projectVolumesDeleted,
+      projectVolumesDeleted: 0,
       runStatesDeleted,
     }),
   );

@@ -163,10 +163,28 @@ export async function deleteProjectRoute(
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const cleanupBody = JSON.stringify({ projectIds: [projectId], runIds: [] });
-  const cleanupHeaders = await internalMaintenanceHeaders(env, cleanupBody);
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
+    // Read the workspace slug BEFORE soft-deleting (getProject filters deleted rows out) so the
+    // agent worker can reclaim ONLY this project's /workspace/<slug> folder — scope "project"
+    // guarantees it never destroys the shared per-user sandbox and the user's other projects.
+    const project = await withUserContext(db, userId, (tx) =>
+      getProject(tx, { projectId, userId }),
+    );
+    if (!project) {
+      throw notFound("Project not found");
+    }
+    const cleanupBody = JSON.stringify({
+      projects: [
+        {
+          id: projectId,
+          ...(project.workspaceSlug ? { workspaceSlug: project.workspaceSlug } : {}),
+        },
+      ],
+      runIds: [],
+      scope: "project",
+    });
+    const cleanupHeaders = await internalMaintenanceHeaders(env, cleanupBody);
     const deleted = await withUserContext(db, userId, (tx) =>
       softDeleteProject(tx, { projectId, userId }),
     );

@@ -234,6 +234,15 @@ export const ProjectRestoreBackupInputSchema = z
   })
   .strict();
 
+// Per-project teardown inside the shared per-user sandbox: names ONE project's workspace folder
+// (/workspace/<workspaceSlug>) whose dev server, port, and folder should be reclaimed — without
+// ever touching the shared sandbox itself.
+export const ProjectCleanupWorkspaceInputSchema = z
+  .object({
+    workspaceSlug: z.string().min(1).max(200),
+  })
+  .strict();
+
 export type ProjectExecInput = z.input<typeof ProjectExecInputSchema>;
 export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSchema>;
 export type ProjectPreviewFileInput = z.input<typeof ProjectPreviewFileInputSchema>;
@@ -269,6 +278,7 @@ export interface ProjectSandboxRuntimeState {
 }
 export type ProjectCreateBackupInput = z.input<typeof ProjectCreateBackupInputSchema>;
 export type ProjectRestoreBackupInput = z.input<typeof ProjectRestoreBackupInputSchema>;
+export type ProjectCleanupWorkspaceInput = z.input<typeof ProjectCleanupWorkspaceInputSchema>;
 
 export interface NormalizedRunCodeResult {
   stdout: string;

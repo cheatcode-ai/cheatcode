@@ -96,7 +96,7 @@ export async function sandboxForProject(
   return sandboxForUser(env, userId);
 }
 
-async function sandboxForUser(
+export async function sandboxForUser(
   env: AgentEnv,
   userId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {

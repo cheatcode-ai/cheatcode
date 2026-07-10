@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError, normalizeUnknownError } from "@cheatcode/observability";
+import { APIError, createLogger, normalizeUnknownError } from "@cheatcode/observability";
 import {
   DaytonaApiError,
   DaytonaClient,
@@ -36,6 +36,8 @@ import {
   commandToShellString,
   type ProjectAllocatePortInput,
   ProjectAllocatePortInputSchema,
+  type ProjectCleanupWorkspaceInput,
+  ProjectCleanupWorkspaceInputSchema,
   type ProjectCodeServerInput,
   ProjectCodeServerInputSchema,
   type ProjectCreateBackupInput,
@@ -879,6 +881,62 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     this.startedVerifiedAtMs = 0;
   }
 
+  // Best-effort teardown of ONE project's footprint inside the shared per-user sandbox: kills the
+  // project's dev server, frees its port allocation, and removes its /workspace/<slug> folder. It
+  // deliberately never destroys the sandbox or wipes DO state (that would nuke the user's OTHER
+  // projects). Project deletion must not fail on cleanup, so every step is catch-and-log.
+  public async cleanupProjectWorkspace(input: ProjectCleanupWorkspaceInput): Promise<void> {
+    try {
+      const { workspaceSlug } = ProjectCleanupWorkspaceInputSchema.parse(input);
+      const id = await this.existingSandboxId();
+      if (!id) {
+        // Nothing provisioned — no dev server, port, or folder to reclaim.
+        return;
+      }
+      const slot = `${APP_PREVIEW_SLOT_PREFIX}${workspaceSlug}`;
+      const port = (await this.portAllocation()).ports[workspaceSlug];
+      await this.deleteProcessRecord(id, slot);
+      if (port !== undefined) {
+        await this.deleteProcessesOnPort(id, port, slot);
+        await this.unexposePort({ port });
+      }
+      await this.freeProjectPort(workspaceSlug);
+      await this.removeWorkspaceFolder(id, workspaceSlug);
+    } catch (error) {
+      createLogger().warn("project_workspace_cleanup_failed", {
+        error: error instanceof Error ? error.message : "Unknown cleanup error",
+      });
+    }
+  }
+
+  // Drop a project's dev-server port from the DO allocation table. webNext/mobileNext are left as-is
+  // so freed ports are never recycled — a rebuilt project always takes the next fresh port.
+  private async freeProjectPort(workspaceSlug: string): Promise<void> {
+    const alloc = await this.portAllocation();
+    if (alloc.ports[workspaceSlug] === undefined) {
+      return;
+    }
+    const ports = Object.fromEntries(
+      Object.entries(alloc.ports).filter(([slug]) => slug !== workspaceSlug),
+    );
+    await this.ctx.storage.put(PORT_ALLOC_KEY, { ...alloc, ports });
+  }
+
+  // Best-effort `rm -rf` of a single project's folder. Guarded so the target is always a non-empty
+  // child of /workspace and can never resolve to /workspace itself or escape it.
+  private async removeWorkspaceFolder(id: string, workspaceSlug: string): Promise<void> {
+    if (!isSingleWorkspaceSegment(workspaceSlug)) {
+      return;
+    }
+    const path = `${WORKSPACE_DIR}/${workspaceSlug}`;
+    await this.client()
+      .execute(id, {
+        command: `rm -rf ${shellQuote(path)}`,
+        timeout: timeoutSeconds(DEFAULT_EXEC_TIMEOUT_MS),
+      })
+      .catch(() => undefined);
+  }
+
   // ----- internals -----
 
   private client(): DaytonaClient {
@@ -1415,6 +1473,12 @@ function isMissingDaytonaResourceError(error: unknown): boolean {
 
 function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
+}
+
+// A workspace slug must be a single path segment so `/workspace/<slug>` cannot escape /workspace
+// or resolve to /workspace itself (rm -rf guard).
+function isSingleWorkspaceSegment(slug: string): boolean {
+  return slug.length > 0 && !slug.includes("/") && slug !== "." && slug !== "..";
 }
 
 function lowercaseExtension(path: string): string {

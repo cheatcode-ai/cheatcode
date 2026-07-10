@@ -141,8 +141,9 @@ async function deleteAgentDurableState(
     return { projectStatesDeleted, projectVolumesDeleted: 0, runStatesDeleted: 0 };
   }
   const body = JSON.stringify({
-    projectIds: manifest.projectIds,
+    projects: manifest.projectIds.map((id) => ({ id })),
     runIds: manifest.runIds,
+    scope: "account",
   });
   const headers = await internalMaintenanceHeaders(env, body);
   const response = await env.AGENT.fetch(
