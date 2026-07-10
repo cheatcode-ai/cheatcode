@@ -100,12 +100,8 @@
           "name": "v2_agent_runs_thread_id_v2_threads_id_fk",
           "tableFrom": "v2_agent_runs",
           "tableTo": "v2_threads",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["thread_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -113,12 +109,8 @@
           "name": "v2_agent_runs_user_id_v2_users_id_fk",
           "tableFrom": "v2_agent_runs",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -269,12 +261,8 @@
           "name": "v2_automation_run_requests_automation_id_v2_automations_id_fk",
           "tableFrom": "v2_automation_run_requests",
           "tableTo": "v2_automations",
-          "columnsFrom": [
-            "automation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["automation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -282,12 +270,8 @@
           "name": "v2_automation_run_requests_user_id_v2_users_id_fk",
           "tableFrom": "v2_automation_run_requests",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -417,12 +401,8 @@
           "name": "v2_automation_runs_automation_id_v2_automations_id_fk",
           "tableFrom": "v2_automation_runs",
           "tableTo": "v2_automations",
-          "columnsFrom": [
-            "automation_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["automation_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -430,12 +410,8 @@
           "name": "v2_automation_runs_user_id_v2_users_id_fk",
           "tableFrom": "v2_automation_runs",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -622,12 +598,8 @@
           "name": "v2_automations_user_id_v2_users_id_fk",
           "tableFrom": "v2_automations",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -635,12 +607,8 @@
           "name": "v2_automations_project_id_v2_projects_id_fk",
           "tableFrom": "v2_automations",
           "tableTo": "v2_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -700,12 +668,8 @@
           "name": "v2_billing_events_user_id_v2_users_id_fk",
           "tableFrom": "v2_billing_events",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -715,9 +679,7 @@
         "v2_billing_events_polar_event_id_unique": {
           "name": "v2_billing_events_polar_event_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "polar_event_id"
-          ]
+          "columns": ["polar_event_id"]
         }
       },
       "policies": {},
@@ -868,12 +830,8 @@
           "name": "v2_entitlements_user_id_v2_users_id_fk",
           "tableFrom": "v2_entitlements",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -988,12 +946,8 @@
           "name": "v2_generated_outputs_user_id_v2_users_id_fk",
           "tableFrom": "v2_generated_outputs",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1001,12 +955,8 @@
           "name": "v2_generated_outputs_project_id_v2_projects_id_fk",
           "tableFrom": "v2_generated_outputs",
           "tableTo": "v2_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1014,12 +964,8 @@
           "name": "v2_generated_outputs_agent_run_id_v2_agent_runs_id_fk",
           "tableFrom": "v2_generated_outputs",
           "tableTo": "v2_agent_runs",
-          "columnsFrom": [
-            "agent_run_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["agent_run_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -1085,12 +1031,8 @@
           "name": "v2_messages_thread_id_v2_threads_id_fk",
           "tableFrom": "v2_messages",
           "tableTo": "v2_threads",
-          "columnsFrom": [
-            "thread_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["thread_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1098,12 +1040,8 @@
           "name": "v2_messages_user_id_v2_users_id_fk",
           "tableFrom": "v2_messages",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1215,12 +1153,8 @@
           "name": "v2_projects_user_id_v2_users_id_fk",
           "tableFrom": "v2_projects",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1304,12 +1238,8 @@
           "name": "v2_provider_keys_user_id_v2_users_id_fk",
           "tableFrom": "v2_provider_keys",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1411,12 +1341,8 @@
           "name": "v2_threads_project_id_v2_projects_id_fk",
           "tableFrom": "v2_threads",
           "tableTo": "v2_projects",
-          "columnsFrom": [
-            "project_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["project_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -1424,12 +1350,8 @@
           "name": "v2_threads_user_id_v2_users_id_fk",
           "tableFrom": "v2_threads",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1498,12 +1420,8 @@
           "name": "v2_usage_daily_totals_user_id_v2_users_id_fk",
           "tableFrom": "v2_usage_daily_totals",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1511,10 +1429,7 @@
       "compositePrimaryKeys": {
         "v2_usage_daily_totals_user_id_day_pk": {
           "name": "v2_usage_daily_totals_user_id_day_pk",
-          "columns": [
-            "user_id",
-            "day"
-          ]
+          "columns": ["user_id", "day"]
         }
       },
       "uniqueConstraints": {},
@@ -1605,12 +1520,8 @@
           "name": "v2_usage_events_user_id_v2_users_id_fk",
           "tableFrom": "v2_usage_events",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1670,12 +1581,8 @@
           "name": "v2_user_integrations_user_id_v2_users_id_fk",
           "tableFrom": "v2_user_integrations",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1683,10 +1590,7 @@
       "compositePrimaryKeys": {
         "v2_user_integrations_user_id_integration_pk": {
           "name": "v2_user_integrations_user_id_integration_pk",
-          "columns": [
-            "user_id",
-            "integration"
-          ]
+          "columns": ["user_id", "integration"]
         }
       },
       "uniqueConstraints": {},
@@ -1781,12 +1685,8 @@
           "name": "v2_user_profiles_user_id_v2_users_id_fk",
           "tableFrom": "v2_user_profiles",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1910,12 +1810,8 @@
           "name": "v2_user_skills_user_id_v2_users_id_fk",
           "tableFrom": "v2_user_skills",
           "tableTo": "v2_users",
-          "columnsFrom": [
-            "user_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["user_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -1995,16 +1891,12 @@
         "v2_users_clerk_id_unique": {
           "name": "v2_users_clerk_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "clerk_id"
-          ]
+          "columns": ["clerk_id"]
         },
         "v2_users_polar_customer_id_unique": {
           "name": "v2_users_polar_customer_id_unique",
           "nullsNotDistinct": false,
-          "columns": [
-            "polar_customer_id"
-          ]
+          "columns": ["polar_customer_id"]
         }
       },
       "policies": {},
