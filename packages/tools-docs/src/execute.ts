@@ -156,7 +156,10 @@ async function writeWorkspaceArtifact(
     return;
   }
   try {
-    const directory = await resolveWorkspaceArtifactDirectory(runtimeContext);
+    // The run's own project folder is authoritative in the shared per-user sandbox — write the
+    // live file there so it shows in THIS project's Files/Computer tab instead of leaking into a
+    // sibling project's /workspace/<slug> (matches resolveWorkspaceDir in tools-code).
+    const directory = runtimeContext.workspaceDir ?? WORKSPACE_ROOT;
     await runtimeContext.sandbox.writeFile({
       content: artifact.base64,
       encoding: "base64",
@@ -165,50 +168,6 @@ async function writeWorkspaceArtifact(
   } catch {
     // Artifact storage is the durable deliverable path; workspace writes are a live-files convenience.
   }
-}
-
-async function resolveWorkspaceArtifactDirectory(
-  runtimeContext: CodeRuntimeContext,
-): Promise<string> {
-  if (!runtimeContext.sandbox.listFiles) {
-    return WORKSPACE_ROOT;
-  }
-  const result = await runtimeContext.sandbox.listFiles({
-    includeHidden: false,
-    path: WORKSPACE_ROOT,
-  });
-  const directories = result.files
-    .filter((file) => file.type === "directory" && isLikelyProjectDirectory(file.relativePath))
-    .toSorted(compareWorkspaceDirectoryPreference);
-  return directories[0]?.path ?? WORKSPACE_ROOT;
-}
-
-function isLikelyProjectDirectory(path: string): boolean {
-  const name = path.toLowerCase();
-  return name !== "node_modules" && name !== ".git" && name !== "data";
-}
-
-function compareWorkspaceDirectoryPreference(
-  left: { relativePath: string },
-  right: { relativePath: string },
-): number {
-  const leftScore = workspaceDirectoryPreferenceScore(left.relativePath);
-  const rightScore = workspaceDirectoryPreferenceScore(right.relativePath);
-  if (leftScore !== rightScore) {
-    return leftScore - rightScore;
-  }
-  return left.relativePath.localeCompare(right.relativePath);
-}
-
-function workspaceDirectoryPreferenceScore(path: string): number {
-  const name = path.toLowerCase();
-  if (name === "app" || name.endsWith("-app")) {
-    return 0;
-  }
-  if (name.includes("dashboard") || name.includes("site") || name.includes("web")) {
-    return 1;
-  }
-  return 2;
 }
 
 function parseSandboxArtifact(stdout: string): SandboxArtifact {

@@ -498,7 +498,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           logger,
           sandbox,
           setRunStage: (stage) => this.setRunStage(stage),
-          ...(input.workspaceSlug ? { workspaceDir: `/workspace/${input.workspaceSlug}` } : {}),
+          // Slug-less fallback is "/workspace/app" so the dev-server slot matches wake/status/console.
+          workspaceDir: input.workspaceSlug
+            ? `/workspace/${input.workspaceSlug}`
+            : "/workspace/app",
         },
         directRunCodeInput,
       );
@@ -588,14 +591,22 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     // stream is done to re-crawl the finished app onto the (unchanged) preview URL. Web/Next.js
     // hot-reloads via polling and needs no restart.
     if (input.projectMode === "app-builder-mobile") {
-      await restartMobilePreview({
-        append: (chunk) => this.append(chunk),
-        env: this.env,
-        input,
-        logger,
-        sandbox,
-        setRunStage: (stage) => this.setRunStage(stage),
-      });
+      // Best-effort: the answer already streamed and the preview URL is stable, so a transient
+      // Daytona control-plane error here must not flip an already-successful mobile run to failed.
+      try {
+        await restartMobilePreview({
+          append: (chunk) => this.append(chunk),
+          env: this.env,
+          input,
+          logger,
+          sandbox,
+          setRunStage: (stage) => this.setRunStage(stage),
+        });
+      } catch (error) {
+        logger.warn("mobile_preview_restart_failed", {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
     await snapshotAppBuilderWorkspace({
       env: this.env,

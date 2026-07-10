@@ -68,3 +68,13 @@ export async function userSandboxName(userId: string): Promise<string> {
   );
   return `${SANDBOX_ID_PREFIX}-${toHex(digest).slice(0, SANDBOX_ID_HEX_LENGTH)}`;
 }
+
+// Pre-migration per-PROJECT sandbox name (one sandbox per project). Retained solely so account
+// deletion can also tear down sandboxes provisioned before the one-sandbox-per-user migration.
+export async function legacyProjectSandboxName(userId: string, projectId: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    textEncoder.encode(JSON.stringify(["project-sandbox", userId, projectId])),
+  );
+  return `${SANDBOX_ID_PREFIX}-${toHex(digest).slice(0, SANDBOX_ID_HEX_LENGTH)}`;
+}

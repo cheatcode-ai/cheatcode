@@ -1396,25 +1396,12 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     return parsed.success ? parsed.data : null;
   }
 
+  // Exact slot only: the console route always sends a fully-qualified `app-preview:<slug>` (null
+  // slugs normalized to `app-preview:app`), so any sibling-slot fallback would leak another
+  // project's dev-server logs into this project's Console. A missing record yields an empty snapshot.
   private async processRecordsForRead(name: string): Promise<NamedProcessRecord[]> {
     const exact = await this.processRecord(name);
-    const records = await this.ctx.storage.list({ prefix: PROC_PREFIX });
-    const fallback: NamedProcessRecord[] = [];
-    for (const [key, value] of records) {
-      const parsed = ProcessRecordSchema.safeParse(value);
-      if (!parsed.success) {
-        continue;
-      }
-      const candidate = { name: key.slice(PROC_PREFIX.length), record: parsed.data };
-      if (candidate.name === CODE_SERVER_PROCESS_ID) {
-        continue;
-      }
-      if (candidate.name !== name) {
-        fallback.push(candidate);
-      }
-    }
-    fallback.sort((left, right) => compareProcessRecords(left.record, right.record));
-    return exact ? [{ name, record: exact }, ...fallback] : fallback;
+    return exact ? [{ name, record: exact }] : [];
   }
 
   private async deleteProcessRecord(id: string, name: string): Promise<void> {
@@ -1497,10 +1484,6 @@ function isDestroyed(sandbox: DaytonaSandbox): boolean {
 
 function isFailedState(state: string): boolean {
   return state === "error" || state === "build_failed";
-}
-
-function compareProcessRecords(left: ProcessRecord, right: ProcessRecord): number {
-  return (right.startedAtMs ?? 0) - (left.startedAtMs ?? 0);
 }
 
 function isMissingDaytonaProcessError(error: unknown): boolean {

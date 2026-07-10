@@ -12,6 +12,7 @@ import { AgentWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
+  createLogger,
   emitErrorEvent,
   emitPerformanceMetric,
   toAPIError,
@@ -77,6 +78,7 @@ import { parseCreateRunRequestBody } from "./run-request";
 import {
   GatewayUserIdSchema,
   isUuidRouteParam,
+  legacyProjectSandboxName,
   parseRunRouteParam,
   parseThreadRouteParam,
   readGatewayUserId,
@@ -303,6 +305,9 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
   if (body.scope === "account") {
     await sandbox.destroySandbox();
     await sandbox.deleteDurableState();
+    // Also reclaim any pre-migration per-project sandboxes (keyed by the old projectSandboxName)
+    // so a deleted user's code/files never persist on Daytona after the one-sandbox-per-user cutover.
+    await destroyLegacyProjectSandboxes(c.env, userId, body.projects);
     projectStatesDeleted = body.projects.length;
   } else {
     for (const project of body.projects) {
@@ -322,6 +327,29 @@ agentApp.post("/internal/users/:userId/delete-state", async (c) => {
     }),
   );
 });
+
+// Best-effort teardown of pre-migration per-project sandboxes on account deletion. Addressing a
+// legacy DO that never existed just yields a fresh idle stub whose destroy is a no-op; a missing
+// Daytona sandbox is tolerated so one failure can't block reclaiming the others.
+async function destroyLegacyProjectSandboxes(
+  env: AgentEnv,
+  userId: string,
+  deletedProjects: ReadonlyArray<{ id: string }>,
+): Promise<void> {
+  for (const project of deletedProjects) {
+    try {
+      const legacyName = await legacyProjectSandboxName(userId, project.id);
+      const legacy = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(legacyName));
+      await legacy.destroySandbox();
+      await legacy.deleteDurableState();
+    } catch (error) {
+      createLogger().warn("legacy_project_sandbox_teardown_failed", {
+        error: error instanceof Error ? error.message : String(error),
+        projectId: project.id,
+      });
+    }
+  }
+}
 
 agentApp.get("/v1/outputs/:outputId/download", async (c) => {
   const parsedOutputId = OutputIdSchema.safeParse(c.req.param("outputId"));
@@ -609,16 +637,18 @@ agentApp.get("/v1/threads/:threadId/sandbox/ide", async (c) => {
   const sandbox = project
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
-  const files = await sandbox.listFiles({
-    includeHidden: false,
-    path: SANDBOX_WORKSPACE_ROOT,
-    recursive: true,
-  });
   // Per-user "computer": a project chat opens its own folder (/workspace/<slug>, header = slug);
   // a project-less chat opens the whole computer root (/workspace, relabelled "COMPUTER").
   const workspacePath = project?.workspaceSlug
     ? workspacePathForSlug(project.workspaceSlug)
     : SANDBOX_WORKSPACE_ROOT;
+  // List only the opened project's folder — a recursive walk of the whole /workspace root would let
+  // a sibling project's node_modules exhaust the entry cap before reaching this project's source.
+  const files = await sandbox.listFiles({
+    includeHidden: false,
+    path: workspacePath,
+    recursive: true,
+  });
   const initialFilePath = project
     ? selectInitialCodeServerFile(files.files, workspacePath)
     : undefined;

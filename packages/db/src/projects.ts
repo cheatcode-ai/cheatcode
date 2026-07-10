@@ -175,6 +175,27 @@ export async function countActiveSandboxProjects(db: Database, userId: UserId): 
   return row?.count ?? 0;
 }
 
+/**
+ * Whether the user already has this exact sandbox_id attached to a live project. In the
+ * one-sandbox-per-user model every project shares the same "computer", so attaching it to an
+ * Nth project reuses an existing VM and must NOT consume a fresh concurrent-sandbox slot.
+ */
+export async function userHasSandboxAttached(
+  db: Database,
+  userId: UserId,
+  sandboxId: string,
+): Promise<boolean> {
+  const row = await db.query.projects.findFirst({
+    columns: { id: true },
+    where: and(
+      eq(projects.userId, userId),
+      eq(projects.sandboxId, sandboxId),
+      isNull(projects.deletedAt),
+    ),
+  });
+  return row !== undefined;
+}
+
 export async function getProject(
   db: Database,
   input: { projectId: ProjectId; userId: UserId },
@@ -207,6 +228,18 @@ export function workspacePathForSlug(slug: string): string {
   return `/workspace/${slug}`;
 }
 
+/**
+ * The `/workspace/app` sentinel: shared by every slug-less (legacy/null) project and used as the
+ * app-builder + general-run fallback dir. Reserved in `computeUniqueWorkspaceSlug` so no NEW
+ * project can claim slug "app" and later `rm -rf /workspace/app` out from under those runs on delete.
+ */
+const LEGACY_APP_SLUG = "app";
+
+/** Postgres unique_violation SQLSTATE, raised by the partial unique index on (user_id, slug). */
+const PG_UNIQUE_VIOLATION = "23505";
+const WORKSPACE_SLUG_UNIQUE_INDEX = "v2_projects_user_workspace_slug_uidx";
+const MAX_WORKSPACE_SLUG_ATTEMPTS = 5;
+
 /** Lowercase, filesystem-safe kebab slug (folder name) from a project display name. */
 export function filesystemSlug(name: string): string {
   const slug = name
@@ -235,6 +268,9 @@ export async function computeUniqueWorkspaceSlug(
   const taken = new Set(
     rows.map((row) => row.workspaceSlug).filter((slug): slug is string => !!slug),
   );
+  // Never hand out the `/workspace/app` sentinel — any null-slug project already lives there, and a
+  // NEW project owning slug "app" would let its delete rm -rf the shared folder + app-builder dir.
+  taken.add(LEGACY_APP_SLUG);
   const base = filesystemSlug(name);
   if (!taken.has(base)) {
     return base;
@@ -253,7 +289,33 @@ export async function createProject(
   input: CreateProjectInput,
 ): Promise<ProjectSummaryRecord> {
   const settings = initialProjectSettings(input);
-  const workspaceSlug = await computeUniqueWorkspaceSlug(db, input.userId, input.name);
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_WORKSPACE_SLUG_ATTEMPTS; attempt += 1) {
+    try {
+      // Each attempt runs in its own savepoint so a concurrent slug collision (23505 on the
+      // partial unique index) rolls back only the failed insert — not the caller's transaction —
+      // and we recompute against the now-committed competing slug before retrying.
+      return await db.transaction(async (tx) => {
+        const scoped = tx as Database;
+        const workspaceSlug = await computeUniqueWorkspaceSlug(scoped, input.userId, input.name);
+        return insertProjectRow(scoped, input, settings, workspaceSlug);
+      });
+    } catch (error) {
+      if (!isWorkspaceSlugUniqueViolation(error)) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError ?? new Error("Failed to create project");
+}
+
+async function insertProjectRow(
+  db: Database,
+  input: CreateProjectInput,
+  settings: ProjectSettings | null,
+  workspaceSlug: string,
+): Promise<ProjectSummaryRecord> {
   const rows = await db
     .insert(projects)
     .values({
@@ -282,6 +344,25 @@ export async function createProject(
     throw new Error("Failed to create project");
   }
   return projectSummaryFromRow(row);
+}
+
+/**
+ * True only for a unique-violation on the workspace-slug index (walking `.cause` since drizzle may
+ * wrap the pg driver error). Constrains retries to slug races, not some other unique conflict.
+ */
+function isWorkspaceSlugUniqueViolation(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 5 && current != null; depth += 1) {
+    if (typeof current !== "object") {
+      return false;
+    }
+    const record = current as { cause?: unknown; code?: unknown; constraint?: unknown };
+    if (record.code === PG_UNIQUE_VIOLATION) {
+      return record.constraint === undefined || record.constraint === WORKSPACE_SLUG_UNIQUE_INDEX;
+    }
+    current = record.cause;
+  }
+  return false;
 }
 
 export async function updateProject(
@@ -642,7 +723,11 @@ export async function attachProjectSandboxWithLimit(
   }
 
   const sandboxCount = await countActiveSandboxProjects(db, input.userId);
-  if (sandboxCount >= input.maxConcurrentSandboxes) {
+  // Only a genuinely new (distinct) sandbox consumes a concurrent slot. Attaching the user's
+  // existing per-user "computer" to another project doesn't add a VM, so it must never be gated —
+  // otherwise a free-tier user (limit 1) is permanently blocked from a 2nd project.
+  const alreadyAttached = await userHasSandboxAttached(db, input.userId, input.sandboxId);
+  if (!alreadyAttached && sandboxCount >= input.maxConcurrentSandboxes) {
     return {
       limit: input.maxConcurrentSandboxes,
       sandboxCount,
@@ -652,7 +737,8 @@ export async function attachProjectSandboxWithLimit(
 
   await attachProjectSandbox(db, input);
   return {
-    sandboxCount: sandboxCount + 1,
+    // Distinct-sandbox count is unchanged when reusing an already-attached sandbox.
+    sandboxCount: alreadyAttached ? sandboxCount : sandboxCount + 1,
     sandboxId: input.sandboxId,
     type: "attached",
   };

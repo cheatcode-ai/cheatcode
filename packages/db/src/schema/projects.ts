@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { boolean, index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -27,28 +36,38 @@ export interface DirectoryBackupHandle {
   dir: string;
 }
 
-export const projects = pgTable(v2TableName("projects"), {
-  id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  name: text("name").notNull(),
-  mode: text("mode").notNull(),
-  // Immutable, filesystem-safe folder name under /workspace in the user's per-user "computer"
-  // sandbox (/workspace/<workspaceSlug>). Decoupled from the display `name` so a project rename
-  // never moves its folder. Unique per user. Nullable only for legacy/pre-migration rows.
-  workspaceSlug: text("workspace_slug"),
-  masterInstructions: text("master_instructions"),
-  sandboxId: text("sandbox_id"),
-  containerBackup: jsonb("container_backup").$type<DirectoryBackupHandle | null>(),
-  settings: jsonb("settings").$type<ProjectSettings>().notNull().default(sql`'{}'::jsonb`),
-  overQuota: boolean("over_quota").notNull().default(false),
-  archivedPendingAction: boolean("archived_pending_action").notNull().default(false),
-  archiveAfter: timestamp("archive_after", { withTimezone: true }),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+export const projects = pgTable(
+  v2TableName("projects"),
+  {
+    id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mode: text("mode").notNull(),
+    // Immutable, filesystem-safe folder name under /workspace in the user's per-user "computer"
+    // sandbox (/workspace/<workspaceSlug>). Decoupled from the display `name` so a project rename
+    // never moves its folder. Unique per user. Nullable only for legacy/pre-migration rows.
+    workspaceSlug: text("workspace_slug"),
+    masterInstructions: text("master_instructions"),
+    sandboxId: text("sandbox_id"),
+    containerBackup: jsonb("container_backup").$type<DirectoryBackupHandle | null>(),
+    settings: jsonb("settings").$type<ProjectSettings>().notNull().default(sql`'{}'::jsonb`),
+    overQuota: boolean("over_quota").notNull().default(false),
+    archivedPendingAction: boolean("archived_pending_action").notNull().default(false),
+    archiveAfter: timestamp("archive_after", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (table) => [
+    // Enforces the "workspace_slug unique per user" invariant that /workspace/<slug> folder,
+    // dev-server slot, and port allocation all key on. Partial so legacy null slugs are exempt.
+    uniqueIndex("v2_projects_user_workspace_slug_uidx")
+      .on(table.userId, table.workspaceSlug)
+      .where(sql`workspace_slug is not null`),
+  ],
+);
 
 export const threads = pgTable(
   v2TableName("threads"),
