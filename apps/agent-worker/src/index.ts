@@ -650,7 +650,9 @@ agentApp.post("/v1/threads/:threadId/sandbox/preview/wake", async (c) => {
   // this project's dev server among the sandbox's per-project ones (slot keyed by slug).
   const result = await sandbox.wakePreview({
     hostname: resolvePreviewHostname(c.env),
-    ...(project?.workspaceSlug ? { workspaceSlug: project.workspaceSlug } : {}),
+    // A project chat wakes its own dev server (slot keyed by slug, normalized to "app" for legacy
+    // slug-less projects); a project-less chat has no dev server to revive, so omit the slug.
+    ...(project ? { workspaceSlug: previewWorkspaceSlug(project.workspaceSlug) } : {}),
   });
   return c.json(SandboxPreviewWakeSchema.parse(result));
 });
@@ -665,8 +667,19 @@ agentApp.get("/v1/threads/:threadId/sandbox/preview/status", async (c) => {
   const sandbox = project
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
-  // Prefer the webhook-fed cache (Daytona sandbox.state.updated) keyed by the sandbox UUID —
-  // no Daytona API call. Fall back to a live read when the cache is cold.
+  if (project) {
+    // Per-project liveness: the shared per-user sandbox can be "started" while THIS project's dev
+    // server is dead (idle-stop killed its process), so probe the project's own dev-server port
+    // instead of reading only the sandbox state — otherwise the web wake guard never fires and the
+    // preview stays blank. The slot defaults to "app" for legacy slug-less projects (GAP 4).
+    const status = await sandbox.projectPreviewStatus({
+      workspaceSlug: previewWorkspaceSlug(project.workspaceSlug),
+    });
+    return c.json(SandboxPreviewStatusSchema.parse(status));
+  }
+  // Project-less chat: no dev server to probe — report the raw sandbox lifecycle state, preferring
+  // the webhook-fed cache (Daytona sandbox.state.updated) keyed by the sandbox UUID (no Daytona API
+  // call), falling back to a live read when the cache is cold.
   const daytonaId = await sandbox.existingDaytonaId();
   const cached = daytonaId ? await readSandboxStateCache(c.env, daytonaId) : null;
   const runtime = cached ?? (await sandbox.sandboxRuntimeState());
@@ -812,7 +825,9 @@ agentApp.get("/v1/threads/:threadId/sandbox/console", async (c) => {
     ? await sandboxForProject(c.env, userId, project.id)
     : await sandboxForThread(c.env, userId, threadId);
   const snapshot = await sandbox.readDevServerLogs(
-    project ? { ...query, processId: `app-preview:${project.id}` } : query,
+    project
+      ? { ...query, processId: `app-preview:${previewWorkspaceSlug(project.workspaceSlug)}` }
+      : query,
   );
   return c.json(SandboxConsoleSnapshotSchema.parse(snapshot));
 });
@@ -833,6 +848,13 @@ function takeoverEmbedUrl(previewUrl: string, password: string): string {
     url.searchParams.set("path", `websockify?__cc_pt=${encodeURIComponent(previewToken)}`);
   }
   return url.toString();
+}
+
+// Legacy slug-less projects were built into /workspace/app with the dev-server slot "app-preview:app"
+// (the app-builder's basename fallback). Normalize a null workspaceSlug to "app" so the wake, status,
+// and console routes all address that same slot — otherwise they'd miss it and fall back wrongly.
+function previewWorkspaceSlug(workspaceSlug: string | null): string {
+  return workspaceSlug ?? "app";
 }
 
 async function terminalProjectForThread(

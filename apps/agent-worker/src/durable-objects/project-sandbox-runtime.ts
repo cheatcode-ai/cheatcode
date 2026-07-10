@@ -203,6 +203,15 @@ export const ProjectWakePreviewInputSchema = z
   })
   .strict();
 
+// Read-only preview liveness for the status panel. Names which project's dev server to check —
+// its ProcessRecord slot is keyed by workspaceSlug (matching start_dev_server + wakePreview).
+// Absent/normalized to "app" for legacy slug-less projects; a project-less chat never calls this.
+export const ProjectPreviewStatusInputSchema = z
+  .object({
+    workspaceSlug: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+
 export const ProjectSignedPreviewUrlInputSchema = z
   .object({
     port: z.number().int().positive().max(65_535),
@@ -257,6 +266,7 @@ export type ProjectAllocatePortInput = z.input<typeof ProjectAllocatePortInputSc
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectUnexposePortInput = z.input<typeof ProjectUnexposePortInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;
+export type ProjectPreviewStatusInput = z.input<typeof ProjectPreviewStatusInputSchema>;
 export type ProjectSignedPreviewUrlInput = z.input<typeof ProjectSignedPreviewUrlInputSchema>;
 
 /** Result of waking a preview: the (possibly restarted) dev-server preview URL + liveness. */

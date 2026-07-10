@@ -54,6 +54,8 @@ import {
   ProjectListFilesInputSchema,
   type ProjectPreviewFileInput,
   ProjectPreviewFileInputSchema,
+  type ProjectPreviewStatusInput,
+  ProjectPreviewStatusInputSchema,
   type ProjectReadDevServerLogsInput,
   ProjectReadDevServerLogsInputSchema,
   type ProjectReadFileInput,
@@ -112,9 +114,15 @@ const APP_PREVIEW_TTL_MS = 24 * 60 * 60 * 1000;
 // Daytona's signed preview URL (token in the subdomain) TTL — 24h is Daytona's max. Regenerated on
 // every mobile dev-server (re)start so Expo Go always has an unexpired, header-free manifest URL.
 const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
-// Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<projectId>
+// Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<workspaceSlug>
 // so multiple projects' servers persist side by side in the one per-user sandbox (bud parity).
 const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
+// Legacy slug-less projects were built into /workspace/app with the slot "app-preview:app" (the
+// app-builder's basename fallback). The status/console/wake routes normalize a null workspaceSlug to
+// this so all of them address the same slot instead of the bare "app-preview" default.
+const LEGACY_APP_SLUG = "app";
+// Single short liveness probe budget for the read-only preview status check (no VM boot).
+const PREVIEW_STATUS_PROBE_TIMEOUT_MS = 3_000;
 // Per-project dev-server port pools. Web previews start at 5173, mobile (Expo Metro) at 8081, each
 // incrementing per new project, unique within the sandbox — the port is per-project, not fixed.
 const WEB_PORT_BASE = 5173;
@@ -363,10 +371,20 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
 
   public async startProcess(input: ProjectStartProcessInput): Promise<SandboxProcessResult> {
     const parsed = ProjectStartProcessInputSchema.parse(input);
+    // A port-bound process must carry an explicit processId (its dev-server slot). Without one it
+    // would land in the shared bare "app-preview" slot and could clobber another project's dev
+    // server in the per-user sandbox, so refuse it loudly instead of silently sharing a slot.
+    if (parsed.waitForPort && !parsed.processId) {
+      throw new APIError(
+        400,
+        "invalid_request_body",
+        "A port-bound sandbox process requires an explicit processId.",
+        { retriable: false },
+      );
+    }
     const id = await this.ensureSandbox();
     const client = this.client();
-    const name =
-      parsed.processId ?? (parsed.waitForPort ? "app-preview" : `process-${crypto.randomUUID()}`);
+    const name = parsed.processId ?? `process-${crypto.randomUUID()}`;
     const sessionId = `cc-${name}`;
     if (parsed.processId || parsed.waitForPort) {
       await this.deleteProcessRecord(id, name);
@@ -686,6 +704,36 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       .getSandbox(existing)
       .catch(() => null);
     return { sandboxId: existing, state: sandbox?.state ?? "unknown" };
+  }
+
+  // Read-only preview liveness for the status panel: resolve the shared sandbox's lifecycle state
+  // WITHOUT booting it (no ensureSandbox), then — only when the VM is started — probe THIS project's
+  // own dev-server port so a dead dev server reads as not-running even while the sandbox is up (an
+  // idle-stop can kill the dev-server process without stopping the VM). The slot is keyed by
+  // workspaceSlug (defaulting to "app" for legacy slug-less projects), matching start_dev_server +
+  // wakePreview, so each project reports on its own server rather than the shared sandbox state.
+  public async projectPreviewStatus(
+    input: ProjectPreviewStatusInput,
+  ): Promise<{ running: boolean; state: string }> {
+    const parsed = ProjectPreviewStatusInputSchema.parse(input);
+    const runtime = await this.sandboxRuntimeState();
+    if (runtime.state !== "started" || !runtime.sandboxId) {
+      return { running: false, state: runtime.state };
+    }
+    const slug = parsed.workspaceSlug ?? LEGACY_APP_SLUG;
+    const record = await this.processRecord(`${APP_PREVIEW_SLOT_PREFIX}${slug}`);
+    if (!record?.port) {
+      // Sandbox is up but this project has no tracked dev server (a docs/data project, or one not
+      // started yet) — nothing is serving a preview.
+      return { running: false, state: runtime.state };
+    }
+    const running = await this.httpPortReady(
+      runtime.sandboxId,
+      record.port,
+      "/",
+      PREVIEW_STATUS_PROBE_TIMEOUT_MS,
+    );
+    return { running, state: runtime.state };
   }
 
   public async unexposePort(input: ProjectUnexposePortInput): Promise<void> {

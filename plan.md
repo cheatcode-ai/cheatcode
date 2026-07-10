@@ -6405,7 +6405,7 @@ docs_generate_slides, docs_generate_pdf, docs_generate_xlsx, docs_generate_docx
 composio_list_tools, composio_execute
 data_analyze_csv, data_chart, data_scrape_to_csv
 research_deep, research_wide, research_competitor
-sandbox_create, sandbox_destroy, sandbox_snapshot, sandbox_restore, start_dev_server
+start_dev_server
 skill_invoke, skill_read_reference
 ```
 

@@ -10,7 +10,6 @@ import {
   CodeRuntimeContextSchema,
   DeleteFileInputSchema,
   DeleteFileOutputSchema,
-  executeCreateSnapshot,
   executeDeleteFile,
   executeGitClone,
   executeGitCommit,
@@ -18,10 +17,7 @@ import {
   executeGitStatus,
   executeListFiles,
   executeReadFile,
-  executeRestoreSnapshot,
   executeRunCode,
-  executeSandboxCreate,
-  executeSandboxDestroy,
   executeSearchFiles,
   executeShellExec,
   executeShellKillProcess,
@@ -32,13 +28,8 @@ import {
   GitCloneInputSchema,
   GitPushInputSchema,
   GitStatusInputSchema,
-  RestoreSnapshotInputSchema,
   RunCodeInputSchema,
   RunCodeOutputSchema,
-  SandboxCreateInputSchema,
-  SandboxCreateOutputSchema,
-  SandboxDestroyInputSchema,
-  SandboxDestroyOutputSchema,
   SearchFilesInputSchema,
   SearchFilesOutputSchema,
   ShellExecOutputSchema,
@@ -111,7 +102,6 @@ import {
   browserObserveInputSchema,
   browserOpenInputSchema,
   browserScreenshotInputSchema,
-  createSnapshotInputSchema,
   gitCloneInputSchema,
   gitCommitInputSchema,
   gitPushInputSchema,
@@ -120,8 +110,6 @@ import {
   listFilesOutputSchema,
   readFileInputSchema,
   readFileOutputSchema,
-  restoreSnapshotInputSchema,
-  restoreSnapshotOutputSchema,
   runCodeInputSchema,
   runCodeOutputSchema,
   shellExecInputSchema,
@@ -132,7 +120,6 @@ import {
   skillInvokeOutputSchema,
   skillReadReferenceInputSchema,
   skillReadReferenceOutputSchema,
-  snapshotHandleSchema,
   startDevServerInputSchema,
   startDevServerOutputSchema,
   workflowResultSchema,
@@ -471,42 +458,6 @@ export const mastraStartDevServer = createTool({
   inputSchema: startDevServerInputSchema,
   outputSchema: startDevServerOutputSchema,
   execute: async (input, context) => executeStartDevServer(input, codeRuntimeFromContext(context)),
-});
-
-export const mastraSandboxCreate = createTool({
-  id: "sandbox_create",
-  description: "Create or wake the project sandbox and return readiness status.",
-  inputSchema: SandboxCreateInputSchema,
-  outputSchema: SandboxCreateOutputSchema,
-  execute: async (input, context) => executeSandboxCreate(input, codeRuntimeFromContext(context)),
-});
-
-export const mastraSandboxDestroy = createTool({
-  id: "sandbox_destroy",
-  description: "Delete the project sandbox for explicit project cleanup.",
-  inputSchema: SandboxDestroyInputSchema,
-  outputSchema: SandboxDestroyOutputSchema,
-  execute: async (input, context) => executeSandboxDestroy(input, codeRuntimeFromContext(context)),
-});
-
-export const mastraSandboxSnapshot = createTool({
-  id: "sandbox_snapshot",
-  description: "Return the current project's persistent Daytona sandbox handle.",
-  inputSchema: createSnapshotInputSchema,
-  outputSchema: snapshotHandleSchema,
-  execute: async (input, context) => executeCreateSnapshot(input, codeRuntimeFromContext(context)),
-});
-
-export const mastraSandboxRestore = createTool({
-  id: "sandbox_restore",
-  description: "Reconnect the sandbox to a previously returned Daytona sandbox handle.",
-  inputSchema: restoreSnapshotInputSchema,
-  outputSchema: restoreSnapshotOutputSchema,
-  execute: async (input, context) =>
-    executeRestoreSnapshot(
-      RestoreSnapshotInputSchema.parse(input),
-      codeRuntimeFromContext(context),
-    ),
 });
 
 export const mastraBrowserOpen = createTool({

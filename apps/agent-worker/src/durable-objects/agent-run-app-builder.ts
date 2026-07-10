@@ -24,10 +24,12 @@ import { signedUrlToExpo } from "./project-sandbox-preview";
 
 export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
 
-// Fallback app dir + ports for legacy/slug-less runs. Per-project runs derive their own dir from
-// the project's workspaceSlug and their own stable port from the sandbox's per-project allocator.
+// Fallback app dir for legacy/slug-less runs; per-project runs derive their own dir from the
+// project's workspaceSlug. Ports are NEVER a fixed fallback in the per-user sandbox — each project
+// draws a unique dev-server port from the DO's per-project allocator (see allocateAppPort).
 const DEFAULT_APP_BUILDER_DIR = "/workspace/app";
-const DEFAULT_WEB_PORT = 5173;
+// Informational only: the mobile port hint threaded into an imported project's context note. The
+// actual Metro port is allocated per-project by the DO, not fixed to this value.
 const DEFAULT_MOBILE_PORT = 8081;
 // 24h is Daytona's max signed-preview TTL; the token rides in the subdomain so Expo Go needs no
 // header, and we re-mint on every dev-server (re)start so it never serves an expired manifest URL.
@@ -69,9 +71,12 @@ async function allocateAppPort(
   mobile: boolean,
   logger: AgentRunLogger,
 ): Promise<number> {
+  // Per-user sandbox: never fall back to a fixed shared port — two projects on the same fixed port
+  // would fight over it (a rebuild's deleteProcessesOnPort would kill the other's dev server). If
+  // the allocator is unavailable, fail the dev-server start loudly instead of sharing a port.
   if (!sandbox.allocateProjectPort) {
-    logger.warn("app_port_alloc_missing_method", { slug });
-    return mobile ? DEFAULT_MOBILE_PORT : DEFAULT_WEB_PORT;
+    logger.error("app_port_alloc_missing_method", { slug });
+    throw appPortAllocationError(slug);
   }
   try {
     const port = await sandbox.allocateProjectPort({
@@ -81,12 +86,25 @@ async function allocateAppPort(
     logger.info("app_port_allocated", { mobile, port, slug });
     return port;
   } catch (error) {
-    logger.warn("app_port_alloc_failed", {
+    logger.error("app_port_alloc_failed", {
       error: error instanceof Error ? error.message : String(error),
       slug,
     });
-    return mobile ? DEFAULT_MOBILE_PORT : DEFAULT_WEB_PORT;
+    throw appPortAllocationError(slug);
   }
+}
+
+function appPortAllocationError(slug: string): APIError {
+  return new APIError(
+    502,
+    "sandbox_failed_to_start",
+    "Could not allocate a per-project dev-server port.",
+    {
+      details: { slug },
+      hint: "Retry the run. If it persists, the project sandbox port allocator is unavailable.",
+      retriable: true,
+    },
+  );
 }
 
 async function resolveAppWorkspace(

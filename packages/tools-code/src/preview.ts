@@ -1,4 +1,4 @@
-import { createLogger } from "@cheatcode/observability";
+import { APIError, createLogger } from "@cheatcode/observability";
 import { tool } from "ai";
 import { z } from "zod";
 import { getCodeRuntimeContext } from "./runtime";
@@ -57,12 +57,7 @@ export async function executeStartDevServer(
   const cwd = runtimeContext.workspaceDir ?? parsedInput.cwd;
   const slug = deriveWorkspaceSlug(cwd);
   const name = `${APP_PREVIEW_SLOT_PREFIX}${slug}`;
-  const port = await allocateDevServerPort(
-    runtimeContext,
-    slug,
-    parsedInput.isMobile,
-    parsedInput.port,
-  );
+  const port = await allocateDevServerPort(runtimeContext, slug, parsedInput.isMobile);
   const process = await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
     command: parsedInput.command,
     cwd,
@@ -102,17 +97,18 @@ function deriveWorkspaceSlug(cwd: string): string {
 }
 
 // Get-or-assign this project's stable dev-server port from the sandbox's per-project allocator
-// (keyed by slug). Falls back to the requested port when the stub predates the allocator.
+// (keyed by slug). In the per-user sandbox there is NO fixed-port fallback — two projects sharing
+// one port would kill each other's dev server via deleteProcessesOnPort — so if the allocator is
+// unavailable or errors, fail the dev-server start loudly instead of returning a shared port.
 async function allocateDevServerPort(
   runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
   slug: string,
   isMobile: boolean,
-  fallbackPort: number,
 ): Promise<number> {
   const logger = createLogger();
   if (!runtimeContext.sandbox.allocateProjectPort) {
-    logger.warn("dev_server_port_alloc_missing", { fallbackPort, slug });
-    return fallbackPort;
+    logger.error("dev_server_port_alloc_missing", { slug });
+    throw devServerPortAllocationError(slug);
   }
   try {
     const port = await runtimeContext.sandbox.allocateProjectPort({
@@ -122,12 +118,25 @@ async function allocateDevServerPort(
     logger.info("dev_server_port_allocated", { port, slug });
     return port;
   } catch (error) {
-    logger.warn("dev_server_port_alloc_error", {
+    logger.error("dev_server_port_alloc_error", {
       error: error instanceof Error ? error.message : String(error),
       slug,
     });
-    return fallbackPort;
+    throw devServerPortAllocationError(slug);
   }
+}
+
+function devServerPortAllocationError(slug: string): APIError {
+  return new APIError(
+    502,
+    "sandbox_failed_to_start",
+    "Could not allocate a per-project dev-server port.",
+    {
+      details: { slug },
+      hint: "Retry. If it persists, the project sandbox port allocator is unavailable.",
+      retriable: true,
+    },
+  );
 }
 
 export const startDevServer = tool({

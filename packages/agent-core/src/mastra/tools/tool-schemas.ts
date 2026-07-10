@@ -220,50 +220,6 @@ export const startDevServerOutputSchema = z
   })
   .strict();
 
-export const snapshotHandleSchema = z
-  .object({
-    id: z.string().min(1),
-    dir: workspacePathSchema,
-  })
-  .strict();
-
-export const createSnapshotInputSchema = z
-  .object({
-    dir: z
-      .string()
-      .min(1)
-      .max(1_000)
-      .refine((path) => path.startsWith("/"), "Sandbox paths must be absolute.")
-      .refine(isSafeWorkspacePath, "Path must stay inside /workspace.")
-      .default("/workspace")
-      .describe("Workspace directory represented by the persistent volume handle."),
-    name: z.string().min(1).max(200).optional().describe("Human-readable handle label."),
-    ttl: z
-      .number()
-      .int()
-      .positive()
-      .max(90 * 24 * 60 * 60)
-      .default(30 * 24 * 60 * 60)
-      .describe(
-        "Deprecated compatibility TTL in seconds; the Daytona sandbox disk owns durability.",
-      ),
-  })
-  .strict();
-
-export const restoreSnapshotInputSchema = z
-  .object({
-    backup: snapshotHandleSchema.describe("Volume handle returned by sandbox_snapshot."),
-  })
-  .strict();
-
-export const restoreSnapshotOutputSchema = z
-  .object({
-    id: z.string(),
-    dir: z.string(),
-    success: z.boolean(),
-  })
-  .strict();
-
 export const browserOpenInputSchema = z
   .object({
     url: z.string().url().describe("URL to open in the sandbox browser."),
