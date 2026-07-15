@@ -1,15 +1,15 @@
 /**
  * Wildcard preview host parsing.
  *
- * Every preview is served from `{sandboxId}--{port}.trycheatcode.com` — a single
- * label below the apex so Cloudflare Universal SSL (which covers `*.trycheatcode.com`
- * but not deeper wildcards) terminates TLS for free, no Advanced Certificate needed.
+ * Every preview is served from `{sandboxId}--{port}.{PREVIEW_HOSTNAME}` — a
+ * single label below a dedicated preview apex so a one-level wildcard
+ * certificate can terminate TLS without sharing the application site.
  * The `--` (double-dash) separator keeps Daytona sandbox ids (which contain
  * single `-` characters, e.g. UUIDs) unambiguous from the trailing port.
  */
-const PREVIEW_HOST_SUFFIX = ".trycheatcode.com";
 const SANDBOX_LABEL_PATTERN = /^([a-z0-9-]+)--(\d{1,5})$/;
 const SANDBOX_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+const HOSTNAME_PATTERN = /^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/;
 
 export interface PreviewTarget {
   readonly sandboxId: string;
@@ -17,16 +17,17 @@ export interface PreviewTarget {
 }
 
 /**
- * Parse `{sandboxId}--{port}.trycheatcode.com` into its parts.
+ * Parse `{sandboxId}--{port}.{previewHostname}` into its parts.
  * Returns `null` for any host that is not a well-formed preview host so the
  * caller can reject it with a 400.
  */
-export function parsePreviewHost(host: string): PreviewTarget | null {
-  const hostname = (host.split(":")[0] ?? "").toLowerCase();
-  if (!hostname.endsWith(PREVIEW_HOST_SUFFIX)) {
+export function parsePreviewHost(hostname: string, previewHostname: string): PreviewTarget | null {
+  const candidate = canonicalHostname(hostname);
+  const apex = canonicalHostname(previewHostname);
+  if (!candidate || !apex || candidate === apex || !candidate.endsWith(`.${apex}`)) {
     return null;
   }
-  const label = hostname.slice(0, hostname.length - PREVIEW_HOST_SUFFIX.length);
+  const label = candidate.slice(0, -(apex.length + 1));
   if (!label || label.includes(".")) {
     return null;
   }
@@ -41,4 +42,12 @@ export function parsePreviewHost(host: string): PreviewTarget | null {
     return null;
   }
   return { port, sandboxId };
+}
+
+function canonicalHostname(value: string): string | null {
+  const hostname = value.trim().toLowerCase().replace(/\.$/u, "");
+  if (!HOSTNAME_PATTERN.test(hostname) || hostname.includes("..")) {
+    return null;
+  }
+  return hostname;
 }

@@ -1,8 +1,8 @@
 import {
-  type BillingTier,
-  BillingTierSchema,
   entitlementValuesForTier,
-  inferTierFromPolarProduct,
+  getPolarCustomerState,
+  type PolarCustomerStateSubscription,
+  type PolarServer,
   tierLimits,
 } from "@cheatcode/billing";
 import {
@@ -16,8 +16,11 @@ import {
   updateUserPolarCustomerId,
   upsertEntitlement,
 } from "@cheatcode/db";
-import { UserId } from "@cheatcode/types";
+import { APIError } from "@cheatcode/observability";
+import { type BillingTier, BillingTierSchema, billingTierRank, UserId } from "@cheatcode/types";
 import { z } from "zod";
+
+type PolarProductTierMap = Readonly<Record<string, BillingTier>>;
 
 const PolarEventSchema = z
   .object({
@@ -26,7 +29,6 @@ const PolarEventSchema = z
   })
   .passthrough();
 
-const RawPayloadSchema = z.record(z.string(), z.unknown());
 const InternalUserIdSchema = z
   .string()
   .uuid()
@@ -42,20 +44,27 @@ export interface PolarWebhookResult {
 
 export async function handlePolarWebhookEvent(
   db: Database,
-  input: { event: unknown; eventId: string | null; rawBody: string },
+  input: {
+    accessToken: string;
+    event: unknown;
+    eventId: string | null;
+    productTierById: PolarProductTierMap;
+    server?: PolarServer;
+  },
 ): Promise<PolarWebhookResult> {
   const event = PolarEventSchema.parse(input.event);
-  const payload = parseRawPayload(input.rawBody);
+  const payload = billingEventMetadata(event.data);
   const user = await resolvePolarUser(db, event.data);
 
-  if (event.type === "customer.state_changed" && user) {
-    const result = await applyCustomerStateChanged(db, event.data, input.eventId, user);
-    await recordPolarEvent(db, event.type, payload, input.eventId, result.userId ?? user.id);
-    return result;
-  }
-
-  if (event.type.startsWith("subscription.") && user) {
-    const result = await applySubscriptionEvent(db, event.type, event.data, input.eventId, user);
+  if (shouldReconcileCustomer(event.type) && user) {
+    const result = await reconcilePolarCustomer(db, {
+      accessToken: input.accessToken,
+      eventId: input.eventId,
+      eventType: event.type,
+      productTierById: input.productTierById,
+      ...(input.server ? { server: input.server } : {}),
+      user,
+    });
     await recordPolarEvent(db, event.type, payload, input.eventId, result.userId ?? user.id);
     return result;
   }
@@ -68,106 +77,81 @@ export async function handlePolarWebhookEvent(
   };
 }
 
-async function applyCustomerStateChanged(
+async function reconcilePolarCustomer(
   db: Database,
-  data: Record<string, unknown>,
-  eventId: string | null,
-  user: BillingUserRecord,
+  input: {
+    accessToken: string;
+    eventId: string | null;
+    eventType: string;
+    productTierById: PolarProductTierMap;
+    server?: PolarServer;
+    user: BillingUserRecord;
+  },
 ): Promise<PolarWebhookResult> {
-  const customerId = stringField(data, "id");
-  if (customerId) {
-    await updateUserPolarCustomerId(db, { polarCustomerId: customerId, userId: user.id });
-  }
-
-  const activeSubscription = firstRecordArrayItem(data, "activeSubscriptions");
-  if (!activeSubscription || dateField(data, "deletedAt")) {
-    const previousTier = await writeEntitlement(db, {
-      customerId: customerId ?? null,
-      eventId,
-      status: activeSubscription ? "deleted" : "none",
-      tier: "free",
-      userId: user.id,
+  const state = await getPolarCustomerState({
+    accessToken: input.accessToken,
+    externalCustomerId: input.user.id,
+    ...(input.server ? { server: input.server } : {}),
+  });
+  return db.transaction(async (transaction) => {
+    const tx = transaction as Database;
+    await updateUserPolarCustomerId(tx, {
+      polarCustomerId: state.customerId,
+      userId: input.user.id,
+    });
+    const selection = highestTierSubscription(state.activeSubscriptions, input.productTierById);
+    const tier = selection?.tier ?? "free";
+    const previousTier = await writeEntitlement(tx, {
+      cancelAtPeriodEnd: selection?.subscription.cancelAtPeriodEnd ?? false,
+      currentPeriodEnd: selection?.subscription.currentPeriodEnd ?? null,
+      currentPeriodStart: selection?.subscription.currentPeriodStart ?? null,
+      status: selection?.subscription.status ?? freeStatus(input.eventType),
+      subscriptionId: selection?.subscription.id ?? null,
+      tier,
+      userId: input.user.id,
     });
     return {
-      action: "entitlement_downgraded_to_free",
-      eventType: "customer.state_changed",
+      action: tier === "free" ? "entitlement_downgraded_to_free" : "entitlement_synced",
+      eventType: input.eventType,
       previousTier,
-      userId: user.id,
-      tier: "free",
+      tier,
+      userId: input.user.id,
     };
-  }
-
-  const product = recordField(activeSubscription, "product");
-  const tier = inferTierFromPolarFields({
-    metadata:
-      recordField(product, "metadata") ??
-      recordField(activeSubscription, "metadata") ??
-      recordField(data, "metadata"),
-    productId: stringField(activeSubscription, "productId"),
-    productName: stringField(product, "name"),
   });
-  const previousTier = await writeEntitlement(db, {
-    customerId: customerId ?? null,
-    cancelAtPeriodEnd: booleanField(activeSubscription, "cancelAtPeriodEnd"),
-    currentPeriodEnd: dateField(activeSubscription, "currentPeriodEnd"),
-    currentPeriodStart: dateField(activeSubscription, "currentPeriodStart"),
-    eventId,
-    status: stringField(activeSubscription, "status") ?? "active",
-    subscriptionId: stringField(activeSubscription, "id") ?? null,
-    tier,
-    userId: user.id,
-  });
-  return {
-    action: "entitlement_synced",
-    eventType: "customer.state_changed",
-    previousTier,
-    tier,
-    userId: user.id,
-  };
 }
 
-async function applySubscriptionEvent(
-  db: Database,
-  eventType: string,
-  data: Record<string, unknown>,
-  eventId: string | null,
-  user: BillingUserRecord,
-): Promise<PolarWebhookResult> {
-  const customer = recordField(data, "customer");
-  const customerId = stringField(data, "customerId") ?? stringField(customer, "id");
-  if (customerId) {
-    await updateUserPolarCustomerId(db, { polarCustomerId: customerId, userId: user.id });
+function highestTierSubscription(
+  subscriptions: PolarCustomerStateSubscription[],
+  productTierById: PolarProductTierMap,
+): { subscription: PolarCustomerStateSubscription; tier: BillingTier } | null {
+  let selected: { subscription: PolarCustomerStateSubscription; tier: BillingTier } | null = null;
+  for (const subscription of subscriptions) {
+    const tier = productTierById[subscription.productId];
+    if (!tier || tier === "free") {
+      throw new APIError(
+        503,
+        "unavailable_maintenance",
+        "Active Polar product is not mapped to a billing tier",
+        {
+          details: { productId: subscription.productId },
+          hint: "Configure the same POLAR_PRODUCT_ID_* catalog on gateway and webhooks Workers.",
+          retriable: false,
+        },
+      );
+    }
+    if (!selected || billingTierRank(tier) > billingTierRank(selected.tier)) {
+      selected = { subscription, tier };
+    }
   }
+  return selected;
+}
 
-  const status = stringField(data, "status") ?? eventType.replace("subscription.", "");
-  const product = recordField(data, "product");
-  const tier = paidAccessStillApplies(eventType, data, status)
-    ? inferTierFromPolarFields({
-        metadata: recordField(product, "metadata"),
-        productId: stringField(data, "productId"),
-        productName: stringField(product, "name"),
-      })
-    : "free";
+function shouldReconcileCustomer(eventType: string): boolean {
+  return eventType === "customer.state_changed" || eventType.startsWith("subscription.");
+}
 
-  const previousTier = await writeEntitlement(db, {
-    customerId: customerId ?? null,
-    cancelAtPeriodEnd: tier === "free" ? false : booleanField(data, "cancelAtPeriodEnd"),
-    currentPeriodEnd: dateField(data, "currentPeriodEnd"),
-    currentPeriodStart: dateField(data, "currentPeriodStart"),
-    eventId,
-    status,
-    subscriptionId: tier === "free" ? null : (stringField(data, "id") ?? null),
-    tier,
-    userId: user.id,
-  });
-
-  return {
-    action: tier === "free" ? "entitlement_downgraded_to_free" : "entitlement_synced",
-    eventType,
-    previousTier,
-    tier,
-    userId: user.id,
-  };
+function freeStatus(eventType: string): string {
+  return eventType === "subscription.revoked" ? "revoked" : "none";
 }
 
 async function resolvePolarUser(
@@ -204,11 +188,9 @@ function internalUserIdFromData(data: Record<string, unknown>): UserId | null {
 async function writeEntitlement(
   db: Database,
   input: {
-    customerId?: string | null;
     cancelAtPeriodEnd?: boolean;
     currentPeriodEnd?: Date | null;
     currentPeriodStart?: Date | null;
-    eventId: string | null;
     status: string;
     subscriptionId?: string | null;
     tier: BillingTier;
@@ -223,12 +205,9 @@ async function writeEntitlement(
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
     currentPeriodStart: input.currentPeriodStart ?? null,
-    polarCustomerId: input.customerId ?? null,
     polarSubscriptionId: input.subscriptionId ?? null,
-    source: "polar",
     subscriptionStatus: input.status,
     userId: input.userId,
-    webhookEventId: input.eventId,
   });
   await applyEntitlementResourceLimits(db, {
     byokProviderSlots: tierLimits(input.tier).byokProviderSlots,
@@ -253,34 +232,21 @@ async function recordPolarEvent(
   });
 }
 
-function paidAccessStillApplies(
-  eventType: string,
-  data: Record<string, unknown>,
-  status: string,
-): boolean {
-  if (eventType === "subscription.revoked") {
-    return false;
-  }
-  if (eventType === "subscription.canceled" && booleanField(data, "cancelAtPeriodEnd")) {
-    return true;
-  }
-  return status === "active" || status === "trialing" || status === "past_due";
-}
-
-function inferTierFromPolarFields(input: {
-  metadata?: Record<string, unknown> | undefined;
-  productId?: string | undefined;
-  productName?: string | undefined;
-}): BillingTier {
-  return inferTierFromPolarProduct({
-    ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
-    ...(input.productId === undefined ? {} : { productId: input.productId }),
-    ...(input.productName === undefined ? {} : { productName: input.productName }),
-  });
-}
-
-function parseRawPayload(rawBody: string): Record<string, unknown> {
-  return RawPayloadSchema.parse(JSON.parse(rawBody) as unknown);
+function billingEventMetadata(data: Record<string, unknown>): Record<string, unknown> {
+  const customer = recordField(data, "customer");
+  const product = recordField(data, "product");
+  return Object.fromEntries(
+    [
+      ["customer_id", stringField(data, "customerId") ?? stringField(customer, "id")],
+      [
+        "external_customer_id",
+        stringField(data, "externalCustomerId") ?? stringField(customer, "externalId"),
+      ],
+      ["object_id", stringField(data, "id")],
+      ["product_id", stringField(data, "productId") ?? stringField(product, "id")],
+      ["status", stringField(data, "status")],
+    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
+  );
 }
 
 function recordField(
@@ -294,39 +260,9 @@ function recordField(
   return value as Record<string, unknown>;
 }
 
-function firstRecordArrayItem(
-  record: Record<string, unknown>,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = record[key];
-  if (!Array.isArray(value)) {
-    return undefined;
-  }
-  const first = value[0] as unknown;
-  return first && typeof first === "object" && !Array.isArray(first)
-    ? (first as Record<string, unknown>)
-    : undefined;
-}
-
 function stringField(record: Record<string, unknown> | undefined, key: string): string | undefined {
   const value = record?.[key];
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-function booleanField(record: Record<string, unknown>, key: string): boolean {
-  return record[key] === true;
-}
-
-function dateField(record: Record<string, unknown>, key: string): Date | null {
-  const value = record[key];
-  if (value instanceof Date) {
-    return value;
-  }
-  if (typeof value !== "string") {
-    return null;
-  }
-  const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? null : date;
 }
 
 function parseTier(value: string | undefined): BillingTier {

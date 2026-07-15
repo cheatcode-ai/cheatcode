@@ -18,17 +18,25 @@ export function Response({ children }: { children: string }) {
       return;
     }
 
-    void (async () => {
-      const nextPlugins: StreamdownPlugins = { ...plugins };
-      if (needsMath) {
-        nextPlugins.math = (await import("@streamdown/math")).math;
-      }
-      if (needsMermaid) {
-        nextPlugins.mermaid = (await import("@streamdown/mermaid")).mermaid;
-      }
-      setPlugins(nextPlugins);
-    })();
-  }, [children, plugins]);
+    let cancelled = false;
+    const imports: Promise<Partial<StreamdownPlugins>>[] = [];
+    if (needsMath) {
+      imports.push(import("@streamdown/math").then(({ math }) => ({ math })));
+    }
+    if (needsMermaid) {
+      imports.push(import("@streamdown/mermaid").then(({ mermaid }) => ({ mermaid })));
+    }
+    void Promise.all(imports)
+      .then((loaded) => {
+        if (!cancelled) {
+          setPlugins((current) => Object.assign({}, current, ...loaded));
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [children, plugins.math, plugins.mermaid]);
 
   return (
     <div className="max-w-none text-sm leading-6 [&_a]:underline [&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:bg-muted [&_pre]:p-3">

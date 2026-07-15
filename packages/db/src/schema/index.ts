@@ -1,15 +1,13 @@
 export { auditLog } from "./audit";
-export type { AutomationDelivery, AutomationDeliveryChannel } from "./automations";
-export { automationRunRequests, automationRuns, automations } from "./automations";
 export { billingEvents, entitlements } from "./billing";
+export { deletedClerkIdentities } from "./clerk-deletions";
 export { providerKeys, userIntegrations } from "./keys";
-export type { AgentRunConfig, AgentRunError } from "./messages";
+export type { AgentRunError } from "./messages";
 export { agentRuns, messages } from "./messages";
 export { generatedOutputs } from "./outputs";
 export type { OnboardingStateValue } from "./profiles";
 export { userProfiles } from "./profiles";
-export type { DirectoryBackupHandle, ProjectSettings, ThreadLaunchIntent } from "./projects";
+export type { ProjectSettings, ThreadLaunchIntent } from "./projects";
 export { projects, threads } from "./projects";
 export { userSkills } from "./skills";
-export { usageDailyTotals, usageEvents } from "./usage";
 export { users } from "./users";

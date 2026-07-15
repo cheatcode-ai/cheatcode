@@ -1,12 +1,12 @@
 import { type AnalyticsBindings, type ErrorEvent, emitErrorEvent } from "./analytics";
-import { toAPIError } from "./errors";
+import { safeErrorTelemetry, toAPIError } from "./errors";
 import { createLogger } from "./logger";
 
-export interface WorkerFetchHandler<Env extends AnalyticsBindings, Ctx = unknown> {
+interface WorkerFetchHandler<Env extends AnalyticsBindings, Ctx = unknown> {
   fetch(request: Request, env: Env, ctx: Ctx): Promise<Response> | Response;
 }
 
-export interface ErrorHandlerOptions {
+interface ErrorHandlerOptions {
   errorCategory?: string;
   requestId?: (request: Request) => string | null;
   routeName?: (request: Request) => string;
@@ -26,10 +26,11 @@ export function withErrorHandler<
         return await handler.fetch(request, env, ctx);
       } catch (error) {
         const apiError = toAPIError(error);
+        const telemetry = safeErrorTelemetry(error);
         const route = options.routeName?.(request) ?? defaultRouteName(request);
         emitErrorEvent(
           env,
-          errorEventFrom(error, {
+          errorEventFrom(telemetry, {
             errorCategory: options.errorCategory ?? options.workerName,
             errorCode: apiError.code,
             httpStatus: apiError.status,
@@ -38,9 +39,10 @@ export function withErrorHandler<
           }),
         );
         createLogger({ requestId }).error("worker_request_failed", {
-          code: apiError.code,
+          apiCode: apiError.code,
           route,
           workerName: options.workerName,
+          ...telemetry,
         });
         return apiError.toResponse(requestId);
       }
@@ -49,17 +51,10 @@ export function withErrorHandler<
 }
 
 function errorEventFrom(
-  error: unknown,
+  telemetry: ReturnType<typeof safeErrorTelemetry>,
   base: Pick<ErrorEvent, "errorCategory" | "errorCode" | "httpStatus" | "route" | "workerName">,
 ): ErrorEvent {
-  const event: ErrorEvent = { ...base };
-  if (error instanceof Error) {
-    event.message = error.message;
-    if (error.stack) {
-      event.stack = error.stack;
-    }
-  }
-  return event;
+  return { ...base, ...telemetry };
 }
 
 function defaultRouteName(request: Request): string {

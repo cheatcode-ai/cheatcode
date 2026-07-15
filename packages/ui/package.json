@@ -37,11 +37,14 @@
     "@streamdown/math": "catalog:",
     "@streamdown/mermaid": "catalog:",
     "lucide-react": "catalog:",
-    "react": "catalog:",
     "streamdown": "catalog:"
   },
   "devDependencies": {
     "@types/react": "catalog:",
+    "react": "catalog:",
     "typescript": "catalog:"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
   }
 }

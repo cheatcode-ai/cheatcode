@@ -1,5 +1,11 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
-import { APIError, redactSecrets } from "@cheatcode/observability";
+import {
+  type AnalyticsBindings,
+  APIError,
+  createLogger,
+  emitErrorEvent,
+  redactSecrets,
+} from "@cheatcode/observability";
 import { z } from "zod";
 
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
@@ -7,7 +13,7 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 const InternalAlertPayloadSchema = z
   .object({
     description: z.string().trim().min(1).max(4_000).optional(),
-    id: z.string().trim().min(1).max(160).optional(),
+    id: z.string().trim().min(1).max(160),
     metadata: z.record(z.string(), z.unknown()).optional(),
     metric: z.string().trim().min(1).max(160).optional(),
     route: z.string().trim().min(1).max(240).optional(),
@@ -33,9 +39,13 @@ export interface InternalAlertVerificationInput {
   timestamp: string | null;
 }
 
-export interface VerifiedInternalAlert extends InternalAlertPayload {
+interface VerifiedInternalAlert extends InternalAlertPayload {
   alertId: string;
 }
+
+export const VerifiedInternalAlertSchema = InternalAlertPayloadSchema.extend({
+  alertId: z.string().trim().min(1).max(160),
+});
 
 export async function verifyInternalAlert(
   input: InternalAlertVerificationInput,
@@ -52,10 +62,42 @@ export async function verifyInternalAlert(
 
   const parsedJson = parseJson(input.rawBody);
   const payload = InternalAlertPayloadSchema.parse(redactSecrets(parsedJson));
-  return {
+  return VerifiedInternalAlertSchema.parse({
     ...payload,
-    alertId: payload.id ?? `alert_${crypto.randomUUID().replaceAll("-", "")}`,
-  };
+    alertId: payload.id,
+  });
+}
+
+/** Deterministic delivery identity: an exact retry dedupes, while a changed alert is a new event. */
+export async function internalAlertEventId(rawBody: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(rawBody));
+  const hash = Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+  return `alert_${hash}`;
+}
+
+/** Record a verified alert from the durable webhook workflow. */
+export function recordInternalAlert(env: AnalyticsBindings, alert: VerifiedInternalAlert): void {
+  createLogger().warn("internal_alert_received", {
+    alertId: alert.alertId,
+    metric: alert.metric,
+    route: alert.route,
+    runId: alert.runId,
+    service: alert.service,
+    severity: alert.severity,
+    source: alert.source,
+    userId: alert.userId,
+    workerName: alert.workerName,
+  });
+  emitErrorEvent(env, {
+    errorCategory: "ops_alert",
+    errorCode: alert.source,
+    workerName: alert.workerName ?? "webhooks",
+    ...(alert.route ? { route: alert.route } : {}),
+    ...(alert.runId ? { runId: alert.runId } : {}),
+    ...(alert.userId ? { userId: alert.userId } : {}),
+  });
 }
 
 function invalidInternalAlertSignature(message: string): APIError {

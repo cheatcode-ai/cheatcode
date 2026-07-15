@@ -1,0 +1,3 @@
+-- Snapshot marker only. Pre-deploy migration 0028 installs tenant- and
+-- thread-scoped foreign keys; post-deploy migration 0035 removes the five
+-- superseded single-column constraints after matching Workers are live.

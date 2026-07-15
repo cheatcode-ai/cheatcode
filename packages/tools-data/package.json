@@ -5,6 +5,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "biome check .",
@@ -12,7 +18,7 @@
   },
   "dependencies": {
     "@cheatcode/observability": "workspace:*",
-    "@cheatcode/tools-code": "workspace:*",
+    "@cheatcode/sandbox-contracts": "workspace:*",
     "arquero": "catalog:",
     "zod": "catalog:"
   },

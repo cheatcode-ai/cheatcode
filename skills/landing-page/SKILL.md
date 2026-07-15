@@ -9,7 +9,7 @@ compatibility: Requires sandbox web app tooling.
 
 # Landing Page
 
-Build the actual page, not a marketing plan. Ship a responsive, polished marketing surface in the sandbox with a preview URL and direct visual review.
+Build the actual page, not a marketing plan. Ship a responsive, polished marketing surface in the sandbox with direct visual review.
 
 ## Quick Start
 
@@ -17,7 +17,7 @@ Build the actual page, not a marketing plan. Ship a responsive, polished marketi
 2. Create a brief implementation checklist in the chat before editing.
 3. Implement in the existing app stack. Do not create a separate mockup if an app already exists.
 4. Use visual assets that reveal the product, place, or result.
-5. Start the dev server and verify desktop and mobile by directly opening the preview, interacting with the UI, and checking console/network output.
+5. Start the dev server and verify desktop and mobile at its internal localhost address, interacting with the UI and checking console/network output. Never copy or disclose the external preview URL; the user opens it from the Computer panel.
 
 ## Design Rules
 
@@ -41,14 +41,13 @@ Build the actual page, not a marketing plan. Ship a responsive, polished marketi
 ## Review
 
 - Desktop and mobile screenshots are visually coherent.
-- Preview URL loads without console errors.
+- The internal preview loads without console errors.
 - Primary CTA is visible above the fold.
 - Longest visible text fits its container.
 
 ## Deliverables
 
 - Implemented page
-- Preview URL
 - Visual review notes and screenshots
 
 ## References

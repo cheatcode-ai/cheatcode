@@ -1,11 +1,8 @@
-import {
-  createDb,
-  recordAgentRunUsage,
-  updateAgentRunStatus,
-  withUserContext,
-} from "@cheatcode/db";
+import { createDb, updateAgentRunStatus, withUserContext } from "@cheatcode/db";
 import { createLogger } from "@cheatcode/observability";
 import { AgentRunId, UserId } from "@cheatcode/types";
+import { z } from "zod";
+import { deleteRunStateValues, getRunStateValue, setRunStateValue } from "./agent-run-storage";
 
 export type PersistableRunStatus = "running" | "paused" | "completed" | "failed" | "canceled";
 
@@ -20,28 +17,33 @@ export interface PersistAgentRunStatusInput {
   userId: string;
 }
 
-export interface PersistAgentRunUsageInput {
-  costUsd: number;
-  eventType: string;
-  freeDeepseekTokens?: number;
-  inputTokens: number;
-  model?: string;
-  outputTokens: number;
-  provider?: string;
-  runId: string;
-  userId: string;
-}
+const PENDING_STATUS_KEY = "pending_db_status";
+const PENDING_STATUS_RETRY_AT_KEY = "pending_db_status_retry_at";
+const MIN_STATUS_RETRY_MS = 5_000;
+const MAX_STATUS_RETRY_MS = 5 * 60 * 1000;
 
-export async function persistAgentRunStatus(
+const PendingStatusSchema = z
+  .object({
+    attempt: z.number().int().nonnegative(),
+    error: z
+      .object({ message: z.string().max(2_000), type: z.string().max(200) })
+      .strict()
+      .optional(),
+    runId: z.string().uuid(),
+    status: z.enum(["running", "paused", "completed", "failed", "canceled"]),
+    userId: z.string().uuid(),
+  })
+  .strict();
+
+type PendingStatus = z.infer<typeof PendingStatusSchema>;
+
+async function persistAgentRunStatus(
   env: AgentRunStatusPersistenceEnv,
   input: PersistAgentRunStatusInput,
-): Promise<void> {
-  if (!isUuid(input.runId)) {
-    return;
-  }
+): Promise<boolean> {
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    await withUserContext(db, UserId(input.userId), (tx) =>
+    const updated = await withUserContext(db, UserId(input.userId), (tx) =>
       updateAgentRunStatus(tx, {
         ...(input.error ? { error: input.error } : {}),
         runId: AgentRunId(input.runId),
@@ -49,62 +51,113 @@ export async function persistAgentRunStatus(
         userId: UserId(input.userId),
       }),
     );
+    if (!updated) {
+      createLogger({ runId: input.runId, userId: input.userId }).warn(
+        "agent_run_status_not_updated",
+        { status: input.status },
+      );
+    }
+    return true;
   } catch (error) {
     createLogger({ runId: input.runId, userId: input.userId }).warn(
       "agent_run_status_persist_failed",
       {
-        error: error instanceof Error ? error.message : "Unknown database error",
+        error,
         status: input.status,
       },
     );
+    return false;
   } finally {
     await close().catch((error: unknown) => {
       createLogger({ runId: input.runId, userId: input.userId }).warn("db_close_failed", {
-        error: error instanceof Error ? error.message : "Unknown database close error",
+        error,
       });
     });
   }
 }
 
-export async function persistAgentRunUsage(
+export async function persistOrQueueAgentRunStatus(
+  ctx: DurableObjectState,
   env: AgentRunStatusPersistenceEnv,
-  input: PersistAgentRunUsageInput,
+  input: PersistAgentRunStatusInput,
 ): Promise<void> {
-  if (!isUuid(input.runId)) {
+  if (await persistAgentRunStatus(env, input)) {
+    clearPendingStatus(ctx);
     return;
   }
-  const { db, close } = createDb(env.HYPERDRIVE);
-  try {
-    await withUserContext(db, UserId(input.userId), (tx) =>
-      recordAgentRunUsage(tx, {
-        agentRunId: AgentRunId(input.runId),
-        costUsd: input.costUsd,
-        eventType: input.eventType,
-        ...(input.freeDeepseekTokens ? { freeDeepseekTokens: input.freeDeepseekTokens } : {}),
-        inputTokens: input.inputTokens,
-        ...(input.model ? { model: input.model } : {}),
-        outputTokens: input.outputTokens,
-        ...(input.provider ? { provider: input.provider } : {}),
-        userId: UserId(input.userId),
-      }),
-    );
-  } catch (error) {
-    createLogger({ runId: input.runId, userId: input.userId }).warn(
-      "agent_run_usage_persist_failed",
-      {
-        error: error instanceof Error ? error.message : "Unknown database error",
-        eventType: input.eventType,
-      },
-    );
-  } finally {
-    await close().catch((error: unknown) => {
-      createLogger({ runId: input.runId, userId: input.userId }).warn("db_close_failed", {
-        error: error instanceof Error ? error.message : "Unknown database close error",
-      });
-    });
-  }
+  const previous = readPendingStatus(ctx);
+  queuePendingStatus(ctx, input, (previous?.attempt ?? -1) + 1);
 }
 
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value);
+export async function retryPendingAgentRunStatus(
+  ctx: DurableObjectState,
+  env: AgentRunStatusPersistenceEnv,
+): Promise<void> {
+  const pending = readPendingStatus(ctx);
+  if (!pending || pendingStatusRetryAt(ctx) > Date.now()) {
+    return;
+  }
+  const input = statusInputFromPending(pending);
+  if (await persistAgentRunStatus(env, input)) {
+    clearPendingStatus(ctx);
+    return;
+  }
+  queuePendingStatus(ctx, input, pending.attempt + 1);
+}
+
+export function pendingStatusRetryAt(ctx: DurableObjectState): number {
+  if (!getRunStateValue(ctx, PENDING_STATUS_KEY)) {
+    return Number.POSITIVE_INFINITY;
+  }
+  const value = Number(getRunStateValue(ctx, PENDING_STATUS_RETRY_AT_KEY));
+  return Number.isFinite(value) && value > 0 ? value : Number.POSITIVE_INFINITY;
+}
+
+function readPendingStatus(ctx: DurableObjectState): PendingStatus | null {
+  const raw = getRunStateValue(ctx, PENDING_STATUS_KEY);
+  if (!raw) {
+    return null;
+  }
+  try {
+    const parsed = PendingStatusSchema.safeParse(JSON.parse(raw) as unknown);
+    if (parsed.success) {
+      return parsed.data;
+    }
+  } catch {
+    // The durable retry record is an internal cache; malformed state must not
+    // leave a past-due alarm spinning forever.
+  }
+  clearPendingStatus(ctx);
+  return null;
+}
+
+function statusInputFromPending(pending: PendingStatus): PersistAgentRunStatusInput {
+  return {
+    ...(pending.error ? { error: pending.error } : {}),
+    runId: pending.runId,
+    status: pending.status,
+    userId: pending.userId,
+  };
+}
+
+function queuePendingStatus(
+  ctx: DurableObjectState,
+  input: PersistAgentRunStatusInput,
+  attempt: number,
+): void {
+  const pending = PendingStatusSchema.parse({ ...input, attempt });
+  setRunStateValue(ctx, PENDING_STATUS_KEY, JSON.stringify(pending));
+  setRunStateValue(
+    ctx,
+    PENDING_STATUS_RETRY_AT_KEY,
+    String(Date.now() + statusRetryDelay(attempt)),
+  );
+}
+
+function clearPendingStatus(ctx: DurableObjectState): void {
+  deleteRunStateValues(ctx, [PENDING_STATUS_KEY, PENDING_STATUS_RETRY_AT_KEY]);
+}
+
+function statusRetryDelay(attempt: number): number {
+  return Math.min(MAX_STATUS_RETRY_MS, MIN_STATUS_RETRY_MS * 2 ** Math.min(attempt, 6));
 }

@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/knip/schema.json",
+  "ignoreDependencies": ["cloudflare", "supabase", "wrangler"],
+  "ignoreFiles": ["infra/containers/sandbox/browser-driver/server.js"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/migrate.ts"]
+    }
+  }
+}

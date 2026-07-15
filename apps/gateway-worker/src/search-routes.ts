@@ -16,6 +16,7 @@ import {
   type UserId,
 } from "@cheatcode/types";
 import type { z } from "zod";
+import type { WaitUntilContext } from "./wait-until-context";
 
 export interface SearchRouteEnv {
   HYPERDRIVE: Hyperdrive;
@@ -23,7 +24,7 @@ export interface SearchRouteEnv {
 
 export async function searchWorkspaceRoute(
   env: SearchRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
@@ -46,7 +47,7 @@ export async function searchWorkspaceRoute(
 /** `GET /v1/threads?limit=N` — the user's recent chats (threads) across all projects. */
 export async function listRecentThreadsRoute(
   env: SearchRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {

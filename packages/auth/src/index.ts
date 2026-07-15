@@ -1,9 +1,43 @@
-import { APIError } from "@cheatcode/observability";
-import { createClerkClient, verifyToken } from "@clerk/backend";
+import {
+  APIError,
+  readBoundedResponseJson,
+  readBoundedResponseText,
+} from "@cheatcode/observability";
+import { TokenVerificationError } from "@clerk/backend/errors";
+import { decodeJwt, verifyJwt } from "@clerk/backend/jwt";
 import { z } from "zod";
 
-const TEXT_ENCODER = new TextEncoder();
-const MAX_INTERNAL_MAINTENANCE_CLOCK_SKEW_MS = 5 * 60 * 1000;
+export { hmacSha256Base64, timingSafeEqual } from "./crypto";
+export {
+  createInternalMaintenanceHeaders,
+  verifyInternalMaintenanceRequest,
+} from "./internal-maintenance";
+export type {
+  MintedPreviewCapability,
+  PreviewCapabilityErrorReason,
+  PreviewCapabilityKind,
+  PreviewCapabilityTarget,
+  VerifiedPreviewCapability,
+} from "./preview-capability";
+export {
+  mintPreviewCapability,
+  PREVIEW_HANDOFF_MAX_TTL_MS,
+  PREVIEW_SESSION_MAX_TTL_MS,
+  PreviewCapabilityError,
+  verifyPreviewCapability,
+} from "./preview-capability";
+
+const CLERK_API_URL = "https://api.clerk.com/v1";
+const CLERK_API_VERSION = "2026-05-12";
+const CLERK_REQUEST_TIMEOUT_MS = 10_000;
+const CLERK_USER_RESPONSE_MAX_BYTES = 512 * 1024;
+const CLERK_JWKS_RESPONSE_MAX_BYTES = 64 * 1024;
+const CLERK_ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
+const CLERK_REQUEST_BODY_MAX_BYTES = 32 * 1024;
+const CLERK_SESSION_TOKEN_MAX_CHARACTERS = 16 * 1024;
+const CLERK_JWKS_CACHE_TTL_MS = 5 * 60 * 1000;
+const CLERK_JWKS_CACHE_MAX_INSTANCES = 4;
+const CLERK_UNKNOWN_KID_REFRESH_COOLDOWN_MS = 30 * 1000;
 
 export interface VerifiedClerkSession {
   clerkUserId: string;
@@ -15,7 +49,7 @@ export interface ClerkPrimaryEmailStatus {
   verified: boolean;
 }
 
-export function getBearerToken(request: Request): string {
+function getBearerToken(request: Request): string {
   const header = request.headers.get("Authorization");
   if (!header?.startsWith("Bearer ")) {
     throw new APIError(401, "auth_token_missing", "Missing bearer token", {
@@ -23,18 +57,21 @@ export function getBearerToken(request: Request): string {
       retriable: false,
     });
   }
-  return header.slice("Bearer ".length);
+  const token = header.slice("Bearer ".length);
+  if (!token || token.length > CLERK_SESSION_TOKEN_MAX_CHARACTERS) {
+    throw new APIError(401, "auth_token_invalid", "Bearer token is invalid", {
+      retriable: false,
+    });
+  }
+  return token;
 }
 
 export async function verifyClerkBearerToken(
   request: Request,
-  options: { secretKey?: string; jwtKey?: string },
+  options: { authorizedParties: string[]; secretKey?: string; jwtKey?: string },
 ): Promise<VerifiedClerkSession> {
   const token = getBearerToken(request);
-  const payload = await verifyToken(token, {
-    secretKey: options.secretKey,
-    jwtKey: options.jwtKey,
-  });
+  const payload = await verifyClerkToken(token, options);
 
   if (!payload.sub) {
     throw new APIError(401, "auth_token_invalid", "Token subject is missing", {
@@ -49,38 +86,63 @@ export async function verifyClerkBearerToken(
   };
 }
 
+async function verifyClerkToken(
+  token: string,
+  options: { authorizedParties: string[]; secretKey?: string; jwtKey?: string },
+) {
+  try {
+    const kid = decodeClerkTokenKid(token);
+    const key = options.jwtKey ?? (await clerkJwkForToken(kid, options.secretKey));
+    return await verifyJwt(token, {
+      authorizedParties: options.authorizedParties,
+      key,
+    });
+  } catch (error) {
+    if (error instanceof APIError) {
+      throw error;
+    }
+    if (!(error instanceof TokenVerificationError)) {
+      throw new APIError(503, "unavailable_maintenance", "Clerk verification is unavailable", {
+        cause: error,
+        retriable: true,
+      });
+    }
+    throw new APIError(401, "auth_token_invalid", "Invalid or expired bearer token", {
+      cause: error,
+      hint: "Request a fresh Clerk session token and retry.",
+      retriable: false,
+    });
+  }
+}
+
 const ClerkEmailResourceSchema = z
   .object({
-    id: z.string().min(1).optional(),
-    emailAddress: z.string().min(1),
+    id: z.string().min(1).max(500).optional(),
+    email_address: z.string().min(1).max(320),
     verification: z
       .object({
-        status: z.string().min(1).optional(),
+        status: z.string().min(1).max(100).optional(),
       })
+      .strip()
       .nullable()
       .optional(),
   })
-  .passthrough();
+  .strip();
 
 const ClerkUserResourceSchema = z
   .object({
-    primaryEmailAddress: ClerkEmailResourceSchema.nullable().optional(),
-    primaryEmailAddressId: z.string().nullable().optional(),
-    emailAddresses: z.array(ClerkEmailResourceSchema).optional(),
+    primary_email_address_id: z.string().max(500).nullable().optional(),
+    email_addresses: z.array(ClerkEmailResourceSchema).max(100).optional(),
   })
-  .passthrough();
+  .strip();
 
-export function primaryEmailFromClerkUserResource(user: unknown): string | null {
-  return primaryEmailStatusFromClerkUserResource(user).email;
-}
-
-export function primaryEmailStatusFromClerkUserResource(user: unknown): ClerkPrimaryEmailStatus {
+function primaryEmailStatusFromClerkUserResource(user: unknown): ClerkPrimaryEmailStatus {
   const parsed = ClerkUserResourceSchema.safeParse(user);
   if (!parsed.success) {
     return { email: null, verified: false };
   }
   const primary = resolvePrimaryEmailResource(parsed.data);
-  const address = primary?.emailAddress.trim();
+  const address = primary?.email_address.trim();
   return {
     email: address ? address : null,
     verified: primary?.verification?.status === "verified",
@@ -98,8 +160,14 @@ export async function fetchClerkUserPrimaryEmailStatus(input: {
   clerkUserId: string;
   secretKey: string;
 }): Promise<ClerkPrimaryEmailStatus> {
-  const clerk = createClerkClient({ secretKey: input.secretKey });
-  const user = await clerk.users.getUser(input.clerkUserId);
+  const response = await clerkApiRequest(input.secretKey, clerkUserPath(input.clerkUserId), {
+    method: "GET",
+  });
+  const user = await readBoundedResponseJson(
+    response,
+    CLERK_USER_RESPONSE_MAX_BYTES,
+    "Clerk user API",
+  );
   return primaryEmailStatusFromClerkUserResource(user);
 }
 
@@ -113,86 +181,213 @@ export interface UpdateClerkUserPublicMetadataInput {
 export async function updateClerkUserPublicMetadata(
   input: UpdateClerkUserPublicMetadataInput,
 ): Promise<void> {
-  const clerk = createClerkClient({ secretKey: input.secretKey });
-  await clerk.users.updateUserMetadata(input.clerkUserId, {
-    publicMetadata: input.metadata,
+  const response = await clerkApiRequest(
+    input.secretKey,
+    `${clerkUserPath(input.clerkUserId)}/metadata`,
+    {
+      body: boundedClerkRequestBody({ public_metadata: input.metadata }),
+      method: "PATCH",
+    },
+  );
+  await response.body?.cancel().catch(() => undefined);
+}
+
+interface ClerkJwksCacheEntry {
+  expiresAt: number;
+  keys: Map<string, JsonWebKey>;
+  refreshedAt: number;
+}
+
+const clerkJwksCache = new Map<string, ClerkJwksCacheEntry>();
+
+const ClerkJwksResponseSchema = z
+  .object({
+    keys: z
+      .array(
+        z
+          .object({
+            alg: z.literal("RS256").optional(),
+            e: z.string().min(1).max(100),
+            kid: z.string().min(1).max(500),
+            kty: z.literal("RSA"),
+            n: z.string().min(1).max(10_000),
+            use: z.literal("sig").optional(),
+          })
+          .strip(),
+      )
+      .min(1)
+      .max(20),
+  })
+  .strip();
+
+async function clerkJwkForToken(
+  kid: string | undefined,
+  secretKey: string | undefined,
+): Promise<JsonWebKey> {
+  if (!secretKey) {
+    throw new APIError(503, "unavailable_maintenance", "Clerk verification is unavailable", {
+      retriable: true,
+    });
+  }
+  if (!kid) {
+    throw new APIError(401, "auth_token_invalid", "Clerk token key ID is missing", {
+      retriable: false,
+    });
+  }
+  const cacheKey = await secretFingerprint(secretKey);
+  const cached = clerkJwksCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    const key = cached.keys.get(kid);
+    if (key) {
+      return key;
+    }
+    // Refresh an otherwise-live cache after a bounded cooldown so a legitimate
+    // signing-key rotation converges quickly without letting attacker-chosen
+    // random `kid` values amplify Clerk requests.
+    if (cached.refreshedAt + CLERK_UNKNOWN_KID_REFRESH_COOLDOWN_MS > Date.now()) {
+      return requireClerkJwk(cached.keys, kid);
+    }
+  }
+  const keys = await fetchClerkJwks(secretKey);
+  cacheClerkJwks(cacheKey, keys);
+  return requireClerkJwk(keys, kid);
+}
+
+function requireClerkJwk(keys: ReadonlyMap<string, JsonWebKey>, kid: string): JsonWebKey {
+  const key = keys.get(kid);
+  if (!key) {
+    throw new APIError(401, "auth_token_invalid", "Clerk token signing key is unknown", {
+      retriable: false,
+    });
+  }
+  return key;
+}
+
+async function fetchClerkJwks(secretKey: string): Promise<Map<string, JsonWebKey>> {
+  const response = await clerkApiRequest(secretKey, "/jwks", { method: "GET" });
+  const result = ClerkJwksResponseSchema.safeParse(
+    await readBoundedResponseJson(response, CLERK_JWKS_RESPONSE_MAX_BYTES, "Clerk JWKS"),
+  );
+  if (!result.success) {
+    throw new APIError(503, "upstream_provider_outage", "Clerk JWKS response is invalid", {
+      retriable: true,
+    });
+  }
+  const parsed = result.data;
+  return new Map(
+    parsed.keys.map((key) => [
+      key.kid,
+      {
+        ...(key.alg !== undefined ? { alg: key.alg } : {}),
+        e: key.e,
+        kid: key.kid,
+        kty: key.kty,
+        n: key.n,
+        ...(key.use !== undefined ? { use: key.use } : {}),
+      },
+    ]),
+  );
+}
+
+function decodeClerkTokenKid(token: string): string | undefined {
+  try {
+    const decoded = decodeJwt(token);
+    if (!isRecord(decoded.header) || !isRecord(decoded.payload)) {
+      throw new TypeError("Clerk token header or payload is invalid");
+    }
+    const kid = decoded.header["kid"];
+    if (kid !== undefined && (typeof kid !== "string" || !kid || kid.length > 500)) {
+      throw new TypeError("Clerk token key ID is invalid");
+    }
+    return kid;
+  } catch {
+    throw new APIError(401, "auth_token_invalid", "Invalid bearer token", {
+      hint: "Request a fresh Clerk session token and retry.",
+      retriable: false,
+    });
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function cacheClerkJwks(cacheKey: string, keys: Map<string, JsonWebKey>): void {
+  if (!clerkJwksCache.has(cacheKey) && clerkJwksCache.size >= CLERK_JWKS_CACHE_MAX_INSTANCES) {
+    const oldest = clerkJwksCache.keys().next().value;
+    if (oldest) {
+      clerkJwksCache.delete(oldest);
+    }
+  }
+  const refreshedAt = Date.now();
+  clerkJwksCache.set(cacheKey, {
+    expiresAt: refreshedAt + CLERK_JWKS_CACHE_TTL_MS,
+    keys,
+    refreshedAt,
   });
+}
+
+async function secretFingerprint(secret: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function clerkApiRequest(
+  secretKey: string,
+  path: string,
+  init: { body?: string; method: "GET" | "PATCH" },
+): Promise<Response> {
+  if (!secretKey.trim() || secretKey.length > 2_000) {
+    throw new APIError(503, "unavailable_maintenance", "Clerk credentials are invalid", {
+      retriable: false,
+    });
+  }
+  const response = await fetch(`${CLERK_API_URL}${path}`, {
+    ...(init.body ? { body: init.body } : {}),
+    headers: {
+      Accept: "application/json",
+      Authorization: `Bearer ${secretKey}`,
+      "Clerk-API-Version": CLERK_API_VERSION,
+      ...(init.body ? { "Content-Type": "application/json" } : {}),
+    },
+    method: init.method,
+    // Workers does not implement `redirect: "error"`. Manual mode preserves
+    // the same fail-closed behavior because every 3xx reaches the non-ok path.
+    redirect: "manual",
+    signal: AbortSignal.timeout(CLERK_REQUEST_TIMEOUT_MS),
+  });
+  if (response.ok) {
+    return response;
+  }
+  await readBoundedResponseText(response, CLERK_ERROR_RESPONSE_MAX_BYTES, "Clerk API error").catch(
+    () => undefined,
+  );
+  throw new APIError(503, "upstream_provider_outage", "Clerk Backend API request failed", {
+    details: { status: response.status },
+    retriable: response.status >= 500 || response.status === 429,
+  });
+}
+
+function boundedClerkRequestBody(value: Record<string, unknown>): string {
+  const body = JSON.stringify(value);
+  if (new TextEncoder().encode(body).byteLength > CLERK_REQUEST_BODY_MAX_BYTES) {
+    throw new APIError(400, "invalid_request_body", "Clerk metadata payload is too large", {
+      retriable: false,
+    });
+  }
+  return body;
+}
+
+function clerkUserPath(userId: string): string {
+  if (!userId || userId.length > 500) {
+    throw new TypeError("Clerk user ID is invalid");
+  }
+  return `/users/${encodeURIComponent(userId)}`;
 }
 
 function resolvePrimaryEmailResource(
   user: z.infer<typeof ClerkUserResourceSchema>,
 ): z.infer<typeof ClerkEmailResourceSchema> | undefined {
-  if (user.primaryEmailAddress?.emailAddress.trim()) {
-    return user.primaryEmailAddress;
-  }
-  const byId = user.emailAddresses?.find((email) => email.id === user.primaryEmailAddressId);
-  return byId ?? user.emailAddresses?.[0];
-}
-
-export async function hmacSha256Base64(message: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    "raw",
-    TEXT_ENCODER.encode(secret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"],
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, TEXT_ENCODER.encode(message));
-  return base64FromBytes(new Uint8Array(signature));
-}
-
-export function timingSafeEqual(left: string, right: string): boolean {
-  const leftBytes = TEXT_ENCODER.encode(left);
-  const rightBytes = TEXT_ENCODER.encode(right);
-  const maxLength = Math.max(leftBytes.length, rightBytes.length);
-  let diff = leftBytes.length ^ rightBytes.length;
-  for (let index = 0; index < maxLength; index += 1) {
-    diff |= (leftBytes[index] ?? 0) ^ (rightBytes[index] ?? 0);
-  }
-  return diff === 0;
-}
-
-export async function verifyInternalMaintenanceRequest(input: {
-  rawBody: string;
-  request: Request;
-  secret: string;
-}): Promise<void> {
-  const timestamp = input.request.headers.get("x-cheatcode-maintenance-timestamp");
-  const signature = input.request.headers.get("x-cheatcode-maintenance-signature");
-  if (!timestamp || !signature) {
-    throw invalidMaintenanceSignature("Missing internal maintenance signature headers");
-  }
-  assertFreshMaintenanceTimestamp(timestamp);
-  const expected = await hmacSha256Base64(`${timestamp}.${input.rawBody}`, input.secret);
-  if (!timingSafeEqual(signaturePayload(signature), expected)) {
-    throw invalidMaintenanceSignature("Invalid internal maintenance signature");
-  }
-}
-
-function invalidMaintenanceSignature(message: string): APIError {
-  return new APIError(401, "auth_token_invalid", message, { retriable: false });
-}
-
-function assertFreshMaintenanceTimestamp(value: string): void {
-  const rawTimestamp = Number(value);
-  const timestampMs = rawTimestamp > 1_000_000_000_000 ? rawTimestamp : rawTimestamp * 1000;
-  if (
-    !Number.isFinite(timestampMs) ||
-    Math.abs(Date.now() - timestampMs) > MAX_INTERNAL_MAINTENANCE_CLOCK_SKEW_MS
-  ) {
-    throw invalidMaintenanceSignature("Stale internal maintenance timestamp");
-  }
-}
-
-function signaturePayload(signature: string): string {
-  const parts = signature.split(",");
-  return parts.length > 1 ? (parts[1] ?? "") : signature;
-}
-
-function base64FromBytes(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary);
+  const byId = user.email_addresses?.find((email) => email.id === user.primary_email_address_id);
+  return byId ?? user.email_addresses?.[0];
 }

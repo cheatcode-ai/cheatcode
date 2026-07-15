@@ -1,155 +1,82 @@
-import type { AgentRunId, ProjectId, ThreadId, UIMessagePart, UserId } from "@cheatcode/types";
-import { ProjectId as toProjectId, ThreadId as toThreadId } from "@cheatcode/types";
-import { and, asc, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import type { ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import {
-  type DirectoryBackupHandle,
-  messages,
-  type ProjectSettings,
-  projects,
-  type ThreadLaunchIntent,
-  threads,
-} from "./schema";
+  initialProjectSettings,
+  projectSummaryFromRow,
+  threadFromRow,
+  threadReturningColumns,
+  updatedProjectSettings,
+} from "./project-mappers";
+import type {
+  BeginProjectDeletionResult,
+  CreateProjectInput,
+  ProjectSummaryRecord,
+  ProjectWriteState,
+  SoftDeleteThreadResult,
+  ThreadRecord,
+  TimestampPageCursor,
+  TimestampPageRecord,
+  UpdateProjectInput,
+} from "./project-types";
+import { type ProjectSettings, projects, type ThreadLaunchIntent, threads } from "./schema";
 
-export interface CreateProjectInput {
-  budgetCapUsd?: number;
-  defaultModel?: string;
-  importRepoUrl?: string;
-  masterInstructions?: string;
-  mode: string;
-  name: string;
-  userId: UserId;
+export async function listProjects(
+  db: Database,
+  input: { cursor?: TimestampPageCursor; limit: number; userId: UserId },
+): Promise<TimestampPageRecord<ProjectSummaryRecord>[]> {
+  const rows = await db
+    .select(projectSummaryColumns())
+    .from(projects)
+    .where(
+      and(
+        eq(projects.userId, input.userId),
+        isNull(projects.deletedAt),
+        projectPageCondition(input.cursor),
+      ),
+    )
+    .orderBy(desc(projects.updatedAt), desc(projects.id))
+    .limit(boundedPageLimit(input.limit));
+  return rows.map((row) => ({
+    ...projectSummaryFromRow(row),
+    pageCursorAt: row.pageCursorAt,
+  }));
 }
 
-export interface ProjectSummaryRecord {
-  archiveAfter: Date | null;
-  archivedPendingAction: boolean;
-  budgetCapUsd: number | null;
-  createdAt: Date;
-  defaultModel: string | null;
-  id: ProjectId;
-  importRepoUrl: string | null;
-  masterInstructions: string | null;
-  mode: string;
-  name: string;
-  overQuota: boolean;
-  readOnly: boolean;
-  updatedAt: Date;
-  workspaceSlug: string;
+function projectSummaryColumns() {
+  return {
+    archiveAfter: projects.archiveAfter,
+    archivedPendingAction: projects.archivedPendingAction,
+    createdAt: projects.createdAt,
+    id: projects.id,
+    masterInstructions: projects.masterInstructions,
+    mode: projects.mode,
+    name: projects.name,
+    overQuota: projects.overQuota,
+    pageCursorAt:
+      sql<string>`to_char(${projects.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+        "page_cursor_at",
+      ),
+    settings: projects.settings,
+    updatedAt: projects.updatedAt,
+    workspaceSlug: projects.workspaceSlug,
+  };
 }
 
-export interface UpdateProjectInput {
-  budgetCapUsd?: null | number;
-  defaultModel?: null | string;
-  importRepoUrl?: null | string;
-  masterInstructions?: string | null;
-  name?: string;
-  projectId: ProjectId;
-  userId: UserId;
+function projectPageCondition(cursor: TimestampPageCursor | undefined) {
+  return cursor
+    ? sql`(${projects.updatedAt} < ${cursor.at}::timestamptz or (${projects.updatedAt} = ${cursor.at}::timestamptz and ${projects.id} < ${cursor.id}::uuid))`
+    : undefined;
 }
 
-export interface ThreadRecord {
-  activeRunId: string | null;
-  createdAt: Date;
-  id: ThreadId;
-  launchIntent: ThreadLaunchIntent | null;
-  projectId: ProjectId | null;
-  title: string | null;
-  updatedAt: Date;
+function boundedPageLimit(limit: number): number {
+  return Math.max(1, Math.min(101, Math.trunc(limit)));
 }
 
-export interface MessageRecord {
-  agentRunId: string | null;
-  createdAt: Date;
-  id: string;
-  parts: UIMessagePart[];
-  role: string;
-  threadId: ThreadId;
-}
-
-export interface CreateMessageInput {
-  agentRunId?: AgentRunId;
-  parts: UIMessagePart[];
-  role: "assistant" | "system" | "tool" | "user";
-  threadId: ThreadId;
-  userId: UserId;
-}
-
-export interface SandboxProjectInput {
-  mode: string;
-  name: string;
-  sandboxId: string;
-  userId: UserId;
-}
-
-export interface SandboxProjectRecord {
-  containerBackup: DirectoryBackupHandle | null;
-  id: ProjectId;
-}
-
-export interface SaveSandboxBackupInput {
-  backup: DirectoryBackupHandle;
-  sandboxId: string;
-  userId: UserId;
-}
-
-export interface ProjectSandboxAttachInput {
-  projectId: ProjectId;
-  sandboxId: string;
-  userId: UserId;
-}
-
-export interface ProjectSandboxAttachWithLimitInput extends ProjectSandboxAttachInput {
-  maxConcurrentSandboxes: number;
-}
-
-export interface ProjectWriteState {
-  archiveAfter: Date | null;
-  archivedPendingAction: boolean;
-  overQuota: boolean;
-  readOnly: boolean;
-}
-
-export type ProjectSandboxAttachResult =
-  | {
-      sandboxCount: number;
-      sandboxId: string;
-      type: "attached" | "existing";
-    }
-  | {
-      limit: number;
-      sandboxCount: number;
-      type: "limit-reached";
-    }
-  | {
-      type: "project-not-found";
-    };
-
-export interface ProjectBackupInput {
-  backup: DirectoryBackupHandle;
-  projectId: ProjectId;
-  userId: UserId;
-}
-
-export async function listProjects(db: Database, userId: UserId): Promise<ProjectSummaryRecord[]> {
-  const rows = await db.query.projects.findMany({
-    columns: {
-      archiveAfter: true,
-      archivedPendingAction: true,
-      createdAt: true,
-      id: true,
-      masterInstructions: true,
-      mode: true,
-      name: true,
-      overQuota: true,
-      settings: true,
-      updatedAt: true,
-      workspaceSlug: true,
-    },
-    orderBy: [desc(projects.updatedAt)],
-    where: and(eq(projects.userId, userId), isNull(projects.deletedAt)),
-  });
-  return rows.map(projectSummaryFromRow);
+/** Serializes project/thread/run lifecycle mutations for one tenant. */
+export async function lockUserProjectMutations(db: Database, userId: UserId): Promise<void> {
+  const identity = `cheatcode:user-project-mutations:${userId}`;
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
 }
 
 export async function countActiveProjects(db: Database, userId: UserId): Promise<number> {
@@ -158,42 +85,6 @@ export async function countActiveProjects(db: Database, userId: UserId): Promise
     .from(projects)
     .where(and(eq(projects.userId, userId), isNull(projects.deletedAt)));
   return row?.count ?? 0;
-}
-
-/**
- * Distinct Daytona sandboxes the user has attached. One-sandbox-per-user model: every project
- * shares the user's single "computer" sandbox, so this is 0 or 1 — the concurrent-sandbox limit
- * gates on real VMs, not project count.
- */
-export async function countActiveSandboxProjects(db: Database, userId: UserId): Promise<number> {
-  const [row] = await db
-    .select({ count: sql<number>`count(distinct ${projects.sandboxId})::int` })
-    .from(projects)
-    .where(
-      and(eq(projects.userId, userId), isNull(projects.deletedAt), isNotNull(projects.sandboxId)),
-    );
-  return row?.count ?? 0;
-}
-
-/**
- * Whether the user already has this exact sandbox_id attached to a live project. In the
- * one-sandbox-per-user model every project shares the same "computer", so attaching it to an
- * Nth project reuses an existing VM and must NOT consume a fresh concurrent-sandbox slot.
- */
-export async function userHasSandboxAttached(
-  db: Database,
-  userId: UserId,
-  sandboxId: string,
-): Promise<boolean> {
-  const row = await db.query.projects.findFirst({
-    columns: { id: true },
-    where: and(
-      eq(projects.userId, userId),
-      eq(projects.sandboxId, sandboxId),
-      isNull(projects.deletedAt),
-    ),
-  });
-  return row !== undefined;
 }
 
 export async function getProject(
@@ -249,33 +140,29 @@ export function filesystemSlug(name: string): string {
  * -2, -3, … until it collides with none of the user's existing project slugs (including
  * soft-deleted ones, whose sandbox-disk folders may still exist). Queried in the caller's tx.
  */
-export async function computeUniqueWorkspaceSlug(
+async function computeUniqueWorkspaceSlug(
   db: Database,
   userId: UserId,
   name: string,
 ): Promise<string> {
-  const rows = await db
-    .select({ workspaceSlug: projects.workspaceSlug })
-    .from(projects)
-    .where(eq(projects.userId, userId));
-  const taken = new Set(rows.map((row) => row.workspaceSlug));
   const base = filesystemSlug(name);
-  if (!taken.has(base)) {
+  const [existing] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(and(eq(projects.userId, userId), eq(projects.workspaceSlug, base)))
+    .limit(1);
+  if (!existing) {
     return base;
   }
-  for (let suffix = 2; suffix < 10_000; suffix += 1) {
-    const candidate = `${base}-${suffix}`;
-    if (!taken.has(candidate)) {
-      return candidate;
-    }
-  }
-  return `${base}-${Date.now()}`;
+  const suffix = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+  return `${base}-${suffix}`;
 }
 
 export async function createProject(
   db: Database,
   input: CreateProjectInput,
 ): Promise<ProjectSummaryRecord> {
+  await lockUserProjectMutations(db, input.userId);
   const settings = initialProjectSettings(input);
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_WORKSPACE_SLUG_ATTEMPTS; attempt += 1) {
@@ -392,47 +279,154 @@ export async function updateProject(
   return row ? projectSummaryFromRow(row) : null;
 }
 
-export async function softDeleteProject(
+export async function beginProjectDeletion(
+  db: Database,
+  input: { projectId: ProjectId; userId: UserId },
+): Promise<BeginProjectDeletionResult> {
+  await lockUserProjectMutations(db, input.userId);
+  const project = await lockProjectForDeletion(db, input);
+  if (!project) {
+    return { type: "not-found" };
+  }
+  if (project.cleanupCompletedAt) {
+    return { type: "cleanup-completed" };
+  }
+  if (await projectHasActiveRun(db, input)) {
+    return { type: "active-run" };
+  }
+  await markProjectDeletionRequested(db, input);
+  return { type: "cleanup-required", workspaceSlug: project.workspaceSlug };
+}
+
+async function lockProjectForDeletion(
+  db: Database,
+  input: { projectId: ProjectId; userId: UserId },
+) {
+  const [project] = await db
+    .select({
+      cleanupCompletedAt: projects.workspaceCleanupCompletedAt,
+      workspaceSlug: projects.workspaceSlug,
+    })
+    .from(projects)
+    .where(and(eq(projects.id, input.projectId), eq(projects.userId, input.userId)))
+    .for("update")
+    .limit(1);
+  return project ?? null;
+}
+
+async function projectHasActiveRun(
   db: Database,
   input: { projectId: ProjectId; userId: UserId },
 ): Promise<boolean> {
+  const [activeThread] = await db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.projectId, input.projectId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+        isNotNull(threads.activeRunId),
+      ),
+    )
+    .limit(1);
+  return Boolean(activeThread);
+}
+
+async function markProjectDeletionRequested(
+  db: Database,
+  input: { projectId: ProjectId; userId: UserId },
+): Promise<void> {
+  await db
+    .update(projects)
+    .set({
+      deletedAt: sql`coalesce(${projects.deletedAt}, now())`,
+      updatedAt: sql`now()`,
+      workspaceCleanupRequestedAt: sql`coalesce(${projects.workspaceCleanupRequestedAt}, now())`,
+    })
+    .where(and(eq(projects.id, input.projectId), eq(projects.userId, input.userId)));
+  await db
+    .update(threads)
+    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(threads.projectId, input.projectId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    );
+}
+
+export async function completeProjectWorkspaceCleanup(
+  db: Database,
+  input: { projectId: ProjectId; userId: UserId },
+): Promise<boolean> {
+  await lockUserProjectMutations(db, input.userId);
   const rows = await db
     .update(projects)
-    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
+    .set({ updatedAt: sql`now()`, workspaceCleanupCompletedAt: sql`now()` })
     .where(
       and(
         eq(projects.id, input.projectId),
         eq(projects.userId, input.userId),
-        isNull(projects.deletedAt),
+        isNotNull(projects.deletedAt),
+        isNotNull(projects.workspaceCleanupRequestedAt),
+        isNull(projects.workspaceCleanupCompletedAt),
       ),
     )
     .returning({ id: projects.id });
-  return rows.length > 0;
+  if (rows.length > 0) {
+    return true;
+  }
+  const [completed] = await db
+    .select({ id: projects.id })
+    .from(projects)
+    .where(
+      and(
+        eq(projects.id, input.projectId),
+        eq(projects.userId, input.userId),
+        isNotNull(projects.workspaceCleanupCompletedAt),
+      ),
+    )
+    .limit(1);
+  return Boolean(completed);
 }
 
 export async function listProjectThreads(
   db: Database,
-  input: { limit?: number; projectId: ProjectId; userId: UserId },
-): Promise<ThreadRecord[]> {
-  const rows = await db.query.threads.findMany({
-    columns: {
-      activeRunId: true,
-      createdAt: true,
-      id: true,
-      launchIntent: true,
-      projectId: true,
-      title: true,
-      updatedAt: true,
-    },
-    orderBy: [desc(threads.updatedAt)],
-    where: and(
-      eq(threads.projectId, input.projectId),
-      eq(threads.userId, input.userId),
-      isNull(threads.deletedAt),
-    ),
-    ...(input.limit === undefined ? {} : { limit: input.limit }),
-  });
-  return rows.map(threadFromRow);
+  input: {
+    cursor?: TimestampPageCursor;
+    limit: number;
+    projectId: ProjectId;
+    userId: UserId;
+  },
+): Promise<TimestampPageRecord<ThreadRecord>[]> {
+  const rows = await db
+    .select({
+      ...threadReturningColumns(),
+      pageCursorAt:
+        sql<string>`to_char(${threads.updatedAt} at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`.as(
+          "page_cursor_at",
+        ),
+    })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.projectId, input.projectId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+        threadPageCondition(input.cursor),
+      ),
+    )
+    .orderBy(desc(threads.updatedAt), desc(threads.id))
+    .limit(boundedPageLimit(input.limit));
+  return rows.map((row) => ({ ...threadFromRow(row), pageCursorAt: row.pageCursorAt }));
+}
+
+function threadPageCondition(cursor: TimestampPageCursor | undefined) {
+  return cursor
+    ? sql`(${threads.updatedAt} < ${cursor.at}::timestamptz or (${threads.updatedAt} = ${cursor.at}::timestamptz and ${threads.id} < ${cursor.id}::uuid))`
+    : undefined;
 }
 
 export async function createThread(
@@ -444,6 +438,7 @@ export async function createThread(
     userId: UserId;
   },
 ): Promise<ThreadRecord> {
+  await lockUserProjectMutations(db, input.userId);
   const rows = await db
     .insert(threads)
     .values({
@@ -482,7 +477,26 @@ export async function updateThread(
 export async function softDeleteThread(
   db: Database,
   input: { threadId: ThreadId; userId: UserId },
-): Promise<boolean> {
+): Promise<SoftDeleteThreadResult> {
+  await lockUserProjectMutations(db, input.userId);
+  const [thread] = await db
+    .select({ activeRunId: threads.activeRunId })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.id, input.threadId),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .for("update")
+    .limit(1);
+  if (!thread) {
+    return "not-found";
+  }
+  if (thread.activeRunId) {
+    return "active-run";
+  }
   const rows = await db
     .update(threads)
     .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
@@ -494,7 +508,7 @@ export async function softDeleteThread(
       ),
     )
     .returning({ id: threads.id });
-  return rows.length > 0;
+  return rows.length > 0 ? "deleted" : "not-found";
 }
 
 export async function getThread(
@@ -518,67 +532,6 @@ export async function getThread(
     ),
   });
   return row ? threadFromRow(row) : null;
-}
-
-export async function listThreadMessages(
-  db: Database,
-  input: { threadId: ThreadId; userId: UserId },
-): Promise<MessageRecord[]> {
-  const rows = await db.query.messages.findMany({
-    columns: {
-      agentRunId: true,
-      createdAt: true,
-      id: true,
-      parts: true,
-      role: true,
-      threadId: true,
-    },
-    orderBy: [asc(messages.createdAt)],
-    where: and(eq(messages.threadId, input.threadId), eq(messages.userId, input.userId)),
-  });
-  return rows.map(messageFromRow);
-}
-
-export async function createThreadMessage(
-  db: Database,
-  input: CreateMessageInput,
-): Promise<MessageRecord> {
-  return db.transaction(async (tx) => {
-    const rows = await tx
-      .insert(messages)
-      .values({
-        ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
-        parts: input.parts,
-        role: input.role,
-        threadId: input.threadId,
-        userId: input.userId,
-      })
-      .returning(messageReturningColumns());
-    const row = rows[0];
-    if (!row) {
-      throw new Error("Failed to create thread message");
-    }
-    await tx
-      .update(threads)
-      .set({ updatedAt: sql`now()` })
-      .where(and(eq(threads.id, input.threadId), eq(threads.userId, input.userId)));
-    return messageFromRow(row);
-  });
-}
-
-export async function hasProjectAccess(
-  db: Database,
-  input: { projectId: ProjectId; userId: UserId },
-): Promise<boolean> {
-  const row = await db.query.projects.findFirst({
-    columns: { id: true },
-    where: and(
-      eq(projects.id, input.projectId),
-      eq(projects.userId, input.userId),
-      isNull(projects.deletedAt),
-    ),
-  });
-  return row !== undefined;
 }
 
 export async function getProjectWriteState(
@@ -605,334 +558,4 @@ export async function getProjectWriteState(
         readOnly: row.archivedPendingAction || row.overQuota,
       }
     : null;
-}
-
-export async function ensureSandboxProject(
-  db: Database,
-  input: SandboxProjectInput,
-): Promise<SandboxProjectRecord> {
-  const existing = await db.query.projects.findFirst({
-    columns: { containerBackup: true, id: true },
-    where: and(
-      eq(projects.userId, input.userId),
-      eq(projects.sandboxId, input.sandboxId),
-      isNull(projects.deletedAt),
-    ),
-  });
-
-  if (existing) {
-    return {
-      containerBackup: existing.containerBackup,
-      id: toProjectId(existing.id),
-    };
-  }
-
-  const rows = await db
-    .insert(projects)
-    .values({
-      mode: input.mode,
-      name: input.name,
-      sandboxId: input.sandboxId,
-      userId: input.userId,
-      workspaceSlug: await computeUniqueWorkspaceSlug(db, input.userId, input.name),
-    })
-    .returning({ containerBackup: projects.containerBackup, id: projects.id });
-
-  const row = rows[0];
-  if (!row) {
-    throw new Error("Failed to create sandbox project");
-  }
-
-  return {
-    containerBackup: row.containerBackup,
-    id: toProjectId(row.id),
-  };
-}
-
-export async function saveSandboxProjectBackup(
-  db: Database,
-  input: SaveSandboxBackupInput,
-): Promise<void> {
-  await db
-    .update(projects)
-    .set({
-      containerBackup: input.backup,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(projects.userId, input.userId),
-        eq(projects.sandboxId, input.sandboxId),
-        isNull(projects.deletedAt),
-      ),
-    );
-}
-
-export async function attachProjectSandbox(
-  db: Database,
-  input: ProjectSandboxAttachInput,
-): Promise<void> {
-  await db
-    .update(projects)
-    .set({
-      sandboxId: input.sandboxId,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(projects.id, input.projectId),
-        eq(projects.userId, input.userId),
-        isNull(projects.deletedAt),
-      ),
-    );
-}
-
-export async function attachProjectSandboxWithLimit(
-  db: Database,
-  input: ProjectSandboxAttachWithLimitInput,
-): Promise<ProjectSandboxAttachResult> {
-  const project = await db.query.projects.findFirst({
-    columns: { sandboxId: true },
-    where: and(
-      eq(projects.id, input.projectId),
-      eq(projects.userId, input.userId),
-      isNull(projects.deletedAt),
-    ),
-  });
-  if (!project) {
-    return { type: "project-not-found" };
-  }
-
-  if (project.sandboxId) {
-    return {
-      sandboxCount: await countActiveSandboxProjects(db, input.userId),
-      sandboxId: project.sandboxId,
-      type: "existing",
-    };
-  }
-
-  const sandboxCount = await countActiveSandboxProjects(db, input.userId);
-  // Only a genuinely new (distinct) sandbox consumes a concurrent slot. Attaching the user's
-  // existing per-user "computer" to another project doesn't add a VM, so it must never be gated —
-  // otherwise a free-tier user (limit 1) is permanently blocked from a 2nd project.
-  const alreadyAttached = await userHasSandboxAttached(db, input.userId, input.sandboxId);
-  if (!alreadyAttached && sandboxCount >= input.maxConcurrentSandboxes) {
-    return {
-      limit: input.maxConcurrentSandboxes,
-      sandboxCount,
-      type: "limit-reached",
-    };
-  }
-
-  await attachProjectSandbox(db, input);
-  return {
-    // Distinct-sandbox count is unchanged when reusing an already-attached sandbox.
-    sandboxCount: alreadyAttached ? sandboxCount : sandboxCount + 1,
-    sandboxId: input.sandboxId,
-    type: "attached",
-  };
-}
-
-export async function getSandboxProjectById(
-  db: Database,
-  input: { projectId: ProjectId; userId: UserId },
-): Promise<SandboxProjectRecord | null> {
-  const row = await db.query.projects.findFirst({
-    columns: { containerBackup: true, id: true },
-    where: and(
-      eq(projects.id, input.projectId),
-      eq(projects.userId, input.userId),
-      isNull(projects.deletedAt),
-    ),
-  });
-  return row
-    ? {
-        containerBackup: row.containerBackup,
-        id: toProjectId(row.id),
-      }
-    : null;
-}
-
-export async function saveProjectBackupById(
-  db: Database,
-  input: ProjectBackupInput,
-): Promise<void> {
-  await db
-    .update(projects)
-    .set({
-      containerBackup: input.backup,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      and(
-        eq(projects.id, input.projectId),
-        eq(projects.userId, input.userId),
-        isNull(projects.deletedAt),
-      ),
-    );
-}
-
-async function updatedProjectSettings(
-  db: Database,
-  input: UpdateProjectInput,
-): Promise<ProjectSettings | null> {
-  if (
-    input.defaultModel === undefined &&
-    input.budgetCapUsd === undefined &&
-    input.importRepoUrl === undefined
-  ) {
-    return null;
-  }
-  const row = await db.query.projects.findFirst({
-    columns: { settings: true },
-    where: and(
-      eq(projects.id, input.projectId),
-      eq(projects.userId, input.userId),
-      isNull(projects.deletedAt),
-    ),
-  });
-  if (!row) {
-    return {};
-  }
-  return nextProjectSettings(row.settings, input);
-}
-
-export function nextProjectSettings(
-  current: ProjectSettings,
-  input: Pick<UpdateProjectInput, "budgetCapUsd" | "defaultModel" | "importRepoUrl">,
-): ProjectSettings {
-  let settings = { ...current };
-  if (input.defaultModel !== undefined) {
-    if (input.defaultModel === null) {
-      const { defaultModel: _defaultModel, ...settingsWithoutModel } = settings;
-      settings = settingsWithoutModel;
-    } else {
-      settings.defaultModel = input.defaultModel;
-    }
-  }
-  if (input.budgetCapUsd !== undefined) {
-    if (input.budgetCapUsd === null) {
-      const { budgetCapUsd: _budgetCapUsd, ...settingsWithoutBudget } = settings;
-      settings = settingsWithoutBudget;
-    } else {
-      settings.budgetCapUsd = input.budgetCapUsd;
-    }
-  }
-  if (input.importRepoUrl !== undefined) {
-    if (input.importRepoUrl === null) {
-      const { importRepoUrl: _importRepoUrl, ...settingsWithoutRepo } = settings;
-      settings = settingsWithoutRepo;
-    } else {
-      settings.importRepoUrl = input.importRepoUrl;
-    }
-  }
-  return settings;
-}
-
-function initialProjectSettings(
-  input: Pick<CreateProjectInput, "budgetCapUsd" | "defaultModel" | "importRepoUrl">,
-) {
-  const settings: ProjectSettings = {};
-  if (input.budgetCapUsd !== undefined) {
-    settings.budgetCapUsd = input.budgetCapUsd;
-  }
-  if (input.defaultModel !== undefined) {
-    settings.defaultModel = input.defaultModel;
-  }
-  if (input.importRepoUrl !== undefined) {
-    settings.importRepoUrl = input.importRepoUrl;
-  }
-  return Object.keys(settings).length > 0 ? settings : null;
-}
-
-function threadReturningColumns() {
-  return {
-    activeRunId: threads.activeRunId,
-    createdAt: threads.createdAt,
-    id: threads.id,
-    launchIntent: threads.launchIntent,
-    projectId: threads.projectId,
-    title: threads.title,
-    updatedAt: threads.updatedAt,
-  };
-}
-
-function messageReturningColumns() {
-  return {
-    agentRunId: messages.agentRunId,
-    createdAt: messages.createdAt,
-    id: messages.id,
-    parts: messages.parts,
-    role: messages.role,
-    threadId: messages.threadId,
-  };
-}
-
-function projectSummaryFromRow(row: {
-  archiveAfter: Date | null;
-  archivedPendingAction: boolean;
-  masterInstructions: string | null;
-  createdAt: Date;
-  id: string;
-  mode: string;
-  name: string;
-  overQuota: boolean;
-  settings: ProjectSettings;
-  updatedAt: Date;
-  workspaceSlug: string;
-}): ProjectSummaryRecord {
-  return {
-    archiveAfter: row.archiveAfter,
-    archivedPendingAction: row.archivedPendingAction,
-    budgetCapUsd: row.settings.budgetCapUsd ?? null,
-    createdAt: row.createdAt,
-    defaultModel: row.settings.defaultModel ?? null,
-    id: toProjectId(row.id),
-    importRepoUrl: row.settings.importRepoUrl ?? null,
-    masterInstructions: row.masterInstructions,
-    mode: row.mode,
-    name: row.name,
-    overQuota: row.overQuota,
-    readOnly: row.archivedPendingAction || row.overQuota,
-    updatedAt: row.updatedAt,
-    workspaceSlug: row.workspaceSlug,
-  };
-}
-
-function threadFromRow(row: {
-  activeRunId: string | null;
-  createdAt: Date;
-  id: string;
-  launchIntent: ThreadLaunchIntent | null;
-  projectId: string | null;
-  title: string | null;
-  updatedAt: Date;
-}): ThreadRecord {
-  return {
-    activeRunId: row.activeRunId,
-    createdAt: row.createdAt,
-    id: toThreadId(row.id),
-    launchIntent: row.launchIntent,
-    projectId: row.projectId ? toProjectId(row.projectId) : null,
-    title: row.title,
-    updatedAt: row.updatedAt,
-  };
-}
-
-export function messageFromRow(row: {
-  agentRunId: string | null;
-  createdAt: Date;
-  id: string;
-  parts: UIMessagePart[];
-  role: string;
-  threadId: string;
-}): MessageRecord {
-  return {
-    agentRunId: row.agentRunId,
-    createdAt: row.createdAt,
-    id: row.id,
-    parts: row.parts,
-    role: row.role,
-    threadId: toThreadId(row.threadId),
-  };
 }

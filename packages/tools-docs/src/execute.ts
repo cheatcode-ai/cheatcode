@@ -1,5 +1,9 @@
 import { APIError } from "@cheatcode/observability";
-import type { ArtifactKind, ArtifactUploadResult, CodeRuntimeContext } from "@cheatcode/tools-code";
+import type {
+  ArtifactKind,
+  ArtifactUploadResult,
+  CodeRuntimeContext,
+} from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
 import {
   type GenerateDocumentInput,
@@ -122,6 +126,7 @@ async function runArtifactScript(
 
   const result = await runtimeContext.sandbox.runCode({
     code,
+    cwd: runtimeContext.workspaceDir ?? WORKSPACE_ROOT,
     language: "javascript",
   });
   if (result.success !== true) {
@@ -179,7 +184,7 @@ function parseSandboxArtifact(stdout: string): SandboxArtifact {
       "upstream_sandbox_failed",
       "Sandbox returned invalid artifact metadata",
       {
-        details: { error: error instanceof Error ? error.message : "Unknown parse error" },
+        cause: error,
         retriable: false,
       },
     );

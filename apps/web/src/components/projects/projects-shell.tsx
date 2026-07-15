@@ -2,25 +2,44 @@
 
 import type { CheatcodeUIMessage, ProjectSummary, Thread } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { PreviewSidePanel } from "@/components/preview/preview-side-panel";
+import {
+  ChatUnavailableState,
+  WorkspaceLoadingState,
+} from "@/components/workspace/workspace-route-state";
 import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
-import { getProject, getThread, listThreadMessages } from "@/lib/api/project-thread";
+import {
+  type CursorPage,
+  getProject,
+  getThread,
+  listThreadMessagesPage,
+} from "@/lib/api/project-thread";
 import { consumePromptHandoff } from "@/lib/input/prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
 
 const PROMPT_URL_STATE = {
   model: parseAsString,
-  prompt: parseAsString,
   promptKey: parseAsString,
   repo: parseAsString,
   surface: parseAsString,
 } as const;
 
 export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string }) {
+  const shell = useProjectsShell(threadIdProp);
+  if (shell.hasError) {
+    return <ChatUnavailableState />;
+  }
+  if (!shell.threadId || shell.initialMessagesQuery.isPending) {
+    return <WorkspaceLoadingState />;
+  }
+  return <ProjectsWorkspace shell={shell} threadId={shell.threadId} />;
+}
+
+function useProjectsShell(threadIdProp: string | undefined) {
   const { getToken } = useAuth();
   const threadId = threadIdProp ?? null;
   const queryClient = useQueryClient();
@@ -28,59 +47,80 @@ export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string })
   const projectId = threadQuery.data?.projectId ?? null;
   const projectQuery = useProjectQuery(getToken, projectId);
   const initialMessagesQuery = useThreadMessagesQuery(getToken, threadId);
+  const initialMessages = useMemo(
+    () => chronologicalMessages(initialMessagesQuery.data?.pages ?? []),
+    [initialMessagesQuery.data?.pages],
+  );
   const { clearPromptParams, prompt } = useInitialChatPrompt(
     threadQuery.data ?? null,
-    initialMessagesQuery.data ?? null,
+    initialMessagesQuery.isPending ? null : initialMessages,
   );
   const hasProject = projectId !== null;
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const previewUrl = useAppStore((state) => state.previewUrl);
-  const hasPreviewSurface = getHasPreviewSurface({
-    hasProject,
-    previewUrl,
-    sandboxStatus,
-  });
-  const deliverableCount = countDeliverables(initialMessagesQuery.data ?? []);
+  const hasPreviewSurface = hasProject || sandboxStatus !== "cold";
+  const deliverableCount = countDeliverables(initialMessages);
+  const loadOlderMessages = useCallback(async () => {
+    const result = await initialMessagesQuery.fetchNextPage();
+    return chronologicalMessages(result.data?.pages ?? []);
+  }, [initialMessagesQuery.fetchNextPage]);
 
   useDraftSeed(threadId, prompt);
   useRefreshThreadProjectOnSandboxChange({
-    previewUrl,
     projectId,
     queryClient,
     sandboxStatus,
     threadId,
   });
+  return {
+    clearPromptParams,
+    deliverableCount,
+    hasError: initialMessagesQuery.isError || projectQuery.isError || threadQuery.isError,
+    hasPreviewSurface,
+    initialMessages,
+    initialMessagesQuery,
+    loadOlderMessages,
+    previewPanelOpen,
+    projectQuery,
+    prompt,
+    threadId,
+    threadQuery,
+  };
+}
 
-  if (initialMessagesQuery.isError || projectQuery.isError || threadQuery.isError) {
-    return <ChatErrorState />;
-  }
-  if (!threadId || initialMessagesQuery.isPending) {
-    return <ChatLoadingState />;
-  }
-
+function ProjectsWorkspace({
+  shell,
+  threadId,
+}: {
+  shell: ReturnType<typeof useProjectsShell>;
+  threadId: string;
+}) {
   return (
     <WorkspaceRunLayout
       computer={
         <PreviewSidePanel
-          deliverableCount={deliverableCount}
-          project={projectQuery.data ?? null}
+          deliverableCount={shell.deliverableCount}
+          project={shell.projectQuery.data ?? null}
           threadId={threadId}
         />
       }
-      computerOpen={previewPanelOpen}
+      computerOpen={shell.previewPanelOpen}
       content={
         <ChatPanel
-          autoSubmitPrompt={prompt}
-          initialMessages={initialMessagesQuery.data ?? []}
+          activeRunId={shell.threadQuery.data?.activeRunId ?? null}
+          autoSubmitPrompt={shell.prompt}
+          hasOlderMessages={Boolean(shell.initialMessagesQuery.hasNextPage)}
+          initialMessages={shell.initialMessages}
+          isLoadingOlderMessages={shell.initialMessagesQuery.isFetchingNextPage}
           key={threadId}
-          onSubmitDraft={clearPromptParams}
-          project={projectQuery.data ?? null}
-          threadTitle={threadQuery.data?.title ?? null}
+          onLoadOlderMessages={shell.loadOlderMessages}
+          onSubmitDraft={shell.clearPromptParams}
+          project={shell.projectQuery.data ?? null}
+          threadTitle={shell.threadQuery.data?.title ?? null}
           threadId={threadId}
         />
       }
-      hasPreviewSurface={hasPreviewSurface}
+      hasPreviewSurface={shell.hasPreviewSurface}
     />
   );
 }
@@ -97,14 +137,6 @@ function countDeliverables(messages: readonly CheatcodeUIMessage[]): number {
   return count;
 }
 
-function getHasPreviewSurface(input: {
-  hasProject: boolean;
-  previewUrl: null | string;
-  sandboxStatus: ReturnType<typeof useAppStore.getState>["sandboxStatus"];
-}): boolean {
-  return input.hasProject || input.previewUrl !== null || input.sandboxStatus !== "cold";
-}
-
 function useInitialChatPrompt(
   thread: Thread | null,
   initialMessages: CheatcodeUIMessage[] | null,
@@ -114,7 +146,7 @@ function useInitialChatPrompt(
     shallow: true,
   });
   const handoffPrompt = usePromptHandoff(urlState.promptKey);
-  const explicitPrompt = urlState.prompt ?? handoffPrompt ?? null;
+  const explicitPrompt = handoffPrompt ?? null;
   const awaitingPromptHandoff = Boolean(urlState.promptKey) && handoffPrompt === undefined;
   const prompt = resolveInitialPrompt({
     awaitingPromptHandoff,
@@ -128,7 +160,6 @@ function useInitialChatPrompt(
     }
     void setUrlState({
       model: null,
-      prompt: null,
       promptKey: null,
       repo: null,
       surface: null,
@@ -150,31 +181,27 @@ function useDraftSeed(threadId: null | string, prompt: null | string): void {
 }
 
 function useRefreshThreadProjectOnSandboxChange(input: {
-  previewUrl: null | string;
   projectId: null | string;
   queryClient: ReturnType<typeof useQueryClient>;
   sandboxStatus: ReturnType<typeof useAppStore.getState>["sandboxStatus"];
   threadId: null | string;
 }): void {
-  const { previewUrl, projectId, queryClient, sandboxStatus, threadId } = input;
+  const { projectId, queryClient, sandboxStatus, threadId } = input;
   useEffect(() => {
-    const sandboxActive = sandboxStatus !== "cold" || previewUrl !== null;
-    if (!threadId || !sandboxActive) {
+    if (!threadId || sandboxStatus === "cold") {
       return;
     }
     void queryClient.invalidateQueries({ exact: true, queryKey: ["threads", threadId] });
     if (projectId) {
       void queryClient.invalidateQueries({ exact: true, queryKey: ["projects", projectId] });
     }
-  }, [previewUrl, projectId, queryClient, sandboxStatus, threadId]);
+  }, [projectId, queryClient, sandboxStatus, threadId]);
 }
 
 function hasPromptUrlState(
   urlState: Record<keyof typeof PROMPT_URL_STATE, null | string>,
 ): boolean {
-  return Boolean(
-    urlState.model ?? urlState.prompt ?? urlState.promptKey ?? urlState.repo ?? urlState.surface,
-  );
+  return Boolean(urlState.model ?? urlState.promptKey ?? urlState.repo ?? urlState.surface);
 }
 
 function useThreadQuery(getToken: () => Promise<null | string>, threadId: null | string) {
@@ -199,30 +226,22 @@ function useProjectQuery(getToken: () => Promise<null | string>, projectId: null
 
 function useThreadMessagesQuery(getToken: () => Promise<null | string>, threadId: null | string) {
   const shouldFetch = Boolean(threadId);
-  return useQuery<CheatcodeUIMessage[]>({
+  return useInfiniteQuery({
     enabled: shouldFetch,
-    ...(shouldFetch ? {} : { initialData: [] }),
-    queryFn: () => listThreadMessages(getToken, String(threadId)),
+    getNextPageParam: (page: CursorPage<CheatcodeUIMessage>) =>
+      page.has_more ? (page.next_cursor ?? undefined) : undefined,
+    initialPageParam: null as string | null,
+    queryFn: ({ pageParam }) => listThreadMessagesPage(getToken, String(threadId), pageParam),
     queryKey: ["threads", threadId, "messages"],
     retry: false,
     staleTime: 5_000,
   });
 }
 
-function ChatLoadingState() {
-  return (
-    <section className="flex min-w-0 flex-1 items-center justify-center bg-thread-panel font-mono text-[10px] text-thread-text-muted uppercase tracking-[0.28em]">
-      Loading chat
-    </section>
-  );
-}
-
-function ChatErrorState() {
-  return (
-    <section className="flex min-w-0 flex-1 items-center justify-center bg-thread-panel font-mono text-[10px] text-red-300 uppercase tracking-[0.28em]">
-      Chat unavailable
-    </section>
-  );
+function chronologicalMessages(
+  pages: readonly CursorPage<CheatcodeUIMessage>[],
+): CheatcodeUIMessage[] {
+  return [...pages].reverse().flatMap((page) => page.data);
 }
 
 function usePromptHandoff(promptKey: null | string): null | string | undefined {
@@ -260,12 +279,5 @@ function recoverPendingInitialPrompt(
     return null;
   }
   const pending = thread.pendingInitialPrompt?.trim();
-  if (pending) {
-    return pending;
-  }
-  const title = thread.title?.trim();
-  if (!title || title === "New chat") {
-    return null;
-  }
-  return title;
+  return pending || null;
 }

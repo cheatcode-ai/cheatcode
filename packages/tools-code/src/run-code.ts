@@ -1,7 +1,7 @@
 import { APIError } from "@cheatcode/observability";
-import { tool } from "ai";
+import type { getCodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { getCodeRuntimeContext } from "./runtime";
+import { resolveProjectWorkspacePath } from "./workspace-paths";
 
 export const RunCodeInputSchema = z
   .object({
@@ -28,9 +28,11 @@ export async function executeRunCode(
   input: RunCodeInput,
   runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
 ): Promise<RunCodeOutput> {
+  const parsedInput = RunCodeInputSchema.parse(input);
   const result = await runtimeContext.sandbox.runCode({
-    language: input.language,
-    code: input.code,
+    language: parsedInput.language,
+    code: parsedInput.code,
+    cwd: resolveProjectWorkspacePath(undefined, runtimeContext.workspaceDir),
   });
 
   const output = {
@@ -50,11 +52,3 @@ export async function executeRunCode(
 
   return output;
 }
-
-export const runCode = tool({
-  description:
-    "Run Python or JavaScript code in the project sandbox. Use for deterministic code execution and data work.",
-  inputSchema: RunCodeInputSchema,
-  outputSchema: RunCodeOutputSchema,
-  execute: async (input, options: unknown) => executeRunCode(input, getCodeRuntimeContext(options)),
-});

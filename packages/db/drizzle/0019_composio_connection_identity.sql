@@ -1,0 +1,3 @@
+-- Snapshot marker only. Entitlement contractions are staged in raw migration
+-- 0030. Composio connection identity expands in 0031 before the new Workers
+-- deploy, then its primary-key/default-state contracts finish in 0032.

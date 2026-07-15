@@ -1,29 +1,27 @@
-import type { SandboxLike } from "@cheatcode/tools-code";
+import {
+  type ArtifactRuntime,
+  ArtifactRuntimeSchema,
+  type SandboxLike,
+  SandboxLikeSchema,
+} from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
 
 export type BrowserProvider = "anthropic" | "google" | "openai";
 
-export interface BrowserCredential {
+interface BrowserCredential {
   apiKey: string;
   modelId: string;
   provider: BrowserProvider;
 }
 
 export interface BrowserRuntimeContext {
+  artifacts?: ArtifactRuntime | undefined;
   credential: BrowserCredential;
+  runId: string;
   sandbox: SandboxLike;
 }
 
-function isSandboxLike(value: unknown): value is SandboxLike {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "runCode" in value &&
-    typeof (value as { runCode?: unknown }).runCode === "function"
-  );
-}
-
-export const BrowserCredentialSchema = z
+const BrowserCredentialSchema = z
   .object({
     apiKey: z.string().min(1),
     modelId: z.string().min(1).max(200),
@@ -33,7 +31,9 @@ export const BrowserCredentialSchema = z
 
 export const BrowserRuntimeContextSchema = z
   .object({
+    artifacts: ArtifactRuntimeSchema.optional(),
     credential: BrowserCredentialSchema,
-    sandbox: z.custom<SandboxLike>(isSandboxLike),
+    runId: z.string().min(1).max(200),
+    sandbox: SandboxLikeSchema,
   })
   .strict();

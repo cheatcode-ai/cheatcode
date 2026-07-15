@@ -1,4 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
+import { readJsonRequest } from "@cheatcode/observability";
 import {
   type RateLimitConfig,
   RateLimitConsumeBodySchema,
@@ -12,6 +13,7 @@ interface BucketRow {
 }
 
 type RateLimiterEnv = Record<never, never>;
+const MAX_RATE_LIMIT_REQUEST_BYTES = 16 * 1024;
 
 function isBucketRow(value: unknown): value is BucketRow {
   if (!value || typeof value !== "object") {
@@ -57,6 +59,7 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
       config.capacity,
       config.refillPerSec,
     );
+    await this.ensureCleanupAlarm();
 
     return { allowed: true, remaining: Math.floor(nextTokens), retryAfterMs: 0 };
   }
@@ -65,7 +68,9 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
-    const body = RateLimitConsumeBodySchema.parse(await request.json());
+    const body = RateLimitConsumeBodySchema.parse(
+      await readJsonRequest(request, MAX_RATE_LIMIT_REQUEST_BYTES, "Rate limit request"),
+    );
     return Response.json(await this.consume(body.key, body.cost, body.config));
   }
 
@@ -74,7 +79,11 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
       "DELETE FROM bucket WHERE last_refill_ms < ?",
       Date.now() - RATE_LIMITER_RETENTION_MS,
     );
-    await this.ensureCleanupAlarm();
+    if (this.hasBuckets()) {
+      await this.ensureCleanupAlarm();
+    } else {
+      await this.ctx.storage.deleteAlarm();
+    }
   }
 
   public constructor(ctx: DurableObjectState, env: RateLimiterEnv) {
@@ -89,8 +98,11 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
           refill_per_sec REAL NOT NULL
         )`,
       );
-      await this.ensureCleanupAlarm();
     });
+  }
+
+  private hasBuckets(): boolean {
+    return this.ctx.storage.sql.exec("SELECT 1 FROM bucket LIMIT 1").toArray().length > 0;
   }
 
   private async ensureCleanupAlarm(): Promise<void> {

@@ -1,9 +1,11 @@
+import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 
 export const WorkspacePathSchema = z
   .string()
   .min(1)
   .max(1_000)
+  .refine((path) => !path.includes("\0"), "Sandbox paths cannot contain null bytes.")
   .refine((path) => path.startsWith("/"), "Sandbox paths must be absolute.")
   .refine(isSafeWorkspacePath, "Path must stay inside /workspace.");
 
@@ -18,32 +20,47 @@ export const WorkspaceRelativePathSchema = z
   .max(500)
   .refine(isSafeWorkspaceRelativePath, "Relative paths must stay inside /workspace.");
 
-export function isSafeWorkspacePath(path: string): boolean {
+function isSafeWorkspacePath(path: string): boolean {
+  if (path.includes("\0")) {
+    return false;
+  }
   const normalized = normalizeWorkspacePath(path);
   return normalized === "/workspace" || normalized.startsWith("/workspace/");
 }
 
-export function isWorkspaceChildPath(path: string): boolean {
+function isWorkspaceChildPath(path: string): boolean {
   const normalized = normalizeWorkspacePath(path);
   return normalized.startsWith("/workspace/") && normalized !== "/workspace/";
 }
 
 /**
- * Confines a code-tool cwd/path to the run's project folder. Resolves to `workspaceDir` (falling
- * back to `/workspace`) when the caller omits the value or points at the `/workspace` root itself;
- * any explicit sub-path the agent provides is kept as-is. This is what forces a general run's shell
- * commands, dev server, and directory listings into `/workspace/<slug>` without trusting the model.
+ * Confines a code-tool cwd or path to the run's project folder. A bare `/workspace`
+ * maps to the active project root; explicit paths must be that root or a descendant.
  */
-export function resolveWorkspaceDir(
+export function resolveProjectWorkspacePath(
   value: string | undefined,
   workspaceDir: string | undefined,
 ): string {
-  const fallback = workspaceDir ?? "/workspace";
-  if (!value) {
-    return fallback;
+  const projectRoot = canonicalWorkspacePath(workspaceDir ?? "/workspace");
+  if (!isSafeWorkspacePath(projectRoot)) {
+    throw new APIError(500, "internal_error", "Project workspace is invalid", {
+      retriable: false,
+    });
   }
-  const normalized = normalizeWorkspacePath(value).replace(/\/+$/, "");
-  return normalized === "/workspace" ? fallback : value;
+  const requested = canonicalWorkspacePath(value ?? projectRoot);
+  const resolved = requested === "/workspace" ? projectRoot : requested;
+  if (resolved !== projectRoot && !resolved.startsWith(`${projectRoot}/`)) {
+    throw new APIError(
+      400,
+      "tool_validation_failed",
+      "Path is outside the active project workspace",
+      {
+        hint: `Use ${projectRoot} or one of its descendants.`,
+        retriable: false,
+      },
+    );
+  }
+  return resolved;
 }
 
 function isSafeWorkspaceRelativePath(path: string): boolean {
@@ -67,6 +84,11 @@ function normalizeWorkspacePath(path: string): string {
     parts.push(part);
   }
   return `/${parts.join("/")}${path.endsWith("/") ? "/" : ""}`;
+}
+
+function canonicalWorkspacePath(path: string): string {
+  const normalized = normalizeWorkspacePath(path);
+  return normalized === "/" ? normalized : normalized.replace(/\/+$/u, "");
 }
 
 function normalizeRelativePath(path: string): string {

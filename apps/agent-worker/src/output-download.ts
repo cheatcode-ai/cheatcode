@@ -62,7 +62,32 @@ export async function verifySignedOutputDownload(
 
 function normalizeOutputDownloadBaseUrl(value: string | undefined): string {
   const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : DEFAULT_OUTPUT_DOWNLOAD_BASE_URL;
+  const candidate = trimmed && trimmed.length > 0 ? trimmed : DEFAULT_OUTPUT_DOWNLOAD_BASE_URL;
+  let url: URL;
+  try {
+    url = new URL(candidate);
+  } catch {
+    throw invalidDownloadBaseUrl();
+  }
+  const isLoopback = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (
+    (url.protocol !== "https:" && !(isLoopback && url.protocol === "http:")) ||
+    url.username ||
+    url.password ||
+    url.pathname !== "/" ||
+    url.search ||
+    url.hash
+  ) {
+    throw invalidDownloadBaseUrl();
+  }
+  return url.origin;
+}
+
+function invalidDownloadBaseUrl(): APIError {
+  return new APIError(500, "internal_error", "Artifact download origin is invalid", {
+    hint: "Use an HTTPS origin, or an HTTP loopback origin in local development.",
+    retriable: false,
+  });
 }
 
 function requiredSigningSecret(value: string | undefined): string {

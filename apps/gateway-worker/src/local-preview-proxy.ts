@@ -15,7 +15,6 @@ export interface LocalPreviewOriginRequest {
   cookie?: string;
   host: string;
   origin?: string;
-  referer?: string;
   url: string;
 }
 
@@ -98,7 +97,7 @@ export function rewriteLocalPreviewRequest(
   const init: RequestInit = {
     headers,
     method: request.method,
-    redirect: request.redirect,
+    redirect: "manual",
   };
   if (request.method !== "GET" && request.method !== "HEAD") {
     init.body = request.body;
@@ -113,13 +112,11 @@ function originRequestFromRewrittenRequest(request: Request): LocalPreviewOrigin
     new URL(request.url).host;
   const cookie = request.headers.get("Cookie");
   const origin = request.headers.get("Origin");
-  const referer = request.headers.get("Referer");
   return {
     clientHost,
     ...(cookie ? { cookie } : {}),
     host: request.headers.get("Host") ?? new URL(request.url).host,
     ...(origin ? { origin } : {}),
-    ...(referer ? { referer } : {}),
     url: request.url,
   };
 }

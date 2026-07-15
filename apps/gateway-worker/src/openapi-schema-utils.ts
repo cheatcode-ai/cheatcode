@@ -6,7 +6,7 @@ export const paginationParameters: JsonValue[] = [
   {
     in: "query",
     name: "cursor",
-    schema: { type: "string" },
+    schema: { maxLength: 500, minLength: 1, type: "string" },
   },
   {
     in: "query",
@@ -23,13 +23,10 @@ export const idempotencyKeyParameter: JsonValue = {
 };
 
 export function objectSchemaFor(componentSchemas: ComponentSchemas, name: string): JsonValue {
-  return name in componentSchemas
-    ? schemaRef(name)
-    : {
-        additionalProperties: true,
-        title: name,
-        type: "object",
-      };
+  if (!Object.hasOwn(componentSchemas, name)) {
+    throw new Error(`Missing OpenAPI component schema: ${name}`);
+  }
+  return schemaRef(name);
 }
 
 export function arraySchemaFor(componentSchemas: ComponentSchemas, name: string): JsonValue {
@@ -41,6 +38,7 @@ export function arraySchemaFor(componentSchemas: ComponentSchemas, name: string)
 
 export function paginatedSchemaFor(componentSchemas: ComponentSchemas, name: string): JsonValue {
   return {
+    additionalProperties: false,
     properties: {
       data: arraySchemaFor(componentSchemas, name),
       has_more: { type: "boolean" },

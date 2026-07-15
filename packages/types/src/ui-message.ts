@@ -1,8 +1,10 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
 import type { AgentRunId, UserId } from "./ids";
+import { type LogicalModelId, LogicalModelIdSchema } from "./models";
 
-export type TaskStatus = "pending" | "running" | "completed" | "failed" | "canceled";
+const TaskStatusSchema = z.enum(["pending", "running", "completed", "failed", "canceled"]);
+const SandboxStateSchema = z.enum(["cold", "starting", "ready", "sleeping", "failed"]);
 
 /**
  * Tool-approval / model-fallback pause request. Emitted (persisted + replayable)
@@ -54,57 +56,133 @@ export const ApprovalDecisionDataSchema = z
 export const ModelFallbackDataSchema = z
   .object({
     v: z.literal(1),
-    fromModel: z.string().min(1),
-    toModel: z.string().min(1),
-    reason: z.enum(["rate_limit", "credits", "provider_error"]),
+    fromModel: LogicalModelIdSchema,
+    toModel: LogicalModelIdSchema,
+    reason: z.enum(["rate_limit", "provider_balance", "provider_error"]),
   })
   .strict();
+
+const PlanDataSchema = z
+  .object({
+    v: z.literal(1),
+    parallelGroups: z.array(z.array(z.number().int().nonnegative())),
+    tasks: z.array(
+      z
+        .object({
+          id: z.string().min(1),
+          status: TaskStatusSchema,
+          title: z.string().min(1),
+        })
+        .strict(),
+    ),
+  })
+  .strict();
+
+const TaskStatusDataSchema = z
+  .object({
+    v: z.literal(1),
+    error: z.string().optional(),
+    status: TaskStatusSchema,
+    taskId: z.string().min(1),
+  })
+  .strict();
+
+const SandboxStatusDataSchema = z
+  .object({
+    v: z.literal(1),
+    status: SandboxStateSchema,
+  })
+  .strict();
+
+const ArtifactDataSchema = z
+  .object({
+    v: z.literal(1),
+    downloadUrl: z
+      .string()
+      .url()
+      .refine(isSafeArtifactDownloadUrl, "Artifact download URL must use HTTPS"),
+    filename: z.string().min(1).optional(),
+    kind: z.enum(["slide", "pdf", "image", "video", "audio", "xlsx", "docx", "folder", "link"]),
+    mimeType: z.string().min(1),
+    outputId: z.string().min(1),
+    sizeBytes: z.number().int().nonnegative().optional(),
+  })
+  .strict();
+
+function isSafeArtifactDownloadUrl(value: string): boolean {
+  const authority = value.slice(value.indexOf("://") + 3).split(/[/?#]/u, 1)[0] ?? "";
+  if (!authority || authority.includes("@")) {
+    return false;
+  }
+  if (value.startsWith("https://")) {
+    return true;
+  }
+  return /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:[/?#]|$)/u.test(value);
+}
+
+const ThinkingDataSchema = z
+  .object({
+    v: z.literal(1),
+    delta: z.boolean(),
+    durationMs: z.number().finite().nonnegative().optional(),
+    text: z.string(),
+  })
+  .strict();
+
+const ToolDataSchema = z
+  .object({
+    v: z.literal(1),
+    input: z.record(z.string(), z.unknown()).optional(),
+    toolCallId: z.string().min(1).optional(),
+    toolName: z.string().min(1),
+  })
+  .strict();
+
+const ErrorDataSchema = z
+  .object({
+    v: z.literal(1),
+    code: z.string().min(1),
+    message: z.string(),
+    retriable: z.boolean(),
+  })
+  .strict();
+
+const SeqDataSchema = z
+  .object({
+    v: z.literal(1),
+    seq: z.number().int().nonnegative(),
+  })
+  .strict();
+
+export const CHEATCODE_DATA_SCHEMAS = {
+  "approval-decision": ApprovalDecisionDataSchema,
+  "approval-request": ApprovalRequestDataSchema,
+  artifact: ArtifactDataSchema,
+  error: ErrorDataSchema,
+  "model-fallback": ModelFallbackDataSchema,
+  plan: PlanDataSchema,
+  "sandbox-status": SandboxStatusDataSchema,
+  seq: SeqDataSchema,
+  "task-status": TaskStatusDataSchema,
+  thinking: ThinkingDataSchema,
+  tool: ToolDataSchema,
+} as const;
 
 export type ApprovalRequestData = z.infer<typeof ApprovalRequestDataSchema>;
 export type ApprovalDecisionData = z.infer<typeof ApprovalDecisionDataSchema>;
 export type ModelFallbackData = z.infer<typeof ModelFallbackDataSchema>;
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+export type SandboxState = z.infer<typeof SandboxStateSchema>;
 
-export interface Task {
-  id: string;
-  title: string;
-  status: TaskStatus;
-}
-
-export type SandboxState = "cold" | "starting" | "ready" | "sleeping" | "failed";
-
-export type CheatcodeDataParts = {
-  plan: { v: 1; tasks: Task[]; parallelGroups: number[][] };
-  "task-status": { v: 1; taskId: string; status: TaskStatus; error?: string };
-  budget: { v: 1; tokensIn: number; tokensOut: number; usdSpent: number; capUsd: number };
-  "sandbox-status": { v: 1; status: SandboxState; previewUrl?: string; expoUrl?: string };
-  takeover: { v: 1; available: boolean; vncUrl?: string; resumeToken?: string };
-  artifact: {
-    v: 1;
-    filename?: string;
-    outputId: string;
-    kind: "slide" | "pdf" | "image" | "video" | "audio" | "xlsx" | "docx" | "folder" | "link";
-    downloadUrl: string;
-    mimeType: string;
-    sizeBytes?: number;
-  };
-  quota: { v: 1; feature: string; remaining: number; limit: number; resetAt: number };
-  // `durationMs` (optional) lets the transcript render bud's "Thought for Xs"; emitted
-  // by the agent worker on the final (delta:false) thinking part when available.
-  thinking: { v: 1; text: string; delta: boolean; durationMs?: number };
-  // One per agent tool call — renders the bud-style "Read <path> (+N more)" transcript
-  // rows. `input` is the (truncated) tool arguments; the renderer maps tool name + the
-  // primary arg to a human verb. Emitted on the `tool-call` chunk.
-  tool: { v: 1; toolName: string; toolCallId?: string; input?: Record<string, unknown> };
-  error: { v: 1; code: string; message: string; retriable: boolean };
-  seq: { v: 1; seq: number };
-  "approval-request": ApprovalRequestData; // → "data-approval-request"
-  "approval-decision": ApprovalDecisionData; // → "data-approval-decision"
-  "model-fallback": ModelFallbackData; // → "data-model-fallback"
+type CheatcodeDataParts = {
+  [DataPart in keyof typeof CHEATCODE_DATA_SCHEMAS]: z.infer<
+    (typeof CHEATCODE_DATA_SCHEMAS)[DataPart]
+  >;
 };
 
-export type CheatcodeMetadata = {
+type CheatcodeMetadata = {
   runId: AgentRunId;
-  modelId: string;
+  modelId: LogicalModelId;
   userId: UserId;
 };
 

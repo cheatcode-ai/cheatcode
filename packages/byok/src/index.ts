@@ -1,5 +1,4 @@
 import type { Database } from "@cheatcode/db";
-import { providerKeys } from "@cheatcode/db/schema";
 import { type Provider, type ProviderKeySummary, ProviderSchema } from "@cheatcode/types";
 import { sql } from "drizzle-orm";
 
@@ -31,30 +30,11 @@ export async function listProviderKeys(tx: Database): Promise<ProviderKeySummary
     },
   });
 
-  return rows.flatMap((row) => {
-    const provider = ProviderSchema.safeParse(row.provider);
-    if (!provider.success) {
-      return [];
-    }
-    return [
-      {
-        disabledAt: row.disabledAt?.toISOString() ?? null,
-        disabledReason: row.disabledReason,
-        provider: provider.data,
-        fingerprint: row.fingerprint,
-        lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
-      },
-    ];
-  });
-}
-
-export async function hasProviderKey(tx: Database, provider: Provider): Promise<boolean> {
-  const row = await tx.query.providerKeys.findFirst({
-    where: (key, { and, eq, isNull }) =>
-      and(eq(key.provider, provider), isNull(providerKeys.deletedAt), isNull(key.disabledAt)),
-    columns: {
-      id: true,
-    },
-  });
-  return row !== undefined;
+  return rows.map((row) => ({
+    disabledAt: row.disabledAt?.toISOString() ?? null,
+    disabledReason: row.disabledReason,
+    provider: ProviderSchema.parse(row.provider),
+    fingerprint: row.fingerprint,
+    lastUsedAt: row.lastUsedAt?.toISOString() ?? null,
+  }));
 }

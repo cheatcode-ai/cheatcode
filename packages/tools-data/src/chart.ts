@@ -1,7 +1,6 @@
 import { APIError } from "@cheatcode/observability";
-import type { CodeRuntimeContext } from "@cheatcode/tools-code";
-import { z } from "zod";
-import { buildChartComponentSource, buildChartScript } from "./chart-script";
+import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import { buildChartComponentSource, type ChartPoint, renderChartSvg } from "./chart-renderer";
 import { csvToRecords, normalizeRows } from "./records";
 import {
   type DataChartInput,
@@ -11,12 +10,6 @@ import {
   type DataRecord,
 } from "./schemas";
 
-const ChartScriptOutputSchema = z
-  .object({
-    svg: z.string().min(1),
-  })
-  .strict();
-
 export async function executeDataChart(
   input: DataChartInput,
   runtimeContext: CodeRuntimeContext,
@@ -24,27 +17,12 @@ export async function executeDataChart(
   const parsed = DataChartInputSchema.parse(input);
   const rows = rowsFromInput(parsed);
   assertChartColumns(parsed, rows);
-
-  const result = await runtimeContext.sandbox.runCode({
-    code: buildChartScript({ input: parsed, rows }),
-    language: "javascript",
-  });
-  if (result.success !== true) {
-    throw new APIError(502, "upstream_sandbox_failed", "Recharts chart rendering failed", {
-      details: {
-        stderrBytes: (result.stderr ?? "").length,
-        stdoutBytes: (result.stdout ?? "").length,
-      },
-      retriable: false,
-    });
-  }
-
-  const rendered = parseChartOutput(result.stdout ?? "");
+  const svg = renderChartSvg(parsed, chartPoints(parsed, rows));
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "svg");
   const artifact = runtimeContext.artifacts
     ? await runtimeContext.artifacts.put({
         contentType: "image/svg+xml",
-        data: utf8ToBytes(rendered.svg),
+        data: utf8ToBytes(svg),
         filename,
         kind: "image",
         metadata: {
@@ -59,10 +37,13 @@ export async function executeDataChart(
   return DataChartOutputSchema.parse({
     ...(artifact ? { artifact } : {}),
     chartType: parsed.chartType,
-    componentSource: buildChartComponentSource(parsed, rows.slice(0, 100)),
+    componentSource: buildChartComponentSource(
+      parsed,
+      projectChartRows(parsed, rows.slice(0, 100)),
+    ),
     height: parsed.height,
     rowCount: rows.length,
-    svg: rendered.svg,
+    svg,
     title: parsed.title,
     width: parsed.width,
     xKey: parsed.xKey,
@@ -72,9 +53,18 @@ export async function executeDataChart(
 
 function rowsFromInput(input: DataChartInput): DataRecord[] {
   if (input.csv) {
-    return csvToRecords(input.csv, input.delimiter).rows.slice(0, 2_000);
+    return csvToRecords(input.csv, input.delimiter, { maxColumns: 100, maxRows: 5_000 }).rows.slice(
+      0,
+      500,
+    );
   }
-  return normalizeRows(input.rows ?? []).slice(0, 2_000);
+  return normalizeRows(input.rows ?? []).slice(0, 500);
+}
+
+function projectChartRows(input: DataChartInput, rows: readonly DataRecord[]): DataRecord[] {
+  return rows.map((row) =>
+    Object.fromEntries([input.xKey, ...input.yKeys].map((key) => [key, row[key] ?? null])),
+  );
 }
 
 function assertChartColumns(input: DataChartInput, rows: readonly DataRecord[]): void {
@@ -94,15 +84,22 @@ function assertChartColumns(input: DataChartInput, rows: readonly DataRecord[]):
   }
 }
 
-function parseChartOutput(stdout: string): z.infer<typeof ChartScriptOutputSchema> {
-  try {
-    return ChartScriptOutputSchema.parse(JSON.parse(stdout.trim()));
-  } catch (error) {
-    throw new APIError(502, "upstream_sandbox_failed", "Sandbox returned invalid chart output", {
-      details: { error: error instanceof Error ? error.message : "Unknown parse error" },
+function chartPoints(input: DataChartInput, rows: readonly DataRecord[]): ChartPoint[] {
+  return rows.map((row, rowIndex) => ({
+    label: String(row[input.xKey] ?? ""),
+    values: input.yKeys.map((key) => numericChartValue(row[key], key, rowIndex)),
+  }));
+}
+
+function numericChartValue(value: unknown, key: string, rowIndex: number): number {
+  const numeric = typeof value === "number" ? value : Number(String(value ?? "").trim());
+  if (!Number.isFinite(numeric)) {
+    throw new APIError(400, "invalid_request_body", "Chart series values must be numeric", {
+      details: { column: key, row: rowIndex + 1 },
       retriable: false,
     });
   }
+  return numeric;
 }
 
 function normalizeFilename(value: string, extension: string): string {

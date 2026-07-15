@@ -1,21 +1,21 @@
 import { Suspense } from "react";
 import { AuthRequiredGate } from "@/components/auth/auth-required-gate";
 import { OnboardingFlow } from "@/components/onboarding/onboarding-flow";
-import { Sparkle } from "@/components/onboarding/onboarding-icons";
+import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 
-function BootSparkle() {
-  return (
-    <div className="animate-pulse">
-      <Sparkle />
-    </div>
-  );
+function OnboardingLoadingState() {
+  return <CheatcodeLoader label="Loading onboarding" />;
 }
 
 export default function OnboardingPage() {
   return (
-    <main className="flex min-h-screen items-center justify-center bg-white px-6 py-12 text-[#1b1b1b]">
-      <Suspense fallback={<BootSparkle />}>
-        <AuthRequiredGate fallback={<BootSparkle />}>
+    <main
+      className="flex min-h-dvh items-center justify-center bg-background px-6 py-12 text-foreground"
+      id="main-content"
+      tabIndex={-1}
+    >
+      <Suspense fallback={<OnboardingLoadingState />}>
+        <AuthRequiredGate fallback={<OnboardingLoadingState />}>
           <OnboardingFlow />
         </AuthRequiredGate>
       </Suspense>

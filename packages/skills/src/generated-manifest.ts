@@ -45,7 +45,7 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
   },
   {
     "name": "mobile-app",
-    "description": "Builds the mobile app experience for the current project — Expo Router screens in mobile (app-builder-mobile) projects, mobile-first responsive web surfaces in web projects. Use when the user asks for a mobile app, iPhone-like app, mobile-first builder, or responsive app prototype. Do NOT trigger for App Store or Play Store release builds in V1.",
+    "description": "Builds the mobile app experience for the current project — Expo Router screens in mobile (app-builder-mobile) projects, mobile-first responsive web surfaces in web projects. Use when the user asks for a mobile app, iPhone-like app, mobile-first builder, or responsive app prototype. Do NOT trigger for App Store or Play Store release builds.",
     "category": "Builder & Apps",
     "tags": [
       "mobile",

@@ -18,7 +18,7 @@ export function HomeSidebarOffset() {
   useEffect(() => {
     document.documentElement.style.setProperty(
       "--cheatcode-sidebar-offset",
-      sidebarCollapsed ? "56px" : "240px",
+      sidebarCollapsed ? "56px" : "248px",
     );
   }, [sidebarCollapsed]);
 

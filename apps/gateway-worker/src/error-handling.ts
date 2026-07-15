@@ -1,23 +1,10 @@
-import { createLogger, toAPIError } from "@cheatcode/observability";
-
-function errorLogFields(error: unknown): Record<string, unknown> {
-  if (error instanceof Error) {
-    const cause = error.cause;
-    return {
-      causeMessage: cause instanceof Error ? cause.message : undefined,
-      causeName: cause instanceof Error ? cause.name : undefined,
-      errorMessage: error.message,
-      errorName: error.name,
-    };
-  }
-  return { errorType: typeof error };
-}
+import { createLogger, safeErrorTelemetry, toAPIError } from "@cheatcode/observability";
 
 export function formatGatewayRouteError(error: unknown, requestId: string): Response {
   const apiError = toAPIError(error);
   createLogger({ requestId }).error("gateway_request_failed", {
-    code: apiError.code,
-    ...errorLogFields(error),
+    apiCode: apiError.code,
+    ...safeErrorTelemetry(error),
   });
   return apiError.toResponse(requestId);
 }

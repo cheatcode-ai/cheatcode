@@ -1,60 +1,45 @@
-import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
+import {
+  mintPreviewCapability,
+  PreviewCapabilityError,
+  type PreviewCapabilityKind,
+  type VerifiedPreviewCapability,
+  verifyPreviewCapability,
+} from "@cheatcode/auth";
 import { APIError } from "@cheatcode/observability";
 import type { PreviewTarget } from "./host";
+import { PREVIEW_SESSION_COOKIE, PREVIEW_TOKEN_QUERY } from "./preview-session";
 
-/**
- * Cheatcode preview access token.
- *
- * Wire format: `${sandboxId}.${port}.${exp}.${mode}.${sig}` where
- * `sig = hmacSha256Base64(`${sandboxId}.${port}.${exp}.${mode}`, PREVIEW_TOKEN_SECRET)`
- * (STANDARD base64 — the base64 alphabet has no `.`, so a token always splits
- * into exactly five segments because `sandboxId` is a dot-free DNS label).
- * `exp` is an epoch-millisecond expiry; `mode` is `app`, `code`, or `takeover`.
- */
-export type PreviewTokenMode = "app" | "code" | "takeover";
-
-const QUERY_TOKEN_PARAM = "__cc_pt";
-const COOKIE_TOKEN_NAME = "cc_pt";
-const PREVIEW_TOKEN_MODES = new Set<PreviewTokenMode>(["app", "code", "takeover"]);
-
-export interface VerifiedPreviewToken {
-  readonly exp: number;
-  readonly mode: PreviewTokenMode;
-  readonly port: string;
-  readonly raw: string;
-  readonly sandboxId: string;
-}
-
-export interface PreviewTokenSource {
-  readonly fromQuery: boolean;
+interface PreviewTokenSource {
+  readonly kind: PreviewCapabilityKind;
   readonly token: string;
 }
 
-export interface AuthorizedPreview {
+interface AuthorizedPreview {
   readonly fromQuery: boolean;
-  readonly token: string;
-  readonly verified: VerifiedPreviewToken;
+  readonly verified: VerifiedPreviewCapability;
 }
 
-/** Read the access token from the `__cc_pt` query param or the `cc_pt` cookie. */
-export function readPreviewToken(request: Request, url: URL): PreviewTokenSource | null {
-  const queryToken = url.searchParams.get(QUERY_TOKEN_PARAM);
+export interface MintedPreviewSession {
+  readonly expiresAt: number;
+  readonly token: string;
+}
+
+/** Query credentials are handoffs; host-only cookie credentials are sessions. */
+function readPreviewToken(request: Request, url: URL): PreviewTokenSource | null {
+  const queryToken = url.searchParams.get(PREVIEW_TOKEN_QUERY);
   if (queryToken) {
-    return { fromQuery: true, token: queryToken };
+    return { kind: "handoff", token: queryToken };
   }
-  const cookieToken = readCookie(request.headers.get("Cookie"), COOKIE_TOKEN_NAME);
+  const cookieToken = readCookie(request.headers.get("Cookie"), PREVIEW_SESSION_COOKIE);
   if (cookieToken) {
-    return { fromQuery: false, token: cookieToken };
+    return { kind: "session", token: cookieToken };
   }
   return null;
 }
 
-/**
- * Verify the token signature (timing-safe), expiry, and that its
- * `sandboxId`/`port` match the requested host. Throws a 401 `APIError` on any
- * failure (never a redirect). Returns the verified token + how it was supplied.
- */
+/** Verify kind, exact preview host, sandbox, port, signature, and lifetime. */
 export async function authorizePreviewRequest(input: {
+  audience: string;
   request: Request;
   secret: string;
   target: PreviewTarget;
@@ -66,42 +51,63 @@ export async function authorizePreviewRequest(input: {
       retriable: false,
     });
   }
-  const verified = await verifyPreviewToken(source.token, input.secret);
-  if (
-    verified.sandboxId.toLowerCase() !== input.target.sandboxId ||
-    verified.port !== input.target.port
-  ) {
-    throw new APIError(401, "auth_token_invalid", "Preview token does not match host", {
-      retriable: false,
-    });
-  }
-  return { fromQuery: source.fromQuery, token: source.token, verified };
+  const verified = await verifyCapability({
+    audience: input.audience,
+    expectedKind: source.kind,
+    secret: input.secret,
+    target: input.target,
+    token: source.token,
+  });
+  return { fromQuery: source.kind === "handoff", verified };
 }
 
-async function verifyPreviewToken(token: string, secret: string): Promise<VerifiedPreviewToken> {
-  const parts = token.split(".");
-  const [sandboxId, port, expRaw, mode, signature] = parts;
-  if (parts.length !== 5 || !sandboxId || !port || !expRaw || !mode || !signature) {
-    throw invalidToken();
-  }
-  if (!isPreviewTokenMode(mode)) {
-    throw invalidToken();
-  }
-  const expected = await hmacSha256Base64(`${sandboxId}.${port}.${expRaw}.${mode}`, secret);
-  if (!timingSafeEqual(expected, signature)) {
-    throw invalidToken();
-  }
-  const exp = Number(expRaw);
-  if (!Number.isFinite(exp) || exp <= Date.now()) {
-    throw new APIError(401, "auth_token_expired", "Preview access token has expired", {
-      retriable: false,
-    });
-  }
-  return { exp, mode, port, raw: token, sandboxId };
+/** Exchange a short URL handoff for a distinct host-only browser session. */
+export async function mintPreviewSessionToken(input: {
+  audience: string;
+  secret: string;
+  target: PreviewTarget;
+}): Promise<MintedPreviewSession> {
+  const session = await mintPreviewCapability({
+    kind: "session",
+    secret: input.secret,
+    target: capabilityTarget(input.audience, input.target),
+  });
+  return { expiresAt: session.expiresAt, token: session.token };
 }
 
-function isPreviewTokenMode(value: string): value is PreviewTokenMode {
-  return PREVIEW_TOKEN_MODES.has(value as PreviewTokenMode);
+async function verifyCapability(input: {
+  audience: string;
+  expectedKind: PreviewCapabilityKind;
+  secret: string;
+  target: PreviewTarget;
+  token: string;
+}): Promise<VerifiedPreviewCapability> {
+  try {
+    return await verifyPreviewCapability({
+      expectedKind: input.expectedKind,
+      secret: input.secret,
+      target: capabilityTarget(input.audience, input.target),
+      token: input.token,
+    });
+  } catch (error) {
+    if (error instanceof PreviewCapabilityError && error.reason === "expired") {
+      throw new APIError(401, "auth_token_expired", "Preview access token has expired", {
+        retriable: false,
+      });
+    }
+    if (error instanceof PreviewCapabilityError) {
+      throw invalidToken();
+    }
+    throw error;
+  }
+}
+
+function capabilityTarget(audience: string, target: PreviewTarget) {
+  return {
+    audience,
+    port: Number(target.port),
+    sandboxId: target.sandboxId,
+  };
 }
 
 function invalidToken(): APIError {

@@ -3,11 +3,11 @@ node_modules/
 .turbo/
 .wrangler/
 .next/
-.open-next/
 .vercel/
 dist/
 coverage/
 .qa/
+qa-output/
 qa-*.png
 *.har
 *.tsbuildinfo
@@ -17,12 +17,11 @@ qa-*.png
 !.env.migrate.example
 apps/*/.dev.vars
 apps/*/wrangler.local-dev.generated.jsonc
+apps/*/wrangler.production.*.generated.json
 supabase/.temp/
 packages/skills/src/generated.ts
 
-# Preserved legacy V1 tree and pre-V2 notes. Section 20 cleanup requires a git snapshot first.
-# Anchored to repo root so nested source dirs (e.g. apps/web/src/components/docs) aren't ignored.
-/cheatcode/
+# Local planning notes that are not part of the V2 workspace.
 /docs/
 /tasks/
 /plans/

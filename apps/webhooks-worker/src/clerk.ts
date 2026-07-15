@@ -59,12 +59,11 @@ export interface ClerkUserRepository {
     clerkId: string;
     displayName?: string | null;
     email: string;
-    webhookEventId?: string;
   }): Promise<ClerkUserSyncResult>;
-  markUserDeleted(clerkId: string): Promise<UserId | null>;
+  markUserDeleted(clerkId: string, deletedAt: Date): Promise<UserId | null>;
 }
 
-export interface ClerkUserSyncResult {
+interface ClerkUserSyncResult {
   avatarUrl: string | null;
   displayName: string | null;
   email: string;
@@ -74,7 +73,7 @@ export interface ClerkUserSyncResult {
   userId: UserId;
 }
 
-export type ClerkWebhookAction = "upserted" | "deleted" | "skipped";
+type ClerkWebhookAction = "upserted" | "deleted" | "skipped";
 
 export interface ClerkWebhookResult {
   avatarUrl?: string | null;
@@ -89,7 +88,7 @@ export interface ClerkWebhookResult {
   userId?: UserId;
 }
 
-export function primaryEmailFromClerkUser(data: ClerkUserData): string | null {
+function primaryEmailFromClerkUser(data: ClerkUserData): string | null {
   const email =
     data.email_addresses.find((candidate) => candidate.id === data.primary_email_address_id) ??
     data.email_addresses[0];
@@ -97,7 +96,7 @@ export function primaryEmailFromClerkUser(data: ClerkUserData): string | null {
   return address ? address : null;
 }
 
-export function displayNameFromClerkUser(data: ClerkUserData): string | null {
+function displayNameFromClerkUser(data: ClerkUserData): string | null {
   const fullName = [data.first_name, data.last_name]
     .map((part) => part?.trim())
     .filter((part): part is string => Boolean(part))
@@ -105,7 +104,7 @@ export function displayNameFromClerkUser(data: ClerkUserData): string | null {
   return fullName || data.username?.trim() || null;
 }
 
-export function avatarUrlFromClerkUser(data: ClerkUserData): string | null {
+function avatarUrlFromClerkUser(data: ClerkUserData): string | null {
   const imageUrl = data.image_url?.trim();
   return imageUrl ? imageUrl : null;
 }
@@ -113,53 +112,64 @@ export function avatarUrlFromClerkUser(data: ClerkUserData): string | null {
 export async function handleClerkWebhookEvent(
   repository: ClerkUserRepository,
   event: WebhookEvent,
-  webhookEventId?: string,
+  acceptedAt: Date,
 ): Promise<ClerkWebhookResult> {
   switch (event.type) {
     case "user.created":
-    case "user.updated": {
-      const data = parseClerkUserData(event.data);
-      const email = primaryEmailFromClerkUser(data);
-      if (!email) {
-        throw new APIError(400, "invalid_request_body", "Clerk user webhook is missing an email", {
-          hint: "Configure Clerk to send email_addresses on user.created and user.updated events.",
-          retriable: false,
-        });
-      }
-
-      const syncResult = await repository.upsertUser({
-        avatarUrl: avatarUrlFromClerkUser(data),
-        clerkId: data.id,
-        displayName: displayNameFromClerkUser(data),
-        email,
-        ...(webhookEventId ? { webhookEventId } : {}),
-      });
-      return {
-        action: "upserted",
-        avatarUrl: syncResult.avatarUrl,
-        clerkId: data.id,
-        displayName: syncResult.displayName,
-        email: syncResult.email,
-        emailChanged: syncResult.emailChanged,
-        eventType: event.type,
-        polarCustomerId: syncResult.polarCustomerId,
-        profileChanged: syncResult.profileChanged,
-        userId: syncResult.userId,
-      };
-    }
-    case "user.deleted": {
-      const data = parseClerkDeletedUserData(event.data);
-      if (!data.id) {
-        return { eventType: event.type, action: "skipped" };
-      }
-      const userId = await repository.markUserDeleted(data.id);
-      return {
-        eventType: event.type,
-        action: "deleted",
-        ...(userId ? { userId } : {}),
-      };
-    }
+    case "user.updated":
+      return upsertClerkWebhookUser(repository, event);
+    case "user.deleted":
+      return deleteClerkWebhookUser(repository, event, acceptedAt);
     default:
       return { eventType: event.type, action: "skipped" };
   }
+}
+
+async function upsertClerkWebhookUser(
+  repository: ClerkUserRepository,
+  event: WebhookEvent,
+): Promise<ClerkWebhookResult> {
+  const data = parseClerkUserData(event.data);
+  const email = primaryEmailFromClerkUser(data);
+  if (!email) {
+    throw new APIError(400, "invalid_request_body", "Clerk user webhook is missing an email", {
+      hint: "Configure Clerk to send email_addresses on user.created and user.updated events.",
+      retriable: false,
+    });
+  }
+  const syncResult = await repository.upsertUser({
+    avatarUrl: avatarUrlFromClerkUser(data),
+    clerkId: data.id,
+    displayName: displayNameFromClerkUser(data),
+    email,
+  });
+  return {
+    action: "upserted",
+    avatarUrl: syncResult.avatarUrl,
+    clerkId: data.id,
+    displayName: syncResult.displayName,
+    email: syncResult.email,
+    emailChanged: syncResult.emailChanged,
+    eventType: event.type,
+    polarCustomerId: syncResult.polarCustomerId,
+    profileChanged: syncResult.profileChanged,
+    userId: syncResult.userId,
+  };
+}
+
+async function deleteClerkWebhookUser(
+  repository: ClerkUserRepository,
+  event: WebhookEvent,
+  acceptedAt: Date,
+): Promise<ClerkWebhookResult> {
+  const data = parseClerkDeletedUserData(event.data);
+  if (!data.id) {
+    return { eventType: event.type, action: "skipped" };
+  }
+  const userId = await repository.markUserDeleted(data.id, acceptedAt);
+  return {
+    eventType: event.type,
+    action: "deleted",
+    ...(userId ? { userId } : {}),
+  };
 }

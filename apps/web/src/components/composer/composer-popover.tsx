@@ -16,6 +16,14 @@ export interface ComposerMenuItem {
   label: string;
 }
 
+interface ComposerPopoverProps {
+  activeIndex: number;
+  ariaLabel: string;
+  items: readonly ComposerMenuItem[];
+  onHoverIndex: (index: number) => void;
+  onSelectIndex: (index: number) => void;
+}
+
 /**
  * Presentational listbox anchored above the composer. Styling mirrors the
  * composer's other floating control menus. Keyboard navigation/selection is owned by
@@ -29,13 +37,7 @@ export function ComposerPopover({
   items,
   onHoverIndex,
   onSelectIndex,
-}: {
-  activeIndex: number;
-  ariaLabel: string;
-  items: readonly ComposerMenuItem[];
-  onHoverIndex: (index: number) => void;
-  onSelectIndex: (index: number) => void;
-}) {
+}: ComposerPopoverProps) {
   const baseId = useId();
   if (items.length === 0) {
     return null;
@@ -47,48 +49,71 @@ export function ComposerPopover({
       aria-label={ariaLabel}
       className={cn(
         "absolute bottom-full left-0 z-30 mb-2 flex max-h-72 w-80 max-w-[calc(100vw-2rem)] flex-col gap-1 overflow-y-auto rounded-[18px]",
-        "border border-[#f1f1f1] bg-white p-1 shadow-[0_18px_70px_rgba(0,0,0,0.12)]",
+        "border border-border bg-background p-1 shadow-[0_18px_70px_rgba(0,0,0,0.12)]",
       )}
       role="listbox"
       tabIndex={-1}
     >
       {items.map((item, index) => (
-        <button
-          aria-selected={index === safeIndex}
-          className={cn(
-            "flex w-full flex-col items-start gap-0.5 rounded-[14px] px-2 py-1.5 text-left transition-colors",
-            item.disabled
-              ? "cursor-default text-[#b5b5b5]"
-              : index === safeIndex
-                ? "bg-[#f8f8f8] text-[#1b1b1b]"
-                : "text-[#707070] hover:bg-[#fafafa] hover:text-[#1b1b1b]",
-          )}
-          disabled={item.disabled}
+        <ComposerPopoverRow
           id={`${baseId}-${index}`}
+          isActive={index === safeIndex}
+          item={item}
           key={item.id}
-          onMouseDown={(event) => {
-            event.preventDefault();
-            if (!item.disabled) {
-              onSelectIndex(index);
-            }
-          }}
-          onClick={() => {
-            if (!item.disabled) {
-              onSelectIndex(index);
-            }
-          }}
-          onMouseEnter={() => onHoverIndex(index)}
-          role="option"
-          type="button"
-        >
-          <span className="font-mono text-[12px] tracking-wide">{item.label}</span>
-          {item.hint ? (
-            <span className="line-clamp-2 text-[#8a8a8a] text-[11px] leading-snug">
-              {item.hint}
-            </span>
-          ) : null}
-        </button>
+          onHover={() => onHoverIndex(index)}
+          onSelect={() => onSelectIndex(index)}
+        />
       ))}
     </div>
+  );
+}
+
+function ComposerPopoverRow({
+  id,
+  isActive,
+  item,
+  onHover,
+  onSelect,
+}: {
+  id: string;
+  isActive: boolean;
+  item: ComposerMenuItem;
+  onHover: () => void;
+  onSelect: () => void;
+}) {
+  const selectEnabledItem = () => {
+    if (!item.disabled) onSelect();
+  };
+  return (
+    <button
+      aria-selected={isActive}
+      className={popoverRowClassName(item.disabled === true, isActive)}
+      disabled={item.disabled}
+      id={id}
+      onClick={selectEnabledItem}
+      onMouseDown={(event) => {
+        event.preventDefault();
+        selectEnabledItem();
+      }}
+      onMouseEnter={onHover}
+      role="option"
+      type="button"
+    >
+      <span className="font-mono text-[12px] tracking-wide">{item.label}</span>
+      {item.hint ? (
+        <span className="line-clamp-2 text-[11px] text-placeholder leading-snug">{item.hint}</span>
+      ) : null}
+    </button>
+  );
+}
+
+function popoverRowClassName(isDisabled: boolean, isActive: boolean): string {
+  return cn(
+    "flex w-full flex-col items-start gap-0.5 rounded-[14px] px-2 py-1.5 text-left transition-colors",
+    isDisabled
+      ? "cursor-default text-placeholder"
+      : isActive
+        ? "bg-bg-secondary text-foreground"
+        : "text-fg-secondary hover:bg-bg-secondary hover:text-foreground",
   );
 }

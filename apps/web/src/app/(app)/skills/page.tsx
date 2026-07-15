@@ -1,11 +1,14 @@
-import { SkillsCatalog } from "@/components/skills/skills-catalog";
+import { Suspense } from "react";
+import { IntegrationSkillsCatalog } from "@/components/skills/integration-skills-catalog";
+import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 
 export default function SkillsPage() {
   return (
-    <section className="chat-scrollbar min-w-0 flex-1 overflow-y-auto bg-white px-4 pt-12 pb-16 text-[#1b1b1b] sm:px-6 lg:px-10">
+    <section className="chat-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto bg-background px-2 pt-6 pb-16 text-foreground sm:px-6 md:pt-10 lg:px-10">
       <div className="mx-auto w-full max-w-[740px]">
-        <h1 className="font-bold text-[30px] leading-9 tracking-[-0.01em]">Skills</h1>
-        <SkillsCatalog />
+        <Suspense fallback={<CheatcodeLoader className="min-h-72" label="Loading skills" />}>
+          <IntegrationSkillsCatalog />
+        </Suspense>
       </div>
     </section>
   );

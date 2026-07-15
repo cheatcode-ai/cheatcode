@@ -1,5 +1,5 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
-import { stepCountIs } from "ai";
+import { isLoopFinished } from "ai";
 import { z } from "zod/v4";
 import {
   DeepResearchFanoutInputSchema,
@@ -24,9 +24,8 @@ const runFanoutQuery = createStep({
   execute: async ({ inputData, mastra, requestContext }) => {
     const agent = mastra.getAgent("general");
     const response = await agent.generate(fanoutResearchPrompt(inputData.query), {
-      maxSteps: 6,
       requestContext,
-      stopWhen: stepCountIs(6),
+      stopWhen: isLoopFinished(),
     });
     const findings = response.text.trim();
     return ResearchFindingSchema.parse({
@@ -44,9 +43,8 @@ const synthesizeFanoutResearch = createStep({
   execute: async ({ inputData, mastra, requestContext }) => {
     const agent = mastra.getAgent("general");
     const response = await agent.generate(fanoutSynthesisPrompt(inputData), {
-      maxSteps: 4,
       requestContext,
-      stopWhen: stepCountIs(4),
+      stopWhen: isLoopFinished(),
     });
     return ResearchReportSchema.parse({
       findings: inputData,
@@ -59,6 +57,7 @@ const synthesizeFanoutResearch = createStep({
 export const deepResearchFanout = createWorkflow({
   id: "deep-research-fanout",
   inputSchema: DeepResearchFanoutInputSchema,
+  options: { shouldPersistSnapshot: () => false },
   outputSchema: ResearchReportSchema,
 })
   .then(planFanoutQueries)

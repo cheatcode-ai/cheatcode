@@ -1,6 +1,6 @@
 import { APIError } from "@cheatcode/observability";
+import { CodeRuntimeContextSchema } from "@cheatcode/sandbox-contracts";
 import type { BrowserProvider, BrowserRuntimeContext } from "@cheatcode/tools-browser";
-import { CodeRuntimeContextSchema } from "@cheatcode/tools-code";
 import {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
   DEFAULT_ANTHROPIC_MODEL_ID,
@@ -12,6 +12,31 @@ import {
   OPENAI_API_KEY_CONTEXT_KEY,
 } from "../llm-context";
 
+export const BROWSER_RUN_ID_CONTEXT_KEY = "browserRunId";
+
+const BROWSER_PROVIDER_CONFIG: Record<
+  BrowserProvider,
+  { apiKeyContext: string; defaultModelId: string }
+> = {
+  anthropic: {
+    apiKeyContext: ANTHROPIC_API_KEY_CONTEXT_KEY,
+    defaultModelId: DEFAULT_ANTHROPIC_MODEL_ID,
+  },
+  google: {
+    apiKeyContext: GOOGLE_API_KEY_CONTEXT_KEY,
+    defaultModelId: DEFAULT_GOOGLE_MODEL_ID,
+  },
+  openai: {
+    apiKeyContext: OPENAI_API_KEY_CONTEXT_KEY,
+    defaultModelId: DEFAULT_OPENAI_MODEL_ID,
+  },
+};
+const BROWSER_PROVIDER_FALLBACK_ORDER: readonly BrowserProvider[] = [
+  "anthropic",
+  "openai",
+  "google",
+];
+
 export interface RequestContextReader {
   get(key: string): unknown;
 }
@@ -20,8 +45,16 @@ export function browserRuntimeFromRequestContext(
   requestContext: RequestContextReader,
 ): BrowserRuntimeContext {
   const runtimeContext = CodeRuntimeContextSchema.parse(requestContext.get("codeRuntime"));
+  const runId = requestContext.get(BROWSER_RUN_ID_CONTEXT_KEY);
+  if (typeof runId !== "string" || runId.length === 0) {
+    throw new APIError(500, "internal_error", "Browser runtime is missing its run identity.", {
+      retriable: false,
+    });
+  }
   return {
+    ...(runtimeContext.artifacts ? { artifacts: runtimeContext.artifacts } : {}),
     credential: browserCredentialFromRequestContext(requestContext),
+    runId,
     sandbox: runtimeContext.sandbox,
   };
 }
@@ -29,55 +62,42 @@ export function browserRuntimeFromRequestContext(
 function browserCredentialFromRequestContext(requestContext: RequestContextReader) {
   const requestedProvider = requestContext.get(LLM_PROVIDER_CONTEXT_KEY);
   const modelId = requestContext.get(LLM_MODEL_ID_CONTEXT_KEY);
-  if (requestedProvider === "openai") {
+  if (isBrowserProvider(requestedProvider)) {
+    const config = BROWSER_PROVIDER_CONFIG[requestedProvider];
     return providerCredential(
-      "openai",
-      requestContext.get(OPENAI_API_KEY_CONTEXT_KEY),
+      requestedProvider,
+      requestContext.get(config.apiKeyContext),
       modelId,
-      DEFAULT_OPENAI_MODEL_ID,
+      config.defaultModelId,
     );
   }
-  if (requestedProvider === "anthropic") {
-    return providerCredential(
-      "anthropic",
-      requestContext.get(ANTHROPIC_API_KEY_CONTEXT_KEY),
-      modelId,
-      DEFAULT_ANTHROPIC_MODEL_ID,
-    );
-  }
-  if (requestedProvider === "google") {
-    return providerCredential(
-      "google",
-      requestContext.get(GOOGLE_API_KEY_CONTEXT_KEY),
-      modelId,
-      DEFAULT_GOOGLE_MODEL_ID,
-    );
-  }
+  return fallbackBrowserCredential(requestContext);
+}
 
-  // Fallback for non-vision providers (e.g. a DeepSeek-free or OpenRouter run): browser
+function fallbackBrowserCredential(requestContext: RequestContextReader) {
+  // Fallback for non-vision providers (for example, an included DeepSeek or OpenRouter run): browser
   // tools need a vision/CUA key, so prefer any the user has. The platform DeepSeek key is
   // never read here, so it can never reach the sandbox as a browser credential.
-  const anthropicKey = requestContext.get(ANTHROPIC_API_KEY_CONTEXT_KEY);
-  if (typeof anthropicKey === "string" && anthropicKey.trim().length > 0) {
-    return providerCredential("anthropic", anthropicKey, undefined, DEFAULT_ANTHROPIC_MODEL_ID);
-  }
-  const openaiKey = requestContext.get(OPENAI_API_KEY_CONTEXT_KEY);
-  if (typeof openaiKey === "string" && openaiKey.trim().length > 0) {
-    return providerCredential("openai", openaiKey, undefined, DEFAULT_OPENAI_MODEL_ID);
-  }
-  const googleKey = requestContext.get(GOOGLE_API_KEY_CONTEXT_KEY);
-  if (typeof googleKey === "string" && googleKey.trim().length > 0) {
-    return providerCredential("google", googleKey, undefined, DEFAULT_GOOGLE_MODEL_ID);
+  for (const provider of BROWSER_PROVIDER_FALLBACK_ORDER) {
+    const config = BROWSER_PROVIDER_CONFIG[provider];
+    const apiKey = requestContext.get(config.apiKeyContext);
+    if (typeof apiKey === "string" && apiKey.trim().length > 0) {
+      return providerCredential(provider, apiKey, undefined, config.defaultModelId);
+    }
   }
   throw new APIError(
     400,
     "byok_key_missing",
     "Browser automation needs an Anthropic, OpenAI, or Google API key.",
     {
-      hint: "Add one in Settings → Models. Free DeepSeek credits don't cover browser tools.",
+      hint: "Add one in Settings → Models. The included DeepSeek model does not power browser tools.",
       retriable: false,
     },
   );
+}
+
+function isBrowserProvider(value: unknown): value is BrowserProvider {
+  return value === "anthropic" || value === "google" || value === "openai";
 }
 
 function providerCredential(

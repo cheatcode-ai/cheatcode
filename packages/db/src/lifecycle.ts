@@ -1,12 +1,13 @@
 import type { Provider, UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
+import { clerkIdentityHash, lockClerkIdentity } from "./clerk-identity";
 import { type Database, withUserContext } from "./client";
 import {
   agentRuns,
   billingEvents,
+  deletedClerkIdentities,
   entitlements,
-  generatedOutputs,
   projects,
   providerKeys,
   threads,
@@ -14,17 +15,19 @@ import {
   users,
 } from "./schema";
 
-export interface UserDeletionManifest {
-  composioConnectionIds: string[];
-  outputKeys: string[];
+export interface UserDeletionContext {
+  clerkIdentityHash: string;
+  deletionFence: string;
   polarCustomerId: string | null;
-  polarCurrentPeriodEnd: Date | null;
-  polarCurrentPeriodStart: Date | null;
+  polarCurrentPeriodEndMs: number | null;
+  polarCurrentPeriodStartMs: number | null;
   polarSubscriptionId: string | null;
-  projectIds: string[];
-  runIds: string[];
-  sandboxIds: string[];
   userId: UserId;
+}
+
+export interface UserDeletionPage {
+  items: string[];
+  nextCursor: string | null;
 }
 
 export interface ProviderKeyRevalidationTarget {
@@ -39,12 +42,14 @@ export interface DisableProviderKeyInput {
   userId: UserId;
 }
 
-export async function buildUserDeletionManifest(
+export async function loadUserDeletionContext(
   db: Database,
   userId: UserId,
-): Promise<UserDeletionManifest> {
+  deletionFence: string,
+): Promise<UserDeletionContext> {
+  await requireClaimedUserDeletion(db, userId, deletionFence);
   const [userRow] = await db
-    .select({ polarCustomerId: users.polarCustomerId })
+    .select({ clerkId: users.clerkId, polarCustomerId: users.polarCustomerId })
     .from(users)
     .where(eq(users.id, userId))
     .limit(1);
@@ -58,55 +63,135 @@ export async function buildUserDeletionManifest(
     .where(eq(entitlements.userId, userId))
     .limit(1);
 
-  const projectRows = await db
-    .select({ id: projects.id, sandboxId: projects.sandboxId })
-    .from(projects)
-    .where(eq(projects.userId, userId));
-  const runRows = await db
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .where(eq(agentRuns.userId, userId));
-  const outputRows = await db
-    .select({ r2Key: generatedOutputs.r2Key })
-    .from(generatedOutputs)
-    .where(eq(generatedOutputs.userId, userId));
-  const integrationRows = await db
-    .select({ composioConnectionId: userIntegrations.composioConnectionId })
-    .from(userIntegrations)
-    .where(eq(userIntegrations.userId, userId));
+  if (!userRow) {
+    throw new Error("Claimed user disappeared while loading deletion context");
+  }
 
   return {
-    composioConnectionIds: unique(integrationRows.map((row) => row.composioConnectionId)),
-    outputKeys: unique(outputRows.map((row) => row.r2Key)),
-    polarCustomerId: userRow?.polarCustomerId ?? null,
-    polarCurrentPeriodEnd: entitlementRow?.currentPeriodEnd ?? null,
-    polarCurrentPeriodStart: entitlementRow?.currentPeriodStart ?? null,
+    clerkIdentityHash: await clerkIdentityHash(userRow.clerkId),
+    deletionFence,
+    polarCustomerId: userRow.polarCustomerId,
+    polarCurrentPeriodEndMs: entitlementRow?.currentPeriodEnd?.getTime() ?? null,
+    polarCurrentPeriodStartMs: entitlementRow?.currentPeriodStart?.getTime() ?? null,
     polarSubscriptionId: entitlementRow?.polarSubscriptionId ?? null,
-    projectIds: unique(projectRows.map((row) => row.id)),
-    runIds: unique(runRows.map((row) => row.id)),
-    sandboxIds: unique(projectRows.map((row) => row.sandboxId).filter(isString)),
     userId,
   };
 }
 
-export async function archiveUserProjects(db: Database, userId: UserId): Promise<number> {
-  const archivedAt = sql`now()`;
-  const projectRows = await db
-    .update(projects)
-    .set({ deletedAt: archivedAt, updatedAt: archivedAt })
-    .where(and(eq(projects.userId, userId), isNull(projects.deletedAt)))
-    .returning({ id: projects.id });
+export async function listUserDeletionRunPage(
+  db: Database,
+  input: DeletionPageInput,
+): Promise<UserDeletionPage> {
+  await requireClaimedUserDeletion(db, input.userId, input.deletionFence);
+  const rows = await db
+    .select({ id: agentRuns.id })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, input.userId),
+        input.cursor ? gt(agentRuns.id, input.cursor) : undefined,
+      ),
+    )
+    .orderBy(asc(agentRuns.id))
+    .limit(deletionPageLimit(input.limit) + 1);
+  return deletionPage(
+    rows,
+    input.limit,
+    (row) => row.id,
+    (row) => row.id,
+  );
+}
+
+export async function listUserDeletionIntegrationPage(
+  db: Database,
+  input: DeletionPageInput,
+): Promise<UserDeletionPage> {
+  await requireClaimedUserDeletion(db, input.userId, input.deletionFence);
+  const rows = await db
+    .select({ connectionId: userIntegrations.composioConnectionId })
+    .from(userIntegrations)
+    .where(
+      and(
+        eq(userIntegrations.userId, input.userId),
+        input.cursor ? gt(userIntegrations.composioConnectionId, input.cursor) : undefined,
+      ),
+    )
+    .orderBy(asc(userIntegrations.composioConnectionId))
+    .limit(deletionPageLimit(input.limit) + 1);
+  return deletionPage(
+    rows,
+    input.limit,
+    (row) => row.connectionId,
+    (row) => row.connectionId,
+  );
+}
+
+interface DeletionPageInput {
+  cursor?: string;
+  deletionFence: string;
+  limit: number;
+  userId: UserId;
+}
+
+function deletionPageLimit(limit: number): number {
+  return Math.max(1, Math.min(500, Math.trunc(limit)));
+}
+
+function deletionPage<Row>(
+  rows: Row[],
+  requestedLimit: number,
+  cursor: (row: Row) => string,
+  value: (row: Row) => string | null,
+): UserDeletionPage {
+  const limit = deletionPageLimit(requestedLimit);
+  const pageRows = rows.slice(0, limit);
+  const last = pageRows.at(-1);
+  return {
+    items: unique(pageRows.map(value).filter(isString)),
+    nextCursor: rows.length > limit && last ? cursor(last) : null,
+  };
+}
+
+export async function archiveUserProjects(
+  db: Database,
+  userId: UserId,
+  deletionFence: string,
+): Promise<number> {
+  await requireClaimedUserDeletion(db, userId, deletionFence);
+  const projectResult = await db.execute(sql`
+    with archived as (
+      update ${projects}
+         set deleted_at = now(), updated_at = now()
+       where user_id = ${userId} and deleted_at is null
+       returning 1
+    )
+    select count(*)::int as archived_count from archived
+  `);
 
   await db
     .update(threads)
-    .set({ deletedAt: archivedAt, updatedAt: archivedAt })
+    .set({ deletedAt: sql`now()`, updatedAt: sql`now()` })
     .where(and(eq(threads.userId, userId), isNull(threads.deletedAt)));
 
-  return projectRows.length;
+  const row = projectResult.rows[0] as { archived_count?: number | string } | undefined;
+  return Number(row?.archived_count ?? 0);
 }
 
-export async function hardDeleteUserV2Data(db: Database, userId: UserId): Promise<boolean> {
+export async function hardDeleteUserV2Data(
+  db: Database,
+  userId: UserId,
+  deletionFence: string,
+  identityHash: string,
+): Promise<boolean> {
+  if (await hasDeletedClerkIdentity(db, identityHash)) {
+    return false;
+  }
+  await requireClaimedUserDeletion(db, userId, deletionFence);
   await purgeUserProviderKeySecrets(db, userId);
+
+  await withUserContext(db, userId, (tx) =>
+    tx.execute(sql`select public.scrub_current_user_audit()`),
+  );
 
   await db
     .update(billingEvents)
@@ -116,8 +201,78 @@ export async function hardDeleteUserV2Data(db: Database, userId: UserId): Promis
     })
     .where(eq(billingEvents.userId, userId));
 
-  const rows = await db.delete(users).where(eq(users.id, userId)).returning({ id: users.id });
+  return finalizeUserDeletion(db, userId, deletionFence, identityHash);
+}
+
+/** Atomically enter the irreversible phase for one exact soft-delete generation. */
+export async function claimUserDeletion(
+  db: Database,
+  userId: UserId,
+  deletionMarkedAt: Date,
+  deletionFence: string,
+): Promise<boolean> {
+  const rows = await db
+    .update(users)
+    .set({ deletionFence, updatedAt: sql`now()` })
+    .where(
+      and(
+        eq(users.id, userId),
+        eq(users.deletedAt, deletionMarkedAt),
+        or(isNull(users.deletionFence), eq(users.deletionFence, deletionFence)),
+      ),
+    )
+    .returning({ id: users.id });
   return rows.length > 0;
+}
+
+async function requireClaimedUserDeletion(
+  db: Database,
+  userId: UserId,
+  deletionFence: string,
+): Promise<void> {
+  const row = await db.query.users.findFirst({
+    columns: { id: true },
+    where: and(eq(users.id, userId), eq(users.deletionFence, deletionFence)),
+  });
+  if (!row) {
+    throw new Error("User deletion fence is no longer valid");
+  }
+}
+
+async function hasDeletedClerkIdentity(db: Database, identityHash: string): Promise<boolean> {
+  const row = await db.query.deletedClerkIdentities.findFirst({
+    columns: { clerkIdentityHash: true },
+    where: eq(deletedClerkIdentities.clerkIdentityHash, identityHash),
+  });
+  return Boolean(row);
+}
+
+async function finalizeUserDeletion(
+  db: Database,
+  userId: UserId,
+  deletionFence: string,
+  identityHash: string,
+): Promise<boolean> {
+  return db.transaction(async (transaction) => {
+    const tx = transaction as Database;
+    await lockClerkIdentity(tx, identityHash);
+    if (await hasDeletedClerkIdentity(tx, identityHash)) {
+      return false;
+    }
+    await requireClaimedUserDeletion(tx, userId, deletionFence);
+    await tx
+      .insert(deletedClerkIdentities)
+      .values({ clerkIdentityHash: identityHash })
+      .onConflictDoNothing();
+    const rows = await tx
+      .delete(users)
+      .where(and(eq(users.id, userId), eq(users.deletionFence, deletionFence)))
+      .returning({ id: users.id });
+    if (rows.length !== 1) {
+      throw new Error("Claimed user deletion did not remove exactly one user");
+    }
+    return true;
+  });
 }
 
 export async function purgeUserProviderKeySecrets(db: Database, userId: UserId): Promise<number> {

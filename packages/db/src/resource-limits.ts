@@ -1,6 +1,8 @@
 import type { UserId } from "@cheatcode/types";
 import { sql } from "drizzle-orm";
+import { lockUserEntitlementMutations } from "./billing";
 import type { Database } from "./client";
+import { lockUserProjectMutations } from "./projects";
 
 export interface EntitlementResourceLimitInput {
   byokProviderSlots: number | null;
@@ -12,8 +14,18 @@ export async function applyEntitlementResourceLimits(
   db: Database,
   input: EntitlementResourceLimitInput,
 ): Promise<void> {
-  await reconcileProjectResourceLimit(db, input.userId, input.maxProjects);
-  await reconcileProviderKeySlotLimit(db, input.userId, input.byokProviderSlots);
+  await db.transaction(async (tx) => {
+    const transaction = tx as Database;
+    await lockUserEntitlementMutations(transaction, input.userId);
+    await reconcileProjectResourceLimit(transaction, input.userId, input.maxProjects);
+    await reconcileProviderKeySlotLimit(transaction, input.userId, input.byokProviderSlots);
+  });
+}
+
+/** Serializes provider-key slot checks and entitlement reconciliation for one tenant. */
+export async function lockUserProviderKeyMutations(db: Database, userId: UserId): Promise<void> {
+  const identity = `cheatcode:user-provider-key-mutations:${userId}`;
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
 }
 
 async function reconcileProjectResourceLimit(
@@ -21,6 +33,7 @@ async function reconcileProjectResourceLimit(
   userId: UserId,
   maxProjects: number,
 ): Promise<void> {
+  await lockUserProjectMutations(db, userId);
   await db.execute(sql`
     with ranked as (
       select
@@ -55,6 +68,7 @@ async function reconcileProviderKeySlotLimit(
   userId: UserId,
   byokProviderSlots: number | null,
 ): Promise<void> {
+  await lockUserProviderKeyMutations(db, userId);
   if (byokProviderSlots === null) {
     await db.execute(sql`
       update public.v2_provider_keys

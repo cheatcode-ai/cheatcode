@@ -1,59 +1,38 @@
-import { hmacSha256Base64 } from "@cheatcode/auth";
-import type { UserDeletionManifest } from "@cheatcode/db";
+import { createInternalMaintenanceHeaders } from "@cheatcode/auth";
+import { ComposioClient, isComposioNotFoundError } from "@cheatcode/composio";
+import type { UserDeletionContext } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError, createLogger, normalizeUnknownError } from "@cheatcode/observability";
-import type { UserId } from "@cheatcode/types";
-import { Composio } from "@composio/core";
-import { Polar } from "@polar-sh/sdk";
-import { z } from "zod";
+import {
+  APIError,
+  readBoundedResponseJson,
+  withBoundedResponseBody,
+} from "@cheatcode/observability";
+import {
+  type InternalAgentStateDeleteBody,
+  InternalAgentStateDeleteBodySchema,
+  InternalGatewayStateDeleteBodySchema,
+  InternalStateDeleteResponseSchema,
+  internalUserStateDeletePath,
+  type UserId,
+} from "@cheatcode/types";
+import { HTTPClient, Polar } from "@polar-sh/sdk";
 
 export interface LifecycleEnv {
-  AGENT?: Fetcher;
-  DAYTONA_API_KEY?: WorkerSecret | string;
-  DAYTONA_API_URL?: string;
-  DAYTONA_ORG_ID?: WorkerSecret | string;
+  AGENT: Fetcher;
   COMPOSIO_API_KEY?: WorkerSecret;
-  GATEWAY?: Fetcher;
+  GATEWAY: Fetcher;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
+  POLAR_SERVER?: "production" | "sandbox";
   R2_OUTPUTS: R2Bucket;
-  R2_SNAPSHOTS: R2Bucket;
   R2_UPLOADS: R2Bucket;
 }
 
-export interface UserDeletionExternalResult {
-  composioConnectionsRevoked: number;
-  outputObjectsDeleted: number;
-  polarCustomerDeleted: boolean;
-  polarRefundCreated: boolean;
-  polarSubscriptionRevoked: boolean;
-  quotaStateDeleted: boolean;
-  sandboxCount: number;
-  sandboxVolumesDeleted: number;
-  snapshotObjectsDeleted: number;
-  uploadObjectsDeleted: number;
-}
-
-const AgentDeleteStateResponseSchema = z
-  .object({
-    ok: z.literal(true),
-    projectStatesDeleted: z.number().int().nonnegative(),
-    projectVolumesDeleted: z.number().int().nonnegative(),
-    runStatesDeleted: z.number().int().nonnegative(),
-  })
-  .strict();
-
-const DaytonaSandboxItemSchema = z.object({ id: z.string() }).passthrough();
-const DaytonaSandboxListSchema = z
-  .object({ items: z.array(DaytonaSandboxItemSchema).default([]) })
-  .passthrough()
-  .or(z.array(DaytonaSandboxItemSchema));
-
-interface AgentDurableStateDeletionResult {
-  projectStatesDeleted: number;
-  projectVolumesDeleted: number;
-  runStatesDeleted: number;
-}
+const INTERNAL_AGENT_RESPONSE_MAX_BYTES = 64 * 1024;
+const POLAR_ORDER_MAX_PAGES = 100;
+const POLAR_REQUEST_TIMEOUT_MS = 30_000;
+const POLAR_RESPONSE_MAX_BYTES = 1024 * 1024;
+const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
 
 interface PolarDeletionResult {
   customerDeleted: boolean;
@@ -61,134 +40,104 @@ interface PolarDeletionResult {
   subscriptionRevoked: boolean;
 }
 
-export async function deleteUserExternalResources(input: {
-  env: LifecycleEnv;
-  manifest: UserDeletionManifest;
-}): Promise<UserDeletionExternalResult> {
-  const [
-    polarResult,
-    composioConnectionsRevoked,
-    agentStateDeleted,
-    quotaStateDeleted,
-    outputObjectsDeleted,
-  ] = await Promise.all([
-    deletePolarBilling(input.env, input.manifest),
-    revokeComposioConnections(input.env, input.manifest.composioConnectionIds),
-    deleteAgentDurableState(input.env, input.manifest),
-    deleteGatewayDurableState(input.env, input.manifest.userId),
-    deleteUserOutputObjects(input.env.R2_OUTPUTS, input.manifest.userId, input.manifest.outputKeys),
-  ]);
-
-  const [uploadObjectsDeleted, snapshotObjectsDeleted] = await Promise.all([
-    deleteR2Prefix(input.env.R2_UPLOADS, `${input.manifest.userId}/`),
-    deleteR2Prefixes(
-      input.env.R2_SNAPSHOTS,
-      input.manifest.projectIds.map((projectId) => `${input.manifest.userId}/${projectId}/`),
-    ),
-  ]);
-
-  return {
-    composioConnectionsRevoked,
-    outputObjectsDeleted,
-    polarCustomerDeleted: polarResult.customerDeleted,
-    polarRefundCreated: polarResult.refundCreated,
-    polarSubscriptionRevoked: polarResult.subscriptionRevoked,
-    quotaStateDeleted,
-    sandboxCount: agentStateDeleted.projectStatesDeleted,
-    sandboxVolumesDeleted: agentStateDeleted.projectVolumesDeleted,
-    snapshotObjectsDeleted,
-    uploadObjectsDeleted,
-  };
-}
-
-async function deleteGatewayDurableState(env: LifecycleEnv, userId: UserId): Promise<boolean> {
-  if (!env.GATEWAY) {
-    throw new APIError(
-      503,
-      "unavailable_maintenance",
-      "Gateway service binding is not configured",
-      {
-        hint: "Bind GATEWAY on the webhooks Worker before running lifecycle maintenance.",
-        retriable: false,
-      },
-    );
-  }
-  const body = "{}";
-  const headers = await internalMaintenanceHeaders(env, body);
-  const response = await env.GATEWAY.fetch(
-    `https://gateway.internal/internal/users/${userId}/delete-state`,
-    {
-      body,
-      headers,
-      method: "POST",
-    },
-  );
+export async function deleteUserGatewayDurableState(
+  env: LifecycleEnv,
+  userId: UserId,
+): Promise<void> {
+  const body = JSON.stringify(InternalGatewayStateDeleteBodySchema.parse({}));
+  const pathname = internalUserStateDeletePath(userId);
+  const headers = await internalMaintenanceHeaders(env, pathname, body);
+  const response = await env.GATEWAY.fetch(`https://gateway.internal${pathname}`, {
+    body,
+    headers,
+    method: "POST",
+  });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new APIError(503, "unavailable_maintenance", "Gateway durable state deletion failed", {
       details: { status: response.status },
       retriable: true,
     });
   }
-  return true;
+  InternalStateDeleteResponseSchema.parse(
+    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Gateway Worker"),
+  );
 }
 
-async function deleteAgentDurableState(
+export async function deleteUserAgentAccountState(
   env: LifecycleEnv,
-  manifest: UserDeletionManifest,
-): Promise<AgentDurableStateDeletionResult> {
-  if (!env.AGENT) {
-    const projectStatesDeleted = await deleteDaytonaSandboxes(env, manifest.sandboxIds);
-    return { projectStatesDeleted, projectVolumesDeleted: 0, runStatesDeleted: 0 };
-  }
-  const body = JSON.stringify({
-    projects: manifest.projectIds.map((id) => ({ id })),
-    runIds: manifest.runIds,
-    scope: "account",
+  userId: UserId,
+): Promise<void> {
+  return deleteAgentState(env, userId, { scope: "account" });
+}
+
+export async function deleteUserAgentRunStatePage(
+  env: LifecycleEnv,
+  userId: UserId,
+  runIds: string[],
+): Promise<void> {
+  return deleteAgentState(env, userId, { runIds, scope: "runs" });
+}
+
+async function deleteAgentState(
+  env: LifecycleEnv,
+  userId: UserId,
+  payload: InternalAgentStateDeleteBody,
+): Promise<void> {
+  const body = JSON.stringify(InternalAgentStateDeleteBodySchema.parse(payload));
+  const pathname = internalUserStateDeletePath(userId);
+  const headers = await internalMaintenanceHeaders(env, pathname, body);
+  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
+    body,
+    headers,
+    method: "POST",
   });
-  const headers = await internalMaintenanceHeaders(env, body);
-  const response = await env.AGENT.fetch(
-    `https://agent.internal/internal/users/${manifest.userId}/delete-state`,
-    {
-      body,
-      headers,
-      method: "POST",
-    },
-  );
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
       details: { status: response.status },
       retriable: true,
     });
   }
-  const parsed = AgentDeleteStateResponseSchema.parse(await response.json());
-  return {
-    projectStatesDeleted: parsed.projectStatesDeleted,
-    projectVolumesDeleted: parsed.projectVolumesDeleted,
-    runStatesDeleted: parsed.runStatesDeleted,
-  };
+  InternalStateDeleteResponseSchema.parse(
+    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Agent Worker"),
+  );
 }
 
-async function deletePolarBilling(
+export async function deleteUserPolarBilling(
   env: LifecycleEnv,
-  manifest: UserDeletionManifest,
+  manifest: UserDeletionContext,
 ): Promise<PolarDeletionResult> {
-  const token = await optionalSecret(env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  if (!token) {
-    createLogger({ userId: manifest.userId }).warn("gdpr_polar_delete_skipped", {
-      reason: "missing_token",
-    });
+  if (!manifest.polarCustomerId && !manifest.polarSubscriptionId) {
     return { customerDeleted: false, refundCreated: false, subscriptionRevoked: false };
   }
-  const polar = new Polar({ accessToken: token });
+  const token = await optionalSecret(env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
+  if (!token) {
+    throw new APIError(503, "unavailable_maintenance", "Polar deletion credentials are missing", {
+      hint: "Set POLAR_ACCESS_TOKEN before retrying the user deletion Workflow.",
+      retriable: false,
+    });
+  }
+  const polar = createPolarClient(token, env.POLAR_SERVER ?? "production");
   const subscriptionRevoked = await revokePolarSubscription(polar, manifest);
   const refundCreated = await refundLatestPolarSubscriptionOrder(polar, manifest);
   const customerDeleted = await deletePolarCustomer(polar, manifest.userId);
   return { customerDeleted, refundCreated, subscriptionRevoked };
 }
 
+function createPolarClient(accessToken: string, server: "production" | "sandbox"): Polar {
+  const httpClient = new HTTPClient({
+    fetcher: async (input, init) => {
+      const response = await fetch(input, init);
+      return withBoundedResponseBody(response, POLAR_RESPONSE_MAX_BYTES, "Polar");
+    },
+  });
+  return new Polar({ accessToken, httpClient, server, timeoutMs: POLAR_REQUEST_TIMEOUT_MS });
+}
+
 async function revokePolarSubscription(
   polar: Polar,
-  manifest: UserDeletionManifest,
+  manifest: UserDeletionContext,
 ): Promise<boolean> {
   if (!manifest.polarSubscriptionId) {
     return false;
@@ -206,7 +155,7 @@ async function revokePolarSubscription(
 
 async function refundLatestPolarSubscriptionOrder(
   polar: Polar,
-  manifest: UserDeletionManifest,
+  manifest: UserDeletionContext,
 ): Promise<boolean> {
   if (!manifest.polarSubscriptionId) {
     return false;
@@ -234,7 +183,7 @@ async function refundLatestPolarSubscriptionOrder(
 
 async function latestRefundableSubscriptionOrder(
   polar: Polar,
-  manifest: UserDeletionManifest,
+  manifest: UserDeletionContext,
 ): Promise<{ id: string; refundableAmount: number } | null> {
   const pages = await polar.orders.list({
     externalCustomerId: manifest.userId,
@@ -242,7 +191,17 @@ async function latestRefundableSubscriptionOrder(
     productBillingType: "recurring",
     sorting: ["-created_at"],
   });
+  let pagesRead = 0;
   for await (const page of pages) {
+    pagesRead += 1;
+    if (pagesRead > POLAR_ORDER_MAX_PAGES) {
+      throw new APIError(
+        503,
+        "upstream_provider_outage",
+        "Polar order listing exceeded the safe pagination limit",
+        { retriable: true },
+      );
+    }
     const order = page.result.items.find(
       (candidate) =>
         candidate.paid &&
@@ -256,9 +215,9 @@ async function latestRefundableSubscriptionOrder(
   return null;
 }
 
-function proratedRefundAmount(refundableAmount: number, manifest: UserDeletionManifest): number {
-  const periodStart = manifest.polarCurrentPeriodStart?.getTime();
-  const periodEnd = manifest.polarCurrentPeriodEnd?.getTime();
+function proratedRefundAmount(refundableAmount: number, manifest: UserDeletionContext): number {
+  const periodStart = manifest.polarCurrentPeriodStartMs;
+  const periodEnd = manifest.polarCurrentPeriodEndMs;
   if (!periodStart || !periodEnd || periodEnd <= periodStart) {
     return 0;
   }
@@ -282,7 +241,7 @@ async function deletePolarCustomer(polar: Polar, userId: UserId): Promise<boolea
   }
 }
 
-async function revokeComposioConnections(
+export async function revokeUserComposioConnectionPage(
   env: LifecycleEnv,
   connectionIds: string[],
 ): Promise<number> {
@@ -291,21 +250,26 @@ async function revokeComposioConnections(
   }
   const apiKey = await optionalSecret(env.COMPOSIO_API_KEY, "COMPOSIO_API_KEY");
   if (!apiKey) {
-    createLogger().warn("gdpr_composio_revoke_skipped", { reason: "missing_api_key" });
-    return 0;
+    throw new APIError(
+      503,
+      "unavailable_maintenance",
+      "Composio deletion credentials are missing",
+      {
+        hint: "Set COMPOSIO_API_KEY before retrying the user deletion Workflow.",
+        retriable: false,
+      },
+    );
   }
-  const composio = new Composio({
-    allowTracking: false,
-    apiKey,
-    baseURL: "https://backend.composio.dev",
-  });
+  const composio = new ComposioClient(apiKey);
   let revoked = 0;
   for (const connectionId of connectionIds) {
     try {
-      await composio.connectedAccounts.delete(connectionId);
+      await composio.deleteConnectedAccount(connectionId, COMPOSIO_REQUEST_TIMEOUT_MS);
       revoked += 1;
     } catch (error) {
-      if (!isNotFoundError(error)) {
+      if (isComposioNotFoundError(error)) {
+        revoked += 1;
+      } else {
         throw upstreamLifecycleError("Composio connection revoke failed", error);
       }
     }
@@ -313,132 +277,16 @@ async function revokeComposioConnections(
   return revoked;
 }
 
-/**
- * GDPR-fallback Daytona delete (used only when the AGENT binding is absent, so we
- * cannot read the ProjectSandbox DO storage). Names aren't unique, so the
- * authoritative path is a label-list (`app=cheatcode,sandboxId=<id>`); we also
- * attempt a delete by name as a fallback. No volumes under the disk model.
- */
-async function deleteDaytonaSandboxes(env: LifecycleEnv, sandboxIds: string[]): Promise<number> {
-  if (sandboxIds.length === 0) {
-    return 0;
-  }
-  const apiKey = await requiredSecret(env.DAYTONA_API_KEY, "DAYTONA_API_KEY");
-  const apiUrl = (env.DAYTONA_API_URL ?? "https://app.daytona.io/api").replace(/\/$/, "");
-  const orgId = await optionalSecret(env.DAYTONA_ORG_ID, "DAYTONA_ORG_ID");
-  let deleted = 0;
-  for (const sandboxId of sandboxIds) {
-    const targets = new Set<string>();
-    for (const sandbox of await daytonaListByLabels(apiUrl, apiKey, orgId, sandboxId)) {
-      targets.add(sandbox);
-    }
-    targets.add(sandboxId);
-    for (const target of targets) {
-      if (await daytonaDeleteSandbox(apiUrl, apiKey, orgId, target)) {
-        deleted += 1;
-      }
-    }
-  }
-  return deleted;
-}
-
-function daytonaHeaders(apiKey: string, orgId: string | null): Headers {
-  const headers = new Headers({ Authorization: `Bearer ${apiKey}` });
-  if (orgId) {
-    headers.set("X-Daytona-Organization-ID", orgId);
-  }
-  return headers;
-}
-
-async function daytonaListByLabels(
-  apiUrl: string,
-  apiKey: string,
-  orgId: string | null,
-  sandboxId: string,
-): Promise<string[]> {
-  const labels = encodeURIComponent(JSON.stringify({ app: "cheatcode", sandboxId }));
-  const response = await fetch(`${apiUrl}/sandbox?labels=${labels}`, {
-    headers: daytonaHeaders(apiKey, orgId),
-  });
-  if (!response.ok) {
-    if (response.status === 404) {
-      return [];
-    }
-    throw upstreamLifecycleError(
-      "Daytona sandbox list failed",
-      new Error(`HTTP ${response.status}`),
-    );
-  }
-  const parsed = DaytonaSandboxListSchema.parse(await response.json());
-  const items = Array.isArray(parsed) ? parsed : parsed.items;
-  return items.map((item) => item.id);
-}
-
-async function daytonaDeleteSandbox(
-  apiUrl: string,
-  apiKey: string,
-  orgId: string | null,
-  idOrName: string,
-): Promise<boolean> {
-  const response = await fetch(`${apiUrl}/sandbox/${encodeURIComponent(idOrName)}`, {
-    method: "DELETE",
-    headers: daytonaHeaders(apiKey, orgId),
-  });
-  if (response.ok) {
-    return true;
-  }
-  if (response.status === 404) {
-    return false;
-  }
-  throw upstreamLifecycleError(
-    "Daytona sandbox deletion failed",
-    new Error(`HTTP ${response.status}`),
-  );
-}
-
-async function deleteR2Keys(bucket: R2Bucket, keys: string[]): Promise<number> {
-  let deleted = 0;
-  for (const key of uniqueStrings(keys)) {
-    await bucket.delete(key);
-    deleted += 1;
-  }
-  return deleted;
-}
-
-async function deleteUserOutputObjects(
+export async function deleteUserR2ObjectBatch(
   bucket: R2Bucket,
   userId: UserId,
-  outputKeys: string[],
-): Promise<number> {
-  const userPrefix = `${userId}/`;
-  const prefixDeleted = await deleteR2Prefix(bucket, userPrefix);
-  const explicitKeysOutsidePrefix = outputKeys.filter((key) => !key.startsWith(userPrefix));
-  return prefixDeleted + (await deleteR2Keys(bucket, explicitKeysOutsidePrefix));
-}
-
-async function deleteR2Prefixes(bucket: R2Bucket, prefixes: string[]): Promise<number> {
-  let deleted = 0;
-  for (const prefix of prefixes) {
-    deleted += await deleteR2Prefix(bucket, prefix);
+): Promise<{ deleted: number; hasMore: boolean }> {
+  const listed = await bucket.list({ limit: 1_000, prefix: `${userId}/` });
+  const keys = listed.objects.map((object) => object.key);
+  if (keys.length > 0) {
+    await bucket.delete(keys);
   }
-  return deleted;
-}
-
-async function deleteR2Prefix(bucket: R2Bucket, prefix: string): Promise<number> {
-  let cursor: string | undefined;
-  let deleted = 0;
-  do {
-    const listed = await bucket.list({
-      prefix,
-      ...(cursor === undefined ? {} : { cursor }),
-    });
-    for (const object of listed.objects) {
-      await bucket.delete(object.key);
-      deleted += 1;
-    }
-    cursor = listed.truncated ? listed.cursor : undefined;
-  } while (cursor);
-  return deleted;
+  return { deleted: keys.length, hasMore: listed.truncated };
 }
 
 async function requiredSecret(
@@ -455,18 +303,23 @@ async function requiredSecret(
   return value;
 }
 
-async function internalMaintenanceHeaders(env: LifecycleEnv, rawBody: string): Promise<Headers> {
+async function internalMaintenanceHeaders(
+  env: LifecycleEnv,
+  pathname: string,
+  rawBody: string,
+): Promise<Headers> {
   const secret = await requiredSecret(
     env.INTERNAL_MAINTENANCE_SECRET,
     "INTERNAL_MAINTENANCE_SECRET",
   );
-  const timestamp = String(Date.now());
-  const signature = await hmacSha256Base64(`${timestamp}.${rawBody}`, secret);
-  return new Headers({
-    "content-type": "application/json",
-    "x-cheatcode-maintenance-signature": signature,
-    "x-cheatcode-maintenance-timestamp": timestamp,
+  const headers = await createInternalMaintenanceHeaders({
+    method: "POST",
+    pathname,
+    rawBody,
+    secret,
   });
+  headers.set("content-type", "application/json");
+  return headers;
 }
 
 async function optionalSecret(
@@ -491,9 +344,8 @@ async function optionalSecret(
 }
 
 function upstreamLifecycleError(message: string, error: unknown): APIError {
-  const normalized = normalizeUnknownError(error, message);
-  return new APIError(503, "upstream_provider_outage", `${message}: ${normalized.message}`, {
-    details: normalized.details,
+  return new APIError(503, "upstream_provider_outage", message, {
+    cause: error,
     retriable: true,
   });
 }
@@ -512,8 +364,4 @@ function isAlreadyRefundedError(error: unknown): boolean {
   }
   const normalized = `${error.name} ${error.message}`.toLowerCase();
   return normalized.includes("refundedalready") || normalized.includes("already refunded");
-}
-
-function uniqueStrings(values: string[]): string[] {
-  return [...new Set(values)];
 }

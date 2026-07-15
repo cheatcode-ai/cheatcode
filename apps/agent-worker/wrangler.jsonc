@@ -6,10 +6,13 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-05-20",
   "compatibility_flags": ["nodejs_compat"],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "vars": {
+    "CHEATCODE_ENVIRONMENT": "production",
     "DAYTONA_API_URL": "https://app.daytona.io/api",
+    "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",
     "DAYTONA_TARGET": "us",
-    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-20260703-1125z",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-20260714-1220z",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
     "PREVIEW_HOSTNAME": "trycheatcode.com",
     "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
@@ -39,6 +42,11 @@
       "binding": "DEEPSEEK_PLATFORM_API_KEY",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "deepseek-platform-api-key"
+    },
+    {
+      "binding": "OUTPUT_DOWNLOAD_SIGNING_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "output-download-signing-secret"
     }
   ],
   "durable_objects": {
@@ -110,10 +118,6 @@
     {
       "binding": "PERFORMANCE_METRICS",
       "dataset": "cc_performance_metrics"
-    },
-    {
-      "binding": "COST_EVENTS",
-      "dataset": "cc_cost_events"
     }
   ],
   "observability": {

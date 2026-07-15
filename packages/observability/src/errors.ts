@@ -1,5 +1,4 @@
 import type { ErrorCode } from "@cheatcode/types";
-import { redactSecrets } from "./redact";
 
 const RETRIABLE_CODES = new Set<ErrorCode>([
   "rate_limit_exceeded",
@@ -26,13 +25,14 @@ export class APIError extends Error {
     code: ErrorCode,
     message: string,
     opts: {
+      cause?: unknown;
       hint?: string;
       retriable?: boolean;
       details?: Record<string, unknown>;
       doc_url?: string;
     } = {},
   ) {
-    super(message);
+    super(message, opts.cause === undefined ? undefined : { cause: opts.cause });
     this.status = status;
     this.code = code;
     this.opts = opts;
@@ -45,7 +45,7 @@ export class APIError extends Error {
           code: this.code,
           message: this.message,
           hint: this.opts.hint,
-          retriable: this.opts.retriable ?? this.defaultRetriable(),
+          retriable: this.retriable,
           request_id: requestId,
           doc_url: this.opts.doc_url ?? `https://docs.trycheatcode.com/errors/${this.code}`,
           details: this.opts.details,
@@ -55,14 +55,61 @@ export class APIError extends Error {
     );
   }
 
+  public get retriable(): boolean {
+    return this.opts.retriable ?? this.defaultRetriable();
+  }
+
   private defaultRetriable(): boolean {
     return RETRIABLE_CODES.has(this.code);
   }
 }
 
-export interface NormalizedUnknownError {
-  details: Record<string, unknown>;
-  message: string;
+export interface SafeErrorTelemetry {
+  causeCode?: string;
+  causeConstraint?: string;
+  causeName?: string;
+  causeRetriable?: boolean;
+  causeStatus?: number;
+  constraint?: string;
+  errorName: string;
+  retriable?: boolean;
+  sourceErrorCode?: string;
+  status?: number;
+}
+
+interface ErrorFacts {
+  code?: string;
+  constraint?: string;
+  name: string;
+  retriable?: boolean;
+  status?: number;
+}
+
+const MAX_CAUSE_DEPTH = 3;
+const SAFE_ERROR_CODE = /^[A-Za-z0-9][A-Za-z0-9_.:$-]{0,127}$/u;
+const SAFE_ERROR_LABEL = /^[A-Za-z][A-Za-z0-9_.:$-]{0,127}$/u;
+const SAFE_CONSTRAINT = /^[A-Za-z_][A-Za-z0-9_$.-]{0,127}$/u;
+
+/**
+ * Projects an unknown exception onto a deliberately small telemetry allowlist.
+ * Error messages, stacks, SQL, query parameters, response bodies, and arbitrary
+ * enumerable properties are never inspected or returned.
+ */
+export function safeErrorTelemetry(error: unknown): SafeErrorTelemetry {
+  const facts = errorFacts(error);
+  const causes = errorCauses(error);
+  const firstCause = causes[0];
+  const telemetry: SafeErrorTelemetry = { errorName: facts.name };
+  assignDefined(telemetry, "sourceErrorCode", facts.code);
+  assignDefined(telemetry, "constraint", facts.constraint);
+  assignDefined(telemetry, "status", facts.status);
+  assignDefined(telemetry, "retriable", facts.retriable);
+  assignDefined(telemetry, "causeName", firstCause?.name);
+  assignDefined(telemetry, "causeCode", firstDefined(causes, "code"));
+  assignDefined(telemetry, "causeConstraint", firstDefined(causes, "constraint"));
+  assignDefined(telemetry, "causeStatus", firstDefined(causes, "status"));
+  assignDefined(telemetry, "causeRetriable", firstDefined(causes, "retriable"));
+  return telemetry;
 }
 
 export function toAPIError(error: unknown): APIError {
@@ -75,107 +122,123 @@ export function toAPIError(error: unknown): APIError {
   });
 }
 
-export function normalizeUnknownError(
-  error: unknown,
-  fallbackMessage = "Unknown error",
-): NormalizedUnknownError {
-  if (error instanceof Error) {
-    return {
-      details: redactSecrets({
-        message: error.message,
-        name: error.name,
-      }),
-      message: redactSecrets(error.message || fallbackMessage),
-    };
-  }
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
-  if (typeof error === "string") {
-    return { details: { value: redactSecrets(error) }, message: redactSecrets(error) };
+function errorFacts(value: unknown): ErrorFacts {
+  if (!isRecord(value)) {
+    return { name: thrownValueName(value) };
   }
-
-  if (!isRecord(error)) {
-    return { details: { value: error }, message: fallbackMessage };
-  }
-
-  const details = sanitizeErrorDetails(error);
+  const options = readRecord(value, "opts");
+  const code = safeCode(readProperty(value, "code"));
+  const constraint = safeConstraint(readProperty(value, "constraint"));
+  const retriable = readRetriable(value, options);
+  const status = readStatus(value);
   return {
-    details,
-    message: extractErrorMessage(error) ?? fallbackMessage,
+    name:
+      safeLabel(readProperty(value, "name")) ?? (value instanceof Error ? "Error" : "ThrownObject"),
+    ...(code ? { code } : {}),
+    ...(constraint ? { constraint } : {}),
+    ...(retriable === undefined ? {} : { retriable }),
+    ...(status === undefined ? {} : { status }),
   };
 }
 
-function sanitizeErrorDetails(value: Record<string, unknown>): Record<string, unknown> {
-  return redactSecrets(pruneErrorValue(value, 0)) as Record<string, unknown>;
+function errorCauses(error: unknown): ErrorFacts[] {
+  if (!isRecord(error)) {
+    return [];
+  }
+  const causes: ErrorFacts[] = [];
+  const seen = new Set<object>([error]);
+  let candidate = readProperty(error, "cause");
+  while (isRecord(candidate) && causes.length < MAX_CAUSE_DEPTH && !seen.has(candidate)) {
+    seen.add(candidate);
+    causes.push(errorFacts(candidate));
+    candidate = readProperty(candidate, "cause");
+  }
+  return causes;
 }
 
-function pruneErrorValue(value: unknown, depth: number): unknown {
-  if (depth > 3) {
-    return "[Truncated]";
-  }
-
-  if (Array.isArray(value)) {
-    return value.slice(0, 10).map((item) => pruneErrorValue(item, depth + 1));
-  }
-
-  if (!isRecord(value)) {
-    return value;
-  }
-
-  const output: Record<string, unknown> = {};
-  for (const [key, item] of Object.entries(value).slice(0, 20)) {
-    output[key] = pruneErrorValue(item, depth + 1);
-  }
-  return output;
-}
-
-function extractErrorMessage(error: Record<string, unknown>): string | undefined {
-  const direct = firstString(error, ["message", "error", "reason", "detail", "statusText"]);
-  if (direct) {
-    return redactSecrets(direct);
-  }
-
-  for (const key of ["body", "response", "data"]) {
-    const nested = error[key];
-    if (!isRecord(nested)) {
-      continue;
-    }
-    const message = firstString(nested, ["message", "error", "reason", "detail", "statusText"]);
-    if (message) {
-      return redactSecrets(message);
-    }
-  }
-
-  const status = firstPrimitive(error, ["status", "statusCode", "code"]);
-  if (status !== undefined) {
-    return `Upstream error ${String(status)}`;
-  }
-
-  return undefined;
-}
-
-function firstString(record: Record<string, unknown>, keys: string[]): string | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value;
-    }
-  }
-  return undefined;
-}
-
-function firstPrimitive(
+function readRetriable(
   record: Record<string, unknown>,
-  keys: string[],
-): string | number | boolean | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
-      return value;
+  options: Record<string, unknown> | undefined,
+): boolean | undefined {
+  const direct = readProperty(record, "retriable");
+  if (typeof direct === "boolean") {
+    return direct;
+  }
+  const configured = options ? readProperty(options, "retriable") : undefined;
+  return typeof configured === "boolean" ? configured : undefined;
+}
+
+function readStatus(record: Record<string, unknown>): number | undefined {
+  const value = readProperty(record, "status") ?? readProperty(record, "statusCode");
+  return typeof value === "number" && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value
+    : undefined;
+}
+
+function readRecord(
+  record: Record<string, unknown>,
+  key: string,
+): Record<string, unknown> | undefined {
+  const value = readProperty(record, key);
+  return isRecord(value) ? value : undefined;
+}
+
+function readProperty(record: Record<string, unknown>, key: string): unknown {
+  try {
+    return record[key];
+  } catch {
+    return undefined;
+  }
+}
+
+function safeLabel(value: unknown): string | undefined {
+  return typeof value === "string" && SAFE_ERROR_LABEL.test(value) ? value : undefined;
+}
+
+function safeCode(value: unknown): string | undefined {
+  const normalized = typeof value === "number" && Number.isFinite(value) ? String(value) : value;
+  return typeof normalized === "string" && SAFE_ERROR_CODE.test(normalized)
+    ? normalized
+    : undefined;
+}
+
+function safeConstraint(value: unknown): string | undefined {
+  return typeof value === "string" && SAFE_CONSTRAINT.test(value) ? value : undefined;
+}
+
+function thrownValueName(value: unknown): string {
+  if (value === null) {
+    return "ThrownNull";
+  }
+  if (value === undefined) {
+    return "ThrownUndefined";
+  }
+  const type = typeof value;
+  return `Thrown${type.charAt(0).toUpperCase()}${type.slice(1)}`;
+}
+
+function firstDefined<Key extends keyof ErrorFacts>(
+  values: ErrorFacts[],
+  key: Key,
+): ErrorFacts[Key] | undefined {
+  for (const value of values) {
+    if (value[key] !== undefined) {
+      return value[key];
     }
   }
   return undefined;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
+function assignDefined<Key extends keyof SafeErrorTelemetry>(
+  target: SafeErrorTelemetry,
+  key: Key,
+  value: SafeErrorTelemetry[Key] | undefined,
+): void {
+  if (value !== undefined) {
+    target[key] = value;
+  }
 }

@@ -9,47 +9,65 @@ export type AgentRunSnapshotStatus =
   | "canceled";
 
 const SUMMARY_MAX_LENGTH = 240;
+const SUMMARY_QUERY_PAGE_SIZE = 100;
 const SNAPSHOT_STATUSES = new Set(["running", "paused", "completed", "failed", "canceled"]);
 
 export function snapshotAgentRunStatus(status: string | undefined): AgentRunSnapshotStatus {
   return SNAPSHOT_STATUSES.has(status ?? "") ? (status as AgentRunSnapshotStatus) : "idle";
 }
 
-export function summarizeAgentRunRows(rows: unknown[], status: AgentRunSnapshotStatus): string {
+export function summarizeAgentRunStorage(
+  ctx: DurableObjectState,
+  status: AgentRunSnapshotStatus,
+): string {
   if (status === "failed" || status === "canceled") {
-    const errorSummary = errorMessageFromRows(rows);
+    const errorSummary = latestErrorMessage(ctx);
     if (errorSummary) {
       return compactSummary(errorSummary);
     }
   }
-  return compactSummary(rows.map(textDeltaFromRow).join(""));
+  return firstTextSummary(ctx);
 }
 
-function errorMessageFromRows(rows: unknown[]): string {
-  let message = "";
-  for (const row of rows) {
-    const chunk = parsedChunkFromRow(row);
-    if (chunk?.["type"] !== "data-error") {
-      continue;
-    }
-    const data = chunk["data"];
-    if (!isRecord(data) || typeof data["message"] !== "string") {
-      continue;
-    }
-    const candidate = data["message"].trim();
-    if (candidate) {
-      message = candidate;
-    }
-  }
-  return message;
+function latestErrorMessage(ctx: DurableObjectState): string {
+  const rows = ctx.storage.sql
+    .exec(
+      `SELECT seq, payload_json FROM message_part
+       WHERE part_type = 'data-error'
+       ORDER BY seq DESC LIMIT 1`,
+    )
+    .toArray();
+  const chunk = parsedChunkFromRow(rows[0]);
+  const data = chunk?.["data"];
+  return isRecord(data) && typeof data["message"] === "string" ? data["message"].trim() : "";
 }
 
-function textDeltaFromRow(row: unknown): string {
-  const chunk = parsedChunkFromRow(row);
-  if (!chunk) {
-    return "";
+function firstTextSummary(ctx: DurableObjectState): string {
+  let cursor = 0;
+  let summary = "";
+  while (summary.length < SUMMARY_MAX_LENGTH) {
+    const rows = ctx.storage.sql
+      .exec(
+        `SELECT seq, payload_json FROM message_part
+         WHERE seq > ? AND part_type = 'text-delta'
+         ORDER BY seq LIMIT ?`,
+        cursor,
+        SUMMARY_QUERY_PAGE_SIZE,
+      )
+      .toArray();
+    if (rows.length === 0) {
+      break;
+    }
+    for (const row of rows) {
+      const chunk = parsedChunkFromRow(row);
+      const seq = isRecord(row) && typeof row["seq"] === "number" ? row["seq"] : cursor;
+      cursor = Math.max(cursor, seq);
+      if (chunk?.["type"] === "text-delta" && typeof chunk["delta"] === "string") {
+        summary = compactSummary(`${summary} ${chunk["delta"]}`);
+      }
+    }
   }
-  return chunk["type"] === "text-delta" && typeof chunk["delta"] === "string" ? chunk["delta"] : "";
+  return summary;
 }
 
 function parsedChunkFromRow(row: unknown): Record<string, unknown> | null {

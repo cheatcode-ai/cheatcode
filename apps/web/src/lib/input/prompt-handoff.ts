@@ -1,17 +1,19 @@
-const DIRECT_PROMPT_MAX_LENGTH = 1_800;
 const PROMPT_HANDOFF_PREFIX = "cheatcode:bootstrap-prompt:";
 
 export interface PromptHandoff {
-  prompt?: string;
-  promptKey?: string;
+  promptKey: string;
 }
 
 export function createPromptHandoff(prompt: string): PromptHandoff {
-  if (prompt.length <= DIRECT_PROMPT_MAX_LENGTH || !canUseSessionStorage()) {
-    return { prompt };
+  if (!canUseSessionStorage()) {
+    throw new Error("This browser cannot securely hand off the prompt. Enable session storage.");
   }
   const promptKey = createPromptKey();
-  sessionStorage.setItem(`${PROMPT_HANDOFF_PREFIX}${promptKey}`, prompt);
+  try {
+    sessionStorage.setItem(`${PROMPT_HANDOFF_PREFIX}${promptKey}`, prompt);
+  } catch {
+    throw new Error("This browser could not securely store the prompt for navigation.");
+  }
   return { promptKey };
 }
 
@@ -20,9 +22,13 @@ export function consumePromptHandoff(promptKey: string): string | null {
     return null;
   }
   const storageKey = `${PROMPT_HANDOFF_PREFIX}${promptKey}`;
-  const prompt = sessionStorage.getItem(storageKey);
-  sessionStorage.removeItem(storageKey);
-  return prompt;
+  try {
+    const prompt = sessionStorage.getItem(storageKey);
+    sessionStorage.removeItem(storageKey);
+    return prompt;
+  } catch {
+    return null;
+  }
 }
 
 function canUseSessionStorage(): boolean {
@@ -34,8 +40,5 @@ function canUseSessionStorage(): boolean {
 }
 
 function createPromptKey(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
-    return crypto.randomUUID();
-  }
-  return `prompt-${Date.now().toString(36)}`;
+  return crypto.randomUUID();
 }

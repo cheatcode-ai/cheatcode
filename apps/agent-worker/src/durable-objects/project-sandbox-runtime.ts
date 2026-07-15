@@ -1,58 +1,21 @@
+import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
+import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/tools-code";
 import { z } from "zod";
 
-export interface BackupOptions {
-  dir: string;
-  excludes?: string[];
-  gitignore?: boolean;
-  name?: string;
-  ttl?: number;
-}
-
-export interface DirectoryBackup {
-  dir: string;
-  id: string;
-}
-
-export interface ExecOptions {
-  cwd?: string;
-  env?: Record<string, string>;
-  timeout?: number;
-}
-
-export interface ProcessOptions extends ExecOptions {
-  autoCleanup?: boolean;
-  keepAliveTimeoutMs?: number;
-  maxRestarts?: number;
-  processId?: string;
-  restartOnFailure?: boolean;
-}
-
-export interface RunCodeOptions {
-  envVars?: Record<string, string>;
-  language: "python" | "javascript";
-}
-
-const AbsolutePathSchema = z
+const CommandArgvSchema = z.array(z.string().min(1)).min(1).max(128);
+const ProcessIdSchema = z
   .string()
   .min(1)
-  .max(1_000)
-  .refine((path) => path.startsWith("/"), "Sandbox paths must be absolute.");
-const WorkspacePathSchema = AbsolutePathSchema.refine(
-  isSafeWorkspacePath,
-  "Path must stay inside /workspace.",
-);
-const WorkspaceFilePathSchema = WorkspacePathSchema.refine(
-  isWorkspaceChildPath,
-  "File path must be inside /workspace.",
-);
-
-const CommandArgvSchema = z.array(z.string().min(1)).min(1).max(128);
+  .max(200)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u, "Process IDs may contain letters, numbers, . _ : -.");
 
 export const ProjectRunCodeInputSchema = z
   .object({
     language: z.enum(["python", "javascript"]),
     code: z.string().min(1).max(100_000),
-    env: z.record(z.string(), z.string()).optional(),
+    cwd: WorkspacePathSchema.optional(),
+    env: EnvironmentVariablesSchema.optional(),
+    timeoutMs: z.number().int().positive().max(600_000).optional(),
   })
   .strict();
 
@@ -62,12 +25,13 @@ export const ProjectExecInputSchema = z
   .object({
     command: CommandArgvSchema,
     cwd: WorkspacePathSchema.optional(),
-    env: z.record(z.string(), z.string()).optional(),
+    env: EnvironmentVariablesSchema.optional(),
     timeoutMs: z.number().int().positive().max(600_000).optional(),
   })
   .strict();
 
 export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
+  stdin: z.string().min(1).max(64_000).optional(),
   isMobile: z.boolean().optional(),
   keepAliveTimeoutMs: z
     .number()
@@ -76,7 +40,7 @@ export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
     .max(24 * 60 * 60 * 1000)
     .optional(),
   maxRestarts: z.number().int().min(0).max(25).optional(),
-  processId: z.string().min(1).max(200).optional(),
+  processId: ProcessIdSchema.optional(),
   restartOnFailure: z.boolean().optional(),
   waitForPort: z
     .object({
@@ -131,45 +95,27 @@ export const ProjectSearchFilesInputSchema = z
 
 export const ProjectDeleteFileInputSchema = z
   .object({
-    path: WorkspacePathSchema.refine(
-      isWorkspaceChildPath,
-      "Delete path must be inside /workspace and not /workspace itself.",
-    ),
+    path: WorkspaceFilePathSchema,
     recursive: z.boolean().default(false),
   })
   .strict();
 
 export const ProjectKillProcessInputSchema = z
   .object({
-    processId: z.string().min(1).max(200),
+    processId: ProcessIdSchema,
   })
   .strict();
 
 export const ProjectReadDevServerLogsInputSchema = z
   .object({
     lastPid: z.string().min(1).max(100).optional(),
-    processId: z.string().min(1).max(200).default("app-preview"),
+    processId: ProcessIdSchema.default("app-preview"),
     stderrCursor: z.number().int().min(0).default(0),
     stdoutCursor: z.number().int().min(0).default(0),
     tail: z.number().int().min(1).max(500).default(200),
   })
   .strict();
 export type ProjectReadDevServerLogsInput = z.input<typeof ProjectReadDevServerLogsInputSchema>;
-
-export const ProjectExposePortInputSchema = z
-  .object({
-    hostname: z.string().min(1).max(255).optional(),
-    isMobile: z.boolean().default(false),
-    name: z.string().min(1).max(100).optional(),
-    port: z.number().int().positive().max(65_535),
-    tokenTtlMs: z
-      .number()
-      .int()
-      .positive()
-      .max(24 * 60 * 60 * 1000)
-      .optional(),
-  })
-  .strict();
 
 export const ProjectAllocatePortInputSchema = z
   .object({
@@ -178,24 +124,24 @@ export const ProjectAllocatePortInputSchema = z
   })
   .strict();
 
+export const ProjectAllocateProcessPortInputSchema = z
+  .object({
+    maxPort: z.number().int().min(1_024).max(65_535),
+    minPort: z.number().int().min(1_024).max(65_535),
+    processId: ProcessIdSchema,
+  })
+  .strict()
+  .refine((input) => input.minPort <= input.maxPort, "Process port range is invalid.");
+
 export const ProjectCodeServerInputSchema = z
   .object({
-    hostname: z.string().min(1).max(255).optional(),
     initialFilePath: WorkspaceFilePathSchema.optional(),
     workspacePath: WorkspacePathSchema.default("/workspace"),
   })
   .strict();
 
-export const ProjectUnexposePortInputSchema = z
-  .object({
-    name: z.string().min(1).max(100).optional(),
-    port: z.number().int().positive().max(65_535),
-  })
-  .strict();
-
 export const ProjectWakePreviewInputSchema = z
   .object({
-    hostname: z.string().min(1).max(255).optional(),
     // Which project's dev server to wake — its ProcessRecord slot is keyed by the project's
     // workspaceSlug (matching the start_dev_server tool + app-builder paths). Absent for a
     // project-less chat, where there is no dev server to revive.
@@ -223,32 +169,25 @@ export const ProjectSignedPreviewUrlInputSchema = z
   })
   .strict();
 
-export const ProjectCreateBackupInputSchema = z
-  .object({
-    dir: WorkspacePathSchema.default("/workspace"),
-    name: z.string().min(1).max(200).optional(),
-  })
-  .strict();
-
-export const ProjectBackupHandleSchema = z
-  .object({
-    id: z.string().min(1),
-    dir: WorkspacePathSchema,
-  })
-  .strict();
-
-export const ProjectRestoreBackupInputSchema = z
-  .object({
-    backup: ProjectBackupHandleSchema,
-  })
-  .strict();
-
 // Per-project teardown inside the shared per-user sandbox: names ONE project's workspace folder
 // (/workspace/<workspaceSlug>) whose dev server, port, and folder should be reclaimed — without
 // ever touching the shared sandbox itself.
 export const ProjectCleanupWorkspaceInputSchema = z
   .object({
     workspaceSlug: z.string().min(1).max(200),
+  })
+  .strict();
+
+export const ProjectArchiveInputSchema = z
+  .object({
+    workspaceSlug: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine(
+        (slug) => !slug.includes("/") && slug !== "." && slug !== "..",
+        "Workspace slug must be a single path segment.",
+      ),
   })
   .strict();
 
@@ -261,13 +200,13 @@ export type ProjectListFilesInput = z.input<typeof ProjectListFilesInputSchema>;
 export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSchema>;
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;
 export type ProjectKillProcessInput = z.input<typeof ProjectKillProcessInputSchema>;
-export type ProjectExposePortInput = z.input<typeof ProjectExposePortInputSchema>;
 export type ProjectAllocatePortInput = z.input<typeof ProjectAllocatePortInputSchema>;
+export type ProjectAllocateProcessPortInput = z.input<typeof ProjectAllocateProcessPortInputSchema>;
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
-export type ProjectUnexposePortInput = z.input<typeof ProjectUnexposePortInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;
 export type ProjectPreviewStatusInput = z.input<typeof ProjectPreviewStatusInputSchema>;
 export type ProjectSignedPreviewUrlInput = z.input<typeof ProjectSignedPreviewUrlInputSchema>;
+export type ProjectArchiveInput = z.input<typeof ProjectArchiveInputSchema>;
 
 /** Result of waking a preview: the (possibly restarted) dev-server preview URL + liveness. */
 export interface ProjectWakePreviewResult {
@@ -286,115 +225,7 @@ export interface ProjectSandboxRuntimeState {
   state: string;
   sandboxId?: string;
 }
-export type ProjectCreateBackupInput = z.input<typeof ProjectCreateBackupInputSchema>;
-export type ProjectRestoreBackupInput = z.input<typeof ProjectRestoreBackupInputSchema>;
 export type ProjectCleanupWorkspaceInput = z.input<typeof ProjectCleanupWorkspaceInputSchema>;
-
-export interface NormalizedRunCodeResult {
-  stdout: string;
-  stderr: string;
-  success: boolean;
-  exitCode: number;
-}
-
-export interface NormalizedExecResult {
-  command: string;
-  stdout: string;
-  stderr: string;
-  success: boolean;
-  exitCode: number;
-  durationMs?: number;
-}
-
-export interface NormalizedReadFileResult {
-  path: string;
-  content: string;
-  encoding: "utf8" | "base64";
-  size?: number;
-}
-
-export interface NormalizedWriteFileResult {
-  path: string;
-  success: boolean;
-}
-
-export interface NormalizedFileEntry {
-  name: string;
-  path: string;
-  relativePath: string;
-  type: "file" | "directory" | "symlink" | "other";
-  size: number;
-  modifiedAt: string;
-}
-
-export interface NormalizedListFilesResult {
-  path: string;
-  files: NormalizedFileEntry[];
-}
-
-export interface NormalizedSearchMatch {
-  column?: number;
-  context?: string;
-  line: number;
-  path: string;
-  text: string;
-}
-
-export interface NormalizedSearchFilesResult {
-  matches: NormalizedSearchMatch[];
-  query: string;
-  total: number;
-  truncated?: boolean;
-}
-
-export interface NormalizedDeleteFileResult {
-  path: string;
-  success: boolean;
-}
-
-export interface NormalizedProcessResult {
-  command: string;
-  id: string;
-  pid?: number;
-  status: string;
-}
-
-export interface NormalizedExposePortResult {
-  port: number;
-  token?: string;
-  url: string;
-  name?: string;
-}
-
-export interface NormalizedBackupHandle {
-  id: string;
-  dir: string;
-}
-
-function isSafeWorkspacePath(path: string): boolean {
-  const normalized = normalizeWorkspacePath(path);
-  return normalized === "/workspace" || normalized.startsWith("/workspace/");
-}
-
-function isWorkspaceChildPath(path: string): boolean {
-  const normalized = normalizeWorkspacePath(path);
-  return normalized.startsWith("/workspace/") && normalized !== "/workspace/";
-}
-
-function normalizeWorkspacePath(path: string): string {
-  const parts: string[] = [];
-  for (const part of path.split("/")) {
-    if (part.length === 0 || part === ".") {
-      continue;
-    }
-    if (part === "..") {
-      parts.pop();
-      continue;
-    }
-    parts.push(part);
-  }
-  return `/${parts.join("/")}${path.endsWith("/") ? "/" : ""}`;
-}
 
 function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;

@@ -13,7 +13,11 @@ import {
   type SandboxTerminalResult,
   SandboxTerminalResultSchema,
 } from "@cheatcode/types";
-import { authorizedFetch } from "@/lib/api/authorized-fetch";
+import {
+  API_RESPONSE_LIMIT_BYTES,
+  authorizedFetch,
+  readBoundedJsonResponse,
+} from "@/lib/api/authorized-fetch";
 
 export interface SandboxConsoleQueryInput {
   lastPid?: string | undefined;
@@ -29,7 +33,9 @@ export async function readSandboxConsole(
   query: SandboxConsoleQueryInput,
 ): Promise<SandboxConsoleSnapshot> {
   const response = await authorizedFetch(getToken, sandboxConsolePath(threadId, query));
-  return SandboxConsoleSnapshotSchema.parse(await response.json());
+  return SandboxConsoleSnapshotSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.console),
+  );
 }
 
 export async function listSandboxFiles(
@@ -39,7 +45,9 @@ export async function listSandboxFiles(
   recursive = false,
 ) {
   const response = await authorizedFetch(getToken, sandboxFilesPath(threadId, path, recursive));
-  return SandboxFileListSchema.parse(await response.json());
+  return SandboxFileListSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.files),
+  );
 }
 
 export async function runSandboxTerminal(
@@ -56,7 +64,9 @@ export async function runSandboxTerminal(
     body: JSON.stringify(body),
     method: "POST",
   });
-  return SandboxTerminalResultSchema.parse(await response.json());
+  return SandboxTerminalResultSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.terminal),
+  );
 }
 
 export async function readSandboxTerminalContext(
@@ -64,7 +74,9 @@ export async function readSandboxTerminalContext(
   threadId: string,
 ): Promise<SandboxTerminalContext> {
   const response = await authorizedFetch(getToken, sandboxTerminalContextPath(threadId));
-  return SandboxTerminalContextSchema.parse(await response.json());
+  return SandboxTerminalContextSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
 }
 
 export async function openSandboxIde(
@@ -72,7 +84,45 @@ export async function openSandboxIde(
   threadId: string,
 ): Promise<SandboxIdeSession> {
   const response = await authorizedFetch(getToken, sandboxIdePath(threadId));
-  return SandboxIdeSessionSchema.parse(await response.json());
+  return SandboxIdeSessionSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function openComputerIde(
+  getToken: () => Promise<null | string>,
+): Promise<SandboxIdeSession> {
+  const response = await authorizedFetch(getToken, "/v1/computer/ide");
+  return SandboxIdeSessionSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function readComputerTerminalContext(
+  getToken: () => Promise<null | string>,
+): Promise<SandboxTerminalContext> {
+  const response = await authorizedFetch(getToken, "/v1/computer/terminal/context");
+  return SandboxTerminalContextSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function runComputerTerminal(
+  getToken: () => Promise<null | string>,
+  command: string,
+  cwd?: string,
+): Promise<SandboxTerminalResult> {
+  const body = SandboxTerminalCommandSchema.parse({
+    command,
+    ...(cwd === undefined ? {} : { cwd }),
+  });
+  const response = await authorizedFetch(getToken, "/v1/computer/terminal", {
+    body: JSON.stringify(body),
+    method: "POST",
+  });
+  return SandboxTerminalResultSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.terminal),
+  );
 }
 
 export function compareFileEntries(left: SandboxFileEntry, right: SandboxFileEntry): number {

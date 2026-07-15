@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { type ConfigRecord, isRecord, parseJsoncObject } from "./jsonc";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GATEWAY_WORKER_DIR = join(ROOT, "apps/gateway-worker");
@@ -22,7 +23,6 @@ interface CommandSpec {
   name: string;
 }
 
-type ConfigRecord = Record<string, unknown>;
 type BooleanOption = "dryRun" | "skipSandboxCheck" | "webOnly" | "workersOnly";
 
 const WORKER_CONFIGS = [
@@ -60,10 +60,6 @@ function writeLine(line = ""): void {
 
 function writeError(line: string): void {
   process.stderr.write(`${line}\n`);
-}
-
-function isRecord(value: unknown): value is ConfigRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function usage(): string {
@@ -226,30 +222,12 @@ function parseArgs(argv: string[]): DevOptions {
   return options;
 }
 
-/** Matches a JSON string literal (group 1), a `//` line comment, or a `/* *​/` block comment. */
-const JSONC_TOKEN = /("(?:\\.|[^"\\])*")|\/\/[^\n]*|\/\*[\s\S]*?\*\//g;
-
-/**
- * Strip comments + trailing commas from a JSONC source so the wrangler `.jsonc` configs
- * (which legitimately contain comments) can be `JSON.parse`d. String-aware: the alternation
- * matches whole string literals first and the replacer keeps them, so comment-like
- * sequences inside strings are never touched.
- */
-function stripJsonc(input: string): string {
-  return input
-    .replace(JSONC_TOKEN, (_match, stringLiteral?: string) => stringLiteral ?? "")
-    .replace(/,(\s*[}\]])/g, "$1");
-}
-
-function createLocalWorkerConfig(configPath: string): string {
+function createLocalWorkerConfig(configPath: string, webPort: string): string {
   const absolutePath = resolve(GATEWAY_WORKER_DIR, configPath);
-  const parsed = JSON.parse(stripJsonc(readFileSync(absolutePath, "utf8"))) as unknown;
-  if (!isRecord(parsed)) {
-    throw new Error(`${configPath} must parse to a JSON object.`);
-  }
+  const parsed = parseJsoncObject(readFileSync(absolutePath, "utf8"), configPath);
 
   const { secrets_store_secrets: _secretsStoreSecrets, ...localConfig } = parsed;
-  const localDevConfig = applyLocalWorkerOverrides(configPath, localConfig);
+  const localDevConfig = applyLocalWorkerOverrides(configPath, localConfig, webPort);
 
   const outputDir = dirname(absolutePath);
   mkdirSync(outputDir, { recursive: true });
@@ -258,23 +236,48 @@ function createLocalWorkerConfig(configPath: string): string {
   return relative(GATEWAY_WORKER_DIR, outputPath);
 }
 
-function applyLocalWorkerOverrides(configPath: string, config: ConfigRecord): ConfigRecord {
-  if (configPath !== "../agent-worker/wrangler.jsonc") {
-    return config;
-  }
+function applyLocalWorkerOverrides(
+  configPath: string,
+  config: ConfigRecord,
+  webPort: string,
+): ConfigRecord {
   const existingVars = isRecord(config["vars"]) ? config["vars"] : {};
+  const localVars = {
+    ...existingVars,
+    CHEATCODE_ENVIRONMENT: "development",
+  };
+  if (configPath === "wrangler.jsonc") {
+    return {
+      ...config,
+      vars: {
+        ...localVars,
+        CLERK_AUTHORIZED_PARTIES: localClerkAuthorizedParties(webPort),
+      },
+    };
+  }
+  if (configPath !== "../agent-worker/wrangler.jsonc") {
+    return { ...config, vars: localVars };
+  }
   return {
     ...config,
     vars: {
-      ...existingVars,
+      ...localVars,
       OUTPUT_DOWNLOAD_BASE_URL: "http://127.0.0.1:8787",
       PREVIEW_HOSTNAME: "localhost:8787",
     },
   };
 }
 
-function localWorkerConfigs(): string[] {
-  return WORKER_CONFIGS.map(createLocalWorkerConfig);
+function localClerkAuthorizedParties(webPort: string): string {
+  const port = Number(webPort);
+  if (!/^\d{1,5}$/u.test(webPort) || !Number.isInteger(port) || port < 1 || port > 65_535) {
+    throw new Error("--port must be an integer between 1 and 65535.");
+  }
+  return `http://localhost:${port},http://127.0.0.1:${port}`;
+}
+
+function localWorkerConfigs(webPort: string): string[] {
+  return WORKER_CONFIGS.map((config) => createLocalWorkerConfig(config, webPort));
 }
 
 function commandsFor(options: DevOptions): CommandSpec[] {
@@ -287,7 +290,7 @@ function commandsFor(options: DevOptions): CommandSpec[] {
     });
   }
   if (!options.webOnly) {
-    const workerConfigs = localWorkerConfigs();
+    const workerConfigs = localWorkerConfigs(options.port);
     commands.push({
       name: "workers",
       command: "pnpm",

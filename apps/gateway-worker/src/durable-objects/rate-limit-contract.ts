@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const RateLimitConfigSchema = z
+const RateLimitConfigSchema = z
   .object({
     capacity: z.number().int().positive(),
     refillPerSec: z.number().positive(),
@@ -24,5 +24,4 @@ export const RateLimitResultSchema = z
   .strict();
 
 export type RateLimitConfig = z.infer<typeof RateLimitConfigSchema>;
-export type RateLimitConsumeBody = z.infer<typeof RateLimitConsumeBodySchema>;
 export type RateLimitResult = z.infer<typeof RateLimitResultSchema>;

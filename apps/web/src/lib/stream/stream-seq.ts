@@ -1,7 +1,29 @@
-export type StreamSeqStorage = Pick<Storage, "getItem" | "setItem">;
+export type StreamSeqStorage = Pick<
+  Storage,
+  "getItem" | "key" | "length" | "removeItem" | "setItem"
+>;
 
 const STORAGE_PREFIX = "cc:lastSeq:";
 const fallbackSeqByThread = new Map<string, number>();
+
+export function clearStreamSeqState(
+  storage: StreamSeqStorage | null = browserSessionStorage(),
+): void {
+  fallbackSeqByThread.clear();
+  if (!storage) {
+    return;
+  }
+  try {
+    const keys = Array.from({ length: storage.length }, (_, index) => storage.key(index)).filter(
+      (key): key is string => key?.startsWith(STORAGE_PREFIX) === true,
+    );
+    for (const key of keys) {
+      storage.removeItem(key);
+    }
+  } catch {
+    // The in-memory identity boundary is still cleared when browser storage is unavailable.
+  }
+}
 
 export function rememberStreamSeq(
   threadId: string,
@@ -22,7 +44,7 @@ export function rememberStreamSeq(
   }
 }
 
-export function lastStreamSeq(
+function lastStreamSeq(
   threadId: string,
   storage: StreamSeqStorage | null = browserSessionStorage(),
 ): string {

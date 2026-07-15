@@ -1,10 +1,8 @@
 import { APIError } from "@cheatcode/observability";
-import { tool } from "ai";
+import { callSandboxMethod, type getCodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { getCodeRuntimeContext } from "./runtime";
-import { callSandboxMethod } from "./sandbox-methods";
 import {
-  resolveWorkspaceDir,
+  resolveProjectWorkspacePath,
   WorkspaceFilePathSchema,
   WorkspacePathSchema,
 } from "./workspace-paths";
@@ -13,8 +11,10 @@ const EncodingSchema = z.enum(["utf8", "base64"]);
 
 export const ReadFileInputSchema = z
   .object({
-    path: WorkspaceFilePathSchema,
-    encoding: EncodingSchema.optional(),
+    path: WorkspaceFilePathSchema.describe(
+      "Absolute file path under /workspace, for example /workspace/<project>/package.json.",
+    ),
+    encoding: EncodingSchema.optional().describe("Read text as utf8 or binary data as base64."),
   })
   .strict();
 
@@ -29,9 +29,9 @@ export const ReadFileOutputSchema = z
 
 export const WriteFileInputSchema = z
   .object({
-    path: WorkspaceFilePathSchema,
-    content: z.string().max(2_000_000),
-    encoding: EncodingSchema.default("utf8"),
+    path: WorkspaceFilePathSchema.describe("Absolute file path under /workspace."),
+    content: z.string().max(2_000_000).describe("File contents to write."),
+    encoding: EncodingSchema.default("utf8").describe("Write text as utf8 or binary as base64."),
   })
   .strict();
 
@@ -44,13 +44,16 @@ export const WriteFileOutputSchema = z
 
 export const ListFilesInputSchema = z
   .object({
-    path: WorkspacePathSchema,
-    includeHidden: z.boolean().default(false),
-    recursive: z.boolean().default(false),
+    path: WorkspacePathSchema.describe("Absolute directory path under /workspace."),
+    includeHidden: z
+      .boolean()
+      .default(false)
+      .describe("Include dotfiles and dot-directories when true."),
+    recursive: z.boolean().default(false).describe("List descendants recursively when true."),
   })
   .strict();
 
-export const FileEntrySchema = z
+const FileEntrySchema = z
   .object({
     name: z.string(),
     path: z.string(),
@@ -83,7 +86,7 @@ export const SearchFilesInputSchema = z
   })
   .strict();
 
-export const SearchFilesMatchSchema = z
+const SearchFilesMatchSchema = z
   .object({
     column: z.number().int().nonnegative().optional(),
     context: z.string().optional(),
@@ -137,7 +140,7 @@ export async function executeReadFile(
   const parsedInput = ReadFileInputSchema.parse(input);
   return ReadFileOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "readFile", {
-      path: parsedInput.path,
+      path: resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir),
       ...(parsedInput.encoding ? { encoding: parsedInput.encoding } : {}),
     }),
   );
@@ -150,7 +153,7 @@ export async function executeWriteFile(
   const parsedInput = WriteFileInputSchema.parse(input);
   const output = WriteFileOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "writeFile", {
-      path: parsedInput.path,
+      path: resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir),
       content: parsedInput.content,
       encoding: parsedInput.encoding,
     }),
@@ -172,7 +175,7 @@ export async function executeListFiles(
   const parsedInput = ListFilesInputSchema.parse(input);
   return ListFilesOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "listFiles", {
-      path: resolveWorkspaceDir(parsedInput.path, runtimeContext.workspaceDir),
+      path: resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir),
       includeHidden: parsedInput.includeHidden,
       recursive: parsedInput.recursive,
     }),
@@ -191,7 +194,7 @@ export async function executeSearchFiles(
       excludeDirs: parsedInput.excludeDirs,
       ...(parsedInput.filePattern ? { filePattern: parsedInput.filePattern } : {}),
       maxResults: parsedInput.maxResults,
-      path: resolveWorkspaceDir(parsedInput.path, runtimeContext.workspaceDir),
+      path: resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir),
       query: parsedInput.query,
     }),
   );
@@ -204,7 +207,7 @@ export async function executeDeleteFile(
   const parsedInput = DeleteFileInputSchema.parse(input);
   const output = DeleteFileOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "deleteFile", {
-      path: parsedInput.path,
+      path: resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir),
       recursive: parsedInput.recursive,
     }),
   );
@@ -217,45 +220,3 @@ export async function executeDeleteFile(
   }
   return output;
 }
-
-export const readFile = tool({
-  description:
-    "Read a UTF-8 text file or base64-encoded binary file under /workspace in the project sandbox.",
-  inputSchema: ReadFileInputSchema,
-  outputSchema: ReadFileOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeReadFile(input, getCodeRuntimeContext(options)),
-});
-
-export const writeFile = tool({
-  description:
-    "Write a UTF-8 text file or base64-encoded binary file under /workspace in the project sandbox.",
-  inputSchema: WriteFileInputSchema,
-  outputSchema: WriteFileOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeWriteFile(input, getCodeRuntimeContext(options)),
-});
-
-export const listFiles = tool({
-  description: "List files under /workspace in the project sandbox, optionally recursively.",
-  inputSchema: ListFilesInputSchema,
-  outputSchema: ListFilesOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeListFiles(input, getCodeRuntimeContext(options)),
-});
-
-export const searchFiles = tool({
-  description: "Search file contents under /workspace in the project sandbox using grep.",
-  inputSchema: SearchFilesInputSchema,
-  outputSchema: SearchFilesOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeSearchFiles(input, getCodeRuntimeContext(options)),
-});
-
-export const deleteFile = tool({
-  description: "Delete a file or directory inside /workspace in the project sandbox.",
-  inputSchema: DeleteFileInputSchema,
-  outputSchema: DeleteFileOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeDeleteFile(input, getCodeRuntimeContext(options)),
-});

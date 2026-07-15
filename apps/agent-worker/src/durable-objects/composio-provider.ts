@@ -3,6 +3,7 @@ import type {
   ComposioQuotaMeter,
   ComposioQuotaResult,
 } from "@cheatcode/agent-core";
+import { entitlementCacheFromValues, quotaPeriodEndFor } from "@cheatcode/billing";
 import {
   createDb,
   type DatabaseHandle,
@@ -11,15 +12,22 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import type { createLogger } from "@cheatcode/observability";
+import { type createLogger, readBoundedResponseJson } from "@cheatcode/observability";
 import { IntegrationNameSchema, UserId } from "@cheatcode/types";
-import { z } from "zod";
+import {
+  QUOTA_FEATURES,
+  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
+  QuotaSetLimitRequestSchema,
+  QuotaSetLimitResponseSchema,
+  QuotaTryConsumeRequestSchema,
+  QuotaTryConsumeResponseSchema,
+} from "@cheatcode/types/quota";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface ComposioProviderEnv {
   COMPOSIO_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
-  QUOTA_TRACKER?: DurableObjectNamespace;
+  QUOTA_TRACKER: DurableObjectNamespace;
 }
 
 interface ComposioProviderInput {
@@ -27,6 +35,7 @@ interface ComposioProviderInput {
 }
 
 interface ComposioQuotaConfig {
+  entitlementVersion: number;
   limit: number;
   periodEnd: Date;
 }
@@ -38,17 +47,6 @@ export interface ComposioRuntimeCredentials {
   composioUserId?: string | undefined;
 }
 
-const COMPOSIO_CALLS_FEATURE = "composio_calls";
-const DEFAULT_COMPOSIO_CALL_LIMIT = 1000;
-
-const QuotaConsumeResultSchema = z
-  .object({
-    allowed: z.boolean(),
-    limit: z.number().finite().nonnegative(),
-    remaining: z.number().finite().nonnegative(),
-  })
-  .strict();
-
 export async function resolveComposioRuntimeCredentials(
   env: ComposioProviderEnv,
   input: ComposioProviderInput,
@@ -59,15 +57,17 @@ export async function resolveComposioRuntimeCredentials(
   try {
     const userId = UserId(input.userId);
     const state = await withUserContext(dbHandle.db, userId, async (db) => {
-      const [integrations, entitlement] = await Promise.all([
-        listUserIntegrations(db, userId),
-        findEntitlementByUserId(db, userId),
-      ]);
+      // A user-context transaction owns one pg client. Keep its queries sequential instead of
+      // pretending to parallelize them through the same connection.
+      const integrations = await listUserIntegrations(db, userId);
+      const entitlement = await findEntitlementByUserId(db, userId);
+      const resolvedEntitlement = entitlementCacheFromValues(entitlement ?? { tier: "free" });
       return {
         connectedAccounts: connectedAccountsFromRows(integrations),
         quota: {
-          limit: entitlement?.quotaComposioCalls ?? DEFAULT_COMPOSIO_CALL_LIMIT,
-          periodEnd: entitlement?.currentPeriodEnd ?? endOfCurrentUtcMonth(new Date()),
+          entitlementVersion: Date.parse(resolvedEntitlement.updatedAt),
+          limit: resolvedEntitlement.quotaComposioCalls,
+          periodEnd: quotaPeriodEndFor(resolvedEntitlement),
         },
       };
     });
@@ -96,7 +96,7 @@ function connectedAccountsFromRows(
       continue;
     }
     const parsedName = IntegrationNameSchema.safeParse(row.integration);
-    if (parsedName.success) {
+    if (parsedName.success && (row.isDefault || connectedAccounts[parsedName.data] === undefined)) {
       connectedAccounts[parsedName.data] = row.composioConnectionId;
     }
   }
@@ -116,7 +116,7 @@ async function readOptionalComposioApiKey(
     return apiKey?.trim() ? apiKey : undefined;
   } catch (error) {
     logger.warn("composio_api_key_unavailable", {
-      error: error instanceof Error ? error.message : "Unknown secret resolution error",
+      error,
     });
     return undefined;
   }
@@ -126,13 +126,9 @@ function quotaMeter(
   env: ComposioProviderEnv,
   userId: UserId,
   quota: ComposioQuotaConfig,
-): ComposioQuotaMeter | undefined {
-  const namespace = env.QUOTA_TRACKER;
-  if (!namespace) {
-    return undefined;
-  }
+): ComposioQuotaMeter {
   return {
-    consumeCall: () => consumeComposioQuota(namespace, userId, quota),
+    consumeCall: (eventId) => consumeComposioQuota(env.QUOTA_TRACKER, userId, quota, eventId),
   };
 }
 
@@ -140,41 +136,51 @@ async function consumeComposioQuota(
   namespace: DurableObjectNamespace,
   userId: UserId,
   quota: ComposioQuotaConfig,
+  eventId: string,
 ): Promise<ComposioQuotaResult> {
   const stub = namespace.get(namespace.idFromName(`quota:${userId}`));
-  await requireQuotaResponse(
+  const limitBody = QuotaSetLimitRequestSchema.parse({
+    entitlementVersion: quota.entitlementVersion,
+    feature: QUOTA_FEATURES.composioCalls,
+    limit: quota.limit,
+  });
+  const limitResponse = await requireQuotaResponse(
     stub.fetch("https://quota.internal/set-limit", {
-      body: JSON.stringify({
-        feature: COMPOSIO_CALLS_FEATURE,
-        limit: quota.limit,
-        source: "agent-worker-entitlement",
-      }),
+      body: JSON.stringify(limitBody),
       method: "POST",
     }),
   );
+  QuotaSetLimitResponseSchema.parse(
+    await readBoundedResponseJson(
+      limitResponse,
+      QUOTA_TRACKER_MAX_RESPONSE_BYTES,
+      "Quota set-limit",
+    ),
+  );
+  const consumeBody = QuotaTryConsumeRequestSchema.parse({
+    amount: 1,
+    eventId,
+    feature: QUOTA_FEATURES.composioCalls,
+    periodEnd: quota.periodEnd.toISOString(),
+  });
   const response = await requireQuotaResponse(
     stub.fetch("https://quota.internal/try-consume", {
-      body: JSON.stringify({
-        amount: 1,
-        feature: COMPOSIO_CALLS_FEATURE,
-        periodEnd: quota.periodEnd.toISOString(),
-      }),
+      body: JSON.stringify(consumeBody),
       method: "POST",
     }),
   );
-  return QuotaConsumeResultSchema.parse(await response.json());
+  return QuotaTryConsumeResponseSchema.parse(
+    await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota tracker"),
+  );
 }
 
 async function requireQuotaResponse(responsePromise: Promise<Response>): Promise<Response> {
   const response = await responsePromise;
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new Error("Quota tracker rejected Composio call metering.");
   }
   return response;
-}
-
-function endOfCurrentUtcMonth(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1) - 1);
 }
 
 async function closeDatabase(

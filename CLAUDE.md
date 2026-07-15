@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-> Project context for Claude Code working on Cheatcode V2. The complete architecture lives in [`plan.md`](./plan.md). This file is the cliff-notes version Claude auto-loads every session.
+> Project context for Claude Code working on Cheatcode V2. The live source, deployment configuration, migrations, and package READMEs define the current architecture.
 
 ## What this is
 
@@ -14,14 +14,14 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 |---|---|
 | Language | **TypeScript** everywhere. No Python in backend. Python lives only inside the Daytona sandbox. |
 | Backend runtime | **Cloudflare Workers + Durable Objects + Workflows** |
-| Frontend | **Next.js 16.2.6 + React 19.2.6 + Tailwind 4.3 + shadcn CLI 4.6 + AI Elements + Streamdown** on Cloudflare Workers via OpenNext |
-| Agent framework | **Mastra 1.35** on top of **Vercel AI SDK v6.0.182** |
-| Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/daytona-client.ts`) — one persistent sandbox per project (disk is the durable store) |
-| Browser automation | **Stagehand v3.2 LOCAL mode** inside the Daytona sandbox image; noVNC for user takeover (via the `preview-proxy` worker) |
+| Frontend | **Next.js 16.2.9 + React 19.2.7 + Tailwind 4.3.1 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
+| Agent framework | **Mastra 1.42.0** on top of **Vercel AI SDK v6.0.205** |
+| Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/src/daytona-client.ts`) — one persistent sandbox per user with isolated project folders |
+| Browser automation | **Stagehand v3.7.0 LOCAL mode** inside the Daytona sandbox image |
 | Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (no `service_role` from Workers — uses `app_worker` role) |
-| Auth | **Clerk 7.3.4** (Workers JWT verify) |
-| Billing | **Polar 0.46.4** (no fixed cost, rev-share only) |
-| OAuth tool integrations | **Composio `@composio/core@0.10.0`** |
+| Auth | **Clerk 7.5.2** (Workers JWT verify) |
+| Billing | **Polar 0.48.1** (no fixed cost, rev-share only) |
+| OAuth tool integrations | **Composio v3.1 REST via bounded `@cheatcode/composio` client** |
 | Storage | **R2** (no Supabase Storage; zero egress) |
 | Observability | **Cloudflare Workers Logs + Workers Tracing + Workers Analytics Engine** — no Sentry, no Langfuse, no Axiom |
 | Default models | Claude Sonnet 4.6 (code) / GPT-5.4 Thinking (reasoning) / GPT-5.4 Mini fallback |
@@ -30,18 +30,18 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 
 ```
 apps/
-  web/                    Next.js 16 (Cloudflare Workers/OpenNext)
+  web/                    Next.js 16 frontend deployed by Vercel
   gateway-worker/         Public Hono router + Clerk JWT + rate limit
   agent-worker/           Agent loop + AgentRun DO + ProjectSandbox DO + Daytona adapter
-  preview-proxy/          Custom preview proxy (preview.trycheatcode.com) in front of Daytona previews
+  preview-proxy/          Cloudflare wildcard proxy in front of Daytona previews
   webhooks-worker/        Clerk, Polar, Composio webhooks + internal ops workflows
 
 packages/
-  agent-core/             Mastra instance + ToolLoopAgent wrappers + workflows
+  agent-core/             Mastra agent, workflows, tools, and runtime contexts
   tools-code/             Sandbox shell/file/git/runCode tools
-  tools-browser/          Stagehand LOCAL + noVNC takeover
+  tools-browser/          Stagehand LOCAL browser automation
   tools-docs/             pptxgenjs, docx, exceljs, @react-pdf/renderer
-  tools-data/             Arquero CSV analysis + Recharts SSR charts in the sandbox
+  tools-data/             Arquero CSV analysis + deterministic SVG charts
   tools-research/         Exa + Firecrawl
   db/                     Drizzle schema (per-domain) + queries + migrations
   byok/                   Vault-backed BYOK with provider validation
@@ -51,9 +51,8 @@ packages/
   types/                  Zod schemas + InferAgentUIMessage + branded IDs
   auth/                   Clerk verifyToken helpers
   billing/                Polar SDK wrappers + entitlement checks
-  ui/                     shared V1-parity UI primitives, icon barrel, AI response renderer
+  ui/                     shared UI primitives, icon barrel, AI response renderer
   tsconfig/               Shared base/nextjs/worker/library configs
-  biome-config/           Shared biome.jsonc
 
 skills/                   8 curated Anthropic SKILL.md skills
 infra/                    Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile/snapshot
@@ -79,7 +78,7 @@ These are CI-enforced. Violating them blocks merge.
 
 ```bash
 pnpm install                          # Install all workspace deps
-pnpm dev                              # Run apps/web + all Workers via wrangler dev
+pnpm dev                              # Run Next dev plus the backend Workers through Wrangler
 pnpm turbo skills:build               # Bundle skills/* into packages/skills/src/generated.ts
 pnpm turbo db:generate                # Generate Drizzle types from schema
 pnpm turbo lint                       # Biome check (fails on warnings in CI)
@@ -99,9 +98,8 @@ appears in the V2 tree. Operational scripts may exist only for build,
 migration, secret sync, Docker cleanup, and guarded deploy orchestration; they are not
 product tests and must not simulate UI/user flows. Do not create temporary
 testing scripts in `scripts/`, package folders, `/tmp`, or any out-of-tree
-location. Delete future V2 product validators instead of running them. Legacy
-V1 tests under `cheatcode/` are preserved reference material only and are not
-part of V2 QA.
+location. Delete future V2 product validators instead of running them. The
+removed V1 tree must not be restored or copied back as a testing surface.
 
 May 28, 2026 hardening: do not wrap product QA in `pnpm`, `tsx`, shell loops,
 `/tmp` helpers, generated files, browser-driver wrappers, package aliases, or
@@ -129,9 +127,10 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 | Add a new tool | `packages/tools-<domain>/src/<tool>.ts` |
 | Add a new agent | `packages/agent-core/src/mastra/agents/<name>.ts` |
 | Add a new workflow | `packages/agent-core/src/mastra/workflows/<name>.ts` |
-| Add a new skill | `skills/<name>/SKILL.md` (+ optional `references/` / `assets/`) — see plan.md Section 12 |
+| Add a new skill | `skills/<name>/SKILL.md` (+ optional `references/` / `assets/`) |
 | Add a DB table | `packages/db/src/schema/<domain>.ts` then `drizzle-kit generate` |
-| Add a Worker route | `apps/<worker>/src/routes/<name>.ts` |
+| Add a web route | `apps/web/src/app/<route>/page.tsx` (use `(app)` for the authenticated shell) |
+| Add a Worker route | `apps/<worker>/src/<domain>-routes.ts`, registered from that Worker's `src/index.ts` |
 
 ## Skills system
 
@@ -139,7 +138,7 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 
 The 8 skills: `pitch-deck`, `deep-research` (covers parallel fan-out research), `competitor-brief`, `slide-from-prd`, `csv-analyst`, `social-post-pack`, `landing-page`, `mobile-app`. External skill registry exports, skills.sh links, public publishing scripts, and launch-prep copy are outside V2 unless the user explicitly re-expands the plan.
 
-Full details in plan.md Section 12.
+The bundler contract lives in `scripts/build-skills.ts` and `packages/skills`.
 
 ## What NOT to do
 
@@ -147,31 +146,32 @@ Full details in plan.md Section 12.
 - ❌ Don't use Supabase Realtime — Durable Objects own all streaming.
 - ❌ Don't store files in Postgres `bytea` — index in R2 via `generated_outputs` table.
 - ❌ Don't use Inngest — Cloudflare Workflows is the durable runtime.
-- ❌ Don't add Sentry, Langfuse, or Axiom — V1 ships Workers-native observability only.
-- ❌ Don't expose Cheatcode as an MCP server, and don't add shadcn registry MCP tooling in V1.
+- ❌ Don't add Sentry, Langfuse, or Axiom — use Workers-native observability only.
+- ❌ Don't expose Cheatcode as an MCP server or add shadcn registry MCP tooling.
 - ❌ Don't bypass `packages/byok` to access provider keys directly.
 - ❌ Don't use `service_role` from Workers — `app_worker` only.
 - ❌ Don't use `postgres.js` — use `pg` (node-postgres) per Cloudflare's Hyperdrive + Drizzle guide.
 - ❌ Don't `drizzle-kit push` in production — always `generate` + review + `migrate`.
-- ❌ Don't add new vendors without checking plan.md Section 19 first.
+- ❌ Don't add hard step, token, or cost ceilings to agent loops — semantic completion decides when work is done; cancellation and timeouts remain operational guards.
+- ❌ Don't add new vendors without an explicit architecture decision and matching documentation/config updates.
 
 ## Subagent / multi-agent patterns
 
-Use Mastra Workflows for orchestration. Each subagent is a `ToolLoopAgent` with explicit `stopWhen: stepCountIs(N)` budget caps. The `deep-research-fanout` workflow shows the canonical fanout pattern (see plan.md Section 8.5).
+Use Mastra Workflows for orchestration. Agent loops stop through Vercel AI SDK's semantic `isLoopFinished()` predicate, with no fixed step or token ceilings. The `deep-research-fanout` workflow is the canonical fanout implementation.
 
-When using subagents for complex tasks, give each their own Daytona-backed ProjectSandbox if they need isolated filesystem state. Otherwise share the parent's sandbox.
+All agents for a user share that user's Daytona-backed `ProjectSandbox`. Isolate filesystem work in the relevant `/workspace/<project-slug>` folder and coordinate concurrent writes; never provision a sandbox per subagent.
 
-## Plan.md is source of truth
+## Architecture change discipline
 
-If you're proposing a change that contradicts `plan.md`, **update plan.md first** in the same PR. Architectural drift between plan and code is the #1 cause of bit-rot.
+The deleted `plan.md` is not authoritative and must not be restored. Use live source, schemas, migrations, deployment configuration, and package READMEs, and update those artifacts together when architecture changes.
 
 ## When stuck
 
-- Sandbox not working? `apps/agent-worker/src/durable-objects/project-sandbox.ts` + `packages/tools-code/src/daytona-client.ts` — check Daytona auth (`DAYTONA_API_KEY`), sandbox name/snapshot, `DAYTONA_TARGET` region, and the toolbox/session paths. Reference: `docs/plans/daytona-rest-reference.md`.
+- Sandbox not working? Start with `apps/agent-worker/src/durable-objects/project-sandbox-lifecycle.ts`, `apps/agent-worker/src/durable-objects/project-sandbox-runtime.ts`, and `packages/tools-code/src/daytona-client.ts`; check Daytona auth (`DAYTONA_API_KEY`), the configured snapshot and target, and toolbox/session requests.
 - Auth broken? `packages/auth/` — Clerk JWT verify pattern with `@clerk/backend`.
 - Skill not triggering? Inspect the bundled skill `description` first — it is
   the activation field, not the body. Use manual fixture review plus final UI
-  QA from plan.md Section 12.3; do not add a local skill-eval test script or bundled skill script.
+  QA through the direct browser workflow; do not add a local skill-eval test script or bundled skill script.
 - Stream not resuming? Check AgentRun SSE replay state, `data-seq`, and the client resume cursor.
 - Type errors that look impossible? Likely `exactOptionalPropertyTypes` or `noUncheckedIndexedAccess`. Both are strict-mode-only; not relaxed.
 - "Cannot find module" in Worker? Missing `nodejs_compat` flag in `wrangler.jsonc`.

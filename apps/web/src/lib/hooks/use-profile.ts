@@ -6,7 +6,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { getProfile, updateProfile } from "@/lib/api/profile";
 
-export const PROFILE_QUERY_KEY = ["me-profile"] as const;
+const PROFILE_QUERY_KEY = ["me-profile"] as const;
 
 export function useProfileQuery() {
   const { getToken, isSignedIn } = useAuth();

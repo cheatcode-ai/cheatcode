@@ -1,31 +1,67 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type { ReactNode } from "react";
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { Toaster } from "sonner";
-import { CommandPalette } from "@/components/search/command-palette";
 import { useAppStore } from "@/lib/store/app-store";
+import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
+import { clearStreamSeqState } from "@/lib/stream/stream-seq";
+
+const CommandPalette = dynamic(
+  () => import("@/components/search/command-palette").then((module) => module.CommandPalette),
+  { ssr: false },
+);
 
 export function Providers({ children }: { children: ReactNode }) {
-  const [queryClient] = useState(() => new QueryClient());
   return (
     <NuqsAdapter>
-      {/* Cheatcode is a light-only "Bud System" app. forcedTheme pins light regardless of
-          OS/system preference — enableSystem was applying `.dark` on dark-mode machines,
-          which flipped CSS vars like --background to near-black while chat text stayed
-          hardcoded light, rendering Streamdown tables/code blocks dark-on-dark. */}
-      <ThemeProvider attribute="class" forcedTheme="light" disableTransitionOnChange>
-        <QueryClientProvider client={queryClient}>
-          <AppStoreHydrator />
-          {children}
-          <CommandPalette />
-          <Toaster />
-        </QueryClientProvider>
+      <ThemeProvider attribute="class" defaultTheme="light" disableTransitionOnChange enableSystem>
+        <IdentityQueryProvider>{children}</IdentityQueryProvider>
       </ThemeProvider>
     </NuqsAdapter>
+  );
+}
+
+function IdentityQueryProvider({ children }: { children: ReactNode }) {
+  const { isLoaded, orgId, userId } = useAuth();
+  const identity = isLoaded ? `${userId ?? "anonymous"}:${orgId ?? "personal"}` : "loading";
+
+  return (
+    <IdentityQueryBoundary key={identity} showCommandPalette={Boolean(isLoaded && userId)}>
+      {children}
+    </IdentityQueryBoundary>
+  );
+}
+
+function IdentityQueryBoundary({
+  children,
+  showCommandPalette,
+}: {
+  children: ReactNode;
+  showCommandPalette: boolean;
+}) {
+  const [queryClient] = useState(() => new QueryClient());
+
+  useLayoutEffect(() => {
+    resetIdentityScopedState();
+    return () => {
+      queryClient.clear();
+      resetIdentityScopedState();
+    };
+  }, [queryClient]);
+
+  return (
+    <QueryClientProvider client={queryClient}>
+      <AppStoreHydrator />
+      {children}
+      {showCommandPalette ? <CommandPalette /> : null}
+      <Toaster />
+    </QueryClientProvider>
   );
 }
 
@@ -35,4 +71,10 @@ function AppStoreHydrator() {
   }, []);
 
   return null;
+}
+
+function resetIdentityScopedState(): void {
+  useAppStore.getState().resetIdentityState();
+  useChatTabsStore.getState().resetChatTabs();
+  clearStreamSeqState();
 }

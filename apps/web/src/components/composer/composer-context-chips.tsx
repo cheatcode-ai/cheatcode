@@ -15,7 +15,7 @@ const TOOL_LABELS: Record<string, string> = {
   slack: "Slack",
 };
 
-export function toolLabel(slug: string): string {
+function toolLabel(slug: string): string {
   return (
     TOOL_LABELS[slug] ??
     slug
@@ -93,8 +93,8 @@ function ComposerContextChip({
   return (
     <span
       className={cn(
-        "inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-[#ededed] bg-white px-2.5 pr-1.5",
-        "font-medium text-[#1b1b1b] text-[13px] leading-none shadow-[0_1px_2px_rgba(0,0,0,0.03)]",
+        "inline-flex h-8 max-w-full items-center gap-2 rounded-full border border-border bg-background px-2.5 pr-1.5",
+        "font-medium text-[13px] text-foreground leading-none shadow-[0_1px_2px_rgba(0,0,0,0.03)]",
       )}
     >
       <span
@@ -103,7 +103,7 @@ function ComposerContextChip({
           "flex size-5 shrink-0 items-center justify-center rounded-full",
           tone === "skill"
             ? "bg-[linear-gradient(135deg,#2e7cff,#67d7ff)] text-white"
-            : "bg-[#f7f7f7] text-[#5f5f5f]",
+            : "bg-secondary text-fg-secondary",
         )}
       >
         {tone === "skill" ? (
@@ -117,7 +117,7 @@ function ComposerContextChip({
       {onClear ? (
         <button
           aria-label={`Remove ${typeLabel.toLowerCase()} ${label}`}
-          className="flex size-5 shrink-0 items-center justify-center rounded-full text-[#8a8a8a] transition-colors hover:bg-[#f7f7f7] hover:text-[#1b1b1b] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#1b1b1b]/15"
+          className="flex size-6 shrink-0 items-center justify-center rounded-full text-placeholder transition-colors hover:bg-secondary hover:text-foreground"
           onClick={onClear}
           type="button"
         >

@@ -1,10 +1,10 @@
 /**
  * Pure helpers for the preview URL bar. The preview iframe is cross-origin
- * (Daytona preview-proxy host / local `.localhost` host, with legacy
- * `/__sandbox/<b64host>` support), so we can only know and control the *entry
+ * (Daytona preview-proxy host or the local `/__sandbox/<b64host>` proxy route),
+ * so we can only know and control the *entry
  * URL* we assign — never the live SPA location after in-app navigation
  * (`contentWindow.location` throws `SecurityError`). The bar shows the last
- * commanded URL, not where the app actually is (preview-surface §A5).
+ * commanded URL, not where the app actually is.
  */
 
 const SANDBOX_PROXY_PREFIX = "/__sandbox/";
@@ -14,7 +14,7 @@ interface SplitPreviewUrl {
   path: string;
 }
 
-/** Origin to navigate within. Preserves the legacy local-dev `/__sandbox/<host>` prefix. */
+/** Origin to navigate within. Preserves the current local proxy's `/__sandbox/<host>` prefix. */
 export function previewOrigin(previewUrl: string): string {
   const split = splitPreviewUrl(previewUrl);
   return split === null ? previewUrl : split.base;

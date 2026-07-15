@@ -2,9 +2,9 @@ import type { CSSProperties, ReactNode } from "react";
 import type { PreviewDevice } from "@/lib/store/app-store";
 
 /**
- * Functional device bezel slot (preview-surface §7.3 / §A2). `desktop` passes
+ * Functional device bezel slot. `desktop` passes
  * through full-width; `tablet`/`phone` center the iframe inside a rounded device
- * bezel on a soft amber-tinted paper backdrop, mirroring bud's preview-mode
+ * bezel on a soft amber-tinted paper backdrop, mirroring Cheatcode's preview-mode
  * frames. Presentational only - no device logic, just the structural frame.
  */
 
@@ -26,7 +26,7 @@ export function DeviceFrame({ children, device }: { children: ReactNode; device:
     >
       {isPhone ? (
         <div
-          className="relative flex flex-col overflow-hidden rounded-[44px] border-[#1b1b1b] border-[12px] bg-white shadow-[0_24px_70px_rgba(27,27,27,0.22)]"
+          className="relative flex flex-col overflow-hidden rounded-[44px] border-[12px] border-foreground bg-background shadow-[0_24px_70px_rgba(27,27,27,0.22)]"
           data-device-frame={device}
           // Lock the iPhone 390x844 silhouette and scale to fit BOTH panel axes with pure
           // CSS (container-query units): width fills the panel height, clamped to its width.
@@ -36,7 +36,7 @@ export function DeviceFrame({ children, device }: { children: ReactNode; device:
         </div>
       ) : (
         <div
-          className="flex h-full w-full max-w-[834px] flex-col overflow-hidden rounded-[28px] border-[#1b1b1b] border-[14px] bg-white shadow-[0_24px_70px_rgba(27,27,27,0.22)]"
+          className="flex h-full w-full max-w-[834px] flex-col overflow-hidden rounded-[28px] border-[14px] border-foreground bg-background shadow-[0_24px_70px_rgba(27,27,27,0.22)]"
           data-device-frame={device}
         >
           {children}

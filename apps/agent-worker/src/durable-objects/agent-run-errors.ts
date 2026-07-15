@@ -1,4 +1,4 @@
-import { APIError, normalizeUnknownError } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import type { ErrorCode } from "@cheatcode/types";
 
 export interface AgentRunStreamError {
@@ -12,13 +12,13 @@ export function toAgentRunStreamError(error: unknown): AgentRunStreamError {
     return {
       code: error.code,
       message: error.message,
-      retriable: error.opts.retriable ?? false,
+      retriable: error.retriable,
     };
   }
 
   return {
     code: "tool_execution_failed",
-    message: normalizeUnknownError(error, "Unknown agent error").message,
+    message: "Agent run failed unexpectedly",
     retriable: true,
   };
 }

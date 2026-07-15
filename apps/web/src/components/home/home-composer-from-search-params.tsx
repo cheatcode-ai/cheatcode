@@ -5,10 +5,7 @@ import { type IntegrationName, IntegrationNameSchema } from "@cheatcode/types";
 import { useEffect, useState } from "react";
 import { HomeComposer } from "./home-composer";
 
-const INITIAL_PROMPT_MAX_LENGTH = 4_000;
-
 type InitialComposerParams = {
-  prompt?: string | undefined;
   promptKey?: string | undefined;
   skill?: string | undefined;
   skillCreator?: boolean | undefined;
@@ -25,7 +22,6 @@ export function HomeComposerFromSearchParams({
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
     setParams({
-      prompt: validInitialPrompt(searchParams.get("prompt")),
       promptKey: validInitialPromptKey(searchParams.get("promptKey")),
       skill: validInitialSkill(searchParams.get("skill")),
       skillCreator: searchParams.get("mode") === "skill-creator",
@@ -39,7 +35,6 @@ export function HomeComposerFromSearchParams({
 
   return (
     <HomeComposer
-      initialPrompt={params.prompt}
       initialPromptKey={params.promptKey}
       initialSkill={params.skill}
       initialTool={params.tool}
@@ -60,13 +55,6 @@ function validInitialSkill(value: string | null): string | undefined {
 function validInitialTool(value: string | null): IntegrationName | undefined {
   const result = IntegrationNameSchema.safeParse(value);
   return result.success ? result.data : undefined;
-}
-
-function validInitialPrompt(value: string | null): string | undefined {
-  if (value && value.length <= INITIAL_PROMPT_MAX_LENGTH) {
-    return value;
-  }
-  return undefined;
 }
 
 function validInitialPromptKey(value: string | null): string | undefined {

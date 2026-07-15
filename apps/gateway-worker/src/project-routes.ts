@@ -1,5 +1,7 @@
-import { hmacSha256Base64 } from "@cheatcode/auth";
+import { createInternalMaintenanceHeaders } from "@cheatcode/auth";
 import {
+  beginProjectDeletion,
+  completeProjectWorkspaceCleanup,
   createDb,
   createProject,
   createThread,
@@ -9,9 +11,9 @@ import {
   listProjects,
   listProjectThreads,
   listThreadMessages,
+  lockUserProjectMutations,
   type MessageRecord,
   type ProjectSummaryRecord,
-  softDeleteProject,
   softDeleteThread,
   type ThreadRecord,
   updateProject,
@@ -19,11 +21,13 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError } from "@cheatcode/observability";
+import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   CreateProjectSchema,
   type CreateThread,
   CreateThreadSchema,
+  InternalAgentStateDeleteBodySchema,
+  internalUserStateDeletePath,
   Paginated,
   PaginationQuerySchema,
   ProjectId,
@@ -39,6 +43,9 @@ import {
 } from "@cheatcode/types";
 import { z } from "zod";
 import { enforceActiveProjectLimit, type LimitBindings } from "./limits";
+import type { WaitUntilContext } from "./wait-until-context";
+
+const MAX_PROJECT_REQUEST_BYTES = 64 * 1024;
 
 export interface ProjectRouteEnv extends LimitBindings {
   AGENT: Fetcher;
@@ -47,19 +54,39 @@ export interface ProjectRouteEnv extends LimitBindings {
 }
 
 const IdParamSchema = z.string().uuid();
+const PageCursorSchema = z
+  .object({
+    at: z.string().datetime(),
+    id: z.string().uuid(),
+    kind: z.enum(["messages", "projects", "threads"]),
+    v: z.literal(1),
+  })
+  .strict();
+type PageCursorKind = z.infer<typeof PageCursorSchema>["kind"];
 
 export async function listProjectsRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const pagination = parsePagination(request);
+  const pagination = parsePagination(request, "projects");
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const projects = await withUserContext(db, userId, (tx) => listProjects(tx, userId));
-    const page = paginate(projects.map(projectResponse), pagination);
-    return Response.json(Paginated(ProjectSummarySchema).parse(page));
+    const projects = await withUserContext(db, userId, (tx) =>
+      listProjects(tx, {
+        ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
+        limit: pagination.limit + 1,
+        userId,
+      }),
+    );
+    const page = paginateRows(projects, pagination, "projects");
+    return Response.json(
+      Paginated(ProjectSummarySchema).parse({
+        ...page,
+        data: page.data.map(projectResponse),
+      }),
+    );
   } finally {
     ctx.waitUntil(close());
   }
@@ -67,22 +94,21 @@ export async function listProjectsRoute(
 
 export async function createProjectRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const parsedInput = CreateProjectSchema.safeParse(await request.json());
+  const parsedInput = CreateProjectSchema.safeParse(
+    await readJsonRequest(request, MAX_PROJECT_REQUEST_BYTES, "Project request"),
+  );
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project payload", parsedInput.error);
   }
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const project = await withUserContext(db, userId, async (tx) => {
-      await enforceActiveProjectLimit(env, tx, userId);
+      await enforceActiveProjectLimit(tx, userId);
       return createProject(tx, {
-        ...(parsedInput.data.budgetCapUsd === undefined
-          ? {}
-          : { budgetCapUsd: parsedInput.data.budgetCapUsd }),
         ...(parsedInput.data.importRepoUrl
           ? { importRepoUrl: parsedInput.data.importRepoUrl }
           : {}),
@@ -105,7 +131,7 @@ export async function createProjectRoute(
 
 export async function getProjectRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
@@ -115,7 +141,7 @@ export async function getProjectRoute(
       getProject(tx, { projectId, userId }),
     );
     if (!project) {
-      throw notFound("Project not found");
+      throw projectNotFound();
     }
     return Response.json(ProjectSummarySchema.parse(projectResponse(project)));
   } finally {
@@ -125,12 +151,14 @@ export async function getProjectRoute(
 
 export async function updateProjectRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const parsedInput = UpdateProjectSchema.safeParse(await request.json());
+  const parsedInput = UpdateProjectSchema.safeParse(
+    await readJsonRequest(request, MAX_PROJECT_REQUEST_BYTES, "Project request"),
+  );
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project update payload", parsedInput.error);
   }
@@ -139,7 +167,6 @@ export async function updateProjectRoute(
     const input = parsedInput.data;
     const project = await withUserContext(db, userId, (tx) =>
       updateWritableProject(tx, projectId, userId, {
-        ...(input.budgetCapUsd === undefined ? {} : { budgetCapUsd: input.budgetCapUsd }),
         ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
         ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
         ...(input.masterInstructions === undefined
@@ -149,7 +176,7 @@ export async function updateProjectRoute(
       }),
     );
     if (!project) {
-      throw notFound("Project not found");
+      throw projectNotFound();
     }
     return Response.json(ProjectSummarySchema.parse(projectResponse(project)));
   } finally {
@@ -159,39 +186,52 @@ export async function updateProjectRoute(
 
 export async function deleteProjectRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
+  const maintenanceSecret = await readMaintenanceSecret(env);
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    // Read the workspace slug BEFORE soft-deleting (getProject filters deleted rows out) so the
-    // agent worker can reclaim ONLY this project's /workspace/<slug> folder — scope "project"
-    // guarantees it never destroys the shared per-user sandbox and the user's other projects.
-    const project = await withUserContext(db, userId, (tx) =>
-      getProject(tx, { projectId, userId }),
+    const deletion = await withUserContext(db, userId, (tx) =>
+      beginProjectDeletion(tx, { projectId, userId }),
     );
-    if (!project) {
-      throw notFound("Project not found");
+    if (deletion.type === "not-found") {
+      throw projectNotFound();
     }
-    const cleanupBody = JSON.stringify({
-      projects: [
-        {
-          id: projectId,
-          ...(project.workspaceSlug ? { workspaceSlug: project.workspaceSlug } : {}),
-        },
-      ],
-      runIds: [],
-      scope: "project",
+    if (deletion.type === "active-run") {
+      throw new APIError(409, "conflict_run_already_active", "Project has an active agent run", {
+        hint: "Cancel or wait for every project run to finish, then retry deletion.",
+        retriable: true,
+      });
+    }
+    if (deletion.type === "cleanup-completed") {
+      return new Response(null, { status: 204 });
+    }
+    const cleanupBody = JSON.stringify(
+      InternalAgentStateDeleteBodySchema.parse({
+        scope: "project",
+        workspaceSlug: deletion.workspaceSlug,
+      }),
+    );
+    const pathname = internalUserStateDeletePath(userId);
+    const cleanupHeaders = await createInternalMaintenanceHeaders({
+      method: "POST",
+      pathname,
+      rawBody: cleanupBody,
+      secret: maintenanceSecret,
     });
-    const cleanupHeaders = await internalMaintenanceHeaders(env, cleanupBody);
-    const deleted = await withUserContext(db, userId, (tx) =>
-      softDeleteProject(tx, { projectId, userId }),
+    cleanupHeaders.set("content-type", "application/json");
+    await deleteProjectAgentState(env, pathname, cleanupBody, cleanupHeaders);
+    const completed = await withUserContext(db, userId, (tx) =>
+      completeProjectWorkspaceCleanup(tx, { projectId, userId }),
     );
-    if (!deleted) {
-      throw notFound("Project not found");
+    if (!completed) {
+      throw new APIError(503, "unavailable_maintenance", "Project cleanup state was not saved", {
+        hint: "Retry deletion. Workspace cleanup is idempotent.",
+        retriable: true,
+      });
     }
-    ctx.waitUntil(deleteProjectAgentState(env, userId, cleanupBody, cleanupHeaders));
     return new Response(null, { status: 204 });
   } finally {
     ctx.waitUntil(close());
@@ -200,24 +240,27 @@ export async function deleteProjectRoute(
 
 export async function listProjectThreadsRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const pagination = parsePagination(request);
+  const pagination = parsePagination(request, "threads");
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const threadRows = await withUserContext(db, userId, async (tx) => {
       await requireProject(tx, projectId, userId);
       return listProjectThreads(tx, {
-        ...(pagination.cursor === undefined ? { limit: pagination.limit + 1 } : {}),
+        ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
+        limit: pagination.limit + 1,
         projectId,
         userId,
       });
     });
-    const page = paginate(threadRows.map(threadResponse), pagination);
-    return Response.json(Paginated(ThreadSchema).parse(page));
+    const page = paginateRows(threadRows, pagination, "threads");
+    return Response.json(
+      Paginated(ThreadSchema).parse({ ...page, data: page.data.map(threadResponse) }),
+    );
   } finally {
     ctx.waitUntil(close());
   }
@@ -231,11 +274,13 @@ export async function listProjectThreadsRoute(
  */
 export async function createChatRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const parsedInput = CreateThreadSchema.safeParse(await request.json());
+  const parsedInput = CreateThreadSchema.safeParse(
+    await readJsonRequest(request, MAX_PROJECT_REQUEST_BYTES, "Thread request"),
+  );
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread payload", parsedInput.error);
   }
@@ -292,7 +337,7 @@ function hasLaunchIntent(launchIntent: NonNullable<CreateThreadInsert["launchInt
 
 export async function getThreadRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
@@ -300,7 +345,7 @@ export async function getThreadRoute(
   try {
     const thread = await withUserContext(db, userId, (tx) => getThread(tx, { threadId, userId }));
     if (!thread) {
-      throw notFound("Thread not found");
+      throw threadNotFound();
     }
     return Response.json(ThreadSchema.parse(threadResponse(thread)));
   } finally {
@@ -310,12 +355,14 @@ export async function getThreadRoute(
 
 export async function updateThreadRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const parsedInput = UpdateThreadSchema.safeParse(await request.json());
+  const parsedInput = UpdateThreadSchema.safeParse(
+    await readJsonRequest(request, MAX_PROJECT_REQUEST_BYTES, "Thread request"),
+  );
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread update payload", parsedInput.error);
   }
@@ -325,7 +372,7 @@ export async function updateThreadRoute(
       updateThread(tx, { threadId, title: parsedInput.data.title, userId }),
     );
     if (!thread) {
-      throw notFound("Thread not found");
+      throw threadNotFound();
     }
     return Response.json(ThreadSchema.parse(threadResponse(thread)));
   } finally {
@@ -335,7 +382,7 @@ export async function updateThreadRoute(
 
 export async function deleteThreadRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
@@ -344,8 +391,14 @@ export async function deleteThreadRoute(
     const deleted = await withUserContext(db, userId, (tx) =>
       softDeleteThread(tx, { threadId, userId }),
     );
-    if (!deleted) {
-      throw notFound("Thread not found");
+    if (deleted === "not-found") {
+      throw threadNotFound();
+    }
+    if (deleted === "active-run") {
+      throw new APIError(409, "conflict_run_already_active", "Thread has an active agent run", {
+        hint: "Cancel or wait for the run to finish, then retry deletion.",
+        retriable: true,
+      });
     }
     return new Response(null, { status: 204 });
   } finally {
@@ -355,20 +408,35 @@ export async function deleteThreadRoute(
 
 export async function listThreadMessagesRoute(
   env: ProjectRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const pagination = parsePagination(request);
+  const pagination = parsePagination(request, "messages");
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const rows = await withUserContext(db, userId, async (tx) => {
       await requireThread(tx, threadId, userId);
-      return listThreadMessages(tx, { threadId, userId });
+      return listThreadMessages(tx, {
+        ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
+        limit: pagination.limit + 1,
+        threadId,
+        userId,
+      });
     });
-    const page = paginate(rows.map(messageResponse), pagination);
-    return Response.json(Paginated(UIMessageRecordSchema).parse(page));
+    const page = paginateRows(rows, pagination, "messages");
+    return Response.json(
+      Paginated(UIMessageRecordSchema).parse({
+        ...page,
+        // The cursor walks newest -> older, while each page remains directly
+        // renderable in chronological order.
+        data: [...page.data].reverse().map(messageResponse),
+      }),
+      {
+        headers: { "Cache-Control": "private, no-store" },
+      },
+    );
   } finally {
     ctx.waitUntil(close());
   }
@@ -397,7 +465,7 @@ async function requireProject(
 ): Promise<void> {
   const project = await getProject(db, { projectId, userId });
   if (!project) {
-    throw notFound("Project not found");
+    throw projectNotFound();
   }
 }
 
@@ -406,9 +474,10 @@ async function requireWritableProject(
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<void> {
+  await lockUserProjectMutations(db, userId);
   const state = await getProjectWriteState(db, { projectId, userId });
   if (!state) {
-    throw notFound("Project not found");
+    throw projectNotFound();
   }
   if (state.readOnly) {
     throw new APIError(403, "permission_plan_required", "Project is read-only after downgrade", {
@@ -439,7 +508,7 @@ async function requireThread(
 ): Promise<void> {
   const thread = await getThread(db, { threadId, userId });
   if (!thread) {
-    throw notFound("Thread not found");
+    throw threadNotFound();
   }
 }
 
@@ -447,7 +516,6 @@ function projectResponse(project: ProjectSummaryRecord) {
   return {
     archiveAfter: project.archiveAfter?.toISOString() ?? null,
     archivedPendingAction: project.archivedPendingAction,
-    budgetCapUsd: project.budgetCapUsd,
     createdAt: project.createdAt.toISOString(),
     defaultModel: project.defaultModel,
     id: project.id,
@@ -487,7 +555,12 @@ function messageResponse(message: MessageRecord) {
   };
 }
 
-function parsePagination(request: Request): { cursor?: string; limit: number } {
+interface RoutePagination {
+  cursor?: { at: string; id: string };
+  limit: number;
+}
+
+function parsePagination(request: Request, kind: PageCursorKind): RoutePagination {
   const url = new URL(request.url);
   const parsed = PaginationQuerySchema.safeParse({
     cursor: url.searchParams.get("cursor") ?? undefined,
@@ -496,28 +569,54 @@ function parsePagination(request: Request): { cursor?: string; limit: number } {
   if (!parsed.success) {
     throw invalidQueryParam("Invalid pagination query", parsed.error);
   }
-  return {
-    limit: parsed.data.limit,
-    ...(parsed.data.cursor === undefined ? {} : { cursor: parsed.data.cursor }),
-  };
+  if (parsed.data.cursor === undefined) {
+    return { limit: parsed.data.limit };
+  }
+  const cursor = decodePageCursor(parsed.data.cursor, kind);
+  return { cursor: { at: cursor.at, id: cursor.id }, limit: parsed.data.limit };
 }
 
-function paginate<T extends { id: string }>(
+function paginateRows<T extends { id: string; pageCursorAt: string }>(
   rows: T[],
-  pagination: { cursor?: string; limit: number },
+  pagination: RoutePagination,
+  kind: PageCursorKind,
 ): { data: T[]; has_more: boolean; next_cursor: string | null } {
-  const startIndex =
-    pagination.cursor === undefined
-      ? 0
-      : Math.max(0, rows.findIndex((row) => row.id === pagination.cursor) + 1);
-  const data = rows.slice(startIndex, startIndex + pagination.limit);
-  const nextCursor = data.length > 0 ? (data.at(-1)?.id ?? null) : null;
-  const hasMore = startIndex + pagination.limit < rows.length;
+  const hasMore = rows.length > pagination.limit;
+  const data = hasMore ? rows.slice(0, pagination.limit) : rows;
+  const last = data.at(-1);
   return {
     data,
     has_more: hasMore,
-    next_cursor: hasMore ? nextCursor : null,
+    next_cursor:
+      hasMore && last ? encodePageCursor({ at: last.pageCursorAt, id: last.id, kind, v: 1 }) : null,
   };
+}
+
+function decodePageCursor(value: string, expectedKind: PageCursorKind) {
+  try {
+    if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
+      throw new Error("invalid base64url");
+    }
+    const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    const parsed = PageCursorSchema.parse(JSON.parse(atob(padded)) as unknown);
+    if (parsed.kind !== expectedKind) {
+      throw new Error("cursor kind mismatch");
+    }
+    return parsed;
+  } catch {
+    throw new APIError(400, "invalid_query_param", "Invalid pagination cursor", {
+      hint: "Use next_cursor from the immediately preceding page of this collection.",
+      retriable: false,
+    });
+  }
+}
+
+function encodePageCursor(cursor: z.infer<typeof PageCursorSchema>): string {
+  return btoa(JSON.stringify(PageCursorSchema.parse(cursor)))
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
 }
 
 function invalidRequestBody(message: string, error: z.ZodError): APIError {
@@ -529,35 +628,23 @@ function invalidRequestBody(message: string, error: z.ZodError): APIError {
 
 async function deleteProjectAgentState(
   env: ProjectRouteEnv,
-  userId: UserId,
+  pathname: string,
   body: string,
   headers: Headers,
 ): Promise<void> {
-  const response = await env.AGENT.fetch(
-    `https://agent.internal/internal/users/${userId}/delete-state`,
-    {
-      body,
-      headers,
-      method: "POST",
-    },
-  );
+  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
+    body,
+    headers,
+    method: "POST",
+  });
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new APIError(503, "unavailable_maintenance", "Project sandbox cleanup failed", {
       details: { status: response.status },
       retriable: true,
     });
   }
-}
-
-async function internalMaintenanceHeaders(env: ProjectRouteEnv, rawBody: string): Promise<Headers> {
-  const secret = await readMaintenanceSecret(env);
-  const timestamp = String(Date.now());
-  const signature = await hmacSha256Base64(`${timestamp}.${rawBody}`, secret);
-  return new Headers({
-    "content-type": "application/json",
-    "x-cheatcode-maintenance-signature": signature,
-    "x-cheatcode-maintenance-timestamp": timestamp,
-  });
+  await response.body?.cancel().catch(() => undefined);
 }
 
 async function readMaintenanceSecret(env: ProjectRouteEnv): Promise<string> {
@@ -593,6 +680,10 @@ function invalidQueryParam(message: string, error: z.ZodError): APIError {
   });
 }
 
-function notFound(message: string): APIError {
-  return new APIError(404, "not_found_project", message, { retriable: false });
+function projectNotFound(): APIError {
+  return new APIError(404, "not_found_project", "Project not found", { retriable: false });
+}
+
+function threadNotFound(): APIError {
+  return new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
 }

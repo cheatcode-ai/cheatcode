@@ -6,7 +6,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "dev": "wrangler dev --port 8789",
+    "dev": "wrangler dev --port 8789 --var CHEATCODE_ENVIRONMENT:development",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -14,14 +14,13 @@
     "@cheatcode/auth": "workspace:*",
     "@cheatcode/billing": "workspace:*",
     "@cheatcode/byok": "workspace:*",
+    "@cheatcode/composio": "workspace:*",
     "@cheatcode/db": "workspace:*",
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "@clerk/backend": "catalog:",
-    "@composio/core": "catalog:",
     "@polar-sh/sdk": "catalog:",
-    "croner": "^10.0.1",
     "hono": "catalog:",
     "zod": "catalog:"
   },

@@ -1,24 +1,29 @@
+import type { AgentCapabilityName } from "@cheatcode/types";
 import { Mastra } from "@mastra/core";
+import { InMemoryStore } from "@mastra/core/storage";
 import { generalAgent } from "./agents";
 import { deepResearch, deepResearchFanout } from "./workflows";
 
 type CheatcodeMastra = {
-  getAgent(name: "general"): typeof generalAgent;
+  getAgent(name: AgentCapabilityName): typeof generalAgent;
   getWorkflow(name: "deepResearch"): typeof deepResearch;
   getWorkflow(name: "deepResearchFanout"): typeof deepResearchFanout;
 };
 
+const cheatcodeAgents = {
+  general: generalAgent,
+} as const satisfies Record<AgentCapabilityName, typeof generalAgent>;
+
 const mastraInstance = new Mastra({
-  agents: {
-    general: generalAgent,
-  },
+  agents: cheatcodeAgents,
+  storage: new InMemoryStore({ id: "cheatcode-ephemeral-execution" }),
   workflows: {
     deepResearch,
     deepResearchFanout,
   },
 });
 
-function getAgent(name: "general"): typeof generalAgent {
+function getAgent(name: AgentCapabilityName): typeof generalAgent {
   return mastraInstance.getAgent(name);
 }
 

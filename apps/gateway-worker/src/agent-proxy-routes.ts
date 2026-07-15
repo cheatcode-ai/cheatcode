@@ -1,4 +1,8 @@
-import { APIError } from "@cheatcode/observability";
+import {
+  APIError,
+  readBoundedRequestText,
+  readBoundedResponseJson,
+} from "@cheatcode/observability";
 import {
   ApprovalDecisionRequestSchema,
   ApprovalDecisionResponseSchema,
@@ -7,40 +11,51 @@ import {
 } from "@cheatcode/types";
 import type { Context } from "hono";
 import type { z } from "zod";
+import { agentServiceHeaders, agentServiceRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
-import type { GatewayEnv } from "./index";
+import type { GatewayEnv } from "./gateway-env";
 import { rateLimit, withRateLimitHeaders } from "./rate-limit";
 
 type GatewayProxyContext = Context<{ Bindings: GatewayEnv }>;
 
 const APPROVAL_DECISION_ROUTE = "POST /v1/runs/:runId/approvals/:approvalId";
+const MAX_APPROVAL_BODY_BYTES = 4 * 1024;
+const MAX_APPROVAL_RESPONSE_BYTES = 16 * 1024;
+const MAX_CONSOLE_RESPONSE_BYTES = 2 * 1024 * 1024;
 const SANDBOX_CONSOLE_ROUTE = "GET /v1/threads/:threadId/sandbox/console";
 
 /**
  * `POST /v1/runs/:runId/approvals/:approvalId` — validates the allow/deny body
  * at the public boundary, forwards verbatim to the agent-worker (which routes to
  * the AgentRun DO for ownership + state-machine enforcement, emitting `404`
- * `not_found_approval`, `410` `gone_approval_expired`, or `409`
- * `conflict_state_invalid` when the run is no longer live), then re-parses the
+ * for a missing run or `409` when the approval cannot be resolved), then re-parses the
  * `200` resolution before returning it.
  */
 export async function decideRunApprovalRoute(c: GatewayProxyContext): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
   const rateLimitHeaders = await rateLimit(c, userId, APPROVAL_DECISION_ROUTE);
-  const rawBody = await c.req.raw.text();
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_APPROVAL_BODY_BYTES,
+    "Approval decision",
+  );
   const parsed = ApprovalDecisionRequestSchema.safeParse(parseJsonRequestBody(rawBody));
   if (!parsed.success) {
     throw invalidRequestBody("Invalid approval decision payload", parsed.error);
   }
   const forwarded = new Request(c.req.raw.url, {
     body: rawBody,
-    headers: c.req.raw.headers,
+    headers: agentServiceHeaders(c.req.raw.headers, userId),
     method: "POST",
   });
-  forwarded.headers.set("X-Cheatcode-User-Id", userId);
   const response = await c.env.AGENT.fetch(forwarded);
   return withRateLimitHeaders(
-    await parseForwardedJsonResponse(response, ApprovalDecisionResponseSchema),
+    await parseForwardedJsonResponse(
+      response,
+      ApprovalDecisionResponseSchema,
+      MAX_APPROVAL_RESPONSE_BYTES,
+      "Agent approval",
+    ),
     rateLimitHeaders,
   );
 }
@@ -58,11 +73,15 @@ export async function readSandboxConsoleRoute(c: GatewayProxyContext): Promise<R
   if (!query.success) {
     throw invalidQueryParam("Invalid sandbox console query", query.error);
   }
-  const forwarded = new Request(c.req.raw);
-  forwarded.headers.set("X-Cheatcode-User-Id", userId);
+  const forwarded = agentServiceRequest(c.req.raw, userId);
   const response = await c.env.AGENT.fetch(forwarded);
   return withRateLimitHeaders(
-    await parseForwardedJsonResponse(response, SandboxConsoleSnapshotSchema),
+    await parseForwardedJsonResponse(
+      response,
+      SandboxConsoleSnapshotSchema,
+      MAX_CONSOLE_RESPONSE_BYTES,
+      "Agent console",
+    ),
     rateLimitHeaders,
   );
 }
@@ -83,11 +102,13 @@ function parseJsonRequestBody(rawBody: string): unknown {
 async function parseForwardedJsonResponse<Schema extends z.ZodTypeAny>(
   response: Response,
   schema: Schema,
+  maxBytes: number,
+  label: string,
 ): Promise<Response> {
   if (!response.ok) {
     return response;
   }
-  const payload: unknown = await response.json();
+  const payload = await readBoundedResponseJson(response, maxBytes, label);
   const data = schema.parse(payload);
   return new Response(JSON.stringify(data), {
     headers: { "Content-Type": "application/json; charset=utf-8" },

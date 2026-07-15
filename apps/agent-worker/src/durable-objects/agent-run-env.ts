@@ -7,10 +7,10 @@ export interface AgentRunEnv extends AnalyticsBindings {
   DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
-  OUTPUT_DOWNLOAD_SIGNING_SECRET: string;
-  PREVIEW_HOSTNAME?: string;
+  OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
+  PREVIEW_HOSTNAME: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
-  QUOTA_TRACKER?: DurableObjectNamespace;
+  QUOTA_TRACKER: DurableObjectNamespace;
   R2_OUTPUTS: R2Bucket;
   R2_OUTPUTS_BUCKET_NAME?: string;
 }

@@ -1,37 +1,51 @@
-import { APIError, emitUserEvent } from "@cheatcode/observability";
+import {
+  type AnalyticsBindings,
+  APIError,
+  type createLogger,
+  emitUserEvent,
+} from "@cheatcode/observability";
+import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import {
   executeShellExec,
   executeShellTerminal,
   executeStartDevServer,
-  executeWriteFile,
 } from "@cheatcode/tools-code";
+import type { ProjectMode } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
-import { z } from "zod";
 import {
-  type AgentRunAppBuilderEnv,
-  type AgentRunAppBuilderInput,
-  type AgentRunLogger,
-  type ProjectSandboxStub,
-  restoreBestEffortSnapshot,
-  snapshotAppBuilderWorkspace,
-} from "./app-builder-snapshot";
-import {
-  appBuilderGlobalStylesSource,
-  appBuilderLayoutSource,
-  appBuilderPageSource,
-} from "./app-builder-template";
-import { signedUrlToExpo } from "./project-sandbox-preview";
+  ensureExpoWebSupport,
+  installAppBuilderDependencies,
+  scaffoldAppBuilder,
+  scaffoldExpoApp,
+  writeAppBuilderFiles,
+} from "./agent-run-app-builder-scaffold";
 
-export { restoreBestEffortSnapshot, snapshotAppBuilderWorkspace };
+export type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
+export type AgentRunLogger = ReturnType<typeof createLogger>;
+
+interface AgentRunAppBuilderEnv extends AnalyticsBindings {
+  HYPERDRIVE: Hyperdrive;
+}
+
+interface AgentRunAppBuilderInput {
+  importRepoUrl?: string | undefined;
+  isFirstRun?: boolean;
+  messageText: string;
+  projectId: string;
+  projectMode?: ProjectMode;
+  runId?: string | undefined;
+  sandboxName: string;
+  threadId: string;
+  userId: string;
+  workspaceSlug: string;
+}
 
 // Informational only: the mobile port hint threaded into an imported project's context note. The
 // actual Metro port is allocated per-project by the DO, not fixed to this value.
 const DEFAULT_MOBILE_PORT = 8081;
-// 24h is Daytona's max signed-preview TTL; the token rides in the subdomain so Expo Go needs no
-// header, and we re-mint on every dev-server (re)start so it never serves an expired manifest URL.
-const SIGNED_PREVIEW_TTL_SECONDS = 24 * 60 * 60;
-const DEFAULT_PREVIEW_HOSTNAME = "trycheatcode.com";
-const PreviewHostnameSchema = z.string().trim().min(1).max(255).default(DEFAULT_PREVIEW_HOSTNAME);
+// Keep the header-free Expo Go capability short-lived. It is re-minted whenever
+// the preview wakes, so a fresh QR is available without leaving a day-long URL live.
+const SIGNED_PREVIEW_TTL_SECONDS = 60 * 60;
 
 type AppendChunk = (chunk: UIMessageChunk) => Promise<void>;
 
@@ -44,7 +58,7 @@ interface GitHubRepoRef {
 
 // The per-project workspace this run builds in: its folder under /workspace, its stable dev-server
 // port within the per-user sandbox, and the process slot that keeps it distinct from other
-// projects' dev servers (all of which persist side by side — bud parity).
+// projects' dev servers (all of which persist side by side — Cheatcode parity).
 interface AppBuilderWorkspace {
   dir: string;
   mobile: boolean;
@@ -54,11 +68,6 @@ interface AppBuilderWorkspace {
 
 function isMobileBuild(input: AgentRunAppBuilderInput): boolean {
   return input.projectMode === "app-builder-mobile";
-}
-
-function basename(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? path : path.slice(index + 1);
 }
 
 async function allocateAppPort(
@@ -83,7 +92,7 @@ async function allocateAppPort(
     return port;
   } catch (error) {
     logger.error("app_port_alloc_failed", {
-      error: error instanceof Error ? error.message : String(error),
+      error,
       slug,
     });
     throw appPortAllocationError(slug);
@@ -119,6 +128,7 @@ async function resolveAppWorkspace(
 }
 
 interface RunAppBuilderOptions {
+  abortSignal: AbortSignal;
   append: AppendChunk;
   env: AgentRunAppBuilderEnv;
   input: AgentRunAppBuilderInput;
@@ -126,7 +136,7 @@ interface RunAppBuilderOptions {
   sandbox: ProjectSandboxStub;
   // Harness workspace setup runs before the model streams; its progress is status
   // chrome (run stage / Computer panel), never visible answer prose. Anything the
-  // model needs to know (e.g. the live preview URL) is handed to it as agentContextNote.
+  // model needs to know is handed to it as agentContextNote.
   setRunStage: (stage: string) => void;
 }
 
@@ -136,10 +146,12 @@ export async function runAppBuilder(
   options: RunAppBuilderOptions,
 ): Promise<{ agentContextNote?: string }> {
   const { input, logger, sandbox } = options;
+  throwIfRunCanceled(options.abortSignal);
   const workspace = await resolveAppWorkspace(sandbox, input, logger);
   // Stop only THIS project's dev server before rebuilding — other projects in the per-user sandbox
-  // keep running (bud parity: every project's dev server persists on its own port).
+  // keep running (Cheatcode parity: every project's dev server persists on its own port).
   await stopProjectPreview(sandbox, logger, workspace.slot);
+  throwIfRunCanceled(options.abortSignal);
   const workspaceOptions: WorkspaceOptions = { ...options, workspace };
   // Marker/.git gate runs FIRST: an imported repo (any framework shape) must
   // never fall back into the destructive reset + re-clone scaffold path on a
@@ -162,26 +174,22 @@ export async function runAppBuilder(
 async function runTemplateAppBuilder(
   options: WorkspaceOptions & { shouldBootstrap: boolean },
 ): Promise<{ agentContextNote: string }> {
-  const { env, input, logger, sandbox, workspace } = options;
+  const { sandbox, workspace } = options;
+  throwIfRunCanceled(options.abortSignal);
   await prepareTemplateWorkspace(options);
+  throwIfRunCanceled(options.abortSignal);
   await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
-  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
-  const preview = await startTemplatePreview(options);
-  return { agentContextNote: templateContextNote(workspace, preview) };
+  throwIfRunCanceled(options.abortSignal);
+  await startTemplatePreview(options);
+  return { agentContextNote: templateContextNote(workspace) };
 }
 
-function templateContextNote(
-  workspace: AppBuilderWorkspace,
-  preview: { previewUrl: string; expoUrl: string | null },
-): string {
+function templateContextNote(workspace: AppBuilderWorkspace): string {
   const stack = workspace.mobile ? "Expo Router" : "Next.js";
-  const web = workspace.mobile
-    ? " The preview is the app rendered on web (react-native-web) inside a phone frame, so verify it there in the browser."
+  const mobile = workspace.mobile
+    ? " For this mobile build, that internal address renders the react-native-web preview."
     : "";
-  const expo = preview.expoUrl
-    ? ` The user can also scan the Expo Go QR code shown beside the preview (${preview.expoUrl}) to run it on a real device.`
-    : "";
-  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir} and its live preview is already running at ${preview.previewUrl}. Build the user's app by editing files under ${workspace.dir}; the preview hot-reloads on save.${web}${expo}`;
+  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir}, and its managed dev server is running internally at http://localhost:${workspace.port}. Build the user's app by editing files under ${workspace.dir}; it hot-reloads on save. Verify it with the sandbox's headed browser at that internal localhost address.${mobile} Never request or paste an external preview or Expo URL.`;
 }
 
 async function prepareTemplateWorkspace(
@@ -194,39 +202,39 @@ async function prepareTemplateWorkspace(
     setRunStage("Restoring the app workspace.");
     await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     if (mobile) {
-      await ensureExpoWebSupport(sandbox, logger, workspace.dir);
+      await ensureExpoWebSupport(sandbox, workspace.dir);
     }
     return;
   }
   await resetAppBuilderDirectory(sandbox, workspace.dir);
+  throwIfRunCanceled(options.abortSignal);
   if (mobile) {
     await scaffoldExpoApp(sandbox, logger, workspace.dir);
   } else {
     await scaffoldAppBuilder(sandbox, logger, workspace.dir);
   }
   await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
+  throwIfRunCanceled(options.abortSignal);
   if (mobile) {
-    await ensureExpoWebSupport(sandbox, logger, workspace.dir);
+    await ensureExpoWebSupport(sandbox, workspace.dir);
   } else {
     setRunStage("Seeding the starter files.");
     await writeAppBuilderFiles(input, sandbox, workspace.dir);
   }
 }
 
-async function startTemplatePreview(
-  options: WorkspaceOptions,
-): Promise<{ previewUrl: string; expoUrl: string | null }> {
-  const { append, env, logger, sandbox, setRunStage, workspace } = options;
+async function startTemplatePreview(options: WorkspaceOptions): Promise<void> {
+  const { append, logger, sandbox, setRunStage, workspace } = options;
   setRunStage("Starting the dev server.");
-  const preview = workspace.mobile
-    ? await startExpoDevServer(env, sandbox, logger, workspace)
-    : { ...(await startAppBuilderDevServer(env, sandbox, workspace)), expoUrl: null };
-  const { expoUrl, previewUrl } = preview;
+  if (workspace.mobile) {
+    await startExpoDevServer(sandbox, logger, workspace);
+  } else {
+    await startAppBuilderDevServer(sandbox, workspace);
+  }
   await append({
     type: "data-sandbox-status",
-    data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
+    data: { v: 1, status: "ready" },
   });
-  return { previewUrl, expoUrl };
 }
 
 // Metro (mobile) starts BEFORE the model edits files, and its file-watcher never observes the
@@ -235,22 +243,18 @@ async function startTemplatePreview(
 // scaffold even after the counter lands on disk, and a browser hard-refresh just re-bundles from
 // that stale map. Restarting the dev server once the edit stream completes makes a fresh Metro
 // process re-crawl the workspace and bundle the finished app. startProcess reuses this project's
-// dev-server slot (it kills the old process + frees its port), and the port + preview URL are
-// stable, so the restart is transparent to the client. Mobile only — web/Next.js hot-reloads via
-// polling.
+// dev-server slot (it kills the old process + frees its port), so the restart is transparent to
+// the authenticated preview wake path. Mobile only — web/Next.js hot-reloads via polling.
 export async function restartMobilePreview(
-  options: Pick<
-    RunAppBuilderOptions,
-    "append" | "env" | "input" | "logger" | "sandbox" | "setRunStage"
-  >,
+  options: Pick<RunAppBuilderOptions, "append" | "input" | "logger" | "sandbox" | "setRunStage">,
 ): Promise<void> {
-  const { append, env, input, logger, sandbox, setRunStage } = options;
+  const { append, input, logger, sandbox, setRunStage } = options;
   setRunStage("Reloading the preview.");
   const workspace = await resolveAppWorkspace(sandbox, input, logger);
-  const { expoUrl, previewUrl } = await startExpoDevServer(env, sandbox, logger, workspace);
+  await startExpoDevServer(sandbox, logger, workspace);
   await append({
     type: "data-sandbox-status",
-    data: { v: 1, status: "ready", previewUrl, ...(expoUrl ? { expoUrl } : {}) },
+    data: { v: 1, status: "ready" },
   });
 }
 
@@ -272,11 +276,12 @@ async function importRepoWorkspace(
   logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
   setRunStage(`Cloning ${repoRef.path}.`);
   await resetAppBuilderDirectory(sandbox, workspace.dir);
+  throwIfRunCanceled(options.abortSignal);
   await cloneRepoOrThrow({ dir: workspace.dir, env, input, logger, repoRef, repoUrl, sandbox });
+  throwIfRunCanceled(options.abortSignal);
   await markImportedWorkspace(sandbox, workspace.dir);
   const installRan = await installImportedDependencies(sandbox, logger, workspace.dir);
   await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
-  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
   await emitImportReady(append);
   logger.info("repo_import_succeeded", {
     durationMs: Date.now() - startedAt,
@@ -288,17 +293,17 @@ async function importRepoWorkspace(
   return { agentContextNote: importedContextNote(workspace, repoUrl) };
 }
 
-// Every follow-up run of an imported project: re-install best-effort and snapshot,
-// but NEVER reset, re-clone, or auto-start the template dev server (prior agent
+// Every follow-up run of an imported project: re-install best-effort, but NEVER
+// reset, re-clone, or auto-start the template dev server (prior agent
 // edits must survive).
 async function restoreImportedWorkspace(
   options: WorkspaceOptions,
 ): Promise<{ agentContextNote: string }> {
-  const { append, env, input, logger, sandbox, setRunStage, workspace } = options;
+  const { append, input, logger, sandbox, setRunStage, workspace } = options;
   setRunStage("Restoring the imported workspace.");
   await installImportedDependencies(sandbox, logger, workspace.dir);
+  throwIfRunCanceled(options.abortSignal);
   await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
-  await snapshotAppBuilderWorkspace({ env, input, logger, sandbox });
   await append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
   return { agentContextNote: importedContextNote(workspace, input.importRepoUrl) };
 }
@@ -313,6 +318,13 @@ async function hasImportedAppWorkspace(sandbox: ProjectSandboxStub, dir: string)
     { sandbox },
   );
   return result.success;
+}
+
+function throwIfRunCanceled(signal: AbortSignal): void {
+  if (!signal.aborted) {
+    return;
+  }
+  throw signal.reason instanceof Error ? signal.reason : new Error("run canceled");
 }
 
 async function cloneRepoOrThrow(options: {
@@ -334,29 +346,22 @@ async function cloneRepoOrThrow(options: {
       { sandbox: options.sandbox },
     );
   } catch (error) {
-    const detail = cloneFailureDetail(error);
     options.logger.error("repo_import_failed", {
-      exitCode: detail.exitCode,
+      exitCode: cloneFailureExitCode(error),
       repoHost: options.repoRef.host,
       repoPath: options.repoRef.path,
-      stderr: detail.stderr,
     });
     emitImportEvent(options.env, options.input, "repo_import_failed");
     throw repoImportError("Could not clone the repository.");
   }
 }
 
-function cloneFailureDetail(error: unknown): { exitCode: number | null; stderr: string } {
+function cloneFailureExitCode(error: unknown): number | null {
   if (error instanceof APIError) {
-    const details = error.opts.details;
-    const exitCode = details?.["exitCode"];
-    const stderr = details?.["stderr"];
-    return {
-      exitCode: typeof exitCode === "number" ? exitCode : null,
-      stderr: typeof stderr === "string" ? stderr.slice(0, 500) : "",
-    };
+    const exitCode = error.opts.details?.["exitCode"];
+    return typeof exitCode === "number" ? exitCode : null;
   }
-  return { exitCode: null, stderr: error instanceof Error ? error.message.slice(0, 500) : "" };
+  return null;
 }
 
 async function markImportedWorkspace(sandbox: ProjectSandboxStub, dir: string): Promise<void> {
@@ -387,7 +392,7 @@ async function installImportedDependencies(
     return true;
   } catch (error) {
     logger.warn("repo_import_install_failed", {
-      error: error instanceof Error ? error.message : "Unknown install error",
+      error,
     });
     return false;
   }
@@ -473,47 +478,16 @@ export async function warmSandbox(
   });
 }
 
-function writeAppBuilderFiles(
-  input: AgentRunAppBuilderInput,
-  sandbox: ProjectSandboxStub,
-  dir: string,
-): Promise<void> {
-  return Promise.all([
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/layout.tsx`,
-        content: appBuilderLayoutSource(),
-      },
-      { sandbox },
-    ),
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/globals.css`,
-        content: appBuilderGlobalStylesSource(),
-      },
-      { sandbox },
-    ),
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/page.tsx`,
-        content: appBuilderPageSource(input.messageText),
-      },
-      { sandbox },
-    ),
-  ]).then(() => undefined);
-}
-
 async function startExpoDevServer(
-  env: AgentRunAppBuilderEnv,
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
   workspace: AppBuilderWorkspace,
-): Promise<{ previewUrl: string; expoUrl: string | null }> {
+): Promise<void> {
   // Mint the signed Metro URL BEFORE starting the server: Expo Go reaches the manifest via this
   // header-free URL, and Metro must know its public host (EXPO_PACKAGER_PROXY_URL) so the manifest's
   // launchAsset/bundle URLs point at the signed host instead of 127.0.0.1 (which Expo Go can't hit).
   const signedUrl = await getSignedMetroUrl(sandbox, logger, workspace.port);
-  const preview = await executeStartDevServer(
+  await executeStartDevServer(
     {
       // `--web` makes the single Metro dev server also serve the react-native-web
       // build as a real web page at `/` (iframe-renderable in the Computer panel),
@@ -540,7 +514,6 @@ async function startExpoDevServer(
         EXPO_NO_TELEMETRY: "1",
         ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
       },
-      hostname: resolvePreviewHostname(env),
       isMobile: true,
       name: workspace.slot,
       port: workspace.port,
@@ -548,20 +521,18 @@ async function startExpoDevServer(
     },
     { sandbox },
   );
-  return {
-    previewUrl: preview.previewUrl,
-    expoUrl: signedUrl ? signedUrlToExpo(signedUrl) : null,
-  };
 }
 
-// Best-effort: a Daytona-signed preview URL for the Metro port (token in the subdomain). Null when
-// the sandbox stub can't sign (older stub) or the call fails — the run still proceeds without a QR.
+// Best-effort Metro bootstrap capability. It is passed only to the live process so Metro emits
+// externally reachable asset URLs; process environments are never persisted or returned to the
+// model/UI. The authenticated wake endpoint independently mints the user's ephemeral Expo link.
 async function getSignedMetroUrl(
   sandbox: ProjectSandboxStub,
   logger: AgentRunLogger,
   port: number,
 ): Promise<string | null> {
   if (!sandbox.getSignedPreviewUrl) {
+    logger.warn("expo_signed_preview_unavailable");
     return null;
   }
   try {
@@ -572,18 +543,17 @@ async function getSignedMetroUrl(
     return signed.url;
   } catch (error) {
     logger.warn("expo_signed_preview_url_failed", {
-      error: error instanceof Error ? error.message : "Unknown signed preview URL error",
+      error,
     });
     return null;
   }
 }
 
 async function startAppBuilderDevServer(
-  env: AgentRunAppBuilderEnv,
   sandbox: ProjectSandboxStub,
   workspace: AppBuilderWorkspace,
-): Promise<{ previewUrl: string }> {
-  return executeStartDevServer(
+): Promise<void> {
+  await executeStartDevServer(
     {
       command: [
         "pnpm",
@@ -601,7 +571,6 @@ async function startAppBuilderDevServer(
         CHOKIDAR_USEPOLLING: "true",
         WATCHPACK_POLLING: "1000",
       },
-      hostname: resolvePreviewHostname(env),
       isMobile: false,
       name: workspace.slot,
       port: workspace.port,
@@ -661,245 +630,7 @@ async function stopProjectPreview(
     logger.info("sandbox_project_preview_stopped", { slot });
   } catch (error) {
     logger.warn("sandbox_process_stop_failed", {
-      error: error instanceof Error ? error.message : "Unknown process cleanup error",
+      error,
     });
   }
-}
-
-// Populate `dir` with the CONTENTS of a baked template (`src/.` copies dotfiles too), then verify a
-// package.json landed at the root. Returns false instead of throwing so callers fall back to a
-// generator only on a genuine failure. `dir` is a filesystem-safe /workspace/<slug> path (no shell
-// metacharacters), so the interpolation is safe; the whole script is shell-quoted by the exec layer.
-async function copyTemplateContents(
-  sandbox: ProjectSandboxStub,
-  templateDir: string,
-  dir: string,
-): Promise<boolean> {
-  const copied = await executeShellTerminal(
-    {
-      command: `mkdir -p ${dir} && cp -a ${templateDir}/. ${dir}/ && test -f ${dir}/package.json`,
-      cwd: "/workspace",
-      timeoutMs: 120_000,
-    },
-    { sandbox },
-  );
-  return copied.success;
-}
-
-async function scaffoldExpoApp(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-  dir: string,
-): Promise<void> {
-  // Copy the template CONTENTS (`src/.` → `dst/`), never `cp -a src dst`: the latter nests as
-  // `dst/cheatcode-expo-template/` when `dst` already exists (the run-start `mkdir -p` of the
-  // workspace dir can win the race), silently yielding a project with no package.json at its root.
-  // `test -f` verifies the layout so we only fall back to a bare create-expo-app — which lacks
-  // expo-router and the web deps (react-dom/react-native-web) that `expo start --web` needs — on a
-  // genuine copy failure, not on the nesting race.
-  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-expo-template", dir)) {
-    logger.info("sandbox_expo_template_copied", { targetDir: dir });
-    return;
-  }
-  logger.warn("sandbox_expo_template_copy_failed", { targetDir: dir });
-
-  await executeShellExec(
-    {
-      command: [
-        "npx",
-        "--yes",
-        "create-expo-app@latest",
-        basename(dir),
-        "--template",
-        "default",
-        "--no-install",
-      ],
-      cwd: "/workspace",
-      env: { CI: "1", EXPO_NO_TELEMETRY: "1" },
-      timeoutMs: 180_000,
-    },
-    { sandbox },
-  );
-}
-
-async function scaffoldAppBuilder(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-  dir: string,
-): Promise<void> {
-  // Copy template CONTENTS into the project dir (see scaffoldExpoApp): `cp -a src dst` nests as
-  // `dst/cheatcode-next-template/` when `dst` already exists, leaving no package.json at the root.
-  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-next-template", dir)) {
-    logger.info("sandbox_next_template_copied", { targetDir: dir });
-    return;
-  }
-  logger.warn("sandbox_next_template_copy_failed", { targetDir: dir });
-
-  await executeShellExec(
-    {
-      command: [
-        "npx",
-        "create-next-app@16.2.6",
-        basename(dir),
-        "--yes",
-        "--ts",
-        "--tailwind",
-        "--eslint",
-        "--app",
-        "--src-dir",
-        "--use-pnpm",
-        "--skip-install",
-        "--disable-git",
-      ],
-      cwd: "/workspace",
-      timeoutMs: 120_000,
-    },
-    { sandbox },
-  );
-}
-
-async function installAppBuilderDependencies(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-  dir: string,
-  mobile = false,
-): Promise<void> {
-  const networkTimeoutMs = mobile ? 300_000 : 120_000;
-  try {
-    await executeShellExec(
-      { command: ["pnpm", "install", "--offline"], cwd: dir, timeoutMs: 120_000 },
-      { sandbox },
-    );
-    return;
-  } catch (error) {
-    logger.warn("sandbox_offline_install_failed", {
-      error: error instanceof Error ? error.message : "Unknown install error",
-    });
-  }
-  await executeShellExec(
-    {
-      command: ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"],
-      cwd: dir,
-      timeoutMs: networkTimeoutMs,
-    },
-    { sandbox },
-  );
-}
-
-// Expo web (react-native-web) is what makes `expo start --web` render a real page in
-// the Computer panel iframe. The default template ships react-dom + react-native-web
-// but NOT @expo/metro-runtime, and the Metro web bundler must be selected — so ensure
-// all three deps are present (SDK-matched via `expo install`) and pin web.bundler=metro.
-// Idempotent: the dep check short-circuits restores where they're already installed.
-async function ensureExpoWebSupport(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-  dir: string,
-): Promise<void> {
-  const alreadyInstalled = await executeShellTerminal(
-    {
-      command:
-        "test -d node_modules/react-native-web && test -d node_modules/react-dom && test -d node_modules/@expo/metro-runtime",
-      cwd: dir,
-      timeoutMs: 10_000,
-    },
-    { sandbox },
-  );
-  if (!alreadyInstalled.success) {
-    try {
-      await executeShellExec(
-        {
-          command: [
-            "pnpm",
-            "exec",
-            "expo",
-            "install",
-            "react-dom",
-            "react-native-web",
-            "@expo/metro-runtime",
-          ],
-          cwd: dir,
-          env: { CI: "1", EXPO_NO_TELEMETRY: "1" },
-          timeoutMs: 240_000,
-        },
-        { sandbox },
-      );
-      logger.info("sandbox_expo_web_deps_installed", {});
-    } catch (error) {
-      logger.warn("sandbox_expo_web_deps_failed", {
-        error: error instanceof Error ? error.message : "Unknown expo web dependency error",
-      });
-    }
-  }
-  // Force the Metro web bundler + single-page output for Expo Router web. `output:"single"`
-  // serves a client-rendered SPA (one index.html) instead of per-request server rendering,
-  // which does `new URL(req.url)` behind the proxy and throws. Best-effort: a no-op when the
-  // project uses app.config.* instead of app.json. (The client-side base path is handled by
-  // serving mobile previews under a clean subdomain URL — see buildPreviewUrl — because the
-  // Expo dev server ignores experiments.baseUrl / EXPO_BASE_URL.)
-  await executeShellExec(
-    {
-      command: [
-        "node",
-        "-e",
-        'const fs=require("fs");try{const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo=j.expo||{};j.expo.web={...(j.expo.web||{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2));}catch(e){}',
-      ],
-      cwd: dir,
-      timeoutMs: 15_000,
-    },
-    { sandbox },
-  );
-  await ensureMetroForwardedHostFix(sandbox, dir);
-}
-
-// The preview proxy chain (gateway → Daytona's multi-hop edge) delivers `X-Forwarded-Host` to
-// the sandbox as a COMMA-SEPARATED LIST (e.g. "gateway.trycheatcode.com, 8081-<id>.daytonaproxy01.net").
-// Metro's Server._processRequest does `new URL(req.url, "http://" + xForwardedHost)`, and a
-// comma-list host is an invalid URL — so every `.bundle` request 500s ("TypeError: Invalid URL")
-// and the web preview renders blank. This can't be fixed upstream (the list is assembled inside
-// Daytona), so we normalise the header in Metro's own config via `enhanceMiddleware`, which runs
-// before `_processRequest`. Wraps any existing metro.config.js; idempotent via the marker grep.
-async function ensureMetroForwardedHostFix(
-  sandbox: ProjectSandboxStub,
-  dir: string,
-): Promise<void> {
-  const script = [
-    'if [ -f metro.config.js ] && grep -q "x-forwarded-host" metro.config.js; then exit 0; fi',
-    "if [ -f metro.config.js ]; then mv metro.config.js metro.config.base.js; fi",
-    "cat > metro.config.js <<'METROEOF'",
-    METRO_FORWARDED_HOST_CONFIG,
-    "METROEOF",
-  ].join("\n");
-  await executeShellExec(
-    { command: ["bash", "-lc", script], cwd: dir, timeoutMs: 15_000 },
-    { sandbox },
-  );
-}
-
-const METRO_FORWARDED_HOST_CONFIG = `// Cheatcode: normalise the comma-separated X-Forwarded-Host the preview proxy chain injects so
-// Metro's Server can parse the request URL. Wraps the project's base config (or Expo's default).
-let config;
-try {
-  config = require("./metro.config.base.js");
-} catch (e) {
-  config = require("expo/metro-config").getDefaultConfig(__dirname);
-}
-const baseEnhance = config.server && config.server.enhanceMiddleware;
-config.server = Object.assign({}, config.server, {
-  enhanceMiddleware: (middleware, server) => {
-    const inner = baseEnhance ? baseEnhance(middleware, server) : middleware;
-    return (req, res, next) => {
-      const xfh = req.headers["x-forwarded-host"];
-      if (typeof xfh === "string" && xfh.indexOf(",") !== -1) {
-        req.headers["x-forwarded-host"] = xfh.split(",")[0].trim();
-      }
-      return inner(req, res, next);
-    };
-  },
-});
-module.exports = config;
-`;
-
-function resolvePreviewHostname(env: AgentRunAppBuilderEnv): string {
-  return PreviewHostnameSchema.parse(env.PREVIEW_HOSTNAME);
 }

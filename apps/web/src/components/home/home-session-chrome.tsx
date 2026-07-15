@@ -23,14 +23,14 @@ export function HomeSessionChrome() {
       <header className="fixed top-0 right-0 left-[var(--cheatcode-sidebar-offset,16rem)] z-20 hidden h-14 items-center px-6 transition-[left] duration-200 md:flex">
         <div className="ml-auto flex items-center gap-3">
           <button
-            className="paper-focus-ring h-8 rounded-full px-2.5 font-medium text-[#1b1b1b] text-[14px] leading-5 transition-colors hover:bg-[#f7f7f7]"
+            className="h-8 rounded-full px-2.5 font-medium text-[14px] text-foreground leading-5 transition-colors hover:bg-secondary"
             onClick={() => setAuthMode("sign-in")}
             type="button"
           >
             Sign in
           </button>
           <button
-            className="paper-focus-ring h-9 rounded-full bg-[#1b1b1b] px-4 font-medium text-[14px] text-white leading-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:bg-[#2a2a2a]"
+            className="h-9 rounded-full bg-bg-inverse px-4 font-medium text-[14px] text-fg-inverse leading-5 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)] transition-colors hover:bg-bg-inverse/90"
             onClick={() => setAuthMode("sign-up")}
             type="button"
           >

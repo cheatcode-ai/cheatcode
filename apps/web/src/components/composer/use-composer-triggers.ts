@@ -5,12 +5,13 @@ import {
   type KeyboardEvent,
   type RefObject,
   type SyntheticEvent,
+  useCallback,
   useState,
 } from "react";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 import { type CaretToken, replaceToken } from "@/lib/input/caret-tokens";
 
-export type TriggerKind = "mention" | "slash";
+type TriggerKind = "mention" | "slash";
 
 export interface TriggerDetector {
   detect: (value: string, caret: number) => CaretToken | null;
@@ -69,84 +70,129 @@ export function useComposerTriggers({
   textareaRef,
   value,
 }: UseComposerTriggersOptions): ComposerTriggers {
-  const [caret, setCaret] = useState(0);
-  const [dismissedStart, setDismissedStart] = useState<number | null>(null);
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const detected = detectActive(value, Math.min(caret, value.length), sources);
+  const state = useTriggerState();
+  const detected = detectActive(value, Math.min(state.caret, value.length), sources);
   const token = detected?.token ?? null;
   const kind = detected?.kind ?? null;
-  const isActive = token !== null && dismissedStart !== token.start;
-
-  function commitIndex(index: number, items: readonly ComposerMenuItem[]): void {
-    const item = items[index];
-    if (!token || !item || item.disabled) {
-      return;
-    }
-    const next = replaceToken(value, token, item.insert);
-    onChange(next.value);
-    setCaret(next.caret);
-    setDismissedStart(null);
-    setActiveIndex(0);
-    onInsert?.(kind ?? "slash", item);
-    window.requestAnimationFrame(() => {
-      const element = textareaRef.current;
-      element?.focus();
-      element?.setSelectionRange(next.caret, next.caret);
-    });
-  }
-
-  function handleMenuKeyDown(
-    event: KeyboardEvent<HTMLTextAreaElement>,
-    items: readonly ComposerMenuItem[],
-  ): boolean {
-    if (!isActive || items.length === 0) {
-      return false;
-    }
-    if (event.key === "ArrowDown") {
-      event.preventDefault();
-      setActiveIndex((current) => (current + 1) % items.length);
-      return true;
-    }
-    if (event.key === "ArrowUp") {
-      event.preventDefault();
-      setActiveIndex((current) => (current - 1 + items.length) % items.length);
-      return true;
-    }
-    if (event.key === "Enter" || event.key === "Tab") {
-      event.preventDefault();
-      commitIndex(Math.min(activeIndex, items.length - 1), items);
-      return true;
-    }
-    if (event.key === "Escape" && token) {
-      event.preventDefault();
-      setDismissedStart(token.start);
-      return true;
-    }
-    return false;
-  }
-
+  const isActive = token !== null && state.dismissedStart !== token.start;
+  const commitIndex = useTriggerCommit({
+    kind,
+    onChange,
+    onInsert,
+    state,
+    textareaRef,
+    token,
+    value,
+  });
+  const handleMenuKeyDown = useTriggerMenuKeyDown({ commitIndex, isActive, state, token });
   return {
-    activeIndex,
+    activeIndex: state.activeIndex,
     commitIndex,
-    dismiss: () => {
-      if (token) {
-        setDismissedStart(token.start);
-      }
-    },
+    dismiss: () => token && state.setDismissedStart(token.start),
     handleMenuKeyDown,
     isActive,
     kind,
-    onTextareaChange: (event) => {
-      onChange(event.target.value);
-      setCaret(event.target.selectionStart ?? event.target.value.length);
-      setDismissedStart(null);
-      setActiveIndex(0);
-    },
-    onTextareaSelect: (event) => {
-      setCaret(event.currentTarget.selectionStart ?? 0);
-    },
+    onTextareaChange: createTextareaChangeHandler(onChange, state),
+    onTextareaSelect: (event) => state.setCaret(event.currentTarget.selectionStart ?? 0),
     query: token?.query ?? "",
-    setActiveIndex,
+    setActiveIndex: state.setActiveIndex,
+  };
+}
+
+function useTriggerState() {
+  const [caret, setCaret] = useState(0);
+  const [dismissedStart, setDismissedStart] = useState<number | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+  return { activeIndex, caret, dismissedStart, setActiveIndex, setCaret, setDismissedStart };
+}
+
+type TriggerState = ReturnType<typeof useTriggerState>;
+
+function useTriggerCommit({
+  kind,
+  onChange,
+  onInsert,
+  state,
+  textareaRef,
+  token,
+  value,
+}: Omit<UseComposerTriggersOptions, "sources"> & {
+  kind: TriggerKind | null;
+  state: TriggerState;
+  token: CaretToken | null;
+}) {
+  return useCallback(
+    (index: number, items: readonly ComposerMenuItem[]) => {
+      const item = items[index];
+      if (!token || !item || item.disabled) return;
+      const next = replaceToken(value, token, item.insert);
+      onChange(next.value);
+      state.setCaret(next.caret);
+      state.setDismissedStart(null);
+      state.setActiveIndex(0);
+      onInsert?.(kind ?? "slash", item);
+      restoreTextareaCaret(textareaRef, next.caret);
+    },
+    [kind, onChange, onInsert, state, textareaRef, token, value],
+  );
+}
+
+function restoreTextareaCaret(textareaRef: RefObject<HTMLTextAreaElement | null>, caret: number) {
+  window.requestAnimationFrame(() => {
+    const element = textareaRef.current;
+    element?.focus();
+    element?.setSelectionRange(caret, caret);
+  });
+}
+
+function useTriggerMenuKeyDown({
+  commitIndex,
+  isActive,
+  state,
+  token,
+}: {
+  commitIndex: ComposerTriggers["commitIndex"];
+  isActive: boolean;
+  state: TriggerState;
+  token: CaretToken | null;
+}): ComposerTriggers["handleMenuKeyDown"] {
+  return useCallback(
+    (event, items) => handleTriggerMenuKey(event, items, commitIndex, isActive, state, token),
+    [commitIndex, isActive, state, token],
+  );
+}
+
+function handleTriggerMenuKey(
+  event: KeyboardEvent<HTMLTextAreaElement>,
+  items: readonly ComposerMenuItem[],
+  commitIndex: ComposerTriggers["commitIndex"],
+  isActive: boolean,
+  state: TriggerState,
+  token: CaretToken | null,
+): boolean {
+  if (!isActive || items.length === 0) return false;
+  if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+    event.preventDefault();
+    const delta = event.key === "ArrowDown" ? 1 : -1;
+    state.setActiveIndex((current) => (current + delta + items.length) % items.length);
+    return true;
+  }
+  if (event.key === "Enter" || event.key === "Tab") {
+    event.preventDefault();
+    commitIndex(Math.min(state.activeIndex, items.length - 1), items);
+    return true;
+  }
+  if (event.key !== "Escape" || !token) return false;
+  event.preventDefault();
+  state.setDismissedStart(token.start);
+  return true;
+}
+
+function createTextareaChangeHandler(onChange: (value: string) => void, state: TriggerState) {
+  return (event: ChangeEvent<HTMLTextAreaElement>) => {
+    onChange(event.target.value);
+    state.setCaret(event.target.selectionStart ?? event.target.value.length);
+    state.setDismissedStart(null);
+    state.setActiveIndex(0);
   };
 }

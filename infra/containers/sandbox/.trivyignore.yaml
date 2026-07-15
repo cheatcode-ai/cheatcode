@@ -1,0 +1,61 @@
+vulnerabilities:
+  - id: CVE-2018-7408
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is named "npm" and uses extension
+      version 1.0.1; this manifest is not the npm CLI package. The executable npm
+      runtime is independently pinned under /opt/cheatcode-package-manager.
+  - id: CVE-2019-16775
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is metadata, not the npm CLI.
+  - id: CVE-2019-16776
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is metadata, not the npm CLI.
+  - id: CVE-2019-16777
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is metadata, not the npm CLI.
+  - id: CVE-2016-3956
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is metadata, not the npm CLI.
+  - id: CVE-2020-15095
+    paths:
+      - opt/code-server-4.128.0-linux-amd64/lib/vscode/extensions/npm/package.json
+    purls:
+      - pkg:npm/npm@1.0.1
+    expired_at: 2026-10-15
+    statement: >-
+      VS Code's built-in npm language extension is metadata, not the npm CLI.
+  - id: CVE-2026-55697
+    paths:
+      - opt/cheatcode-package-manager/node_modules/pnpm/package.json
+    purls:
+      - pkg:npm/pnpm@10.34.5
+    expired_at: 2026-10-15
+    statement: >-
+      The pnpm maintainer advisory GHSA-gj8w-mvpf-x27x lists 10.34.2 and later
+      on the 10.x line as patched. Trivy currently reports only the 11.x patched
+      range; the sandbox pins patched pnpm 10.34.5.

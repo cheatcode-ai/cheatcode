@@ -1,7 +1,12 @@
 import { createDb, sumWorkedMinutesToday, withUserContext } from "@cheatcode/db";
-import { createLogger } from "@cheatcode/observability";
+import {
+  createLogger,
+  readBoundedResponseJson,
+  safeErrorTelemetry,
+} from "@cheatcode/observability";
 import { type GreetingResponse, GreetingResponseSchema, type UserId } from "@cheatcode/types";
 import { z } from "zod";
+import type { WaitUntilContext } from "./wait-until-context";
 
 export interface GreetingRouteEnv {
   HYPERDRIVE: Hyperdrive;
@@ -10,6 +15,7 @@ export interface GreetingRouteEnv {
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const WEATHER_FETCH_TIMEOUT_MS = 1_500;
 const WEATHER_CACHE_MAX_AGE_SECONDS = 900;
+const WEATHER_RESPONSE_MAX_BYTES = 4 * 1024;
 
 const CfGeoSchema = z.object({
   city: z.string().min(1).optional(),
@@ -49,15 +55,13 @@ interface ResolvedGeo {
  */
 export async function greetingRoute(
   env: GreetingRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const geo = resolveGeo(request);
-  const [weather, workedMinutesToday] = await Promise.all([
-    resolveWeather(ctx, geo),
-    resolveWorkedMinutesToday(env, ctx, userId, geo.timezone),
-  ]);
+  const weather = await resolveWeather(ctx, geo);
+  const workedMinutesToday = await resolveWorkedMinutesToday(env, ctx, userId, geo.timezone);
   const response: GreetingResponse = {
     city: geo.city,
     timezone: geo.timezone,
@@ -74,7 +78,7 @@ export async function greetingRoute(
  */
 async function resolveWorkedMinutesToday(
   env: GreetingRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   userId: UserId,
   timezone: string | null,
 ): Promise<number> {
@@ -85,7 +89,7 @@ async function resolveWorkedMinutesToday(
     );
   } catch (error) {
     createLogger().warn("greeting_worked_minutes_failed", {
-      reason: error instanceof Error ? error.message : "unknown",
+      ...safeErrorTelemetry(error),
     });
     return 0;
   } finally {
@@ -115,7 +119,7 @@ function parseCoord(value: string | undefined): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function resolveWeather(ctx: ExecutionContext, geo: ResolvedGeo): Promise<Weather | null> {
+async function resolveWeather(ctx: WaitUntilContext, geo: ResolvedGeo): Promise<Weather | null> {
   if (geo.latitude === null || geo.longitude === null) {
     createLogger().warn("greeting_weather_fetch_failed", { reason: "no_geo" });
     return null;
@@ -124,7 +128,7 @@ async function resolveWeather(ctx: ExecutionContext, geo: ResolvedGeo): Promise<
 }
 
 async function loadWeather(
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   latitude: number,
   longitude: number,
 ): Promise<Weather | null> {
@@ -152,7 +156,9 @@ async function readWeatherCache(cache: Cache, key: string): Promise<Weather | nu
     if (!response) {
       return null;
     }
-    const parsed = WeatherSchema.safeParse(await response.json());
+    const parsed = WeatherSchema.safeParse(
+      await readBoundedResponseJson(response, WEATHER_RESPONSE_MAX_BYTES, "Weather cache"),
+    );
     return parsed.success ? parsed.data : null;
   } catch {
     // A cache read failure is non-fatal; fall through to a fresh upstream fetch.
@@ -179,10 +185,13 @@ async function fetchOpenMeteo(latitude: number, longitude: number): Promise<Weat
     const url = `${OPEN_METEO_FORECAST_URL}?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,weather_code`;
     const response = await fetch(url, { signal: AbortSignal.timeout(WEATHER_FETCH_TIMEOUT_MS) });
     if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
       logWeatherFailure("upstream_status", latitude, longitude, response.status);
       return null;
     }
-    const parsed = OpenMeteoCurrentSchema.safeParse(await response.json());
+    const parsed = OpenMeteoCurrentSchema.safeParse(
+      await readBoundedResponseJson(response, WEATHER_RESPONSE_MAX_BYTES, "Open-Meteo"),
+    );
     if (!parsed.success) {
       logWeatherFailure("parse", latitude, longitude);
       return null;

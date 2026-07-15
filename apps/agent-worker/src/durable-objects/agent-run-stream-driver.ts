@@ -1,12 +1,12 @@
 import type { ApprovalBroker } from "@cheatcode/agent-core";
-import type { createLogger } from "@cheatcode/observability";
-import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
-import { FALLBACK_MODEL_ID } from "@cheatcode/types";
-import type { UIMessageChunk } from "ai";
-import { offerModelFallback } from "./agent-run-approvals";
+import { type createLogger, emitUserEvent } from "@cheatcode/observability";
+import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import { FALLBACK_MODEL_ID, type LogicalModelId } from "@cheatcode/types";
+import type { ModelMessage, UIMessageChunk } from "ai";
+import { appendModelFallbackTransition, offerModelFallback } from "./agent-run-approvals";
+import { loadThreadModelContext } from "./agent-run-conversation";
 import type { AgentRunEnv } from "./agent-run-env";
 import { runMastraStream } from "./agent-run-mastra-stream";
-import { runRunCodeFallback as runRunCodeFallbackTool } from "./agent-run-run-code-fallback";
 import type { StartRunInput } from "./agent-run-schemas";
 import {
   classifyFallbackReason,
@@ -18,7 +18,7 @@ import {
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 
-/** Thin DO closures the stream driver needs (run-control §5.3 / §5.4). */
+/** Thin DO closures the stream driver needs. */
 export interface StreamDriverDeps {
   append: (chunk: UIMessageChunk) => Promise<void>;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
@@ -26,7 +26,11 @@ export interface StreamDriverDeps {
   createBroker: () => ApprovalBroker;
   env: AgentRunEnv;
   hasPendingDecision: () => boolean;
-  persistResolvedCredential: (credential: LlmCredential) => void;
+  persistLogicalModel: (
+    input: StartRunInput,
+    logicalModelId: LogicalModelId,
+    logger: ReturnType<typeof createLogger>,
+  ) => Promise<void>;
   setRunStage: (stage: string) => void;
 }
 
@@ -38,31 +42,55 @@ interface StreamRunParams {
   sandbox: ProjectSandboxStub;
 }
 
+type PreparedStreamRunParams = StreamRunParams & { modelMessages: ModelMessage[] };
+
+interface StreamAttemptState {
+  hasVisibleOutput: boolean;
+}
+
 /**
  * Runs the Mastra stream against the primary BYOK provider, falling back to the
- * OpenAI default through the interactive consent flow (run-control §5.5) on a
- * provider rate-limit/credit failure.
+ * OpenAI default through the interactive consent flow on a provider
+ * rate-limit or provider-balance failure.
  */
 export async function streamMastraRunWithFallback(
   deps: StreamDriverDeps,
   params: StreamRunParams,
 ): Promise<void> {
   deps.setRunStage("Resolving BYOK credentials.");
-  const primaryCredential = await resolveLlmCredential(deps.env, params.input, params.logger);
+  const [primaryCredential, threadContext] = await Promise.all([
+    resolveLlmCredential(deps.env, params.input, params.logger),
+    loadThreadModelContext(deps.env, params.input, params.agentContextNote),
+  ]);
+  params.logger.info("agent_thread_context_loaded", {
+    messageCount: threadContext.persistedMessageCount,
+    serializedBytes: threadContext.serializedBytes,
+  });
+  const preparedParams = { ...params, modelMessages: threadContext.messages };
+  const attemptState: StreamAttemptState = { hasVisibleOutput: false };
   try {
-    await streamMastraRun(deps, params, primaryCredential);
+    await streamMastraRun(deps, preparedParams, primaryCredential, attemptState);
   } catch (error) {
-    await handleFallback(deps, params, primaryCredential, error);
+    await handleFallback(
+      deps,
+      preparedParams,
+      primaryCredential,
+      attemptState.hasVisibleOutput,
+      error,
+    );
   }
 }
 
 async function handleFallback(
   deps: StreamDriverDeps,
-  params: StreamRunParams,
+  params: PreparedStreamRunParams,
   primaryCredential: LlmCredential,
+  hasVisibleOutput: boolean,
   error: unknown,
 ): Promise<void> {
-  if (!shouldFallbackToOpenAI(params.input.model, primaryCredential, error)) {
+  if (
+    !shouldFallbackToOpenAI(params.input.modelExplicit, primaryCredential, hasVisibleOutput, error)
+  ) {
     throw error;
   }
   if (params.input.disabledModels.includes(FALLBACK_MODEL_ID)) {
@@ -77,36 +105,59 @@ async function handleFallback(
   if (!fallbackCredential) {
     throw error;
   }
+  const fallbackReason = classifyFallbackReason(error);
   const decision = await offerModelFallback({
-    append: deps.append,
     broker: deps.createBroker(),
-    fromModel: primaryCredential.modelId,
-    reason: classifyFallbackReason(error),
-    toModel: fallbackCredential.modelId,
+    fromModel: primaryCredential.logicalModelId,
+    reason: fallbackReason,
+    toModel: fallbackCredential.logicalModelId,
   });
   if (decision.decision === "deny") {
     throw error;
   }
   params.logger.warn("llm_provider_fallback_started", {
-    from: primaryCredential.provider,
-    to: fallbackCredential.provider,
+    fromLogicalModelId: primaryCredential.logicalModelId,
+    fromTransportProvider: primaryCredential.transportProvider,
+    toLogicalModelId: fallbackCredential.logicalModelId,
+    toTransportProvider: fallbackCredential.transportProvider,
   });
-  await streamMastraRun(deps, params, fallbackCredential);
+  await streamMastraRun(deps, params, fallbackCredential, { hasVisibleOutput: false }, () =>
+    appendModelFallbackTransition({
+      append: deps.append,
+      fromModel: primaryCredential.logicalModelId,
+      reason: fallbackReason,
+      toModel: fallbackCredential.logicalModelId,
+    }),
+  );
 }
 
 async function streamMastraRun(
   deps: StreamDriverDeps,
-  params: StreamRunParams,
+  params: PreparedStreamRunParams,
   credential: LlmCredential,
+  attemptState: StreamAttemptState,
+  afterModelPersisted?: () => Promise<void>,
 ): Promise<void> {
-  // Persist the resolved credit source + accounting slug + free-tier baseline to run-state
-  // (covers both the primary and OpenAI-fallback credentials) before any tokens stream, so
-  // per-step metering and the free-quota hard stop read the model that actually served.
-  deps.persistResolvedCredential(credential);
+  await deps.persistLogicalModel(params.input, credential.logicalModelId, params.logger);
+  await afterModelPersisted?.();
+  emitUserEvent(deps.env, {
+    eventName: "run_model_resolved",
+    logicalModelId: credential.logicalModelId,
+    runId: params.input.runId,
+    userId: params.input.userId,
+  });
+  params.logger.info("llm_stream_attempt_started", {
+    logicalModelId: credential.logicalModelId,
+    transportModelId: credential.transportModelId,
+    transportProvider: credential.transportProvider,
+  });
   await runMastraStream({
     abortSignal: params.abortSignal,
-    ...(params.agentContextNote === undefined ? {} : { agentContextNote: params.agentContextNote }),
-    appendCheckedMastraChunk: deps.appendCheckedMastraChunk,
+    appendCheckedMastraChunk: async (input, chunk) => {
+      const appendedCount = await deps.appendCheckedMastraChunk(input, chunk);
+      attemptState.hasVisibleOutput = attemptState.hasVisibleOutput || appendedCount > 0;
+      return appendedCount;
+    },
     approvalBroker: deps.createBroker(),
     artifactRuntime: deps.createArtifactRuntime(params.input),
     credential,
@@ -114,14 +165,7 @@ async function streamMastraRun(
     hasPendingDecision: deps.hasPendingDecision,
     input: params.input,
     logger: params.logger,
-    runRunCodeFallback: () =>
-      runRunCodeFallbackTool({
-        append: deps.append,
-        input: params.input,
-        logger: params.logger,
-        sandbox: params.sandbox,
-        setRunStage: deps.setRunStage,
-      }),
+    modelMessages: params.modelMessages,
     sandbox: params.sandbox,
     setRunStage: deps.setRunStage,
   });

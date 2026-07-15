@@ -1,657 +1,133 @@
+import {
+  AgentSummarySchema,
+  ClientErrorBodySchema,
+  ClientUserEventBodySchema,
+  CreateRunSchema,
+  ErrorResponseSchema,
+  RunStatusSnapshotSchema,
+  ToolDomainSchema,
+  ToolSummarySchema,
+  WebVitalsBodySchema,
+} from "@cheatcode/types";
 import { accountRoutes, accountSchemas } from "./openapi-account-routes";
 import { billingRoutes, billingSchemas } from "./openapi-billing-routes";
 import {
-  arrayOf,
   buildOpenApiDocument,
+  contentResponse,
   emptyResponse,
   type JsonValue,
   jsonBody,
   jsonResponse,
-  nullableNumberSchema,
-  nullableStringSchema,
   type OpenApiRoute,
-  recordOf,
   renderOpenApiDocsHtml,
   schemaRef,
-  stringSchema,
 } from "./openapi-builder";
 import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
+import { integrationSchemas } from "./openapi-integration-schemas";
+import { projectRoutes, projectSchemas } from "./openapi-project-routes";
 import { runControlRoutes, runControlSchemas } from "./openapi-run-control-routes";
 import { sandboxRoutes, sandboxSchemas } from "./openapi-sandbox-routes";
-import {
-  arraySchemaFor,
-  idempotencyKeyParameter,
-  objectSchemaFor,
-  paginatedSchemaFor,
-  paginationParameters,
-} from "./openapi-schema-utils";
+import { arraySchemaFor, idempotencyKeyParameter, objectSchemaFor } from "./openapi-schema-utils";
+import { skillRoutes, skillSchemas } from "./openapi-skill-routes";
+import { zodJsonSchema } from "./openapi-zod";
 
-const PROVIDER_SCHEMA: JsonValue = {
-  enum: [
-    "anthropic",
-    "openai",
-    "google",
-    "openrouter",
-    "deepseek",
-    "exa",
-    "firecrawl",
-    "llamaparse",
-  ],
-  type: "string",
-};
-
-const COMPONENT_SCHEMAS: { [name: string]: JsonValue } = {
-  Agent: {
-    additionalProperties: false,
-    properties: {
-      description: stringSchema(),
-      name: stringSchema(),
-    },
-    required: ["description", "name"],
-    type: "object",
-  },
-  ClientError: {
-    additionalProperties: false,
-    properties: {
-      message: stringSchema({ maxLength: 2_000 }),
-      stack: stringSchema({ maxLength: 8_000 }),
-      timestamp: { minimum: 0, type: "integer" },
-      type: stringSchema({ maxLength: 120 }),
-      url: stringSchema({ maxLength: 2_000 }),
-      userAgent: stringSchema({ maxLength: 1_000 }),
-    },
-    type: "object",
-  },
-  ClientUserEvent: {
-    additionalProperties: false,
-    properties: {
-      eventName: { enum: ["first_preview_opened"], type: "string" },
-    },
-    required: ["eventName"],
-    type: "object",
-  },
-  CreateProject: {
-    additionalProperties: false,
-    properties: {
-      budgetCapUsd: { exclusiveMinimum: 0, maximum: 50, type: "number" },
-      defaultModel: stringSchema({ maxLength: 200, minLength: 1 }),
-      importRepoUrl: stringSchema({ format: "uri", maxLength: 300 }),
-      masterInstructions: stringSchema({ maxLength: 20_000 }),
-      mode: {
-        default: "general",
-        enum: ["app-builder", "app-builder-mobile", "general"],
-        type: "string",
-      },
-      name: stringSchema({ maxLength: 120, minLength: 1 }),
-    },
-    required: ["name"],
-    type: "object",
-  },
-  CreateRun: {
-    additionalProperties: false,
-    properties: {
-      agentName: stringSchema(),
-      budgetCapUsd: { exclusiveMinimum: 0, maximum: 50, type: "number" },
-      message: {
-        additionalProperties: false,
-        properties: {
-          id: stringSchema(),
-          parts: arrayOf(schemaRef("MessagePart")),
-          role: { const: "user" },
-        },
-        required: ["parts", "role"],
-        type: "object",
-      },
-      model: stringSchema(),
-    },
-    required: ["message"],
-    type: "object",
-  },
-  CreateThread: {
-    additionalProperties: false,
-    properties: {
-      defaultModel: stringSchema({ maxLength: 200, minLength: 1 }),
-      importRepoUrl: stringSchema({ maxLength: 300, minLength: 1 }),
-      initialPrompt: stringSchema({ maxLength: 20_000, minLength: 1 }),
-      mode: { enum: ["app-builder", "app-builder-mobile", "general"], type: "string" },
-      projectId: stringSchema({ format: "uuid" }),
-      title: stringSchema({ maxLength: 200, minLength: 1 }),
-    },
-    type: "object",
-  },
-  Error: {
-    additionalProperties: false,
-    properties: {
-      error: {
-        additionalProperties: true,
-        properties: {
-          code: stringSchema(),
-          details: { type: "object" },
-          doc_url: stringSchema({ format: "uri" }),
-          hint: stringSchema(),
-          message: stringSchema(),
-          request_id: stringSchema(),
-          retriable: { type: "boolean" },
-        },
-        required: ["code", "message", "request_id", "retriable"],
-        type: "object",
-      },
-    },
-    required: ["error"],
-    type: "object",
-  },
+const COMPONENT_SCHEMAS: Record<string, JsonValue> = {
+  ...integrationSchemas,
+  Agent: zodJsonSchema(AgentSummarySchema),
+  ClientError: zodJsonSchema(ClientErrorBodySchema, "input"),
+  ClientUserEvent: zodJsonSchema(ClientUserEventBodySchema, "input"),
+  CreateRun: zodJsonSchema(CreateRunSchema, "input"),
+  Error: zodJsonSchema(ErrorResponseSchema),
   Health: {
-    additionalProperties: true,
-    properties: {
-      ok: { type: "boolean" },
-      service: stringSchema(),
-    },
-    required: ["ok"],
-    type: "object",
-  },
-  Integration: {
     additionalProperties: false,
     properties: {
-      connectedAt: nullableStringSchema({ format: "date-time" }),
-      connectionId: nullableStringSchema(),
-      displayName: stringSchema(),
-      name: { pattern: "^[a-z0-9_]+$", type: "string" },
-      status: {
-        enum: ["not_connected", "initiating", "active", "inactive", "expired", "failed"],
-        type: "string",
-      },
-      updatedAt: nullableStringSchema({ format: "date-time" }),
-    },
-    required: ["connectedAt", "connectionId", "displayName", "name", "status", "updatedAt"],
-    type: "object",
-  },
-  IntegrationCatalog: {
-    additionalProperties: false,
-    properties: {
-      categories: arrayOf(schemaRef("ToolkitCategory")),
-      toolkits: arrayOf(schemaRef("ToolkitCatalogEntry")),
-    },
-    required: ["categories", "toolkits"],
-    type: "object",
-  },
-  IntegrationConnect: {
-    additionalProperties: false,
-    properties: {
-      oauthUrl: stringSchema({ format: "uri" }),
-    },
-    required: ["oauthUrl"],
-    type: "object",
-  },
-  ToolkitAction: {
-    additionalProperties: false,
-    properties: {
-      description: stringSchema(),
-      name: stringSchema(),
-      slug: stringSchema(),
-    },
-    required: ["description", "name", "slug"],
-    type: "object",
-  },
-  ToolkitActionsResponse: {
-    additionalProperties: false,
-    properties: {
-      actions: arrayOf(schemaRef("ToolkitAction")),
-    },
-    required: ["actions"],
-    type: "object",
-  },
-  ToolkitCatalogEntry: {
-    additionalProperties: false,
-    properties: {
-      categorySlugs: arrayOf(stringSchema()),
-      connectable: { type: "boolean" },
-      connectedAt: nullableStringSchema({ format: "date-time" }),
-      description: stringSchema(),
-      displayName: stringSchema(),
-      name: { pattern: "^[a-z0-9_]+$", type: "string" },
-      status: {
-        enum: ["not_connected", "initiating", "active", "inactive", "expired", "failed"],
-        type: "string",
-      },
-      updatedAt: nullableStringSchema({ format: "date-time" }),
-    },
-    required: [
-      "categorySlugs",
-      "connectable",
-      "connectedAt",
-      "description",
-      "displayName",
-      "name",
-      "status",
-      "updatedAt",
-    ],
-    type: "object",
-  },
-  ToolkitCategory: {
-    additionalProperties: false,
-    properties: {
-      name: stringSchema(),
-      slug: stringSchema(),
-    },
-    required: ["name", "slug"],
-    type: "object",
-  },
-  LimitsSnapshot: {
-    additionalProperties: false,
-    properties: {
-      quotas: recordOf({
+      agent: {
         additionalProperties: false,
         properties: {
-          limit: { type: "number" },
-          period_end: stringSchema(),
-          used: { type: "number" },
+          ok: { const: true, type: "boolean" },
+          releaseSha: { type: "string" },
+          versionId: { type: ["string", "null"] },
+          worker: { const: "agent", type: "string" },
         },
-        required: ["limit", "period_end", "used"],
+        required: ["ok", "releaseSha", "versionId", "worker"],
         type: "object",
-      }),
-      rate_limits: recordOf({
-        additionalProperties: false,
-        properties: {
-          limit: { type: "number" },
-          remaining: { type: "number" },
-          reset_at: { type: "number" },
-        },
-        required: ["limit", "remaining", "reset_at"],
-        type: "object",
-      }),
+      },
+      ok: { const: true, type: "boolean" },
+      releaseSha: { type: "string" },
+      versionId: { type: ["string", "null"] },
     },
-    required: ["quotas", "rate_limits"],
-    type: "object",
-  },
-  MessagePart: {
-    additionalProperties: true,
-    properties: {
-      type: stringSchema(),
-    },
-    required: ["type"],
+    required: ["agent", "ok", "releaseSha", "versionId"],
     type: "object",
   },
   Ok: {
     additionalProperties: false,
-    properties: {
-      ok: { type: "boolean" },
-    },
+    properties: { ok: { const: true, type: "boolean" } },
     required: ["ok"],
     type: "object",
   },
   OpenApiDocument: {
     additionalProperties: true,
-    properties: {
-      openapi: stringSchema(),
-    },
+    properties: { openapi: { type: "string" } },
     required: ["openapi"],
     type: "object",
   },
-  OpenSandboxTerminal: {
-    additionalProperties: false,
-    properties: {
-      command: stringSchema({ maxLength: 2_000, minLength: 1 }),
-      cwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
-      timeoutMs: { maximum: 60_000, minimum: 1, type: "integer" },
-    },
-    required: ["command"],
-    type: "object",
-  },
-  Project: {
-    additionalProperties: false,
-    properties: {
-      archiveAfter: nullableStringSchema({ format: "date-time" }),
-      archivedPendingAction: { type: "boolean" },
-      budgetCapUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      createdAt: stringSchema({ format: "date-time" }),
-      defaultModel: nullableStringSchema({ maxLength: 200, minLength: 1 }),
-      id: stringSchema({ format: "uuid" }),
-      importRepoUrl: nullableStringSchema({ maxLength: 300 }),
-      masterInstructions: nullableStringSchema(),
-      mode: stringSchema(),
-      name: stringSchema(),
-      overQuota: { type: "boolean" },
-      readOnly: { type: "boolean" },
-      updatedAt: stringSchema({ format: "date-time" }),
-    },
-    required: [
-      "archiveAfter",
-      "archivedPendingAction",
-      "budgetCapUsd",
-      "createdAt",
-      "defaultModel",
-      "id",
-      "masterInstructions",
-      "mode",
-      "name",
-      "overQuota",
-      "readOnly",
-      "updatedAt",
-    ],
-    type: "object",
-  },
-  ProviderKeySummary: {
-    additionalProperties: false,
-    properties: {
-      disabledAt: nullableStringSchema({ format: "date-time" }),
-      disabledReason: nullableStringSchema(),
-      fingerprint: stringSchema(),
-      lastUsedAt: nullableStringSchema(),
-      provider: PROVIDER_SCHEMA,
-    },
-    required: ["disabledAt", "disabledReason", "fingerprint", "lastUsedAt", "provider"],
-    type: "object",
-  },
-  ResumeTakeover: {
-    additionalProperties: false,
-    properties: {
-      resumeToken: stringSchema({ minLength: 1 }),
-    },
-    required: ["resumeToken"],
-    type: "object",
-  },
-  RunStatus: {
-    additionalProperties: true,
-    properties: {
-      active: { type: "boolean" },
-      error: { type: ["object", "null"] },
-      pendingApproval: {
-        additionalProperties: false,
-        properties: {
-          approvalId: stringSchema({ format: "uuid" }),
-          expiresAt: { type: "integer" },
-          kind: { enum: ["tool-approval", "model-fallback"], type: "string" },
-          requestedAt: { type: "integer" },
-          summary: stringSchema(),
-          timeoutDecision: { enum: ["allow", "deny"], type: "string" },
-          toolName: stringSchema(),
-        },
-        required: ["approvalId", "expiresAt", "kind", "requestedAt", "summary", "timeoutDecision"],
-        type: "object",
-      },
-      previewUrl: nullableStringSchema({ format: "uri" }),
-      runId: nullableStringSchema(),
-      status: {
-        enum: ["idle", "running", "paused", "completed", "failed", "canceled", null],
-        type: ["string", "null"],
-      },
-    },
-    type: "object",
-  },
-  SandboxFile: {
-    additionalProperties: false,
-    properties: {
-      content: stringSchema(),
-      encoding: { enum: ["utf8", "base64"], type: "string" },
-      key: stringSchema(),
-      path: stringSchema(),
-    },
-    required: ["content", "encoding", "path"],
-    type: "object",
-  },
-  SandboxFileList: {
-    additionalProperties: false,
-    properties: {
-      files: arrayOf({
-        additionalProperties: false,
-        properties: {
-          modifiedAt: stringSchema(),
-          name: stringSchema(),
-          path: stringSchema(),
-          relativePath: stringSchema(),
-          size: { minimum: 0, type: "integer" },
-          type: { enum: ["file", "directory", "symlink", "other"], type: "string" },
-        },
-        required: ["modifiedAt", "name", "path", "relativePath", "size", "type"],
-        type: "object",
-      }),
-      path: stringSchema(),
-    },
-    required: ["files", "path"],
-    type: "object",
-  },
-  SandboxFileWrite: {
-    additionalProperties: false,
-    properties: {
-      path: stringSchema(),
-      success: { type: "boolean" },
-    },
-    required: ["path", "success"],
-    type: "object",
-  },
-  TakeoverSession: {
-    additionalProperties: false,
-    properties: {
-      resumeToken: stringSchema(),
-      vncUrl: stringSchema({ format: "uri" }),
-    },
-    required: ["resumeToken", "vncUrl"],
-    type: "object",
-  },
-  TerminalPreview: {
-    additionalProperties: false,
-    properties: {
-      command: stringSchema(),
-      cwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
-      durationMs: { minimum: 0, type: "integer" },
-      exitCode: { type: "integer" },
-      stderr: stringSchema(),
-      stdout: stringSchema(),
-      success: { type: "boolean" },
-    },
-    required: ["command", "exitCode", "stderr", "stdout", "success"],
-    type: "object",
-  },
-  TerminalContext: {
-    additionalProperties: false,
-    properties: {
-      cwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
-      displayCwd: stringSchema({ maxLength: 1_000, minLength: 1 }),
-      displayWorkspacePath: stringSchema({ maxLength: 200, minLength: 1 }),
-      host: stringSchema({ maxLength: 200, minLength: 1 }),
-    },
-    required: ["cwd", "displayCwd", "displayWorkspacePath", "host"],
-    type: "object",
-  },
-  Thread: {
-    additionalProperties: false,
-    properties: {
-      activeRunId: nullableStringSchema({ format: "uuid" }),
-      createdAt: stringSchema({ format: "date-time" }),
-      id: stringSchema({ format: "uuid" }),
-      projectId: nullableStringSchema({ format: "uuid" }),
-      title: nullableStringSchema(),
-      updatedAt: stringSchema({ format: "date-time" }),
-    },
-    required: ["activeRunId", "createdAt", "id", "projectId", "title", "updatedAt"],
-    type: "object",
-  },
-  Tool: {
-    additionalProperties: false,
-    properties: {
-      description: stringSchema(),
-      domain: stringSchema(),
-      name: stringSchema(),
-    },
-    required: ["description", "domain", "name"],
-    type: "object",
-  },
-  UIMessage: {
-    additionalProperties: false,
-    properties: {
-      agentRunId: nullableStringSchema({ format: "uuid" }),
-      createdAt: stringSchema({ format: "date-time" }),
-      id: stringSchema({ format: "uuid" }),
-      parts: arrayOf(schemaRef("MessagePart")),
-      role: stringSchema(),
-      threadId: stringSchema({ format: "uuid" }),
-    },
-    required: ["agentRunId", "createdAt", "id", "parts", "role", "threadId"],
-    type: "object",
-  },
-  User: {
-    additionalProperties: false,
-    properties: {
-      userId: stringSchema({ format: "uuid" }),
-    },
-    required: ["userId"],
-    type: "object",
-  },
-  UpdateProject: {
-    additionalProperties: false,
-    minProperties: 1,
-    properties: {
-      budgetCapUsd: nullableNumberSchema({ exclusiveMinimum: 0, maximum: 50 }),
-      defaultModel: nullableStringSchema({ maxLength: 200, minLength: 1 }),
-      importRepoUrl: nullableStringSchema({ maxLength: 300 }),
-      masterInstructions: nullableStringSchema({ maxLength: 20_000 }),
-      name: stringSchema({ maxLength: 120, minLength: 1 }),
-    },
-    type: "object",
-  },
-  UpsertProviderKey: {
-    additionalProperties: false,
-    properties: {
-      key: stringSchema({ maxLength: 20_000, minLength: 1 }),
-      provider: PROVIDER_SCHEMA,
-    },
-    required: ["key", "provider"],
-    type: "object",
-  },
-  WebVitals: {
-    oneOf: [schemaRef("WebVitalsMetric"), arrayOf(schemaRef("WebVitalsMetric"))],
-  },
-  WebVitalsMetric: {
-    additionalProperties: false,
-    properties: {
-      attributionTarget: stringSchema({ maxLength: 1_000 }),
-      delta: { type: "number" },
-      id: stringSchema({ maxLength: 200 }),
-      name: stringSchema({ maxLength: 40 }),
-      navigationType: stringSchema({ maxLength: 80 }),
-      rating: { enum: ["good", "needs-improvement", "poor"], type: "string" },
-      url: stringSchema({ maxLength: 2_000 }),
-      value: { type: "number" },
-    },
-    required: ["id", "name", "value"],
-    type: "object",
-  },
-  WriteSandboxFile: {
-    additionalProperties: false,
-    properties: {
-      content: stringSchema({ maxLength: 2_000_000 }),
-      encoding: { default: "utf8", enum: ["utf8", "base64"], type: "string" },
-      path: stringSchema(),
-    },
-    required: ["content"],
-    type: "object",
-  },
+  RunStatus: zodJsonSchema(RunStatusSnapshotSchema),
+  Tool: zodJsonSchema(ToolSummarySchema),
+  WebVitals: zodJsonSchema(WebVitalsBodySchema, "input"),
 };
 
 const objectSchema = (name: string): JsonValue => objectSchemaFor(COMPONENT_SCHEMAS, name);
 const arraySchema = (name: string): JsonValue => arraySchemaFor(COMPONENT_SCHEMAS, name);
-const paginatedSchema = (name: string): JsonValue => paginatedSchemaFor(COMPONENT_SCHEMAS, name);
+
+const runStreamCursorParameter: JsonValue = {
+  in: "query",
+  name: "lastSeq",
+  schema: { default: 0, minimum: 0, type: "integer" },
+};
+const toolDomainParameter: JsonValue = {
+  in: "query",
+  name: "domain",
+  schema: zodJsonSchema(ToolDomainSchema),
+};
+const outputDownloadParameters: JsonValue[] = [
+  {
+    in: "query",
+    name: "expires",
+    required: true,
+    schema: { minimum: 1, type: "integer" },
+  },
+  {
+    in: "query",
+    name: "sig",
+    required: true,
+    schema: { maxLength: 256, minLength: 32, type: "string" },
+  },
+];
 
 const routes: OpenApiRoute[] = [
   ...accountRoutes,
   ...discoveryRoutes,
-  {
-    method: "get",
-    operationId: "listProjects",
-    parameters: paginationParameters,
-    path: "/v1/projects",
-    responses: { "200": jsonResponse("Projects", paginatedSchema("Project")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List projects",
-    tags: ["projects"],
-  },
-  {
-    method: "post",
-    operationId: "createProject",
-    path: "/v1/projects",
-    requestBody: jsonBody(objectSchema("CreateProject")),
-    responses: { "201": jsonResponse("Created project", objectSchema("Project")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Create a project",
-    tags: ["projects"],
-  },
-  {
-    method: "get",
-    operationId: "getProject",
-    path: "/v1/projects/{projectId}",
-    responses: {
-      "200": jsonResponse("Project", objectSchema("Project")),
-      "404": jsonResponse("Not found", objectSchema("Error")),
-    },
-    security: [{ bearerAuth: [] }],
-    summary: "Get a project",
-    tags: ["projects"],
-  },
-  {
-    method: "patch",
-    operationId: "updateProject",
-    path: "/v1/projects/{projectId}",
-    requestBody: jsonBody(objectSchema("UpdateProject")),
-    responses: { "200": jsonResponse("Updated project", objectSchema("Project")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Update a project",
-    tags: ["projects"],
-  },
-  {
-    method: "delete",
-    operationId: "deleteProject",
-    path: "/v1/projects/{projectId}",
-    responses: { "204": emptyResponse("Project archived") },
-    security: [{ bearerAuth: [] }],
-    summary: "Archive a project",
-    tags: ["projects"],
-  },
-  {
-    method: "get",
-    operationId: "listProjectThreads",
-    parameters: paginationParameters,
-    path: "/v1/projects/{projectId}/threads",
-    responses: { "200": jsonResponse("Threads", paginatedSchema("Thread")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List project threads",
-    tags: ["threads"],
-  },
-  {
-    method: "post",
-    operationId: "createThread",
-    path: "/v1/projects/{projectId}/threads",
-    requestBody: jsonBody(objectSchema("CreateThread")),
-    responses: { "201": jsonResponse("Created thread", objectSchema("Thread")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Create a thread",
-    tags: ["threads"],
-  },
-  {
-    method: "get",
-    operationId: "getThread",
-    path: "/v1/threads/{threadId}",
-    responses: { "200": jsonResponse("Thread", objectSchema("Thread")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Get a thread",
-    tags: ["threads"],
-  },
-  {
-    method: "get",
-    operationId: "listThreadMessages",
-    parameters: paginationParameters,
-    path: "/v1/threads/{threadId}/messages",
-    responses: { "200": jsonResponse("Messages", paginatedSchema("UIMessage")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List thread messages",
-    tags: ["threads"],
-  },
+  ...projectRoutes,
   {
     method: "post",
     operationId: "createThreadRun",
     parameters: [idempotencyKeyParameter],
     path: "/v1/threads/{threadId}/runs",
-    requestBody: jsonBody(objectSchema("CreateRun")),
-    responses: { "202": emptyResponse("UIMessage SSE stream") },
+    requestBody: jsonBody(schemaRef("CreateRun")),
+    responses: {
+      "202": {
+        content: { "text/event-stream": { schema: { type: "string" } } },
+        description: "UIMessage SSE stream",
+        headers: { Location: { schema: { type: "string" } } },
+      },
+      "400": jsonResponse("Invalid run request", schemaRef("Error")),
+      "402": jsonResponse("Plan or quota required", schemaRef("Error")),
+      "403": jsonResponse("Verified email or provider key required", schemaRef("Error")),
+      "404": jsonResponse("Thread not found", schemaRef("Error")),
+      "409": jsonResponse("Another run is active", schemaRef("Error")),
+      "422": jsonResponse("Run could not be prepared", schemaRef("Error")),
+      "503": jsonResponse("Run service unavailable", schemaRef("Error")),
+    },
     security: [{ bearerAuth: [] }],
     summary: "Start an agent run",
     tags: ["runs"],
@@ -659,9 +135,10 @@ const routes: OpenApiRoute[] = [
   {
     method: "get",
     operationId: "resumeThreadRunStream",
+    parameters: [runStreamCursorParameter],
     path: "/v1/threads/{threadId}/runs/stream",
     responses: {
-      "200": emptyResponse("UIMessage SSE stream"),
+      "200": contentResponse("UIMessage SSE stream", "text/event-stream", { type: "string" }),
       "204": emptyResponse("No active stream"),
     },
     security: [{ bearerAuth: [] }],
@@ -673,7 +150,7 @@ const routes: OpenApiRoute[] = [
     operationId: "getThreadRunStatus",
     path: "/v1/threads/{threadId}/runs/status",
     responses: {
-      "200": jsonResponse("Run status", objectSchema("RunStatus")),
+      "200": jsonResponse("Run status", schemaRef("RunStatus")),
       "204": emptyResponse("No active run"),
     },
     security: [{ bearerAuth: [] }],
@@ -684,38 +161,27 @@ const routes: OpenApiRoute[] = [
     method: "post",
     operationId: "cancelRun",
     path: "/v1/runs/{runId}/cancel",
-    responses: { "200": jsonResponse("Cancellation accepted", objectSchema("Ok")) },
+    responses: { "200": jsonResponse("Cancellation accepted", schemaRef("Ok")) },
     security: [{ bearerAuth: [] }],
     summary: "Cancel an agent run",
     tags: ["runs"],
   },
   ...runControlRoutes,
   {
-    method: "post",
-    operationId: "startRunTakeover",
-    path: "/v1/runs/{runId}/takeover",
-    responses: { "200": jsonResponse("Takeover URL", objectSchema("TakeoverSession")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Start browser takeover",
-    tags: ["runs"],
-  },
-  {
-    method: "post",
-    operationId: "resumeRunAfterTakeover",
-    path: "/v1/runs/{runId}/resume",
-    requestBody: jsonBody(objectSchema("ResumeTakeover")),
-    responses: { "200": jsonResponse("Resume accepted", objectSchema("Ok")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Resume after browser takeover",
-    tags: ["runs"],
-  },
-  {
     method: "get",
     operationId: "downloadOutput",
+    parameters: outputDownloadParameters,
     path: "/v1/outputs/{outputId}/download",
+    rateLimited: true,
     responses: {
-      "200": emptyResponse("Signed output file"),
-      "410": jsonResponse("Expired", objectSchema("Error")),
+      "200": contentResponse("Generated output", "*/*", {
+        format: "binary",
+        type: "string",
+      }),
+      "400": jsonResponse("Invalid output id or signature query", schemaRef("Error")),
+      "403": jsonResponse("Invalid signature", schemaRef("Error")),
+      "404": jsonResponse("Not found", schemaRef("Error")),
+      "410": jsonResponse("Expired", schemaRef("Error")),
     },
     summary: "Download a signed generated output",
     tags: ["outputs"],
@@ -723,6 +189,7 @@ const routes: OpenApiRoute[] = [
   {
     method: "get",
     operationId: "listTools",
+    parameters: [toolDomainParameter],
     path: "/v1/tools",
     responses: { "200": jsonResponse("Tools", arraySchema("Tool")) },
     security: [{ bearerAuth: [] }],
@@ -739,6 +206,7 @@ const routes: OpenApiRoute[] = [
     tags: ["metadata"],
   },
   ...sandboxRoutes,
+  ...skillRoutes,
   {
     method: "get",
     operationId: "listIntegrations",
@@ -777,11 +245,20 @@ const routes: OpenApiRoute[] = [
   },
   {
     method: "delete",
-    operationId: "deleteIntegration",
-    path: "/v1/integrations/{name}",
-    responses: { "204": emptyResponse("Integration deleted") },
+    operationId: "deleteIntegrationAccount",
+    path: "/v1/integrations/{name}/accounts/{connectionId}",
+    responses: { "204": emptyResponse("Connected account deleted") },
     security: [{ bearerAuth: [] }],
-    summary: "Delete integration",
+    summary: "Disconnect one integration account",
+    tags: ["integrations"],
+  },
+  {
+    method: "post",
+    operationId: "makeIntegrationAccountDefault",
+    path: "/v1/integrations/{name}/accounts/{connectionId}/default",
+    responses: { "204": emptyResponse("Default connected account updated") },
+    security: [{ bearerAuth: [] }],
+    summary: "Choose the default account for an integration",
     tags: ["integrations"],
   },
   {
@@ -817,6 +294,7 @@ const routes: OpenApiRoute[] = [
     method: "post",
     operationId: "recordClientError",
     path: "/v1/client-error",
+    rateLimited: true,
     requestBody: jsonBody(objectSchema("ClientError")),
     responses: { "200": jsonResponse("Accepted", objectSchema("Ok")) },
     summary: "Record client error",
@@ -826,6 +304,7 @@ const routes: OpenApiRoute[] = [
     method: "post",
     operationId: "recordVitals",
     path: "/v1/vitals",
+    rateLimited: true,
     requestBody: jsonBody(objectSchema("WebVitals")),
     responses: { "200": jsonResponse("Accepted", objectSchema("Ok")) },
     summary: "Record web vitals",
@@ -845,6 +324,7 @@ const routes: OpenApiRoute[] = [
     method: "get",
     operationId: "getOpenApiDocument",
     path: "/openapi.json",
+    rateLimited: true,
     responses: { "200": jsonResponse("OpenAPI document", objectSchema("OpenApiDocument")) },
     summary: "Get OpenAPI document",
     tags: ["system"],
@@ -853,7 +333,10 @@ const routes: OpenApiRoute[] = [
     method: "get",
     operationId: "getApiDocs",
     path: "/docs",
-    responses: { "200": emptyResponse("HTML API documentation") },
+    rateLimited: true,
+    responses: {
+      "200": contentResponse("HTML API documentation", "text/html", { type: "string" }),
+    },
     summary: "Get API docs",
     tags: ["system"],
   },
@@ -861,11 +344,25 @@ const routes: OpenApiRoute[] = [
     method: "get",
     operationId: "health",
     path: "/health",
-    responses: { "200": jsonResponse("Health", objectSchema("Health")) },
+    rateLimited: true,
+    responses: {
+      "200": jsonResponse("Health", objectSchema("Health")),
+      "503": jsonResponse("Release is converging or a dependency is unhealthy", schemaRef("Error")),
+    },
     summary: "Health check",
     tags: ["system"],
   },
 ];
+
+export const OPENAPI_ROUTE_KEYS = routes.map(
+  (route) => `${route.method.toUpperCase()} ${route.path}`,
+);
+
+export const OPENAPI_ROUTE_IDENTITIES = routes.map((route) => ({
+  method: route.method.toUpperCase(),
+  operationId: route.operationId,
+  path: route.path,
+}));
 
 export const OPENAPI_DOCUMENT = buildOpenApiDocument({
   routes,
@@ -874,8 +371,10 @@ export const OPENAPI_DOCUMENT = buildOpenApiDocument({
     ...accountSchemas,
     ...billingSchemas,
     ...discoverySchemas,
+    ...projectSchemas,
     ...runControlSchemas,
     ...sandboxSchemas,
+    ...skillSchemas,
   },
 });
 

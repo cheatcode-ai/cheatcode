@@ -1,4 +1,4 @@
-import { createChat, listProjectThreads, threadTitle } from "@/lib/api/project-thread";
+import { createChat, listProjectThreadsPage, threadTitle } from "@/lib/api/project-thread";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 
 export type LaunchIntoProjectResult = { busy: true } | { busy?: false; threadId: string };
@@ -16,8 +16,8 @@ export async function launchIntoProject(
   projectId: string,
   prompt: string,
 ): Promise<LaunchIntoProjectResult> {
-  const threads = await listProjectThreads(getToken, projectId);
-  const newest = threads[0] ?? null;
+  const page = await listProjectThreadsPage(getToken, projectId, null, 1);
+  const newest = page.data[0] ?? null;
   if (newest) {
     if (newest.activeRunId !== null) {
       return { busy: true };
@@ -29,19 +29,13 @@ export async function launchIntoProject(
 }
 
 /**
- * Builds the `?prompt|promptKey=…` handoff query for routing into a chat
+ * Builds the opaque `?promptKey=…` handoff query for routing into a chat
  * (`/chats/{threadId}`) so the workspace auto-runs the first message. The chat id
  * rides the path, not the query. Carries no `surface`/`model` — the chat's launch
  * intent owns the build surface and a per-run model choice rides the zustand store.
  */
 export function buildExistingProjectParams(prompt: string): URLSearchParams {
   const params = new URLSearchParams();
-  const handoff = createPromptHandoff(prompt);
-  if (handoff.prompt) {
-    params.set("prompt", handoff.prompt);
-  }
-  if (handoff.promptKey) {
-    params.set("promptKey", handoff.promptKey);
-  }
+  params.set("promptKey", createPromptHandoff(prompt).promptKey);
   return params;
 }

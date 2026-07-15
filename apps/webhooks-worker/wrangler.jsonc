@@ -6,6 +6,7 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-05-20",
   "compatibility_flags": ["nodejs_compat"],
+  "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "routes": [
     {
       "pattern": "webhooks.trycheatcode.com/*",
@@ -13,19 +14,21 @@
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *", "20 0 * * *", "35 0 * * *", "30 3 * * *"]
+    "crons": ["*/5 * * * *", "20 0 * * *", "35 0 * * *"]
   },
   "vars": {
+    "CHEATCODE_ENVIRONMENT": "production",
     "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
-    "DAYTONA_API_URL": "https://app.daytona.io/api",
-    "DAYTONA_TARGET": "us",
-    "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert"
+    "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert",
+    "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
+    "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e",
+    "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
   },
   "secrets_store_secrets": [
     {
-      "binding": "DAYTONA_API_KEY",
+      "binding": "DAYTONA_WEBHOOK_SIGNING_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "daytona-api-key"
+      "secret_name": "daytona-webhook-signing-secret"
     },
     {
       "binding": "CLERK_WEBHOOK_SIGNING_SECRET",
@@ -113,7 +116,7 @@
       "binding": "OPS_WORKFLOW",
       "class_name": "OpsMaintenanceWorkflow",
       "limits": {
-        "steps": 10
+        "steps": 25000
       }
     }
   ],
@@ -134,10 +137,6 @@
     {
       "binding": "R2_OUTPUTS",
       "bucket_name": "cheatcode-outputs"
-    },
-    {
-      "binding": "R2_SNAPSHOTS",
-      "bucket_name": "cheatcode-snapshots"
     },
     {
       "binding": "R2_UPLOADS",

@@ -1,3 +1,4 @@
+import type { ToolCapabilityName } from "@cheatcode/types";
 import {
   mastraBrowserAct,
   mastraBrowserExtract,
@@ -42,6 +43,10 @@ import {
   mastraStartDevServer,
 } from "./registry";
 
+type ToolRegistryContract = {
+  readonly [Name in ToolCapabilityName]: { readonly id: Name };
+};
+
 export const cheatcodeTools = {
   browser_act: mastraBrowserAct,
   browser_extract: mastraBrowserExtract,
@@ -84,4 +89,4 @@ export const cheatcodeTools = {
   skill_invoke: mastraSkillInvoke,
   skill_read_reference: mastraSkillReadReference,
   start_dev_server: mastraStartDevServer,
-} as const;
+} as const satisfies ToolRegistryContract;

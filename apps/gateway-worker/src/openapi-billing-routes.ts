@@ -1,160 +1,25 @@
 import {
-  arrayOf,
-  type JsonValue,
-  jsonBody,
-  jsonResponse,
-  nullableNumberSchema,
-  nullableStringSchema,
-  type OpenApiRoute,
-  stringSchema,
-} from "./openapi-builder";
+  BillingCancelSchema,
+  BillingCatalogResponseSchema,
+  BillingCheckoutSchema,
+  BillingStateResponseSchema,
+  BillingSubscriptionActionResponseSchema,
+  BillingUrlResponseSchema,
+  SandboxUsageSummaryResponseSchema,
+} from "@cheatcode/types";
+import { type JsonValue, jsonBody, jsonResponse, type OpenApiRoute } from "./openapi-builder";
+import { zodJsonSchema } from "./openapi-zod";
 
 const objectSchema = (name: string): JsonValue => ({ $ref: `#/components/schemas/${name}` });
 
-const billingTierSchema: JsonValue = {
-  enum: ["free", "pro", "premium", "ultra", "max"],
-  type: "string",
-};
-
-const positiveIntegerSchema: JsonValue = { exclusiveMinimum: 0, type: "integer" };
-
-const nullablePositiveIntegerSchema: JsonValue = {
-  exclusiveMinimum: 0,
-  type: ["integer", "null"],
-};
-
 export const billingSchemas: Record<string, JsonValue> = {
-  BillingCancel: {
-    additionalProperties: false,
-    properties: {
-      comment: stringSchema({ maxLength: 1_000 }),
-      reason: {
-        enum: [
-          "too_expensive",
-          "missing_features",
-          "switched_service",
-          "unused",
-          "customer_service",
-          "low_quality",
-          "too_complex",
-          "other",
-        ],
-        type: "string",
-      },
-    },
-    type: "object",
-  },
-  BillingCatalog: {
-    additionalProperties: false,
-    properties: {
-      currentTier: billingTierSchema,
-      plans: arrayOf(objectSchema("PlanSummary")),
-    },
-    required: ["currentTier", "plans"],
-    type: "object",
-  },
-  BillingCheckout: {
-    additionalProperties: false,
-    properties: {
-      returnUrl: stringSchema({ format: "uri", maxLength: 2_000 }),
-      successUrl: stringSchema({ format: "uri", maxLength: 2_000 }),
-      tier: { enum: ["pro", "premium", "ultra", "max"], type: "string" },
-    },
-    required: ["tier"],
-    type: "object",
-  },
-  BillingState: {
-    additionalProperties: false,
-    properties: {
-      cancelAtPeriodEnd: { type: "boolean" },
-      canCancel: { type: "boolean" },
-      canReactivate: { type: "boolean" },
-      currentPeriodEnd: nullableStringSchema({ format: "date-time" }),
-      currentPeriodStart: nullableStringSchema({ format: "date-time" }),
-      subscriptionStatus: stringSchema(),
-      tier: billingTierSchema,
-    },
-    required: [
-      "cancelAtPeriodEnd",
-      "canCancel",
-      "canReactivate",
-      "currentPeriodEnd",
-      "currentPeriodStart",
-      "subscriptionStatus",
-      "tier",
-    ],
-    type: "object",
-  },
-  BillingSubscriptionAction: {
-    additionalProperties: false,
-    properties: {
-      cancelAtPeriodEnd: { type: "boolean" },
-      currentPeriodEnd: nullableStringSchema({ format: "date-time" }),
-      currentPeriodStart: nullableStringSchema({ format: "date-time" }),
-      status: stringSchema(),
-    },
-    required: ["cancelAtPeriodEnd", "currentPeriodEnd", "currentPeriodStart", "status"],
-    type: "object",
-  },
-  BillingUrl: {
-    additionalProperties: false,
-    properties: {
-      url: stringSchema({ format: "uri" }),
-    },
-    required: ["url"],
-    type: "object",
-  },
-  PlanSummary: {
-    additionalProperties: false,
-    properties: {
-      available: { type: "boolean" },
-      current: { type: "boolean" },
-      displayName: stringSchema(),
-      id: billingTierSchema,
-      limits: {
-        additionalProperties: false,
-        properties: {
-          dailyCostCapUsd: nullableNumberSchema(),
-          maxConcurrentSandboxes: positiveIntegerSchema,
-          maxProjects: nullablePositiveIntegerSchema,
-          quotaComposioCalls: nullablePositiveIntegerSchema,
-          quotaDeployments: nullablePositiveIntegerSchema,
-        },
-        required: [
-          "dailyCostCapUsd",
-          "maxConcurrentSandboxes",
-          "maxProjects",
-          "quotaComposioCalls",
-          "quotaDeployments",
-        ],
-        type: "object",
-      },
-      monthlyPriceUsd: { minimum: 0, type: "number" },
-      sandboxHoursPerMonth: { exclusiveMinimum: 0, type: "number" },
-    },
-    required: [
-      "available",
-      "current",
-      "displayName",
-      "id",
-      "limits",
-      "monthlyPriceUsd",
-      "sandboxHoursPerMonth",
-    ],
-    type: "object",
-  },
-  SandboxUsageSummary: {
-    additionalProperties: false,
-    properties: {
-      resetAt: stringSchema({ format: "date-time" }),
-      sandboxHoursTotal: { minimum: 0, type: "number" },
-      sandboxHoursUsed: { minimum: 0, type: "number" },
-      tier: billingTierSchema,
-      warnLevel: { enum: ["none", "warn80", "warn95", "exhausted"], type: "string" },
-    },
-    required: ["resetAt", "sandboxHoursTotal", "sandboxHoursUsed", "tier", "warnLevel"],
-    type: "object",
-  },
+  BillingCancel: zodJsonSchema(BillingCancelSchema, "input"),
+  BillingCatalog: zodJsonSchema(BillingCatalogResponseSchema),
+  BillingCheckout: zodJsonSchema(BillingCheckoutSchema, "input"),
+  BillingState: zodJsonSchema(BillingStateResponseSchema),
+  BillingSubscriptionAction: zodJsonSchema(BillingSubscriptionActionResponseSchema),
+  BillingUrl: zodJsonSchema(BillingUrlResponseSchema),
+  SandboxUsageSummary: zodJsonSchema(SandboxUsageSummaryResponseSchema),
 };
 
 export const billingRoutes: OpenApiRoute[] = [
@@ -210,7 +75,7 @@ export const billingRoutes: OpenApiRoute[] = [
     method: "post",
     operationId: "cancelBillingSubscription",
     path: "/v1/billing/cancel",
-    requestBody: jsonBody(objectSchema("BillingCancel")),
+    requestBody: jsonBody(objectSchema("BillingCancel"), false),
     responses: {
       "200": jsonResponse(
         "Subscription cancellation state",

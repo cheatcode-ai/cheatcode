@@ -1,6 +1,5 @@
 "use client";
 
-import { env } from "@cheatcode/env/web";
 import {
   type MetricWithAttribution,
   onCLS,
@@ -9,8 +8,10 @@ import {
   onLCP,
   onTTFB,
 } from "web-vitals/attribution";
+import { gatewayRequestUrl } from "@/lib/api/gateway-url";
+import { telemetryPage } from "@/lib/telemetry-page";
 
-const VITALS_ENDPOINT = `${env.NEXT_PUBLIC_GATEWAY_URL}/v1/vitals`;
+const VITALS_ENDPOINT = gatewayRequestUrl("/v1/vitals");
 const queue = new Set<WebVitalPayload>();
 let initialized = false;
 
@@ -53,7 +54,7 @@ function report(metric: MetricWithAttribution): void {
     name: metric.name,
     navigationType: metric.navigationType,
     rating: metric.rating,
-    url: location.href,
+    url: telemetryPage(),
     value: metric.value,
     ...(target ? { attributionTarget: target } : {}),
   });
@@ -63,10 +64,14 @@ function flush(): void {
   if (queue.size === 0) {
     return;
   }
-  const body = JSON.stringify([...queue]);
+  const batch = [...queue];
+  for (const payload of batch) {
+    queue.delete(payload);
+  }
+
+  const body = JSON.stringify(batch);
   const blob = new Blob([body], { type: "application/json" });
   if (navigator.sendBeacon(VITALS_ENDPOINT, blob)) {
-    queue.clear();
     return;
   }
   void fetch(VITALS_ENDPOINT, {
@@ -75,10 +80,20 @@ function flush(): void {
     keepalive: true,
     method: "POST",
   })
-    .then(() => {
-      queue.clear();
+    .then((response) => {
+      if (!response.ok) {
+        requeue(batch);
+      }
     })
-    .catch(() => undefined);
+    .catch(() => {
+      requeue(batch);
+    });
+}
+
+function requeue(batch: readonly WebVitalPayload[]): void {
+  for (const payload of batch) {
+    queue.add(payload);
+  }
 }
 
 function attributionTarget(metric: MetricWithAttribution): string | undefined {

@@ -1,4 +1,6 @@
-import type { ContentsOptions, RegularSearchOptions } from "exa-js";
+import { APIError } from "@cheatcode/observability";
+import { z } from "zod/v4";
+import { requestResearchJson } from "./provider-http";
 import type { ResearchRuntimeContext } from "./runtime";
 import { requireResearchProviderKey } from "./runtime";
 import {
@@ -7,6 +9,11 @@ import {
   type ExaSearchOutput,
   ExaSearchOutputSchema,
 } from "./schemas";
+
+const EXA_SEARCH_URL = "https://api.exa.ai/search";
+const EXA_REQUEST_TIMEOUT_MS = 30_000;
+const EXA_RESPONSE_MAX_BYTES = 1024 * 1024;
+const EXA_OUTPUT_CONTENT_MAX_CHARACTERS = 160_000;
 
 type ExaToolContentsOptions = {
   highlights?: true | { maxCharacters: number; query?: string };
@@ -25,36 +32,53 @@ type ExaToolSearchOptions = {
   type: ExaSearchInput["type"];
 };
 
-export interface ExaClientLike {
-  search(query: string, options: ExaToolSearchOptions): Promise<ExaRawSearchResponse>;
+interface ExaClientLike {
+  search(query: string, options: ExaToolSearchOptions): Promise<unknown>;
+}
+
+interface CharacterLimiter {
+  remaining: number;
+  wasTruncated: boolean;
 }
 
 export async function executeExaSearch(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client?: ExaClientLike,
+  client: ExaClientLike = createExaClient(runtimeContext),
 ): Promise<ExaSearchOutput> {
-  const resolvedClient = client ?? (await createExaClient(runtimeContext));
   const parsedInput = ExaSearchInputSchema.parse(input);
-  const response = await resolvedClient.search(parsedInput.query, exaSearchOptions(parsedInput));
+  const response = parseExaResponse(
+    await client.search(parsedInput.query, exaSearchOptions(parsedInput)),
+  );
+  const limiter: CharacterLimiter = {
+    remaining: EXA_OUTPUT_CONTENT_MAX_CHARACTERS,
+    wasTruncated: false,
+  };
+  const results = response.results.map((result) =>
+    normalizeExaResult(result, parsedInput, limiter),
+  );
 
   return ExaSearchOutputSchema.parse({
-    requestId: response.requestId,
-    results: response.results.map(normalizeExaResult),
+    requestId: truncate(response.requestId, 500),
+    results,
+    ...(limiter.wasTruncated
+      ? { warning: "Exa content was truncated to keep the research result within safe size." }
+      : {}),
   });
 }
 
-// Dynamically imported so the Exa SDK stays out of the agent-worker isolate's
-// startup path (CF startup CPU limit). Only loaded when the research tool fires.
-async function createExaClient(runtimeContext: ResearchRuntimeContext): Promise<ExaClientLike> {
-  const { default: Exa } = await import("exa-js");
-  const client = new Exa(requireResearchProviderKey(runtimeContext, "exa"));
+function createExaClient(runtimeContext: ResearchRuntimeContext): ExaClientLike {
+  const apiKey = requireResearchProviderKey(runtimeContext, "exa");
   return {
     search: (query, options) =>
-      client.search(
-        query,
-        options as RegularSearchOptions & { contents: ContentsOptions },
-      ) as Promise<ExaRawSearchResponse>,
+      requestResearchJson({
+        apiKey,
+        body: { query, ...options },
+        maxResponseBytes: EXA_RESPONSE_MAX_BYTES,
+        provider: "Exa",
+        timeoutMs: EXA_REQUEST_TIMEOUT_MS,
+        url: EXA_SEARCH_URL,
+      }),
   };
 }
 
@@ -94,44 +118,125 @@ function exaSearchOptions(input: ExaSearchInput): ExaToolSearchOptions {
   return options;
 }
 
-function normalizeExaResult(result: ExaRawSearchResult): ExaSearchOutput["results"][number] {
+function normalizeExaResult(
+  result: ExaRawSearchResult,
+  input: ExaSearchInput,
+  limiter: CharacterLimiter,
+): ExaSearchOutput["results"][number] {
   const normalized: ExaSearchOutput["results"][number] = {
-    highlights: result.highlights ?? [],
-    id: result.id,
-    title: result.title ?? null,
+    highlights: normalizeHighlights(result.highlights, input.highlightMaxCharacters, limiter),
+    id: truncate(result.id, 500),
+    title:
+      result.title === null || result.title === undefined ? null : truncate(result.title, 1_000),
     url: result.url,
   };
   if (result.author !== undefined) {
-    normalized.author = result.author;
+    normalized.author = result.author === null ? null : truncate(result.author, 500);
   }
   if (result.publishedDate !== undefined) {
-    normalized.publishedDate = result.publishedDate;
+    normalized.publishedDate = truncate(result.publishedDate, 100);
   }
   if (result.score !== undefined) {
     normalized.score = result.score;
   }
-  if (result.summary !== undefined) {
-    normalized.summary = result.summary;
+  const summary = takeContent(result.summary, 4_000, limiter);
+  if (summary !== undefined) {
+    normalized.summary = summary;
   }
-  if (result.text !== undefined) {
-    normalized.text = result.text;
+  const text = takeContent(result.text, input.textMaxCharacters, limiter);
+  if (text !== undefined) {
+    normalized.text = text;
   }
   return normalized;
 }
 
-interface ExaRawSearchResponse {
-  requestId: string;
-  results: ExaRawSearchResult[];
+function normalizeHighlights(
+  highlights: string[] | undefined,
+  maxCharacters: number,
+  limiter: CharacterLimiter,
+): string[] {
+  const output: string[] = [];
+  let remaining = maxCharacters;
+  for (const highlight of highlights?.slice(0, 10) ?? []) {
+    if (remaining <= 0 || limiter.remaining <= 0) {
+      limiter.wasTruncated = true;
+      break;
+    }
+    const normalized = takeContent(highlight, Math.min(2_000, remaining), limiter);
+    if (normalized !== undefined) {
+      output.push(normalized);
+      remaining -= normalized.length;
+    }
+  }
+  if ((highlights?.length ?? 0) > output.length) {
+    limiter.wasTruncated = true;
+  }
+  return output;
 }
 
-interface ExaRawSearchResult {
-  author?: string | null | undefined;
-  highlights?: string[] | undefined;
-  id: string;
-  publishedDate?: string | undefined;
-  score?: number | undefined;
-  summary?: string | undefined;
-  text?: string | undefined;
-  title: string | null;
-  url: string;
+function takeContent(
+  value: string | undefined,
+  maxCharacters: number,
+  limiter: CharacterLimiter,
+): string | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  const allowed = Math.min(maxCharacters, limiter.remaining);
+  if (allowed <= 0 && value.length > 0) {
+    limiter.wasTruncated = true;
+    return undefined;
+  }
+  const normalized = value.slice(0, allowed);
+  limiter.remaining -= normalized.length;
+  if (normalized.length < value.length) {
+    limiter.wasTruncated = true;
+  }
+  return normalized;
+}
+
+function truncate(value: string, maxCharacters: number): string {
+  return value.slice(0, maxCharacters);
+}
+
+const ExaRawSearchResultSchema = z
+  .object({
+    author: z.string().nullable().optional(),
+    highlights: z.array(z.string()).optional(),
+    id: z.string().min(1),
+    publishedDate: z.string().optional(),
+    score: z.number().finite().optional(),
+    summary: z.string().optional(),
+    text: z.string().optional(),
+    title: z.string().nullable().optional(),
+    url: z
+      .string()
+      .url()
+      .max(2_048)
+      .refine((value) => {
+        const protocol = new URL(value).protocol;
+        return protocol === "http:" || protocol === "https:";
+      }),
+  })
+  .strip();
+
+const ExaRawSearchResponseSchema = z
+  .object({
+    requestId: z.string().min(1),
+    results: z.array(ExaRawSearchResultSchema).max(25),
+  })
+  .strip();
+
+type ExaRawSearchResult = z.infer<typeof ExaRawSearchResultSchema>;
+type ExaRawSearchResponse = z.infer<typeof ExaRawSearchResponseSchema>;
+
+function parseExaResponse(value: unknown): ExaRawSearchResponse {
+  const parsed = ExaRawSearchResponseSchema.safeParse(value);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new APIError(502, "upstream_provider_outage", "Exa returned an invalid response", {
+    hint: "Retry after Exa API health recovers.",
+    retriable: true,
+  });
 }

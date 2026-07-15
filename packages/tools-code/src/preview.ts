@@ -1,17 +1,19 @@
 import { APIError, createLogger } from "@cheatcode/observability";
-import { tool } from "ai";
+import {
+  callSandboxMethod,
+  EnvironmentVariablesSchema,
+  type getCodeRuntimeContext,
+} from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { getCodeRuntimeContext } from "./runtime";
-import { callSandboxMethod } from "./sandbox-methods";
+import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
 
-export const StartDevServerInputSchema = z
+const StartDevServerInputSchema = z
   .object({
     command: z.array(z.string().min(1)).min(1).max(128),
-    cwd: z.string().min(1).max(500),
-    env: z.record(z.string(), z.string()).optional(),
-    hostname: z.string().min(1).max(255).optional(),
-    // Mobile (Expo Metro) dev server: threads through to the ProcessRecord + preview URL so the
-    // wake path and clean-subdomain routing key off the stack, not the (now per-project) port.
+    cwd: WorkspacePathSchema,
+    env: EnvironmentVariablesSchema.optional(),
+    // Mobile (Expo Metro) dev server: threads through to the ProcessRecord so the authenticated
+    // wake path can mint the correct browser and Expo sessions without exposing them to the model.
     isMobile: z.boolean().default(false),
     keepAliveTimeoutMs: z
       .number()
@@ -27,21 +29,20 @@ export const StartDevServerInputSchema = z
   })
   .strict();
 
-export const StartDevServerOutputSchema = z
+const StartDevServerOutputSchema = z
   .object({
     processId: z.string(),
     pid: z.number().int().positive().optional(),
-    previewUrl: z.string().url(),
     port: z.number().int().positive(),
     status: z.string(),
   })
   .strict();
 
-export type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
-export type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
+type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
+type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
 
 // Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<slug>
-// so multiple projects' servers persist side by side in the one per-user sandbox (bud parity).
+// so multiple projects' servers persist side by side in the one per-user sandbox (Cheatcode parity).
 const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
 
 export async function executeStartDevServer(
@@ -53,8 +54,8 @@ export async function executeStartDevServer(
   // workspaceDir (/workspace/<slug>) regardless of what the model passed, and the port + process
   // slot both key off the LAST path segment of that forced cwd. This is what stops every general
   // project's dev server from running in /workspace root and colliding on 5173/app-preview:workspace
-  // in the shared per-user sandbox — each project persists on its own stable port + slot (bud parity).
-  const cwd = runtimeContext.workspaceDir ?? parsedInput.cwd;
+  // in the shared per-user sandbox — each project persists on its own stable port + slot (Cheatcode parity).
+  const cwd = resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir);
   const slug = deriveWorkspaceSlug(cwd);
   const name = `${APP_PREVIEW_SLOT_PREFIX}${slug}`;
   // A mobile/Expo dev server has exactly one correct invocation: `expo start --web` on the project's
@@ -82,18 +83,10 @@ export async function executeStartDevServer(
       timeoutMs: parsedInput.timeoutMs,
     },
   });
-  await clearExistingExposure(runtimeContext, name, port);
-  const exposed = await callSandboxMethod(runtimeContext.sandbox, "exposePort", {
-    ...(parsedInput.hostname ? { hostname: parsedInput.hostname } : {}),
-    isMobile: parsedInput.isMobile,
-    name,
-    port,
-  });
   return StartDevServerOutputSchema.parse({
     processId: process.id,
     pid: process.pid,
-    previewUrl: exposed.url,
-    port: exposed.port,
+    port,
     status: process.status,
   });
 }
@@ -200,28 +193,4 @@ function devServerPortAllocationError(slug: string): APIError {
       retriable: true,
     },
   );
-}
-
-export const startDevServer = tool({
-  description:
-    "Start a long-running dev server in the sandbox and expose its HTTP port as a preview URL.",
-  inputSchema: StartDevServerInputSchema,
-  outputSchema: StartDevServerOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeStartDevServer(input, getCodeRuntimeContext(options)),
-});
-
-async function clearExistingExposure(
-  runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
-  name: string,
-  port: number,
-): Promise<void> {
-  if (!runtimeContext.sandbox.unexposePort) {
-    return;
-  }
-  try {
-    await runtimeContext.sandbox.unexposePort({ name, port });
-  } catch {
-    return;
-  }
 }

@@ -18,7 +18,10 @@ export interface DatabaseHandle {
 export function createDb(hyperdrive: HyperdriveConnection): DatabaseHandle {
   const pool = new Pool({
     connectionString: hyperdrive.connectionString,
-    max: 5,
+    // A handle is request-scoped and user work is transaction-pinned. Hyperdrive
+    // owns the upstream pool, so opening five driver connections here only burns
+    // Worker connection slots without adding query concurrency.
+    max: 1,
   });
 
   return {

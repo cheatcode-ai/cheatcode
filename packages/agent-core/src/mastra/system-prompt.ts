@@ -1,4 +1,5 @@
 import { buildSystemPromptSection } from "@cheatcode/skills";
+import { MAX_USER_SKILLS } from "@cheatcode/types";
 
 export const MASTER_INSTRUCTIONS_CONTEXT_KEY = "masterInstructions";
 export const AGENT_DISPLAY_NAME_CONTEXT_KEY = "agentDisplayName";
@@ -9,17 +10,28 @@ export const PROMPT_PROJECT_MODE_CONTEXT_KEY = "promptProjectMode";
 export const PROMPT_TASK_MESSAGE_CONTEXT_KEY = "promptTaskMessage";
 /** The run's project folder (/workspace/<slug>) — told to the agent as its working directory. */
 export const PROMPT_WORKSPACE_DIR_CONTEXT_KEY = "promptWorkspaceDir";
-/** The caller's custom skills (full, with body) — read by the prompt + `skill_invoke`. */
+/** Bounded custom-skill metadata used to advertise skills in the system prompt. */
 export const USER_SKILLS_CONTEXT_KEY = "userSkills";
+/** Request-scoped capability that loads one custom skill body on demand. */
+export const USER_SKILL_LOADER_CONTEXT_KEY = "userSkillLoader";
 /** Request-scoped capability the `skill_create` tool uses to persist a new user skill. */
 export const USER_SKILL_STORE_CONTEXT_KEY = "userSkillStore";
 
-/** A user-created skill carried in the request context (mirrors the bundled SKILL.md shape). */
+/** Body-less custom-skill metadata carried on every run. */
 export interface UserSkillRuntime {
   name: string;
   description: string;
-  body: string;
   category?: string;
+}
+
+/** A custom skill definition loaded only when `skill_invoke` selects it. */
+export interface UserSkillDefinition extends UserSkillRuntime {
+  body: string;
+}
+
+/** Loads a single custom skill body from the request's user-scoped store. */
+export interface UserSkillLoader {
+  load(name: string): Promise<UserSkillDefinition | null>;
 }
 
 /** Persists a skill the agent authored in Skill Creator mode. Injected by the agent-worker. */
@@ -31,6 +43,16 @@ export interface UserSkillStore {
     category?: string;
     tags?: string[];
   }): Promise<void>;
+}
+
+export function userSkillLoaderFromRequestContext(
+  requestContext: { get(key: string): unknown } | undefined,
+): UserSkillLoader | null {
+  const value = requestContext?.get(USER_SKILL_LOADER_CONTEXT_KEY);
+  if (value && typeof (value as UserSkillLoader).load === "function") {
+    return value as UserSkillLoader;
+  }
+  return null;
 }
 
 export function userSkillStoreFromRequestContext(
@@ -61,7 +83,7 @@ export interface PromptRuntimeContext {
 }
 
 /** Parse the request-context user-skills value into a typed list (defensive — it crosses the DO boundary). */
-export function userSkillsFromRequestContext(
+function userSkillsFromRequestContext(
   requestContext: RequestContextReader | undefined,
 ): UserSkillRuntime[] {
   const raw = requestContext?.get(USER_SKILLS_CONTEXT_KEY);
@@ -69,17 +91,15 @@ export function userSkillsFromRequestContext(
     return [];
   }
   const skills: UserSkillRuntime[] = [];
-  for (const entry of raw) {
+  for (const entry of raw.slice(0, MAX_USER_SKILLS)) {
     if (
       entry &&
       typeof entry === "object" &&
       typeof (entry as { name?: unknown }).name === "string" &&
-      typeof (entry as { description?: unknown }).description === "string" &&
-      typeof (entry as { body?: unknown }).body === "string"
+      typeof (entry as { description?: unknown }).description === "string"
     ) {
       const value = entry as UserSkillRuntime;
       skills.push({
-        body: value.body,
         description: value.description,
         name: value.name,
         ...(typeof value.category === "string" ? { category: value.category } : {}),

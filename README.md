@@ -1,8 +1,8 @@
 # Cheatcode V2
 
-Cheatcode is a TypeScript-first generalist AI agent platform on Cloudflare Workers, Durable Objects, Workflows, Blaxel Sandboxes, Supabase Postgres, Clerk, and Polar.
+Cheatcode is a TypeScript-first generalist AI agent platform with a Vercel-hosted Next.js frontend, Cloudflare Workers, Durable Objects, Workflows, Daytona Sandboxes, Supabase Postgres, Clerk, and Polar.
 
-`plan.md` is the source of truth for product scope, architecture, schema, security, and delivery order.
+The live source, package READMEs, migrations, and deployment configuration define the current system. The deleted `plan.md` is intentionally not authoritative and must not be restored.
 
 ## Local Setup
 
@@ -14,7 +14,8 @@ cp apps/gateway-worker/.dev.vars.example apps/gateway-worker/.dev.vars
 pnpm turbo skills:build
 pnpm typecheck:scripts
 pnpm turbo db:generate
-pnpm tsx scripts/migrate.ts --apply
+pnpm tsx scripts/migrate.ts --apply --phase=pre-deploy
+pnpm tsx scripts/migrate.ts --apply --phase=post-deploy
 pnpm turbo build
 ```
 
@@ -49,8 +50,8 @@ browser flows, checks accessibility/load, or gathers final product evidence.
 May 27, 2026 user override: never use scripts for product testing. Product QA
 must be direct UI operation with `agent-browser`, screenshots, console/network
 inspection, and running app-log review. Delete future V2 product validators
-rather than running them. Legacy V1 tests under `cheatcode/` are ignored
-reference material and are not part of V2 QA.
+rather than running them. The removed V1 tree must not be restored or copied
+back as a testing surface.
 
 May 28, 2026 hardening: product QA cannot be wrapped in `pnpm`, `tsx`, shell
 loops, `/tmp` helpers, generated files, browser-driver wrappers, package
@@ -68,42 +69,36 @@ gathers final product evidence.
 Docker local behavior:
 
 ```bash
-pnpm docker:dev:build
-pnpm docker:dev:up
-pnpm docker:dev:down
-pnpm docker:prod:build
-pnpm docker:prod:up
-pnpm docker:prod:down
 pnpm docker:clean
 ```
 
-V2 production deploys to Cloudflare Workers/OpenNext, Supabase, and hosted
-Blaxel sandboxes. Docker Compose is not the production runtime. The root compose files
-exist to build/run the sandbox image in a predictable `cheatcode-dev` or
-`cheatcode-prod` Docker Desktop group, pinned to `linux/amd64` to match the
-hosted Blaxel sandbox image. `pnpm dev` checks the authenticated Blaxel CLI
-workspace before starting Workers; pass `--skip-blaxel-check` only when running
-frontend or routing code without sandbox-backed tools.
+V2 production uses Vercel for `apps/web`, Cloudflare for the backend Workers,
+Supabase, and hosted Daytona sandboxes. Build the sandbox image directly with
+the command in `infra/containers/sandbox/README.md`; its AMD64 platform matches
+Daytona's runner. The obsolete standalone Docker Compose runtime was removed
+because Daytona supplies the sandbox daemon and lifecycle in production.
 
 `pnpm dev` writes ignored `wrangler.local-dev.generated.jsonc` files next to
 each Worker config with production-only Secrets Store bindings removed. Local
 Workers read secrets from `.dev.vars`; production deploys still use the
 committed `wrangler.jsonc` Secrets Store bindings. Before local Workers start,
 `pnpm dev` validates that `apps/agent-worker/.dev.vars` has the required
-standard Worker secrets for Blaxel and output downloads.
+Daytona, preview, maintenance, and output-signing secrets.
 
 Expected local endpoints:
 
 - `apps/web`: `http://localhost:3000`
-- `apps/web` Workers parity preview: `pnpm --filter @cheatcode/web preview` (`http://localhost:3001`)
 - Gateway Worker: `http://localhost:8787` from one chained `wrangler dev`
   process that includes gateway, agent, and webhooks Workers
 - Wrangler inspector: `http://localhost:9239` (kept off 9229 so
   `agent-browser --auto-connect` attaches to Chrome on 9222, not workerd)
 - Supabase Studio: `http://localhost:54323`
 
-Database migrations run in the locked order from `plan.md` Section 7.10:
-raw pre-SQL, Drizzle migrations, then raw post-SQL. Use
+Database migrations use an expand/deploy/contract sequence enforced by
+`scripts/migrate.ts`: raw pre-SQL and Drizzle migrations run before the backend
+release; destructive raw post-SQL runs only after the new Workers are live.
+Every apply requires an explicit `--phase=pre-deploy` or
+`--phase=post-deploy`; `--phase=all` is read-only planning only. Use
 `SUPABASE_MIGRATION_URL` from a git-ignored `.env.migrate`; never bind it to a
 Worker.
 
@@ -116,54 +111,48 @@ Supabase MCP and verify the deployed Worker route that depends on it.
 migration plan. There is no standalone database validation script in V2; the
 guardrail runs inside the migration operation that needs it.
 
-After `wrangler hyperdrive create cheatcode-db --connection-string=...`, replace
-the placeholder `00000000-0000-0000-0000-000000000000` Hyperdrive IDs in Worker
-`wrangler.jsonc` files with the created configuration ID:
+When rotating or replacing the production Hyperdrive configuration, update every
+database-backed Worker `wrangler.jsonc` binding together with the reviewed
+configuration ID:
 
 ```bash
 pnpm prod:set-hyperdrive -- --id <HYPERDRIVE_CONFIG_ID>
 pnpm prod:set-hyperdrive -- --id <HYPERDRIVE_CONFIG_ID> --apply
 ```
 
-The GitHub static-check workflow runs package lint/typecheck/build only. Production deploys
-and production DB migration applies are manual-only
-`workflow_dispatch` operations gated by a typed production-deploy confirmation
-and the `production` environment; a push to `main` must never deploy Cloudflare
-resources or mutate the production database by itself. Local production deploy
+The GitHub static-check workflow runs repository-wide lint, typecheck, and build gates. The
+`Production Release` workflow is a manual-only `workflow_dispatch` operation
+gated by the exact `RELEASE_PRODUCTION` confirmation and the `production`
+environment; a push to `main` must never deploy Cloudflare resources, promote
+Vercel production, or mutate the production database by itself. Local production deploy
 commands also refuse to run unless `CHEATCODE_PROD_DEPLOY_APPROVED=true` is set
-after explicit approval. The deploy workflow keeps the deployment sequence
-manual and serialized. Product
+after explicit approval. The release workflow builds, stages, and health-checks an
+exact-SHA Vercel production candidate without assigning domains before it mutates
+the database or backend. It then serializes pre-deploy migrations, the Cloudflare
+backend, promotion of that already-verified Vercel deployment, production-domain
+health checks, and post-deploy contractions. Product
 correctness is verified through direct `agent-browser` UI operation and logs,
-not standalone deployment validation scripts. Blaxel SDK credentials
-(`BL_API_KEY`, `BL_WORKSPACE`, `BL_REGION`) plus
-`OUTPUT_DOWNLOAD_SIGNING_SECRET` are checked as standard Worker secrets on
-`cheatcode-agent`:
+not standalone product-flow validation scripts.
+
+The protected `Production` GitHub environment must provide the
+`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `DAYTONA_API_KEY`,
+`SUPABASE_MIGRATION_URL`, and `VERCEL_TOKEN` secrets. Repository variables provide
+the four `SUPABASE_MIGRATION_EXPECTED_*` identity values, `VERCEL_ORG_ID`,
+`VERCEL_PROJECT_ID`, and `NEXT_PUBLIC_GATEWAY_URL`. Static checks use an inert,
+test-shaped Clerk publishable value rather than a deployable credential. Protected deployment URLs are verified with
+authenticated `vercel curl` requests using the scoped CI token, so no separate
+protection-bypass secret is distributed. `VERCEL_PRODUCTION_URL` is optional and
+defaults to the canonical `https://trycheatcode.com` frontend origin.
+
+Publish a new immutable Daytona snapshot after changing `infra/containers/sandbox/`:
 
 ```bash
-pnpm sync:worker-secrets
-pnpm sync:worker-secrets -- --apply
+docker build --platform=linux/amd64 -t cheatcode-sandbox:<immutable-tag> infra/containers/sandbox
+daytona snapshot push cheatcode-sandbox:<immutable-tag> --name <snapshot-name> --cpu 2 --memory 4 --disk 10
 ```
 
-The default search path includes `.env.local`, `.env.development`,
-`docker.dev`, and per-Worker `.dev.vars` files, and fails if any required
-standard Worker secret is missing. Use `--allow-partial` only for targeted
-debugging. `--apply` uses `wrangler versions secret put` so it works with
-Workers Versions without running `wrangler deploy`.
-
-For local sandbox-backed dev,
-`pnpm sync:blaxel-local-token` refreshes Blaxel CLI auth and writes the current
-CLI JWT to `apps/agent-worker/.dev.vars` only when `BL_API_KEY` is missing or
-already a JWT-shaped CLI token; long-lived non-JWT API keys are preserved.
-
-Publish the sandbox image to Blaxel after changing `infra/containers/sandbox/`:
-
-```bash
-bl push -d ./infra/containers/sandbox --type sandbox --name cheatcode-sandbox
-bl get image sandbox/cheatcode-sandbox --latest
-```
-
-Cloudflare Secrets Store sync is dry-run by default and never prints secret
-values:
+Cloudflare Secrets Store sync is dry-run by default, never prints secret values, creates missing
+entries, and rotates existing entries by name:
 
 ```bash
 pnpm sync:secrets -- --env-file apps/web/.env.local --env-file apps/webhooks-worker/.dev.vars
@@ -177,7 +166,35 @@ pnpm deploy:workers
 CHEATCODE_PROD_DEPLOY_APPROVED=true pnpm deploy:workers -- --apply
 ```
 
-The deploy script runs `agent -> gateway -> web -> webhooks` so the
-gateway service binding points at an existing `cheatcode-agent` Worker.
+The committed Wrangler files are authoritative: an apply replaces Worker vars
+with a generated copy of the declared config plus the exact release SHA and does
+not retain undeclared dashboard vars. It deploys the final gateway bundle closed,
+waits for its exact-SHA `503`, deploys agent, verifies the agent SHA through the
+still-closed gateway health response, and only then redeploys the same gateway
+bundle open. Webhooks and preview proxy follow after that pair has converged.
+If any barrier step fails, the operation re-deploys and verifies the closed gate
+before stopping. If even that recovery cannot be verified, it reports the gate
+state as unconfirmed and requires immediate inspection rather than claiming
+production is closed.
+The local deploy script releases only the Cloudflare backend.
+Production disables every Vercel Git auto-deploy and promotes the staged prebuilt
+frontend only from the coordinated release workflow.
 
-The preserved `cheatcode/` directory is the legacy V1 codebase. It is ignored by V2 tooling until a proper legacy snapshot branch/archive exists.
+After the script has verified the recovered closed gate, further release-barrier
+recovery is deliberately manual. First fix the transient cause and rerun the
+complete deployment from the same immutable commit;
+the sequence is idempotent and re-verifies every release identity. If the release
+must be abandoned, leave gateway closed, perform a reviewed rollback of agent if
+it changed, then roll gateway back to the matching known-good open Worker version
+and verify the public `/health` response before resuming frontend promotion or
+post-deploy migrations. Never flip the gate open in the dashboard or reopen it
+against an unverified agent version.
+
+The release barrier drains new public requests; it does not cancel requests or
+Durable Object executions already in flight. A change to active `AgentRun`
+behavior or gateway-owned Durable Object state must be handled as an explicit
+drain/state migration rather than assuming the HTTP gate makes that state
+transition atomic.
+
+The repository contains only the active V2 implementation. The legacy V1 source
+tree was permanently removed on July 13, 2026 after explicit user authorization.

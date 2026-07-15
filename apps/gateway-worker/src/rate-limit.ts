@@ -1,7 +1,13 @@
-import { APIError, createLogger } from "@cheatcode/observability";
+import {
+  APIError,
+  createLogger,
+  readBoundedResponseJson,
+  safeErrorTelemetry,
+} from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import { type RateLimitResult, RateLimitResultSchema } from "./durable-objects/rate-limit-contract";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
+import { identifyDeclaredGatewayRoute } from "./openapi-route-parity";
 
 type RateLimitClass =
   | "public.read"
@@ -14,6 +20,7 @@ type RateLimitClass =
 interface RateLimitPolicy {
   className: RateLimitClass;
   cost: number;
+  failClosed: boolean;
   limitPerMinute: number;
 }
 
@@ -28,15 +35,31 @@ export interface RateLimitContext {
     RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   };
   header(name: string, value: string): void;
+  readonly res: Response;
 }
 
+interface PublicRateLimitContext extends RateLimitContext {
+  req: { raw: Request };
+}
+
+type PublicRateLimitPolicyName = "publicRead" | "publicWrite";
+
+interface RateLimitSubject {
+  durableObjectName: string;
+  key: string;
+}
+
+// A bounded 256-shard pool avoids creating a permanently alarmed Durable Object per client IP.
+const PUBLIC_RATE_LIMIT_SHARD_PREFIX_LENGTH = 2;
+const MAX_RATE_LIMIT_RESPONSE_BYTES = 16 * 1024;
+
 const RATE_LIMIT_POLICIES = {
-  publicRead: { className: "public.read", cost: 1, limitPerMinute: 300 },
-  publicWrite: { className: "public.write", cost: 1, limitPerMinute: 60 },
-  readCheap: { className: "read.cheap", cost: 1, limitPerMinute: 600 },
-  readExpensive: { className: "read.expensive", cost: 5, limitPerMinute: 60 },
-  runsCreate: { className: "runs.create", cost: 10, limitPerMinute: 30 },
-  writeNormal: { className: "write.normal", cost: 3, limitPerMinute: 120 },
+  publicRead: { className: "public.read", cost: 1, failClosed: false, limitPerMinute: 300 },
+  publicWrite: { className: "public.write", cost: 1, failClosed: true, limitPerMinute: 60 },
+  readCheap: { className: "read.cheap", cost: 1, failClosed: false, limitPerMinute: 600 },
+  readExpensive: { className: "read.expensive", cost: 5, failClosed: true, limitPerMinute: 60 },
+  runsCreate: { className: "runs.create", cost: 10, failClosed: true, limitPerMinute: 30 },
+  writeNormal: { className: "write.normal", cost: 3, failClosed: true, limitPerMinute: 120 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export async function rateLimit(
@@ -44,11 +67,49 @@ export async function rateLimit(
   userId: UserId,
   route: string,
 ): Promise<RateLimitHeaders | null> {
-  const policy = policyForRoute(route);
-  const id = c.env.RATE_LIMITER.idFromName(`ratelimit:${userId.slice(0, 8)}`);
+  const identity = identifyDeclaredGatewayRoute(route);
+  return consumeRateLimit(
+    c,
+    {
+      durableObjectName: `ratelimit:${userId.slice(0, 8)}`,
+      key: `user:${userId}:${identity.operationId}`,
+    },
+    identity.operationId,
+    policyForRoute(identity.routeKey),
+  );
+}
+
+export async function rateLimitPublic(
+  c: PublicRateLimitContext,
+  route: string,
+  policyName: PublicRateLimitPolicyName,
+): Promise<RateLimitHeaders | null> {
+  const identity = identifyDeclaredGatewayRoute(route);
+  const addressHash = await publicClientAddressHash(c.req.raw);
+  return consumeRateLimit(
+    c,
+    {
+      durableObjectName: `ratelimit:public:${addressHash.slice(
+        0,
+        PUBLIC_RATE_LIMIT_SHARD_PREFIX_LENGTH,
+      )}`,
+      key: `public:${addressHash}:${identity.operationId}`,
+    },
+    identity.operationId,
+    RATE_LIMIT_POLICIES[policyName],
+  );
+}
+
+async function consumeRateLimit(
+  c: RateLimitContext,
+  subject: RateLimitSubject,
+  operationId: string,
+  policy: RateLimitPolicy,
+): Promise<RateLimitHeaders | null> {
+  const id = c.env.RATE_LIMITER.idFromName(subject.durableObjectName);
   const stub = c.env.RATE_LIMITER.get(id);
   const body = JSON.stringify({
-    key: `${userId}:${route}`,
+    key: subject.key,
     cost: policy.cost,
     config: rateLimitConfig(policy),
   });
@@ -56,51 +117,40 @@ export async function rateLimit(
   try {
     response = await stub.fetch("https://rate-limit.internal/consume", { body, method: "POST" });
   } catch (error) {
-    logRateLimitFailure(route, error);
-    return null;
+    return handleRateLimitFailure(operationId, policy, error);
   }
   if (!response.ok) {
-    logRateLimitFailure(route, new Error(`Rate limiter returned HTTP ${response.status}`));
-    return null;
+    await response.body?.cancel().catch(() => undefined);
+    return handleRateLimitFailure(
+      operationId,
+      policy,
+      new Error(`Rate limiter returned HTTP ${response.status}`),
+    );
   }
   let result: RateLimitResult;
   try {
-    result = RateLimitResultSchema.parse(await response.json());
+    result = RateLimitResultSchema.parse(
+      await readBoundedResponseJson(response, MAX_RATE_LIMIT_RESPONSE_BYTES, "Rate limiter"),
+    );
   } catch (error) {
-    logRateLimitFailure(route, error);
-    return null;
+    return handleRateLimitFailure(operationId, policy, error);
   }
   const headers = rateLimitHeaders(policy, result);
-  setRateLimitHeaders(c, headers);
   if (!result.allowed) {
-    throw new APIError(429, "rate_limit_exceeded", "Too many requests", {
-      hint: `Retry after ${Math.ceil(result.retryAfterMs / 1000)} seconds.`,
-      retriable: true,
-      details: {
-        class: policy.className,
-        retry_after_ms: result.retryAfterMs,
-      },
-    });
+    throw new RateLimitExceededError(headers, policy, result.retryAfterMs);
   }
+  setRateLimitHeaders(c, headers);
   return headers;
 }
 
-export function ensureFallbackRateLimitHeaders(headers: Headers, request: Request): void {
-  const policy = fallbackPolicyForRequest(request);
-  const fallback: RateLimitHeaders = {
-    limit: String(policy.limitPerMinute),
-    remaining: String(policy.limitPerMinute - 1),
-    reset: rateLimitReset(60_000),
-  };
-  if (!headers.has("RateLimit-Limit")) {
-    headers.set("RateLimit-Limit", fallback.limit);
+export function withRateLimitErrorHeaders(response: Response, error: unknown): Response {
+  if (!(error instanceof RateLimitExceededError)) {
+    return response;
   }
-  if (!headers.has("RateLimit-Remaining")) {
-    headers.set("RateLimit-Remaining", fallback.remaining);
-  }
-  if (!headers.has("RateLimit-Reset")) {
-    headers.set("RateLimit-Reset", fallback.reset);
-  }
+  const next = new Response(response.body, response);
+  applyRateLimitHeaders(next.headers, error.rateLimitHeaders);
+  next.headers.set("Retry-After", String(error.retryAfterSeconds));
+  return next;
 }
 
 export function withRateLimitHeaders(
@@ -111,17 +161,18 @@ export function withRateLimitHeaders(
     return response;
   }
   const next = new Response(response.body, response);
-  next.headers.set("RateLimit-Limit", headers.limit);
-  next.headers.set("RateLimit-Remaining", headers.remaining);
-  next.headers.set("RateLimit-Reset", headers.reset);
+  applyRateLimitHeaders(next.headers, headers);
   return next;
 }
 
 function policyForRoute(route: string): RateLimitPolicy {
-  if (route === "POST /v1/threads/:threadId/runs") {
+  if (route === "POST /v1/threads/{threadId}/runs") {
     return RATE_LIMIT_POLICIES.runsCreate;
   }
-  if (route === "GET /v1/threads/:threadId/runs/stream" || isSandboxReadRoute(route)) {
+  if (route === "POST /v1/projects/{projectId}/download") {
+    return RATE_LIMIT_POLICIES.readExpensive;
+  }
+  if (route === "GET /v1/threads/{threadId}/runs/stream" || isSandboxReadRoute(route)) {
     return RATE_LIMIT_POLICIES.readExpensive;
   }
   if (route.startsWith("GET ")) {
@@ -131,36 +182,9 @@ function policyForRoute(route: string): RateLimitPolicy {
 }
 
 function isSandboxReadRoute(route: string): boolean {
-  return route.startsWith("GET /v1/threads/:threadId/sandbox/");
-}
-
-function fallbackPolicyForRequest(request: Request): RateLimitPolicy {
-  const url = new URL(request.url);
-  if (url.pathname === "/v1/client-error" || url.pathname === "/v1/vitals") {
-    return RATE_LIMIT_POLICIES.publicWrite;
-  }
-  if (
-    /^\/v1\/outputs\/[^/]+\/download$/.test(url.pathname) ||
-    url.pathname === "/health" ||
-    url.pathname === "/docs" ||
-    url.pathname === "/openapi.json"
-  ) {
-    return RATE_LIMIT_POLICIES.publicRead;
-  }
-  return policyForRoute(normalizeRouteForPolicy(request.method, url.pathname));
-}
-
-function normalizeRouteForPolicy(method: string, pathname: string): string {
-  if (method === "POST" && /^\/v1\/threads\/[^/]+\/runs$/.test(pathname)) {
-    return "POST /v1/threads/:threadId/runs";
-  }
-  if (method === "GET" && /^\/v1\/threads\/[^/]+\/runs\/stream$/.test(pathname)) {
-    return "GET /v1/threads/:threadId/runs/stream";
-  }
-  if (method === "GET" && /^\/v1\/threads\/[^/]+\/sandbox\//.test(pathname)) {
-    return "GET /v1/threads/:threadId/sandbox/*";
-  }
-  return `${method} ${pathname}`;
+  return (
+    route.startsWith("GET /v1/threads/{threadId}/sandbox/") || route.startsWith("GET /v1/computer/")
+  );
 }
 
 function rateLimitConfig(policy: RateLimitPolicy): { capacity: number; refillPerSec: number } {
@@ -177,9 +201,17 @@ function rateLimitHeaders(policy: RateLimitPolicy, result: RateLimitResult): Rat
 }
 
 function setRateLimitHeaders(c: RateLimitContext, headers: RateLimitHeaders): void {
+  // Materialize Hono's response so these headers survive handlers that return a raw Response.
+  void c.res;
   c.header("RateLimit-Limit", headers.limit);
   c.header("RateLimit-Remaining", headers.remaining);
   c.header("RateLimit-Reset", headers.reset);
+}
+
+function applyRateLimitHeaders(target: Headers, headers: RateLimitHeaders): void {
+  target.set("RateLimit-Limit", headers.limit);
+  target.set("RateLimit-Remaining", headers.remaining);
+  target.set("RateLimit-Reset", headers.reset);
 }
 
 function rateLimitReset(retryAfterMs: number): string {
@@ -187,10 +219,57 @@ function rateLimitReset(retryAfterMs: number): string {
   return String(Math.ceil((Date.now() + resetMs) / 1000));
 }
 
-function logRateLimitFailure(route: string, error: unknown): void {
+function logRateLimitFailure(operationId: string, error: unknown): void {
   createLogger().warn("rate_limiter_unavailable", {
-    errorMessage: error instanceof Error ? error.message : String(error),
-    errorName: error instanceof Error ? error.name : typeof error,
-    route,
+    route: operationId,
+    ...safeErrorTelemetry(error),
   });
+}
+
+function handleRateLimitFailure(
+  operationId: string,
+  policy: RateLimitPolicy,
+  error: unknown,
+): null {
+  logRateLimitFailure(operationId, error);
+  if (policy.failClosed) {
+    throw new APIError(503, "unavailable_maintenance", "Request protection is unavailable", {
+      hint: "Retry shortly. If this persists, check the gateway RateLimiter Durable Object.",
+      retriable: true,
+    });
+  }
+  return null;
+}
+
+async function publicClientAddressHash(request: Request): Promise<string> {
+  const rawAddress = request.headers.get("CF-Connecting-IP")?.trim().toLowerCase();
+  const address = rawAddress && rawAddress.length <= 64 ? rawAddress : "missing";
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`cheatcode-public-rate-limit-v1\0${address}`),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+class RateLimitExceededError extends APIError {
+  public readonly rateLimitHeaders: RateLimitHeaders;
+  public readonly retryAfterSeconds: number;
+
+  public constructor(
+    rateLimitHeaders: RateLimitHeaders,
+    policy: RateLimitPolicy,
+    retryAfterMs: number,
+  ) {
+    const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1_000));
+    super(429, "rate_limit_exceeded", "Too many requests", {
+      details: {
+        class: policy.className,
+        retry_after_ms: retryAfterMs,
+      },
+      hint: `Retry after ${retryAfterSeconds} seconds.`,
+      retriable: true,
+    });
+    this.rateLimitHeaders = rateLimitHeaders;
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
 }

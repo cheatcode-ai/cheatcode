@@ -1,31 +1,26 @@
 import type { ComponentType } from "react";
-import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import {
-  BookOpen,
-  Link as LinkIcon,
-  Monitor,
-  Plus,
-  SlidersHorizontal,
-  TrendingUp,
-  User,
-  Zap,
-} from "@/components/ui/icons";
+  SidebarModelsIcon,
+  SidebarNewChatIcon,
+  SidebarPersonalizationIcon,
+  SidebarProjectsIcon,
+  SidebarSkillsIcon,
+} from "@/components/shell/sidebar-nav-icons";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
+import { SlidersHorizontal } from "@/components/ui/icons";
 
-export type NavItemId =
-  | "automations"
+type NavItemId =
   | "cheatcode-101"
   | "models"
   | "new-task"
   | "personalization"
   | "projects"
   | "settings"
-  | "skills"
-  | "tools"
-  | "usage";
+  | "skills";
 
-export type NavSection = "footer" | "primary" | "workspace";
+type NavSection = "footer" | "primary" | "workspace";
 
-export type NavTarget = { href: string; kind: "route"; matchPrefix: string } | { kind: "action" };
+type NavTarget = { href: string; kind: "route"; matchPrefix: string } | { kind: "action" };
 
 export interface NavItem {
   description?: string;
@@ -34,111 +29,67 @@ export interface NavItem {
   id: NavItemId;
   label: string;
   section: NavSection;
-  status: "active" | "planned";
   target: NavTarget;
 }
 
-/**
- * Canonical sidebar IA. The future Bud sidebar consumes the whole registry; this
- * round the existing sidebar renders only `status: "active"` items as plain
- * links. `planned` entries are reserved for the automations / billing-credits /
- * user-foundation clusters to flip on.
- */
+/** Canonical sidebar information architecture shared by the expanded and rail views. */
 export const WORKSPACE_NAV: readonly NavItem[] = [
   {
-    icon: Plus,
+    icon: SidebarNewChatIcon,
     id: "new-task",
     label: "New chat",
     section: "primary",
-    status: "active",
     target: { href: "/", kind: "route", matchPrefix: "/" },
   },
   {
     expandable: true,
-    icon: Monitor,
+    icon: SidebarProjectsIcon,
     id: "projects",
     label: "Projects",
     section: "primary",
-    status: "active",
     target: { kind: "action" },
   },
   {
-    icon: CheatcodeMark,
+    icon: SidebarSkillsIcon,
     id: "skills",
     label: "Skills",
     section: "workspace",
-    status: "active",
     target: { href: "/skills", kind: "route", matchPrefix: "/skills" },
   },
   {
-    icon: LinkIcon,
-    id: "tools",
-    label: "Tools",
-    section: "workspace",
-    status: "active",
-    target: { href: "/tools", kind: "route", matchPrefix: "/tools" },
-  },
-  {
-    icon: Zap,
-    id: "automations",
-    label: "Automations",
-    section: "workspace",
-    status: "active",
-    target: { href: "/automations", kind: "route", matchPrefix: "/automations" },
-  },
-  {
-    icon: User,
+    icon: SidebarPersonalizationIcon,
     id: "personalization",
     label: "Personalization",
     section: "workspace",
-    status: "active",
     target: {
-      href: "/settings/personalization",
+      href: "/personalization",
       kind: "route",
-      matchPrefix: "/settings/personalization",
+      matchPrefix: "/personalization",
     },
   },
   {
-    icon: SlidersHorizontal,
+    icon: SidebarModelsIcon,
     id: "models",
     label: "Models",
     section: "workspace",
-    status: "active",
-    target: { href: "/settings/agents", kind: "route", matchPrefix: "/settings/agents" },
+    target: { href: "/models", kind: "route", matchPrefix: "/models" },
   },
   {
-    description: "Learn what agents can do",
-    icon: BookOpen,
+    description: "Learn what Cheatcode can do",
+    icon: CheatcodeMark,
     id: "cheatcode-101",
-    label: "cheatcode 101",
+    label: "Cheatcode 101",
     section: "footer",
-    status: "active",
     target: { href: "/101", kind: "route", matchPrefix: "/101" },
-  },
-  {
-    icon: TrendingUp,
-    id: "usage",
-    label: "Usage",
-    section: "footer",
-    status: "planned",
-    target: { href: "/usage", kind: "route", matchPrefix: "/usage" },
   },
   {
     icon: SlidersHorizontal,
     id: "settings",
     label: "Settings",
     section: "footer",
-    status: "active",
-    target: { href: "/settings/account", kind: "route", matchPrefix: "/settings" },
+    target: { href: "/billing", kind: "route", matchPrefix: "/billing" },
   },
 ];
-
-/** Active route nav items (excludes `planned` entries and `action` targets). */
-export function activeRouteNavItems(section: NavSection): NavItem[] {
-  return WORKSPACE_NAV.filter(
-    (item) => item.section === section && item.status === "active" && item.target.kind === "route",
-  );
-}
 
 export function isNavItemActive(item: NavItem, pathname: string): boolean {
   if (item.target.kind !== "route") {

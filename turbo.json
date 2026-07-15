@@ -6,8 +6,8 @@
   },
   "tasks": {
     "build": {
-      "dependsOn": ["^build", "skills:build"],
-      "outputs": ["dist/**", ".next/**", ".wrangler/**", ".open-next/**"]
+      "dependsOn": ["^build", "@cheatcode/skills#skills:build"],
+      "outputs": ["dist/**", ".next/**", ".wrangler/**"]
     },
     "db:generate": {
       "cache": false,
@@ -16,18 +16,15 @@
     "dev": {
       "cache": false,
       "persistent": true,
-      "dependsOn": ["skills:build"]
+      "dependsOn": ["@cheatcode/skills#skills:build"]
     },
-    "lint": {
-      "dependsOn": ["^build"]
-    },
+    "lint": {},
     "skills:build": {
-      "cache": false,
-      "inputs": ["skills/**", "scripts/build-skills.ts"],
-      "outputs": ["packages/skills/src/generated.ts"]
+      "inputs": ["../../skills/**", "../../scripts/build-skills.ts", "src/types.ts"],
+      "outputs": ["src/generated.ts", "src/generated-manifest.ts"]
     },
     "typecheck": {
-      "dependsOn": ["^build", "skills:build"]
+      "dependsOn": ["^build", "@cheatcode/skills#skills:build"]
     },
     "deploy": {
       "dependsOn": ["build", "typecheck", "lint"],

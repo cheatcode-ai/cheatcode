@@ -5,6 +5,12 @@
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "lint": "biome check .",
@@ -15,7 +21,9 @@
     "@ai-sdk/deepseek": "catalog:",
     "@ai-sdk/google": "catalog:",
     "@ai-sdk/openai": "catalog:",
+    "@cheatcode/composio": "workspace:*",
     "@cheatcode/observability": "workspace:*",
+    "@cheatcode/sandbox-contracts": "workspace:*",
     "@cheatcode/skills": "workspace:*",
     "@cheatcode/tools-browser": "workspace:*",
     "@cheatcode/tools-code": "workspace:*",
@@ -23,7 +31,6 @@
     "@cheatcode/tools-docs": "workspace:*",
     "@cheatcode/tools-research": "workspace:*",
     "@cheatcode/types": "workspace:*",
-    "@composio/core": "catalog:",
     "@mastra/core": "catalog:",
     "@openrouter/ai-sdk-provider": "catalog:",
     "ai": "catalog:",

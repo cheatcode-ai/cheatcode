@@ -16,7 +16,7 @@ export async function closeDatabaseBestEffort(input: {
     .then(() => "closed" as const)
     .catch((error: unknown) => {
       input.logger.warn("db_close_failed", {
-        error: error instanceof Error ? error.message : "Unknown database close error",
+        error,
         operation: input.operation,
       });
       return "closed" as const;

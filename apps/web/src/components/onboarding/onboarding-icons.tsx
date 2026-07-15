@@ -1,4 +1,4 @@
-// Onboarding iconography — SVG paths lifted verbatim from the Paper "Bud System"
+// Onboarding iconography — SVG paths lifted verbatim from the Paper "Cheatcode System"
 // 15-series artboards (15b–15f) so the first-run flow is pixel-identical to the design.
 
 export function Sparkle({ size = 48 }: { size?: number }) {
@@ -129,23 +129,6 @@ export function IconPhone() {
         y="2"
       />
       <path d="M7 12.2H9" fill="none" stroke="#1b1b1b" strokeLinecap="round" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-export function GitHubMark() {
-  return (
-    <svg
-      aria-hidden="true"
-      height="14"
-      viewBox="0 0 16 16"
-      width="14"
-      xmlns="http://www.w3.org/2000/svg"
-    >
-      <path
-        d="M8 1C4.13 1 1 4.13 1 8C1 11.09 3.01 13.71 5.79 14.64C6.14 14.7 6.27 14.49 6.27 14.31C6.27 14.14 6.26 13.58 6.26 12.98C4.5 13.3 4.04 12.55 3.9 12.16C3.82 11.96 3.48 11.34 3.18 11.17C2.93 11.04 2.58 10.72 3.17 10.71C3.73 10.7 4.13 11.22 4.26 11.43C4.9 12.5 5.92 12.2 6.3 12.02C6.36 11.56 6.55 11.25 6.75 11.07C5.18 10.89 3.53 10.28 3.53 7.58C3.53 6.81 3.82 6.18 4.28 5.69C4.21 5.51 3.96 4.79 4.35 3.82C4.35 3.82 4.94 3.63 6.27 4.52C6.83 4.37 7.42 4.29 8.01 4.29C8.6 4.29 9.19 4.37 9.75 4.52C11.08 3.62 11.67 3.82 11.67 3.82C12.06 4.79 11.81 5.51 11.74 5.69C12.2 6.18 12.49 6.8 12.49 7.58C12.49 10.29 10.83 10.89 9.26 11.07C9.51 11.29 9.73 11.71 9.73 12.37C9.73 13.31 9.72 14.07 9.72 14.31C9.72 14.49 9.85 14.71 10.2 14.64C12.97 13.71 14.98 11.08 14.98 8C14.98 4.13 11.85 1 7.98 1H8Z"
-        fill="#1b1b1b"
-      />
     </svg>
   );
 }

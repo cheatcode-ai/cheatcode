@@ -1,4 +1,9 @@
-export type JsonPrimitive = boolean | null | number | string;
+import {
+  INTEGRATION_NAME_MAX_LENGTH,
+  INTEGRATION_NAME_PATTERN,
+} from "@cheatcode/types/integrations";
+
+type JsonPrimitive = boolean | null | number | string;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
 export interface OpenApiRoute {
@@ -6,40 +11,13 @@ export interface OpenApiRoute {
   operationId: string;
   parameters?: JsonValue[];
   path: string;
+  rateLimited?: boolean;
   requestBody?: JsonValue;
   responses: Record<string, JsonValue>;
   security?: JsonValue[];
   summary: string;
   tags: string[];
 }
-
-export const stringSchema = (
-  options: { format?: string; maxLength?: number; minLength?: number } = {},
-) => ({
-  type: "string",
-  ...options,
-});
-
-export const nullableStringSchema = (
-  options: { format?: string; maxLength?: number; minLength?: number } = {},
-) => ({
-  type: ["string", "null"],
-  ...options,
-});
-
-export const nullableNumberSchema = (
-  options: { exclusiveMinimum?: number; maximum?: number } = {},
-) => ({
-  type: ["number", "null"],
-  ...options,
-});
-
-export const arrayOf = (items: JsonValue): JsonValue => ({ items, type: "array" });
-
-export const recordOf = (additionalProperties: JsonValue): JsonValue => ({
-  additionalProperties,
-  type: "object",
-});
 
 export const schemaRef = (name: string): JsonValue => ({ $ref: `#/components/schemas/${name}` });
 
@@ -50,16 +28,25 @@ export const jsonResponse = (description: string, schema: JsonValue): JsonValue 
 
 export const emptyResponse = (description: string): JsonValue => ({ description });
 
-export function jsonBody(schema: JsonValue): JsonValue {
+export function contentResponse(
+  description: string,
+  mediaType: string,
+  schema: JsonValue,
+): JsonValue {
+  return { content: { [mediaType]: { schema } }, description };
+}
+
+export function jsonBody(schema: JsonValue, required = true): JsonValue {
   return {
     content: {
       "application/json": { schema },
     },
-    required: true,
+    required,
   };
 }
 
-export function buildPaths(sourceRoutes: OpenApiRoute[]): { [path: string]: JsonValue } {
+function buildPaths(sourceRoutes: OpenApiRoute[]): { [path: string]: JsonValue } {
+  assertUniqueRoutes(sourceRoutes);
   const paths: { [path: string]: { [method: string]: JsonValue } } = {};
   for (const route of sourceRoutes) {
     const current = paths[route.path] ?? {};
@@ -68,7 +55,7 @@ export function buildPaths(sourceRoutes: OpenApiRoute[]): { [path: string]: Json
       operationId: route.operationId,
       ...(parameters ? { parameters } : {}),
       ...(route.requestBody ? { requestBody: route.requestBody } : {}),
-      responses: route.responses,
+      responses: routeResponses(route),
       ...(route.security ? { security: route.security } : {}),
       summary: route.summary,
       tags: route.tags,
@@ -82,7 +69,7 @@ export function buildOpenApiDocument(options: {
   routes: OpenApiRoute[];
   schemas: { [name: string]: JsonValue };
 }): JsonValue {
-  return {
+  const document: JsonValue = {
     components: {
       schemas: options.schemas,
       securitySchemes: {
@@ -106,6 +93,7 @@ export function buildOpenApiDocument(options: {
       { name: "outputs" },
       { name: "metadata" },
       { name: "sandbox" },
+      { name: "skills" },
       { name: "integrations" },
       { name: "byok" },
       { name: "billing" },
@@ -113,6 +101,8 @@ export function buildOpenApiDocument(options: {
       { name: "system" },
     ],
   };
+  assertComponentReferences(document, options.schemas);
+  return document;
 }
 
 export function renderOpenApiDocsHtml(routes: OpenApiRoute[]): string {
@@ -169,6 +159,114 @@ function pathParameters(path: string): JsonValue[] {
     in: "path",
     name,
     required: true,
-    schema: { type: "string" },
+    schema: pathParameterSchema(name),
   }));
 }
+
+function routeResponses(route: OpenApiRoute): Record<string, JsonValue> {
+  return {
+    ...(route.security?.length
+      ? { "401": jsonResponse("Authentication required", schemaRef("Error")) }
+      : {}),
+    ...(route.security?.length || route.rateLimited ? { "429": rateLimitErrorResponse() } : {}),
+    ...route.responses,
+  };
+}
+
+function rateLimitErrorResponse(): JsonValue {
+  return {
+    content: { "application/json": { schema: schemaRef("Error") } },
+    description: "Rate limit exceeded",
+    headers: {
+      "RateLimit-Limit": { schema: { minimum: 0, type: "integer" } },
+      "RateLimit-Remaining": { schema: { minimum: 0, type: "integer" } },
+      "RateLimit-Reset": { schema: { minimum: 0, type: "integer" } },
+      "Retry-After": { schema: { minimum: 1, type: "integer" } },
+    },
+  };
+}
+
+function assertUniqueRoutes(routes: OpenApiRoute[]): void {
+  const routeKeys = new Set<string>();
+  const operationIds = new Set<string>();
+  for (const route of routes) {
+    const routeKey = `${route.method.toUpperCase()} ${route.path}`;
+    if (routeKeys.has(routeKey)) {
+      throw new Error(`Duplicate OpenAPI route: ${routeKey}`);
+    }
+    routeKeys.add(routeKey);
+    if (operationIds.has(route.operationId)) {
+      throw new Error(`Duplicate OpenAPI operationId: ${route.operationId}`);
+    }
+    operationIds.add(route.operationId);
+  }
+}
+
+function assertComponentReferences(
+  value: JsonValue,
+  componentSchemas: { [name: string]: JsonValue },
+): void {
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      assertComponentReferences(item, componentSchemas);
+    }
+    return;
+  }
+  if (typeof value !== "object" || value === null) {
+    return;
+  }
+  const reference = value["$ref"];
+  if (typeof reference === "string" && reference.startsWith(COMPONENT_SCHEMA_PREFIX)) {
+    const componentName = reference.slice(COMPONENT_SCHEMA_PREFIX.length);
+    if (!Object.hasOwn(componentSchemas, componentName)) {
+      throw new Error(`Missing OpenAPI component schema: ${componentName}`);
+    }
+  }
+  for (const child of Object.values(value)) {
+    assertComponentReferences(child, componentSchemas);
+  }
+}
+
+function pathParameterSchema(name: string): JsonValue {
+  if (UUID_PATH_PARAMETERS.has(name)) {
+    return { format: "uuid", type: "string" };
+  }
+  if (name === "name") {
+    return {
+      maxLength: INTEGRATION_NAME_MAX_LENGTH,
+      minLength: 1,
+      pattern: INTEGRATION_NAME_PATTERN.source,
+      type: "string",
+    };
+  }
+  if (name === "connectionId") {
+    return { maxLength: 256, minLength: 1, type: "string" };
+  }
+  if (name === "provider") {
+    return {
+      enum: [
+        "anthropic",
+        "openai",
+        "google",
+        "openrouter",
+        "deepseek",
+        "exa",
+        "firecrawl",
+        "llamaparse",
+      ],
+      type: "string",
+    };
+  }
+  return { type: "string" };
+}
+
+const UUID_PATH_PARAMETERS = new Set([
+  "approvalId",
+  "outputId",
+  "projectId",
+  "runId",
+  "skillId",
+  "threadId",
+]);
+
+const COMPONENT_SCHEMA_PREFIX = "#/components/schemas/";

@@ -1,54 +1,82 @@
 import type { UIMessagePart } from "@cheatcode/types";
 import { sql } from "drizzle-orm";
-import { integer, jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import {
+  check,
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
-import { threads } from "./projects";
 import { users } from "./users";
-
-export interface AgentRunConfig {
-  agentName: string;
-  workflowName?: string;
-  budgetCapUsd?: number;
-  stepCap?: number;
-  source: "web" | "api";
-}
 
 export interface AgentRunError {
   type: string;
   message: string;
-  stepNumber?: number;
 }
 
-export const messages = pgTable(v2TableName("messages"), {
-  id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-  threadId: uuid("thread_id")
-    .notNull()
-    .references(() => threads.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  role: text("role").notNull(),
-  parts: jsonb("parts").$type<UIMessagePart[]>().notNull(),
-  agentRunId: uuid("agent_run_id"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
+export const messages = pgTable(
+  v2TableName("messages"),
+  {
+    id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
+    threadId: uuid("thread_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: text("role").notNull(),
+    parts: jsonb("parts").$type<UIMessagePart[]>().notNull(),
+    agentRunId: uuid("agent_run_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [
+    index("v2_messages_thread_page_idx").on(
+      table.userId,
+      table.threadId,
+      table.createdAt,
+      table.id,
+    ),
+    uniqueIndex("v2_messages_agent_run_assistant_uidx")
+      .on(table.agentRunId)
+      .where(sql`${table.agentRunId} is not null and ${table.role} = 'assistant'`),
+  ],
+);
 
-export const agentRuns = pgTable(v2TableName("agent_runs"), {
-  id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-  threadId: uuid("thread_id")
-    .notNull()
-    .references(() => threads.id, { onDelete: "cascade" }),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  status: text("status").notNull(),
-  modelId: text("model_id"),
-  tokensIn: integer("tokens_in").notNull().default(0),
-  tokensOut: integer("tokens_out").notNull().default(0),
-  tokensCached: integer("tokens_cached").notNull().default(0),
-  costUsd: numeric("cost_usd", { precision: 12, scale: 6 }).notNull().default("0"),
-  config: jsonb("config").$type<AgentRunConfig>().notNull().default(sql`'{}'::jsonb`),
-  error: jsonb("error").$type<AgentRunError | null>(),
-  startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-  finishedAt: timestamp("finished_at", { withTimezone: true }),
-});
+export const agentRuns = pgTable(
+  v2TableName("agent_runs"),
+  {
+    id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
+    threadId: uuid("thread_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    status: text("status").notNull(),
+    modelId: text("model_id").notNull(),
+    error: jsonb("error").$type<AgentRunError | null>(),
+    idempotencyKeyHash: text("idempotency_key_hash"),
+    requestBodyHash: text("request_body_hash"),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("v2_agent_runs_user_idempotency_key_unique").on(
+      table.userId,
+      table.idempotencyKeyHash,
+    ),
+    index("v2_agent_runs_user_delete_page_idx").on(table.userId, table.id),
+    check(
+      "v2_agent_runs_idempotency_key_hash_check",
+      sql`${table.idempotencyKeyHash} is null or ${table.idempotencyKeyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "v2_agent_runs_request_body_hash_check",
+      sql`${table.requestBodyHash} is null or ${table.requestBodyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "v2_agent_runs_model_id_canonical_check",
+      sql`char_length(${table.modelId}) <= 200 and ${table.modelId} ~ '^(anthropic|deepseek|google|openai|openrouter)/[^[:space:]]+$'`,
+    ),
+  ],
+);

@@ -1,15 +1,15 @@
 import type { UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
+import { clerkIdentityHash, lockClerkIdentity } from "./clerk-identity";
 import type { Database } from "./client";
-import { entitlements, users } from "./schema";
+import { deletedClerkIdentities, entitlements, users } from "./schema";
 
 export interface ClerkUserUpsert {
   avatarUrl?: string | null;
   clerkId: string;
   displayName?: string | null;
   email: string;
-  webhookEventId?: string;
 }
 
 export interface ClerkUserUpsertResult {
@@ -20,6 +20,17 @@ export interface ClerkUserUpsertResult {
   profileChanged: boolean;
   polarCustomerId: string | null;
   userId: UserId;
+}
+
+export class UserDeletionBlockedError extends Error {
+  public constructor(public readonly reason: "completed" | "in-progress" = "in-progress") {
+    super(
+      reason === "completed"
+        ? "This Clerk identity was permanently retired"
+        : "User deletion has entered its irreversible phase",
+    );
+    this.name = "UserDeletionBlockedError";
+  }
 }
 
 export async function resolveInternalUserId(db: Database, clerkId: string): Promise<UserId | null> {
@@ -87,6 +98,25 @@ export async function upsertClerkUser(
   db: Database,
   input: ClerkUserUpsert,
 ): Promise<ClerkUserUpsertResult> {
+  const identityHash = await clerkIdentityHash(input.clerkId);
+  return db.transaction(async (transaction) => {
+    const tx = transaction as Database;
+    await lockClerkIdentity(tx, identityHash);
+    const retired = await tx.query.deletedClerkIdentities.findFirst({
+      columns: { clerkIdentityHash: true },
+      where: eq(deletedClerkIdentities.clerkIdentityHash, identityHash),
+    });
+    if (retired) {
+      throw new UserDeletionBlockedError("completed");
+    }
+    return upsertActiveClerkUser(tx, input);
+  });
+}
+
+async function upsertActiveClerkUser(
+  db: Database,
+  input: ClerkUserUpsert,
+): Promise<ClerkUserUpsertResult> {
   const existing = await db.query.users.findFirst({
     columns: {
       avatarUrl: true,
@@ -98,36 +128,9 @@ export async function upsertClerkUser(
   });
   const displayName = normalizedNullable(input.displayName);
   const avatarUrl = normalizedNullable(input.avatarUrl);
-  const rows = await db
-    .insert(users)
-    .values({
-      avatarUrl,
-      clerkId: input.clerkId,
-      displayName,
-      email: input.email,
-      deletedAt: null,
-    })
-    .onConflictDoUpdate({
-      target: users.clerkId,
-      set: {
-        avatarUrl,
-        displayName,
-        email: input.email,
-        deletedAt: null,
-        updatedAt: sql`now()`,
-      },
-    })
-    .returning({
-      avatarUrl: users.avatarUrl,
-      displayName: users.displayName,
-      email: users.email,
-      id: users.id,
-      polarCustomerId: users.polarCustomerId,
-    });
-
-  const row = rows[0];
+  const row = await persistClerkUser(db, input, avatarUrl, displayName);
   if (!row) {
-    throw new Error("Failed to upsert Clerk user");
+    throw new UserDeletionBlockedError();
   }
 
   const userId = toUserId(row.id);
@@ -136,11 +139,68 @@ export async function upsertClerkUser(
     .values({
       userId,
       tier: "free",
-      source: "clerk",
-      ...(input.webhookEventId ? { webhookEventId: input.webhookEventId } : {}),
     })
     .onConflictDoNothing();
 
+  return clerkUserUpsertResult(existing, row, userId);
+}
+
+async function persistClerkUser(
+  db: Database,
+  input: ClerkUserUpsert,
+  avatarUrl: string | null,
+  displayName: string | null,
+) {
+  const rows = await db
+    .insert(users)
+    .values({
+      avatarUrl,
+      clerkId: input.clerkId,
+      displayName,
+      email: input.email,
+      deletedAt: null,
+      deletionFence: null,
+    })
+    .onConflictDoUpdate({
+      target: users.clerkId,
+      set: {
+        avatarUrl,
+        displayName,
+        email: input.email,
+        deletedAt: null,
+        deletionFence: null,
+        updatedAt: sql`now()`,
+      },
+      setWhere: isNull(users.deletionFence),
+    })
+    .returning({
+      avatarUrl: users.avatarUrl,
+      displayName: users.displayName,
+      email: users.email,
+      id: users.id,
+      polarCustomerId: users.polarCustomerId,
+    });
+  return rows[0] ?? null;
+}
+
+function clerkUserUpsertResult(
+  existing:
+    | {
+        avatarUrl: string | null;
+        displayName: string | null;
+        email: string;
+        polarCustomerId: string | null;
+      }
+    | null
+    | undefined,
+  row: {
+    avatarUrl: string | null;
+    displayName: string | null;
+    email: string;
+    polarCustomerId: string | null;
+  },
+  userId: UserId,
+): ClerkUserUpsertResult {
   return {
     avatarUrl: row.avatarUrl,
     displayName: row.displayName,
@@ -157,14 +217,19 @@ export async function upsertClerkUser(
   };
 }
 
-export async function markClerkUserDeleted(db: Database, clerkId: string): Promise<UserId | null> {
+export async function markClerkUserDeleted(
+  db: Database,
+  clerkId: string,
+  deletedAt: Date,
+): Promise<UserId | null> {
   const rows = await db
     .update(users)
     .set({
-      deletedAt: sql`now()`,
+      deletedAt,
+      deletionFence: null,
       updatedAt: sql`now()`,
     })
-    .where(eq(users.clerkId, clerkId))
+    .where(and(eq(users.clerkId, clerkId), isNull(users.deletionFence)))
     .returning({ id: users.id });
 
   const row = rows[0];

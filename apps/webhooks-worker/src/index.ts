@@ -1,35 +1,46 @@
+import { verifyInternalMaintenanceRequest } from "@cheatcode/auth";
 import type { HyperdriveConnection } from "@cheatcode/db";
-import { resolveWorkerSecret, WebhooksWorkerEnvSchema, type WorkerSecret } from "@cheatcode/env";
+import {
+  type CloudflareVersionMetadata,
+  resolveWorkerSecret,
+  WebhooksWorkerEnvSchema,
+  type WorkerSecret,
+} from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
   createLogger,
   emitErrorEvent,
   emitPerformanceMetric,
+  readBoundedRequestText,
+  safeErrorTelemetry,
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { Hono } from "hono";
-import { runAutomationTick } from "./automation-runner";
+import { z } from "zod";
 import { verifyComposioWebhook } from "./composio";
-import { cacheSandboxState, DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
-import { verifyInternalAlert } from "./internal-alert";
+import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
+import { internalAlertEventId, verifyInternalAlert } from "./internal-alert";
 import {
   enqueueAnalyticsWatchdog,
   enqueueByokRevalidation,
-  enqueueDailyUsageRollup,
-  enqueueEgressCanary,
+  enqueueDailyRetentionMetrics,
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
 import {
   acceptWebhookEvent,
+  claimInternalWebhookReplay,
+  completeWebhookEvent,
+  getWebhookEventStatus,
+  releaseInternalWebhookReplay,
   releaseWebhookEvent,
   type WebhookIdempotencyBindings,
   WebhookIdempotencyStore,
-  type WebhookProvider,
+  WebhookProviderSchema,
 } from "./webhook-idempotency";
 import {
   enqueueVerifiedWebhook,
@@ -40,29 +51,39 @@ import {
 
 export { OpsMaintenanceWorkflow, WebhookIdempotencyStore, WebhookWorkflow };
 
+const MAX_PROVIDER_WEBHOOK_BODY_BYTES = 1024 * 1024;
+const MAX_INTERNAL_WEBHOOK_BODY_BYTES = 64 * 1024;
+
 export interface WebhooksEnv
   extends AnalyticsBindings,
     WebhookIdempotencyBindings,
     OpsWorkflowBindings,
     WebhookWorkflowBindings {
-  AGENT?: Fetcher;
-  CLERK_WEBHOOK_SECRET?: WorkerSecret;
+  AGENT: Fetcher;
+  CF_VERSION_METADATA?: CloudflareVersionMetadata;
+  CHEATCODE_ENVIRONMENT: "development" | "production";
+  CHEATCODE_RELEASE_SHA?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: WorkerSecret;
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;
   COMPOSIO_WEBHOOK_SECRET?: WorkerSecret;
-  DAYTONA_WEBHOOK_SIGNING_SECRET?: WorkerSecret;
+  DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
-  GATEWAY?: Fetcher;
+  GATEWAY: Fetcher;
   HYPERDRIVE: HyperdriveConnection;
   INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   INTERNAL_ALERT_WEBHOOK_SECRET?: WorkerSecret;
   INTERNAL_ALERT_WEBHOOK_URL?: string;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
+  POLAR_PRODUCT_ID_MAX?: string;
+  POLAR_PRODUCT_ID_PREMIUM?: string;
+  POLAR_PRODUCT_ID_PRO?: string;
+  POLAR_PRODUCT_ID_ULTRA?: string;
+  POLAR_SERVER?: "production" | "sandbox";
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
   R2_OUTPUTS: R2Bucket;
-  R2_SNAPSHOTS: R2Bucket;
+  R2_OUTPUTS_BUCKET_NAME?: string;
   R2_UPLOADS: R2Bucket;
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
@@ -79,19 +100,9 @@ function withRequestId(response: Response, id: string): Response {
   return wrapped;
 }
 
-function errorEventDetails(error: unknown): { message?: string; stack?: string } {
-  if (!(error instanceof Error)) {
-    return {};
-  }
-  return {
-    message: error.message,
-    ...(error.stack ? { stack: error.stack } : {}),
-  };
-}
-
 async function clerkWebhookSigningSecret(env: WebhooksEnv): Promise<string> {
   const secret = await readOptionalSecret(
-    env.CLERK_WEBHOOK_SIGNING_SECRET ?? env.CLERK_WEBHOOK_SECRET,
+    env.CLERK_WEBHOOK_SIGNING_SECRET,
     "CLERK_WEBHOOK_SIGNING_SECRET",
   );
   if (!secret) {
@@ -159,6 +170,22 @@ async function internalAlertWebhookSecret(env: WebhooksEnv): Promise<string> {
   return secret;
 }
 
+async function internalMaintenanceSecret(env: WebhooksEnv): Promise<string> {
+  const secret = await readOptionalSecret(
+    env.INTERNAL_MAINTENANCE_SECRET,
+    "INTERNAL_MAINTENANCE_SECRET",
+  );
+  if (!secret) {
+    throw new APIError(
+      503,
+      "unavailable_maintenance",
+      "Internal maintenance verification is not configured",
+      { retriable: false },
+    );
+  }
+  return secret;
+}
+
 async function readOptionalSecret(
   secret: WorkerSecret | undefined,
   name: string,
@@ -175,6 +202,13 @@ async function readOptionalSecret(
 
 export const webhooksApp = new Hono<{ Bindings: WebhooksEnv }>();
 
+const WebhookReplaySchema = z
+  .object({
+    eventId: z.string().min(1).max(512),
+    provider: WebhookProviderSchema,
+  })
+  .strict();
+
 webhooksApp.onError((error, c) => {
   const id = c.req.header("X-Request-Id") ?? requestId();
   const apiError = toAPIError(error);
@@ -184,9 +218,12 @@ webhooksApp.onError((error, c) => {
     httpStatus: apiError.status,
     route: routeName(c.req.raw),
     workerName: "webhooks",
-    ...errorEventDetails(error),
+    ...safeErrorTelemetry(error),
   });
-  createLogger({ requestId: id }).error("webhook_request_failed", { code: apiError.code });
+  createLogger({ requestId: id }).error("webhook_request_failed", {
+    apiCode: apiError.code,
+    ...safeErrorTelemetry(error),
+  });
   return apiError.toResponse(id);
 });
 
@@ -206,12 +243,28 @@ webhooksApp.use("*", async (c, next) => {
   }
 });
 
-webhooksApp.get("/health", (c) => c.json({ ok: true, worker: "webhooks" }));
+webhooksApp.get("/health", (c) =>
+  c.json({
+    ok: true,
+    releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
+    versionId: c.env.CF_VERSION_METADATA?.id ?? null,
+    worker: "webhooks",
+  }),
+);
 
 webhooksApp.post("/clerk", async (c) => {
   const signingSecret = await clerkWebhookSigningSecret(c.env);
-  const rawBody = await c.req.raw.clone().text();
-  const event = await verifyWebhook(c.req.raw, { signingSecret }).catch(() => {
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_PROVIDER_WEBHOOK_BODY_BYTES,
+    "Clerk webhook",
+  );
+  const verificationRequest = new Request(c.req.raw.url, {
+    body: rawBody,
+    headers: c.req.raw.headers,
+    method: c.req.raw.method,
+  });
+  const event = await verifyWebhook(verificationRequest, { signingSecret }).catch(() => {
     throw new APIError(401, "auth_token_invalid", "Invalid Clerk webhook signature", {
       retriable: false,
     });
@@ -227,7 +280,11 @@ webhooksApp.post("/clerk", async (c) => {
 
 webhooksApp.post("/polar", async (c) => {
   const signingSecret = await polarWebhookSecret(c.env);
-  const rawBody = await c.req.raw.text();
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_PROVIDER_WEBHOOK_BODY_BYTES,
+    "Polar webhook",
+  );
   let event: ReturnType<typeof validateEvent>;
   try {
     event = validateEvent(rawBody, headersToRecord(c.req.raw.headers), signingSecret);
@@ -250,7 +307,11 @@ webhooksApp.post("/polar", async (c) => {
 });
 
 webhooksApp.post("/composio", async (c) => {
-  const rawBody = await c.req.raw.text();
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_PROVIDER_WEBHOOK_BODY_BYTES,
+    "Composio webhook",
+  );
   const secret = await composioWebhookSecret(c.env);
   const eventId = requiredHeader(c.req.raw.headers, "webhook-id", "Composio");
   const event = await verifyComposioWebhook({
@@ -269,37 +330,130 @@ webhooksApp.post("/composio", async (c) => {
   return c.json({ ok: true, ...result });
 });
 
-// Daytona sandbox lifecycle events → refresh the sandbox-state cache so the preview panel can
-// show boot/paused state without polling Daytona. Lightweight + idempotent (no workflow queue).
+// Daytona sandbox lifecycle events flow through the same durable idempotency + Workflow path as
+// the external providers. The Workflow serializes cache updates by sandbox/event time.
 webhooksApp.post("/daytona", async (c) => {
-  const rawBody = await c.req.raw.text();
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
+    "Daytona webhook",
+  );
   const secret = await readOptionalSecret(
     c.env.DAYTONA_WEBHOOK_SIGNING_SECRET,
     "DAYTONA_WEBHOOK_SIGNING_SECRET",
   );
-  const verified = await verifyDaytonaWebhook(
-    secret ?? null,
-    rawBody,
-    c.req.header("x-signature") ?? null,
-  );
-  if (!verified) {
+  if (!secret) {
+    throw new APIError(
+      503,
+      "unavailable_maintenance",
+      "Daytona webhook verification is not configured",
+      { retriable: false },
+    );
+  }
+  const envelope = await verifyDaytonaWebhook(secret, rawBody, c.req.raw.headers);
+  if (!envelope) {
     return c.json({ error: "invalid_signature" }, 401);
   }
-  let payload: unknown = null;
+  let payload: unknown;
   try {
     payload = JSON.parse(rawBody);
   } catch {
-    payload = null;
+    throw new APIError(400, "invalid_request_body", "Daytona webhook JSON is invalid", {
+      retriable: false,
+    });
   }
-  const parsed = DaytonaWebhookSchema.safeParse(payload);
-  if (parsed.success) {
-    await cacheSandboxState(c.env.SANDBOX_STATE, parsed.data, new Date().toISOString());
-  }
-  return c.json({ ok: true });
+  const parsed = DaytonaWebhookSchema.parse(payload);
+  const result = await acceptAndEnqueueWebhook(c.env, {
+    event: parsed,
+    eventId: envelope.eventId,
+    provider: "daytona",
+    rawBody,
+  });
+  return c.json({ ok: true, ...result });
 });
 
+webhooksApp.post("/internal/webhooks/replay", async (c) => {
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
+    "Webhook replay",
+  );
+  await verifyInternalMaintenanceRequest({
+    rawBody,
+    request: c.req.raw,
+    secret: await internalMaintenanceSecret(c.env),
+  });
+  const replay = WebhookReplaySchema.parse(parseJsonBody(rawBody, "Webhook replay"));
+  const timestamp = c.req.header("x-cheatcode-maintenance-timestamp");
+  if (!timestamp) {
+    throw new APIError(401, "auth_token_invalid", "Missing internal maintenance timestamp", {
+      retriable: false,
+    });
+  }
+  const command = await claimInternalWebhookReplay(c.env, { rawBody, timestamp });
+  if (!command.claimed) {
+    return c.json({ duplicate: true, ok: true, replayed: false, status: "duplicate" });
+  }
+  try {
+    return await replayWebhookEvent(c.env, replay);
+  } catch (error) {
+    await releaseInternalWebhookReplay(c.env, command.commandId);
+    throw error;
+  }
+});
+
+async function replayWebhookEvent(env: WebhooksEnv, replay: z.infer<typeof WebhookReplaySchema>) {
+  const record = await getWebhookEventStatus(env, replay);
+  if (!record) {
+    throw new APIError(404, "not_found_run", "Webhook event state was not found", {
+      retriable: false,
+    });
+  }
+  if (!record.workflowId) {
+    throw new APIError(409, "conflict_state_invalid", "Webhook event has no Workflow instance", {
+      retriable: false,
+    });
+  }
+
+  const instance = await env.WEBHOOK_WORKFLOW.get(record.workflowId);
+  const workflowStatus = await instance.status();
+  if (workflowStatus.status === "complete") {
+    await completeWebhookEvent(env, {
+      bodyHash: record.bodyHash,
+      eventId: record.eventId,
+      provider: record.provider,
+      workflowId: record.workflowId,
+    });
+    return Response.json({ ok: true, replayed: false, status: "complete" });
+  }
+  if (workflowStatus.status === "errored" || workflowStatus.status === "terminated") {
+    await instance.restart();
+    return Response.json(
+      { ok: true, replayed: true, status: workflowStatus.status },
+      { status: 202 },
+    );
+  }
+  if (workflowStatus.status === "paused") {
+    await instance.resume();
+    return Response.json({ ok: true, replayed: true, status: "paused" }, { status: 202 });
+  }
+  if (workflowStatus.status === "unknown") {
+    throw new APIError(503, "unavailable_maintenance", "Webhook Workflow status is unknown", {
+      retriable: true,
+    });
+  }
+  return Response.json(
+    { ok: true, replayed: false, status: workflowStatus.status },
+    { status: 202 },
+  );
+}
+
 webhooksApp.post("/internal/alert", async (c) => {
-  const rawBody = await c.req.raw.text();
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
+    "Internal alert",
+  );
   const secret = await internalAlertWebhookSecret(c.env);
   const alert = await verifyInternalAlert({
     rawBody,
@@ -307,39 +461,17 @@ webhooksApp.post("/internal/alert", async (c) => {
     signature: c.req.header("x-cheatcode-alert-signature") ?? null,
     timestamp: c.req.header("x-cheatcode-alert-timestamp") ?? null,
   });
-  const alertRequestId = c.req.header("X-Request-Id");
-
-  createLogger(alertRequestId ? { requestId: alertRequestId } : {}).warn(
-    "internal_alert_received",
-    {
-      alertId: alert.alertId,
-      description: alert.description,
-      metric: alert.metric,
-      route: alert.route,
-      runId: alert.runId,
-      service: alert.service,
-      severity: alert.severity,
-      source: alert.source,
-      title: alert.title,
-      userId: alert.userId,
-      workerName: alert.workerName,
-    },
-  );
-  emitErrorEvent(c.env, {
-    errorCategory: "ops_alert",
-    errorCode: alert.source,
-    message: `${alert.severity}: ${alert.title}`,
-    workerName: alert.workerName ?? "webhooks",
-    ...(alert.route ? { route: alert.route } : {}),
-    ...(alert.runId ? { runId: alert.runId } : {}),
-    ...(alert.userId ? { userId: alert.userId } : {}),
+  const result = await acceptAndEnqueueWebhook(c.env, {
+    event: alert,
+    eventId: await internalAlertEventId(rawBody),
+    provider: "internal-alert",
+    rawBody,
   });
-
-  return c.json({ ok: true, alertId: alert.alertId, severity: alert.severity });
+  return c.json({ ok: true, alertId: alert.alertId, severity: alert.severity, ...result });
 });
 
-type VerifiedWebhookInput = Omit<WebhookWorkflowPayload, "bodyHash"> & {
-  provider: WebhookProvider;
+type VerifiedWebhookInput = Pick<WebhookWorkflowPayload, "event" | "eventId" | "provider"> & {
+  rawBody: string;
 };
 
 interface EnqueuedWebhookResponse {
@@ -352,15 +484,28 @@ async function acceptAndEnqueueWebhook(
   input: VerifiedWebhookInput,
 ): Promise<EnqueuedWebhookResponse> {
   const accepted = await acceptWebhookEvent(env, input);
-  if (accepted.action === "duplicate") {
+  // An accepted row can outlive a Worker crash between the DO write and Workflow creation.
+  // Re-enqueueing that state is safe because the Workflow id is deterministic.
+  if (accepted.action === "duplicate" && accepted.state !== "accepted") {
     return { duplicate: true };
   }
   try {
-    const workflowId = await enqueueVerifiedWebhook(env, {
-      ...input,
+    const workflow = await enqueueVerifiedWebhook(env, {
+      acceptedAt: accepted.acceptedAt,
       bodyHash: accepted.bodyHash,
+      event: input.event,
+      eventId: input.eventId,
+      provider: input.provider,
     });
-    return { duplicate: false, workflowId };
+    if (workflow.status === "complete") {
+      await completeWebhookEvent(env, {
+        bodyHash: accepted.bodyHash,
+        eventId: input.eventId,
+        provider: input.provider,
+        workflowId: workflow.id,
+      });
+    }
+    return { duplicate: accepted.action === "duplicate", workflowId: workflow.id };
   } catch (error) {
     await releaseWebhookEvent(env, {
       bodyHash: accepted.bodyHash,
@@ -380,6 +525,19 @@ function requiredHeader(headers: Headers, name: string, provider: string): strin
     });
   }
   return value;
+}
+
+function parseJsonBody(rawBody: string, label: string): unknown {
+  try {
+    return JSON.parse(rawBody) as unknown;
+  } catch (error) {
+    if (!(error instanceof SyntaxError)) {
+      throw error;
+    }
+    throw new APIError(400, "invalid_request_body", `${label} body must be valid JSON`, {
+      retriable: false,
+    });
+  }
 }
 
 function routeName(request: Request): string {
@@ -426,9 +584,12 @@ const webhooksHandler = {
         httpStatus: apiError.status,
         route: routeName(request),
         workerName: "webhooks",
-        ...errorEventDetails(error),
+        ...safeErrorTelemetry(error),
       });
-      logger.error("webhook_request_failed", { code: apiError.code });
+      logger.error("webhook_request_failed", {
+        apiCode: apiError.code,
+        ...safeErrorTelemetry(error),
+      });
       return apiError.toResponse(id);
     }
   },
@@ -438,8 +599,8 @@ const webhooksHandler = {
     ctx: ExecutionContext,
   ): Promise<void> {
     WebhooksWorkerEnvSchema.parse(env);
-    if (controller.cron === DAILY_USAGE_ROLLUP_CRON) {
-      ctx.waitUntil(enqueueDailyUsageRollup(env, controller.scheduledTime));
+    if (controller.cron === DAILY_RETENTION_METRICS_CRON) {
+      ctx.waitUntil(enqueueDailyRetentionMetrics(env, controller.scheduledTime));
       return;
     }
     if (controller.cron === BYOK_REVALIDATION_CRON) {
@@ -448,21 +609,14 @@ const webhooksHandler = {
     }
     if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
       ctx.waitUntil(enqueueAnalyticsWatchdog(env, controller.scheduledTime));
-      // Automations ride the 5-minute tick (CF cron-trigger limit blocks a dedicated
-      // 1-minute schedule); scheduled automations fire within ~5 min of their time.
-      ctx.waitUntil(runAutomationTick(env, controller.scheduledTime));
       return;
-    }
-    if (controller.cron === EGRESS_CANARY_CRON) {
-      ctx.waitUntil(enqueueEgressCanary(env, controller.scheduledTime));
     }
   },
 };
 
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
 const BYOK_REVALIDATION_CRON = "35 0 * * *";
-const DAILY_USAGE_ROLLUP_CRON = "20 0 * * *";
-const EGRESS_CANARY_CRON = "30 3 * * *";
+const DAILY_RETENTION_METRICS_CRON = "20 0 * * *";
 
 export default withErrorHandler(webhooksHandler, {
   errorCategory: "webhook",

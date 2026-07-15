@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { jsonb, numeric, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -13,17 +13,6 @@ export const userProfiles = pgTable(v2TableName("user_profiles"), {
     .references(() => users.id, { onDelete: "cascade" }),
   agentDisplayName: text("agent_display_name"),
   globalMemory: text("global_memory"),
-  // Legacy per-surface defaults are retained in storage only; the product no longer reads them.
-  appbuilderDefaultModel: text("appbuilder_default_model"),
-  generalDefaultModel: text("general_default_model"),
-  appbuilderDefaultBudgetUsd: numeric("appbuilder_default_budget_usd", {
-    precision: 10,
-    scale: 2,
-  }).$type<number>(),
-  generalDefaultBudgetUsd: numeric("general_default_budget_usd", {
-    precision: 10,
-    scale: 2,
-  }).$type<number>(),
   disabledModels: jsonb("disabled_models").$type<string[]>().notNull().default(sql`'[]'::jsonb`),
   onboardingCompletedAt: timestamp("onboarding_completed_at", { withTimezone: true }),
   onboardingState: jsonb("onboarding_state")

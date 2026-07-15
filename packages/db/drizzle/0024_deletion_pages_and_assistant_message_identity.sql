@@ -1,0 +1,3 @@
+CREATE INDEX "v2_agent_runs_user_delete_page_idx" ON "v2_agent_runs" USING btree ("user_id","id");--> statement-breakpoint
+CREATE UNIQUE INDEX "v2_messages_agent_run_assistant_uidx" ON "v2_messages" USING btree ("agent_run_id") WHERE "v2_messages"."agent_run_id" is not null and "v2_messages"."role" = 'assistant';--> statement-breakpoint
+CREATE INDEX "v2_user_integrations_delete_page_idx" ON "v2_user_integrations" USING btree ("user_id","composio_connection_id");

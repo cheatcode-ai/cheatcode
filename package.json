@@ -2,32 +2,57 @@
   "name": "cheatcode",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@10.33.2",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": "22.x"
+  },
   "scripts": {
+    "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",
     "audit:archive": "tsx scripts/archive-audit-log.ts",
     "build": "turbo build",
     "db:generate": "turbo db:generate",
+    "deadcode": "knip",
     "deploy:workers": "tsx scripts/deploy-phased.ts",
     "dev": "tsx scripts/dev.ts",
     "docker:clean": "tsx scripts/clean-docker.ts",
-    "docker:dev:build": "docker compose -f docker-compose.dev.yml build",
-    "docker:dev:down": "docker compose -f docker-compose.dev.yml down --remove-orphans",
-    "docker:dev:up": "docker compose -f docker-compose.dev.yml up -d --build",
-    "docker:prod:build": "docker compose -f docker-compose.prod.yml build",
-    "docker:prod:down": "docker compose -f docker-compose.prod.yml down --remove-orphans",
-    "docker:prod:up": "docker compose -f docker-compose.prod.yml up -d --build",
-    "lint": "biome check . && turbo lint",
+    "lint": "biome check --error-on-warnings .",
+    "prepare": "lefthook install",
     "prod:set-hyperdrive": "tsx scripts/set-hyperdrive-id.ts",
     "skills:build": "turbo skills:build",
     "sync:secrets": "tsx scripts/sync-secrets.ts",
-    "sync:worker-secrets": "tsx scripts/sync-worker-secrets.ts",
     "typecheck": "turbo typecheck && pnpm typecheck:scripts",
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit"
   },
   "pnpm": {
+    "ignoredBuiltDependencies": [
+      "utf-8-validate"
+    ],
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "workerd"
+    ],
     "overrides": {
       "@clerk/localizations": "4.8.1",
-      "@clerk/shared": "4.17.1"
+      "@clerk/shared": "4.17.1",
+      "@esbuild-kit/core-utils>esbuild": "0.25.12",
+      "@tootallnate/once@>=2.0.0 <2.0.1": "2.0.1",
+      "@vercel/node@5.8.24>undici": "6.27.0",
+      "ajv@>=8.0.0 <8.18.0": "8.20.0",
+      "dompurify@<=3.4.10": "3.4.11",
+      "js-yaml@<3.15.0": "3.15.0",
+      "js-yaml@>=4.0.0 <4.2.0": "4.2.0",
+      "minimatch@>=10.0.0 <10.2.3": "10.2.5",
+      "path-to-regexp@>=6.0.0 <6.3.0": "6.3.0",
+      "path-to-regexp@>=8.0.0 <8.4.0": "8.4.2",
+      "postcss@<8.5.10": "8.5.10",
+      "smol-toml@<1.6.1": "1.6.1",
+      "tar@>=7.0.0 <7.5.11": "7.5.20",
+      "tsx@4.21.0": "4.22.4",
+      "undici@>=6.0.0 <6.27.0": "6.27.0",
+      "undici@>=7.0.0 <7.28.0": "7.28.0",
+      "utf-8-validate@>=5.0.2": "5.0.10",
+      "uuid@<11.1.1": "11.1.1",
+      "vercel@56.2.0>undici": "6.27.0"
     }
   },
   "devDependencies": {
@@ -35,13 +60,14 @@
     "@commitlint/cli": "catalog:",
     "@commitlint/config-conventional": "catalog:",
     "@types/node": "catalog:",
+    "dependency-cruiser": "catalog:",
     "knip": "catalog:",
     "lefthook": "catalog:",
-    "madge": "catalog:",
-    "tsx": "catalog:",
     "supabase": "catalog:",
+    "tsx": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
+    "vercel": "catalog:",
     "wrangler": "catalog:"
   }
 }

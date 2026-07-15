@@ -1,12 +1,10 @@
 import {
-  arrayOf,
-  type JsonValue,
-  jsonResponse,
-  nullableStringSchema,
-  type OpenApiRoute,
-  schemaRef,
-  stringSchema,
-} from "./openapi-builder";
+  GreetingResponseSchema,
+  RecentThreadsResponseSchema,
+  SearchResponseSchema,
+} from "@cheatcode/types";
+import { type JsonValue, jsonResponse, type OpenApiRoute, schemaRef } from "./openapi-builder";
+import { zodJsonSchema } from "./openapi-zod";
 
 const searchQueryParameter: JsonValue = {
   in: "query",
@@ -28,74 +26,9 @@ const recentThreadsLimitParameter: JsonValue = {
 };
 
 export const discoverySchemas: Record<string, JsonValue> = {
-  GreetingResponse: {
-    additionalProperties: false,
-    properties: {
-      city: nullableStringSchema(),
-      timezone: nullableStringSchema(),
-      weather: {
-        oneOf: [
-          {
-            additionalProperties: false,
-            properties: {
-              tempC: { type: "number" },
-              weatherCode: { type: "integer" },
-            },
-            required: ["tempC", "weatherCode"],
-            type: "object",
-          },
-          { type: "null" },
-        ],
-      },
-    },
-    required: ["city", "timezone", "weather"],
-    type: "object",
-  },
-  SearchResponse: {
-    additionalProperties: false,
-    properties: {
-      query: stringSchema(),
-      results: arrayOf({
-        discriminator: { propertyName: "type" },
-        oneOf: [schemaRef("SearchResultProject"), schemaRef("SearchResultThread")],
-      }),
-    },
-    required: ["query", "results"],
-    type: "object",
-  },
-  SearchResultProject: {
-    additionalProperties: false,
-    properties: {
-      id: stringSchema({ format: "uuid" }),
-      latestThreadId: nullableStringSchema({ format: "uuid" }),
-      name: stringSchema(),
-      type: { const: "project", type: "string" },
-      updatedAt: stringSchema({ format: "date-time" }),
-    },
-    required: ["id", "latestThreadId", "name", "type", "updatedAt"],
-    type: "object",
-  },
-  SearchResultThread: {
-    additionalProperties: false,
-    properties: {
-      id: stringSchema({ format: "uuid" }),
-      projectId: nullableStringSchema({ format: "uuid" }),
-      projectName: nullableStringSchema(),
-      title: stringSchema(),
-      type: { const: "thread", type: "string" },
-      updatedAt: stringSchema({ format: "date-time" }),
-    },
-    required: ["id", "projectId", "projectName", "title", "type", "updatedAt"],
-    type: "object",
-  },
-  RecentThreadsResponse: {
-    additionalProperties: false,
-    properties: {
-      threads: arrayOf(schemaRef("SearchResultThread")),
-    },
-    required: ["threads"],
-    type: "object",
-  },
+  GreetingResponse: zodJsonSchema(GreetingResponseSchema),
+  RecentThreadsResponse: zodJsonSchema(RecentThreadsResponseSchema),
+  SearchResponse: zodJsonSchema(SearchResponseSchema),
 };
 
 export const discoveryRoutes: OpenApiRoute[] = [

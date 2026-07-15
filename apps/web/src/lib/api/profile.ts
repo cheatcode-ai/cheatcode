@@ -6,13 +6,19 @@ import {
   type UserProfile,
   UserProfileSchema,
 } from "@cheatcode/types";
-import { authorizedFetch } from "@/lib/api/authorized-fetch";
+import {
+  API_RESPONSE_LIMIT_BYTES,
+  authorizedFetch,
+  readBoundedJsonResponse,
+} from "@/lib/api/authorized-fetch";
 
 const PROFILE_PATH = "/v1/me/profile";
 
 export async function getProfile(getToken: () => Promise<null | string>): Promise<UserProfile> {
   const response = await authorizedFetch(getToken, PROFILE_PATH);
-  return UserProfileSchema.parse(await response.json());
+  return UserProfileSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.profile),
+  );
 }
 
 export async function updateProfile(
@@ -24,5 +30,7 @@ export async function updateProfile(
     body: JSON.stringify(body),
     method: "PATCH",
   });
-  return UserProfileSchema.parse(await response.json());
+  return UserProfileSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.profile),
+  );
 }

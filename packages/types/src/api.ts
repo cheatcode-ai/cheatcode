@@ -1,10 +1,80 @@
 import { z } from "zod";
+import { IntegrationNameSchema } from "./integrations";
+import { LogicalModelIdSchema } from "./models";
+import { CHEATCODE_DATA_SCHEMAS } from "./ui-message";
 
-export const MessagePartSchema = z
+const TextMessagePartSchema = z
   .object({
-    type: z.string(),
+    state: z.enum(["streaming", "done"]).optional(),
+    text: z.string(),
+    type: z.literal("text"),
   })
-  .catchall(z.unknown());
+  .strict();
+const StepStartMessagePartSchema = z.object({ type: z.literal("step-start") }).strict();
+const FileMessagePartSchema = z
+  .object({
+    filename: z.string().optional(),
+    mediaType: z.string().min(1),
+    type: z.literal("file"),
+    url: z.string().min(1),
+  })
+  .strict();
+const SourceUrlMessagePartSchema = z
+  .object({
+    sourceId: z.string().min(1),
+    title: z.string().optional(),
+    type: z.literal("source-url"),
+    url: z.string().url(),
+  })
+  .strict();
+const SourceDocumentMessagePartSchema = z
+  .object({
+    filename: z.string().optional(),
+    mediaType: z.string().min(1),
+    sourceId: z.string().min(1),
+    title: z.string(),
+    type: z.literal("source-document"),
+  })
+  .strict();
+
+function dataMessagePartSchema<Name extends keyof typeof CHEATCODE_DATA_SCHEMAS>(name: Name) {
+  return z
+    .object({
+      data: CHEATCODE_DATA_SCHEMAS[name],
+      id: z.string().optional(),
+      type: z.literal(`data-${name}`),
+    })
+    .strict();
+}
+
+const MessagePartSchema = z.discriminatedUnion("type", [
+  TextMessagePartSchema,
+  StepStartMessagePartSchema,
+  FileMessagePartSchema,
+  SourceUrlMessagePartSchema,
+  SourceDocumentMessagePartSchema,
+  dataMessagePartSchema("approval-decision"),
+  dataMessagePartSchema("approval-request"),
+  dataMessagePartSchema("artifact"),
+  dataMessagePartSchema("error"),
+  dataMessagePartSchema("model-fallback"),
+  dataMessagePartSchema("plan"),
+  dataMessagePartSchema("sandbox-status"),
+  dataMessagePartSchema("seq"),
+  dataMessagePartSchema("task-status"),
+  dataMessagePartSchema("thinking"),
+  dataMessagePartSchema("tool"),
+]);
+
+/** Canonical total character budget for one submitted user message, including inline attachments. */
+export const USER_MESSAGE_MAX_CHARACTERS = 20_000;
+
+const UserTextPartSchema = z
+  .object({
+    text: z.string().trim().min(1).max(USER_MESSAGE_MAX_CHARACTERS),
+    type: z.literal("text"),
+  })
+  .strict();
 
 /**
  * Public GitHub repo URL accepted for one-shot project import. The single regex
@@ -24,23 +94,25 @@ export const GitHubRepoUrlSchema = z
     "Must be a public https://github.com/{owner}/{repo} URL",
   );
 
+export const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
+export const ProjectModeSchema = z.enum(PROJECT_MODES);
+
 export const CreateProjectSchema = z
   .object({
-    budgetCapUsd: z.number().positive().max(50).optional(),
-    defaultModel: z.string().trim().min(1).max(200).optional(),
+    defaultModel: LogicalModelIdSchema.optional(),
     importRepoUrl: GitHubRepoUrlSchema.optional(),
     name: z.string().trim().min(1).max(120),
-    mode: z.enum(["app-builder", "app-builder-mobile", "general"]).default("general"),
+    mode: ProjectModeSchema.default("general"),
     masterInstructions: z.string().max(20_000).optional(),
   })
   .strict();
 
 export const CreateThreadSchema = z
   .object({
-    defaultModel: z.string().trim().min(1).max(200).optional(),
+    defaultModel: LogicalModelIdSchema.optional(),
     initialPrompt: z.string().trim().min(1).max(20_000).optional(),
     importRepoUrl: GitHubRepoUrlSchema.optional(),
-    mode: z.enum(["app-builder", "app-builder-mobile", "general"]).optional(),
+    mode: ProjectModeSchema.optional(),
     projectId: z.string().uuid().optional(),
     title: z.string().trim().min(1).max(200).optional(),
   })
@@ -56,13 +128,12 @@ export const ProjectSummarySchema = z
   .object({
     archiveAfter: z.string().datetime().nullable(),
     archivedPendingAction: z.boolean(),
-    budgetCapUsd: z.number().positive().max(50).nullable(),
     createdAt: z.string().datetime(),
-    defaultModel: z.string().trim().min(1).max(200).nullable(),
+    defaultModel: LogicalModelIdSchema.nullable(),
     id: z.string().uuid(),
     importRepoUrl: z.string().nullable(),
     masterInstructions: z.string().nullable(),
-    mode: z.string(),
+    mode: ProjectModeSchema,
     name: z.string(),
     overQuota: z.boolean(),
     readOnly: z.boolean(),
@@ -72,8 +143,7 @@ export const ProjectSummarySchema = z
 
 export const UpdateProjectSchema = z
   .object({
-    budgetCapUsd: z.number().positive().max(50).nullable().optional(),
-    defaultModel: z.string().trim().min(1).max(200).nullable().optional(),
+    defaultModel: LogicalModelIdSchema.nullable().optional(),
     importRepoUrl: GitHubRepoUrlSchema.nullable().optional(),
     masterInstructions: z.string().max(20_000).nullable().optional(),
     name: z.string().trim().min(1).max(120).optional(),
@@ -88,7 +158,7 @@ export const ThreadSchema = z
     activeRunId: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     id: z.string().uuid(),
-    pendingInitialPrompt: z.string().nullable().optional(),
+    pendingInitialPrompt: z.string().nullable(),
     projectId: z.string().uuid().nullable(),
     title: z.string().nullable(),
     updatedAt: z.string().datetime(),
@@ -113,18 +183,19 @@ export const PaginationQuerySchema = z
   })
   .strict();
 
+/** Exact maximum size of a finalized project-download ZIP across server and web clients. */
+export const PROJECT_ARCHIVE_MAX_OUTPUT_BYTES = 640 * 1024 * 1024;
+
 export const CreateRunSchema = z
   .object({
     message: z
       .object({
-        id: z.string().optional(),
+        id: z.string().uuid().optional(),
         role: z.enum(["user"]),
-        parts: z.array(MessagePartSchema).min(1),
+        parts: z.array(UserTextPartSchema).length(1),
       })
       .strict(),
-    model: z.string().optional(),
-    agentName: z.string().optional(),
-    budgetCapUsd: z.number().positive().max(50).optional(),
+    model: LogicalModelIdSchema.optional(),
   })
   .strict();
 
@@ -147,21 +218,13 @@ export const ProviderKeySummarySchema = z
     disabledReason: z.string().nullable(),
     provider: ProviderSchema,
     fingerprint: z.string(),
-    lastUsedAt: z.string().nullable(),
+    lastUsedAt: z.string().datetime().nullable(),
   })
   .strict();
 
-// A Composio toolkit slug (e.g. "github", "google_calendar"). Previously a 5-value
-// enum; widened to the full Composio catalog so any managed-auth toolkit can be
-// browsed, connected, and used by the agent.
-export const IntegrationNameSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(64)
-  .regex(/^[a-z0-9_]+$/, "Toolkit slug must be lowercase letters, digits, or underscores.");
+export const ComposioConnectionIdSchema = z.string().trim().min(1).max(256);
 
-export const IntegrationStatusSchema = z.enum([
+const IntegrationStatusSchema = z.enum([
   "not_connected",
   "initiating",
   "active",
@@ -170,14 +233,23 @@ export const IntegrationStatusSchema = z.enum([
   "failed",
 ]);
 
+const IntegrationAccountSchema = z
+  .object({
+    connectedAt: z.string().datetime(),
+    connectionId: ComposioConnectionIdSchema,
+    isDefault: z.boolean(),
+    label: z.string(),
+    status: IntegrationStatusSchema,
+    updatedAt: z.string().datetime(),
+  })
+  .strict();
+
 export const IntegrationSchema = z
   .object({
-    connectedAt: z.string().datetime().nullable(),
-    connectionId: z.string().nullable(),
+    accounts: z.array(IntegrationAccountSchema),
     displayName: z.string(),
     name: IntegrationNameSchema,
     status: IntegrationStatusSchema,
-    updatedAt: z.string().datetime().nullable(),
   })
   .strict();
 
@@ -187,23 +259,22 @@ export const IntegrationConnectResponseSchema = z
   })
   .strict();
 
-export const ToolkitCategorySchema = z
+const ToolkitCategorySchema = z
   .object({
     name: z.string(),
     slug: z.string(),
   })
   .strict();
 
-export const ToolkitCatalogEntrySchema = z
+const ToolkitCatalogEntrySchema = z
   .object({
+    accounts: z.array(IntegrationAccountSchema),
     categorySlugs: z.array(z.string()),
     connectable: z.boolean(),
-    connectedAt: z.string().datetime().nullable(),
     description: z.string(),
     displayName: z.string(),
     name: IntegrationNameSchema,
     status: IntegrationStatusSchema,
-    updatedAt: z.string().datetime().nullable(),
   })
   .strict();
 
@@ -214,7 +285,7 @@ export const IntegrationCatalogSchema = z
   })
   .strict();
 
-export const ToolkitActionSchema = z
+const ToolkitActionSchema = z
   .object({
     description: z.string(),
     name: z.string(),
@@ -228,10 +299,21 @@ export const ToolkitActionsResponseSchema = z
   })
   .strict();
 
+export const ToolDomainSchema = z.enum([
+  "browser",
+  "code",
+  "data",
+  "docs",
+  "integrations",
+  "research",
+  "sandbox",
+  "skills",
+]);
+
 export const ToolSummarySchema = z
   .object({
     description: z.string(),
-    domain: z.string(),
+    domain: ToolDomainSchema,
     name: z.string(),
   })
   .strict();
@@ -250,120 +332,16 @@ export const UpsertProviderKeySchema = z
   })
   .strict();
 
-export const BillingTierSchema = z.enum(["free", "pro", "premium", "ultra", "max"]);
-
-export const PaidBillingTierSchema = z.enum(["pro", "premium", "ultra", "max"]);
-
-export const BillingCheckoutSchema = z
-  .object({
-    tier: PaidBillingTierSchema,
-    returnUrl: z.string().url().max(2000).optional(),
-    successUrl: z.string().url().max(2000).optional(),
-  })
-  .strict();
-
-export const BillingCancellationReasonSchema = z.enum([
-  "too_expensive",
-  "missing_features",
-  "switched_service",
-  "unused",
-  "customer_service",
-  "low_quality",
-  "too_complex",
-  "other",
-]);
-
-export const BillingCancelSchema = z
-  .object({
-    comment: z.string().trim().max(1_000).optional(),
-    reason: BillingCancellationReasonSchema.optional(),
-  })
-  .strict();
-
-export const BillingStateResponseSchema = z
-  .object({
-    cancelAtPeriodEnd: z.boolean(),
-    canCancel: z.boolean(),
-    canReactivate: z.boolean(),
-    currentPeriodEnd: z.string().datetime().nullable(),
-    currentPeriodStart: z.string().datetime().nullable(),
-    subscriptionStatus: z.string(),
-    tier: BillingTierSchema,
-  })
-  .strict();
-
-export const BillingSubscriptionActionResponseSchema = z
-  .object({
-    cancelAtPeriodEnd: z.boolean(),
-    currentPeriodEnd: z.string().datetime().nullable(),
-    currentPeriodStart: z.string().datetime().nullable(),
-    status: z.string(),
-  })
-  .strict();
-
-export const BillingUrlResponseSchema = z
-  .object({
-    url: z.string().url(),
-  })
-  .strict();
-
-export const SandboxUsageWarnLevelSchema = z.enum(["none", "warn80", "warn95", "exhausted"]);
-
-export const SandboxUsageSummaryResponseSchema = z
-  .object({
-    resetAt: z.string().datetime(),
-    sandboxHoursTotal: z.number().nonnegative(),
-    sandboxHoursUsed: z.number().nonnegative(),
-    tier: BillingTierSchema,
-    warnLevel: SandboxUsageWarnLevelSchema,
-  })
-  .strict();
-
-export const PlanSummarySchema = z
-  .object({
-    available: z.boolean(),
-    current: z.boolean(),
-    displayName: z.string(),
-    id: BillingTierSchema,
-    limits: z
-      .object({
-        dailyCostCapUsd: z.number().nullable(),
-        maxConcurrentSandboxes: z.number().int().positive(),
-        maxProjects: z.number().int().positive().nullable(),
-        quotaComposioCalls: z.number().int().positive().nullable(),
-        quotaDeployments: z.number().int().positive().nullable(),
-      })
-      .strict(),
-    monthlyPriceUsd: z.number().nonnegative(),
-    sandboxHoursPerMonth: z.number().positive(),
-  })
-  .strict();
-
-export const BillingCatalogResponseSchema = z
-  .object({
-    currentTier: BillingTierSchema,
-    plans: z.array(PlanSummarySchema),
-  })
-  .strict();
-
-/** Alias of BillingCatalogResponseSchema for catalog-named consumers. */
-export const PlanCatalogResponseSchema = BillingCatalogResponseSchema;
-
 export const SandboxFilePathSchema = z
   .string()
   .min(1)
   .max(1_000)
-  .refine(
-    (path) =>
-      !path.includes("\0") &&
-      !path.split("/").includes("..") &&
-      (path === "/workspace" || path.startsWith("/workspace/")),
-    {
-      message: "Path must stay under /workspace.",
-    },
+  .regex(
+    /^\/workspace(?:\/(?!\.{1,2}(?:\/|$))[^/\0]+)*$/,
+    "Path must be canonical and stay under /workspace.",
   );
 
-export const SandboxFileEntrySchema = z
+const SandboxFileEntrySchema = z
   .object({
     modifiedAt: z.string(),
     name: z.string(),
@@ -401,7 +379,7 @@ export const SandboxFilePreviewSchema = z
   })
   .strict();
 
-export const UpdateSandboxFileSchema = z
+const UpdateSandboxFileSchema = z
   .object({
     content: z.string().max(2_000_000),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
@@ -509,7 +487,7 @@ export const SandboxConsoleQuerySchema = z
  * info) is intentionally NOT on the wire — it is a presentation concern parsed
  * client-side so its heuristics can iterate without a worker redeploy.
  */
-export const SandboxConsoleLineSchema = z
+const SandboxConsoleLineSchema = z
   .object({
     stream: z.enum(["stdout", "stderr"]),
     text: z.string().max(2_000),
@@ -521,7 +499,7 @@ export const SandboxConsoleLineSchema = z
  * number upstream, normalized via `String()`), null when Daytona omits it.
  * `status` is the raw Daytona process status ("running" | "completed" | ...).
  */
-export const SandboxConsoleProcessSchema = z
+const SandboxConsoleProcessSchema = z
   .object({
     command: z.string(),
     id: z.string(),
@@ -547,25 +525,6 @@ export const SandboxConsoleSnapshotSchema = z
   })
   .strict();
 
-/** Body of `POST /v1/runs/:runId/approvals/:approvalId`. */
-export const ApprovalDecisionRequestSchema = z
-  .object({
-    decision: z.enum(["allow", "deny"]),
-    reason: z.string().trim().min(1).max(500).optional(),
-  })
-  .strict();
-
-/** Resolution echoed by the approval decision route (idempotent replays). */
-export const ApprovalDecisionResponseSchema = z
-  .object({
-    ok: z.literal(true),
-    approvalId: z.string().uuid(),
-    decision: z.enum(["allow", "deny"]),
-    decidedBy: z.enum(["user", "timeout", "cancel"]),
-    runStatus: z.enum(["running", "paused", "completed", "failed", "canceled"]),
-  })
-  .strict();
-
 export const Paginated = <T extends z.ZodTypeAny>(item: T) =>
   z
     .object({
@@ -577,16 +536,6 @@ export const Paginated = <T extends z.ZodTypeAny>(item: T) =>
 
 export const LimitsSnapshotSchema = z
   .object({
-    rate_limits: z.record(
-      z.string(),
-      z
-        .object({
-          limit: z.number(),
-          remaining: z.number(),
-          reset_at: z.number(),
-        })
-        .strict(),
-    ),
     quotas: z.record(
       z.string(),
       z
@@ -600,24 +549,13 @@ export const LimitsSnapshotSchema = z
   })
   .strict();
 
-export const UsageDailyQuerySchema = z
+export const ActivityQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(90).default(30),
   })
   .strict();
 
-export const UsageDailyTotalSchema = z
-  .object({
-    agentRunCount: z.number().int().nonnegative(),
-    day: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    totalCachedTokens: z.number().int().nonnegative(),
-    totalCostUsd: z.number().nonnegative(),
-    totalInputTokens: z.number().int().nonnegative(),
-    totalOutputTokens: z.number().int().nonnegative(),
-  })
-  .strict();
-
-export const UsageRunPointSchema = z
+const ActivityRunPointSchema = z
   .object({
     runId: z.string().uuid(),
     startedAt: z.string().datetime(),
@@ -625,11 +563,18 @@ export const UsageRunPointSchema = z
   })
   .strict();
 
-export const UsageDailyTotalsResponseSchema = z
+const SandboxHourPointSchema = z
+  .object({
+    hours: z.number().positive(),
+    recordedAt: z.string().datetime(),
+  })
+  .strict();
+
+export const ActivityHistoryResponseSchema = z
   .object({
     days: z.number().int().positive(),
-    runs: z.array(UsageRunPointSchema),
-    totals: z.array(UsageDailyTotalSchema),
+    runs: z.array(ActivityRunPointSchema),
+    sandboxHours: z.array(SandboxHourPointSchema),
     truncated: z.boolean(),
   })
   .strict();
@@ -641,7 +586,7 @@ export const SearchQuerySchema = z
   })
   .strict();
 
-export const SearchResultProjectSchema = z
+const SearchResultProjectSchema = z
   .object({
     type: z.literal("project"),
     id: z.string().uuid(),
@@ -651,7 +596,7 @@ export const SearchResultProjectSchema = z
   })
   .strict();
 
-export const SearchResultThreadSchema = z
+const SearchResultThreadSchema = z
   .object({
     type: z.literal("thread"),
     id: z.string().uuid(),
@@ -664,7 +609,7 @@ export const SearchResultThreadSchema = z
   })
   .strict();
 
-export const SearchResultSchema = z.discriminatedUnion("type", [
+const SearchResultSchema = z.discriminatedUnion("type", [
   SearchResultProjectSchema,
   SearchResultThreadSchema,
 ]);
@@ -704,72 +649,54 @@ export const GreetingResponseSchema = z
   })
   .strict();
 
+/** Operational ceiling that keeps the per-user skill catalog bounded. */
+export const MAX_USER_SKILLS = 100;
+
 /** A user-created skill (client-safe projection; `body` only travels on detail/create). */
 export const UserSkillSchema = z
   .object({
-    category: z.string(),
+    category: z.string().max(80),
     createdAt: z.string().datetime(),
-    description: z.string(),
+    description: z.string().max(400),
     id: z.string().uuid(),
-    name: z.string(),
-    tags: z.array(z.string()),
+    name: z.string().max(80),
+    tags: z.array(z.string().max(40)).max(12),
     updatedAt: z.string().datetime(),
   })
   .strict();
 
-export const UserSkillsResponseSchema = z.object({ skills: z.array(UserSkillSchema) }).strict();
+export const UserSkillsResponseSchema = z
+  .object({ skills: z.array(UserSkillSchema).max(MAX_USER_SKILLS) })
+  .strict();
 
 /** Body of `POST /v1/skills` — create/update a custom skill (by name). */
 export const CreateUserSkillSchema = z
   .object({
     body: z.string().trim().min(1).max(40_000),
-    category: z.string().trim().min(1).max(80).optional(),
+    category: z.string().trim().min(1).max(80).default("Builder & Apps"),
     description: z.string().trim().min(1).max(400),
     name: z.string().trim().min(1).max(80),
-    tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
+    tags: z.array(z.string().trim().min(1).max(40)).max(12).default([]),
   })
   .strict();
 
-export type ApprovalDecisionRequest = z.infer<typeof ApprovalDecisionRequestSchema>;
-export type ApprovalDecisionResponse = z.infer<typeof ApprovalDecisionResponseSchema>;
-export type BillingCheckout = z.infer<typeof BillingCheckoutSchema>;
-export type BillingCancel = z.infer<typeof BillingCancelSchema>;
-export type BillingCancellationReason = z.infer<typeof BillingCancellationReasonSchema>;
-export type BillingCatalogResponse = z.infer<typeof BillingCatalogResponseSchema>;
-export type BillingStateResponse = z.infer<typeof BillingStateResponseSchema>;
-export type BillingSubscriptionActionResponse = z.infer<
-  typeof BillingSubscriptionActionResponseSchema
->;
-export type BillingTier = z.infer<typeof BillingTierSchema>;
-export type BillingUrlResponse = z.infer<typeof BillingUrlResponseSchema>;
-export type PaidBillingTier = z.infer<typeof PaidBillingTierSchema>;
-export type PlanCatalogResponse = z.infer<typeof PlanCatalogResponseSchema>;
-export type PlanSummary = z.infer<typeof PlanSummarySchema>;
-export type SandboxUsageSummaryResponse = z.infer<typeof SandboxUsageSummaryResponseSchema>;
-export type SandboxUsageWarnLevel = z.infer<typeof SandboxUsageWarnLevelSchema>;
-export type UsageRunPoint = z.infer<typeof UsageRunPointSchema>;
-export type CreateProject = z.infer<typeof CreateProjectSchema>;
+export type SandboxHourPoint = z.infer<typeof SandboxHourPointSchema>;
 export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;
 export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
-export type SearchQuery = z.infer<typeof SearchQuerySchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
-export type RecentThreadsQuery = z.infer<typeof RecentThreadsQuerySchema>;
-export type RecentThreadsResponse = z.infer<typeof RecentThreadsResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
-export type SearchResultProject = z.infer<typeof SearchResultProjectSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;
 export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type Integration = z.infer<typeof IntegrationSchema>;
+export type IntegrationAccount = z.infer<typeof IntegrationAccountSchema>;
 export type IntegrationCatalog = z.infer<typeof IntegrationCatalogSchema>;
-export type IntegrationConnectResponse = z.infer<typeof IntegrationConnectResponseSchema>;
-export type IntegrationName = z.infer<typeof IntegrationNameSchema>;
 export type ToolkitAction = z.infer<typeof ToolkitActionSchema>;
 export type ToolkitActionsResponse = z.infer<typeof ToolkitActionsResponseSchema>;
 export type ToolkitCatalogEntry = z.infer<typeof ToolkitCatalogEntrySchema>;
 export type ToolkitCategory = z.infer<typeof ToolkitCategorySchema>;
 export type LimitsSnapshot = z.infer<typeof LimitsSnapshotSchema>;
-export type PaginationQuery = z.infer<typeof PaginationQuerySchema>;
+export type ProjectMode = z.infer<typeof ProjectModeSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ProviderKeySummary = z.infer<typeof ProviderKeySummarySchema>;
 export type Thread = z.infer<typeof ThreadSchema>;
@@ -777,156 +704,20 @@ export type ToolSummary = z.infer<typeof ToolSummarySchema>;
 export type UIMessageRecord = z.infer<typeof UIMessageRecordSchema>;
 export type UpdateProject = z.infer<typeof UpdateProjectSchema>;
 export type UpdateThread = z.infer<typeof UpdateThreadSchema>;
-export type UpsertProviderKey = z.infer<typeof UpsertProviderKeySchema>;
 export type SandboxConsoleLine = z.infer<typeof SandboxConsoleLineSchema>;
 export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;
-export type SandboxConsoleQuery = z.infer<typeof SandboxConsoleQuerySchema>;
 export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
-export type SandboxFile = z.infer<typeof SandboxFileSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
-export type SandboxFileList = z.infer<typeof SandboxFileListSchema>;
-export type SandboxFilePath = z.infer<typeof SandboxFilePathSchema>;
 export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;
-export type SandboxFileWrite = z.infer<typeof SandboxFileWriteSchema>;
 export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
 export type SandboxPreviewWake = z.infer<typeof SandboxPreviewWakeSchema>;
 export type SandboxPreviewStatus = z.infer<typeof SandboxPreviewStatusSchema>;
-export type SandboxTerminalCommand = z.infer<typeof SandboxTerminalCommandSchema>;
 export type SandboxTerminalContext = z.infer<typeof SandboxTerminalContextSchema>;
 export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
-export type UpdateSandboxFile = z.infer<typeof UpdateSandboxFileSchema>;
-export type UpdateSandboxPathFile = z.infer<typeof UpdateSandboxPathFileSchema>;
-export type UsageDailyQuery = z.infer<typeof UsageDailyQuerySchema>;
-export type UsageDailyTotal = z.infer<typeof UsageDailyTotalSchema>;
-export type UsageDailyTotalsResponse = z.infer<typeof UsageDailyTotalsResponseSchema>;
-export type CreateUserSkill = z.infer<typeof CreateUserSkillSchema>;
+export type ActivityHistoryResponse = z.infer<typeof ActivityHistoryResponseSchema>;
+export type ActivityRunPoint = z.infer<typeof ActivityRunPointSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;
-export type UserSkillsResponse = z.infer<typeof UserSkillsResponseSchema>;
-
-// ---------------------------------------------------------------------------
-// Automations (bud-parity: scheduled + event-triggered agent runs)
-// ---------------------------------------------------------------------------
-
-export const AutomationKindSchema = z.enum(["scheduled", "event"]);
-export const AutomationStatusSchema = z.enum(["running", "paused"]);
-
-export const AutomationDeliveryChannelSchema = z
-  .object({
-    type: z.enum(["slack", "notion", "email"]),
-    target: z.string().trim().min(1).max(400),
-  })
-  .strict();
-
-/** Permissive 5-field cron (UTC). Runtime expansion validates further. */
-const CronExpressionSchema = z
-  .string()
-  .trim()
-  .regex(/^(\S+\s+){4}\S+$/, "Expected a 5-field cron expression");
-
-export const CreateAutomationSchema = z
-  .object({
-    name: z.string().trim().min(1).max(120),
-    kind: AutomationKindSchema,
-    prompt: z.string().trim().min(1).max(20_000),
-    model: z.string().trim().min(1).max(200).optional(),
-    projectId: z.string().uuid().optional(),
-    schedule: CronExpressionSchema.optional(),
-    triggerToolkit: z.string().trim().min(1).max(120).optional(),
-    triggerSlug: z.string().trim().min(1).max(200).optional(),
-    deliveryChannels: z.array(AutomationDeliveryChannelSchema).max(10).default([]),
-  })
-  .strict()
-  .superRefine((value, ctx) => {
-    if (value.kind === "scheduled" && !value.schedule) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "schedule is required for scheduled automations",
-        path: ["schedule"],
-      });
-    }
-    if (value.kind === "event" && (!value.triggerToolkit || !value.triggerSlug)) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        message: "triggerToolkit and triggerSlug are required for event automations",
-        path: ["triggerSlug"],
-      });
-    }
-  });
-
-export const UpdateAutomationSchema = z
-  .object({
-    name: z.string().trim().min(1).max(120).optional(),
-    status: AutomationStatusSchema.optional(),
-    prompt: z.string().trim().min(1).max(20_000).optional(),
-    model: z.string().trim().min(1).max(200).nullable().optional(),
-    schedule: CronExpressionSchema.optional(),
-    deliveryChannels: z.array(AutomationDeliveryChannelSchema).max(10).optional(),
-  })
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "At least one automation field is required.",
-  });
-
-export const AutomationSummarySchema = z
-  .object({
-    id: z.string().uuid(),
-    name: z.string(),
-    status: AutomationStatusSchema,
-    kind: AutomationKindSchema,
-    prompt: z.string(),
-    model: z.string().nullable(),
-    projectId: z.string().uuid().nullable(),
-    schedule: z.string().nullable(),
-    triggerToolkit: z.string().nullable(),
-    triggerSlug: z.string().nullable(),
-    deliveryChannels: z.array(AutomationDeliveryChannelSchema),
-    nextRunAt: z.string().datetime().nullable(),
-    lastRunAt: z.string().datetime().nullable(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .strict();
-
-export const AutomationDeliveryResultSchema = z
-  .object({
-    type: z.enum(["slack", "notion", "email"]),
-    target: z.string(),
-    status: z.enum(["pending", "delivered", "failed"]),
-    error: z.string().optional(),
-  })
-  .strict();
-
-export const AutomationRunSummarySchema = z
-  .object({
-    id: z.string().uuid(),
-    automationId: z.string().uuid(),
-    threadId: z.string().uuid().nullable(),
-    status: z.enum(["running", "succeeded", "failed", "skipped"]),
-    summary: z.string().nullable(),
-    error: z.string().nullable(),
-    deliveries: z.array(AutomationDeliveryResultSchema),
-    startedAt: z.string().datetime(),
-    finishedAt: z.string().datetime().nullable(),
-  })
-  .strict();
-
-export const AutomationListResponseSchema = z
-  .object({ automations: z.array(AutomationSummarySchema) })
-  .strict();
-
-export const AutomationRunsResponseSchema = z
-  .object({ runs: z.array(AutomationRunSummarySchema) })
-  .strict();
-
-export type AutomationKind = z.infer<typeof AutomationKindSchema>;
-export type AutomationStatus = z.infer<typeof AutomationStatusSchema>;
-export type AutomationDeliveryChannel = z.infer<typeof AutomationDeliveryChannelSchema>;
-export type CreateAutomation = z.infer<typeof CreateAutomationSchema>;
-export type UpdateAutomation = z.infer<typeof UpdateAutomationSchema>;
-export type AutomationSummary = z.infer<typeof AutomationSummarySchema>;
-export type AutomationRunSummary = z.infer<typeof AutomationRunSummarySchema>;
-export type AutomationListResponse = z.infer<typeof AutomationListResponseSchema>;
-export type AutomationRunsResponse = z.infer<typeof AutomationRunsResponseSchema>;
+export type ToolDomain = z.infer<typeof ToolDomainSchema>;
 
 // --- Account (GET/PATCH /v1/me) ---
 
@@ -947,6 +738,3 @@ export const UpdateMeSchema = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "At least one account field is required.",
   });
-
-export type MeResponse = z.infer<typeof MeResponseSchema>;
-export type UpdateMe = z.infer<typeof UpdateMeSchema>;

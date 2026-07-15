@@ -1,0 +1,1 @@
+ALTER TABLE "v2_users" ADD COLUMN "deletion_fence" text;

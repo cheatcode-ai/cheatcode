@@ -2,7 +2,7 @@ import { z } from "zod";
 
 const TextValueSchema = z.string().trim().min(1).max(5_000);
 
-export const ArtifactOutputSchema = z
+const ArtifactOutputSchema = z
   .object({
     downloadUrl: z.string().url(),
     filename: z.string().min(1),
@@ -14,7 +14,7 @@ export const ArtifactOutputSchema = z
   })
   .strict();
 
-export const SlideItemSchema = z
+const SlideItemSchema = z
   .object({
     bullets: z.array(TextValueSchema).max(8).default([]),
     heading: TextValueSchema,
@@ -31,7 +31,7 @@ export const GenerateSlidesInputSchema = z
   })
   .strict();
 
-export const DocumentSectionSchema = z
+const DocumentSectionSchema = z
   .object({
     heading: TextValueSchema,
     paragraphs: z.array(TextValueSchema).min(1).max(20),
@@ -49,7 +49,7 @@ export const GenerateDocumentInputSchema = z
 const SpreadsheetCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const SpreadsheetRowSchema = z.record(z.string().min(1).max(80), SpreadsheetCellSchema);
 
-export const SpreadsheetSheetSchema = z
+const SpreadsheetSheetSchema = z
   .object({
     columns: z.array(z.string().trim().min(1).max(80)).min(1).max(50),
     name: z.string().trim().min(1).max(31),

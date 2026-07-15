@@ -8,6 +8,7 @@ import type {
 import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
 import Link from "next/link";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 import { decideRunApproval } from "@/lib/api/project-thread";
 
@@ -21,14 +22,49 @@ const BUTTON_CLASS =
 const LINK_CLASS =
   "mt-2 inline-block text-[11px] text-thread-accent underline-offset-4 hover:underline";
 
+const expiredDuringServerRender = () => true;
+
+function useApprovalExpired(expiresAt: number): boolean {
+  const subscribe = useCallback(
+    (onDeadline: () => void) => {
+      const remainingMs = expiresAt - Date.now();
+      if (remainingMs <= 0) {
+        return () => undefined;
+      }
+      const timeoutId = window.setTimeout(onDeadline, remainingMs);
+      return () => window.clearTimeout(timeoutId);
+    },
+    [expiresAt],
+  );
+  const getSnapshot = useCallback(() => Date.now() >= expiresAt, [expiresAt]);
+  return useSyncExternalStore(subscribe, getSnapshot, expiredDuringServerRender);
+}
+
 function useApprovalDecision(runId: string, approvalId: string) {
   const { getToken } = useAuth();
-  return useMutation({
+  const submittedApprovalId = useRef<string | null>(null);
+  const mutation = useMutation({
     mutationFn: (decision: ApprovalChoice) =>
       decideRunApproval(getToken, runId, approvalId, { decision }),
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "Approval decision failed"),
+    onError: (error) => {
+      if (submittedApprovalId.current === approvalId) {
+        submittedApprovalId.current = null;
+      }
+      toast.error(error instanceof Error ? error.message : "Approval decision failed");
+    },
   });
+  const { mutate } = mutation;
+  const submitDecision = useCallback(
+    (decision: ApprovalChoice) => {
+      if (submittedApprovalId.current === approvalId) {
+        return;
+      }
+      submittedApprovalId.current = approvalId;
+      mutate(decision);
+    },
+    [approvalId, mutate],
+  );
+  return { ...mutation, submitDecision };
 }
 
 export function ApprovalRequestBlock({
@@ -39,12 +75,18 @@ export function ApprovalRequestBlock({
   resolved: boolean;
 }) {
   const decision = useApprovalDecision(data.runId, data.approvalId);
-  const expired = Date.now() > data.expiresAt;
-  const disabled = resolved || expired || decision.isPending;
+  const expired = useApprovalExpired(data.expiresAt);
+  const disabled = resolved || expired || decision.isPending || decision.isSuccess;
   if (data.kind === "model-fallback") {
-    return <ModelFallbackApprovalCard data={data} disabled={disabled} onDecide={decision.mutate} />;
+    return (
+      <ModelFallbackApprovalCard
+        data={data}
+        disabled={disabled}
+        onDecide={decision.submitDecision}
+      />
+    );
   }
-  return <ToolApprovalCard data={data} disabled={disabled} onDecide={decision.mutate} />;
+  return <ToolApprovalCard data={data} disabled={disabled} onDecide={decision.submitDecision} />;
 }
 
 function ToolApprovalCard({
@@ -60,7 +102,7 @@ function ToolApprovalCard({
     <div className={CARD_CLASS}>
       <div className={LABEL_CLASS}>approval required</div>
       <div className="text-thread-text-primary">{data.toolName ?? "tool"}</div>
-      <pre className="mt-1 whitespace-pre-wrap break-words rounded-[10px] bg-white p-2 text-thread-text-secondary">
+      <pre className="mt-1 whitespace-pre-wrap break-words rounded-[10px] bg-background p-2 text-thread-text-secondary">
         <code>{data.summary}</code>
       </pre>
       <DecisionButtons
@@ -95,7 +137,7 @@ function ModelFallbackApprovalCard({
         disabled={disabled}
         onDecide={onDecide}
       />
-      <Link className={LINK_CLASS} href="/settings/api-keys">
+      <Link className={LINK_CLASS} href="/models#api-keys">
         Open Models &amp; Keys
       </Link>
     </div>
@@ -155,7 +197,7 @@ export function ModelFallbackBlock({ data }: { data: ModelFallbackData }) {
       <div className="mt-1 text-[10px] text-thread-text-muted">
         Reason: {fallbackReasonLabel(data.reason)}
       </div>
-      <Link className={LINK_CLASS} href="/settings/api-keys">
+      <Link className={LINK_CLASS} href="/models#api-keys">
         Open Models &amp; Keys
       </Link>
     </div>
@@ -174,8 +216,8 @@ function fallbackReasonLabel(reason: ModelFallbackData["reason"]): string {
   if (reason === "rate_limit") {
     return "provider rate limit";
   }
-  if (reason === "credits") {
-    return "out of credits";
+  if (reason === "provider_balance") {
+    return "provider balance or quota exhausted";
   }
   return "provider error";
 }
