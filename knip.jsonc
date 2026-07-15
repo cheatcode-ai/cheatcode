@@ -5,6 +5,12 @@
   "workspaces": {
     ".": {
       "entry": ["scripts/migrate.ts"]
+    },
+    "packages/db": {
+      "drizzle": {
+        "config": []
+      },
+      "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     }
   }
 }
