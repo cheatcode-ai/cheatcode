@@ -12,7 +12,7 @@
     "DAYTONA_API_URL": "https://app.daytona.io/api",
     "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",
     "DAYTONA_TARGET": "us",
-    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-20260714-1220z",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-3336016022d8",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
     "PREVIEW_HOSTNAME": "trycheatcode.com",
     "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"

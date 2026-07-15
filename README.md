@@ -148,7 +148,7 @@ Publish a new immutable Daytona snapshot after changing `infra/containers/sandbo
 
 ```bash
 docker build --platform=linux/amd64 -t cheatcode-sandbox:<immutable-tag> infra/containers/sandbox
-daytona snapshot push cheatcode-sandbox:<immutable-tag> --name <snapshot-name> --cpu 2 --memory 4 --disk 10
+daytona snapshot push cheatcode-sandbox:<immutable-tag> --name <unique-snapshot-name> --cpu 2 --memory 4 --disk 10 --region us
 ```
 
 Cloudflare Secrets Store sync is dry-run by default, never prints secret values, creates missing
