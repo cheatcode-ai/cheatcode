@@ -13,8 +13,13 @@ runtime user matches `/workspace` + the baked Next/Expo templates under `/home/n
 
 The normal path is the protected **Build Sandbox Snapshot** GitHub workflow. Dispatch
 it from `main` and enter `BUILD_SNAPSHOT`. It publishes an immutable candidate named
-`cheatcode-sandbox-viewer-bundle-<12-character-commit-sha>`. The workflow never
-deletes or replaces an existing snapshot and refuses to reuse a candidate name.
+`cheatcode-sandbox-viewer-bundle-<12-character-commit-sha>-<workflow-run-id>` and
+refuses any pre-existing or surviving candidate name. If Daytona returns its exact
+transient 30-second processing timeout, the workflow may remove only the unused failed
+candidate created by that same publish attempt before retrying the run-scoped name.
+Candidate ID, creation time, OCI digest, region, resources, error shape, and
+`lastUsedAt` are revalidated immediately before deletion. Active, previously used,
+pre-existing, or ambiguous snapshots fail closed and are never deleted or replaced.
 
 Promotion is a separate reviewed source change: update the agent-worker
 `DAYTONA_SANDBOX_SNAPSHOT` var to the candidate name, then use the protected database
@@ -33,12 +38,13 @@ docker build --platform=linux/amd64 -t cheatcode-sandbox:<immutable-tag> \
 # Push the local image straight into Daytona's registry (no external registry needed)
 # and register it as a snapshot with baked resources (≤ Tier-2 caps: 4 vCPU / 8 GiB / 10 GiB).
 daytona snapshot push cheatcode-sandbox:<immutable-tag> \
-  --name cheatcode-sandbox-viewer-bundle-<commit-sha> \
-  --cpu 2 --memory 4 --disk 10
+  --name cheatcode-sandbox-viewer-bundle-<commit-sha>-<unique-run-id> \
+  --cpu 2 --memory 4 --disk 10 --region us
 ```
 
 Then set the agent-worker `DAYTONA_SANDBOX_SNAPSHOT` var to the new snapshot name.
-The current default is `cheatcode-sandbox-viewer-bundle-20260714-1220z`.
+The authoritative current default is committed in
+[`apps/agent-worker/wrangler.jsonc`](../../../apps/agent-worker/wrangler.jsonc).
 
 > Use an **immutable tag**, not `:latest` (rejected) and not a digest (digest pinning is
 > currently broken for Daytona pushed-image references). The Dockerfile base image is

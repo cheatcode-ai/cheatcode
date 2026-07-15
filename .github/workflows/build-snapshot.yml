@@ -1,8 +1,9 @@
 name: Build Sandbox Snapshot
 
-# Snapshot publication is an explicit production-adjacent operation. Each main
-# commit maps to one immutable candidate; promotion happens by reviewing the
-# DAYTONA_SANDBOX_SNAPSHOT change in the agent-worker configuration.
+# Snapshot publication is an explicit production-adjacent operation. Each
+# dispatch maps its main commit and workflow run to one immutable candidate;
+# promotion happens by reviewing the DAYTONA_SANDBOX_SNAPSHOT change in the
+# agent-worker configuration.
 on:
   workflow_dispatch:
     inputs:
@@ -66,7 +67,7 @@ jobs:
       - name: Derive immutable snapshot name
         id: snapshot
         run: |
-          snapshot_name="cheatcode-sandbox-viewer-bundle-$(git rev-parse --short=12 HEAD)"
+          snapshot_name="cheatcode-sandbox-viewer-bundle-$(git rev-parse --short=12 HEAD)-${GITHUB_RUN_ID}"
           echo "name=$snapshot_name" >> "$GITHUB_OUTPUT"
           echo "SNAPSHOT_NAME=$snapshot_name" >> "$GITHUB_ENV"
       - name: Install checksum-verified Daytona CLI
@@ -86,21 +87,6 @@ jobs:
           test -n "$DAYTONA_API_KEY"
           "$RUNNER_TEMP/bin/daytona" version
           "$RUNNER_TEMP/bin/daytona" login --api-key "$DAYTONA_API_KEY"
-      - name: Refuse snapshot-name reuse
-        run: |
-          page=1
-          while true; do
-            snapshot_list="$(daytona snapshot list --format json --limit 200 --page "$page")"
-            if jq --exit-status --arg name "$SNAPSHOT_NAME" \
-              '.[] | select(.name == $name)' <<< "$snapshot_list" > /dev/null; then
-              echo "Snapshot $SNAPSHOT_NAME already exists; immutable names are never overwritten." >&2
-              exit 1
-            fi
-            if [ "$(jq 'length' <<< "$snapshot_list")" -lt 200 ]; then
-              break
-            fi
-            page=$((page + 1))
-          done
       - name: Build immutable image candidate
         run: |
           image_tag="cheatcode-sandbox:$GITHUB_SHA"
@@ -145,26 +131,237 @@ jobs:
             test -f /opt/cheatcode-browser-driver/server.js
             node --check /opt/cheatcode-browser-driver/server.js
           '
-      - name: Publish immutable snapshot candidate
+      - name: Publish and verify immutable snapshot candidate
         run: |
-          daytona snapshot push "$IMAGE_TAG" \
-            --name "$SNAPSHOT_NAME" \
-            --cpu 2 --memory 4 --disk 10
-      - name: Verify published candidate
-        run: |
-          page=1
-          while true; do
-            snapshot_list="$(daytona snapshot list --format json --limit 200 --page "$page")"
-            if jq --exit-status --arg name "$SNAPSHOT_NAME" \
-              '.[] | select(.name == $name and .state == "active")' \
-              <<< "$snapshot_list" > /dev/null; then
-              exit 0
-            fi
-            if [ "$(jq 'length' <<< "$snapshot_list")" -lt 200 ]; then
-              echo "Published snapshot $SNAPSHOT_NAME is not active." >&2
+          set -Eeuo pipefail
+          shopt -s inherit_errexit
+
+          readonly MAX_PUSH_ATTEMPTS=3
+          readonly STATE_POLL_ATTEMPTS=36
+          readonly REMOVE_POLL_ATTEMPTS=30
+          readonly MAX_LIST_PAGES=100
+          readonly EXPECTED_CPU=2
+          readonly EXPECTED_MEMORY=4
+          readonly EXPECTED_DISK=10
+          readonly EXPECTED_REGION=us
+          readonly TIMEOUT_REASON_REGEX='^Job [0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12} timed out after 30000ms$'
+          readonly UUID_REGEX='^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$'
+          readonly ISO_UTC_REGEX='^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]+)?Z$'
+
+          snapshot_by_name() {
+            local accumulated='[]'
+            local accumulated_length
+            local page
+            local page_length
+            local snapshot_list
+
+            for ((page = 1; page <= MAX_LIST_PAGES; page += 1)); do
+              snapshot_list="$(daytona snapshot list --format json --limit 200 --page "$page")" || return 1
+              jq --exit-status 'type == "array"' <<< "$snapshot_list" > /dev/null || return 1
+              accumulated="$(jq --compact-output \
+                --arg name "$SNAPSHOT_NAME" \
+                --argjson accumulated "$accumulated" \
+                '$accumulated + [.[] | select(.name == $name)]' \
+                <<< "$snapshot_list")" || return 1
+              page_length="$(jq --exit-status --raw-output 'length' <<< "$snapshot_list")" || return 1
+              if [ "$page_length" -lt 200 ]; then
+                accumulated_length="$(jq --exit-status --raw-output 'length' <<< "$accumulated")" || return 1
+                if [ "$accumulated_length" -gt 1 ]; then
+                  echo "Multiple snapshots share immutable name $SNAPSHOT_NAME." >&2
+                  return 1
+                fi
+                jq --compact-output '.[0] // null' <<< "$accumulated" || return 1
+                return 0
+              fi
+            done
+
+            echo "Snapshot pagination exceeded $MAX_LIST_PAGES pages." >&2
+            return 1
+          }
+
+          is_attempt_snapshot() {
+            local snapshot_json="$1"
+            jq --exit-status \
+              --arg name "$SNAPSHOT_NAME" \
+              --arg created_after "$attempt_started_at" \
+              --arg ref_suffix "$expected_ref_suffix" \
+              --arg region "$EXPECTED_REGION" \
+              --arg uuid_regex "$UUID_REGEX" \
+              --arg iso_utc_regex "$ISO_UTC_REGEX" \
+              --argjson cpu "$EXPECTED_CPU" \
+              --argjson memory "$EXPECTED_MEMORY" \
+              --argjson disk "$EXPECTED_DISK" \
+              'try (
+                type == "object" and
+                has("id") and ((.id | type) == "string") and (.id | test($uuid_regex)) and
+                has("name") and ((.name | type) == "string") and .name == $name and
+                has("createdAt") and ((.createdAt | type) == "string") and
+                (.createdAt | test($iso_utc_regex)) and
+                .createdAt >= $created_after and
+                has("ref") and ((.ref | type) == "string") and (.ref | endswith($ref_suffix)) and
+                has("cpu") and .cpu == $cpu and
+                has("mem") and .mem == $memory and
+                has("disk") and .disk == $disk and
+                has("regionIds") and ((.regionIds | type) == "array") and
+                .regionIds == [$region] and
+                has("state") and ((.state | type) == "string")
+              ) catch false' \
+              <<< "$snapshot_json" > /dev/null
+          }
+
+          is_retryable_timeout() {
+            local snapshot_json="$1"
+            jq --exit-status \
+              --arg reason "$TIMEOUT_REASON_REGEX" \
+              'try (
+                type == "object" and
+                has("state") and .state == "error" and
+                has("lastUsedAt") and .lastUsedAt == null and
+                has("errorReason") and ((.errorReason | type) == "string") and
+                (.errorReason | test($reason))
+              ) catch false' \
+              <<< "$snapshot_json" > /dev/null
+          }
+
+          for ((attempt = 1; attempt <= MAX_PUSH_ATTEMPTS; attempt += 1)); do
+            existing="$(snapshot_by_name)" || {
+              echo "Could not verify candidate-name availability." >&2
+              exit 1
+            }
+            if [ "$existing" != "null" ]; then
+              echo "Snapshot $SNAPSHOT_NAME already exists; immutable names are never overwritten." >&2
               exit 1
             fi
-            page=$((page + 1))
+
+            push_status=0
+            push_log="$RUNNER_TEMP/daytona-push-$attempt.log"
+            attempt_started_at="$(date --utc '+%Y-%m-%dT%H:%M:%S.000Z')"
+            daytona snapshot push "$IMAGE_TAG" \
+              --name "$SNAPSHOT_NAME" \
+              --cpu "$EXPECTED_CPU" \
+              --memory "$EXPECTED_MEMORY" \
+              --disk "$EXPECTED_DISK" \
+              --region "$EXPECTED_REGION" \
+              > "$push_log" 2>&1 || push_status=$?
+            cat "$push_log"
+
+            registry_digest="$(sed -nE \
+              's/.*digest: (sha256:[0-9a-f]{64}) size: [0-9]+.*/\1/p' \
+              "$push_log" | tail -n 1)"
+            if [[ ! "$registry_digest" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+              echo "Daytona push did not expose a verifiable registry digest." >&2
+              exit 1
+            fi
+            expected_ref_suffix="/daytona-${registry_digest#sha256:}:daytona"
+
+            retry_candidate=''
+            for ((poll = 1; poll <= STATE_POLL_ATTEMPTS; poll += 1)); do
+              snapshot_json="$(snapshot_by_name)" || {
+                echo "Could not inspect the published snapshot candidate." >&2
+                exit 1
+              }
+              if [ "$snapshot_json" = "null" ]; then
+                state="absent"
+              else
+                state="$(jq --exit-status --raw-output \
+                  'if type == "object" and has("state") and ((.state | type) == "string")
+                    then .state else error("invalid snapshot state") end' \
+                  <<< "$snapshot_json")" || {
+                    echo "Published snapshot returned an invalid state payload." >&2
+                    exit 1
+                  }
+              fi
+
+              case "$state" in
+                active)
+                  if ! is_attempt_snapshot "$snapshot_json"; then
+                    echo "Active snapshot provenance does not match this publish attempt." >&2
+                    exit 1
+                  fi
+                  echo "Published snapshot $SNAPSHOT_NAME is active."
+                  echo "SNAPSHOT_RETRIES=$((attempt - 1))" >> "$GITHUB_ENV"
+                  exit 0
+                  ;;
+                absent|building|pending|pulling)
+                  ;;
+                error)
+                  if ! is_attempt_snapshot "$snapshot_json"; then
+                    echo "Failed snapshot provenance does not match this publish attempt." >&2
+                    exit 1
+                  fi
+                  if is_retryable_timeout "$snapshot_json"; then
+                    retry_candidate="$snapshot_json"
+                    break
+                  fi
+                  echo "Snapshot publication entered a non-retryable error state." >&2
+                  jq '{id, name, state, errorReason, lastUsedAt}' <<< "$snapshot_json" >&2
+                  exit 1
+                  ;;
+                *)
+                  echo "Snapshot publication entered unexpected state: $state" >&2
+                  exit 1
+                  ;;
+              esac
+
+              if [ "$poll" -lt "$STATE_POLL_ATTEMPTS" ]; then
+                sleep 5
+              fi
+            done
+
+            if [ -z "$retry_candidate" ]; then
+              echo "Snapshot $SNAPSHOT_NAME did not become active; push exit status was $push_status." >&2
+              exit 1
+            fi
+            if [ "$attempt" -eq "$MAX_PUSH_ATTEMPTS" ]; then
+              echo "Snapshot processing timed out without a safe retry remaining." >&2
+              exit 1
+            fi
+
+            retry_id="$(jq --exit-status --raw-output '.id' <<< "$retry_candidate")" || exit 1
+            confirmed="$(snapshot_by_name)" || {
+              echo "Could not revalidate the retry candidate." >&2
+              exit 1
+            }
+            confirmed_id="$(jq --exit-status --raw-output \
+              'if type == "object" and has("id") and ((.id | type) == "string")
+                then .id else error("invalid snapshot id") end' \
+              <<< "$confirmed")" || exit 1
+            if [ "$confirmed_id" != "$retry_id" ] || \
+              ! is_attempt_snapshot "$confirmed" || \
+              ! is_retryable_timeout "$confirmed"; then
+              echo "Retry candidate changed before cleanup; refusing deletion." >&2
+              exit 1
+            fi
+
+            daytona snapshot delete "$retry_id" || exit 1
+            removed=false
+            for ((poll = 1; poll <= REMOVE_POLL_ATTEMPTS; poll += 1)); do
+              current="$(snapshot_by_name)" || {
+                echo "Could not verify retry-candidate cleanup." >&2
+                exit 1
+              }
+              if [ "$current" = "null" ]; then
+                removed=true
+                break
+              fi
+              current_id="$(jq --exit-status --raw-output \
+                'if type == "object" and has("id") and ((.id | type) == "string")
+                  then .id else error("invalid snapshot id") end' \
+                <<< "$current")" || exit 1
+              if [ "$current_id" != "$retry_id" ]; then
+                echo "Snapshot identity changed during retry cleanup." >&2
+                exit 1
+              fi
+              if [ "$poll" -lt "$REMOVE_POLL_ATTEMPTS" ]; then
+                sleep 2
+              fi
+            done
+            if [ "$removed" != "true" ]; then
+              echo "Timed-out snapshot candidate was not removed within the cleanup window." >&2
+              exit 1
+            fi
+
+            echo "Retrying transient Daytona processing timeout ($attempt/$MAX_PUSH_ATTEMPTS); push exited $push_status."
           done
       - name: Record promotion instructions
         env:
@@ -174,6 +371,7 @@ jobs:
             echo "### Daytona snapshot candidate"
             echo "- Candidate: \`$SNAPSHOT_NAME\`"
             echo "- Source commit: \`$GITHUB_SHA\`"
-            echo "- No existing snapshot was deleted or replaced."
+            echo "- Transient provider retries: \`$SNAPSHOT_RETRIES\`"
+            echo "- Pre-existing, active, or previously used snapshots were not deleted or replaced."
             echo "- Promote through review by updating \`DAYTONA_SANDBOX_SNAPSHOT\` in \`apps/agent-worker/wrangler.jsonc\`."
           } >> "$GITHUB_STEP_SUMMARY"
