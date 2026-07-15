@@ -11,7 +11,7 @@
     "audit:archive": "tsx scripts/archive-audit-log.ts",
     "build": "turbo build",
     "db:generate": "turbo db:generate",
-    "deadcode": "knip",
+    "deadcode": "turbo build --filter=@cheatcode/env --filter=@cheatcode/skills && knip",
     "deploy:workers": "tsx scripts/deploy-phased.ts",
     "dev": "tsx scripts/dev.ts",
     "docker:clean": "tsx scripts/clean-docker.ts",
