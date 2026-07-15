@@ -1,5 +1,5 @@
 import { createStep, createWorkflow } from "@mastra/core/workflows";
-import { stepCountIs } from "ai";
+import { isLoopFinished } from "ai";
 import { z } from "zod/v4";
 import {
   DeepResearchInputSchema,
@@ -25,9 +25,8 @@ const runDeepQuery = createStep({
   execute: async ({ inputData, mastra, requestContext }) => {
     const agent = mastra.getAgent("general");
     const response = await agent.generate(deepResearchPrompt(inputData.query), {
-      maxSteps: 8,
       requestContext,
-      stopWhen: stepCountIs(8),
+      stopWhen: isLoopFinished(),
     });
     const findings = response.text.trim();
     return ResearchFindingSchema.parse({
@@ -45,9 +44,8 @@ const synthesizeDeepResearch = createStep({
   execute: async ({ inputData, mastra, requestContext }) => {
     const agent = mastra.getAgent("general");
     const response = await agent.generate(synthesisPrompt("deep research brief", inputData), {
-      maxSteps: 4,
       requestContext,
-      stopWhen: stepCountIs(4),
+      stopWhen: isLoopFinished(),
     });
     return ResearchReportSchema.parse({
       findings: inputData,
@@ -60,6 +58,7 @@ const synthesizeDeepResearch = createStep({
 export const deepResearch = createWorkflow({
   id: "deep-research",
   inputSchema: DeepResearchInputSchema,
+  options: { shouldPersistSnapshot: () => false },
   outputSchema: ResearchReportSchema,
 })
   .then(planDeepQueries)

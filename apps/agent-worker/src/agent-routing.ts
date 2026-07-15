@@ -2,7 +2,6 @@ import {
   type EntitlementCache,
   entitlementCacheFromValues,
   quotaPeriodEndFor,
-  tierLimits,
 } from "@cheatcode/billing";
 import {
   type AgentRunHandle,
@@ -12,90 +11,65 @@ import {
   findEntitlementByUserId,
   getProjectWriteState,
   getThread,
-  getUserDailyUsageCostUsd,
   type RunPersonalization,
   withUserContext,
 } from "@cheatcode/db";
-import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
+import {
+  APIError,
+  createLogger,
+  emitUserEvent,
+  readBoundedResponseJson,
+} from "@cheatcode/observability";
 import { AgentRunId, type CreateRun, ThreadId, UserId } from "@cheatcode/types";
-import { z } from "zod";
+import {
+  QUOTA_FEATURES,
+  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
+  QuotaPeekRequestSchema,
+  QuotaSetLimitRequestSchema,
+  QuotaSetLimitResponseSchema,
+  QuotaUsageResponseSchema,
+} from "@cheatcode/types/quota";
+import type { AgentEnv } from "./agent-env";
 import type { AgentRun } from "./durable-objects/agent-run";
-import { DEFAULT_RUN_BUDGET_CAP_USD } from "./durable-objects/agent-run-budget";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
-import type { AgentEnv } from "./index";
 import { extractRunMessageText } from "./run-request";
-import { agentRunObjectName, userSandboxName } from "./tenancy";
+import { userSandboxName } from "./tenancy";
 
 const DO_FREE_TIER_DURATION_ERROR = "Exceeded allowed duration in Durable Objects free tier";
-const MAX_RESEARCH_FANOUT_SUBAGENTS = 25;
-const SANDBOX_HOURS_FEATURE = "sandbox_hours";
-const SANDBOX_HOURS_WARN_RATIO = 0.8;
-
-const QuotaPeekResultSchema = z
-  .object({
-    limit: z.number().finite().nonnegative(),
-    remaining: z.number().finite().nonnegative(),
-    used: z.number().finite().nonnegative(),
-  })
-  .strict();
-
-export interface SandboxHoursQuotaWarning {
-  feature: "sandbox_hours";
-  limit: number;
-  remaining: number;
-  resetAt: number;
-}
 
 export interface RunEntitlementPolicy {
-  dailyCostCapUsd?: number;
-  dailyCostUsdAtRunStart: number;
-  maxConcurrentSandboxes: number;
-  maxProjects: number;
   quotaPeriodEnd: string;
-  quotaWarning?: SandboxHoursQuotaWarning;
-  researchFanoutSubagentLimit: number;
 }
 
-export async function sandboxForThread(
+export type AgentRunAdmissionOutcome =
+  | { response: Response; type: "confirmed" }
+  | { type: "absent" }
+  | { type: "ambiguous" };
+
+/** Raw user-keyed stub for account maintenance that must bypass owner registration. */
+export async function sandboxStubForUser(
   env: AgentEnv,
   userId: string,
-  threadId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
-  // The sandbox is per-user now: a project-less chat still resolves the same "computer" (its
-  // project only scopes the code-server folder, handled by the ide route). We still verify the
-  // thread belongs to the user before handing back a sandbox stub.
-  const { db, close } = createDb(env.HYPERDRIVE);
-  try {
-    const thread = await withUserContext(db, UserId(userId), (tx) =>
-      getThread(tx, { threadId: ThreadId(threadId), userId: UserId(userId) }),
-    );
-    if (!thread) {
-      throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
-    }
-    return sandboxForUser(env, userId);
-  } finally {
-    await close();
-  }
+  return (await sandboxIdentityForUser(env, userId)).sandbox;
 }
 
-// The per-user "computer" sandbox. `projectId` is accepted for call-site symmetry but no longer
-// keys the sandbox — every project shares the same per-user Daytona sandbox.
-export async function sandboxForProject(
-  env: AgentEnv,
-  userId: string,
-  _projectId: string,
-): Promise<DurableObjectStub<ProjectSandbox>> {
-  return sandboxForUser(env, userId);
-}
-
+/** Operational lookup that establishes and verifies the sandbox owner before use. */
 export async function sandboxForUser(
   env: AgentEnv,
   userId: string,
 ): Promise<DurableObjectStub<ProjectSandbox>> {
-  const sandboxName = await userSandboxName(userId);
-  const sandbox = env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName));
+  const { sandbox, sandboxName } = await sandboxIdentityForUser(env, userId);
   await sandbox.registerOwner(userId, sandboxName);
   return sandbox;
+}
+
+async function sandboxIdentityForUser(env: AgentEnv, userId: string) {
+  const sandboxName = await userSandboxName(userId);
+  return {
+    sandbox: env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName)),
+    sandboxName,
+  };
 }
 
 export async function requireWritableThreadProject(
@@ -144,55 +118,135 @@ export async function requireWritableThreadProject(
 }
 
 export function agentRunForRunId(env: AgentEnv, runId: string): DurableObjectStub<AgentRun> {
-  return env.AGENT_RUN.get(env.AGENT_RUN.idFromName(agentRunObjectName(runId)));
+  return env.AGENT_RUN.get(env.AGENT_RUN.idFromName(runId));
+}
+
+interface StartAgentRunInput {
+  body: CreateRun;
+  modelExplicit: boolean;
+  personalization: RunPersonalization;
+  run: AgentRunHandle;
+  sandboxName: string;
+  userId: string;
 }
 
 export async function startAgentRun(
   env: AgentEnv,
-  userId: string,
-  run: AgentRunHandle,
-  body: CreateRun,
-  sandboxName: string,
-  policy: RunEntitlementPolicy,
-  personalization: RunPersonalization,
-): Promise<Response> {
+  input: StartAgentRunInput,
+): Promise<AgentRunAdmissionOutcome> {
+  const { body, modelExplicit, personalization, run, sandboxName, userId } = input;
   const messageText = extractRunMessageText(body);
-  const response = await fetchAgentRun(
-    agentRunForRunId(env, run.runId),
-    "https://agent-run.internal/start",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        budgetCapUsd: body.budgetCapUsd ?? run.budgetCapUsd ?? DEFAULT_RUN_BUDGET_CAP_USD,
-        isFirstRun: Boolean(run.isFirstRun),
-        dailyCostUsdAtRunStart: policy.dailyCostUsdAtRunStart,
-        ...(policy.dailyCostCapUsd === undefined
-          ? {}
-          : { dailyCostCapUsd: policy.dailyCostCapUsd }),
-        ...(run.masterInstructions ? { masterInstructions: run.masterInstructions } : {}),
-        ...(personalization.agentDisplayName
-          ? { agentDisplayName: personalization.agentDisplayName }
-          : {}),
-        ...(personalization.globalMemory ? { globalMemory: personalization.globalMemory } : {}),
-        disabledModels: personalization.disabledModels,
-        ...(run.importRepoUrl ? { importRepoUrl: run.importRepoUrl } : {}),
-        messageText,
-        model: body.model ?? run.modelId,
-        modelExplicit: Boolean(body.model?.trim()),
-        projectId: run.projectId,
-        workspaceSlug: run.workspaceSlug,
-        ...(run.projectMode ? { projectMode: run.projectMode } : {}),
-        ...(policy.quotaWarning ? { quotaWarning: policy.quotaWarning } : {}),
-        runId: run.runId,
-        sandboxName,
-        threadId: run.threadId,
-        userId,
-        researchFanoutSubagentLimit: policy.researchFanoutSubagentLimit,
-      }),
-    },
-  );
-  emitRunStartEvents(env, { body, messageText, response, run, userId });
-  return response;
+  const stub = agentRunForRunId(env, run.runId);
+  const startBody = JSON.stringify({
+    isFirstRun: Boolean(run.isFirstRun),
+    ...(run.masterInstructions ? { masterInstructions: run.masterInstructions } : {}),
+    ...(personalization.agentDisplayName
+      ? { agentDisplayName: personalization.agentDisplayName }
+      : {}),
+    ...(personalization.globalMemory ? { globalMemory: personalization.globalMemory } : {}),
+    disabledModels: personalization.disabledModels,
+    ...(run.importRepoUrl ? { importRepoUrl: run.importRepoUrl } : {}),
+    messageText,
+    model: run.modelId,
+    modelExplicit,
+    projectId: run.projectId,
+    workspaceSlug: run.workspaceSlug,
+    ...(run.projectMode ? { projectMode: run.projectMode } : {}),
+    runId: run.runId,
+    sandboxName,
+    threadId: run.threadId,
+    userId,
+  });
+  const outcome = await attemptAgentRunStart(stub, userId, startBody);
+  if (outcome.type === "confirmed") {
+    emitRunStartEvents(env, { messageText, response: outcome.response, run, userId });
+  }
+  return outcome;
+}
+
+/** Resolves the run-keyed object without ever treating a transport failure as absence. */
+export async function reconcileAgentRunAdmission(
+  env: AgentEnv,
+  userId: string,
+  runId: string,
+): Promise<AgentRunAdmissionOutcome> {
+  return probeAgentRunAdmission(agentRunForRunId(env, runId), userId);
+}
+
+async function attemptAgentRunStart(
+  stub: DurableObjectStub<AgentRun>,
+  userId: string,
+  startBody: string,
+): Promise<AgentRunAdmissionOutcome> {
+  try {
+    const first = await fetchAgentRunStart(stub, startBody);
+    if (first.ok) {
+      return { response: first, type: "confirmed" };
+    }
+    await discardResponse(first);
+  } catch {
+    try {
+      const retry = await fetchAgentRunStart(stub, startBody);
+      if (retry.ok) {
+        return { response: retry, type: "confirmed" };
+      }
+      await discardResponse(retry);
+    } catch {
+      // A thrown start may still have reached the object, so only the ordered
+      // presence probe below is allowed to classify it as absent.
+    }
+  }
+  return probeAgentRunAdmission(stub, userId);
+}
+
+function fetchAgentRunStart(stub: DurableObjectStub<AgentRun>, body: string): Promise<Response> {
+  return stub.fetch("https://agent-run.internal/start", { body, method: "POST" });
+}
+
+async function probeAgentRunAdmission(
+  stub: DurableObjectStub<AgentRun>,
+  userId: string,
+): Promise<AgentRunAdmissionOutcome> {
+  let statusResponse: Response;
+  try {
+    statusResponse = await stub.fetch("https://agent-run.internal/status", {
+      headers: { "X-Cheatcode-User-Id": userId },
+    });
+  } catch {
+    return { type: "ambiguous" };
+  }
+  if (statusResponse.status === 204) {
+    await discardResponse(statusResponse);
+    return { type: "absent" };
+  }
+  if (!statusResponse.ok) {
+    await discardResponse(statusResponse);
+    return { type: "ambiguous" };
+  }
+  await discardResponse(statusResponse);
+  return reconnectAgentRunStream(stub, userId);
+}
+
+async function reconnectAgentRunStream(
+  stub: DurableObjectStub<AgentRun>,
+  userId: string,
+): Promise<AgentRunAdmissionOutcome> {
+  try {
+    const response = await stub.fetch("https://agent-run.internal/stream?lastSeq=0", {
+      headers: { "X-Cheatcode-User-Id": userId },
+    });
+    if (response.ok) {
+      return { response, type: "confirmed" };
+    }
+    await discardResponse(response);
+  } catch {
+    return { type: "ambiguous" };
+  }
+  return { type: "ambiguous" };
+}
+
+async function discardResponse(response: Response): Promise<void> {
+  await response.body?.cancel().catch(() => undefined);
 }
 
 export async function runEntitlementPolicy(
@@ -200,37 +254,25 @@ export async function runEntitlementPolicy(
   userId: string,
 ): Promise<RunEntitlementPolicy> {
   const { db, close } = createDb(env.HYPERDRIVE);
+  let entitlement: EntitlementCache;
+  let periodEnd: Date;
   try {
-    return await withUserContext(db, UserId(userId), async (tx) => {
-      const entitlement = entitlementCacheFromValues(
+    ({ entitlement, periodEnd } = await withUserContext(db, UserId(userId), async (tx) => {
+      const loadedEntitlement = entitlementCacheFromValues(
         (await findEntitlementByUserId(tx, UserId(userId))) ?? { tier: "free" },
       );
-      const limits = tierLimits(entitlement.tier);
-      const dailyCostUsdAtRunStart = await getUserDailyUsageCostUsd(tx, {
-        day: currentUtcDay(),
-        userId: UserId(userId),
-      });
-      if (limits.dailyCostCapUsd !== null && dailyCostUsdAtRunStart >= limits.dailyCostCapUsd) {
-        throw dailyCostCapError(limits.dailyCostCapUsd, dailyCostUsdAtRunStart, entitlement.tier);
-      }
-      const periodEnd = quotaPeriodEndFor(entitlement);
-      const quotaWarning = await evaluateSandboxHoursGate(env, userId, entitlement, periodEnd);
       return {
-        dailyCostUsdAtRunStart,
-        ...(limits.dailyCostCapUsd === null ? {} : { dailyCostCapUsd: limits.dailyCostCapUsd }),
-        maxConcurrentSandboxes: entitlement.maxConcurrentSandboxes,
-        maxProjects: entitlement.maxProjects,
-        quotaPeriodEnd: periodEnd.toISOString(),
-        ...(quotaWarning ? { quotaWarning } : {}),
-        researchFanoutSubagentLimit: Math.min(
-          limits.researchFanoutSubagents ?? MAX_RESEARCH_FANOUT_SUBAGENTS,
-          MAX_RESEARCH_FANOUT_SUBAGENTS,
-        ),
+        entitlement: loadedEntitlement,
+        periodEnd: quotaPeriodEndFor(loadedEntitlement),
       };
-    });
+    }));
   } finally {
     await close();
   }
+  await enforceSandboxHoursGate(env, userId, entitlement, periodEnd);
+  return {
+    quotaPeriodEnd: periodEnd.toISOString(),
+  };
 }
 
 export async function syncSandboxQuotaPeriod(
@@ -239,92 +281,83 @@ export async function syncSandboxQuotaPeriod(
 ): Promise<void> {
   try {
     await sandbox.setQuotaPeriod(quotaPeriodEnd);
-  } catch (error) {
-    createLogger().warn("sandbox_quota_period_sync_failed", {
-      error: error instanceof Error ? error.message : "Unknown setQuotaPeriod error",
-    });
+  } catch {
+    throw quotaTrackerUnavailableError();
   }
 }
 
-async function evaluateSandboxHoursGate(
+async function enforceSandboxHoursGate(
   env: AgentEnv,
   userId: string,
   entitlement: EntitlementCache,
   periodEnd: Date,
-): Promise<SandboxHoursQuotaWarning | undefined> {
-  const namespace = env.QUOTA_TRACKER;
+): Promise<void> {
   const allowanceHours = entitlement.quotaSandboxHours;
-  if (!namespace || !(allowanceHours > 0)) {
-    return undefined;
-  }
+  const namespace = env.QUOTA_TRACKER;
   const stub = namespace.get(namespace.idFromName(`quota:${userId}`));
-  await syncSandboxHoursLimit(stub, allowanceHours);
+  await syncSandboxHoursLimit(stub, allowanceHours, Date.parse(entitlement.updatedAt));
   const usedHours = await peekSandboxHoursUsed(stub, periodEnd);
-  if (usedHours === null) {
-    return undefined;
-  }
   const resetAt = periodEnd.getTime();
   if (usedHours >= allowanceHours) {
     emitSandboxHoursExhausted(env, userId, entitlement.tier, usedHours, allowanceHours);
     throw sandboxHoursExhaustedError(allowanceHours, usedHours, resetAt, entitlement.tier);
   }
-  if (usedHours / allowanceHours >= SANDBOX_HOURS_WARN_RATIO) {
-    emitUserEvent(env, { eventName: "sandbox_hours_warn_emitted", plan: entitlement.tier, userId });
-    return {
-      feature: SANDBOX_HOURS_FEATURE,
-      limit: allowanceHours,
-      remaining: Math.max(0, allowanceHours - usedHours),
-      resetAt,
-    };
-  }
-  return undefined;
 }
 
 async function syncSandboxHoursLimit(
   stub: DurableObjectStub,
   allowanceHours: number,
+  entitlementVersion: number,
 ): Promise<void> {
   try {
+    const body = QuotaSetLimitRequestSchema.parse({
+      entitlementVersion,
+      feature: QUOTA_FEATURES.sandboxHours,
+      limit: allowanceHours,
+    });
     const response = await stub.fetch("https://quota.internal/set-limit", {
-      body: JSON.stringify({
-        feature: SANDBOX_HOURS_FEATURE,
-        limit: allowanceHours,
-        source: "agent-worker-entitlement",
-      }),
+      body: JSON.stringify(body),
       method: "POST",
     });
     if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
       throw new Error(`QuotaTracker set-limit failed with HTTP ${response.status}`);
     }
-  } catch (error) {
-    createLogger().warn("sandbox_hours_limit_sync_failed", {
-      error: error instanceof Error ? error.message : "Unknown quota set-limit error",
-    });
+    QuotaSetLimitResponseSchema.parse(
+      await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota set-limit"),
+    );
+  } catch {
+    throw quotaTrackerUnavailableError();
   }
 }
 
-async function peekSandboxHoursUsed(
-  stub: DurableObjectStub,
-  periodEnd: Date,
-): Promise<number | null> {
+async function peekSandboxHoursUsed(stub: DurableObjectStub, periodEnd: Date): Promise<number> {
   try {
+    const body = QuotaPeekRequestSchema.parse({
+      feature: QUOTA_FEATURES.sandboxHours,
+      periodEnd: periodEnd.toISOString(),
+    });
     const response = await stub.fetch("https://quota.internal/peek", {
-      body: JSON.stringify({
-        feature: SANDBOX_HOURS_FEATURE,
-        periodEnd: periodEnd.toISOString(),
-      }),
+      body: JSON.stringify(body),
       method: "POST",
     });
     if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
       throw new Error(`QuotaTracker peek failed with HTTP ${response.status}`);
     }
-    return QuotaPeekResultSchema.parse(await response.json()).used;
-  } catch (error) {
-    createLogger().warn("sandbox_hours_peek_failed_open", {
-      error: error instanceof Error ? error.message : "Unknown quota peek error",
-    });
-    return null;
+    return QuotaUsageResponseSchema.parse(
+      await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota tracker"),
+    ).used;
+  } catch {
+    throw quotaTrackerUnavailableError();
   }
+}
+
+function quotaTrackerUnavailableError(): APIError {
+  return new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
+    hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
+    retriable: true,
+  });
 }
 
 function emitSandboxHoursExhausted(
@@ -357,14 +390,6 @@ function sandboxHoursExhaustedError(
       tier,
     },
     hint: "Upgrade your plan or wait for your monthly sandbox-hour reset.",
-    retriable: false,
-  });
-}
-
-function dailyCostCapError(capUsd: number, spentUsd: number, tier: string): APIError {
-  return new APIError(402, "daily_cost_cap_reached", "Daily cost cap reached", {
-    details: { capUsd, spentUsd, tier },
-    hint: "Wait for the UTC daily reset or upgrade your plan before starting another run.",
     retriable: false,
   });
 }
@@ -427,30 +452,6 @@ export async function fetchAgentRun(
   }
 }
 
-export async function saveTakeoverState(
-  env: AgentEnv,
-  userId: string,
-  runId: string,
-  state: { expiresAt: number; resumeToken: string },
-): Promise<Response> {
-  return fetchAgentRun(agentRunForRunId(env, runId), "https://agent-run.internal/takeover-state", {
-    method: "POST",
-    body: JSON.stringify({ ...state, userId }),
-  });
-}
-
-export async function consumeTakeoverState(
-  env: AgentEnv,
-  userId: string,
-  runId: string,
-  resumeToken: string,
-): Promise<Response> {
-  return fetchAgentRun(agentRunForRunId(env, runId), "https://agent-run.internal/resume-takeover", {
-    method: "POST",
-    body: JSON.stringify({ resumeToken, userId }),
-  });
-}
-
 function agentRunUnavailableError(error: unknown): APIError {
   const isFreeTierDuration = isDurableObjectFreeTierDurationError(error);
   return new APIError(503, "unavailable_maintenance", "Agent run service is unavailable", {
@@ -470,14 +471,9 @@ function isDurableObjectFreeTierDurationError(error: unknown): boolean {
   return error instanceof Error && error.message.includes(DO_FREE_TIER_DURATION_ERROR);
 }
 
-function currentUtcDay(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
 function emitRunStartEvents(
   env: AgentEnv,
   input: {
-    body: CreateRun;
     messageText: string;
     response: Response;
     run: AgentRunHandle;
@@ -487,9 +483,8 @@ function emitRunStartEvents(
   if (!input.response.ok) {
     return;
   }
-  const model = input.body.model ?? input.run.modelId;
   const event = {
-    ...(model ? { model } : {}),
+    plannedModelId: input.run.modelId,
     promptLength: input.messageText.length,
     runId: input.run.runId,
     userId: input.userId,

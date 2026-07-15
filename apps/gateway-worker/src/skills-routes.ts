@@ -1,12 +1,13 @@
 import {
   createDb,
   deleteUserSkill,
-  listUserSkills,
-  type UserSkillRecord,
+  listUserSkillSummaries,
+  UserSkillLimitExceededError,
+  type UserSkillSummaryRecord,
   upsertUserSkill,
   withUserContext,
 } from "@cheatcode/db";
-import { APIError } from "@cheatcode/observability";
+import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   CreateUserSkillSchema,
   type UserId,
@@ -14,12 +15,12 @@ import {
   UserSkillsResponseSchema,
 } from "@cheatcode/types";
 import { z } from "zod";
-import type { GatewayEnv } from "./index";
+import type { GatewayEnv } from "./gateway-env";
+import type { WaitUntilContext } from "./wait-until-context";
 
 const IdParamSchema = z.string().uuid();
-const DEFAULT_SKILL_CATEGORY = "Builder & Apps";
-
-function skillSummary(record: UserSkillRecord): unknown {
+const MAX_SKILL_REQUEST_BYTES = 64 * 1024;
+function skillSummary(record: UserSkillSummaryRecord): unknown {
   return UserSkillSchema.parse({
     category: record.category,
     createdAt: record.createdAt.toISOString(),
@@ -34,12 +35,12 @@ function skillSummary(record: UserSkillRecord): unknown {
 /** `GET /v1/skills` — the caller's custom skills (body-less summaries). */
 export async function listUserSkillsRoute(
   env: GatewayEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const rows = await withUserContext(db, userId, (tx) => listUserSkills(tx, userId));
+    const rows = await withUserContext(db, userId, (tx) => listUserSkillSummaries(tx, userId));
     return Response.json(UserSkillsResponseSchema.parse({ skills: rows.map(skillSummary) }));
   } finally {
     ctx.waitUntil(close());
@@ -52,11 +53,13 @@ export async function listUserSkillsRoute(
  */
 export async function createUserSkillRoute(
   env: GatewayEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const parsed = CreateUserSkillSchema.safeParse(await request.json());
+  const parsed = CreateUserSkillSchema.safeParse(
+    await readJsonRequest(request, MAX_SKILL_REQUEST_BYTES, "Skill request"),
+  );
   if (!parsed.success) {
     throw new APIError(400, "invalid_request_body", "Invalid skill payload", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
@@ -67,16 +70,17 @@ export async function createUserSkillRoute(
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
     const record = await withUserContext(db, userId, (tx) =>
-      upsertUserSkill(tx, {
-        body: input.body,
-        category: input.category ?? DEFAULT_SKILL_CATEGORY,
-        description: input.description,
-        name: input.name,
-        tags: input.tags ?? [],
-        userId,
-      }),
+      upsertUserSkill(tx, { ...input, userId }),
     );
     return Response.json(skillSummary(record), { status: 201 });
+  } catch (error) {
+    if (error instanceof UserSkillLimitExceededError) {
+      throw new APIError(409, "conflict_state_invalid", error.message, {
+        hint: "Delete an existing custom skill before creating another.",
+        retriable: false,
+      });
+    }
+    throw error;
   } finally {
     ctx.waitUntil(close());
   }
@@ -85,7 +89,7 @@ export async function createUserSkillRoute(
 /** `DELETE /v1/skills/:id` — soft-delete a custom skill the caller owns. */
 export async function deleteUserSkillRoute(
   env: GatewayEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   userId: UserId,
   skillId: string,
 ): Promise<Response> {

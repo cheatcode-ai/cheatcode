@@ -8,9 +8,18 @@ const domainSchema = z
   .regex(/^[a-z0-9.-]+$/i);
 
 const isoDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+const urlSchema = z
+  .string()
+  .url()
+  .max(2_048)
+  .refine(isHttpUrl, "Only HTTP and HTTPS URLs are supported.");
+const warningSchema = z.string().max(2_000).optional();
 
-export const ExaSearchTypeSchema = z.enum(["auto", "fast", "instant"]);
-export const ExaCategorySchema = z.enum([
+const FIRECRAWL_EXTRACT_DATA_MAX_BYTES = 256 * 1024;
+const FIRECRAWL_JSON_SCHEMA_MAX_BYTES = 32 * 1024;
+
+const ExaSearchTypeSchema = z.enum(["auto", "fast", "instant"]);
+const ExaCategorySchema = z.enum([
   "company",
   "people",
   "research paper",
@@ -70,28 +79,29 @@ export const ExaSearchInputSchema = z
     path: ["category"],
   });
 
-export const ExaSearchResultSchema = z
+const ExaSearchResultSchema = z
   .object({
-    author: z.string().nullable().optional(),
-    highlights: z.array(z.string()).default([]),
-    id: z.string(),
-    publishedDate: z.string().optional(),
+    author: z.string().max(500).nullable().optional(),
+    highlights: z.array(z.string().max(2_000)).max(10).default([]),
+    id: z.string().max(500),
+    publishedDate: z.string().max(100).optional(),
     score: z.number().optional(),
-    summary: z.string().optional(),
-    text: z.string().optional(),
-    title: z.string().nullable(),
-    url: z.string().url(),
+    summary: z.string().max(4_000).optional(),
+    text: z.string().max(10_000).optional(),
+    title: z.string().max(1_000).nullable(),
+    url: urlSchema,
   })
   .strict();
 
 export const ExaSearchOutputSchema = z
   .object({
-    requestId: z.string(),
-    results: z.array(ExaSearchResultSchema),
+    requestId: z.string().max(500),
+    results: z.array(ExaSearchResultSchema).max(25),
+    warning: warningSchema,
   })
   .strict();
 
-export const FirecrawlScrapeFormatSchema = z.enum([
+const FirecrawlScrapeFormatSchema = z.enum([
   "markdown",
   "html",
   "rawHtml",
@@ -102,7 +112,7 @@ export const FirecrawlScrapeFormatSchema = z.enum([
 
 export const FirecrawlScrapeInputSchema = z
   .object({
-    url: z.string().url(),
+    url: urlSchema,
     formats: z.array(FirecrawlScrapeFormatSchema).min(1).max(6).default(["markdown"]),
     onlyMainContent: z.boolean().default(true),
     waitFor: z.number().int().min(0).max(30_000).optional(),
@@ -129,67 +139,77 @@ export const FirecrawlSearchInputSchema = z
 
 export const FirecrawlExtractInputSchema = z
   .object({
-    urls: z.array(z.string().url()).min(1).max(10),
+    urls: z.array(urlSchema).min(1).max(10),
     prompt: z.string().trim().min(1).max(4_000),
-    jsonSchema: z.record(z.string(), z.unknown()).optional(),
+    jsonSchema: z
+      .record(z.string(), z.unknown())
+      .refine((value) => serializedSizeWithin(value, FIRECRAWL_JSON_SCHEMA_MAX_BYTES), {
+        message: "JSON schema is too large.",
+      })
+      .optional(),
     systemPrompt: z.string().trim().min(1).max(4_000).optional(),
     allowExternalLinks: z.boolean().default(false),
     enableWebSearch: z.boolean().default(false),
     includeSubdomains: z.boolean().default(false),
     showSources: z.boolean().default(true),
+    timeoutMs: z.number().int().min(10_000).max(120_000).default(120_000),
   })
   .strict();
 
-export const FirecrawlDocumentMetadataSchema = z
+const FirecrawlDocumentMetadataSchema = z
   .object({
-    description: z.string().optional(),
-    sourceURL: z.string().optional(),
+    description: z.string().max(2_000).optional(),
+    sourceURL: urlSchema.optional(),
     statusCode: z.number().int().optional(),
-    title: z.string().optional(),
+    title: z.string().max(1_000).optional(),
   })
-  .catchall(z.unknown());
+  .strict();
 
-export const FirecrawlDocumentSchema = z
+const FirecrawlDocumentSchema = z
   .object({
-    description: z.string().optional(),
-    html: z.string().optional(),
-    links: z.array(z.string()).default([]),
-    markdown: z.string().optional(),
+    description: z.string().max(2_000).optional(),
+    html: z.string().max(80_000).optional(),
+    links: z.array(urlSchema).max(100).default([]),
+    markdown: z.string().max(80_000).optional(),
     metadata: FirecrawlDocumentMetadataSchema.optional(),
-    rawHtml: z.string().optional(),
-    screenshot: z.string().optional(),
-    title: z.string().optional(),
-    url: z.string().optional(),
+    rawHtml: z.string().max(80_000).optional(),
+    screenshot: urlSchema.optional(),
+    title: z.string().max(1_000).optional(),
+    url: urlSchema.optional(),
   })
-  .catchall(z.unknown());
+  .strict();
 
 export const FirecrawlScrapeOutputSchema = z
   .object({
-    description: z.string().optional(),
-    html: z.string().optional(),
-    links: z.array(z.string()).default([]),
-    markdown: z.string().optional(),
+    description: z.string().max(2_000).optional(),
+    html: z.string().max(120_000).optional(),
+    links: z.array(urlSchema).max(100).default([]),
+    markdown: z.string().max(120_000).optional(),
     metadata: FirecrawlDocumentMetadataSchema.optional(),
-    rawHtml: z.string().optional(),
-    screenshot: z.string().optional(),
-    title: z.string().optional(),
-    url: z.string().url(),
-    warning: z.string().optional(),
+    rawHtml: z.string().max(120_000).optional(),
+    screenshot: urlSchema.optional(),
+    title: z.string().max(1_000).optional(),
+    url: urlSchema,
+    warning: warningSchema,
   })
   .strict();
 
 export const FirecrawlSearchOutputSchema = z
   .object({
-    results: z.array(FirecrawlDocumentSchema),
-    warning: z.string().optional(),
+    results: z.array(FirecrawlDocumentSchema).max(25),
+    warning: warningSchema,
   })
   .strict();
 
 export const FirecrawlExtractOutputSchema = z
   .object({
-    data: z.unknown(),
-    sources: z.array(z.string()).default([]),
-    warning: z.string().optional(),
+    data: z
+      .unknown()
+      .refine((value) => serializedSizeWithin(value, FIRECRAWL_EXTRACT_DATA_MAX_BYTES), {
+        message: "Extracted data is too large.",
+      }),
+    sources: z.array(urlSchema).max(50).default([]),
+    warning: warningSchema,
   })
   .strict();
 
@@ -201,3 +221,17 @@ export type FirecrawlSearchInput = z.infer<typeof FirecrawlSearchInputSchema>;
 export type FirecrawlSearchOutput = z.infer<typeof FirecrawlSearchOutputSchema>;
 export type FirecrawlExtractInput = z.infer<typeof FirecrawlExtractInputSchema>;
 export type FirecrawlExtractOutput = z.infer<typeof FirecrawlExtractOutputSchema>;
+
+function serializedSizeWithin(value: unknown, maxBytes: number): boolean {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized !== undefined && new TextEncoder().encode(serialized).byteLength <= maxBytes;
+  } catch {
+    return false;
+  }
+}
+
+function isHttpUrl(value: string): boolean {
+  const protocol = new URL(value).protocol;
+  return protocol === "http:" || protocol === "https:";
+}

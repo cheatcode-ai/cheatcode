@@ -9,6 +9,8 @@ import { HomeHeadline } from "@/components/home/home-headline";
 import { HomeSessionChrome } from "@/components/home/home-session-chrome";
 import { HomeSidebarOffset } from "@/components/home/home-sidebar-offset";
 import { AppSidebar } from "@/components/shell/app-sidebar";
+import { SidebarContentFrame } from "@/components/shell/sidebar-content-frame";
+import { CheatcodeCursorField } from "@/components/ui/cheatcode-cursor-field";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
 import { useAppStore } from "@/lib/store/app-store";
@@ -18,7 +20,7 @@ import { cn } from "@/lib/ui/cn";
  * The home page (`/`). Reuses the same {@link WorkspaceRunLayout} shell as the
  * chat/projects view so the "computer open" split is structurally identical —
  * only the pane content differs (home greeting/composer instead of a chat
- * thread). Signed-in users get the demo Computer pane; signed-out users get a
+ * thread). Signed-in users get their user-scoped Computer pane; signed-out users get a
  * single centered greeting/composer column plus the auth header.
  */
 export function HomeWorkspace() {
@@ -37,27 +39,33 @@ export function HomeWorkspace() {
   }, [hasComputer, computerOpen]);
 
   return (
-    <div className="cheatcode-workspace-frame flex h-screen min-h-screen min-w-0 overflow-hidden bg-white text-[#1b1b1b]">
+    <main
+      className="cheatcode-app-shell bg-background text-foreground"
+      id="main-content"
+      tabIndex={-1}
+    >
       <HomeSidebarOffset />
       <Suspense fallback={null}>
         <AppSidebar variant="full" />
       </Suspense>
-      <HomeSessionChrome />
-      <WorkspaceRunLayout
-        computer={
-          hasComputer ? (
-            <HomeComputerPane
-              computerOpen={computerOpen}
-              onClose={() => setComputerOpen(false)}
-              onOpen={() => setComputerOpen(true)}
-            />
-          ) : null
-        }
-        computerOpen={computerVisible}
-        content={<HomeContentPane computerOpen={computerVisible} />}
-        hasPreviewSurface={hasComputer}
-      />
-    </div>
+      <SidebarContentFrame className="flex min-w-0 overflow-hidden bg-background">
+        <HomeSessionChrome />
+        <WorkspaceRunLayout
+          computer={
+            hasComputer ? (
+              <HomeComputerPane
+                computerOpen={computerOpen}
+                onClose={() => setComputerOpen(false)}
+                onOpen={() => setComputerOpen(true)}
+              />
+            ) : null
+          }
+          computerOpen={computerVisible}
+          content={<HomeContentPane computerOpen={computerVisible} />}
+          hasPreviewSurface={hasComputer}
+        />
+      </SidebarContentFrame>
+    </main>
   );
 }
 
@@ -71,18 +79,35 @@ function HomeContentPane({ computerOpen }: { computerOpen: boolean }) {
   // unchanged. See `HomeComposer`.
   const [quickActionsSlot, setQuickActionsSlot] = useState<HTMLElement | null>(null);
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col bg-white">
-      <div className="chat-scrollbar flex min-h-0 flex-1 flex-col items-center justify-center overflow-y-auto px-6 py-10">
-        <div className="mx-auto flex w-full max-w-[740px] flex-col items-center px-4">
-          <CheatcodeMark aria-hidden="true" className="h-[42px] w-[42px] text-[#f8af2c]" />
-          <Suspense fallback={<div className="mt-4 h-4 w-40 rounded-full bg-[#f7f7f7]" />}>
-            <HomeGreeting />
-          </Suspense>
+    <div className="relative isolate flex min-h-0 flex-1 flex-col overflow-hidden bg-background">
+      <div className="relative z-20 h-10 shrink-0 bg-background md:hidden" data-cheatcode-ignore>
+        <Suspense fallback={null}>
+          <HomeGreeting variant="mobile" />
+        </Suspense>
+      </div>
+      <CheatcodeCursorField className="z-0" />
+      <div className="chat-scrollbar relative z-10 flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto px-4 py-6 md:px-6 md:py-10 [@media(max-height:500px)]:py-0">
+        <div
+          className="mx-auto my-auto flex w-full max-w-[740px] flex-col items-center md:px-4"
+          data-cheatcode-ignore
+        >
+          <CheatcodeMark aria-hidden="true" className="h-[42px] w-[42px] text-primary" />
+          <div className="hidden md:block">
+            <Suspense fallback={null}>
+              <HomeGreeting />
+            </Suspense>
+          </div>
           <HomeHeadline />
           <div className="mt-6 w-full" ref={setQuickActionsSlot} />
         </div>
       </div>
-      <div className={cn("shrink-0 px-6", computerOpen ? "pb-2" : "pb-10")}>
+      <div
+        className={cn(
+          "relative z-10 shrink-0 px-3 sm:px-4",
+          computerOpen ? "pb-2" : "pb-3 md:pb-10",
+        )}
+        data-cheatcode-ignore
+      >
         <HomeComposerFromSearchParams quickActionsSlot={quickActionsSlot} />
       </div>
     </div>
@@ -109,7 +134,7 @@ function useHomeComputerSidebarCollapse(active: boolean): void {
     }
     // Collapse the rail ONCE when the computer opens (saving the prior state to
     // restore on close), but let the user re-expand it while the computer stays
-    // open — bud keeps the sidebar expandable in this state. Guarding on the ref
+    // open — Cheatcode keeps the sidebar expandable in this state. Guarding on the ref
     // (not re-collapsing on every sidebarCollapsed change) is what makes the
     // Expand-sidebar button work here.
     if (previousSidebarCollapsedRef.current === null) {

@@ -30,18 +30,13 @@ const SANDBOX_TOOL_NAMES = new Set([
 ]);
 
 const ARTIFACT_TOOL_NAMES = new Set([
+  "browser_screenshot",
   "data_chart",
   "docs_generate_docx",
   "docs_generate_pdf",
   "docs_generate_slides",
   "docs_generate_xlsx",
 ]);
-
-export interface MastraUsageDelta {
-  costUsd: number | undefined;
-  tokensIn: number;
-  tokensOut: number;
-}
 
 export function mastraChunkToUiChunks(chunk: unknown): UIMessageChunk[] {
   const record = asRecord(chunk);
@@ -57,7 +52,7 @@ export function mastraChunkToUiChunks(chunk: unknown): UIMessageChunk[] {
 
   if (chunkType === "tool-result" && isSandboxToolChunk(record)) {
     const payload = chunkPayload(record);
-    const chunks = [sandboxStatusChunk("ready", previewUrlFromPayload(payload))];
+    const chunks = [sandboxStatusChunk("ready")];
     if (isArtifactToolChunk(record)) {
       const artifact = artifactChunkFromPayload(payload);
       if (artifact) {
@@ -74,54 +69,6 @@ export function mastraChunkToUiChunks(chunk: unknown): UIMessageChunk[] {
   }
 
   return [];
-}
-
-export function usageFromMastraChunk(chunk: unknown): MastraUsageDelta | null {
-  const record = asRecord(chunk);
-  const chunkType = stringField(record, "type");
-  if (chunkType !== "finish" && chunkType !== "finish-step" && chunkType !== "step-finish") {
-    return null;
-  }
-
-  const usage = usageRecord(record);
-  const tokensIn = tokenCount(usage, ["inputTokens", "promptTokens", "input_tokens"]);
-  const tokensOut = tokenCount(usage, ["outputTokens", "completionTokens", "output_tokens"]);
-  if (tokensIn === 0 && tokensOut === 0) {
-    return null;
-  }
-  return { costUsd: gatewayReportedCostUsd(record, usage), tokensIn, tokensOut };
-}
-
-// Prefer the gateway's own USD cost when present (OpenRouter reports it per generation) so the
-// dynamic price-map fallback is only used when the provider returns tokens but no cost.
-function gatewayReportedCostUsd(
-  record: Record<string, unknown>,
-  usage: Record<string, unknown>,
-): number | undefined {
-  const payload = asRecord(record["payload"]);
-  const openrouterUsage = asRecord(
-    asRecord(asRecord(record["providerMetadata"])["openrouter"])["usage"],
-  );
-  const openrouterPayloadUsage = asRecord(
-    asRecord(asRecord(payload["providerMetadata"])["openrouter"])["usage"],
-  );
-  for (const candidate of [usage, openrouterUsage, openrouterPayloadUsage]) {
-    const cost = positiveNumber(candidate, ["cost", "costUsd", "totalCost"]);
-    if (cost !== undefined) {
-      return cost;
-    }
-  }
-  return undefined;
-}
-
-function positiveNumber(record: Record<string, unknown>, keys: string[]): number | undefined {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isFinite(value) && value > 0) {
-      return value;
-    }
-  }
-  return undefined;
 }
 
 export function mastraChunkError(chunk: unknown): unknown | null {
@@ -157,45 +104,6 @@ export function normalizeMastraStreamError(error: unknown): Error {
   return normalized;
 }
 
-function usageRecord(record: Record<string, unknown>): Record<string, unknown> {
-  const payload = asRecord(record["payload"]);
-  const metadata = asRecord(payload["metadata"]);
-  const candidates: Record<string, unknown>[] = [
-    asRecord(record["usage"]),
-    asRecord(record["totalUsage"]),
-    asRecord(payload["usage"]),
-    asRecord(payload["totalUsage"]),
-  ];
-  // Mastra 1.x finish chunks nest the raw provider usage under
-  // payload.metadata.providerMetadata.<provider>.usage (snake_case token fields),
-  // with no normalized top-level usage — so dig through every provider entry.
-  for (const providerMetadata of [
-    asRecord(record["providerMetadata"]),
-    asRecord(payload["providerMetadata"]),
-    asRecord(metadata["providerMetadata"]),
-  ]) {
-    for (const providerValue of Object.values(providerMetadata)) {
-      candidates.push(asRecord(asRecord(providerValue)["usage"]));
-    }
-  }
-  for (const candidate of candidates) {
-    if (Object.keys(candidate).length > 0) {
-      return candidate;
-    }
-  }
-  return {};
-}
-
-function tokenCount(record: Record<string, unknown>, keys: string[]): number {
-  for (const key of keys) {
-    const value = record[key];
-    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
-      return value;
-    }
-  }
-  return 0;
-}
-
 function textDeltaChunks(record: Record<string, unknown>): UIMessageChunk[] {
   const payload = chunkPayload(record);
   const text =
@@ -208,17 +116,17 @@ function textDeltaChunks(record: Record<string, unknown>): UIMessageChunk[] {
   return [{ type: "text-delta", id: ANSWER_TEXT_ID, delta: text }];
 }
 
-function sandboxStatusChunk(status: "ready" | "starting", previewUrl?: string): UIMessageChunk {
+function sandboxStatusChunk(status: "ready" | "starting"): UIMessageChunk {
   return {
     type: "data-sandbox-status",
-    data: previewUrl ? { v: 1, status, previewUrl } : { v: 1, status },
+    data: { v: 1, status },
   };
 }
 
 const MAX_TOOL_INPUT_KEYS = 8;
 const MAX_TOOL_INPUT_STRING = 256;
 
-// Surface every tool call as a transcript row (bud parity). Sandbox tools also drive
+// Surface every tool call as a transcript row (Cheatcode parity). Sandbox tools also drive
 // the Computer-panel status; non-sandbox tools only get the row.
 function toolCallChunks(record: Record<string, unknown>): UIMessageChunk[] {
   const payload = chunkPayload(record);
@@ -280,7 +188,7 @@ function truncateToolValue(value: unknown): string | number | boolean | undefine
     return value;
   }
   // argv-style string arrays (e.g. shell_exec `command`) read best as the joined command
-  // line — that is what the "Ran <command>" transcript row shows (bud parity). Non-string
+  // line — that is what the "Ran <command>" transcript row shows (Cheatcode parity). Non-string
   // arrays stay summarized by length.
   if (Array.isArray(value)) {
     return value.length > 0 && value.every((item) => typeof item === "string")
@@ -318,12 +226,6 @@ function chunkPayload(record: Record<string, unknown>): Record<string, unknown> 
   return Object.keys(payload).length > 0 ? payload : record;
 }
 
-function previewUrlFromPayload(payload: Record<string, unknown>): string | undefined {
-  const output = asRecord(payload["output"]);
-  const result = asRecord(payload["result"]);
-  return stringField(output, "previewUrl") || stringField(result, "previewUrl") || undefined;
-}
-
 function artifactChunkFromPayload(payload: Record<string, unknown>): UIMessageChunk | undefined {
   const artifact = artifactRecordFromPayload(payload);
   const outputId = stringField(artifact, "outputId");
@@ -358,6 +260,10 @@ function artifactRecordFromPayload(payload: Record<string, unknown>): Record<str
   if (stringField(outputArtifact, "downloadUrl")) {
     return outputArtifact;
   }
+  const outputResultArtifact = artifactFromResultList(output["results"]);
+  if (outputResultArtifact) {
+    return outputResultArtifact;
+  }
   const result = asRecord(payload["result"]);
   if (stringField(result, "downloadUrl")) {
     return result;
@@ -366,7 +272,24 @@ function artifactRecordFromPayload(payload: Record<string, unknown>): Record<str
   if (stringField(resultArtifact, "downloadUrl")) {
     return resultArtifact;
   }
+  const resultListArtifact = artifactFromResultList(result["results"]);
+  if (resultListArtifact) {
+    return resultListArtifact;
+  }
   return result;
+}
+
+function artifactFromResultList(value: unknown): Record<string, unknown> | undefined {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  for (const item of value.slice(0, 10)) {
+    const artifact = asRecord(asRecord(item)["artifact"]);
+    if (stringField(artifact, "downloadUrl")) {
+      return artifact;
+    }
+  }
+  return undefined;
 }
 
 function numberField(record: Record<string, unknown>, key: string): number | undefined {

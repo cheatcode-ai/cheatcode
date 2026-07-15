@@ -1,0 +1,2 @@
+-- Schema snapshot marker only. The model-attribution contraction runs after
+-- matching Workers are live in raw post-deploy migration 0041.

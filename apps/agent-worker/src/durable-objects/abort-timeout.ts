@@ -3,13 +3,8 @@ export type AbortTimeoutResult<T> = T | "timeout";
 interface AbortTimeoutInput<T> {
   abortController: AbortController;
   /**
-   * Pending-decision interlock. Consulted at timer-fire time (run-control
-   * §5.1/§5.4): when it returns `true` (a user approval decision is pending),
-   * the deadline is re-armed WITHOUT aborting and WITHOUT resolving, so the
-   * same in-flight `operation` promise keeps being awaited (no second
-   * `iterator.next()` is ever issued and the Mastra stream is never torn down
-   * mid-pause). Only when it returns `false` does the timer abort + resolve
-   * `"timeout"`.
+   * Pending-decision interlock. While approval is pending, the same operation
+   * remains in flight and the timer polls without issuing a second read.
    */
   extendWhile?: () => boolean;
   operation: Promise<T>;
@@ -23,6 +18,7 @@ export async function resolveWithAbortTimeout<T>({
   timeoutMs,
 }: AbortTimeoutInput<T>): Promise<AbortTimeoutResult<T>> {
   let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let resolveAbort: ((value: "timeout") => void) | undefined;
   const guardedOperation = operation.catch((error: unknown) => {
     if (abortController.signal.aborted) {
       return "timeout" as const;
@@ -32,7 +28,7 @@ export async function resolveWithAbortTimeout<T>({
   const timeout = new Promise<"timeout">((resolve) => {
     const fire = () => {
       if (extendWhile?.()) {
-        timeoutId = setTimeout(fire, Math.max(timeoutMs, 1_000));
+        timeoutId = setTimeout(fire, 1_000);
         return;
       }
       abortController.abort(new Error("operation timed out"));
@@ -40,12 +36,24 @@ export async function resolveWithAbortTimeout<T>({
     };
     timeoutId = setTimeout(fire, timeoutMs);
   });
+  const aborted = new Promise<"timeout">((resolve) => {
+    resolveAbort = resolve;
+    if (abortController.signal.aborted) {
+      resolve("timeout");
+      return;
+    }
+    abortController.signal.addEventListener("abort", resolveAbortSignal, { once: true });
+  });
+  function resolveAbortSignal(): void {
+    resolveAbort?.("timeout");
+  }
 
   try {
-    return await Promise.race([guardedOperation, timeout]);
+    return await Promise.race([guardedOperation, timeout, aborted]);
   } finally {
     if (timeoutId) {
       clearTimeout(timeoutId);
     }
+    abortController.signal.removeEventListener("abort", resolveAbortSignal);
   }
 }

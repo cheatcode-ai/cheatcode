@@ -2,19 +2,25 @@
 
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
-import Image from "next/image";
-import { useEffect, useRef, useState } from "react";
-import { BudTooltip } from "@/components/ui/bud-tooltip";
-import { PanelLeftOpen } from "@/components/ui/icons";
-import { openSandboxIde } from "@/lib/api/sandbox";
-import { cn } from "@/lib/ui/cn";
+import { useTheme } from "next-themes";
+import { type RefObject, useEffect, useRef, useState } from "react";
+import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
+import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
+import { FolderOpen } from "@/components/ui/icons";
+import { RecoveryCard } from "@/components/ui/recovery-card";
+import { openComputerIde, openSandboxIde } from "@/lib/api/sandbox";
+import { PreviewSessionRefresh, useStablePreviewSource } from "@/lib/preview/preview-session";
 
-function codeServerIframeUrl(url: string, reloadToken: number): string {
-  if (reloadToken === 0) {
-    return url;
-  }
+const PREVIEW_SESSION_REFRESH_MS = 8 * 60 * 1000;
+const CODE_SERVER_IFRAME_SANDBOX =
+  "allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-same-origin allow-scripts";
+
+function codeServerIframeUrl(url: string, reloadToken: number, theme: "dark" | "light"): string {
   const parsed = new URL(url);
-  parsed.searchParams.set("cc_preview_reload", String(reloadToken));
+  parsed.searchParams.set("cc_theme", theme);
+  if (reloadToken !== 0) {
+    parsed.searchParams.set("cc_preview_reload", String(reloadToken));
+  }
   return parsed.toString();
 }
 
@@ -25,117 +31,261 @@ export function SandboxIdeTab({
 }: {
   active: boolean;
   previewReloadToken: number;
-  previewUrl: string | null;
-  sandboxStatus: string;
-  threadId: string;
+  threadId: string | null;
 }) {
   const { getToken } = useAuth();
-  const iframeRef = useRef<HTMLIFrameElement | null>(null);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  // Per-user "computer": Files opens even with no project yet — the backend resolves the per-user
-  // sandbox and code-server opens the whole computer root (all projects) or the project folder.
-  const ideQuery = useQuery({
+  const { resolvedTheme } = useTheme();
+  const ideQuery = useSandboxIdeQuery(active, threadId, getToken);
+  const requestedIframeUrl = ideQuery.data
+    ? codeServerIframeUrl(
+        ideQuery.data.url,
+        previewReloadToken,
+        resolvedTheme === "dark" ? "dark" : "light",
+      )
+    : null;
+  const iframeUrl = useStablePreviewSource(requestedIframeUrl);
+  const bridge = useCodeServerBridge(iframeUrl, threadId);
+  return (
+    <SandboxIdeContent
+      bridge={bridge}
+      ideQuery={ideQuery}
+      iframeUrl={iframeUrl}
+      requestedIframeUrl={requestedIframeUrl}
+    />
+  );
+}
+
+function useSandboxIdeQuery(
+  active: boolean,
+  threadId: string | null,
+  getToken: () => Promise<null | string>,
+) {
+  // Files resolves either the per-user computer root or the active project folder.
+  return useQuery({
     enabled: active,
-    queryFn: () => openSandboxIde(getToken, threadId),
-    queryKey: ["sandbox-ide", threadId],
+    queryFn: () =>
+      threadId === null ? openComputerIde(getToken) : openSandboxIde(getToken, threadId),
+    queryKey: ["sandbox-ide", threadId ?? "computer"],
+    refetchInterval: (query) =>
+      (query?.state.fetchFailureCount ?? 0) > 0 ? 60_000 : PREVIEW_SESSION_REFRESH_MS,
+    refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: 1,
-    staleTime: 55 * 60 * 1000,
+    staleTime: 40 * 60 * 1000,
   });
+}
 
-  useEffect(() => {
-    const handleMessage = (event: MessageEvent) => {
-      if (event.data?.type !== "CHEATCODE_SIDEBAR_STATE") {
-        return;
-      }
-      setSidebarVisible(event.data.visible === true);
-    };
-    window.addEventListener("message", handleMessage);
-    return () => {
-      window.removeEventListener("message", handleMessage);
-    };
-  }, []);
-
-  const toggleSidebar = () => {
-    setSidebarVisible((visible) => {
-      iframeRef.current?.contentWindow?.postMessage(
-        { collapsed: visible, type: "CHEATCODE_SET_SIDEBAR_COLLAPSED" },
-        "*",
-      );
-      return !visible;
-    });
-  };
-
+function SandboxIdeContent({
+  bridge,
+  ideQuery,
+  iframeUrl,
+  requestedIframeUrl,
+}: {
+  bridge: ReturnType<typeof useCodeServerBridge>;
+  ideQuery: ReturnType<typeof useSandboxIdeQuery>;
+  iframeUrl: string | null;
+  requestedIframeUrl: string | null;
+}) {
   if (ideQuery.isPending) {
     return <IdePlaceholder label="Opening Files" />;
   }
   if (ideQuery.isError) {
     return (
-      <div className="grid h-full min-h-[420px] place-items-center bg-[#fafafa]">
-        <div className="space-y-3 text-center">
-          <div className="font-semibold text-[13px] text-red-700">Files unavailable</div>
-          <p className="max-w-[360px] text-[12px] text-thread-text-secondary">
-            {ideQuery.error.message}
-          </p>
-          <button
-            className="rounded-full border border-thread-border px-3 py-2 text-[12px] text-thread-text-secondary hover:bg-thread-hover hover:text-thread-text-primary"
-            onClick={() => {
-              void ideQuery.refetch();
-            }}
-            type="button"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
+      <IdeError
+        isRetrying={ideQuery.isFetching}
+        onRetry={() => {
+          void ideQuery.refetch();
+        }}
+      />
     );
   }
 
-  const iframeUrl = codeServerIframeUrl(ideQuery.data.url, previewReloadToken);
+  if (!iframeUrl) {
+    return <IdePlaceholder label="Opening Files" />;
+  }
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden rounded-[20.5px] bg-white">
-      <BudTooltip
+    <SandboxIdeFrame
+      bridge={bridge}
+      iframeUrl={iframeUrl}
+      requestedIframeUrl={requestedIframeUrl}
+    />
+  );
+}
+
+function SandboxIdeFrame({
+  bridge,
+  iframeUrl,
+  requestedIframeUrl,
+}: {
+  bridge: ReturnType<typeof useCodeServerBridge>;
+  iframeUrl: string;
+  requestedIframeUrl: string | null;
+}) {
+  return (
+    <div className="relative h-full w-full">
+      <PreviewSessionRefresh previewUrl={requestedIframeUrl} />
+      <CheatcodeTooltip
         className="absolute top-1 left-1.5 z-20"
         label="Toggle file explorer"
         side="right"
       >
         <button
+          aria-expanded={bridge.sidebarVisible}
           aria-label="Toggle file explorer"
-          className="flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-full p-1.5 text-[#5f5f5f] transition-colors duration-150 hover:bg-white hover:text-[#1b1b1b]"
-          onClick={toggleSidebar}
+          className="flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-full p-1.5 text-fg-secondary transition-colors duration-150 hover:bg-background hover:text-foreground"
+          onClick={bridge.toggleSidebar}
           type="button"
         >
-          <PanelLeftOpen
-            aria-hidden="true"
-            className={cn("h-3.5 w-3.5 transition-transform", !sidebarVisible && "scale-x-[-1]")}
-          />
+          <FileExplorerToggleIcon visible={bridge.sidebarVisible} />
         </button>
-      </BudTooltip>
-      <iframe
-        allow="clipboard-read; clipboard-write; cross-origin-isolated"
-        className="h-full w-full rounded-[20.5px] border-0 bg-white opacity-100 transition-opacity duration-300 ease-out"
-        key={iframeUrl}
-        ref={iframeRef}
-        src={iframeUrl}
-        title="Code Server"
-      />
+      </CheatcodeTooltip>
+      <div className="h-full w-full">
+        <iframe
+          allow="clipboard-read; clipboard-write; cross-origin-isolated"
+          className="h-full w-full rounded-[20.5px] border-0 opacity-100 transition-opacity duration-300 ease-out"
+          key={iframeUrl}
+          ref={bridge.iframeRef}
+          referrerPolicy="origin"
+          sandbox={CODE_SERVER_IFRAME_SANDBOX}
+          src={iframeUrl}
+          title="Code Server"
+        />
+      </div>
     </div>
   );
 }
 
-function IdePlaceholder({ label }: { label: string }) {
+function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) {
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const iframeOrigin = readUrlOrigin(iframeUrl);
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      handleCodeServerMessage(event, {
+        iframeOrigin,
+        iframeRef,
+        setSidebarVisible,
+        threadId,
+      });
+    };
+    window.addEventListener("message", handleMessage);
+    return () => window.removeEventListener("message", handleMessage);
+  }, [iframeOrigin, threadId]);
+  const toggleSidebar = () => {
+    if (!iframeOrigin) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      { collapsed: sidebarVisible, type: "CHEATCODE_SET_SIDEBAR_COLLAPSED" },
+      iframeOrigin,
+    );
+  };
+  return { iframeRef, sidebarVisible, toggleSidebar };
+}
+
+function handleCodeServerMessage(
+  event: MessageEvent,
+  input: {
+    iframeOrigin: string | null;
+    iframeRef: RefObject<HTMLIFrameElement | null>;
+    setSidebarVisible: (visible: boolean) => void;
+    threadId: string | null;
+  },
+): void {
+  const iframeOrigin = input.iframeOrigin;
+  if (!iframeOrigin || !isTrustedCodeServerMessage(event, iframeOrigin, input.iframeRef)) return;
+  if (event.data.type === "CHEATCODE_SIDEBAR_STATE") {
+    input.setSidebarVisible(event.data.visible === true);
+  }
+  if (event.data.type === "CHEATCODE_CODE_SERVER_READY" && input.threadId === null) {
+    input.iframeRef.current?.contentWindow?.postMessage(
+      { type: "CHEATCODE_RESET_WORKSPACE_VIEW" },
+      iframeOrigin,
+    );
+  }
+}
+
+function isTrustedCodeServerMessage(
+  event: MessageEvent,
+  iframeOrigin: string,
+  iframeRef: RefObject<HTMLIFrameElement | null>,
+): event is MessageEvent<CodeServerMessage> {
+  return Boolean(
+    event.source === iframeRef.current?.contentWindow &&
+      event.origin === iframeOrigin &&
+      isCodeServerMessage(event.data),
+  );
+}
+
+type CodeServerMessage =
+  | { readonly type: "CHEATCODE_CODE_SERVER_READY" }
+  | { readonly type: "CHEATCODE_SIDEBAR_STATE"; readonly visible: boolean };
+
+function isCodeServerMessage(value: unknown): value is CodeServerMessage {
+  if (typeof value !== "object" || value === null || !("type" in value)) {
+    return false;
+  }
+  if (value.type === "CHEATCODE_CODE_SERVER_READY") {
+    return true;
+  }
   return (
-    <div className="grid h-full min-h-[420px] place-items-center bg-[#fafafa]">
-      <div className="flex flex-col items-center gap-4 text-center">
-        <Image
-          alt=""
-          className="cc-loading-mark h-12 w-12"
-          height={48}
-          src="/cheatcode-symbol.png"
-          width={48}
-        />
-        <div className="text-[13px] text-thread-text-muted">{label}</div>
-      </div>
+    value.type === "CHEATCODE_SIDEBAR_STATE" &&
+    "visible" in value &&
+    typeof value.visible === "boolean"
+  );
+}
+
+function readUrlOrigin(value: string | null): string | null {
+  if (!value) {
+    return null;
+  }
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+}
+
+function FileExplorerToggleIcon({ visible }: { visible: boolean }) {
+  const dividerPath = visible ? "M5.67 12.25V1.75" : "M4.67 9.336V4.67";
+  return (
+    <svg
+      aria-hidden="true"
+      className="overflow-visible text-fg-secondary"
+      fill="none"
+      height="14"
+      viewBox="0 0 14 14"
+      width="14"
+    >
+      <path
+        className="transition-[d] duration-300 ease-in-out motion-reduce:transition-none"
+        d={`M6.417 1.75h1.166c2.2 0 3.3 0 3.984.683.683.684.683 1.784.683 3.984v1.166c0 2.2 0 3.3-.683 3.984-.684.683-1.784.683-3.984.683H6.417c-2.2 0-3.3 0-3.984-.683-.683-.684-.683-1.784-.683-3.984V6.417c0-2.2 0-3.3.683-3.984.684-.683 1.784-.683 3.984-.683${dividerPath}`}
+        stroke="currentColor"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth="1.25"
+      />
+    </svg>
+  );
+}
+
+function IdePlaceholder({ label }: { label: string }) {
+  return <CheatcodeLoader className="h-full min-h-[420px] bg-bg-secondary" label={label} />;
+}
+
+function IdeError({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {
+  return (
+    <div className="grid h-full min-h-[420px] place-items-center bg-bg-secondary p-5">
+      <RecoveryCard
+        action={{
+          isPending: isRetrying,
+          label: "Try again",
+          onClick: onRetry,
+          pendingLabel: "Opening Files…",
+        }}
+        announce="assertive"
+        description="The computer couldn't connect to Files. Try opening it again."
+        icon={FolderOpen}
+        title="Files couldn't open"
+      />
     </div>
   );
 }

@@ -1,16 +1,30 @@
 import { APIError } from "@cheatcode/observability";
-import { tool } from "ai";
+import {
+  callSandboxMethod,
+  EnvironmentVariablesSchema,
+  type getCodeRuntimeContext,
+} from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { getCodeRuntimeContext } from "./runtime";
-import { callSandboxMethod } from "./sandbox-methods";
-import { resolveWorkspaceDir, WorkspacePathSchema } from "./workspace-paths";
+import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
 
 export const ShellExecInputSchema = z
   .object({
-    command: z.array(z.string().min(1)).min(1).max(128),
-    cwd: WorkspacePathSchema.optional(),
-    env: z.record(z.string(), z.string()).optional(),
-    timeoutMs: z.number().int().positive().max(600_000).optional(),
+    command: z
+      .array(z.string().min(1).describe("One argv element. Do not pass a shell-joined string."))
+      .min(1)
+      .max(128)
+      .describe("Command argv to run inside the sandbox."),
+    cwd: WorkspacePathSchema.optional().describe("Absolute working directory under /workspace."),
+    env: EnvironmentVariablesSchema.optional().describe(
+      "Request-scoped environment variables for this command only.",
+    ),
+    timeoutMs: z
+      .number()
+      .int()
+      .positive()
+      .max(600_000)
+      .optional()
+      .describe("Maximum command runtime in milliseconds."),
   })
   .strict();
 
@@ -78,10 +92,10 @@ export const ShellTerminalInputSchema = z
 
 export type ShellExecInput = z.input<typeof ShellExecInputSchema>;
 export type ShellExecOutput = z.infer<typeof ShellExecOutputSchema>;
-export type ShellStartProcessInput = z.input<typeof ShellStartProcessInputSchema>;
-export type ShellProcessOutput = z.infer<typeof ShellProcessOutputSchema>;
-export type ShellKillProcessInput = z.input<typeof ShellKillProcessInputSchema>;
-export type ShellKillProcessOutput = z.infer<typeof ShellKillProcessOutputSchema>;
+type ShellStartProcessInput = z.input<typeof ShellStartProcessInputSchema>;
+type ShellProcessOutput = z.infer<typeof ShellProcessOutputSchema>;
+type ShellKillProcessInput = z.input<typeof ShellKillProcessInputSchema>;
+type ShellKillProcessOutput = z.infer<typeof ShellKillProcessOutputSchema>;
 export type ShellTerminalInput = z.input<typeof ShellTerminalInputSchema>;
 
 export async function executeShellExec(
@@ -91,7 +105,7 @@ export async function executeShellExec(
   const parsedInput = ShellExecInputSchema.parse(input);
   const result = await callSandboxMethod(runtimeContext.sandbox, "exec", {
     command: parsedInput.command,
-    cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
+    cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
     ...(parsedInput.env ? { env: parsedInput.env } : {}),
     ...(parsedInput.timeoutMs ? { timeoutMs: parsedInput.timeoutMs } : {}),
   });
@@ -123,7 +137,7 @@ export async function executeShellStartProcess(
   return ShellProcessOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
       command: parsedInput.command,
-      cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
+      cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
       ...(parsedInput.env ? { env: parsedInput.env } : {}),
       keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
       maxRestarts: parsedInput.maxRestarts,
@@ -155,43 +169,8 @@ export async function executeShellTerminal(
   return ShellExecOutputSchema.parse(
     await callSandboxMethod(runtimeContext.sandbox, "exec", {
       command: ["sh", "-lc", parsedInput.command],
-      cwd: resolveWorkspaceDir(parsedInput.cwd, runtimeContext.workspaceDir),
+      cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
       timeoutMs: parsedInput.timeoutMs,
     }),
   );
 }
-
-export const shellExec = tool({
-  description:
-    "Run a shell command under /workspace in the project sandbox using argv form. Use for package installs, builds, static checks, and deterministic CLI work.",
-  inputSchema: ShellExecInputSchema,
-  outputSchema: ShellExecOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeShellExec(input, getCodeRuntimeContext(options)),
-});
-
-export const shellStartProcess = tool({
-  description:
-    "Start a long-running sandbox process under /workspace with optional port readiness checks and restart policy.",
-  inputSchema: ShellStartProcessInputSchema,
-  outputSchema: ShellProcessOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeShellStartProcess(input, getCodeRuntimeContext(options)),
-});
-
-export const shellKillProcess = tool({
-  description: "Kill a named long-running sandbox process.",
-  inputSchema: ShellKillProcessInputSchema,
-  outputSchema: ShellKillProcessOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeShellKillProcess(input, getCodeRuntimeContext(options)),
-});
-
-export const shellTerminal = tool({
-  description:
-    "Run a short user-style terminal command in /workspace. For automation, prefer shell_exec argv form.",
-  inputSchema: ShellTerminalInputSchema,
-  outputSchema: ShellExecOutputSchema,
-  execute: async (input, options: unknown) =>
-    executeShellTerminal(input, getCodeRuntimeContext(options)),
-});

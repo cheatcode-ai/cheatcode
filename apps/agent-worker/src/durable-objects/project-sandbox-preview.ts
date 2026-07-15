@@ -1,48 +1,41 @@
-import { hmacSha256Base64 } from "@cheatcode/auth";
+import { mintPreviewCapability } from "@cheatcode/auth";
 
 /**
- * Preview URL contract (shared with apps/preview-proxy). The DO mints a
- * Cheatcode access token and returns a proxy URL; the preview-proxy verifies the
- * token, then injects the Daytona preview headers server-side. Two modes:
- *  - "app":       long-lived, refreshed by the client (app-preview iframe).
- *  - "code":      long-lived, refreshed by the client (embedded Files viewer).
- *  - "takeover":  short-lived (noVNC takeover).
- *
- * Token = `${sandboxId}.${port}.${exp}.${mode}.${sig}`, sig = standard-base64
- * HMAC-SHA256 over the prefix (no '.' in the base64 alphabet → 5 dot parts).
- * `sandboxId` is the Daytona sandbox UUID so the proxy can call getPreviewLink.
+ * The DO returns a short-lived transport handoff in the preview URL. Production and
+ * local proxies verify the shared @cheatcode/auth capability protocol, exchange
+ * the query credential for a host session cookie, and strip it before proxying.
  */
-
-export type PreviewTokenMode = "app" | "code" | "takeover";
+const LOCAL_PREVIEW_HOST = "localhost:8787";
 
 export interface BuildPreviewUrlInput {
   sandboxId: string;
   port: number;
   hostname: string;
-  mode: PreviewTokenMode;
-  ttlMs: number;
   secret: string;
-  // Mobile (Expo web) previews are served under the clean-subdomain URL form so the client-side
-  // Expo Router routes from window.location. Replaces the old port === 8081 heuristic now that
-  // each project's Metro runs on its own per-project port.
+  // Mobile (Expo web) previews use the clean-subdomain URL form because Expo Router derives its
+  // route from window.location and each project runs Metro on its own port.
   isMobile?: boolean;
 }
 
 export interface BuiltPreviewUrl {
   expiresAt: string;
   url: string;
-  token: string;
 }
 
 export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<BuiltPreviewUrl> {
-  const exp = Date.now() + input.ttlMs;
-  const prefix = `${input.sandboxId}.${input.port}.${exp}.${input.mode}`;
-  const sig = await hmacSha256Base64(prefix, input.secret);
-  const token = `${prefix}.${sig}`;
   const hostname = normalizeHostname(input.hostname);
   const host = `${input.sandboxId}--${input.port}.${hostname}`;
-  const path = `/?__cc_pt=${encodeURIComponent(token)}`;
-  if (hostname === "localhost:8787") {
+  const capability = await mintPreviewCapability({
+    kind: "handoff",
+    secret: input.secret,
+    target: {
+      audience: host,
+      port: input.port,
+      sandboxId: input.sandboxId,
+    },
+  });
+  const path = `/?__cc_pt=${encodeURIComponent(capability.token)}`;
+  if (hostname === LOCAL_PREVIEW_HOST) {
     // Mobile (Expo web) previews are served under the subdomain form so the browser path stays
     // clean (`/`) — Expo Router routes from window.location and the `/__sandbox/<host>` path prefix
     // yields "Unmatched Route". The local proxy routes this by Host, matching prod's subdomain
@@ -50,10 +43,10 @@ export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<Buil
     const url = input.isMobile
       ? `http://${host}${path}`
       : `http://${hostname}/__sandbox/${encodePreviewHost(host)}${path}`;
-    return { expiresAt: new Date(exp).toISOString(), token, url };
+    return { expiresAt: new Date(capability.expiresAt).toISOString(), url };
   }
   const url = `https://${host}${path}`;
-  return { expiresAt: new Date(exp).toISOString(), url, token };
+  return { expiresAt: new Date(capability.expiresAt).toISOString(), url };
 }
 
 /**
@@ -61,7 +54,7 @@ export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<Buil
  * deep link by swapping the scheme: `https://` → `exps://` (the daytonaproxy edge is https-only,
  * so the secure Expo scheme is required) and `http://` → `exp://`. The token stays in the host, so
  * Expo Go reaches the Metro manifest with no header/cookie. Keeps the full host/path/query and only
- * trims a trailing slash (unlike the old proxy-derived helper, which dropped the token).
+ * trims a trailing slash.
  */
 export function signedUrlToExpo(url: string): string {
   const withScheme = url.startsWith("https://")
@@ -73,9 +66,15 @@ export function signedUrlToExpo(url: string): string {
 }
 
 function normalizeHostname(hostname: string): string {
-  const trimmed = hostname.trim().toLowerCase();
-  const withoutScheme = trimmed.includes("://") ? (trimmed.split("://")[1] ?? trimmed) : trimmed;
-  return withoutScheme.replace(/\/.*$/, "").replace(/\.$/, "");
+  const normalized = hostname.trim().toLowerCase().replace(/\.$/u, "");
+  if (
+    normalized !== LOCAL_PREVIEW_HOST &&
+    (!/^(?=.{1,253}$)[a-z0-9](?:[a-z0-9.-]*[a-z0-9])?$/u.test(normalized) ||
+      normalized.includes(".."))
+  ) {
+    throw new TypeError("Preview hostname must be a hostname or localhost:8787");
+  }
+  return normalized;
 }
 
 function encodePreviewHost(host: string): string {

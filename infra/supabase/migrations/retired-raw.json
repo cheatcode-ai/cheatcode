@@ -1,0 +1,4 @@
+{
+  "infra/supabase/migrations/post/0025_v2_automations_grants.sql": "103de0c5c6f8ff46b9d2fdb64c7df686cca9685ceea5978ed2734b7b382edede",
+  "infra/supabase/migrations/post/0026_v2_replay_shares_grants.sql": "6074acf0f79499d4693fa05f248c98d5deebcd5ef13c0228741c09af74ac12f4"
+}

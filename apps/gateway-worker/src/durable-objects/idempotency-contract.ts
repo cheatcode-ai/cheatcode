@@ -1,11 +1,14 @@
 import { z } from "zod";
 
+const MAX_IDEMPOTENCY_TTL_MS = 7 * 24 * 60 * 60 * 1000;
+
 export const IdempotencyBeginBodySchema = z
   .object({
     bodyHash: z.string().regex(/^[a-f0-9]{64}$/),
+    claimId: z.string().uuid(),
     key: z.string().trim().min(1).max(255),
     now: z.number().int().positive(),
-    ttlMs: z.number().int().positive(),
+    ttlMs: z.number().int().positive().max(MAX_IDEMPOTENCY_TTL_MS),
   })
   .strict();
 
@@ -45,9 +48,12 @@ export const IdempotencyBeginResultSchema = z.discriminatedUnion("action", [
 export const IdempotencyCompleteBodySchema = z
   .object({
     body: z.string().max(65_536).nullable(),
+    claimId: z.string().uuid(),
     headers: z.array(z.tuple([z.string(), z.string()])).max(50),
     key: z.string().trim().min(1).max(255),
+    now: z.number().int().positive(),
     status: z.number().int().min(100).max(599),
+    ttlMs: z.number().int().positive().max(MAX_IDEMPOTENCY_TTL_MS),
   })
   .strict();
 

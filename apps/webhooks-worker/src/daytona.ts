@@ -1,84 +1,109 @@
 import { z } from "zod";
 
 /**
- * Daytona `sandbox.state.updated` (and sibling) webhook payloads. `id` is the sandbox UUID,
+ * Daytona `sandbox.state.updated` webhook payload. `id` is the sandbox UUID,
  * `newState` the new lifecycle state (e.g. "STARTED", "STOPPED"). Extra fields are tolerated.
  */
 export const DaytonaWebhookSchema = z
   .object({
-    event: z.string().optional(),
-    id: z.string().optional(),
-    newState: z.string().optional(),
-    oldState: z.string().optional(),
-    updatedAt: z.string().optional(),
+    event: z.literal("sandbox.state.updated"),
+    id: z.string().uuid(),
+    newState: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z_]+$/),
+    oldState: z
+      .string()
+      .trim()
+      .min(1)
+      .max(64)
+      .regex(/^[A-Za-z_]+$/)
+      .optional(),
+    updatedAt: z.string().datetime({ offset: true }),
   })
   .passthrough();
-export type DaytonaWebhookEvent = z.infer<typeof DaytonaWebhookSchema>;
 
-// KV key + TTL for the sandbox-state cache read by the preview-status endpoint.
-export const sandboxStateCacheKey = (sandboxId: string): string => `sbx:${sandboxId}`;
-const SANDBOX_STATE_TTL_S = 24 * 60 * 60;
+const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
+const MAX_SIGNATURE_HEADER_LENGTH = 2_048;
+const MAX_MESSAGE_ID_LENGTH = 256;
 
-/**
- * Verify a Daytona webhook. The sandbox-state cache is only a UI hint — the wake path calls
- * Daytona directly — so verification degrades gracefully: with no secret configured we accept
- * (the preview-status endpoint's live-read fallback keeps state correct); with a secret we require
- * an HMAC-SHA256 (over the raw body) match against the `X-Signature` header.
- */
+interface VerifiedDaytonaWebhookEnvelope {
+  eventId: string;
+}
+
+/** Verify the Svix envelope used by Daytona and return its signed replay-protection identity. */
 export async function verifyDaytonaWebhook(
-  secret: string | null,
+  secret: string,
   rawBody: string,
-  signature: string | null,
-): Promise<boolean> {
-  if (!secret) {
-    return true;
+  headers: Headers,
+): Promise<VerifiedDaytonaWebhookEnvelope | null> {
+  const messageId = webhookHeader(headers, "id");
+  const timestamp = webhookHeader(headers, "timestamp");
+  const signature = webhookHeader(headers, "signature");
+  if (
+    !messageId ||
+    messageId.length > MAX_MESSAGE_ID_LENGTH ||
+    !timestamp ||
+    !signature ||
+    signature.length > MAX_SIGNATURE_HEADER_LENGTH ||
+    !isFreshWebhookTimestamp(timestamp)
+  ) {
+    return null;
   }
-  if (!signature) {
-    return false;
-  }
+
+  const secretBytes = decodeSigningSecret(secret);
+  if (!secretBytes) return null;
   const key = await crypto.subtle.importKey(
     "raw",
-    new TextEncoder().encode(secret),
+    secretBytes,
     { hash: "SHA-256", name: "HMAC" },
     false,
-    ["sign"],
+    ["verify"],
   );
-  const mac = new Uint8Array(
-    await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(rawBody)),
-  );
-  const hex = Array.from(mac, (b) => b.toString(16).padStart(2, "0")).join("");
-  const b64 = btoa(String.fromCharCode(...mac));
-  const provided = signature.replace(/^v1[,=]/i, "").trim();
-  return timingSafeEqual(provided, hex) || timingSafeEqual(provided, b64);
+  const signedContent = new TextEncoder().encode(`${messageId}.${timestamp}.${rawBody}`);
+  for (const candidate of signature.split(/\s+/u)) {
+    const encoded = candidate.startsWith("v1,") ? candidate.slice(3) : "";
+    const signatureBytes = decodeBase64(encoded);
+    if (
+      signatureBytes &&
+      (await crypto.subtle.verify("HMAC", key, signatureBytes, signedContent))
+    ) {
+      return { eventId: messageId };
+    }
+  }
+  return null;
 }
 
-function timingSafeEqual(a: string, b: string): boolean {
-  if (a.length !== b.length) {
-    return false;
-  }
-  let diff = 0;
-  for (let i = 0; i < a.length; i += 1) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
+function webhookHeader(headers: Headers, suffix: "id" | "signature" | "timestamp"): string | null {
+  return headers.get(`webhook-${suffix}`) ?? headers.get(`svix-${suffix}`);
 }
 
-/**
- * Cache the new sandbox lifecycle state (lowercased to match Daytona's REST API + the DO), keyed
- * by sandbox UUID, so the preview-status endpoint can answer without polling Daytona. No-op when
- * the cache is unbound or the payload lacks an id/state.
- */
-export async function cacheSandboxState(
-  kv: KVNamespace | undefined,
-  event: DaytonaWebhookEvent,
-  nowIso: string,
-): Promise<void> {
-  if (!kv || !event.id || !event.newState) {
-    return;
-  }
-  await kv.put(
-    sandboxStateCacheKey(event.id),
-    JSON.stringify({ state: event.newState.toLowerCase(), updatedAt: event.updatedAt ?? nowIso }),
-    { expirationTtl: SANDBOX_STATE_TTL_S },
+function isFreshWebhookTimestamp(value: string): boolean {
+  if (!/^\d{10}$/u.test(value)) return false;
+  const timestamp = Number(value);
+  return (
+    Number.isSafeInteger(timestamp) &&
+    Math.abs(Math.floor(Date.now() / 1_000) - timestamp) <= WEBHOOK_TOLERANCE_SECONDS
   );
+}
+
+function decodeSigningSecret(secret: string): Uint8Array<ArrayBuffer> | null {
+  const encoded = secret.startsWith("whsec_") ? secret.slice(6) : "";
+  return decodeBase64(encoded);
+}
+
+function decodeBase64(value: string): Uint8Array<ArrayBuffer> | null {
+  if (!value || value.length > 1_024) return null;
+  try {
+    const binary = atob(value);
+    const bytes = new Uint8Array(binary.length);
+    for (let index = 0; index < binary.length; index += 1) {
+      bytes[index] = binary.charCodeAt(index);
+    }
+    return bytes;
+  } catch {
+    return null;
+  }
 }

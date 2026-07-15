@@ -1,0 +1,11 @@
+import { PricingPanel } from "@/components/settings/pricing-panel";
+
+export default function PricingPage() {
+  return (
+    <section className="chat-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto bg-background px-2.5 pt-6 pb-16 text-foreground md:pt-10">
+      <div className="mx-auto w-full max-w-5xl">
+        <PricingPanel />
+      </div>
+    </section>
+  );
+}

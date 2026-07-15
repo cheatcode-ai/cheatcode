@@ -23,7 +23,7 @@ export function requireResearchProviderKey(
       `Add a ${label} BYOK key before using ${provider} research tools.`,
       {
         details: { provider },
-        hint: `Open BYOK Settings and save a ${label} API key.`,
+        hint: `Open Models settings and save a ${label} API key.`,
         retriable: false,
       },
     );

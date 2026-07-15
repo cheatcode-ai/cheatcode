@@ -1,26 +1,17 @@
-import { createDb, listUserSkills, upsertUserSkill, withUserContext } from "@cheatcode/db";
+import type { UserSkillLoader, UserSkillRuntime, UserSkillStore } from "@cheatcode/agent-core";
+import {
+  createDb,
+  getUserSkillByName,
+  listUserSkillSummaries,
+  upsertUserSkill,
+  withUserContext,
+} from "@cheatcode/db";
 import { UserId } from "@cheatcode/types";
 import type { AgentRunEnv } from "./agent-run-env";
 
-interface UserSkillRuntime {
-  name: string;
-  description: string;
-  body: string;
-  category?: string;
-}
-
-interface UserSkillStore {
-  save(skill: {
-    name: string;
-    description: string;
-    body: string;
-    category?: string;
-    tags?: string[];
-  }): Promise<void>;
-}
-
 export interface ResolvedUserSkillContext {
   userSkills: UserSkillRuntime[];
+  userSkillLoader: UserSkillLoader;
   userSkillStore: UserSkillStore;
 }
 
@@ -37,6 +28,26 @@ export async function resolveUserSkillContext(
 ): Promise<ResolvedUserSkillContext> {
   const userId = UserId(userIdRaw);
   const userSkills = await readUserSkills(env, userId);
+  const userSkillLoader: UserSkillLoader = {
+    load: async (name) => {
+      const { db, close } = createDb(env.HYPERDRIVE);
+      try {
+        const skill = await withUserContext(db, userId, (tx) =>
+          getUserSkillByName(tx, userId, name),
+        );
+        return skill
+          ? {
+              body: skill.body,
+              category: skill.category,
+              description: skill.description,
+              name: skill.name,
+            }
+          : null;
+      } finally {
+        await close();
+      }
+    },
+  };
   const userSkillStore: UserSkillStore = {
     save: async (skill) => {
       const { db, close } = createDb(env.HYPERDRIVE);
@@ -56,15 +67,14 @@ export async function resolveUserSkillContext(
       }
     },
   };
-  return { userSkills, userSkillStore };
+  return { userSkills, userSkillLoader, userSkillStore };
 }
 
 async function readUserSkills(env: AgentRunEnv, userId: UserId): Promise<UserSkillRuntime[]> {
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const rows = await withUserContext(db, userId, (tx) => listUserSkills(tx, userId));
+    const rows = await withUserContext(db, userId, (tx) => listUserSkillSummaries(tx, userId));
     return rows.map((row) => ({
-      body: row.body,
       category: row.category,
       description: row.description,
       name: row.name,

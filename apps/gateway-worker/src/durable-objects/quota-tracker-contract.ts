@@ -1,39 +1,8 @@
+import { QuotaFeatureSchema, QuotaLimitSchema, QuotaPeriodEndSchema } from "@cheatcode/types/quota";
 import { z } from "zod";
 
-export const QuotaFeatureSchema = z
-  .string()
-  .trim()
-  .min(1)
-  .max(80)
-  .regex(/^[a-z][a-z0-9_.-]*$/);
-
-export const QuotaPeriodEndSchema = z.string().datetime();
-
-export const QuotaLimitSchema = z.number().finite().nonnegative();
-
-export const QuotaConsumeBodySchema = z
-  .object({
-    amount: z.number().finite().positive(),
-    feature: QuotaFeatureSchema,
-    periodEnd: QuotaPeriodEndSchema,
-  })
-  .strict();
-
-export const QuotaRecordBodySchema = QuotaConsumeBodySchema;
-
-export const QuotaPeekBodySchema = z
-  .object({
-    feature: QuotaFeatureSchema,
-    periodEnd: QuotaPeriodEndSchema,
-  })
-  .strict();
-
-export const QuotaSetLimitBodySchema = z
-  .object({
-    feature: QuotaFeatureSchema,
-    limit: QuotaLimitSchema,
-    source: z.string().trim().min(1).max(120),
-  })
+export const QuotaHistoryBodySchema = z
+  .object({ feature: QuotaFeatureSchema, from: z.string().datetime() })
   .strict();
 
 export const QuotaSnapshotBodySchema = z
@@ -42,29 +11,7 @@ export const QuotaSnapshotBodySchema = z
   })
   .strict();
 
-export const QuotaResetBodySchema = z
-  .object({
-    feature: QuotaFeatureSchema,
-  })
-  .strict();
-
-export const QuotaConsumeResultSchema = z
-  .object({
-    allowed: z.boolean(),
-    limit: QuotaLimitSchema,
-    remaining: z.number().finite().nonnegative(),
-  })
-  .strict();
-
-export const QuotaPeekResultSchema = z
-  .object({
-    limit: QuotaLimitSchema,
-    remaining: z.number().finite().nonnegative(),
-    used: z.number().finite().nonnegative(),
-  })
-  .strict();
-
-export const QuotaSnapshotResultSchema = z.record(
+export const QuotaSnapshotResultSchema = z.partialRecord(
   QuotaFeatureSchema,
   z
     .object({
@@ -74,7 +21,9 @@ export const QuotaSnapshotResultSchema = z.record(
     .strict(),
 );
 
-export type QuotaConsumeResult = z.infer<typeof QuotaConsumeResultSchema>;
-export type QuotaPeekResult = z.infer<typeof QuotaPeekResultSchema>;
-export type QuotaRecordBody = z.infer<typeof QuotaRecordBodySchema>;
+export const QuotaHistoryResultSchema = z.array(
+  z.object({ amount: z.number().positive(), recordedAt: z.number().int().nonnegative() }).strict(),
+);
+
+export type QuotaHistoryResult = z.infer<typeof QuotaHistoryResultSchema>;
 export type QuotaSnapshotResult = z.infer<typeof QuotaSnapshotResultSchema>;

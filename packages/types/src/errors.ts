@@ -15,7 +15,6 @@ export type ErrorCode =
   | "not_found_run"
   | "not_found_output"
   | "not_found_tool"
-  | "not_found_automation"
   | "not_found_skill"
   | "invalid_request_body"
   | "invalid_query_param"
@@ -31,13 +30,9 @@ export type ErrorCode =
   | "rate_limit_exceeded"
   | "quota_exhausted_sandbox_hours"
   | "quota_exhausted_composio_calls"
-  | "quota_exhausted_deployments"
-  | "budget_cap_reached"
-  | "daily_cost_cap_reached"
   | "byok_key_missing"
   | "byok_key_invalid"
   | "byok_key_quota_exhausted"
-  | "deepseek_free_quota_exhausted"
   | "sandbox_disk_full"
   | "sandbox_cpu_exhausted"
   | "sandbox_failed_to_start"
@@ -64,11 +59,9 @@ export const ErrorResponseSchema = z
         hint: z.string().optional(),
         retriable: z.boolean(),
         request_id: z.string(),
-        doc_url: z.string().url().optional(),
+        doc_url: z.string().url(),
         details: z.record(z.string(), z.unknown()).optional(),
       })
       .strict(),
   })
   .strict();
-
-export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;

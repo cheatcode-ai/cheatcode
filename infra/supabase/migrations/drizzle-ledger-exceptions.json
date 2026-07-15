@@ -1,0 +1,12 @@
+{
+  "packages/db/drizzle/0006_dashing_magneto.sql": {
+    "databaseSha256": "4bb1acdcb8fb931db0d03cdfc1d0946f5607b19fcfc566416dd73a7e2b685b05",
+    "reason": "The applied blob omitted the terminal newline required by repository formatting; both byte identities are pinned.",
+    "sourceSha256": "7ea1401c85ee4459c361afb060be60adb61dd8c88dab11cea886e5d8ed3e6cd2"
+  },
+  "packages/db/drizzle/0016_early_cargill.sql": {
+    "databaseSha256": "24d53786bae1900dc688441e6c2de53a005f31cee6ae2c775c9b2dd54f60fbee",
+    "reason": "The original applied SQL blob is unavailable; pin both observed identities so any further drift fails closed.",
+    "sourceSha256": "716a7cd8752b0d54066b9c510f4a33d349a68fcd292e6a37997a0831f32bc536"
+  }
+}

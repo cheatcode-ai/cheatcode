@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.4.14/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.5.0/schema.json",
   "vcs": {
     "enabled": false,
     "clientKind": "git",
@@ -21,12 +21,13 @@
       "!**/dist",
       "!**/.next",
       "!**/.turbo",
+      "!**/.vercel",
       "!**/.wrangler",
-      "!**/.open-next",
       "!**/coverage",
       "!**/*.gen.ts",
       "!**/wrangler.local-dev.generated.jsonc",
       "!**/worker-configuration.d.ts",
+      "!packages/db/drizzle/meta",
       "!packages/skills/src/generated.ts",
       "!packages/skills/src/generated-manifest.ts"
     ]
@@ -62,7 +63,7 @@
   "linter": {
     "enabled": true,
     "rules": {
-      "recommended": true,
+      "preset": "recommended",
       "correctness": {
         "useExhaustiveDependencies": "error",
         "useHookAtTopLevel": "error",
@@ -87,7 +88,14 @@
         "useImportType": "error",
         "useExportType": "error",
         "useNodejsImportProtocol": "error",
-        "noDefaultExport": "off",
+        "noExcessiveLinesPerFile": {
+          "level": "error",
+          "options": {
+            "maxLines": 800,
+            "skipBlankLines": true
+          }
+        },
+        "noDefaultExport": "error",
         "noNonNullAssertion": "warn",
         "useConst": "error",
         "useTemplate": "error"
@@ -98,6 +106,14 @@
           "level": "error",
           "options": {
             "maxAllowedComplexity": 15
+          }
+        },
+        "noExcessiveLinesPerFunction": {
+          "level": "error",
+          "options": {
+            "maxLines": 50,
+            "skipBlankLines": true,
+            "skipIifes": false
           }
         },
         "noBannedTypes": "error",
@@ -137,14 +153,19 @@
         "**/app/**/route.ts",
         "**/app/**/loading.tsx",
         "**/app/**/error.tsx",
+        "**/app/**/global-error.tsx",
         "**/app/**/not-found.tsx",
+        "**/app/**/opengraph-image.tsx",
         "**/middleware.ts",
         "**/proxy.ts",
         "**/next.config.ts",
-        "**/open-next.config.ts",
+        "**/postcss.config.mjs",
+        "**/drizzle.config.ts",
+        "**/commitlint.config.js",
         "**/wrangler.config.ts",
         "**/src/index.ts",
-        "**/mastra.config.ts"
+        "**/mastra.config.ts",
+        "**/src/lib/intl/request.ts"
       ],
       "linter": {
         "rules": {

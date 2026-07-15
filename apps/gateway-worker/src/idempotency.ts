@@ -1,7 +1,15 @@
-import { APIError } from "@cheatcode/observability";
+import {
+  APIError,
+  readBoundedRequestText,
+  readBoundedResponseJson,
+  readBoundedResponseText,
+} from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import type { IdempotencyStore } from "./durable-objects/idempotency";
-import { IdempotencyBeginResultSchema } from "./durable-objects/idempotency-contract";
+import {
+  type IdempotencyBeginResult,
+  IdempotencyBeginResultSchema,
+} from "./durable-objects/idempotency-contract";
 
 export interface IdempotencyBindings {
   IDEMPOTENCY: DurableObjectNamespace<IdempotencyStore>;
@@ -9,11 +17,18 @@ export interface IdempotencyBindings {
 
 export interface PreparedIdempotentRequest {
   body: string;
+  bodyHash: string;
+  claimId: string;
   key: string;
+  keyHash: string;
   replay?: Response;
 }
 
-const IDEMPOTENCY_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CREATE_RUN_BODY_BYTES = 64 * 1024;
+const IDEMPOTENCY_IN_FLIGHT_TTL_MS = 5 * 60 * 1000;
+const IDEMPOTENCY_COMPLETED_TTL_MS = 24 * 60 * 60 * 1000;
+const MAX_CACHED_IDEMPOTENCY_RESPONSE_BYTES = 64 * 1024;
+const MAX_IDEMPOTENCY_STORE_RESPONSE_BYTES = 1024 * 1024;
 
 export async function prepareIdempotentRunRequest(
   env: IdempotencyBindings,
@@ -21,12 +36,18 @@ export async function prepareIdempotentRunRequest(
   userId: UserId,
 ): Promise<PreparedIdempotentRequest> {
   const key = readIdempotencyKey(request);
-  const body = await request.clone().text();
+  const body = await readBoundedRequestText(
+    new Request(request),
+    MAX_CREATE_RUN_BODY_BYTES,
+    "Create run request",
+  );
   const bodyHash = await requestBodyHash(request, body);
-  const result = await beginIdempotency(env, userId, key, bodyHash);
+  const claimId = crypto.randomUUID();
+  const keyHash = await idempotencyKeyHash(userId, key);
+  const result = await beginIdempotency(env, userId, key, bodyHash, claimId);
 
   if (result.action === "proceed") {
-    return { body, key };
+    return { body, bodyHash, claimId, key, keyHash };
   }
   if (result.action === "reused") {
     throw new APIError(422, "idempotency_key_reused", "Idempotency key was reused", {
@@ -49,7 +70,10 @@ export async function prepareIdempotentRunRequest(
   }
   return {
     body,
+    bodyHash,
+    claimId,
     key,
+    keyHash,
     replay: new Response(result.response.body, {
       headers: result.response.headers,
       status: result.response.status,
@@ -61,18 +85,53 @@ export async function completeIdempotentRunRequest(
   env: IdempotencyBindings,
   userId: UserId,
   key: string,
+  claimId: string,
   response: Response,
 ): Promise<void> {
   const stub = idempotencyStub(env, userId, key);
-  await stub.fetch("https://idempotency.internal/complete", {
-    method: "POST",
-    body: JSON.stringify({
-      body: null,
-      headers: cacheableHeaders(response.headers),
-      key,
-      status: response.status,
-    }),
+  const cachedBody =
+    response.status === 202 || response.body === null
+      ? null
+      : await readBoundedResponseText(
+          response.clone(),
+          MAX_CACHED_IDEMPOTENCY_RESPONSE_BYTES,
+          "Idempotent response",
+        );
+  const body = JSON.stringify({
+    body: cachedBody,
+    claimId,
+    headers: cacheableHeaders(response.headers),
+    key,
+    now: Date.now(),
+    status: response.status,
+    ttlMs: IDEMPOTENCY_COMPLETED_TTL_MS,
   });
+  const completed =
+    (await attemptIdempotencyCompletion(stub, body)) ||
+    (await attemptIdempotencyCompletion(stub, body));
+  if (!completed) {
+    throw new APIError(503, "unavailable_maintenance", "Idempotency store is unavailable", {
+      retriable: true,
+    });
+  }
+}
+
+async function attemptIdempotencyCompletion(
+  stub: DurableObjectStub<IdempotencyStore>,
+  body: string,
+): Promise<boolean> {
+  const completed = await stub
+    .fetch("https://idempotency.internal/complete", {
+      method: "POST",
+      body,
+    })
+    .catch(() => null);
+  if (!completed) {
+    return false;
+  }
+  const isCompleted = completed.ok;
+  await completed.body?.cancel().catch(() => undefined);
+  return isCompleted;
 }
 
 function readIdempotencyKey(request: Request): string {
@@ -97,26 +156,50 @@ async function beginIdempotency(
   userId: UserId,
   key: string,
   bodyHash: string,
-) {
-  const response = await idempotencyStub(env, userId, key).fetch(
-    "https://idempotency.internal/begin",
-    {
-      method: "POST",
-      body: JSON.stringify({
-        bodyHash,
-        key,
-        now: Date.now(),
-        ttlMs: IDEMPOTENCY_TTL_MS,
-      }),
-    },
-  );
-  if (!response.ok) {
+  claimId: string,
+): Promise<IdempotencyBeginResult> {
+  const stub = idempotencyStub(env, userId, key);
+  const body = JSON.stringify({
+    bodyHash,
+    claimId,
+    key,
+    now: Date.now(),
+    ttlMs: IDEMPOTENCY_IN_FLIGHT_TTL_MS,
+  });
+  const result =
+    (await attemptIdempotencyBegin(stub, body)) ?? (await attemptIdempotencyBegin(stub, body));
+  if (!result) {
     throw new APIError(503, "unavailable_maintenance", "Idempotency store is unavailable", {
       hint: "Retry the request. If it persists, check the gateway Durable Object logs.",
       retriable: true,
     });
   }
-  return IdempotencyBeginResultSchema.parse(await response.json());
+  return result;
+}
+
+async function attemptIdempotencyBegin(
+  stub: DurableObjectStub<IdempotencyStore>,
+  body: string,
+): Promise<IdempotencyBeginResult | null> {
+  try {
+    const response = await stub.fetch("https://idempotency.internal/begin", {
+      body,
+      method: "POST",
+    });
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      return null;
+    }
+    return IdempotencyBeginResultSchema.parse(
+      await readBoundedResponseJson(
+        response,
+        MAX_IDEMPOTENCY_STORE_RESPONSE_BYTES,
+        "Idempotency store",
+      ),
+    );
+  } catch {
+    return null;
+  }
 }
 
 function idempotencyStub(env: IdempotencyBindings, userId: UserId, key: string) {
@@ -128,6 +211,14 @@ async function requestBodyHash(request: Request, body: string): Promise<string> 
   const digest = await crypto.subtle.digest(
     "SHA-256",
     new TextEncoder().encode(`${request.method}\n${url.pathname}\n${url.search}\n${body}`),
+  );
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+async function idempotencyKeyHash(userId: UserId, key: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(`cheatcode:v1:create-run\0${userId}\0${key}`),
   );
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

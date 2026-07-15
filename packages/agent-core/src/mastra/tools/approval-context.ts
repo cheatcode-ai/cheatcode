@@ -10,23 +10,22 @@
  * persists the pending approval, and resolves the promise on the user decision,
  * the timeout alarm, or a cancellation.
  *
- * This module is the CONTRACT only — the gate wrapper (`withApprovalGate`), the
- * static policy table, and the DO-side broker factory live in their own
- * follow-up modules. Keeping the key + types here lets both the producer (DO)
- * and the consumers (tools) depend on one shared definition.
+ * The execution-side policy and fail-closed wrapper live in `approval-gate.ts`;
+ * the AgentRun DO owns the broker implementation and durable decision state.
+ * Keeping the key + types here lets both sides depend on one shared contract.
  */
 
 /** Request-context key carrying the per-run {@link ApprovalBroker}. */
 export const APPROVAL_BROKER_CONTEXT_KEY = "approvalBroker";
 
 /** What is being gated: a destructive tool call or an interactive model fallback. */
-export type ApprovalKind = "tool-approval" | "model-fallback";
+type ApprovalKind = "tool-approval" | "model-fallback";
 
 /** Allow/Deny outcome of an approval decision. */
-export type ApprovalDecisionValue = "allow" | "deny";
+type ApprovalDecisionValue = "allow" | "deny";
 
 /** Who/what resolved an approval: the user, the timeout alarm, or a cancellation. */
-export type ApprovalDecidedBy = "user" | "timeout" | "cancel";
+type ApprovalDecidedBy = "user" | "timeout" | "cancel";
 
 /**
  * Input the gated tool (or fallback flow) hands to the broker. `summary` is the

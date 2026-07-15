@@ -1,8 +1,6 @@
 import { updateClerkUserPublicMetadata, verifyClerkBearerToken } from "@cheatcode/auth";
 import {
   createDb,
-  type FreeDeepseekUsage,
-  getFreeDeepseekUsage,
   getUserProfile,
   type UpsertUserProfileInput,
   type UserProfileRecord,
@@ -10,7 +8,12 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
-import { APIError, createLogger } from "@cheatcode/observability";
+import {
+  APIError,
+  createLogger,
+  readJsonRequest,
+  safeErrorTelemetry,
+} from "@cheatcode/observability";
 import {
   type UpdateUserProfile,
   UpdateUserProfileSchema,
@@ -18,25 +21,27 @@ import {
   UserProfileSchema,
 } from "@cheatcode/types";
 import type { z } from "zod";
-import { readOptionalSecret } from "./authenticate";
+import { clerkAuthorizedParties, readOptionalSecret } from "./authenticate";
+import type { WaitUntilContext } from "./wait-until-context";
 
 export interface ProfileRouteEnv {
+  CHEATCODE_ENVIRONMENT: "development" | "production";
+  CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_SECRET_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
+const MAX_PROFILE_REQUEST_BYTES = 32 * 1024;
+
 export async function getMyProfileRoute(
   env: ProfileRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
   const { db, close } = createDb(env.HYPERDRIVE);
   try {
-    const { freeDeepseek, record } = await withUserContext(db, userId, async (tx) => ({
-      freeDeepseek: await getFreeDeepseekUsage(tx, userId),
-      record: await getUserProfile(tx, userId),
-    }));
-    return Response.json(UserProfileSchema.parse(profileResponse(record, freeDeepseek)));
+    const record = await withUserContext(db, userId, (tx) => getUserProfile(tx, userId));
+    return Response.json(UserProfileSchema.parse(profileResponse(record)));
   } finally {
     ctx.waitUntil(close());
   }
@@ -44,31 +49,30 @@ export async function getMyProfileRoute(
 
 export async function updateMyProfileRoute(
   env: ProfileRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const parsed = UpdateUserProfileSchema.safeParse(await request.json());
+  const parsed = UpdateUserProfileSchema.safeParse(
+    await readJsonRequest(request, MAX_PROFILE_REQUEST_BYTES, "Profile request"),
+  );
   if (!parsed.success) {
     throw invalidRequestBody("Invalid profile payload", parsed.error);
   }
   const body = parsed.data;
   const { db, close } = createDb(env.HYPERDRIVE);
-  let result: { freeDeepseek: FreeDeepseekUsage; record: UserProfileRecord };
+  let result: UserProfileRecord;
   try {
-    result = await withUserContext(db, userId, async (tx) => ({
-      freeDeepseek: await getFreeDeepseekUsage(tx, userId),
-      record: await upsertUserProfile(tx, buildProfilePatch(userId, body)),
-    }));
+    result = await withUserContext(db, userId, (tx) =>
+      upsertUserProfile(tx, buildProfilePatch(userId, body)),
+    );
   } finally {
     ctx.waitUntil(close());
   }
   if (body.onboardingCompleted === true) {
     await mirrorOnboardingClaim(env, request, userId);
   }
-  return Response.json(
-    UserProfileSchema.parse(profileResponse(result.record, result.freeDeepseek)),
-  );
+  return Response.json(UserProfileSchema.parse(profileResponse(result)));
 }
 
 function buildProfilePatch(userId: UserId, body: UpdateUserProfile): UpsertUserProfileInput {
@@ -107,7 +111,10 @@ async function mirrorOnboardingClaim(
       logger.warn("onboarding_claim_mirror_skipped");
       return;
     }
-    const session = await verifyClerkBearerToken(request, { secretKey });
+    const session = await verifyClerkBearerToken(request, {
+      authorizedParties: clerkAuthorizedParties(env),
+      secretKey,
+    });
     await updateClerkUserPublicMetadata({
       clerkUserId: session.clerkUserId,
       metadata: { onboarding_complete: true },
@@ -115,20 +122,16 @@ async function mirrorOnboardingClaim(
     });
   } catch (error) {
     logger.warn("onboarding_claim_mirror_failed", {
-      errorMessage: error instanceof Error ? error.message : String(error),
+      ...safeErrorTelemetry(error),
     });
   }
 }
 
-function profileResponse(
-  record: UserProfileRecord | null,
-  freeDeepseek: FreeDeepseekUsage,
-): Record<string, unknown> {
+function profileResponse(record: UserProfileRecord | null): Record<string, unknown> {
   if (!record) {
     return {
       agentDisplayName: null,
       disabledModels: [],
-      freeDeepseek,
       globalMemory: null,
       onboardingCompletedAt: null,
       onboardingState: { steps: {} },
@@ -138,7 +141,6 @@ function profileResponse(
   return {
     agentDisplayName: record.agentDisplayName,
     disabledModels: record.disabledModels,
-    freeDeepseek,
     globalMemory: record.globalMemory,
     onboardingCompletedAt: record.onboardingCompletedAt?.toISOString() ?? null,
     onboardingState: record.onboardingState,

@@ -1,7 +1,7 @@
 # @cheatcode/billing
 
-Polar SDK wrappers for checkout, customer portal, subscription
-cancel/reactivate, and entitlement tier helpers.
+Polar SDK wrappers for checkout, customer portal, subscription lifecycle, the
+plan catalog, and resource-entitlement helpers.
 
 ## Public exports
 
@@ -9,18 +9,29 @@ cancel/reactivate, and entitlement tier helpers.
 - `createCustomerPortalUrl`
 - `cancelSubscriptionAtPeriodEnd`
 - `reactivateSubscription`
+- `ensurePolarCustomer`
+- `getPolarCustomerState`
+- `updateCustomerProfile`
+- `entitlementCacheFromValues`
 - `entitlementValuesForTier`
-- `inferTierFromPolarProduct`
 - `tierLimits`
+- `PLAN_CATALOG`
+- sandbox-hour quota helpers
 
-`tierLimits` includes the launch daily AI cost caps used by the agent Worker:
-Free `$10`, Pro `$50`, Team `$200`, and no default Enterprise cap.
-
-`inferTierFromPolarProduct` requires product metadata `tier=pro|team|enterprise`
-by default. Name/ID fallback is only for explicitly marked local fixtures.
+Current tiers are `free`, `pro`, `premium`, `ultra`, and `max`. Entitlements
+cover sandbox hours, active projects, BYOK provider slots, and Composio calls.
+Tier values, validation, and ordering come from the neutral
+`@cheatcode/types/billing` contract; this package owns only plan catalog and
+billing-provider behavior.
+Each user has one shared sandbox as a tenancy invariant rather than a plan
+entitlement. Model tokens, model spend, deployments, and seats are not metered
+here.
 User-facing cancellation schedules end-of-period cancellation through
 `subscriptions.update({ cancelAtPeriodEnd: true })`; immediate revoke is not a
 default app flow.
+Polar SDK calls have a 30-second request deadline and a 1 MiB response-stream
+ceiling. Responses are then projected into bounded customer, subscription, URL,
+and active-subscription shapes before reaching application state.
 
 ## Code Checks
 
@@ -31,3 +42,4 @@ pnpm --filter @cheatcode/billing typecheck
 ## Env
 
 - `POLAR_ACCESS_TOKEN` is resolved by the caller and never logged.
+- Callers may pass `server: "sandbox"` for isolated local QA; production remains the default.

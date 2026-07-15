@@ -1,13 +1,24 @@
 import { DurableObject } from "cloudflare:workers";
+import { readJsonRequest } from "@cheatcode/observability";
 import {
-  QuotaConsumeBodySchema,
-  type QuotaConsumeResult,
-  QuotaPeekBodySchema,
-  type QuotaPeekResult,
-  QuotaPeekResultSchema,
-  QuotaRecordBodySchema,
-  QuotaResetBodySchema,
-  QuotaSetLimitBodySchema,
+  QUOTA_FEATURES,
+  QUOTA_TRACKER_MAX_REQUEST_BYTES,
+  type QuotaFeature,
+  QuotaFeatureSchema,
+  QuotaPeekRequestSchema,
+  QuotaRecordRequestSchema,
+  QuotaSetLimitRequestSchema,
+  QuotaSetLimitResponseSchema,
+  QuotaTryConsumeRequestSchema,
+  type QuotaTryConsumeResponse,
+  QuotaTryConsumeResponseSchema,
+  type QuotaUsageResponse,
+  QuotaUsageResponseSchema,
+} from "@cheatcode/types/quota";
+import {
+  QuotaHistoryBodySchema,
+  type QuotaHistoryResult,
+  QuotaHistoryResultSchema,
   QuotaSnapshotBodySchema,
   type QuotaSnapshotResult,
   QuotaSnapshotResultSchema,
@@ -19,8 +30,35 @@ interface CounterRow {
 }
 
 interface LimitRow {
+  feature: QuotaFeature;
+  limit_val: number;
+}
+
+const LIMIT_OVERRIDE_COLUMNS = ["feature", "limit_val", "entitlement_version"] as const;
+
+interface HistoryRow {
+  amount: number;
+  recorded_at: number;
+}
+
+interface OperationRow {
+  allowed: number;
+  amount: number;
+  event_id: string;
   feature: string;
   limit_val: number;
+  operation: string;
+  period_key: string;
+  remaining: number;
+  used: number;
+}
+
+interface QuotaOperationInput {
+  amount: number;
+  eventId: string;
+  feature: QuotaFeature;
+  operation: "record" | "try-consume";
+  periodKey: string;
 }
 
 type QuotaTrackerEnv = Record<never, never>;
@@ -32,8 +70,33 @@ function isCounterRow(value: unknown): value is CounterRow {
 function isLimitRow(value: unknown): value is LimitRow {
   return (
     isRecord(value) &&
-    typeof value["feature"] === "string" &&
+    QuotaFeatureSchema.safeParse(value["feature"]).success &&
     typeof value["limit_val"] === "number"
+  );
+}
+
+function isHistoryRow(value: unknown): value is HistoryRow {
+  return (
+    isRecord(value) &&
+    typeof value["amount"] === "number" &&
+    typeof value["recorded_at"] === "number"
+  );
+}
+
+function isOperationRow(value: unknown): value is OperationRow {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value["allowed"] === "number" &&
+    typeof value["amount"] === "number" &&
+    typeof value["event_id"] === "string" &&
+    typeof value["feature"] === "string" &&
+    typeof value["limit_val"] === "number" &&
+    typeof value["operation"] === "string" &&
+    typeof value["period_key"] === "string" &&
+    typeof value["remaining"] === "number" &&
+    typeof value["used"] === "number"
   );
 }
 
@@ -43,74 +106,96 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   public async tryConsume(
-    feature: string,
+    feature: QuotaFeature,
     amount: number,
     periodEnd: Date,
-  ): Promise<QuotaConsumeResult> {
-    const limit = this.readLimit(feature);
+    eventId: string,
+  ): Promise<QuotaTryConsumeResponse> {
     const periodKey = periodKeyFromDate(periodEnd);
-    const used = this.readUsed(feature, periodKey);
-    if (used + amount > limit) {
-      return {
-        allowed: false,
-        limit,
-        remaining: Math.max(0, limit - used),
-      };
-    }
-
-    const nextUsed = used + amount;
-    this.writeUsed(feature, periodKey, nextUsed);
-    return {
-      allowed: true,
-      limit,
-      remaining: Math.max(0, limit - nextUsed),
+    const input: QuotaOperationInput = {
+      amount,
+      eventId,
+      feature,
+      operation: "try-consume",
+      periodKey,
     };
+    const result = this.ctx.storage.transactionSync(() => this.consumeOnce(input));
+    await this.ensureCleanupAlarm();
+    return result;
   }
 
-  public async peek(feature: string, periodEnd: Date): Promise<QuotaPeekResult> {
+  public async peek(feature: QuotaFeature, periodEnd: Date): Promise<QuotaUsageResponse> {
     const limit = this.readLimit(feature);
     const used = this.readUsed(feature, periodKeyFromDate(periodEnd));
-    return QuotaPeekResultSchema.parse({
+    return QuotaUsageResponseSchema.parse({
       limit,
       remaining: Math.max(0, limit - used),
       used,
     });
   }
 
-  public async record(feature: string, amount: number, periodEnd: Date): Promise<QuotaPeekResult> {
+  public async record(
+    feature: QuotaFeature,
+    amount: number,
+    periodEnd: Date,
+    eventId: string,
+    recordedAt: Date,
+  ): Promise<QuotaUsageResponse> {
     const periodKey = periodKeyFromDate(periodEnd);
-    const nextUsed = this.readUsed(feature, periodKey) + amount;
-    this.writeUsed(feature, periodKey, nextUsed);
-    const limit = this.readLimit(feature);
-    return QuotaPeekResultSchema.parse({
-      limit,
-      remaining: Math.max(0, limit - nextUsed),
-      used: nextUsed,
-    });
+    const input: QuotaOperationInput = {
+      amount,
+      eventId,
+      feature,
+      operation: "record",
+      periodKey,
+    };
+    const result = this.ctx.storage.transactionSync(() =>
+      this.recordOnce(input, recordedAt.getTime()),
+    );
+    await this.ensureCleanupAlarm();
+    return result;
   }
 
-  public async reset(feature: string): Promise<void> {
-    this.ctx.storage.sql.exec("DELETE FROM counter WHERE feature = ?", feature);
+  public async history(feature: QuotaFeature, from: Date): Promise<QuotaHistoryResult> {
+    const events = this.ctx.storage.sql
+      .exec(
+        `SELECT SUM(amount) AS amount,
+                (recorded_at / 86400000) * 86400000 AS recorded_at
+         FROM usage_event
+         WHERE feature = ? AND recorded_at >= ?
+         GROUP BY recorded_at / 86400000
+         ORDER BY recorded_at`,
+        feature,
+        from.getTime(),
+      )
+      .toArray();
+    return historyResult(events);
   }
 
-  public async setLimit(feature: string, limit: number, source: string): Promise<void> {
+  public async setLimit(
+    feature: QuotaFeature,
+    limit: number,
+    entitlementVersion: number,
+  ): Promise<void> {
     this.ctx.storage.sql.exec(
-      `INSERT INTO limit_override (feature, limit_val, source, updated_at)
-       VALUES (?, ?, ?, ?)
+      `INSERT INTO limit_override (feature, limit_val, entitlement_version)
+       VALUES (?, ?, ?)
        ON CONFLICT(feature) DO UPDATE SET
          limit_val = excluded.limit_val,
-         source = excluded.source,
-         updated_at = excluded.updated_at`,
+         entitlement_version = excluded.entitlement_version
+       WHERE excluded.entitlement_version >= limit_override.entitlement_version`,
       feature,
       limit,
-      source,
-      Date.now(),
+      entitlementVersion,
     );
   }
 
   public async deleteAllState(): Promise<void> {
     this.ctx.storage.sql.exec("DELETE FROM counter");
     this.ctx.storage.sql.exec("DELETE FROM limit_override");
+    this.ctx.storage.sql.exec("DELETE FROM quota_operation");
+    this.ctx.storage.sql.exec("DELETE FROM usage_event");
+    await this.ctx.storage.deleteAlarm();
   }
 
   public async snapshot(periodEnd: Date): Promise<QuotaSnapshotResult> {
@@ -138,37 +223,52 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
+    return this.handlePost(new URL(request.url).pathname, request);
+  }
 
-    const url = new URL(request.url);
-    if (url.pathname === "/try-consume") {
-      const body = QuotaConsumeBodySchema.parse(await request.json());
+  private async handlePost(pathname: string, request: Request): Promise<Response> {
+    if (pathname === "/try-consume") {
+      const body = QuotaTryConsumeRequestSchema.parse(await readQuotaRequest(request));
       return Response.json(
-        await this.tryConsume(body.feature, body.amount, new Date(body.periodEnd)),
+        QuotaTryConsumeResponseSchema.parse(
+          await this.tryConsume(body.feature, body.amount, new Date(body.periodEnd), body.eventId),
+        ),
       );
     }
-    if (url.pathname === "/peek") {
-      const body = QuotaPeekBodySchema.parse(await request.json());
-      return Response.json(await this.peek(body.feature, new Date(body.periodEnd)));
+    if (pathname === "/peek") {
+      const body = QuotaPeekRequestSchema.parse(await readQuotaRequest(request));
+      return Response.json(
+        QuotaUsageResponseSchema.parse(await this.peek(body.feature, new Date(body.periodEnd))),
+      );
     }
-    if (url.pathname === "/record") {
-      const body = QuotaRecordBodySchema.parse(await request.json());
-      return Response.json(await this.record(body.feature, body.amount, new Date(body.periodEnd)));
+    if (pathname === "/record") {
+      const body = QuotaRecordRequestSchema.parse(await readQuotaRequest(request));
+      return Response.json(
+        QuotaUsageResponseSchema.parse(
+          await this.record(
+            body.feature,
+            body.amount,
+            new Date(body.periodEnd),
+            body.eventId,
+            new Date(body.recordedAt),
+          ),
+        ),
+      );
     }
-    if (url.pathname === "/set-limit") {
-      const body = QuotaSetLimitBodySchema.parse(await request.json());
-      await this.setLimit(body.feature, body.limit, body.source);
-      return Response.json({ ok: true });
+    if (pathname === "/history") {
+      const body = QuotaHistoryBodySchema.parse(await readQuotaRequest(request));
+      return Response.json(await this.history(body.feature, new Date(body.from)));
     }
-    if (url.pathname === "/snapshot") {
-      const body = QuotaSnapshotBodySchema.parse(await request.json());
+    if (pathname === "/set-limit") {
+      const body = QuotaSetLimitRequestSchema.parse(await readQuotaRequest(request));
+      await this.setLimit(body.feature, body.limit, body.entitlementVersion);
+      return Response.json(QuotaSetLimitResponseSchema.parse({ ok: true }));
+    }
+    if (pathname === "/snapshot") {
+      const body = QuotaSnapshotBodySchema.parse(await readQuotaRequest(request));
       return Response.json(await this.snapshot(new Date(body.periodEnd)));
     }
-    if (url.pathname === "/reset") {
-      const body = QuotaResetBodySchema.parse(await request.json());
-      await this.reset(body.feature);
-      return Response.json({ ok: true });
-    }
-    if (url.pathname === "/delete-all") {
+    if (pathname === "/delete-all") {
       await this.deleteAllState();
       return Response.json({ ok: true });
     }
@@ -180,7 +280,15 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
       "DELETE FROM counter WHERE updated_at < ?",
       Date.now() - QUOTA_TRACKER_RETENTION_MS,
     );
-    await this.ensureCleanupAlarm();
+    this.ctx.storage.sql.exec(
+      "DELETE FROM usage_event WHERE recorded_at < ?",
+      Date.now() - QUOTA_TRACKER_RETENTION_MS,
+    );
+    this.ctx.storage.sql.exec(
+      "DELETE FROM quota_operation WHERE recorded_at < ?",
+      Date.now() - QUOTA_TRACKER_RETENTION_MS,
+    );
+    await this.refreshCleanupAlarm();
   }
 
   public constructor(ctx: DurableObjectState, env: QuotaTrackerEnv) {
@@ -195,16 +303,106 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
           PRIMARY KEY (feature, period_key)
         )`,
       );
+      this.ensureLimitOverrideSchema();
       this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS limit_override (
-          feature TEXT PRIMARY KEY,
-          limit_val REAL NOT NULL,
-          source TEXT,
-          updated_at INTEGER NOT NULL
+        `CREATE TABLE IF NOT EXISTS usage_event (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          feature TEXT NOT NULL,
+          amount REAL NOT NULL,
+          recorded_at INTEGER NOT NULL
         )`,
       );
-      await this.ensureCleanupAlarm();
+      this.ctx.storage.sql.exec(
+        "CREATE INDEX IF NOT EXISTS usage_event_feature_time_idx ON usage_event(feature, recorded_at)",
+      );
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE IF NOT EXISTS quota_operation (
+          event_id TEXT PRIMARY KEY,
+          operation TEXT NOT NULL,
+          feature TEXT NOT NULL,
+          period_key TEXT NOT NULL,
+          amount REAL NOT NULL,
+          allowed INTEGER NOT NULL,
+          limit_val REAL NOT NULL,
+          remaining REAL NOT NULL,
+          used REAL NOT NULL,
+          recorded_at INTEGER NOT NULL
+        )`,
+      );
+      this.ctx.storage.sql.exec(
+        "CREATE INDEX IF NOT EXISTS quota_operation_feature_time_idx ON quota_operation(feature, recorded_at)",
+      );
+      this.deleteUnsupportedFeatures();
     });
+  }
+
+  private consumeOnce(input: QuotaOperationInput): QuotaTryConsumeResponse {
+    const existing = this.readOperation(input);
+    if (existing) {
+      return operationConsumeResult(existing);
+    }
+    const limit = this.readLimit(input.feature);
+    const used = this.readUsed(input.feature, input.periodKey);
+    const allowed = used + input.amount <= limit;
+    const nextUsed = allowed ? used + input.amount : used;
+    const remaining = Math.max(0, limit - nextUsed);
+    if (allowed) {
+      this.writeUsage(input.feature, input.periodKey, input.amount, nextUsed, Date.now());
+    }
+    this.insertOperation(input, { allowed, limit, remaining, used: nextUsed });
+    return QuotaTryConsumeResponseSchema.parse({ allowed, limit, remaining });
+  }
+
+  private recordOnce(input: QuotaOperationInput, recordedAt: number): QuotaUsageResponse {
+    const existing = this.readOperation(input);
+    if (existing) {
+      return operationPeekResult(existing);
+    }
+    const nextUsed = this.readUsed(input.feature, input.periodKey) + input.amount;
+    const limit = this.readLimit(input.feature);
+    const remaining = Math.max(0, limit - nextUsed);
+    this.writeUsage(input.feature, input.periodKey, input.amount, nextUsed, recordedAt);
+    this.insertOperation(input, { allowed: true, limit, remaining, used: nextUsed });
+    return QuotaUsageResponseSchema.parse({ limit, remaining, used: nextUsed });
+  }
+
+  private readOperation(input: QuotaOperationInput): OperationRow | null {
+    const [row] = this.ctx.storage.sql
+      .exec("SELECT * FROM quota_operation WHERE event_id = ?", input.eventId)
+      .toArray();
+    if (!isOperationRow(row)) {
+      return null;
+    }
+    if (
+      row.operation !== input.operation ||
+      row.feature !== input.feature ||
+      row.period_key !== input.periodKey ||
+      row.amount !== input.amount
+    ) {
+      throw new Error("Quota event id was reused with different operation data.");
+    }
+    return row;
+  }
+
+  private insertOperation(
+    input: QuotaOperationInput,
+    result: { allowed: boolean; limit: number; remaining: number; used: number },
+  ): void {
+    this.ctx.storage.sql.exec(
+      `INSERT INTO quota_operation
+       (event_id, operation, feature, period_key, amount, allowed, limit_val, remaining, used, recorded_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      input.eventId,
+      input.operation,
+      input.feature,
+      input.periodKey,
+      input.amount,
+      result.allowed ? 1 : 0,
+      result.limit,
+      result.remaining,
+      result.used,
+      Date.now(),
+    );
   }
 
   private async ensureCleanupAlarm(): Promise<void> {
@@ -214,21 +412,95 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     }
   }
 
-  private readLimit(feature: string): number {
+  private async refreshCleanupAlarm(): Promise<void> {
+    if (this.hasRetainedUsage()) {
+      await this.ensureCleanupAlarm();
+      return;
+    }
+    await this.ctx.storage.deleteAlarm();
+  }
+
+  private hasRetainedUsage(): boolean {
+    for (const table of ["counter", "usage_event", "quota_operation"] as const) {
+      const [row] = this.ctx.storage.sql
+        .exec(`SELECT 1 AS present FROM ${table} LIMIT 1`)
+        .toArray();
+      if (isRecord(row) && row["present"] === 1) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private deleteUnsupportedFeatures(): void {
+    for (const table of ["counter", "limit_override", "quota_operation", "usage_event"] as const) {
+      this.ctx.storage.sql.exec(
+        `DELETE FROM ${table} WHERE feature NOT IN (?, ?)`,
+        QUOTA_FEATURES.composioCalls,
+        QUOTA_FEATURES.sandboxHours,
+      );
+    }
+  }
+
+  private ensureLimitOverrideSchema(): void {
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS limit_override (
+        feature TEXT PRIMARY KEY,
+        limit_val REAL NOT NULL,
+        entitlement_version INTEGER NOT NULL
+      )`,
+    );
+    const columns = this.ctx.storage.sql.exec("PRAGMA table_info(limit_override)").toArray();
+    if (hasExactLimitOverrideColumns(columns)) {
+      return;
+    }
+    const canPreserveLimits =
+      hasNamedColumn(columns, "feature") && hasNamedColumn(columns, "limit_val");
+    this.ctx.storage.transactionSync(() => {
+      this.ctx.storage.sql.exec("DROP TABLE IF EXISTS limit_override_next");
+      this.ctx.storage.sql.exec(
+        `CREATE TABLE limit_override_next (
+          feature TEXT PRIMARY KEY,
+          limit_val REAL NOT NULL,
+          entitlement_version INTEGER NOT NULL
+        )`,
+      );
+      if (canPreserveLimits) {
+        this.ctx.storage.sql.exec(
+          `INSERT OR REPLACE INTO limit_override_next (feature, limit_val, entitlement_version)
+           SELECT feature, limit_val, 0
+           FROM limit_override
+           WHERE typeof(feature) = 'text'
+             AND typeof(limit_val) IN ('integer', 'real')
+             AND limit_val >= 0`,
+        );
+      }
+      this.ctx.storage.sql.exec("DROP TABLE limit_override");
+      this.ctx.storage.sql.exec("ALTER TABLE limit_override_next RENAME TO limit_override");
+    });
+  }
+
+  private readLimit(feature: QuotaFeature): number {
     const [rawRow] = this.ctx.storage.sql
       .exec("SELECT limit_val FROM limit_override WHERE feature = ?", feature)
       .toArray();
     return isRecord(rawRow) && typeof rawRow["limit_val"] === "number" ? rawRow["limit_val"] : 0;
   }
 
-  private readUsed(feature: string, periodKey: string): number {
+  private readUsed(feature: QuotaFeature, periodKey: string): number {
     const [rawRow] = this.ctx.storage.sql
       .exec("SELECT used FROM counter WHERE feature = ? AND period_key = ?", feature, periodKey)
       .toArray();
     return isCounterRow(rawRow) ? rawRow.used : 0;
   }
 
-  private writeUsed(feature: string, periodKey: string, used: number): void {
+  private writeUsage(
+    feature: QuotaFeature,
+    periodKey: string,
+    amount: number,
+    used: number,
+    recordedAt: number,
+  ): void {
     this.ctx.storage.sql.exec(
       `INSERT INTO counter (feature, period_key, used, updated_at)
        VALUES (?, ?, ?, ?)
@@ -240,7 +512,53 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
       used,
       Date.now(),
     );
+    this.ctx.storage.sql.exec(
+      "INSERT INTO usage_event (feature, amount, recorded_at) VALUES (?, ?, ?)",
+      feature,
+      amount,
+      recordedAt,
+    );
   }
+}
+
+async function readQuotaRequest(request: Request): Promise<unknown> {
+  return readJsonRequest(request, QUOTA_TRACKER_MAX_REQUEST_BYTES, "Quota tracker request");
+}
+
+function operationConsumeResult(row: OperationRow): QuotaTryConsumeResponse {
+  return QuotaTryConsumeResponseSchema.parse({
+    allowed: row.allowed === 1,
+    limit: row.limit_val,
+    remaining: row.remaining,
+  });
+}
+
+function operationPeekResult(row: OperationRow): QuotaUsageResponse {
+  return QuotaUsageResponseSchema.parse({
+    limit: row.limit_val,
+    remaining: row.remaining,
+    used: row.used,
+  });
+}
+
+function historyResult(rows: unknown[]): QuotaHistoryResult {
+  return QuotaHistoryResultSchema.parse(
+    rows.filter(isHistoryRow).map((row) => ({ amount: row.amount, recordedAt: row.recorded_at })),
+  );
+}
+
+function hasExactLimitOverrideColumns(rows: unknown[]): boolean {
+  if (rows.length !== LIMIT_OVERRIDE_COLUMNS.length) {
+    return false;
+  }
+  return LIMIT_OVERRIDE_COLUMNS.every((name, index) => {
+    const row = rows[index];
+    return isRecord(row) && row["name"] === name;
+  });
+}
+
+function hasNamedColumn(rows: unknown[], name: string): boolean {
+  return rows.some((row) => isRecord(row) && row["name"] === name);
 }
 
 function periodKeyFromDate(date: Date): string {

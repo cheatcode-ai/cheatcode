@@ -18,31 +18,17 @@ import {
   GOOGLE_API_KEY_CONTEXT_KEY,
   LLM_MODEL_ID_CONTEXT_KEY,
   LLM_PROVIDER_CONTEXT_KEY,
-  type LlmModelSelection,
   type LlmProvider,
+  type LlmTransportSelection,
   OPENAI_API_KEY_CONTEXT_KEY,
   OPENROUTER_API_KEY_CONTEXT_KEY,
 } from "../llm-context";
 import { buildSystemPrompt, promptRuntimeContextFromRequestContext } from "../system-prompt";
 import { cheatcodeTools } from "../tools/tool-set";
 
-export type { LlmModelSelection, LlmProvider } from "../llm-context";
-export {
-  ANTHROPIC_API_KEY_CONTEXT_KEY,
-  DEEPSEEK_API_KEY_CONTEXT_KEY,
-  DEFAULT_ANTHROPIC_MODEL_ID,
-  DEFAULT_DEEPSEEK_MODEL_ID,
-  DEFAULT_GOOGLE_MODEL_ID,
-  DEFAULT_OPENAI_MODEL_ID,
-  DEFAULT_OPENROUTER_MODEL_ID,
-  GOOGLE_API_KEY_CONTEXT_KEY,
-  LLM_MODEL_ID_CONTEXT_KEY,
-  LLM_PROVIDER_CONTEXT_KEY,
-  OPENAI_API_KEY_CONTEXT_KEY,
-  OPENROUTER_API_KEY_CONTEXT_KEY,
-} from "../llm-context";
+export type { LlmProvider, LlmTransportSelection } from "../llm-context";
 
-export function createAnthropicByokModel(
+function createAnthropicByokModel(
   apiKey: string,
   modelId = DEFAULT_ANTHROPIC_MODEL_ID,
 ): MastraModelConfig {
@@ -53,7 +39,7 @@ export function createAnthropicByokModel(
   return createAnthropic({ apiKey: trimmed })(modelId);
 }
 
-export function createOpenAiByokModel(
+function createOpenAiByokModel(
   apiKey: string,
   modelId = DEFAULT_OPENAI_MODEL_ID,
 ): MastraModelConfig {
@@ -64,7 +50,7 @@ export function createOpenAiByokModel(
   return createOpenAI({ apiKey: trimmed }).responses(modelId);
 }
 
-export function createGoogleByokModel(
+function createGoogleByokModel(
   apiKey: string,
   modelId = DEFAULT_GOOGLE_MODEL_ID,
 ): MastraModelConfig {
@@ -75,7 +61,7 @@ export function createGoogleByokModel(
   return createGoogleGenerativeAI({ apiKey: trimmed })(modelId);
 }
 
-export function createOpenRouterByokModel(
+function createOpenRouterByokModel(
   apiKey: string,
   modelId = DEFAULT_OPENROUTER_MODEL_ID,
 ): MastraModelConfig {
@@ -92,11 +78,11 @@ export function createOpenRouterByokModel(
 }
 
 /**
- * DeepSeek model — serves both the platform free tier (our key) and user BYOK keys.
+ * DeepSeek model — serves both the included platform route and user BYOK keys.
  * Pass the bare provider id (`deepseek-v4-flash`); non-thinking mode is selected at the
  * stream call site via providerOptions so tool-calling stays clean.
  */
-export function createDeepSeekModel(
+function createDeepSeekModel(
   apiKey: string,
   modelId = DEFAULT_DEEPSEEK_MODEL_ID,
 ): MastraModelConfig {
@@ -107,10 +93,10 @@ export function createDeepSeekModel(
   return createDeepSeek({ apiKey: trimmed })(modelId);
 }
 
-export function resolveRequestedLlmModel(model: string | null | undefined): LlmModelSelection {
-  const requested = model?.trim();
+export function resolveRequestedLlmTransport(model: string): LlmTransportSelection {
+  const requested = model.trim();
   if (!requested) {
-    return { provider: "anthropic", modelId: DEFAULT_ANTHROPIC_MODEL_ID };
+    throw new Error("Model selection is required.");
   }
 
   if (requested.startsWith("anthropic/")) {
@@ -128,23 +114,11 @@ export function resolveRequestedLlmModel(model: string | null | undefined): LlmM
   if (requested.startsWith("deepseek/")) {
     return requestedModel("deepseek", requested.slice("deepseek/".length));
   }
-  if (requested.startsWith("claude-")) {
-    return requestedModel("anthropic", requested);
-  }
-  if (requested.startsWith("gpt-") || requested.startsWith("o1") || requested.startsWith("o3")) {
-    return requestedModel("openai", requested);
-  }
-  if (requested.startsWith("gemini-")) {
-    return requestedModel("google", requested);
-  }
-  if (requested.startsWith("deepseek-")) {
-    return requestedModel("deepseek", requested);
-  }
 
   throw new Error(`Unsupported model selection: ${requested}`);
 }
 
-function requestedModel(provider: LlmProvider, modelId: string): LlmModelSelection {
+function requestedModel(provider: LlmProvider, modelId: string): LlmTransportSelection {
   const trimmedModelId = modelId.trim();
   if (trimmedModelId.length === 0) {
     throw new Error(`Missing ${provider} model id.`);

@@ -1,6 +1,6 @@
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
 
-export type SkillIntent = "data" | "research" | "slides";
+type SkillIntent = "data" | "research" | "slides";
 export type SkillSurface = "mobile" | "web";
 
 // Skills that map onto an existing intent pill (the design's slide/research/data lanes).

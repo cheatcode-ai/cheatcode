@@ -4,7 +4,6 @@ Shared TypeScript configuration package for apps, Workers, and libraries.
 
 ## Public Exports
 
-- `base.json`
 - `library.json`
 - `nextjs.json`
 - `worker.json`

@@ -1,0 +1,12 @@
+{
+  "name": "@cheatcode/parquet-viewer-runtime-overlay",
+  "private": true,
+  "version": "0.0.0",
+  "engines": {
+    "node": "22.x"
+  },
+  "dependencies": {
+    "thrift": "0.23.0",
+    "ws": "5.2.5"
+  }
+}

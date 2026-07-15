@@ -1,5 +1,5 @@
 import type { UserId } from "@cheatcode/types";
-import { FREE_DEEPSEEK_TOKEN_LIMIT, UserId as toUserId } from "@cheatcode/types";
+import { UserId as toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { billingEvents, entitlements, users } from "./schema";
@@ -14,35 +14,22 @@ export interface EntitlementUpsertInput {
   cancelAtPeriodEnd?: boolean;
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
-  flagPrivateProjects: boolean;
-  flagSso: boolean;
-  maxConcurrentSandboxes: number;
   maxProjects: number;
-  maxSeats: number;
-  polarCustomerId?: string | null;
   polarSubscriptionId?: string | null;
   quotaComposioCalls: number;
-  quotaDeployments: number;
   quotaSandboxHours: string;
-  source: string;
   subscriptionStatus: string;
   tier: string;
   userId: UserId;
-  webhookEventId?: string | null;
 }
 
 export interface EntitlementRecord {
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: Date | null;
   currentPeriodStart: Date | null;
-  flagPrivateProjects: boolean;
-  flagSso: boolean;
-  maxConcurrentSandboxes: number;
   maxProjects: number;
-  maxSeats: number;
   polarSubscriptionId: string | null;
   quotaComposioCalls: number;
-  quotaDeployments: number;
   quotaSandboxHours: string;
   subscriptionStatus: string;
   tier: string;
@@ -62,7 +49,6 @@ export interface EntitlementSubscriptionStateInput {
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
   polarSubscriptionId: string;
-  source: string;
   subscriptionStatus: string;
   userId: UserId;
 }
@@ -101,29 +87,6 @@ export async function findBillingUserByPolarCustomerId(
     : null;
 }
 
-export interface FreeDeepseekUsage {
-  limit: number;
-  used: number;
-}
-
-/** Reads the per-user lifetime free DeepSeek token counter from the entitlements row. */
-export async function getFreeDeepseekUsage(
-  db: Database,
-  userId: UserId,
-): Promise<FreeDeepseekUsage> {
-  const row = await db.query.entitlements.findFirst({
-    columns: { freeDeepseekTokensUsed: true },
-    where: eq(entitlements.userId, userId),
-  });
-  return { limit: FREE_DEEPSEEK_TOKEN_LIMIT, used: row?.freeDeepseekTokensUsed ?? 0 };
-}
-
-/** True while the user still has free DeepSeek allowance left (run-start gate). */
-export async function hasFreeDeepseekAllowance(db: Database, userId: UserId): Promise<boolean> {
-  const { limit, used } = await getFreeDeepseekUsage(db, userId);
-  return used < limit;
-}
-
 export async function findEntitlementByUserId(
   db: Database,
   userId: UserId,
@@ -136,14 +99,9 @@ export async function findEntitlementByUserId(
         cancelAtPeriodEnd: row.cancelAtPeriodEnd,
         currentPeriodEnd: row.currentPeriodEnd,
         currentPeriodStart: row.currentPeriodStart,
-        flagPrivateProjects: row.flagPrivateProjects,
-        flagSso: row.flagSso,
-        maxConcurrentSandboxes: row.maxConcurrentSandboxes,
         maxProjects: row.maxProjects,
-        maxSeats: row.maxSeats,
         polarSubscriptionId: row.polarSubscriptionId,
         quotaComposioCalls: row.quotaComposioCalls,
-        quotaDeployments: row.quotaDeployments,
         quotaSandboxHours: row.quotaSandboxHours,
         subscriptionStatus: row.subscriptionStatus,
         tier: row.tier,
@@ -166,37 +124,39 @@ export async function updateUserPolarCustomerId(
     .where(eq(users.id, input.userId));
 }
 
+/** Serializes entitlement changes with resource-consuming writes for one tenant. */
+export async function lockUserEntitlementMutations(db: Database, userId: UserId): Promise<void> {
+  const identity = `cheatcode:user-entitlement-mutations:${userId}`;
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
+}
+
 export async function upsertEntitlement(
   db: Database,
   input: EntitlementUpsertInput,
 ): Promise<void> {
   const values = entitlementValues(input);
-  await db
-    .insert(entitlements)
-    .values(values)
-    .onConflictDoUpdate({
-      target: entitlements.userId,
-      set: {
-        cancelAtPeriodEnd: values.cancelAtPeriodEnd,
-        currentPeriodEnd: values.currentPeriodEnd,
-        currentPeriodStart: values.currentPeriodStart,
-        flagPrivateProjects: values.flagPrivateProjects,
-        flagSso: values.flagSso,
-        maxConcurrentSandboxes: values.maxConcurrentSandboxes,
-        maxProjects: values.maxProjects,
-        maxSeats: values.maxSeats,
-        polarCustomerId: values.polarCustomerId,
-        polarSubscriptionId: values.polarSubscriptionId,
-        quotaComposioCalls: values.quotaComposioCalls,
-        quotaDeployments: values.quotaDeployments,
-        quotaSandboxHours: values.quotaSandboxHours,
-        source: values.source,
-        subscriptionStatus: values.subscriptionStatus,
-        tier: values.tier,
-        updatedAt: sql`now()`,
-        webhookEventId: values.webhookEventId,
-      },
-    });
+  await db.transaction(async (tx) => {
+    const transaction = tx as Database;
+    await lockUserEntitlementMutations(transaction, input.userId);
+    await transaction
+      .insert(entitlements)
+      .values(values)
+      .onConflictDoUpdate({
+        target: entitlements.userId,
+        set: {
+          cancelAtPeriodEnd: values.cancelAtPeriodEnd,
+          currentPeriodEnd: values.currentPeriodEnd,
+          currentPeriodStart: values.currentPeriodStart,
+          maxProjects: values.maxProjects,
+          polarSubscriptionId: values.polarSubscriptionId,
+          quotaComposioCalls: values.quotaComposioCalls,
+          quotaSandboxHours: values.quotaSandboxHours,
+          subscriptionStatus: values.subscriptionStatus,
+          tier: values.tier,
+          updatedAt: sql`now()`,
+        },
+      });
+  });
 }
 
 export async function updateEntitlementSubscriptionState(
@@ -210,7 +170,6 @@ export async function updateEntitlementSubscriptionState(
       currentPeriodEnd: input.currentPeriodEnd ?? null,
       currentPeriodStart: input.currentPeriodStart ?? null,
       polarSubscriptionId: input.polarSubscriptionId,
-      source: input.source,
       subscriptionStatus: input.subscriptionStatus,
       updatedAt: sql`now()`,
     })
@@ -229,25 +188,26 @@ export async function recordBillingEvent(db: Database, input: BillingEventInput)
     .onConflictDoNothing();
 }
 
+/** Remove minimized webhook diagnostics after their operational reconciliation window. */
+export async function purgeExpiredBillingEvents(db: Database, before: Date): Promise<number> {
+  const rows = await db
+    .delete(billingEvents)
+    .where(sql`${billingEvents.processedAt} < ${before}`)
+    .returning({ id: billingEvents.id });
+  return rows.length;
+}
+
 function entitlementValues(input: EntitlementUpsertInput) {
   return {
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
     currentPeriodStart: input.currentPeriodStart ?? null,
-    flagPrivateProjects: input.flagPrivateProjects,
-    flagSso: input.flagSso,
-    maxConcurrentSandboxes: input.maxConcurrentSandboxes,
     maxProjects: input.maxProjects,
-    maxSeats: input.maxSeats,
-    polarCustomerId: input.polarCustomerId ?? null,
     polarSubscriptionId: input.polarSubscriptionId ?? null,
     quotaComposioCalls: input.quotaComposioCalls,
-    quotaDeployments: input.quotaDeployments,
     quotaSandboxHours: input.quotaSandboxHours,
-    source: input.source,
     subscriptionStatus: input.subscriptionStatus,
     tier: input.tier,
     userId: input.userId,
-    webhookEventId: input.webhookEventId ?? null,
   };
 }

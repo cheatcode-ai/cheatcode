@@ -1,4 +1,5 @@
-import type { DaytonaClient, DaytonaFileInfo, SandboxListFilesResult } from "@cheatcode/tools-code";
+import type { SandboxListFilesResult } from "@cheatcode/sandbox-contracts";
+import type { DaytonaClient, DaytonaFileInfo } from "@cheatcode/tools-code";
 
 const MAX_LIST_FILE_ENTRIES = 1_000;
 

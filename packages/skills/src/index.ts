@@ -1,8 +1,7 @@
 import { SKILLS } from "./generated";
 import type { BundledSkill } from "./types";
 
-export type { BundledSkill, SkillCategory, SkillManifestEntry } from "./types";
-export { SKILL_CATEGORIES } from "./types";
+export type { BundledSkill } from "./types";
 export { SKILLS };
 
 export function buildSystemPromptSection(skills: BundledSkill[] = SKILLS): string {

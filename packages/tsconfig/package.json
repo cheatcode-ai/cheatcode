@@ -4,9 +4,11 @@
   "version": "0.0.0",
   "type": "module",
   "files": [
-    "base.json",
     "library.json",
     "nextjs.json",
     "worker.json"
-  ]
+  ],
+  "devDependencies": {
+    "next": "catalog:"
+  }
 }

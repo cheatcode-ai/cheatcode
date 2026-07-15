@@ -1,10 +1,13 @@
 import { createDb, getUserAccount, updateUserAccount, withUserContext } from "@cheatcode/db";
-import { APIError } from "@cheatcode/observability";
+import { APIError, readJsonRequest } from "@cheatcode/observability";
 import { MeResponseSchema, UpdateMeSchema, type UserId } from "@cheatcode/types";
+import type { WaitUntilContext } from "./wait-until-context";
 
 export interface AccountRouteEnv {
   HYPERDRIVE: Hyperdrive;
 }
+
+const MAX_ACCOUNT_REQUEST_BYTES = 4 * 1024;
 
 function accountResponse(record: {
   id: string;
@@ -22,7 +25,7 @@ function accountResponse(record: {
 
 export async function getMeRoute(
   env: AccountRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
   const { db, close } = createDb(env.HYPERDRIVE);
@@ -39,11 +42,13 @@ export async function getMeRoute(
 
 export async function updateMeRoute(
   env: AccountRouteEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
-  const parsed = UpdateMeSchema.safeParse(await request.json());
+  const parsed = UpdateMeSchema.safeParse(
+    await readJsonRequest(request, MAX_ACCOUNT_REQUEST_BYTES, "Account request"),
+  );
   if (!parsed.success) {
     throw new APIError(400, "invalid_request_body", "Invalid account payload", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },

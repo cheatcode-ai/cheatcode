@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readOption, readRequiredOptionValue } from "./cli-options";
+import { type ConfigRecord, isRecord, parseJsoncObject } from "./jsonc";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ZERO_UUID = "00000000-0000-0000-0000-000000000000";
@@ -13,10 +14,6 @@ const WORKER_CONFIG_PATHS = [
   "apps/agent-worker/wrangler.jsonc",
   "apps/webhooks-worker/wrangler.jsonc",
 ] as const;
-
-interface ConfigRecord {
-  [key: string]: unknown;
-}
 
 interface Options {
   apply: boolean;
@@ -72,20 +69,12 @@ function parseArgs(argv: string[]): Options {
   return { apply, id };
 }
 
-function isRecord(value: unknown): value is ConfigRecord {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
 function readConfig(configPath: string): ConfigRecord {
   const absolutePath = join(ROOT, configPath);
-  const parsed = JSON.parse(readFileSync(absolutePath, "utf8")) as unknown;
-  if (!isRecord(parsed)) {
-    throw new Error(`${configPath} must parse to a JSON object.`);
-  }
-  return parsed;
+  return parseJsoncObject(readFileSync(absolutePath, "utf8"), configPath);
 }
 
-function updateHyperdriveId(configPath: string, id: string): boolean {
+function updateHyperdriveId(configPath: string, id: string, apply: boolean): boolean {
   const config = readConfig(configPath);
   const bindings = config["hyperdrive"];
   if (!Array.isArray(bindings)) {
@@ -93,19 +82,26 @@ function updateHyperdriveId(configPath: string, id: string): boolean {
   }
 
   let changed = false;
+  let matchCount = 0;
   for (const binding of bindings) {
     if (!isRecord(binding) || binding["binding"] !== "HYPERDRIVE") {
       continue;
     }
-    changed = binding["id"] !== id;
+    matchCount += 1;
+    changed ||= binding["id"] !== id;
     binding["id"] = id;
+  }
+
+  if (matchCount !== 1) {
+    throw new Error(`${configPath} must contain exactly one HYPERDRIVE binding.`);
   }
 
   if (!changed) {
     return false;
   }
-
-  writeFileSync(join(ROOT, configPath), `${JSON.stringify(config, null, 2)}\n`);
+  if (apply) {
+    writeFileSync(join(ROOT, configPath), `${JSON.stringify(config, null, 2)}\n`);
+  }
   return true;
 }
 
@@ -117,12 +113,9 @@ function main(): void {
 
   for (const configPath of WORKER_CONFIG_PATHS) {
     const relativePath = relative(ROOT, join(ROOT, configPath));
-    if (options.apply) {
-      const changed = updateHyperdriveId(configPath, options.id);
-      writeLine(`- ${relativePath}: ${changed ? "updated" : "already set"}`);
-    } else {
-      writeLine(`- ${relativePath}: would set HYPERDRIVE id`);
-    }
+    const changed = updateHyperdriveId(configPath, options.id, options.apply);
+    const state = changed ? (options.apply ? "updated" : "would update") : "already set";
+    writeLine(`- ${relativePath}: ${state}`);
   }
 
   if (!options.apply) {

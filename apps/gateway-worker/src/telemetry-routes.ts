@@ -4,64 +4,30 @@ import {
   emitErrorEvent,
   emitPerformanceMetric,
   emitUserEvent,
+  readBoundedRequestText,
+  safeErrorTelemetry,
 } from "@cheatcode/observability";
-import type { UserId } from "@cheatcode/types";
+import {
+  ClientErrorBodySchema,
+  ClientUserEventBodySchema,
+  normalizeTelemetryPath,
+  type UserId,
+  WebVitalsBodySchema,
+} from "@cheatcode/types";
 import type { Context } from "hono";
-import { z } from "zod";
-import type { GatewayEnv } from "./index";
+import type { z } from "zod";
+import type { GatewayEnv } from "./gateway-env";
+import type { WaitUntilContext } from "./wait-until-context";
 
 type GatewayContext = Context<{ Bindings: GatewayEnv }>;
 type TelemetryUserResolver = (
   request: Request,
   env: GatewayEnv,
-  ctx: ExecutionContext,
+  ctx: WaitUntilContext,
 ) => Promise<UserId | "anonymous">;
 
 const MAX_TELEMETRY_BODY_CHARS = 16 * 1024;
-
-const ClientErrorBodySchema = z
-  .object({
-    message: z.string().max(2000).default("Client error"),
-    stack: z.string().max(8000).optional(),
-    timestamp: z.number().int().nonnegative().optional(),
-    type: z.string().max(120).optional(),
-    url: z.string().max(2000).optional(),
-    userAgent: z.string().max(1000).optional(),
-  })
-  .strict();
-
-const WebVitalMetricSchema = z
-  .object({
-    attributionTarget: z.string().max(1000).optional(),
-    delta: z.number().finite().optional(),
-    id: z.string().max(200),
-    name: z.string().max(40),
-    navigationType: z.string().max(80).optional(),
-    rating: z.enum(["good", "needs-improvement", "poor"]).optional(),
-    url: z.string().max(2000).optional(),
-    value: z.number().finite(),
-  })
-  .strict();
-
-const WebVitalsBodySchema = z.union([
-  WebVitalMetricSchema,
-  z.array(WebVitalMetricSchema).min(1).max(20),
-]);
-// Keep in sync with the client emitters in
-// apps/web/src/lib/telemetry/user-events.ts. Each name here is a fire-and-forget
-// product-signal event; an unlisted name 400s and is swallowed client-side.
-const ClientUserEventBodySchema = z
-  .object({
-    eventName: z.enum([
-      "first_preview_opened",
-      "console_strip_opened",
-      "composer_mention_inserted",
-      "composer_repo_attached",
-      "composer_slash_inserted",
-      "skill_use_clicked",
-    ]),
-  })
-  .strict();
+const MAX_TELEMETRY_BODY_BYTES = 64 * 1024;
 
 export async function clientErrorRoute(
   c: GatewayContext,
@@ -73,24 +39,22 @@ export async function clientErrorRoute(
     throw invalidTelemetryPayload(parsed.error);
   }
   const userId = await resolveTelemetryUser(c.req.raw, c.env, c.executionCtx);
+  const route = pathFromUrl(parsed.data.url) ?? "/v1/client-error";
+  const telemetry = safeErrorTelemetry({ name: parsed.data.type ?? "FrontendError" });
   createLogger({
     requestId: id,
     ...(userId === "anonymous" ? {} : { userId }),
   }).error("client_error", {
-    message: parsed.data.message,
-    stack: parsed.data.stack,
-    type: parsed.data.type ?? "frontend",
-    url: parsed.data.url,
-    userAgent: parsed.data.userAgent,
+    url: route,
+    ...telemetry,
   });
   emitErrorEvent(c.env, {
     errorCategory: "frontend",
-    errorCode: parsed.data.type ?? "client_error",
-    message: parsed.data.message,
-    route: pathFromUrl(parsed.data.url) ?? "/v1/client-error",
+    errorCode: "client_error",
+    route,
     userId,
     workerName: "web",
-    ...(parsed.data.stack ? { stack: parsed.data.stack } : {}),
+    ...telemetry,
   });
   return c.json({ ok: true });
 }
@@ -139,7 +103,7 @@ function requestId(): string {
 }
 
 async function readTelemetryJson(request: Request): Promise<unknown> {
-  const text = await request.text();
+  const text = await readBoundedRequestText(request, MAX_TELEMETRY_BODY_BYTES, "Telemetry request");
   if (text.length > MAX_TELEMETRY_BODY_CHARS) {
     throw new APIError(400, "invalid_request_body", "Telemetry payload is too large", {
       retriable: false,
@@ -171,8 +135,12 @@ function pathFromUrl(value: string | undefined): string | undefined {
     return undefined;
   }
   try {
-    return new URL(value).pathname;
+    const parsed = new URL(value, "https://telemetry.invalid");
+    if (parsed.origin !== "https://telemetry.invalid" && !/^https?:$/.test(parsed.protocol)) {
+      return undefined;
+    }
+    return normalizeTelemetryPath(parsed.pathname);
   } catch {
-    return value.slice(0, 200);
+    return undefined;
   }
 }

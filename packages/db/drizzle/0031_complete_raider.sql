@@ -1,0 +1,2 @@
+-- Schema snapshot marker only. The generated changes are contractions and run
+-- after the matching application deployment in raw migration 0040.

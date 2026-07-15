@@ -1,3 +1,8 @@
+import {
+  type DaytonaPreviewLink,
+  parseDaytonaPreviewHostSuffixes,
+  parseDaytonaPreviewLink,
+} from "@cheatcode/types/daytona-preview";
 import { z } from "zod";
 
 /**
@@ -8,17 +13,32 @@ import { z } from "zod";
  *  - control plane: `${apiUrl}/sandbox...`         (CRUD, lifecycle, preview)
  *  - toolbox plane: `${toolboxUrl}/{id}/...`        (process, sessions, fs)
  *
- * Endpoints/shapes verified live against the Tier-2 account (see
- * docs/plans/daytona-rest-reference.md §WS0).
+ * Endpoint and response shapes were verified against the live Daytona account;
+ * every response is validated locally before it reaches the sandbox runtime.
  */
 
-export const DEFAULT_DAYTONA_TOOLBOX_URL = "https://proxy.app.daytona.io/toolbox";
+const DEFAULT_DAYTONA_TOOLBOX_URL = "https://proxy.app.daytona.io/toolbox";
+const DEFAULT_DAYTONA_REQUEST_TIMEOUT_MS = 60_000;
+const DAYTONA_FILE_TRANSFER_TIMEOUT_MS = 120_000;
+const DAYTONA_EXEC_OVERHEAD_MS = 15_000;
+const DAYTONA_JSON_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const DAYTONA_ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
+const DAYTONA_BUFFERED_FILE_MAX_BYTES = 16 * 1024 * 1024;
+const DAYTONA_LOG_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const DAYTONA_ID_MAX_CHARACTERS = 500;
+const DAYTONA_PATH_MAX_CHARACTERS = 4_096;
+const DAYTONA_COMMAND_MAX_CHARACTERS = 100_000;
+const DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS = 4 * 1024 * 1024;
+const DAYTONA_FILE_LIST_MAX_ITEMS = 1_000;
+const DAYTONA_SESSION_COMMAND_MAX_ITEMS = 1_000;
 
-export interface DaytonaClientConfig {
+interface DaytonaClientConfig {
   apiKey: string;
   apiUrl: string;
   target: string;
   organizationId?: string;
+  previewHostSuffixes?: string;
+  requestTimeoutMs?: number;
   toolboxUrl?: string;
   fetchImpl?: typeof fetch;
 }
@@ -44,143 +64,99 @@ export class DaytonaApiError extends Error {
 }
 
 // ---------------------------------------------------------------------------
-// Response schemas (passthrough — Daytona adds fields over time)
+// Response schemas project provider payloads down to fields used by the runtime.
 // ---------------------------------------------------------------------------
 
-export const SandboxStateSchema = z.enum([
-  "creating",
-  "restoring",
-  "destroyed",
-  "destroying",
-  "started",
-  "stopped",
-  "starting",
-  "stopping",
-  "error",
-  "build_failed",
-  "pending_build",
-  "building_snapshot",
-  "unknown",
-  "pulling_snapshot",
-  "archived",
-  "archiving",
-  "resizing",
-]);
+const SandboxLabelsSchema = z
+  .record(z.string().min(1).max(100), z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS))
+  .refine((labels) => Object.keys(labels).length <= 50, "Sandbox labels exceed the safe limit.");
 
-export const SandboxSchema = z
+const SandboxSchema = z
   .object({
-    id: z.string().min(1),
-    name: z.string().optional(),
-    organizationId: z.string().optional(),
-    target: z.string().optional(),
-    state: SandboxStateSchema.or(z.string()),
-    desiredState: z.string().optional(),
-    snapshot: z.string().nullable().optional(),
-    user: z.string().optional(),
-    cpu: z.number().optional(),
-    memory: z.number().optional(),
-    disk: z.number().optional(),
-    public: z.boolean().optional(),
-    labels: z.record(z.string(), z.string()).optional(),
-    autoStopInterval: z.number().optional(),
-    autoArchiveInterval: z.number().optional(),
-    autoDeleteInterval: z.number().optional(),
-    backupState: z.string().optional(),
-    runnerId: z.string().nullable().optional(),
-    toolboxProxyUrl: z.string().optional(),
-    createdAt: z.string().optional(),
-    updatedAt: z.string().optional(),
-    lastActivityAt: z.string().optional(),
+    id: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    labels: SandboxLabelsSchema,
+    name: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    snapshot: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    state: z.string().min(1).max(100),
+    target: z.string().min(1).max(100),
+    user: z.string().min(1).max(100),
+    backupState: z.string().min(1).max(100).nullable().optional(),
+    desiredState: z.string().min(1).max(100).nullable().optional(),
   })
-  .passthrough();
+  .strip();
 
 export type DaytonaSandbox = z.infer<typeof SandboxSchema>;
 
 const SandboxListSchema = z
-  .object({ items: z.array(SandboxSchema).default([]) })
-  .passthrough()
-  .or(z.array(SandboxSchema).transform((items) => ({ items })));
+  .object({ items: z.array(SandboxSchema).max(100).default([]) })
+  .strip()
+  .or(
+    z
+      .array(SandboxSchema)
+      .max(100)
+      .transform((items) => ({ items })),
+  );
 
-export const ExecuteResponseSchema = z
+const ExecuteResponseSchema = z
   .object({
     exitCode: z.number().int(),
-    result: z.string().nullable().optional(),
+    result: z.string().max(DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS).nullable().optional(),
   })
-  .passthrough();
+  .strip();
 
-export type DaytonaExecuteResponse = z.infer<typeof ExecuteResponseSchema>;
+type DaytonaExecuteResponse = z.infer<typeof ExecuteResponseSchema>;
 
-export const SessionExecResponseSchema = z
+const SessionExecResponseSchema = z
   .object({
-    cmdId: z.string().optional(),
+    cmdId: z.string().max(DAYTONA_ID_MAX_CHARACTERS).optional(),
     exitCode: z.number().int().nullable().optional(),
-    stdout: z.string().nullable().optional(),
-    stderr: z.string().nullable().optional(),
-    output: z.string().nullable().optional(),
+    stdout: z.string().max(DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS).nullable().optional(),
+    stderr: z.string().max(DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS).nullable().optional(),
+    output: z.string().max(DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS).nullable().optional(),
   })
-  .passthrough();
+  .strip();
 
 export type DaytonaSessionExecResponse = z.infer<typeof SessionExecResponseSchema>;
 
-export const SessionCommandSchema = z
+const SessionCommandSchema = z
   .object({
-    id: z.string(),
-    command: z.string().optional(),
+    id: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    command: z.string().max(DAYTONA_COMMAND_MAX_CHARACTERS).optional(),
     exitCode: z.number().int().nullable().optional(),
   })
-  .passthrough();
+  .strip();
 
-export const SessionSchema = z
+const SessionSchema = z
   .object({
-    sessionId: z.string(),
-    commands: z.array(SessionCommandSchema).default([]),
+    sessionId: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    commands: z.array(SessionCommandSchema).max(DAYTONA_SESSION_COMMAND_MAX_ITEMS).default([]),
   })
-  .passthrough();
+  .strip();
 
-export type DaytonaSession = z.infer<typeof SessionSchema>;
+type DaytonaSession = z.infer<typeof SessionSchema>;
 
-export const FileInfoSchema = z
+const FileInfoSchema = z
   .object({
-    name: z.string(),
-    size: z.number().int().nonnegative().default(0),
+    name: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS),
+    size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
     isDir: z.boolean().default(false),
-    modTime: z.string().optional(),
-    modifiedAt: z.string().optional(),
-    mode: z.string().optional(),
-    permissions: z.string().optional(),
-    owner: z.string().optional(),
-    group: z.string().optional(),
+    modTime: z.string().max(100).optional(),
+    modifiedAt: z.string().max(100).optional(),
   })
-  .passthrough();
+  .strip();
 
 export type DaytonaFileInfo = z.infer<typeof FileInfoSchema>;
 
-export const PreviewLinkSchema = z
-  .object({
-    sandboxId: z.string().optional(),
-    url: z.string().url(),
-    token: z.string(),
-    legacyProxyUrl: z.string().optional(),
-  })
-  .passthrough();
-
-export type DaytonaPreviewLink = z.infer<typeof PreviewLinkSchema>;
-
-const FindMatchSchema = z
-  .object({
-    file: z.string(),
-    line: z.number().int().optional(),
-    content: z.string().optional(),
-  })
-  .passthrough();
-
-const SearchFilesSchema = z.object({ files: z.array(z.string()).default([]) }).passthrough();
+export interface SandboxDestroyResult {
+  deleted: boolean;
+  sandboxId: string;
+}
 
 // ---------------------------------------------------------------------------
 // Create params
 // ---------------------------------------------------------------------------
 
-export interface CreateSandboxParams {
+interface CreateSandboxParams {
   name?: string;
   snapshot?: string;
   labels?: Record<string, string>;
@@ -193,7 +169,7 @@ export interface CreateSandboxParams {
   autoDeleteInterval?: number;
 }
 
-export interface ExecuteParams {
+interface ExecuteParams {
   command: string;
   cwd?: string;
   env?: Record<string, string>;
@@ -211,6 +187,8 @@ export class DaytonaClient {
   private readonly toolboxUrl: string;
   private readonly target: string;
   private readonly organizationId: string | undefined;
+  private readonly previewHostSuffixes: readonly string[];
+  private readonly requestTimeoutMs: number;
   private readonly fetchImpl: typeof fetch;
 
   constructor(config: DaytonaClientConfig) {
@@ -219,6 +197,8 @@ export class DaytonaClient {
     this.toolboxUrl = stripTrailingSlash(config.toolboxUrl ?? DEFAULT_DAYTONA_TOOLBOX_URL);
     this.target = config.target;
     this.organizationId = config.organizationId;
+    this.previewHostSuffixes = parseDaytonaPreviewHostSuffixes(config.previewHostSuffixes);
+    this.requestTimeoutMs = positiveTimeout(config.requestTimeoutMs);
     // Bind to globalThis: the global `fetch` must keep the global scope as its
     // receiver. Calling it as a method (`this.fetchImpl(...)`) otherwise rebinds
     // `this` to the client instance, which workerd rejects with "Illegal
@@ -257,7 +237,7 @@ export class DaytonaClient {
 
   /** Authoritative lookup when the cached id is missing — names are not unique. */
   async listSandboxesByLabels(labels: Record<string, string>): Promise<DaytonaSandbox[]> {
-    const query = `?labels=${encodeURIComponent(JSON.stringify(labels))}`;
+    const query = `?labels=${encodeURIComponent(JSON.stringify(labels))}&limit=100`;
     const json = await this.control("GET", `/sandbox${query}`);
     return SandboxListSchema.parse(json).items;
   }
@@ -274,23 +254,9 @@ export class DaytonaClient {
     await this.control("POST", `/sandbox/${encodeURIComponent(idOrName)}/stop`);
   }
 
-  async archiveSandbox(idOrName: string): Promise<void> {
-    await this.control("POST", `/sandbox/${encodeURIComponent(idOrName)}/archive`);
-  }
-
   /** minutes; 0 disables auto-stop (use during active runs). */
   async setAutoStopInterval(id: string, minutes: number): Promise<void> {
     await this.control("POST", `/sandbox/${encodeURIComponent(id)}/autostop/${minutes}`);
-  }
-
-  /** minutes; 0 = max (30d). */
-  async setAutoArchiveInterval(id: string, minutes: number): Promise<void> {
-    await this.control("POST", `/sandbox/${encodeURIComponent(id)}/autoarchive/${minutes}`);
-  }
-
-  /** minutes; -1 disables auto-delete (the durable-store guarantee). */
-  async setAutoDeleteInterval(id: string, minutes: number): Promise<void> {
-    await this.control("POST", `/sandbox/${encodeURIComponent(id)}/autodelete/${minutes}`);
   }
 
   /** Keepalive — bumps lastActivityAt without a state change (id only). */
@@ -305,7 +271,7 @@ export class DaytonaClient {
       "GET",
       `/sandbox/${encodeURIComponent(id)}/ports/${port}/preview-url`,
     );
-    return PreviewLinkSchema.parse(json);
+    return parseDaytonaPreviewLink(json, this.previewHostSuffixes);
   }
 
   async getSignedPreviewUrl(
@@ -317,7 +283,7 @@ export class DaytonaClient {
       "GET",
       `/sandbox/${encodeURIComponent(id)}/ports/${port}/signed-preview-url?expiresInSeconds=${expiresInSeconds}`,
     );
-    return PreviewLinkSchema.parse(json);
+    return parseDaytonaPreviewLink(json, this.previewHostSuffixes);
   }
 
   // ----- toolbox plane: process -----
@@ -327,7 +293,10 @@ export class DaytonaClient {
     if (params.cwd !== undefined) body["cwd"] = params.cwd;
     if (params.env !== undefined) body["env"] = params.env;
     if (params.timeout !== undefined) body["timeout"] = params.timeout;
-    const json = await this.toolbox("POST", id, "/process/execute", { body });
+    const json = await this.toolbox("POST", id, "/process/execute", {
+      body,
+      timeoutMs: (params.timeout ?? 600) * 1_000 + DAYTONA_EXEC_OVERHEAD_MS,
+    });
     return ExecuteResponseSchema.parse(json);
   }
 
@@ -353,6 +322,20 @@ export class DaytonaClient {
     return SessionExecResponseSchema.parse(json);
   }
 
+  async sendSessionCommandInput(
+    id: string,
+    sessionId: string,
+    commandId: string,
+    data: string,
+  ): Promise<void> {
+    await this.toolbox(
+      "POST",
+      id,
+      `/process/session/${encodeURIComponent(sessionId)}/command/${encodeURIComponent(commandId)}/input`,
+      { body: { data } },
+    );
+  }
+
   async getSession(id: string, sessionId: string): Promise<DaytonaSession | null> {
     const json = await this.toolbox(
       "GET",
@@ -361,11 +344,6 @@ export class DaytonaClient {
       { allow404: true },
     );
     return json === null ? null : SessionSchema.parse(json);
-  }
-
-  async listSessions(id: string): Promise<DaytonaSession[]> {
-    const json = await this.toolbox("GET", id, "/process/session");
-    return z.array(SessionSchema).parse(json ?? []);
   }
 
   /** Snapshot of the full accumulated log buffer (no cursor — caller diffs). */
@@ -387,24 +365,41 @@ export class DaytonaClient {
 
   async listFiles(id: string, path: string): Promise<DaytonaFileInfo[]> {
     const json = await this.toolbox("GET", id, `/files?path=${encodeURIComponent(path)}`);
-    return z.array(FileInfoSchema).parse(json ?? []);
+    return z
+      .array(FileInfoSchema)
+      .max(DAYTONA_FILE_LIST_MAX_ITEMS)
+      .parse(json ?? []);
   }
 
-  async downloadFile(id: string, path: string): Promise<Uint8Array> {
-    const res = await this.rawToolbox(
-      "GET",
-      id,
-      `/files/download?path=${encodeURIComponent(path)}`,
-    );
-    return new Uint8Array(await res.arrayBuffer());
+  async downloadFile(
+    id: string,
+    path: string,
+    maxBytes = DAYTONA_BUFFERED_FILE_MAX_BYTES,
+  ): Promise<Uint8Array> {
+    const res = await this.downloadFileResponse(id, path);
+    return readBoundedResponseBytes(res, maxBytes);
+  }
+
+  /** Keeps large file downloads streaming instead of buffering them in the Worker isolate. */
+  async downloadFileResponse(id: string, path: string): Promise<Response> {
+    return this.rawToolbox("GET", id, `/files/download?path=${encodeURIComponent(path)}`, {
+      timeoutMs: DAYTONA_FILE_TRANSFER_TIMEOUT_MS,
+    });
   }
 
   async uploadFile(id: string, path: string, bytes: Uint8Array): Promise<void> {
     const form = new FormData();
     form.append("file", new Blob([bytes as BlobPart]), basename(path));
-    await this.rawToolbox("POST", id, `/files/upload?path=${encodeURIComponent(path)}`, {
-      body: form,
-    });
+    const response = await this.rawToolbox(
+      "POST",
+      id,
+      `/files/upload?path=${encodeURIComponent(path)}`,
+      {
+        body: form,
+        timeoutMs: DAYTONA_FILE_TRANSFER_TIMEOUT_MS,
+      },
+    );
+    await response.body?.cancel().catch(() => undefined);
   }
 
   async createFolder(id: string, path: string, mode = "0755"): Promise<void> {
@@ -425,30 +420,6 @@ export class DaytonaClient {
     );
   }
 
-  /** Recursive name glob → absolute paths. */
-  async searchFiles(id: string, path: string, pattern: string): Promise<string[]> {
-    const json = await this.toolbox(
-      "GET",
-      id,
-      `/files/search?path=${encodeURIComponent(path)}&pattern=${encodeURIComponent(pattern)}`,
-    );
-    return SearchFilesSchema.parse(json).files;
-  }
-
-  /** Recursive content grep → {file,line,content} (no column/options). */
-  async findInFiles(
-    id: string,
-    path: string,
-    pattern: string,
-  ): Promise<Array<{ file: string; line?: number | undefined; content?: string | undefined }>> {
-    const json = await this.toolbox(
-      "GET",
-      id,
-      `/files/find?path=${encodeURIComponent(path)}&pattern=${encodeURIComponent(pattern)}`,
-    );
-    return z.array(FindMatchSchema).parse(json ?? []);
-  }
-
   // ----- transport helpers -----
 
   private headers(extra?: Record<string, string>): Headers {
@@ -462,7 +433,7 @@ export class DaytonaClient {
   private async control(
     method: string,
     path: string,
-    options?: { body?: unknown; allow404?: boolean },
+    options?: { body?: unknown; allow404?: boolean; timeoutMs?: number },
   ): Promise<unknown> {
     return this.request(method, `${this.apiUrl}${path}`, options);
   }
@@ -471,28 +442,28 @@ export class DaytonaClient {
     method: string,
     id: string,
     path: string,
-    options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean },
+    options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean; timeoutMs?: number },
   ): Promise<unknown> {
     return this.request(method, `${this.toolboxUrl}/${encodeURIComponent(id)}${path}`, options);
   }
 
   private async toolboxText(id: string, path: string): Promise<string> {
     const res = await this.rawToolbox("GET", id, path);
-    return res.text();
+    return readBoundedResponseText(res, DAYTONA_LOG_RESPONSE_MAX_BYTES);
   }
 
   private async rawToolbox(
     method: string,
     id: string,
     path: string,
-    options?: { body?: BodyInit },
+    options?: { body?: BodyInit; timeoutMs?: number },
   ): Promise<Response> {
     const url = `${this.toolboxUrl}/${encodeURIComponent(id)}${path}`;
     const init: RequestInit = { method, headers: this.headers() };
     if (options?.body !== undefined) {
       init.body = options.body;
     }
-    const res = await this.fetchImpl(url, init);
+    const res = await this.fetchWithDeadline(url, init, options?.timeoutMs);
     if (!res.ok) {
       throw await toApiError(res);
     }
@@ -502,27 +473,37 @@ export class DaytonaClient {
   private async request(
     method: string,
     url: string,
-    options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean },
+    options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean; timeoutMs?: number },
   ): Promise<unknown> {
     const init: RequestInit = { method, headers: this.headers() };
     if (options?.body !== undefined) {
       init.headers = this.headers({ "Content-Type": "application/json" });
       init.body = JSON.stringify(options.body);
     }
-    const res = await this.fetchImpl(url, init);
+    const res = await this.fetchWithDeadline(url, init, options?.timeoutMs);
     if (res.status === 404 && options?.allow404) {
+      await res.body?.cancel().catch(() => undefined);
       return null;
     }
     if (res.status === 409 && options?.allowConflict) {
+      await res.body?.cancel().catch(() => undefined);
       return null;
     }
     if (!res.ok) {
       throw await toApiError(res);
     }
     if (res.status === 204) {
+      await res.body?.cancel().catch(() => undefined);
       return null;
     }
-    const text = await res.text();
+    const text = await readBoundedResponseText(res, DAYTONA_JSON_RESPONSE_MAX_BYTES).catch(
+      (error: unknown) => {
+        if (error instanceof DaytonaApiError) {
+          throw error;
+        }
+        throw responseTooLargeError(DAYTONA_JSON_RESPONSE_MAX_BYTES);
+      },
+    );
     if (text.length === 0) {
       return null;
     }
@@ -532,13 +513,33 @@ export class DaytonaClient {
       return text;
     }
   }
+
+  private async fetchWithDeadline(
+    url: string,
+    init: RequestInit,
+    timeoutMs = this.requestTimeoutMs,
+  ): Promise<Response> {
+    const signal = AbortSignal.timeout(timeoutMs);
+    try {
+      return await this.fetchImpl(url, { ...init, signal });
+    } catch (error) {
+      if (signal.aborted) {
+        throw new DaytonaApiError(504, "Daytona request timed out", {
+          code: "daytona_timeout",
+          details: { method: init.method ?? "GET", timeoutMs },
+          retriable: true,
+        });
+      }
+      throw error;
+    }
+  }
 }
 
 async function toApiError(res: Response): Promise<DaytonaApiError> {
   let details: unknown;
   let message = `Daytona request failed (HTTP ${res.status})`;
   try {
-    const text = await res.text();
+    const text = await readBoundedResponseText(res, DAYTONA_ERROR_RESPONSE_MAX_BYTES);
     if (text.length > 0) {
       try {
         const parsed: unknown = JSON.parse(text);
@@ -546,7 +547,7 @@ async function toApiError(res: Response): Promise<DaytonaApiError> {
         if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
           const candidate = (parsed as { message?: unknown }).message;
           if (typeof candidate === "string") {
-            message = candidate;
+            message = candidate.slice(0, 1_000);
           }
         }
       } catch {
@@ -566,4 +567,62 @@ function stripTrailingSlash(value: string): string {
 function basename(path: string): string {
   const index = path.lastIndexOf("/");
   return index === -1 ? path : path.slice(index + 1) || "file";
+}
+
+async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {
+  return new TextDecoder().decode(await readBoundedResponseBytes(response, maxBytes));
+}
+
+async function readBoundedResponseBytes(response: Response, maxBytes: number): Promise<Uint8Array> {
+  if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0) {
+    throw new Error("Response byte limit must be a positive safe integer");
+  }
+  const declaredLength = Number(response.headers.get("Content-Length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw responseTooLargeError(maxBytes);
+  }
+  if (!response.body) {
+    return new Uint8Array();
+  }
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) {
+        break;
+      }
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw responseTooLargeError(maxBytes);
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const body = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
+function responseTooLargeError(maxBytes: number): DaytonaApiError {
+  return new DaytonaApiError(502, "Daytona response exceeded the Worker byte limit", {
+    code: "daytona_response_too_large",
+    details: { maxBytes },
+    retriable: false,
+  });
+}
+
+function positiveTimeout(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.floor(value)
+    : DEFAULT_DAYTONA_REQUEST_TIMEOUT_MS;
 }

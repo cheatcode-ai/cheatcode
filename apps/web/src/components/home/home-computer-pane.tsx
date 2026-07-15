@@ -1,23 +1,17 @@
 "use client";
 
-import { BudTooltip } from "@/components/ui/bud-tooltip";
-import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { Monitor } from "@/components/ui/icons";
+import { Activity, useState } from "react";
+import { ComputerPanelTabs } from "@/components/preview/computer-panel-tabs";
+import { ComputerSurfaceFrame } from "@/components/preview/computer-surface-frame";
+import { ComputerToggleButton } from "@/components/preview/computer-toggle-button";
+import { ConsoleStrip } from "@/components/preview/console-strip";
+import { PreviewUrlBar } from "@/components/preview/preview-url-bar";
+import { SandboxIdeTab } from "@/components/preview/sandbox-ide-tab";
+import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
+import type { PreviewTab } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
-const COMPUTER_PILL_CLASS =
-  "inline-flex h-7 items-center gap-1.5 rounded-full bg-[#1b1b1b] py-1 pr-3 pl-2.5 font-medium text-[14px] text-white transition-[background-color,transform] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] hover:bg-black active:scale-[0.97] motion-reduce:transition-none";
-
-/**
- * The home page's "Computer" pane. Renders as the `.cc-agent-computer-pane` flex
- * child of {@link WorkspaceRunLayout} (not `position: fixed`), mirroring the chat's
- * {@link PreviewSidePanel} structure. The home has no threadId/real sandbox, so
- * there is nothing to file-browse, preview, or run yet — showing the (non-working)
- * Files/Browser tabs and console strip here would be dishonest chrome, so the pane
- * shows only a plain placeholder plus the close pill. The real files/preview/console
- * live in the chat/project workspace once a build starts. Also renders the floating
- * "Open computer" pill shown while the pane is collapsed.
- */
+/** The user-scoped Computer shown on home before a chat or project is selected. */
 export function HomeComputerPane({
   computerOpen,
   onClose,
@@ -27,48 +21,104 @@ export function HomeComputerPane({
   onClose: () => void;
   onOpen: () => void;
 }) {
+  const [activeTab, setActiveTab] = useState<PreviewTab>("files");
+
   return (
     <>
       <OpenComputerPill computerOpen={computerOpen} onOpen={onOpen} />
-      <aside
-        aria-hidden={!computerOpen}
-        aria-label="Computer"
-        className={cn(
-          "cc-agent-computer-pane hidden min-h-0 min-w-0 overflow-hidden bg-white transition-[opacity,transform,filter] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transform-none motion-reduce:transition-none md:flex",
-          computerOpen
-            ? "translate-x-0 opacity-100 blur-0"
-            : "pointer-events-none translate-x-3 opacity-0 blur-[1px]",
-        )}
-        inert={computerOpen ? undefined : true}
-      >
-        <div className="flex h-full max-h-full w-full min-w-0 flex-col gap-2 overflow-hidden bg-white">
-          <div className="hidden h-12 w-full shrink-0 items-center justify-end px-[3px] md:flex">
-            <BudTooltip label="Close computer" side="bottom">
-              <button
-                aria-label="Close computer"
-                className={COMPUTER_PILL_CLASS}
-                onClick={onClose}
-                type="button"
-              >
-                <Monitor aria-hidden="true" className="h-4 w-4" />
-                <span>Computer</span>
-              </button>
-            </BudTooltip>
-          </div>
-          <div className="flex min-h-0 w-full flex-1 flex-col items-center justify-center overflow-hidden rounded-[24px] border border-[#f1f1f1] bg-white px-8 shadow-[0_0_1px_rgba(0,0,0,0.08)]">
-            <HomeComputerPlaceholder />
-          </div>
-        </div>
-      </aside>
+      <HomeComputerAside
+        activeTab={activeTab}
+        computerOpen={computerOpen}
+        onClose={onClose}
+        setActiveTab={setActiveTab}
+      />
     </>
+  );
+}
+
+function HomeComputerAside({
+  activeTab,
+  computerOpen,
+  onClose,
+  setActiveTab,
+}: {
+  activeTab: PreviewTab;
+  computerOpen: boolean;
+  onClose: () => void;
+  setActiveTab: (tab: PreviewTab) => void;
+}) {
+  return (
+    <aside
+      aria-hidden={!computerOpen}
+      aria-label="Computer"
+      className={homeComputerClass(computerOpen)}
+      inert={computerOpen ? undefined : true}
+    >
+      <HomeComputerBody activeTab={activeTab} onClose={onClose} setActiveTab={setActiveTab} />
+    </aside>
+  );
+}
+
+function HomeComputerBody({
+  activeTab,
+  onClose,
+  setActiveTab,
+}: {
+  activeTab: PreviewTab;
+  onClose: () => void;
+  setActiveTab: (tab: PreviewTab) => void;
+}) {
+  return (
+    <div className="flex h-full max-h-full w-full min-w-0 flex-col gap-2 overflow-hidden bg-background">
+      <ComputerPanelTabs
+        activePreviewTab={activeTab}
+        deliverableCount={0}
+        projectId={null}
+        projectName={null}
+        setActivePreviewTab={setActiveTab}
+        setPreviewPanelOpen={(open) => {
+          if (!open) onClose();
+        }}
+      />
+      <ComputerSurfaceFrame
+        consoleStrip={
+          activeTab === "files" ? <ConsoleStrip sandboxAvailable threadId={null} /> : null
+        }
+        offsetInnerFrame
+      >
+        <HomeComputerTabContent activeTab={activeTab} />
+      </ComputerSurfaceFrame>
+    </div>
+  );
+}
+
+function HomeComputerTabContent({ activeTab }: { activeTab: PreviewTab }) {
+  return (
+    <div className="h-full min-h-0">
+      <Activity mode={activeTab === "files" ? "visible" : "hidden"}>
+        <SandboxIdeTab active previewReloadToken={0} threadId={null} />
+      </Activity>
+      <Activity mode={activeTab === "app" ? "visible" : "hidden"}>
+        <HomeBrowserEmpty />
+      </Activity>
+    </div>
+  );
+}
+
+function homeComputerClass(isOpen: boolean): string {
+  return cn(
+    "cc-agent-computer-pane relative hidden min-h-0 min-w-0 overflow-hidden bg-background transition-[opacity,transform,filter] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transform-none motion-reduce:transition-none md:flex",
+    isOpen
+      ? "translate-x-0 opacity-100 blur-0"
+      : "pointer-events-none translate-x-3 opacity-0 blur-[1px]",
   );
 }
 
 function OpenComputerPill({ computerOpen, onOpen }: { computerOpen: boolean; onOpen: () => void }) {
   return (
-    <BudTooltip
+    <CheatcodeTooltip
       className={cn(
-        "fixed top-3.5 right-3.5 z-40 hidden transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none md:flex",
+        "max-md:hidden! fixed top-3.5 right-3.5 z-40 transition-[opacity,transform] duration-200 ease-[cubic-bezier(0.4,0,0.2,1)] motion-reduce:transition-none md:flex",
         computerOpen
           ? "pointer-events-none translate-y-0 scale-[0.98] opacity-0"
           : "translate-y-0 scale-100 opacity-100",
@@ -76,32 +126,24 @@ function OpenComputerPill({ computerOpen, onOpen }: { computerOpen: boolean; onO
       label="Open computer"
       side="bottom"
     >
-      <button
+      <ComputerToggleButton
+        active={false}
         aria-hidden={computerOpen}
         aria-label="Open computer"
-        className={COMPUTER_PILL_CLASS}
         onClick={onOpen}
         tabIndex={computerOpen ? -1 : undefined}
-        type="button"
-      >
-        <Monitor aria-hidden="true" className="h-4 w-4" />
-        <span>Computer</span>
-      </button>
-    </BudTooltip>
+      />
+    </CheatcodeTooltip>
   );
 }
 
-function HomeComputerPlaceholder() {
+function HomeBrowserEmpty() {
   return (
-    <div className="max-w-sm text-center">
-      <CheatcodeMark aria-hidden="true" className="mx-auto h-12 w-12 text-[#f8af2c]" />
-      <p className="mt-5 font-semibold text-[#1b1b1b] text-[18px]">
-        Your computer will appear here
-      </p>
-      <p className="mt-2 text-[#707070] text-[14px] leading-6">
-        Describe what you want to build and your files, live preview, and console open in this
-        panel.
-      </p>
+    <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+      <PreviewUrlBar previewUrl={null} />
+      <div className="flex min-h-0 flex-1 items-center justify-center rounded-[20.5px] bg-background font-medium text-[14px] text-fg-secondary">
+        All running apps and browser use activity will appear here.
+      </div>
     </div>
   );
 }

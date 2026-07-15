@@ -1,21 +1,21 @@
 import {
   DEFAULT_DEEPSEEK_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
-  type LlmModelSelection,
   type LlmProvider,
-  resolveRequestedLlmModel,
+  type LlmTransportSelection,
+  resolveRequestedLlmTransport,
 } from "@cheatcode/agent-core";
 import { getProviderKey } from "@cheatcode/byok";
-import {
-  createDb,
-  type Database,
-  type DatabaseHandle,
-  getFreeDeepseekUsage,
-  withUserContext,
-} from "@cheatcode/db";
+import { createDb, type Database, type DatabaseHandle, withUserContext } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, type createLogger } from "@cheatcode/observability";
-import { FREE_DEEPSEEK_MODEL_ID, UserId } from "@cheatcode/types";
+import {
+  FALLBACK_MODEL_ID,
+  INCLUDED_DEEPSEEK_MODEL_ID,
+  type LogicalModelId,
+  LogicalModelIdSchema,
+  UserId,
+} from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface LlmProviderEnv {
@@ -24,24 +24,23 @@ interface LlmProviderEnv {
 }
 
 interface LlmProviderInput {
-  model?: string | undefined;
+  model: LogicalModelId;
   userId: string;
-  /** Whether the user explicitly chose this model (vs an Auto/implicit default). */
-  modelExplicit?: boolean | undefined;
-  /** Models the user disabled in settings; gates the free-DeepSeek fallback. */
-  disabledModels?: readonly string[] | undefined;
+  /** Whether the request or project settings pinned this model (vs Auto). */
+  modelExplicit: boolean;
+  /** Models the user disabled in settings; gates the included DeepSeek fallback. */
+  disabledModels: readonly string[];
 }
 
-export type CreditSource = "byok" | "platform_free";
-
-export interface LlmCredential extends LlmModelSelection {
+/** Request-scoped secret plus the product and transport model identities it authorizes. */
+export interface LlmCredential {
   apiKey: string;
-  creditSource: CreditSource;
-  /** For platform_free runs: the user's free-token count at resolution (DO hard-stop baseline). */
-  freeTokensUsedAtResolve?: number;
+  logicalModelId: LogicalModelId;
+  transportModelId: string;
+  transportProvider: LlmProvider;
 }
 
-interface FreeTierContext {
+interface PlatformFallbackContext {
   platformDeepseekKey: string | undefined;
   modelExplicit: boolean;
   disabledModels: readonly string[];
@@ -49,9 +48,14 @@ interface FreeTierContext {
 
 interface ResolvedTransport {
   apiKey: string;
-  selection: LlmModelSelection;
-  creditSource: CreditSource;
-  freeTokensUsed?: number;
+  logicalModelId: LogicalModelId;
+  transportModelId: string;
+  transportProvider: LlmProvider;
+}
+
+interface RequestedModel {
+  logicalModelId: LogicalModelId;
+  selection: LlmTransportSelection;
 }
 
 export async function resolveLlmCredential(
@@ -59,11 +63,11 @@ export async function resolveLlmCredential(
   input: LlmProviderInput,
   logger: ReturnType<typeof createLogger>,
 ): Promise<LlmCredential> {
-  const selection = resolveModelSelection(input.model);
+  const requestedModel = resolveModelRequest(input.model);
   const platformDeepseekKey = await resolveWorkerSecret(env.DEEPSEEK_PLATFORM_API_KEY);
-  return resolveProviderKey(env, input.userId, selection, logger, {
-    disabledModels: input.disabledModels ?? [],
-    modelExplicit: input.modelExplicit ?? Boolean(input.model?.trim()),
+  return resolveProviderKey(env, input.userId, requestedModel, logger, {
+    disabledModels: input.disabledModels,
+    modelExplicit: input.modelExplicit,
     platformDeepseekKey,
   });
 }
@@ -73,10 +77,13 @@ export async function resolveOpenAiFallbackCredential(
   input: LlmProviderInput,
   logger: ReturnType<typeof createLogger>,
 ): Promise<LlmCredential | null> {
-  const selection = { provider: "openai", modelId: DEFAULT_OPENAI_MODEL_ID } as const;
+  const requestedModel: RequestedModel = {
+    logicalModelId: FALLBACK_MODEL_ID,
+    selection: { provider: "openai", modelId: DEFAULT_OPENAI_MODEL_ID },
+  };
   try {
-    // The OpenAI fallback never rides free DeepSeek credits (platform key withheld).
-    return await resolveProviderKey(env, input.userId, selection, logger, {
+    // The OpenAI fallback never receives the platform DeepSeek key.
+    return await resolveProviderKey(env, input.userId, requestedModel, logger, {
       disabledModels: [],
       modelExplicit: true,
       platformDeepseekKey: undefined,
@@ -91,11 +98,13 @@ export async function resolveOpenAiFallbackCredential(
 }
 
 export function shouldFallbackToOpenAI(
-  requestedModel: string | undefined,
-  primary: LlmModelSelection,
+  modelExplicit: boolean,
+  primary: LlmCredential,
+  hasVisibleOutput: boolean,
   error: unknown,
 ): boolean {
-  if (requestedModel?.trim() || primary.provider !== "anthropic") {
+  // Restarting after visible output can duplicate a tool side effect or splice two answers.
+  if (modelExplicit || hasVisibleOutput || primary.transportProvider !== "anthropic") {
     return false;
   }
   const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -117,14 +126,14 @@ export function shouldFallbackToOpenAI(
 
 /**
  * Classify why a primary provider stream failed, for the interactive fallback
- * card (run-control §5.5). Reuses the message heuristics of
+ * card. Reuses the message heuristics of
  * {@link shouldFallbackToOpenAI} without changing its behavior. Returns a
  * coarse, enum-safe reason (never the raw provider text, which may embed
- * secrets — see run-control §8 redaction rule).
+ * secrets).
  */
 export function classifyFallbackReason(
   error: unknown,
-): "credits" | "provider_error" | "rate_limit" {
+): "provider_balance" | "provider_error" | "rate_limit" {
   const message = error instanceof Error ? error.message.toLowerCase() : "";
   const statusCode = readStatusCode(error);
   if (statusCode === 429 || message.includes("rate limit") || message.includes("rate-limit")) {
@@ -136,14 +145,18 @@ export function classifyFallbackReason(
     message.includes("billing") ||
     message.includes("insufficient")
   ) {
-    return "credits";
+    return "provider_balance";
   }
   return "provider_error";
 }
 
-function resolveModelSelection(model: string | undefined): LlmModelSelection {
+function resolveModelRequest(model: LogicalModelId): RequestedModel {
   try {
-    return resolveRequestedLlmModel(model);
+    const selection = resolveRequestedLlmTransport(model);
+    return {
+      logicalModelId: logicalModelIdForSelection(selection),
+      selection,
+    };
   } catch (error) {
     throw new APIError(400, "invalid_request_body", "Unsupported model selection.", {
       details: { message: error instanceof Error ? error.message : "Unknown model error" },
@@ -156,120 +169,112 @@ function resolveModelSelection(model: string | undefined): LlmModelSelection {
 async function resolveProviderKey(
   env: LlmProviderEnv,
   userId: string,
-  selection: LlmModelSelection,
+  requestedModel: RequestedModel,
   logger: ReturnType<typeof createLogger>,
-  freeTier: FreeTierContext,
+  platformFallback: PlatformFallbackContext,
 ): Promise<LlmCredential> {
   const dbHandle = createDb(env.HYPERDRIVE);
   const brandedUserId = UserId(userId);
   try {
     const resolved = await withUserContext(dbHandle.db, brandedUserId, (db) =>
-      resolveTransportKey(db, brandedUserId, selection, freeTier),
+      resolveTransportKey(db, requestedModel, platformFallback),
     );
     logger.info("byok_provider_key_resolved", {
-      creditSource: resolved.creditSource,
-      modelId: resolved.selection.modelId,
-      provider: resolved.selection.provider,
+      logicalModelId: resolved.logicalModelId,
+      transportModelId: resolved.transportModelId,
+      transportProvider: resolved.transportProvider,
     });
-    return {
-      ...resolved.selection,
-      apiKey: resolved.apiKey,
-      creditSource: resolved.creditSource,
-      ...(resolved.freeTokensUsed === undefined
-        ? {}
-        : { freeTokensUsedAtResolve: resolved.freeTokensUsed }),
-    };
+    return resolved;
   } finally {
     await closeDatabase(dbHandle, logger);
   }
 }
 
 /**
- * Transport rule (plan §"Credential resolution"): (a) the user's direct provider key
- * always wins. The platform free DeepSeek key then serves the `deepseek-v4-flash` SKU —
+ * Transport rule: (a) the user's direct provider key
+ * always wins. The platform DeepSeek key then serves the `deepseek-v4-flash` SKU —
  * before OpenRouter when the user explicitly picked it, or after OpenRouter as the last
  * resort for an Auto/implicit run with no usable key. (c) Otherwise a non-OpenRouter
  * selection routes through OpenRouter when a key is present. Runs inside the caller's
- * withUserContext connection. The free SKU never silently downgrades a `deepseek-v4-pro`
- * request, and an explicit non-free pick is never swapped to free credits.
+ * withUserContext connection. The platform SKU never silently downgrades a
+ * `deepseek-v4-pro` request, and an explicit model pick is never replaced.
  */
 async function resolveTransportKey(
   db: Database,
-  userId: UserId,
-  selection: LlmModelSelection,
-  freeTier: FreeTierContext,
+  requestedModel: RequestedModel,
+  platformFallback: PlatformFallbackContext,
 ): Promise<ResolvedTransport> {
+  const { logicalModelId, selection } = requestedModel;
   // (a) The user's own direct provider key always wins (incl. their own DeepSeek key).
   const directKey = await getProviderKey(db, selection.provider);
   if (directKey) {
-    return { apiKey: directKey, creditSource: "byok", selection };
+    return transportCredential(directKey, logicalModelId, selection);
   }
 
-  const wantsFreeFlash =
+  const wantsPlatformFlash =
     selection.provider === "deepseek" && selection.modelId === DEFAULT_DEEPSEEK_MODEL_ID;
-  const platformKey = freeTier.platformDeepseekKey;
-  const freeModelAllowed =
-    platformKey !== undefined && !freeTier.disabledModels.includes(FREE_DEEPSEEK_MODEL_ID);
-  // Memoize the allowance read so the gate costs at most one query per resolution.
-  let freeUsage: { limit: number; used: number } | undefined;
-  const tryPlatformFree = async (): Promise<ResolvedTransport | null> => {
-    if (!freeModelAllowed || platformKey === undefined) {
-      return null;
-    }
-    if (freeUsage === undefined) {
-      freeUsage = await getFreeDeepseekUsage(db, userId);
-    }
-    return freeUsage.used < freeUsage.limit
-      ? platformFreeTransport(platformKey, freeUsage.used)
-      : null;
-  };
+  const platformKey = allowedPlatformKey(platformFallback);
 
-  // (b) Explicit free-flash pick → platform free before OpenRouter.
-  if (wantsFreeFlash) {
-    const free = await tryPlatformFree();
-    if (free) {
-      return free;
-    }
+  // (b) Explicit platform-model pick → platform key before OpenRouter.
+  if (wantsPlatformFlash && platformKey) {
+    return platformTransport(platformKey);
   }
 
-  // (c) OpenRouter fallback (existing D9 rule).
+  // (c) Route through OpenRouter when the user configured it.
   if (selection.provider !== "openrouter") {
     const openrouterKey = await getProviderKey(db, "openrouter");
     if (openrouterKey) {
       return {
         apiKey: openrouterKey,
-        creditSource: "byok",
-        selection: { modelId: openRouterSlug(selection), provider: "openrouter" },
+        logicalModelId,
+        transportModelId: openRouterSlug(selection),
+        transportProvider: "openrouter",
       };
     }
   }
 
-  // (d) Auto/implicit run with no usable key → platform free as a last resort.
-  if (!freeTier.modelExplicit) {
-    const free = await tryPlatformFree();
-    if (free) {
-      return free;
-    }
+  // (d) Auto/implicit run with no usable key → platform model as a last resort.
+  if (!platformFallback.modelExplicit && platformKey) {
+    return platformTransport(platformKey);
   }
 
-  // The free path was attempted but the allowance is spent → a clear "used up" error
-  // (vs a generic missing-key error) so the user knows to add their own key.
-  if (freeUsage !== undefined && freeUsage.used >= freeUsage.limit) {
-    throw freeDeepseekQuotaExhausted();
-  }
   throw missingProviderKey(selection.provider);
 }
 
-function platformFreeTransport(apiKey: string, freeTokensUsed: number): ResolvedTransport {
+function allowedPlatformKey(fallback: PlatformFallbackContext): string | undefined {
+  if (fallback.disabledModels.includes(INCLUDED_DEEPSEEK_MODEL_ID)) {
+    return undefined;
+  }
+  return fallback.platformDeepseekKey;
+}
+
+function platformTransport(apiKey: string): ResolvedTransport {
   return {
     apiKey,
-    creditSource: "platform_free",
-    freeTokensUsed,
-    selection: { modelId: DEFAULT_DEEPSEEK_MODEL_ID, provider: "deepseek" },
+    logicalModelId: INCLUDED_DEEPSEEK_MODEL_ID,
+    transportModelId: DEFAULT_DEEPSEEK_MODEL_ID,
+    transportProvider: "deepseek",
   };
 }
 
-function openRouterSlug(selection: LlmModelSelection): string {
+function transportCredential(
+  apiKey: string,
+  logicalModelId: LogicalModelId,
+  selection: LlmTransportSelection,
+): ResolvedTransport {
+  return {
+    apiKey,
+    logicalModelId,
+    transportModelId: selection.modelId,
+    transportProvider: selection.provider,
+  };
+}
+
+function logicalModelIdForSelection(selection: LlmTransportSelection): LogicalModelId {
+  return LogicalModelIdSchema.parse(`${selection.provider}/${selection.modelId}`);
+}
+
+function openRouterSlug(selection: LlmTransportSelection): string {
   return `${selection.provider}/${selection.modelId}`;
 }
 
@@ -295,18 +300,6 @@ function providerLabel(provider: LlmProvider): string {
     return "DeepSeek";
   }
   return "OpenRouter";
-}
-
-function freeDeepseekQuotaExhausted(): APIError {
-  return new APIError(
-    402,
-    "deepseek_free_quota_exhausted",
-    "Your 200,000 free DeepSeek tokens are used up.",
-    {
-      hint: "Add your own DeepSeek (or Anthropic/OpenAI) key in Settings → Models to keep building.",
-      retriable: false,
-    },
-  );
 }
 
 function readStatusCode(error: unknown): number | null {

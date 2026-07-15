@@ -1,17 +1,18 @@
 name: Build Sandbox Snapshot
 
-# Rebuilds + republishes the Daytona sandbox snapshot whenever the sandbox image
-# changes. Builds on Daytona's infra (no Docker/cross-arch build needed in CI).
-# Keeps the `cheatcode-sandbox` snapshot name stable so the agent-worker's
-# DAYTONA_SANDBOX_SNAPSHOT var never has to change.
+# Snapshot publication is an explicit production-adjacent operation. Each main
+# commit maps to one immutable candidate; promotion happens by reviewing the
+# DAYTONA_SANDBOX_SNAPSHOT change in the agent-worker configuration.
 on:
-  push:
-    branches: [main]
-    paths:
-      - "infra/containers/sandbox/**"
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type BUILD_SNAPSHOT to publish an immutable candidate from main.
+        required: true
+        type: string
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -20,39 +21,159 @@ concurrency:
 
 jobs:
   build-snapshot:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
     environment: production
     env:
-      DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+      DAYTONA_CLI_VERSION: 0.197.0
+      DAYTONA_CLI_SHA256: 75493c6a41e7f0a427e116f150310d1669fd01529d37e7b4abaf89034cb9193b
     steps:
-      - uses: actions/checkout@v4
-      - name: Install Daytona CLI
-        # Direct release-binary download — the old install.sh URL now 404s, and `-sf` hid it as a
-        # silent exit 127. `-sSf` fails loudly if the URL ever breaks again.
+      - name: Authorize snapshot publication
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
         run: |
-          curl -sSfL -o daytona \
-            "https://github.com/daytonaio/daytona/releases/latest/download/daytona-linux-amd64"
-          chmod +x daytona
-          sudo mv daytona /usr/local/bin/daytona
-          daytona version
-          # The CLI no longer auto-reads DAYTONA_API_KEY; a profile must be created explicitly.
-          daytona login --api-key "$DAYTONA_API_KEY"
-      - name: Build & publish snapshot
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Sandbox snapshots must be dispatched from main." >&2
+            exit 1
+          fi
+          if [ "$CONFIRMATION" != "BUILD_SNAPSHOT" ]; then
+            echo "Confirmation must exactly match BUILD_SNAPSHOT." >&2
+            exit 1
+          fi
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ github.sha }}
+      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          cache: true
+          version: v0.72.0
+      - name: Require successful static checks for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          # Idempotent: drop the previous snapshot of this name (existing sandboxes are
-          # unaffected — they already hold their own copy) then rebuild. The delete is ASYNC
-          # when the snapshot is referenced by active sandboxes, so wait for the name to free
-          # before creating (else create fails with a name conflict). Trailing space in the grep
-          # matches only the exact name, not e.g. cheatcode-sandbox-viewer-bundle.
-          daytona snapshot delete cheatcode-sandbox 2>/dev/null || true
-          for i in $(seq 1 60); do
-            if ! daytona snapshot list 2>/dev/null | grep -q "cheatcode-sandbox "; then
-              echo "snapshot name freed after ~$((i*5))s"
+          successful_runs="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/static-checks.yml/runs" \
+            --field branch=main \
+            --field event=push \
+            --field head_sha="$GITHUB_SHA" \
+            --field per_page=1 \
+            --field status=success \
+            --jq '.total_count')"
+          if [ "$successful_runs" -lt 1 ]; then
+            echo "Static Checks has not succeeded for $GITHUB_SHA on main." >&2
+            exit 1
+          fi
+      - name: Derive immutable snapshot name
+        id: snapshot
+        run: |
+          snapshot_name="cheatcode-sandbox-viewer-bundle-$(git rev-parse --short=12 HEAD)"
+          echo "name=$snapshot_name" >> "$GITHUB_OUTPUT"
+          echo "SNAPSHOT_NAME=$snapshot_name" >> "$GITHUB_ENV"
+      - name: Install checksum-verified Daytona CLI
+        run: |
+          mkdir -p "$RUNNER_TEMP/bin"
+          curl --fail --silent --show-error --location \
+            --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
+            "https://github.com/daytona/clients/releases/download/v${DAYTONA_CLI_VERSION}/daytona-linux-amd64" \
+            --output "$RUNNER_TEMP/daytona"
+          echo "${DAYTONA_CLI_SHA256}  $RUNNER_TEMP/daytona" | sha256sum --check --strict
+          install -m 0755 "$RUNNER_TEMP/daytona" "$RUNNER_TEMP/bin/daytona"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Authenticate Daytona CLI
+        env:
+          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+        run: |
+          test -n "$DAYTONA_API_KEY"
+          "$RUNNER_TEMP/bin/daytona" version
+          "$RUNNER_TEMP/bin/daytona" login --api-key "$DAYTONA_API_KEY"
+      - name: Refuse snapshot-name reuse
+        run: |
+          page=1
+          while true; do
+            snapshot_list="$(daytona snapshot list --format json --limit 200 --page "$page")"
+            if jq --exit-status --arg name "$SNAPSHOT_NAME" \
+              '.[] | select(.name == $name)' <<< "$snapshot_list" > /dev/null; then
+              echo "Snapshot $SNAPSHOT_NAME already exists; immutable names are never overwritten." >&2
+              exit 1
+            fi
+            if [ "$(jq 'length' <<< "$snapshot_list")" -lt 200 ]; then
               break
             fi
-            sleep 5
+            page=$((page + 1))
           done
-          daytona snapshot create cheatcode-sandbox \
-            -f infra/containers/sandbox/Dockerfile \
-            -c infra/containers/sandbox \
+      - name: Build immutable image candidate
+        run: |
+          image_tag="cheatcode-sandbox:$GITHUB_SHA"
+          docker build --platform=linux/amd64 --tag "$image_tag" infra/containers/sandbox
+          echo "IMAGE_TAG=$image_tag" >> "$GITHUB_ENV"
+      - name: Scan candidate configuration and image
+        run: |
+          trivy config \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --exit-code 1 \
+            infra/containers/sandbox
+          trivy image \
+            --quiet \
+            --scanners vuln \
+            --ignore-unfixed \
+            --ignorefile infra/containers/sandbox/.trivyignore.yaml \
+            --severity MEDIUM,HIGH,CRITICAL \
+            --table-mode detailed \
+            --exit-code 1 \
+            "$IMAGE_TAG"
+          trivy image \
+            --quiet \
+            --scanners secret \
+            --severity HIGH,CRITICAL \
+            --table-mode detailed \
+            --exit-code 1 \
+            "$IMAGE_TAG"
+      - name: Smoke-test candidate runtime
+        run: |
+          docker run --rm --platform=linux/amd64 --entrypoint /bin/sh "$IMAGE_TAG" -lc '
+            test "$(id -un)" = node
+            test "$PWD" = /workspace
+            node --version
+            npm --version
+            pnpm --version
+            python3 --version
+            code-server --version
+            "$CHROME_PATH" --version
+            libreoffice --version
+            test -f /home/node/cheatcode-next-template/pnpm-lock.yaml
+            test -f /home/node/cheatcode-expo-template/pnpm-lock.yaml
+            test -f /opt/cheatcode-browser-driver/server.js
+            node --check /opt/cheatcode-browser-driver/server.js
+          '
+      - name: Publish immutable snapshot candidate
+        run: |
+          daytona snapshot push "$IMAGE_TAG" \
+            --name "$SNAPSHOT_NAME" \
             --cpu 2 --memory 4 --disk 10
+      - name: Verify published candidate
+        run: |
+          page=1
+          while true; do
+            snapshot_list="$(daytona snapshot list --format json --limit 200 --page "$page")"
+            if jq --exit-status --arg name "$SNAPSHOT_NAME" \
+              '.[] | select(.name == $name and .state == "active")' \
+              <<< "$snapshot_list" > /dev/null; then
+              exit 0
+            fi
+            if [ "$(jq 'length' <<< "$snapshot_list")" -lt 200 ]; then
+              echo "Published snapshot $SNAPSHOT_NAME is not active." >&2
+              exit 1
+            fi
+            page=$((page + 1))
+          done
+      - name: Record promotion instructions
+        env:
+          SNAPSHOT_NAME: ${{ steps.snapshot.outputs.name }}
+        run: |
+          {
+            echo "### Daytona snapshot candidate"
+            echo "- Candidate: \`$SNAPSHOT_NAME\`"
+            echo "- Source commit: \`$GITHUB_SHA\`"
+            echo "- No existing snapshot was deleted or replaced."
+            echo "- Promote through review by updating \`DAYTONA_SANDBOX_SNAPSHOT\` in \`apps/agent-worker/wrangler.jsonc\`."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -16,8 +16,8 @@ export interface SandboxExecAuditEntry {
 }
 
 /**
- * Writes a redacted sandbox-exec audit record to R2. Relocated out of
- * `project-sandbox.ts` to keep that file under the line cap (preview §10).
+ * Writes a redacted sandbox-exec audit record to R2. Kept outside
+ * `project-sandbox.ts` so execution auditing remains independently bounded.
  */
 export async function writeExecAudit(
   bucket: R2Bucket,
@@ -35,9 +35,22 @@ export async function writeExecAudit(
   });
 }
 
+/** Reduce an argv executable to a bounded, non-secret R2 key segment. */
+export function sandboxExecProcessName(argv0: string): string {
+  const executable = argv0.split(/[\\/]/u).at(-1) ?? "process";
+  return sanitizeKeySegment(executable) || "process";
+}
+
 function auditObjectKey(entry: SandboxExecAuditEntry): string {
   const day = entry.timestamp.slice(0, 10);
   const month = entry.timestamp.slice(0, 7);
   const id = crypto.randomUUID();
-  return `sandbox-exec/${month}/${day}/${entry.sandboxId}/${entry.processName}-${id}.json`;
+  return `sandbox-exec/${month}/${day}/${sanitizeKeySegment(entry.sandboxId)}/${sanitizeKeySegment(entry.processName)}-${id}.json`;
+}
+
+function sanitizeKeySegment(value: string): string {
+  return value
+    .replace(/[^A-Za-z0-9._-]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 64);
 }

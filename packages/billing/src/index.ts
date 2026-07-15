@@ -1,23 +1,22 @@
-import { APIError } from "@cheatcode/observability";
+import { APIError, withBoundedResponseBody } from "@cheatcode/observability";
+import { type BillingTier, BillingTierSchema } from "@cheatcode/types/billing";
 import type { Polar } from "@polar-sh/sdk";
 import { z } from "zod";
 import { PLAN_CATALOG, type PlanCatalogEntry } from "./catalog";
 
-export const BillingTierSchema = z.enum(["free", "pro", "premium", "ultra", "max"]);
-export type BillingTier = z.infer<typeof BillingTierSchema>;
+const PolarServerSchema = z.enum(["production", "sandbox"]);
+export type PolarServer = z.infer<typeof PolarServerSchema>;
 
-export type { PlanCatalogEntry, SandboxUsageWarnLevel } from "./catalog";
+const POLAR_REQUEST_TIMEOUT_MS = 30_000;
+const POLAR_RESPONSE_MAX_BYTES = 1024 * 1024;
+
 export {
-  PAID_TIERS,
   PLAN_CATALOG,
   quotaPeriodEndFor,
-  sandboxHoursForTier,
   sandboxHoursWarnLevel,
-  TIER_ORDER,
-  tierRank,
 } from "./catalog";
 
-export const CancellationReasonSchema = z.enum([
+const CancellationReasonSchema = z.enum([
   "too_expensive",
   "missing_features",
   "switched_service",
@@ -27,28 +26,18 @@ export const CancellationReasonSchema = z.enum([
   "too_complex",
   "other",
 ]);
-export type CancellationReason = z.infer<typeof CancellationReasonSchema>;
+type CancellationReason = z.infer<typeof CancellationReasonSchema>;
 
 export interface TierLimits {
   byokProviderSlots: number | null;
-  dailyCostCapUsd: number | null;
-  maxConcurrentSandboxes: number;
   maxProjects: number | null;
-  maxSeats: number;
   quotaComposioCalls: number | null;
-  quotaDeployments: number | null;
   quotaSandboxHours: number | null;
-  researchFanoutSubagents: number | null;
 }
 
 export interface EntitlementValues {
-  flagPrivateProjects: boolean;
-  flagSso: boolean;
-  maxConcurrentSandboxes: number;
   maxProjects: number;
-  maxSeats: number;
   quotaComposioCalls: number;
-  quotaDeployments: number;
   quotaSandboxHours: string;
   tier: BillingTier;
 }
@@ -57,13 +46,8 @@ export const EntitlementCacheSchema = z
   .object({
     currentPeriodEnd: z.string().datetime().nullable(),
     currentPeriodStart: z.string().datetime().nullable(),
-    flagPrivateProjects: z.boolean(),
-    flagSso: z.boolean(),
-    maxConcurrentSandboxes: z.number().int().positive(),
     maxProjects: z.number().int().positive(),
-    maxSeats: z.number().int().positive(),
     quotaComposioCalls: z.number().int().nonnegative(),
-    quotaDeployments: z.number().int().nonnegative(),
     quotaSandboxHours: z.number().nonnegative(),
     subscriptionStatus: z.string(),
     tier: BillingTierSchema,
@@ -76,13 +60,8 @@ export type EntitlementCache = z.infer<typeof EntitlementCacheSchema>;
 export interface EntitlementCacheInput {
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
-  flagPrivateProjects?: boolean;
-  flagSso?: boolean;
-  maxConcurrentSandboxes?: number;
   maxProjects?: number;
-  maxSeats?: number;
   quotaComposioCalls?: number;
-  quotaDeployments?: number;
   quotaSandboxHours?: number | string;
   subscriptionStatus?: string;
   tier?: string;
@@ -92,18 +71,13 @@ export interface EntitlementCacheInput {
 function tierLimitsFromCatalog(entry: PlanCatalogEntry): TierLimits {
   return {
     byokProviderSlots: entry.byokProviderSlots,
-    dailyCostCapUsd: entry.dailyCostCapUsd,
-    maxConcurrentSandboxes: entry.maxConcurrentSandboxes,
     maxProjects: entry.maxProjects,
-    maxSeats: entry.maxSeats,
     quotaComposioCalls: entry.quotaComposioCalls,
-    quotaDeployments: entry.quotaDeployments,
     quotaSandboxHours: entry.sandboxHours,
-    researchFanoutSubagents: entry.researchFanoutSubagents,
   };
 }
 
-export const TIER_LIMITS: Record<BillingTier, TierLimits> = {
+const TIER_LIMITS: Record<BillingTier, TierLimits> = {
   free: tierLimitsFromCatalog(PLAN_CATALOG.free),
   pro: tierLimitsFromCatalog(PLAN_CATALOG.pro),
   premium: tierLimitsFromCatalog(PLAN_CATALOG.premium),
@@ -113,32 +87,55 @@ export const TIER_LIMITS: Record<BillingTier, TierLimits> = {
 
 const CheckoutResponseSchema = z
   .object({
-    url: z.string().url(),
+    url: z.string().url().max(2_048),
   })
-  .passthrough();
+  .strip();
 
 const CustomerSessionResponseSchema = z
   .object({
-    customerPortalUrl: z.string().url().optional(),
-    url: z.string().url().optional(),
+    customerPortalUrl: z.string().url().max(2_048).optional(),
+    url: z.string().url().max(2_048).optional(),
   })
-  .passthrough();
+  .strip();
 
 const SubscriptionActionResponseSchema = z
   .object({
     cancelAtPeriodEnd: z.boolean(),
     currentPeriodEnd: z.date().nullable(),
     currentPeriodStart: z.date().nullable(),
-    id: z.string().min(1),
-    status: z.string().min(1),
+    id: z.string().min(1).max(500),
+    status: z.string().min(1).max(100),
   })
-  .passthrough();
+  .strip();
+
+const PolarCustomerResponseSchema = z.object({ id: z.string().min(1).max(500) }).strip();
+
+const PolarCustomerStateResponseSchema = z
+  .object({
+    activeSubscriptions: z
+      .array(
+        z
+          .object({
+            cancelAtPeriodEnd: z.boolean(),
+            currentPeriodEnd: z.date(),
+            currentPeriodStart: z.date(),
+            id: z.string().min(1).max(500),
+            productId: z.string().min(1).max(500),
+            status: z.string().min(1).max(100),
+          })
+          .strip(),
+      )
+      .max(100),
+    id: z.string().min(1).max(500),
+  })
+  .strip();
 
 export interface CreateCheckoutUrlInput {
   accessToken: string;
   customerEmail?: string;
   productId: string;
   returnUrl?: string;
+  server?: PolarServer;
   successUrl?: string;
   userId: string;
 }
@@ -148,17 +145,27 @@ export interface CreateCustomerPortalUrlInput {
   customerId?: string;
   externalCustomerId: string;
   returnUrl?: string;
+  server?: PolarServer;
+}
+
+export interface EnsurePolarCustomerInput {
+  accessToken: string;
+  email: string;
+  externalCustomerId: string;
+  server?: PolarServer;
 }
 
 export interface CancelSubscriptionAtPeriodEndInput {
   accessToken: string;
   comment?: string;
   reason?: CancellationReason;
+  server?: PolarServer;
   subscriptionId: string;
 }
 
 export interface ReactivateSubscriptionInput {
   accessToken: string;
+  server?: PolarServer;
   subscriptionId: string;
 }
 
@@ -167,6 +174,27 @@ export interface UpdateCustomerProfileInput {
   customerId: string;
   email: string;
   name?: string | null;
+  server?: PolarServer;
+}
+
+export interface GetPolarCustomerStateInput {
+  accessToken: string;
+  externalCustomerId: string;
+  server?: PolarServer;
+}
+
+export interface PolarCustomerStateSubscription {
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: Date;
+  currentPeriodStart: Date;
+  id: string;
+  productId: string;
+  status: string;
+}
+
+export interface PolarCustomerStateResult {
+  activeSubscriptions: PolarCustomerStateSubscription[];
+  customerId: string;
 }
 
 export interface SubscriptionActionResult {
@@ -178,7 +206,7 @@ export interface SubscriptionActionResult {
 }
 
 export async function createCheckoutUrl(input: CreateCheckoutUrlInput): Promise<string> {
-  const response = await (await polarClient(input.accessToken)).checkouts.create({
+  const response = await (await polarClient(input.accessToken, input.server)).checkouts.create({
     allowDiscountCodes: true,
     externalCustomerId: input.userId,
     metadata: { userId: input.userId },
@@ -202,10 +230,60 @@ export async function createCustomerPortalUrl(
         externalCustomerId: input.externalCustomerId,
         ...(input.returnUrl ? { returnUrl: input.returnUrl } : {}),
       };
-  const response = await (await polarClient(input.accessToken)).customerSessions.create(
-    sessionInput,
-  );
+  const response = await (
+    await polarClient(input.accessToken, input.server)
+  ).customerSessions.create(sessionInput);
   return parseCustomerPortalUrl(response);
+}
+
+/** Resolves the Polar customer, creating it when local entitlements predate checkout sync. */
+export async function ensurePolarCustomer(input: EnsurePolarCustomerInput): Promise<string> {
+  const polar = await polarClient(input.accessToken, input.server);
+  try {
+    return parsePolarResponse(
+      PolarCustomerResponseSchema,
+      await polar.customers.getExternal({ externalId: input.externalCustomerId }),
+      "Polar customer lookup returned an invalid response",
+    ).id;
+  } catch (error) {
+    if (!isPolarNotFoundError(error)) {
+      throw error;
+    }
+  }
+  const customer = await polar.customers.create({
+    email: input.email,
+    externalId: input.externalCustomerId,
+    metadata: { userId: input.externalCustomerId },
+  });
+  return parsePolarResponse(
+    PolarCustomerResponseSchema,
+    customer,
+    "Polar customer creation returned an invalid response",
+  ).id;
+}
+
+/** Reads Polar's canonical active-subscription projection for one internal user. */
+export async function getPolarCustomerState(
+  input: GetPolarCustomerStateInput,
+): Promise<PolarCustomerStateResult> {
+  const state = parsePolarResponse(
+    PolarCustomerStateResponseSchema,
+    await (await polarClient(input.accessToken, input.server)).customers.getStateExternal({
+      externalId: input.externalCustomerId,
+    }),
+    "Polar customer state returned an invalid response",
+  );
+  return {
+    activeSubscriptions: state.activeSubscriptions.map((subscription) => ({
+      cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+      currentPeriodEnd: subscription.currentPeriodEnd,
+      currentPeriodStart: subscription.currentPeriodStart,
+      id: subscription.id,
+      productId: subscription.productId,
+      status: subscription.status,
+    })),
+    customerId: state.id,
+  };
 }
 
 export async function cancelSubscriptionAtPeriodEnd(
@@ -216,7 +294,7 @@ export async function cancelSubscriptionAtPeriodEnd(
     ...(input.reason ? { customerCancellationReason: input.reason } : {}),
     ...(input.comment ? { customerCancellationComment: input.comment } : {}),
   };
-  const response = await (await polarClient(input.accessToken)).subscriptions.update({
+  const response = await (await polarClient(input.accessToken, input.server)).subscriptions.update({
     id: input.subscriptionId,
     subscriptionUpdate,
   });
@@ -226,7 +304,7 @@ export async function cancelSubscriptionAtPeriodEnd(
 export async function reactivateSubscription(
   input: ReactivateSubscriptionInput,
 ): Promise<SubscriptionActionResult> {
-  const response = await (await polarClient(input.accessToken)).subscriptions.update({
+  const response = await (await polarClient(input.accessToken, input.server)).subscriptions.update({
     id: input.subscriptionId,
     subscriptionUpdate: { cancelAtPeriodEnd: false },
   });
@@ -234,7 +312,7 @@ export async function reactivateSubscription(
 }
 
 export async function updateCustomerProfile(input: UpdateCustomerProfileInput): Promise<void> {
-  await (await polarClient(input.accessToken)).customers.update({
+  await (await polarClient(input.accessToken, input.server)).customers.update({
     customerUpdate: {
       email: input.email,
       ...(input.name !== undefined ? { name: input.name } : {}),
@@ -250,13 +328,8 @@ export function tierLimits(tier: BillingTier): TierLimits {
 export function entitlementValuesForTier(tier: BillingTier): EntitlementValues {
   const limits = tierLimits(tier);
   return {
-    flagPrivateProjects: tier !== "free",
-    flagSso: false,
-    maxConcurrentSandboxes: limits.maxConcurrentSandboxes,
     maxProjects: integerLimit(limits.maxProjects),
-    maxSeats: limits.maxSeats,
     quotaComposioCalls: integerLimit(limits.quotaComposioCalls),
-    quotaDeployments: integerLimit(limits.quotaDeployments),
     quotaSandboxHours: numericLimit(limits.quotaSandboxHours),
     tier,
   };
@@ -268,57 +341,13 @@ export function entitlementCacheFromValues(input: EntitlementCacheInput): Entitl
   return EntitlementCacheSchema.parse({
     currentPeriodEnd: isoDateOrNull(input.currentPeriodEnd),
     currentPeriodStart: isoDateOrNull(input.currentPeriodStart),
-    flagPrivateProjects: input.flagPrivateProjects ?? defaults.flagPrivateProjects,
-    flagSso: input.flagSso ?? defaults.flagSso,
-    maxConcurrentSandboxes: input.maxConcurrentSandboxes ?? defaults.maxConcurrentSandboxes,
     maxProjects: input.maxProjects ?? defaults.maxProjects,
-    maxSeats: input.maxSeats ?? defaults.maxSeats,
     quotaComposioCalls: input.quotaComposioCalls ?? defaults.quotaComposioCalls,
-    quotaDeployments: input.quotaDeployments ?? defaults.quotaDeployments,
     quotaSandboxHours: numericQuota(input.quotaSandboxHours ?? defaults.quotaSandboxHours),
     subscriptionStatus: input.subscriptionStatus ?? "none",
     tier,
     updatedAt: isoDateOrNow(input.updatedAt),
   });
-}
-
-export function inferTierFromPolarProduct(input: {
-  allowNameFallback?: boolean;
-  metadata?: Record<string, unknown>;
-  productId?: string | null;
-  productName?: string | null;
-}): BillingTier {
-  const metadataTier = input.metadata?.["tier"];
-  const parsedMetadataTier = BillingTierSchema.safeParse(metadataTier);
-  if (parsedMetadataTier.success) {
-    return parsedMetadataTier.data;
-  }
-
-  if (!input.allowNameFallback) {
-    throw new APIError(400, "invalid_request_body", "Polar product metadata tier is required", {
-      details: {
-        ...(input.productId ? { productId: input.productId } : {}),
-        ...(input.productName ? { productName: input.productName } : {}),
-      },
-      hint: "Set product metadata tier=pro|premium|ultra|max on every paid Polar product.",
-      retriable: false,
-    });
-  }
-
-  const searchable = `${input.productName ?? ""} ${input.productId ?? ""}`.toLowerCase();
-  if (searchable.includes("premium")) {
-    return "premium";
-  }
-  if (searchable.includes("ultra")) {
-    return "ultra";
-  }
-  if (searchable.includes("max")) {
-    return "max";
-  }
-  if (searchable.includes("pro")) {
-    return "pro";
-  }
-  return "pro";
 }
 
 function parseTier(value: string | undefined): BillingTier {
@@ -338,15 +367,30 @@ function isoDateOrNow(value: Date | null | undefined): string {
 // isolate's startup path (CF startup CPU limit). The agent-worker pulls this
 // package for pure entitlement math and must not pay the Polar parse cost; the
 // SDK loads only when a checkout/portal/subscription call is actually made.
-async function polarClient(accessToken: string): Promise<Polar> {
+async function polarClient(
+  accessToken: string,
+  server: PolarServer = "production",
+): Promise<Polar> {
   if (accessToken.trim().length === 0) {
     throw new APIError(503, "unavailable_maintenance", "Polar access token is not configured", {
       hint: "Set POLAR_ACCESS_TOKEN in the gateway Worker environment.",
       retriable: false,
     });
   }
-  const { Polar } = await import("@polar-sh/sdk");
-  return new Polar({ accessToken });
+  const { HTTPClient, Polar } = await import("@polar-sh/sdk");
+  const httpClient = new HTTPClient({
+    fetcher: async (input, init) => {
+      const response = await fetch(input, init);
+      return withBoundedResponseBody(response, POLAR_RESPONSE_MAX_BYTES, "Polar");
+    },
+  });
+  return new Polar({ accessToken, httpClient, server, timeoutMs: POLAR_REQUEST_TIMEOUT_MS });
+}
+
+function isPolarNotFoundError(error: unknown): boolean {
+  return (
+    typeof error === "object" && error !== null && "statusCode" in error && error.statusCode === 404
+  );
 }
 
 function integerLimit(value: number | null): number {
@@ -402,4 +446,14 @@ function parseSubscriptionAction(response: unknown): SubscriptionActionResult {
     id: parsed.data.id,
     status: parsed.data.status,
   };
+}
+
+function parsePolarResponse<T>(schema: z.ZodType<T>, response: unknown, message: string): T {
+  const parsed = schema.safeParse(response);
+  if (parsed.success) {
+    return parsed.data;
+  }
+  throw new APIError(502, "upstream_provider_outage", message, {
+    retriable: true,
+  });
 }

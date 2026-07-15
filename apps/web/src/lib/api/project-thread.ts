@@ -4,8 +4,10 @@ import {
   type ApprovalDecisionRequest,
   type ApprovalDecisionResponse,
   ApprovalDecisionResponseSchema,
+  CHEATCODE_DATA_SCHEMAS,
   type CheatcodeUIMessage,
   Paginated,
+  type ProjectMode,
   type ProjectSummary,
   ProjectSummarySchema,
   RecentThreadsResponseSchema,
@@ -21,11 +23,29 @@ import {
   type UpdateProject,
   type UpdateThread,
 } from "@cheatcode/types";
-import { authorizedFetch } from "@/lib/api/authorized-fetch";
+import { safeValidateUIMessages } from "ai";
+import {
+  API_RESPONSE_LIMIT_BYTES,
+  authorizedFetch,
+  consumeBoundedResponse,
+  readBoundedBlobResponse,
+  readBoundedJsonResponse,
+} from "@/lib/api/authorized-fetch";
 
 const ThreadMessagePageSchema = Paginated(UIMessageRecordSchema);
 const ProjectPageSchema = Paginated(ProjectSummarySchema);
 const ThreadPageSchema = Paginated(ThreadSchema);
+const PROJECT_ARCHIVE_CONTENT_TYPES = new Set([
+  "application/octet-stream",
+  "application/x-zip-compressed",
+  "application/zip",
+]);
+
+export interface CursorPage<T> {
+  data: T[];
+  has_more: boolean;
+  next_cursor: string | null;
+}
 
 /**
  * The single chat-creation entry point. Project-less when `projectId` is omitted —
@@ -49,7 +69,9 @@ export async function createChat(
     body: JSON.stringify(input),
     method: "POST",
   });
-  return ThreadSchema.parse(await response.json());
+  return ThreadSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
 // Wake the app preview when the Computer panel opens: starts a stopped sandbox and relaunches
@@ -57,13 +79,16 @@ export async function createChat(
 export async function wakeSandboxPreview(
   getToken: () => Promise<null | string>,
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<SandboxPreviewWake> {
   const response = await authorizedFetch(
     getToken,
     `/v1/threads/${encodeURIComponent(threadId)}/sandbox/preview/wake`,
-    { method: "POST" },
+    { method: "POST", ...(signal ? { signal } : {}) },
   );
-  return SandboxPreviewWakeSchema.parse(await response.json());
+  return SandboxPreviewWakeSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
 }
 
 // Current sandbox lifecycle state (webhook-fed; falls back to a live read), polled while the
@@ -71,33 +96,40 @@ export async function wakeSandboxPreview(
 export async function getSandboxPreviewStatus(
   getToken: () => Promise<null | string>,
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<SandboxPreviewStatus> {
   const response = await authorizedFetch(
     getToken,
     `/v1/threads/${encodeURIComponent(threadId)}/sandbox/preview/status`,
+    signal ? { signal } : {},
   );
-  return SandboxPreviewStatusSchema.parse(await response.json());
+  return SandboxPreviewStatusSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
 }
 
-export async function listProjects(
+export async function listProjectsPage(
   getToken: () => Promise<null | string>,
-): Promise<ProjectSummary[]> {
-  const response = await authorizedFetch(getToken, "/v1/projects?limit=100");
-  const page = ProjectPageSchema.parse(await response.json());
-  return page.data;
+  cursor: string | null = null,
+  limit = 25,
+): Promise<CursorPage<ProjectSummary>> {
+  const response = await authorizedFetch(getToken, paginatedPath("/v1/projects", limit, cursor));
+  return ProjectPageSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
+  );
 }
 
-export async function listProjectThreads(
+export async function listProjectThreadsPage(
   getToken: () => Promise<null | string>,
   projectId: string,
-  limit = 5,
-): Promise<Thread[]> {
-  const response = await authorizedFetch(
-    getToken,
-    `/v1/projects/${encodeURIComponent(projectId)}/threads?limit=${limit}`,
+  cursor: string | null = null,
+  limit = 25,
+): Promise<CursorPage<Thread>> {
+  const path = `/v1/projects/${encodeURIComponent(projectId)}/threads`;
+  const response = await authorizedFetch(getToken, paginatedPath(path, limit, cursor));
+  return ThreadPageSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
   );
-  const page = ThreadPageSchema.parse(await response.json());
-  return page.data;
 }
 
 /** The user's recent chats (threads) across all projects, newest first — chat-first sidebar. */
@@ -106,7 +138,9 @@ export async function listRecentThreads(
   limit = 20,
 ): Promise<SearchResultThread[]> {
   const response = await authorizedFetch(getToken, `/v1/threads?limit=${limit}`);
-  return RecentThreadsResponseSchema.parse(await response.json()).threads;
+  return RecentThreadsResponseSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  ).threads;
 }
 
 export async function getProject(
@@ -114,7 +148,9 @@ export async function getProject(
   projectId: string,
 ): Promise<ProjectSummary> {
   const response = await authorizedFetch(getToken, `/v1/projects/${encodeURIComponent(projectId)}`);
-  return ProjectSummarySchema.parse(await response.json());
+  return ProjectSummarySchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
 export async function getThread(
@@ -122,7 +158,9 @@ export async function getThread(
   threadId: string,
 ): Promise<Thread> {
   const response = await authorizedFetch(getToken, `/v1/threads/${encodeURIComponent(threadId)}`);
-  return ThreadSchema.parse(await response.json());
+  return ThreadSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
 export async function updateThread(
@@ -134,7 +172,9 @@ export async function updateThread(
     body: JSON.stringify(input),
     method: "PATCH",
   });
-  return ThreadSchema.parse(await response.json());
+  return ThreadSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
 export async function deleteThread(
@@ -159,7 +199,9 @@ export async function updateProject(
       method: "PATCH",
     },
   );
-  return ProjectSummarySchema.parse(await response.json());
+  return ProjectSummarySchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
 export async function deleteProject(
@@ -169,6 +211,150 @@ export async function deleteProject(
   await authorizedFetch(getToken, `/v1/projects/${encodeURIComponent(projectId)}`, {
     method: "DELETE",
   });
+}
+
+export async function downloadProjectArchive(
+  getToken: () => Promise<null | string>,
+  projectId: string,
+  fallbackName: string,
+): Promise<boolean> {
+  const suggestedName = projectArchiveFilename(null, fallbackName);
+  const picker = saveFilePicker();
+  if (picker) {
+    const fileHandle = await pickArchiveDestination(picker, suggestedName);
+    if (!fileHandle) {
+      return false;
+    }
+    const response = await fetchProjectArchive(getToken, projectId);
+    assertProjectArchiveContentType(response.headers.get("Content-Type"));
+    await streamArchiveToFile(response, fileHandle);
+    return true;
+  }
+
+  const response = await fetchProjectArchive(getToken, projectId);
+  assertProjectArchiveContentType(response.headers.get("Content-Type"));
+  await downloadArchiveWithBoundedBlob(response, fallbackName);
+  return true;
+}
+
+async function fetchProjectArchive(
+  getToken: () => Promise<null | string>,
+  projectId: string,
+): Promise<Response> {
+  return authorizedFetch(getToken, `/v1/projects/${encodeURIComponent(projectId)}/download`, {
+    method: "POST",
+  });
+}
+
+async function downloadArchiveWithBoundedBlob(
+  response: Response,
+  fallbackName: string,
+): Promise<void> {
+  let blob: Blob;
+  try {
+    blob = await readBoundedBlobResponse(response, API_RESPONSE_LIMIT_BYTES.archiveFallback);
+  } catch (error) {
+    if (error instanceof Error && error.name === "ResponseTooLargeError") {
+      throw new Error(
+        "This project is too large for an in-memory download in this browser. Use Chrome or Edge to stream it directly to disk.",
+      );
+    }
+    throw error;
+  }
+  const filename = projectArchiveFilename(
+    response.headers.get("Content-Disposition"),
+    fallbackName,
+  );
+  const objectUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = objectUrl;
+  link.download = filename;
+  link.style.display = "none";
+  document.body.append(link);
+  link.click();
+  link.remove();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+}
+
+type SaveFilePicker = (options: {
+  suggestedName: string;
+  types: Array<{ accept: Record<string, string[]>; description: string }>;
+}) => Promise<FileSystemFileHandle>;
+
+function saveFilePicker(): SaveFilePicker | null {
+  const candidate = (window as Window & { showSaveFilePicker?: SaveFilePicker }).showSaveFilePicker;
+  return typeof candidate === "function" ? candidate.bind(window) : null;
+}
+
+async function pickArchiveDestination(
+  picker: SaveFilePicker,
+  suggestedName: string,
+): Promise<FileSystemFileHandle | null> {
+  try {
+    return await picker({
+      suggestedName,
+      types: [
+        {
+          accept: { "application/zip": [".zip"] },
+          description: "ZIP archive",
+        },
+      ],
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function streamArchiveToFile(
+  response: Response,
+  fileHandle: FileSystemFileHandle,
+): Promise<void> {
+  const writable = await fileHandle.createWritable();
+  try {
+    const bytesWritten = await consumeBoundedResponse(
+      response,
+      API_RESPONSE_LIMIT_BYTES.archive,
+      (chunk) => writable.write(chunk),
+    );
+    if (bytesWritten === 0) {
+      throw new Error("Project download returned an empty archive.");
+    }
+    await writable.close();
+  } catch (error) {
+    await writable.abort(error).catch(() => undefined);
+    throw error;
+  }
+}
+
+function projectArchiveFilename(disposition: string | null, fallbackName: string): string {
+  const encoded = disposition?.match(/filename\*=UTF-8''([^;]+)/iu)?.[1];
+  let candidate: string | null = null;
+  if (encoded) {
+    try {
+      candidate = decodeURIComponent(encoded);
+    } catch {
+      // Fall through to the plain filename or the local project name.
+    }
+  }
+  candidate ??= disposition?.match(/filename="([^"]+)"/iu)?.[1] ?? fallbackName;
+  const basename = candidate.split(/[\\/]/u).at(-1) ?? "";
+  const safeStem = basename
+    .replace(/\.zip$/iu, "")
+    .trim()
+    .replace(/[^a-z0-9._-]+/giu, "-")
+    .replace(/^[-.]+|[-.]+$/gu, "")
+    .slice(0, 180);
+  return `${safeStem || "cheatcode-project"}.zip`;
+}
+
+function assertProjectArchiveContentType(header: string | null): void {
+  const mediaType = header?.split(";", 1)[0]?.trim().toLowerCase();
+  if (mediaType && !PROJECT_ARCHIVE_CONTENT_TYPES.has(mediaType)) {
+    throw new Error("Project download returned an unexpected file type.");
+  }
 }
 
 export async function cancelRun(
@@ -191,38 +377,53 @@ export async function decideRunApproval(
     `/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
     { body: JSON.stringify(body), method: "POST" },
   );
-  return ApprovalDecisionResponseSchema.parse(await response.json());
+  return ApprovalDecisionResponseSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
 }
 
-export async function listThreadMessages(
+export async function listThreadMessagesPage(
   getToken: () => Promise<null | string>,
   threadId: string,
-): Promise<CheatcodeUIMessage[]> {
-  const response = await authorizedFetch(
-    getToken,
-    `/v1/threads/${encodeURIComponent(threadId)}/messages?limit=100`,
-  );
-  const page = ThreadMessagePageSchema.parse(await response.json());
-  const messages: CheatcodeUIMessage[] = [];
-  for (const record of page.data) {
-    const message = messageRecordToUiMessage(record);
-    if (isCheatcodeUIMessage(message)) {
-      messages.push(message);
-    }
-  }
-  return messages;
+  cursor: string | null = null,
+): Promise<CursorPage<CheatcodeUIMessage>> {
+  const page = await listThreadMessageRecordsPage(getToken, threadId, cursor);
+  const messages = await Promise.all(page.data.map(messageRecordToUiMessage));
+  return { ...page, data: messages.filter(isCheatcodeUIMessage) };
 }
 
-function messageRecordToUiMessage(record: UIMessageRecord): CheatcodeUIMessage | null {
+export async function listThreadMessageRecordsPage(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+  cursor: string | null = null,
+): Promise<CursorPage<UIMessageRecord>> {
+  const response = await authorizedFetch(
+    getToken,
+    paginatedPath(`/v1/threads/${encodeURIComponent(threadId)}/messages`, 100, cursor),
+  );
+  return ThreadMessagePageSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.messages),
+  );
+}
+
+function paginatedPath(path: string, limit: number, cursor: string | null): string {
+  const query = new URLSearchParams({ limit: String(limit) });
+  if (cursor) query.set("cursor", cursor);
+  return `${path}?${query.toString()}`;
+}
+
+async function messageRecordToUiMessage(
+  record: UIMessageRecord,
+): Promise<CheatcodeUIMessage | null> {
   const role = uiMessageRole(record.role);
   if (!role) {
     return null;
   }
-  return {
-    id: record.id,
-    parts: record.parts as CheatcodeUIMessage["parts"],
-    role,
-  };
+  const parsed = await safeValidateUIMessages<CheatcodeUIMessage>({
+    dataSchemas: CHEATCODE_DATA_SCHEMAS,
+    messages: [{ id: record.id, parts: record.parts, role }],
+  });
+  return parsed.success ? (parsed.data[0] ?? null) : null;
 }
 
 function isCheatcodeUIMessage(value: CheatcodeUIMessage | null): value is CheatcodeUIMessage {
@@ -237,9 +438,7 @@ function uiMessageRole(value: string): CheatcodeUIMessage["role"] | null {
 }
 
 /** Maps a composer build surface to the chat's launch-intent mode. */
-export function surfaceToMode(
-  surface: string | null,
-): "app-builder" | "app-builder-mobile" | "general" {
+export function surfaceToMode(surface: string | null): ProjectMode {
   if (surface === "mobile") {
     return "app-builder-mobile";
   }

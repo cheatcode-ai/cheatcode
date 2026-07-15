@@ -1,9 +1,6 @@
-# Blaxel hosted sandbox credentials for local Worker dev.
-BL_API_KEY=
-BL_WORKSPACE=cheatcode
-BL_REGION=us-pdx-1
-BLAXEL_SANDBOX_IMAGE=sandbox/cheatcode-sandbox:yoo6c20wgw03
-BLAXEL_SANDBOX_MEMORY_MB=4096
+# Daytona hosted sandbox credentials for local Worker dev.
+DAYTONA_API_KEY=
+PREVIEW_TOKEN_SECRET=
 
 # App-level Composio key used to execute connected-account actions.
 COMPOSIO_API_KEY=
@@ -14,6 +11,6 @@ OUTPUT_DOWNLOAD_SIGNING_SECRET=
 # Used to verify internal DSR maintenance calls from webhooks-worker.
 INTERNAL_MAINTENANCE_SECRET=
 
-# Platform DeepSeek API key for the free 200K-token tier (https://platform.deepseek.com/api_keys).
-# Leave blank to disable the free tier locally; set a real key to test free DeepSeek runs.
+# Optional platform DeepSeek API key used by the built-in fallback model.
+# Leave blank to require a user BYOK/OpenRouter key locally.
 DEEPSEEK_PLATFORM_API_KEY=

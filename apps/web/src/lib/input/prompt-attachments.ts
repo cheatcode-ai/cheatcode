@@ -1,3 +1,5 @@
+import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types";
+
 const MAX_PROMPT_ATTACHMENT_BYTES = 500_000;
 const PROMPT_ATTACHMENT_ACCEPT =
   ".csv,.json,.jsonl,.md,.markdown,.txt,.ts,.tsx,.js,.jsx,.py,.sql,.html,.css,.xml,.yaml,.yml,.toml";
@@ -9,7 +11,7 @@ export interface PromptAttachment {
   size: number;
 }
 
-export { MAX_PROMPT_ATTACHMENT_BYTES, PROMPT_ATTACHMENT_ACCEPT };
+export { PROMPT_ATTACHMENT_ACCEPT };
 
 export async function readPromptAttachment(file: File): Promise<PromptAttachment> {
   const normalizedName = normalizeFilename(file.name);
@@ -36,7 +38,18 @@ export function appendPromptAttachment(currentValue: string, attachment: PromptA
   const fence = attachment.content.includes("```") ? "````" : "```";
   const block = `${header}\n\n${fence}${attachment.language}\n${attachment.content.trim()}\n${fence}`;
   const trimmed = currentValue.trimEnd();
-  return trimmed ? `${trimmed}\n\n${block}` : block;
+  const nextValue = trimmed ? `${trimmed}\n\n${block}` : block;
+  assertUserMessageWithinLimit(nextValue);
+  return nextValue;
+}
+
+export function assertUserMessageWithinLimit(value: string): void {
+  if (value.length <= USER_MESSAGE_MAX_CHARACTERS) {
+    return;
+  }
+  throw new Error(
+    `Messages can contain at most ${USER_MESSAGE_MAX_CHARACTERS.toLocaleString()} characters, including attachments and selected context.`,
+  );
 }
 
 function isSupportedPromptFile(file: File): boolean {

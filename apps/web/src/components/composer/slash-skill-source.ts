@@ -18,19 +18,23 @@ const MAX_SLASH_ITEMS = 10;
 export function slashSkillItems(query: string, userSkills: UserSkill[] = []): ComposerMenuItem[] {
   const needle = query.trim().toLowerCase();
   const bundledNames = new Set(SKILL_MANIFEST.map((skill) => skill.name));
-  const entries = [
-    ...userSkills
-      .filter((skill) => !bundledNames.has(skill.name))
-      .map((skill) => ({ description: skill.description, name: skill.name })),
-    ...SKILL_MANIFEST.map((skill) => ({ description: skill.description, name: skill.name })),
-  ];
-  return entries
-    .filter((skill) => needle.length === 0 || skill.name.toLowerCase().includes(needle))
-    .slice(0, MAX_SLASH_ITEMS)
-    .map((skill) => ({
-      hint: skill.description,
-      id: skill.name,
-      insert: "",
-      label: skill.name,
-    }));
+  const items: ComposerMenuItem[] = [];
+  const append = (name: string, description: string) => {
+    if (
+      items.length < MAX_SLASH_ITEMS &&
+      (needle.length === 0 || name.toLowerCase().includes(needle))
+    ) {
+      items.push({ hint: description, id: name, insert: "", label: name });
+    }
+  };
+
+  for (const skill of userSkills) {
+    if (!bundledNames.has(skill.name)) {
+      append(skill.name, skill.description);
+    }
+  }
+  for (const skill of SKILL_MANIFEST) {
+    append(skill.name, skill.description);
+  }
+  return items;
 }

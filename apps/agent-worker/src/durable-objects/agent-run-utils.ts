@@ -1,4 +1,3 @@
-import type { executeRunCodeTool } from "@cheatcode/agent-core";
 import { APIError } from "@cheatcode/observability";
 import { resolveWithAbortTimeout } from "./abort-timeout";
 
@@ -11,10 +10,6 @@ export function missingInternalUserResponse(
     hint: `Call AgentRun ${surface} through agent-worker.`,
     retriable: false,
   }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
-}
-
-export function isAppBuilderRequest(messageText: string): boolean {
-  return /create-next-app|next app|hot-?reload/i.test(messageText);
 }
 
 export async function readMastraChunk(
@@ -32,22 +27,4 @@ export async function readMastraChunk(
     operation: iterator.next(),
     timeoutMs,
   });
-}
-
-export function formatRunCodeFallbackOutput(
-  result: Awaited<ReturnType<typeof executeRunCodeTool>>,
-): string {
-  const stdout = result.stdout.trimEnd();
-  const stderr = result.stderr.trimEnd();
-  const lines = ["Sandbox run completed."];
-  if (stdout) {
-    lines.push("", "stdout:", "```text", stdout, "```");
-  }
-  if (stderr) {
-    lines.push("", "stderr:", "```text", stderr, "```");
-  }
-  if (result.exitCode !== null) {
-    lines.push("", `exit code: ${result.exitCode}`);
-  }
-  return `${lines.join("\n")}\n`;
 }

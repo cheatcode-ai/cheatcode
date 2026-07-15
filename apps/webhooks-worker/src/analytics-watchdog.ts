@@ -1,9 +1,12 @@
 import { hmacSha256Base64 } from "@cheatcode/auth";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError } from "@cheatcode/observability";
+import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 import type { InternalAlertPayload } from "./internal-alert";
 
 const ANALYTICS_SQL_URL_PREFIX = "https://api.cloudflare.com/client/v4/accounts";
+const ANALYTICS_REQUEST_TIMEOUT_MS = 10_000;
+const ANALYTICS_RESPONSE_MAX_BYTES = 128 * 1024;
+const INTERNAL_ALERT_TIMEOUT_MS = 10_000;
 
 interface AnalyticsSqlResponse {
   data: Record<string, unknown>[];
@@ -18,12 +21,14 @@ interface AnalyticsWatchdogEnv {
 }
 
 interface WatchdogCheck {
-  alert: (rows: Record<string, unknown>[]) => InternalAlertPayload | null;
+  alert: (rows: Record<string, unknown>[]) => PendingInternalAlert | null;
   name: string;
   query: string;
 }
 
-type WatchdogAlertBase = Partial<Omit<InternalAlertPayload, "severity" | "source" | "title">> & {
+type PendingInternalAlert = Omit<InternalAlertPayload, "id">;
+
+type WatchdogAlertBase = Partial<Omit<PendingInternalAlert, "severity" | "source" | "title">> & {
   title: string;
 };
 
@@ -115,6 +120,7 @@ const WATCHDOG_CHECKS: readonly WatchdogCheck[] = [
 
 export async function runAnalyticsWatchdog(
   env: AnalyticsWatchdogEnv,
+  scheduledTime: number,
 ): Promise<AnalyticsWatchdogResult> {
   const token = await analyticsApiToken(env);
   const accountId = accountIdFromEnv(env);
@@ -125,15 +131,9 @@ export async function runAnalyticsWatchdog(
     checksRun += 1;
     const alert = check.alert(rows);
     if (alert) {
-      await postWatchdogAlert(env, check.name, alert);
+      await postWatchdogAlert(env, check.name, alert, scheduledTime);
       alertsPosted += 1;
     }
-  }
-  const costAlert = await costRegressionAlert({ accountId, token });
-  checksRun += 1;
-  if (costAlert) {
-    await postWatchdogAlert(env, "cost_per_run_regression_30m", costAlert);
-    alertsPosted += 1;
   }
   return { alertsPosted, checksRun };
 }
@@ -149,19 +149,23 @@ async function queryAnalyticsEngine(input: {
       body: input.query,
       headers: { Authorization: `Bearer ${input.token}` },
       method: "POST",
+      signal: AbortSignal.timeout(ANALYTICS_REQUEST_TIMEOUT_MS),
     },
   );
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new APIError(503, "upstream_provider_outage", "Analytics Engine SQL query failed", {
       details: { status: response.status },
       hint: "Check CLOUDFLARE_ANALYTICS_API_TOKEN permissions for Analytics Engine SQL reads.",
       retriable: true,
     });
   }
-  return parseSqlResponse(await response.json()).data;
+  return parseSqlResponse(
+    await readBoundedResponseJson(response, ANALYTICS_RESPONSE_MAX_BYTES, "Analytics Engine"),
+  ).data;
 }
 
-export async function postInternalAlert(
+async function postInternalAlert(
   env: AnalyticsWatchdogEnv,
   alert: InternalAlertPayload,
 ): Promise<void> {
@@ -179,9 +183,11 @@ export async function postInternalAlert(
         "x-cheatcode-alert-timestamp": timestamp,
       },
       method: "POST",
+      signal: AbortSignal.timeout(INTERNAL_ALERT_TIMEOUT_MS),
     },
   );
   if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
     throw new APIError(
       503,
       "upstream_provider_outage",
@@ -193,81 +199,29 @@ export async function postInternalAlert(
       },
     );
   }
+  await response.body?.cancel().catch(() => undefined);
 }
 
 async function postWatchdogAlert(
   env: AnalyticsWatchdogEnv,
   metric: string,
-  alert: InternalAlertPayload,
+  alert: PendingInternalAlert,
+  scheduledTime: number,
 ): Promise<void> {
   await postInternalAlert(env, {
     ...alert,
-    id: `watchdog_${metric}`,
+    id: `watchdog_${metric}_${scheduledTime}`,
     metric,
     source: "analytics-watchdog",
-    timestamp: new Date().toISOString(),
+    timestamp: new Date(scheduledTime).toISOString(),
   });
-}
-
-async function costRegressionAlert(input: {
-  accountId: string;
-  token: string;
-}): Promise<InternalAlertPayload | null> {
-  const recentRows = await queryAnalyticsEngine({
-    ...input,
-    query: `
-      SELECT
-        SUM(double1 * _sample_interval) AS cost_micros,
-        count(DISTINCT blob4) AS runs
-      FROM cc_cost_events
-      WHERE timestamp > NOW() - INTERVAL '30' MINUTE
-      FORMAT JSON
-    `,
-  });
-  const baselineRows = await queryAnalyticsEngine({
-    ...input,
-    query: `
-      SELECT
-        SUM(double1 * _sample_interval) AS cost_micros,
-        count(DISTINCT blob4) AS runs
-      FROM cc_cost_events
-      WHERE timestamp > NOW() - INTERVAL '7' DAY
-        AND timestamp <= NOW() - INTERVAL '30' MINUTE
-      FORMAT JSON
-    `,
-  });
-  const recent = costWindow(recentRows[0]);
-  const baseline = costWindow(baselineRows[0]);
-  if (recent.runs < 3 || baseline.runs < 10 || baseline.avgCostMicros <= 0) {
-    return null;
-  }
-  const ratio = recent.avgCostMicros / baseline.avgCostMicros;
-  return ratio > 1.5
-    ? {
-        description: "Average cost per run crossed 150% of the 7-day baseline.",
-        metadata: {
-          baselineAvgCostMicros: baseline.avgCostMicros,
-          baselineRuns: baseline.runs,
-          ratio,
-          recentAvgCostMicros: recent.avgCostMicros,
-          recentRuns: recent.runs,
-        },
-        service: "agent",
-        severity: ratio > 2 ? "critical" : "warning",
-        source: "analytics-watchdog",
-        threshold: "150% of 7d baseline",
-        title: "Cost-per-run regression",
-        window: "30m",
-        workerName: "agent",
-      }
-    : null;
 }
 
 function ratioAlert(
   row: Record<string, unknown> | undefined,
   threshold: number,
   base: WatchdogAlertBase,
-): InternalAlertPayload | null {
+): PendingInternalAlert | null {
   const errors = numberField(row, "errors");
   const total = numberField(row, "total");
   const ratio = total > 0 ? errors / total : 0;
@@ -282,7 +236,7 @@ function ratioAlert(
     : null;
 }
 
-function webhookFailureAlert(rows: Record<string, unknown>[]): InternalAlertPayload | null {
+function webhookFailureAlert(rows: Record<string, unknown>[]): PendingInternalAlert | null {
   const worst = rows.find((row) => numberField(row, "failures") >= 5);
   if (!worst) {
     return null;
@@ -303,26 +257,12 @@ function webhookFailureAlert(rows: Record<string, unknown>[]): InternalAlertPayl
   };
 }
 
-function costWindow(row: Record<string, unknown> | undefined): {
-  avgCostMicros: number;
-  costMicros: number;
-  runs: number;
-} {
-  const costMicros = numberField(row, "cost_micros");
-  const runs = numberField(row, "runs");
-  return {
-    avgCostMicros: runs > 0 ? costMicros / runs : 0,
-    costMicros,
-    runs,
-  };
-}
-
 function thresholdAlert(
   row: Record<string, unknown> | undefined,
   field: string,
   threshold: number,
   base: WatchdogAlertBase,
-): InternalAlertPayload | null {
+): PendingInternalAlert | null {
   const value = numberField(row, field);
   return value > threshold
     ? {

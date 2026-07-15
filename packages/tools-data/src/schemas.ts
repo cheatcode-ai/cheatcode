@@ -1,11 +1,14 @@
 import { z } from "zod";
 
-export const DataCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
-export const DataRecordSchema = z.record(z.string(), DataCellSchema);
+const DATA_RECORD_MAX_BYTES = 256 * 1024;
+const DataCellSchema = z.union([z.string().max(10_000), z.number(), z.boolean(), z.null()]);
+const DataRecordSchema = z
+  .record(z.string().min(1).max(200), DataCellSchema)
+  .refine((value) => Object.keys(value).length <= 100, { message: "Record has too many fields." });
 
-export const ColumnKindSchema = z.enum(["boolean", "date", "empty", "mixed", "number", "string"]);
+const ColumnKindSchema = z.enum(["boolean", "date", "empty", "mixed", "number", "string"]);
 
-export const NumericSummarySchema = z
+const NumericSummarySchema = z
   .object({
     max: z.number(),
     mean: z.number(),
@@ -16,18 +19,18 @@ export const NumericSummarySchema = z
   })
   .strict();
 
-export const TopValueSchema = z
+const TopValueSchema = z
   .object({
     count: z.number().int().nonnegative(),
-    value: z.string(),
+    value: z.string().max(10_000),
   })
   .strict();
 
-export const ColumnProfileSchema = z
+const ColumnProfileSchema = z
   .object({
     emptyCount: z.number().int().nonnegative(),
     kind: ColumnKindSchema,
-    name: z.string(),
+    name: z.string().max(200),
     nonEmptyCount: z.number().int().nonnegative(),
     numeric: NumericSummarySchema.optional(),
     topValues: z.array(TopValueSchema),
@@ -35,10 +38,10 @@ export const ColumnProfileSchema = z
   })
   .strict();
 
-export const GroupSummarySchema = z
+const GroupSummarySchema = z
   .object({
     count: z.number().int().nonnegative(),
-    group: z.string(),
+    group: z.string().max(10_000),
     metrics: z.record(
       z.string(),
       z
@@ -53,7 +56,7 @@ export const GroupSummarySchema = z
 
 export const AnalyzeCsvInputSchema = z
   .object({
-    csv: z.string().min(1).max(5_000_000).describe("CSV text to profile."),
+    csv: z.string().min(1).max(1_000_000).describe("CSV text to profile."),
     delimiter: z.string().min(1).max(4).default(",").describe("CSV delimiter."),
     groupBy: z
       .string()
@@ -78,19 +81,19 @@ export const AnalyzeCsvInputSchema = z
 
 export const AnalyzeCsvOutputSchema = z
   .object({
-    columns: z.array(ColumnProfileSchema),
+    columns: z.array(ColumnProfileSchema).max(100),
     groups: z.array(GroupSummarySchema).optional(),
     rowCount: z.number().int().nonnegative(),
-    sampleRows: z.array(DataRecordSchema),
+    sampleRows: z.array(DataRecordSchema).max(50),
   })
   .strict();
 
-export const ChartTypeSchema = z.enum(["area", "bar", "line"]);
+const ChartTypeSchema = z.enum(["area", "bar", "line"]);
 
 export const DataChartInputSchema = z
   .object({
-    chartType: ChartTypeSchema.default("bar").describe("Recharts chart family to render."),
-    csv: z.string().min(1).max(2_000_000).optional().describe("CSV text to chart."),
+    chartType: ChartTypeSchema.default("bar").describe("SVG chart family to render."),
+    csv: z.string().min(1).max(1_000_000).optional().describe("CSV text to chart."),
     delimiter: z.string().min(1).max(4).default(",").describe("CSV delimiter when csv is used."),
     filename: z
       .string()
@@ -101,7 +104,10 @@ export const DataChartInputSchema = z
     height: z.number().int().min(240).max(1600).default(520).describe("Chart SVG height."),
     rows: z
       .array(DataRecordSchema)
-      .max(2_000)
+      .max(500)
+      .refine((value) => serializedSizeWithin(value, DATA_RECORD_MAX_BYTES), {
+        message: "Chart records are too large.",
+      })
       .optional()
       .describe("Already-extracted rows to chart. Use csv or rows, not both."),
     title: z.string().min(1).max(200).default("Cheatcode Chart").describe("Chart title."),
@@ -115,7 +121,7 @@ export const DataChartInputSchema = z
     path: ["csv"],
   });
 
-export const ChartArtifactSchema = z
+const ChartArtifactSchema = z
   .object({
     downloadUrl: z.string().url(),
     filename: z.string(),
@@ -131,10 +137,10 @@ export const DataChartOutputSchema = z
   .object({
     artifact: ChartArtifactSchema.optional(),
     chartType: ChartTypeSchema,
-    componentSource: z.string(),
+    componentSource: z.string().max(500_000),
     height: z.number().int().positive(),
     rowCount: z.number().int().nonnegative(),
-    svg: z.string(),
+    svg: z.string().max(2_000_000),
     title: z.string(),
     width: z.number().int().positive(),
     xKey: z.string(),
@@ -152,12 +158,15 @@ export const DataScrapeToCsvInputSchema = z
     markdownTable: z
       .string()
       .min(1)
-      .max(1_000_000)
+      .max(250_000)
       .optional()
       .describe("Markdown table scraped from a page."),
     records: z
       .array(DataRecordSchema)
-      .max(10_000)
+      .max(2_000)
+      .refine((value) => serializedSizeWithin(value, DATA_RECORD_MAX_BYTES), {
+        message: "Structured records are too large.",
+      })
       .optional()
       .describe("Structured records from Firecrawl/Exa extraction."),
     sourceUrl: z.string().url().optional().describe("Source URL used for provenance."),
@@ -170,9 +179,9 @@ export const DataScrapeToCsvInputSchema = z
 
 export const DataScrapeToCsvOutputSchema = z
   .object({
-    columns: z.array(z.string()),
-    csv: z.string(),
-    previewRows: z.array(DataRecordSchema),
+    columns: z.array(z.string().max(200)).max(100),
+    csv: z.string().max(500_000),
+    previewRows: z.array(DataRecordSchema).max(10),
     rowCount: z.number().int().nonnegative(),
     sourceUrl: z.string().url().optional(),
   })
@@ -185,3 +194,12 @@ export type DataChartOutput = z.infer<typeof DataChartOutputSchema>;
 export type DataRecord = z.infer<typeof DataRecordSchema>;
 export type DataScrapeToCsvInput = z.infer<typeof DataScrapeToCsvInputSchema>;
 export type DataScrapeToCsvOutput = z.infer<typeof DataScrapeToCsvOutputSchema>;
+
+function serializedSizeWithin(value: unknown, maxBytes: number): boolean {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized !== undefined && new TextEncoder().encode(serialized).byteLength <= maxBytes;
+  } catch {
+    return false;
+  }
+}

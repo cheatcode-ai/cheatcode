@@ -2,8 +2,8 @@ import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 
 export const GatewayUserIdSchema = z.string().uuid();
-export const ThreadRouteParamSchema = z.string().uuid();
-export const RunRouteParamSchema = z.string().uuid();
+const ThreadRouteParamSchema = z.string().uuid();
+const RunRouteParamSchema = z.string().uuid();
 
 const SANDBOX_ID_PREFIX = "cc";
 const SANDBOX_ID_HEX_LENGTH = 40;
@@ -46,12 +46,8 @@ export function parseRunRouteParam(value: string): string {
   return parsed.data;
 }
 
-export function agentRunObjectName(runId: string): string {
-  return runId;
-}
-
 // One sandbox ("computer") per user: every project is a subfolder under /workspace in the same
-// sandbox, so the DO name is keyed only by userId. Projects no longer get their own sandbox.
+// sandbox, so the DO name is keyed only by userId.
 export async function userSandboxName(userId: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",

@@ -1,27 +1,28 @@
 "use client";
 
-import { env } from "@cheatcode/env/web";
+import { gatewayRequestUrl } from "@/lib/api/gateway-url";
+import { telemetryPage } from "@/lib/telemetry-page";
 
-const CLIENT_ERROR_ENDPOINT = `${env.NEXT_PUBLIC_GATEWAY_URL}/v1/client-error`;
+const CLIENT_ERROR_ENDPOINT = gatewayRequestUrl("/v1/client-error");
 let initialized = false;
 
 interface ClientErrorPayload {
-  message: string;
-  stack?: string;
   timestamp: number;
-  type?: string;
+  type: ClientErrorType;
   url: string;
-  userAgent: string;
 }
 
-export function reportClientError(error: Error, type: string): void {
+type ClientErrorType =
+  | "app-route-error-boundary"
+  | "global-error-boundary"
+  | "unhandled-rejection"
+  | "window-error";
+
+export function reportClientError(type: ClientErrorType): void {
   postClientError({
-    message: error.message || error.name,
     timestamp: Date.now(),
     type,
-    url: location.href,
-    userAgent: navigator.userAgent,
-    ...(error.stack ? { stack: error.stack } : {}),
+    url: telemetryPage(),
   });
 }
 
@@ -31,28 +32,12 @@ export function initErrorReporter(): void {
   }
   initialized = true;
 
-  window.addEventListener("error", (event) => {
-    const stack = errorStack(event.error);
-    postClientError({
-      message: event.message,
-      timestamp: Date.now(),
-      type: "window-error",
-      url: location.href,
-      userAgent: navigator.userAgent,
-      ...(stack ? { stack } : {}),
-    });
+  window.addEventListener("error", () => {
+    reportClientError("window-error");
   });
 
-  window.addEventListener("unhandledrejection", (event) => {
-    const stack = errorStack(event.reason);
-    postClientError({
-      message: reasonMessage(event.reason),
-      timestamp: Date.now(),
-      type: "unhandled-rejection",
-      url: location.href,
-      userAgent: navigator.userAgent,
-      ...(stack ? { stack } : {}),
-    });
+  window.addEventListener("unhandledrejection", () => {
+    reportClientError("unhandled-rejection");
   });
 }
 
@@ -68,18 +53,4 @@ function postClientError(payload: ClientErrorPayload): void {
     keepalive: true,
     method: "POST",
   }).catch(() => undefined);
-}
-
-function reasonMessage(reason: unknown): string {
-  if (reason instanceof Error) {
-    return reason.message || reason.name;
-  }
-  if (typeof reason === "string") {
-    return reason;
-  }
-  return "Unhandled rejection";
-}
-
-function errorStack(value: unknown): string | undefined {
-  return value instanceof Error ? value.stack : undefined;
 }

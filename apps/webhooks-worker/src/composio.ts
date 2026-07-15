@@ -1,13 +1,16 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
 import {
   type Database,
-  enqueueRunRequest,
-  findEventAutomationsByTrigger,
   updateUserIntegrationStatusByConnectionId,
   upsertUserIntegration,
 } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import {
+  ComposioConnectionIdSchema,
+  type IntegrationName,
+  IntegrationNameSchema,
+  UserId,
+} from "@cheatcode/types";
 import { z } from "zod";
 
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
@@ -64,17 +67,18 @@ export async function handleComposioWebhookEvent(
 ): Promise<ComposioWebhookResult> {
   const payload = ComposioPayloadSchema.parse(event);
 
-  // Trigger events carry a metadata.trigger_id (the id returned by triggers.create).
-  // Route them to matching event-automations via the idempotent outbox.
-  const triggerId = firstString(payload.metadata, ["trigger_id", "triggerId", "triggerName"]);
-  if (triggerId) {
-    return handleTriggerEvent(db, payload, triggerId);
-  }
-
   const connectionId = connectionIdFromData(payload.data);
   const integration =
     integrationFromData(payload.data) ?? integrationFromMetadata(payload.metadata);
   const userId = userIdFromPayload(payload);
+
+  if (!payload.type.startsWith("composio.connected_account.")) {
+    return {
+      action: "recorded",
+      eventType: payload.type,
+      ...(userId ? { userId } : {}),
+    };
+  }
 
   if (payload.type === "composio.connected_account.expired" && connectionId) {
     const updated = await updateUserIntegrationStatusByConnectionId(db, {
@@ -104,38 +108,6 @@ export async function handleComposioWebhookEvent(
   };
 }
 
-async function handleTriggerEvent(
-  db: Database,
-  payload: z.infer<typeof ComposioPayloadSchema>,
-  triggerId: string,
-): Promise<ComposioWebhookResult> {
-  const automations = await findEventAutomationsByTrigger(db, triggerId);
-  // Stable per-event id for idempotent dedupe (collapses Composio redeliveries).
-  const dedupeId =
-    firstString(payload.metadata, ["log_id", "logId", "id"]) ??
-    firstString(payload.data, ["id", "message_id", "messageId"]) ??
-    `${triggerId}:${payload.timestamp ?? ""}`;
-  // Bounded, normalized event context the run can use; never the full raw payload.
-  const normalized = { context: JSON.stringify(payload.data).slice(0, 1000) };
-  let enqueued = 0;
-  for (const automation of automations) {
-    const requestId = await enqueueRunRequest(db, {
-      automationId: automation.id,
-      dedupeKey: `event:${automation.id}:${dedupeId}`,
-      normalized,
-      source: "event",
-      userId: automation.userId,
-    });
-    if (requestId) {
-      enqueued += 1;
-    }
-  }
-  return {
-    action: enqueued > 0 ? "automations_triggered" : "automation_trigger_no_match",
-    eventType: payload.type,
-  };
-}
-
 function invalidComposioSignature(message: string): APIError {
   return new APIError(401, "auth_token_invalid", message, { retriable: false });
 }
@@ -154,19 +126,34 @@ function signaturePayload(signature: string): string {
 }
 
 function connectionIdFromData(data: Record<string, unknown>): string | null {
-  return firstString(data, ["id", "connectedAccountId", "connected_account_id", "accountId"]);
+  const candidate = firstString(data, [
+    "id",
+    "connectedAccountId",
+    "connected_account_id",
+    "accountId",
+  ]);
+  return candidate ? ComposioConnectionIdSchema.parse(candidate) : null;
 }
 
-function integrationFromData(data: Record<string, unknown>): string | null {
+function integrationFromData(data: Record<string, unknown>): IntegrationName | null {
   const toolkit = recordField(data, "toolkit");
-  return (
+  return parseIntegrationName(
     firstString(data, ["toolkitSlug", "toolkit_slug", "integration", "appName"]) ??
-    firstString(toolkit, ["slug", "name"])
+      firstString(toolkit, ["slug", "name"]),
   );
 }
 
-function integrationFromMetadata(metadata: Record<string, unknown> | undefined): string | null {
-  return firstString(metadata, ["toolkitSlug", "toolkit_slug", "integration", "trigger_slug"]);
+function integrationFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): IntegrationName | null {
+  return parseIntegrationName(
+    firstString(metadata, ["toolkitSlug", "toolkit_slug", "integration", "trigger_slug"]),
+  );
+}
+
+function parseIntegrationName(value: string | null): IntegrationName | null {
+  const parsed = value ? IntegrationNameSchema.safeParse(value) : null;
+  return parsed?.success ? parsed.data : null;
 }
 
 function userIdFromPayload(payload: z.infer<typeof ComposioPayloadSchema>): UserId | null {

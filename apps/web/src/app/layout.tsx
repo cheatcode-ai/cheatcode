@@ -4,10 +4,10 @@ import { ui } from "@clerk/ui";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
-import { NextIntlClientProvider } from "next-intl";
-import { getMessages } from "next-intl/server";
 import type { ReactNode } from "react";
 import "./globals.css";
+import "./chat-markdown.css";
+import "./effects.css";
 import { ClientObservability } from "@/components/observability/client-observability";
 import { Providers } from "./providers";
 
@@ -32,7 +32,6 @@ export const metadata: Metadata = {
 };
 
 export default async function RootLayout({ children }: { children: ReactNode }) {
-  const messages = await getMessages();
   const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
   return (
@@ -43,18 +42,22 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
       data-scroll-behavior="smooth"
     >
       <body>
+        <a
+          className="fixed top-2 left-2 z-[100] -translate-y-[calc(100%+1rem)] rounded-full bg-foreground px-4 py-2 font-semibold text-background text-sm transition-transform focus-visible:translate-y-0 motion-reduce:transition-none"
+          href="#main-content"
+        >
+          Skip to main content
+        </a>
         <ClerkProvider
           {...(clerkPublishableKey ? { publishableKey: clerkPublishableKey } : {})}
           signInUrl="/sign-in"
           signUpUrl="/sign-up"
           ui={ui}
         >
-          <NextIntlClientProvider locale="en" messages={messages}>
-            <Providers>
-              <ClientObservability />
-              {children}
-            </Providers>
-          </NextIntlClientProvider>
+          <Providers>
+            <ClientObservability />
+            {children}
+          </Providers>
         </ClerkProvider>
       </body>
     </html>

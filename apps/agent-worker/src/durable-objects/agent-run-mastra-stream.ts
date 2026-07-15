@@ -1,7 +1,8 @@
 import { type ApprovalBroker, createCodeRequestContext, mastra } from "@cheatcode/agent-core";
-import type { createLogger } from "@cheatcode/observability";
-import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/tools-code";
-import { stepCountIs } from "ai";
+import { workspacePathForSlug } from "@cheatcode/db";
+import { APIError, type createLogger } from "@cheatcode/observability";
+import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import { isLoopFinished, type ModelMessage } from "ai";
 import { resolveWithAbortTimeout } from "./abort-timeout";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -10,15 +11,32 @@ import { readMastraChunk } from "./agent-run-utils";
 import { resolveAgentToolCredentials } from "./agent-tool-credentials";
 import type { LlmCredential } from "./llm-provider";
 
-const AGENT_LOOP_MAX_STEPS = 50;
 const MASTRA_FIRST_CHUNK_TIMEOUT_MS = 45_000;
+const MASTRA_PROGRESS_TIMEOUT_MS = 11 * 60_000;
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 type MastraOpenedStream = { fullStream: AsyncIterable<unknown> };
+type ResolvedToolCredentials = Awaited<ReturnType<typeof resolveAgentToolCredentials>>;
+type ResolvedUserSkillContext = Awaited<ReturnType<typeof resolveUserSkillContext>>;
+
+interface PreparedMastraContext extends ResolvedUserSkillContext {
+  toolCredentials: ResolvedToolCredentials;
+}
+
+interface ConsumeMastraStreamOptions {
+  abortController: AbortController;
+  abortSignal: AbortSignal;
+  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  credential: LlmCredential;
+  hasPendingDecision: () => boolean;
+  input: StartRunInput;
+  logger: ReturnType<typeof createLogger>;
+  setRunStage: (stage: string) => void;
+  stream: MastraOpenedStream;
+}
 
 export type MastraStreamOptions = {
   abortSignal: AbortSignal;
-  agentContextNote?: string;
   appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
   approvalBroker: ApprovalBroker | undefined;
   artifactRuntime: ArtifactRuntime;
@@ -26,83 +44,30 @@ export type MastraStreamOptions = {
   hasPendingDecision: () => boolean;
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
-  runRunCodeFallback: () => Promise<void>;
+  modelMessages: ModelMessage[];
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => void;
   credential: LlmCredential;
 };
 
 export async function runMastraStream(options: MastraStreamOptions): Promise<void> {
-  const { credential, env, input, logger, sandbox, setRunStage } = options;
-  const toolCredentials = await resolveAgentToolCredentials({
-    env,
-    logger,
-    run: input,
-    setRunStage,
-  });
-  const { userSkills, userSkillStore } = await resolveUserSkillContext(env, input.userId);
-  logger.info("agent_tool_credentials_resolved", {
-    composioConfigured: Boolean(toolCredentials.composioApiKey),
-    exaConfigured: Boolean(toolCredentials.exaApiKey),
-    firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
-  });
+  const prepared = await prepareMastraContext(options);
   const { abortController, cleanupAbortListener } = linkedAbortController(options.abortSignal);
-  setRunStage("Opening Mastra stream.");
-  logger.info("mastra_stream_opening", {
-    modelId: credential.modelId,
-    provider: credential.provider,
+  options.setRunStage("Opening Mastra stream.");
+  options.logger.info("mastra_stream_opening", {
+    logicalModelId: options.credential.logicalModelId,
     timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+    transportModelId: options.credential.transportModelId,
+    transportProvider: options.credential.transportProvider,
   });
   try {
-    const stream = await resolveWithAbortTimeout({
-      abortController,
-      operation: mastra.getAgent("general").stream(mastraPromptText(options), {
-        abortSignal: abortController.signal,
-        maxSteps: AGENT_LOOP_MAX_STEPS,
-        requestContext: createCodeRequestContext(
-          {
-            artifacts: options.artifactRuntime,
-            sandbox,
-            workspaceDir: `/workspace/${input.workspaceSlug}`,
-          },
-          {
-            agentDisplayName: input.agentDisplayName,
-            anthropicApiKey: credential.provider === "anthropic" ? credential.apiKey : undefined,
-            approvalBroker: options.approvalBroker,
-            composioApiKey: toolCredentials.composioApiKey,
-            composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
-            composioQuotaMeter: toolCredentials.composioQuotaMeter,
-            composioUserId: toolCredentials.composioUserId,
-            deepseekApiKey: credential.provider === "deepseek" ? credential.apiKey : undefined,
-            exaApiKey: toolCredentials.exaApiKey,
-            firecrawlApiKey: toolCredentials.firecrawlApiKey,
-            globalMemory: input.globalMemory,
-            googleApiKey: credential.provider === "google" ? credential.apiKey : undefined,
-            llmProvider: credential.provider,
-            masterInstructions: input.masterInstructions,
-            modelId: credential.modelId,
-            openaiApiKey: credential.provider === "openai" ? credential.apiKey : undefined,
-            openrouterApiKey: credential.provider === "openrouter" ? credential.apiKey : undefined,
-            projectMode: input.projectMode,
-            researchFanoutSubagentLimit: input.researchFanoutSubagentLimit,
-            taskMessage: input.messageText,
-            userSkills,
-            userSkillStore,
-          },
-        ),
-        // DeepSeek V4 defaults to thinking mode; disable it so tool-calling stays a clean
-        // OpenAI-style loop (avoids the reasoning_content round-trip). No-op for other providers.
-        ...(credential.provider === "deepseek"
-          ? { providerOptions: { deepseek: { thinking: { type: "disabled" } } } }
-          : {}),
-        stopWhen: stepCountIs(AGENT_LOOP_MAX_STEPS),
-      }),
-      timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
-    });
+    const stream = await openMastraStream(options, prepared, abortController);
     if (stream === "timeout") {
       if (!options.abortSignal.aborted) {
-        logger.warn("mastra_stream_open_timeout", { timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS });
-        await options.runRunCodeFallback();
+        options.logger.warn("mastra_stream_open_timeout", {
+          timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+        });
+        throw modelStreamTimeoutError();
       }
       return;
     }
@@ -110,12 +75,11 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
       abortController,
       appendCheckedMastraChunk: options.appendCheckedMastraChunk,
       abortSignal: options.abortSignal,
-      credential,
+      credential: options.credential,
       hasPendingDecision: options.hasPendingDecision,
-      input,
-      logger,
-      runRunCodeFallback: options.runRunCodeFallback,
-      setRunStage,
+      input: options.input,
+      logger: options.logger,
+      setRunStage: options.setRunStage,
       stream,
     });
   } finally {
@@ -123,12 +87,81 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
   }
 }
 
-// Appends an ephemeral agent-context note (e.g. the GitHub-import inspect/start
-// instruction) to the prompt handed to Mastra only. The persisted user message,
-// written at run create, is untouched, so the UI never shows the note.
-function mastraPromptText(options: MastraStreamOptions): string {
-  const note = options.agentContextNote;
-  return note ? `${options.input.messageText}\n\n${note}` : options.input.messageText;
+async function prepareMastraContext(options: MastraStreamOptions): Promise<PreparedMastraContext> {
+  const toolCredentials = await resolveAgentToolCredentials({
+    env: options.env,
+    logger: options.logger,
+    run: options.input,
+    setRunStage: options.setRunStage,
+  });
+  const userSkillContext = await resolveUserSkillContext(options.env, options.input.userId);
+  options.logger.info("agent_tool_credentials_resolved", {
+    composioConfigured: Boolean(toolCredentials.composioApiKey),
+    exaConfigured: Boolean(toolCredentials.exaApiKey),
+    firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
+  });
+  return { ...userSkillContext, toolCredentials };
+}
+
+async function openMastraStream(
+  options: MastraStreamOptions,
+  prepared: PreparedMastraContext,
+  abortController: AbortController,
+): Promise<MastraOpenedStream | "timeout"> {
+  return resolveWithAbortTimeout({
+    abortController,
+    operation: mastra.getAgent("general").stream(options.modelMessages, {
+      abortSignal: abortController.signal,
+      requestContext: agentRequestContext(options, prepared),
+      runId: options.input.runId,
+      ...(options.credential.transportProvider === "deepseek"
+        ? { providerOptions: { deepseek: { thinking: { type: "disabled" } } } }
+        : {}),
+      stopWhen: isLoopFinished(),
+    }),
+    timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+  });
+}
+
+function agentRequestContext(
+  options: MastraStreamOptions,
+  prepared: PreparedMastraContext,
+): ReturnType<typeof createCodeRequestContext> {
+  const { credential, input } = options;
+  const { toolCredentials, userSkillLoader, userSkills, userSkillStore } = prepared;
+  return createCodeRequestContext(
+    {
+      artifacts: options.artifactRuntime,
+      sandbox: options.sandbox,
+      workspaceDir: workspacePathForSlug(input.workspaceSlug),
+    },
+    {
+      agentDisplayName: input.agentDisplayName,
+      anthropicApiKey: credential.transportProvider === "anthropic" ? credential.apiKey : undefined,
+      approvalBroker: options.approvalBroker,
+      composioApiKey: toolCredentials.composioApiKey,
+      composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
+      composioQuotaMeter: toolCredentials.composioQuotaMeter,
+      composioUserId: toolCredentials.composioUserId,
+      deepseekApiKey: credential.transportProvider === "deepseek" ? credential.apiKey : undefined,
+      exaApiKey: toolCredentials.exaApiKey,
+      firecrawlApiKey: toolCredentials.firecrawlApiKey,
+      globalMemory: input.globalMemory,
+      googleApiKey: credential.transportProvider === "google" ? credential.apiKey : undefined,
+      llmProvider: credential.transportProvider,
+      masterInstructions: input.masterInstructions,
+      modelId: credential.transportModelId,
+      openaiApiKey: credential.transportProvider === "openai" ? credential.apiKey : undefined,
+      openrouterApiKey:
+        credential.transportProvider === "openrouter" ? credential.apiKey : undefined,
+      projectMode: input.projectMode,
+      runId: input.runId,
+      taskMessage: input.messageText,
+      userSkillLoader,
+      userSkills,
+      userSkillStore,
+    },
+  );
 }
 
 function linkedAbortController(runAbortSignal: AbortSignal): {
@@ -148,21 +181,11 @@ function linkedAbortController(runAbortSignal: AbortSignal): {
   };
 }
 
-async function consumeOpenedMastraStream(options: {
-  abortController: AbortController;
-  abortSignal: AbortSignal;
-  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
-  credential: LlmCredential;
-  hasPendingDecision: () => boolean;
-  input: StartRunInput;
-  logger: ReturnType<typeof createLogger>;
-  runRunCodeFallback: () => Promise<void>;
-  setRunStage: (stage: string) => void;
-  stream: MastraOpenedStream;
-}): Promise<void> {
+async function consumeOpenedMastraStream(options: ConsumeMastraStreamOptions): Promise<void> {
   options.logger.info("mastra_stream_opened", {
-    modelId: options.credential.modelId,
-    provider: options.credential.provider,
+    logicalModelId: options.credential.logicalModelId,
+    transportModelId: options.credential.transportModelId,
+    transportProvider: options.credential.transportProvider,
   });
   options.setRunStage("Streaming model response.");
   const iterator = options.stream.fullStream[Symbol.asyncIterator]();
@@ -174,7 +197,9 @@ async function consumeOpenedMastraStream(options: {
   );
   if (firstChunk === "timeout") {
     await iterator.return?.();
-    await runFallbackUnlessCanceled(options);
+    if (!options.abortSignal.aborted) {
+      throw modelStreamTimeoutError();
+    }
     return;
   }
   const streamResult = await appendMastraStreamChunks({
@@ -187,21 +212,24 @@ async function consumeOpenedMastraStream(options: {
   });
   if (streamResult === "timeout-before-visible") {
     await iterator.return?.();
-    await runFallbackUnlessCanceled(options);
+    if (!options.abortSignal.aborted) {
+      throw modelStreamTimeoutError();
+    }
     return;
   }
   if (streamResult === "timeout-after-visible") {
     await iterator.return?.();
+    if (!options.abortSignal.aborted) {
+      throw modelStreamTimeoutError();
+    }
   }
 }
 
-async function runFallbackUnlessCanceled(options: {
-  abortSignal: AbortSignal;
-  runRunCodeFallback: () => Promise<void>;
-}): Promise<void> {
-  if (!options.abortSignal.aborted) {
-    await options.runRunCodeFallback();
-  }
+function modelStreamTimeoutError(): APIError {
+  return new APIError(504, "upstream_timeout_llm", "The model stream timed out.", {
+    hint: "Retry the run. If the timeout persists, choose another configured model.",
+    retriable: true,
+  });
 }
 
 async function appendMastraStreamChunks(options: {
@@ -221,7 +249,7 @@ async function appendMastraStreamChunks(options: {
     (await options.appendCheckedMastraChunk(options.input, options.firstChunk.value)) > 0;
   for (;;) {
     const timeoutMs = hasVisibleChunk
-      ? MASTRA_FIRST_CHUNK_TIMEOUT_MS
+      ? MASTRA_PROGRESS_TIMEOUT_MS
       : Math.max(1, firstVisibleChunkDeadline - Date.now());
     const nextChunk = await readMastraChunk(
       options.iterator,

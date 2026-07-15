@@ -1,60 +1,49 @@
+import {
+  type LogicalModelId,
+  LogicalModelIdSchema,
+  PRODUCTION_DEFAULT_MODEL_ID,
+} from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { isSeqRow } from "../streaming/ui-message-stream";
-import { nextAgentRunAlarm } from "./agent-run-retention";
 
-const AGENT_RUN_SCHEMA_VERSION = 2;
 const DEFAULT_AGENT_NAME = "general";
-const DEFAULT_MODEL_ID = "claude-sonnet-4-6";
+const RESOLVED_LOGICAL_MODEL_ID_KEY = "resolved_logical_model_id";
+const CURRENT_RUN_COLUMNS = [
+  "id",
+  "thread_id",
+  "project_id",
+  "user_id",
+  "status",
+  "model_id",
+  "agent_name",
+  "created_at",
+  "started_at",
+  "completed_at",
+] as const;
 
 export interface StoredRunIdentity {
-  budgetCapUsd?: number | undefined;
-  model?: string | undefined;
+  plannedLogicalModelId: LogicalModelId;
   projectId: string;
   runId: string;
   threadId: string;
   userId: string;
 }
 
-export interface StoredBudgetSnapshot {
-  capUsd: number;
-  tokensIn: number;
-  tokensOut: number;
-  usdSpent: number;
-}
-
 export interface StoredRunSnapshot {
-  budget: StoredBudgetSnapshot;
   completedAt: number | null;
   createdAt: number;
   lastSeq: number;
   messageCount: number;
-  modelId: string;
+  modelId: LogicalModelId;
   runId: string;
   startedAt: number | null;
   status: "canceled" | "completed" | "failed" | "paused" | "running";
 }
 
-export interface BudgetEventInput {
-  kind: string;
-  modelId?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  usd: number;
-}
-
-export function applyAgentRunStorageMigrations(ctx: DurableObjectState): void {
-  ctx.storage.sql.exec("CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)");
-  const current = currentSchemaVersion(ctx);
-  if (current < AGENT_RUN_SCHEMA_VERSION) {
-    applySchemaV1(ctx);
-  }
-}
-
-export async function ensureAgentRunRetentionAlarm(ctx: DurableObjectState): Promise<void> {
-  const currentAlarm = await ctx.storage.getAlarm();
-  if (currentAlarm === null) {
-    await ctx.storage.setAlarm(nextAgentRunAlarm(Date.now()));
-  }
+export function initializeAgentRunStorage(ctx: DurableObjectState): void {
+  ensureCurrentRunTable(ctx);
+  createMessagePartTable(ctx);
+  createRunStateTable(ctx);
 }
 
 export function getRunStateTimestamp(ctx: DurableObjectState, key: string): number | null {
@@ -90,20 +79,40 @@ export function upsertRunRow(ctx: DurableObjectState, input: StoredRunIdentity):
   const now = Date.now();
   ctx.storage.sql.exec(
     `INSERT OR REPLACE INTO run (
-      id, thread_id, project_id, user_id, status, model_id, agent_name,
-      budget_cap_usd, tokens_in, tokens_out, cost_usd, created_at, started_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?)`,
+      id, thread_id, project_id, user_id, status, model_id, agent_name, created_at, started_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     input.runId,
     input.threadId,
     input.projectId,
     input.userId,
     "running",
-    input.model ?? DEFAULT_MODEL_ID,
+    input.plannedLogicalModelId,
     DEFAULT_AGENT_NAME,
-    input.budgetCapUsd ?? 0,
     now,
     now,
   );
+}
+
+export function updateRunRowLogicalModelId(
+  ctx: DurableObjectState,
+  runId: string,
+  logicalModelId: LogicalModelId,
+): boolean {
+  return ctx.storage.transactionSync(() => {
+    ctx.storage.sql.exec("UPDATE run SET model_id = ? WHERE id = ?", logicalModelId, runId);
+    const row = firstRecord(
+      ctx.storage.sql.exec("SELECT model_id FROM run WHERE id = ?", runId).toArray(),
+    );
+    const isUpdated = row?.["model_id"] === logicalModelId;
+    if (isUpdated) {
+      setRunStateValue(ctx, RESOLVED_LOGICAL_MODEL_ID_KEY, logicalModelId);
+    }
+    return isUpdated;
+  });
+}
+
+export function getResolvedRunLogicalModelId(ctx: DurableObjectState): LogicalModelId | undefined {
+  return parseLogicalModelId(getRunStateValue(ctx, RESOLVED_LOGICAL_MODEL_ID_KEY));
 }
 
 export function updateRunRowStatus(
@@ -126,35 +135,6 @@ export function updateRunRowStatus(
     now,
     status,
     now,
-    runId,
-  );
-}
-
-export function appendBudgetEvent(ctx: DurableObjectState, input: BudgetEventInput): void {
-  const tokensIn = normalizedCount(input.tokensIn);
-  const tokensOut = normalizedCount(input.tokensOut);
-  const usd = normalizedMoney(input.usd);
-  ctx.storage.sql.exec(
-    "INSERT INTO budget_event (kind, tokens, usd, model_id, ts) VALUES (?, ?, ?, ?, ?)",
-    input.kind,
-    tokensIn + tokensOut,
-    usd,
-    input.modelId ?? null,
-    Date.now(),
-  );
-  const runId = getRunStateValue(ctx, "run_id");
-  if (!runId) {
-    return;
-  }
-  ctx.storage.sql.exec(
-    `UPDATE run
-      SET tokens_in = tokens_in + ?,
-        tokens_out = tokens_out + ?,
-        cost_usd = cost_usd + ?
-      WHERE id = ?`,
-    tokensIn,
-    tokensOut,
-    usd,
     runId,
   );
 }
@@ -182,8 +162,7 @@ export function appendAgentRunMessagePart(ctx: DurableObjectState, chunk: UIMess
 export function readStoredRunSnapshot(ctx: DurableObjectState): StoredRunSnapshot | null {
   const rows = ctx.storage.sql
     .exec(
-      `SELECT id, status, model_id, budget_cap_usd, tokens_in, tokens_out, cost_usd,
-        created_at, started_at, completed_at
+      `SELECT id, status, model_id, created_at, started_at, completed_at
        FROM run
        LIMIT 1`,
     )
@@ -199,36 +178,23 @@ export function readStoredRunSnapshot(ctx: DurableObjectState): StoredRunSnapsho
   }
   const messageStats = readMessageStats(ctx);
   return {
-    budget: {
-      capUsd: numberColumn(row, "budget_cap_usd") ?? 0,
-      tokensIn: integerColumn(row, "tokens_in") ?? 0,
-      tokensOut: integerColumn(row, "tokens_out") ?? 0,
-      usdSpent: numberColumn(row, "cost_usd") ?? 0,
-    },
     completedAt: integerColumn(row, "completed_at"),
     createdAt: integerColumn(row, "created_at") ?? Date.now(),
     lastSeq: messageStats.lastSeq,
     messageCount: messageStats.messageCount,
-    modelId: stringColumn(row, "model_id") ?? DEFAULT_MODEL_ID,
+    modelId: parseLogicalModelId(stringColumn(row, "model_id")) ?? PRODUCTION_DEFAULT_MODEL_ID,
     runId,
     startedAt: integerColumn(row, "started_at"),
     status,
   };
 }
 
-function currentSchemaVersion(ctx: DurableObjectState): number {
-  const rows = ctx.storage.sql.exec("SELECT max(version) AS version FROM schema_version").toArray();
-  const row = rows[0];
-  if (!row || typeof row !== "object") {
-    return 0;
+function createRunTable(ctx: DurableObjectState, tableName = "run"): void {
+  if (tableName !== "run" && tableName !== "run_current") {
+    throw new Error("Invalid run table name.");
   }
-  const version = (row as Record<string, unknown>)["version"];
-  return typeof version === "number" ? version : 0;
-}
-
-function applySchemaV1(ctx: DurableObjectState): void {
   ctx.storage.sql.exec(
-    `CREATE TABLE IF NOT EXISTS run (
+    `CREATE TABLE IF NOT EXISTS ${tableName} (
       id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL,
       project_id TEXT NOT NULL,
@@ -236,17 +202,42 @@ function applySchemaV1(ctx: DurableObjectState): void {
       status TEXT NOT NULL CHECK (status IN ('pending','running','paused','completed','failed','canceled')),
       model_id TEXT NOT NULL,
       agent_name TEXT NOT NULL,
-      budget_cap_usd REAL NOT NULL,
-      tokens_in INTEGER NOT NULL DEFAULT 0,
-      tokens_out INTEGER NOT NULL DEFAULT 0,
-      cost_usd REAL NOT NULL DEFAULT 0,
-      parent_run_id TEXT,
       created_at INTEGER NOT NULL,
       started_at INTEGER,
-      completed_at INTEGER,
-      error_json TEXT
+      completed_at INTEGER
     )`,
   );
+}
+
+function ensureCurrentRunTable(ctx: DurableObjectState): void {
+  const columns = ctx.storage.sql.exec("PRAGMA table_info(run)").toArray();
+  if (columns.length === 0) {
+    createRunTable(ctx);
+    return;
+  }
+  const names = columns
+    .map((row) => firstRecord([row])?.["name"])
+    .filter((name): name is string => typeof name === "string");
+  const isCurrent =
+    names.length === CURRENT_RUN_COLUMNS.length &&
+    CURRENT_RUN_COLUMNS.every((name) => names.includes(name));
+  if (isCurrent) {
+    return;
+  }
+  const canPreserve = CURRENT_RUN_COLUMNS.every((name) => names.includes(name));
+  ctx.storage.transactionSync(() => {
+    ctx.storage.sql.exec("DROP TABLE IF EXISTS run_current");
+    createRunTable(ctx, "run_current");
+    if (canPreserve) {
+      const columnList = CURRENT_RUN_COLUMNS.join(", ");
+      ctx.storage.sql.exec(`INSERT INTO run_current (${columnList}) SELECT ${columnList} FROM run`);
+    }
+    ctx.storage.sql.exec("DROP TABLE run");
+    ctx.storage.sql.exec("ALTER TABLE run_current RENAME TO run");
+  });
+}
+
+function createMessagePartTable(ctx: DurableObjectState): void {
   ctx.storage.sql.exec(
     `CREATE TABLE IF NOT EXISTS message_part (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -259,48 +250,16 @@ function applySchemaV1(ctx: DurableObjectState): void {
       created_at INTEGER NOT NULL
     )`,
   );
-  ensureCompatibleMessagePartColumns(ctx);
   ctx.storage.sql.exec("CREATE INDEX IF NOT EXISTS idx_part_msg ON message_part(message_id)");
-  ctx.storage.sql.exec(
-    `CREATE TABLE IF NOT EXISTS budget_event (
-      seq INTEGER PRIMARY KEY AUTOINCREMENT,
-      kind TEXT NOT NULL,
-      tokens INTEGER NOT NULL,
-      usd REAL NOT NULL,
-      model_id TEXT,
-      ts INTEGER NOT NULL
-    )`,
-  );
+}
+
+function createRunStateTable(ctx: DurableObjectState): void {
   ctx.storage.sql.exec(
     `CREATE TABLE IF NOT EXISTS run_state (
       key TEXT PRIMARY KEY,
       value TEXT NOT NULL
     )`,
   );
-  ctx.storage.sql.exec(
-    "INSERT OR IGNORE INTO schema_version (version) VALUES (?)",
-    AGENT_RUN_SCHEMA_VERSION,
-  );
-}
-
-function ensureCompatibleMessagePartColumns(ctx: DurableObjectState): void {
-  addColumnIfMissing(ctx, "message_id TEXT NOT NULL DEFAULT 'assistant'");
-  addColumnIfMissing(ctx, "role TEXT NOT NULL DEFAULT 'assistant'");
-  addColumnIfMissing(ctx, "part_type TEXT NOT NULL DEFAULT 'unknown'");
-  addColumnIfMissing(ctx, "part_id TEXT");
-  addColumnIfMissing(ctx, "transient INTEGER NOT NULL DEFAULT 0");
-}
-
-function addColumnIfMissing(ctx: DurableObjectState, definition: string): void {
-  const columnName = definition.split(" ")[0];
-  if (!columnName) {
-    return;
-  }
-  try {
-    ctx.storage.sql.exec(`ALTER TABLE message_part ADD COLUMN ${definition}`);
-  } catch {
-    // SQLite throws on duplicate columns; schema creation above covers fresh DOs.
-  }
 }
 
 function chunkPartId(chunk: UIMessageChunk): string | null {
@@ -372,10 +331,7 @@ function runStatusColumn(
   return null;
 }
 
-function normalizedCount(value: number | undefined): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.trunc(value) : 0;
-}
-
-function normalizedMoney(value: number): number {
-  return Number.isFinite(value) && value > 0 ? value : 0;
+function parseLogicalModelId(value: string | null | undefined): LogicalModelId | undefined {
+  const parsed = LogicalModelIdSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }

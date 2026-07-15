@@ -2,12 +2,68 @@ import { z } from "zod";
 
 export type WorkerSecret = string | SecretsStoreSecret;
 
+export interface CloudflareVersionMetadata {
+  id: string;
+  tag: string;
+  timestamp: string;
+}
+
 interface AnalyticsDatasetBinding {
   writeDataPoint(point: { blobs?: string[]; doubles?: number[]; indexes?: string[] }): void;
 }
 
+function hasBindingMethods(value: unknown, methods: readonly string[]): value is object {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) {
+    return false;
+  }
+  try {
+    return methods.every((method) => typeof Reflect.get(value, method) === "function");
+  } catch {
+    return false;
+  }
+}
+
 function isSecretsStoreSecret(value: unknown): value is SecretsStoreSecret {
-  return typeof value === "object" && value !== null && "get" in value;
+  return hasBindingMethods(value, ["get"]);
+}
+
+function isAnalyticsDatasetBinding(value: unknown): value is AnalyticsDatasetBinding {
+  return hasBindingMethods(value, ["writeDataPoint"]);
+}
+
+function isFetcherBinding(value: unknown): value is Fetcher {
+  return hasBindingMethods(value, ["fetch"]);
+}
+
+function isKvNamespaceBinding(value: unknown): value is KVNamespace {
+  return hasBindingMethods(value, ["get", "put", "delete", "list"]);
+}
+
+function isDurableObjectNamespaceBinding(value: unknown): value is DurableObjectNamespace {
+  return hasBindingMethods(value, [
+    "newUniqueId",
+    "idFromName",
+    "idFromString",
+    "get",
+    "getByName",
+    "jurisdiction",
+  ]);
+}
+
+function isR2BucketBinding(value: unknown): value is R2Bucket {
+  return hasBindingMethods(value, [
+    "head",
+    "get",
+    "put",
+    "delete",
+    "list",
+    "createMultipartUpload",
+    "resumeMultipartUpload",
+  ]);
+}
+
+function isWorkflowBinding(value: unknown): value is Workflow<unknown> {
+  return hasBindingMethods(value, ["get", "create", "createBatch"]);
 }
 
 export const WorkerSecretSchema = z.union([
@@ -20,32 +76,101 @@ const OptionalWorkerSecretSchema = z.preprocess(
   WorkerSecretSchema.optional(),
 );
 
-export const HyperdriveSchema = z
+const AnalyticsDatasetBindingSchema = z.custom<AnalyticsDatasetBinding>(
+  isAnalyticsDatasetBinding,
+  "Expected a Cloudflare Analytics Engine dataset binding",
+);
+const DurableObjectNamespaceBindingSchema = z.custom<DurableObjectNamespace>(
+  isDurableObjectNamespaceBinding,
+  "Expected a Cloudflare Durable Object namespace binding",
+);
+const FetcherBindingSchema = z.custom<Fetcher>(
+  isFetcherBinding,
+  "Expected a Cloudflare service binding",
+);
+const KvNamespaceBindingSchema = z.custom<KVNamespace>(
+  isKvNamespaceBinding,
+  "Expected a Cloudflare KV namespace binding",
+);
+const R2BucketBindingSchema = z.custom<R2Bucket>(
+  isR2BucketBinding,
+  "Expected a Cloudflare R2 bucket binding",
+);
+const WorkflowBindingSchema = z.custom<Workflow<unknown>>(
+  isWorkflowBinding,
+  "Expected a Cloudflare Workflow binding",
+);
+
+export const PreviewHostnameSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .refine(
+    (hostname) => hostname === "localhost:8787" || isMultiLabelDnsHostname(hostname),
+    "Preview hostname must be localhost:8787 or a multi-label DNS hostname",
+  );
+
+const HyperdriveSchema = z
   .object({
     connectionString: z.string().min(1),
   })
   .passthrough();
 
 const AnalyticsBindingsSchema = {
-  AGENT_METRICS: z.custom<AnalyticsDatasetBinding>().optional(),
-  COST_EVENTS: z.custom<AnalyticsDatasetBinding>().optional(),
-  ERROR_EVENTS: z.custom<AnalyticsDatasetBinding>().optional(),
-  PERFORMANCE_METRICS: z.custom<AnalyticsDatasetBinding>().optional(),
-  USER_EVENTS: z.custom<AnalyticsDatasetBinding>().optional(),
+  AGENT_METRICS: AnalyticsDatasetBindingSchema.optional(),
+  ERROR_EVENTS: AnalyticsDatasetBindingSchema.optional(),
+  PERFORMANCE_METRICS: AnalyticsDatasetBindingSchema.optional(),
+  USER_EVENTS: AnalyticsDatasetBindingSchema.optional(),
 } as const;
+
+export const WorkerReleaseBindingsSchema = {
+  CF_VERSION_METADATA: z
+    .object({
+      id: z.string().min(1),
+      tag: z.string(),
+      timestamp: z.string().min(1),
+    })
+    .passthrough()
+    .optional(),
+  CHEATCODE_ENVIRONMENT: z.enum(["development", "production"]),
+  CHEATCODE_RELEASE_SHA: z
+    .string()
+    .regex(/^[0-9a-f]{40}$/u)
+    .optional(),
+} as const;
+
+interface WorkerReleaseIdentity {
+  CHEATCODE_ENVIRONMENT: "development" | "production";
+  CHEATCODE_RELEASE_SHA?: string | undefined;
+}
+
+function requireProductionReleaseSha(
+  bindings: WorkerReleaseIdentity,
+  context: z.RefinementCtx,
+): void {
+  if (bindings.CHEATCODE_ENVIRONMENT === "production" && !bindings.CHEATCODE_RELEASE_SHA) {
+    context.addIssue({
+      code: "custom",
+      message: "Production Workers require an immutable release SHA.",
+      path: ["CHEATCODE_RELEASE_SHA"],
+    });
+  }
+}
 
 export const GatewayWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
-    AGENT: z.custom<Fetcher>(),
+    ...WorkerReleaseBindingsSchema,
+    AGENT: FetcherBindingSchema,
+    CHEATCODE_RELEASE_GATE: z.enum(["open", "closed"]).optional(),
+    CLERK_AUTHORIZED_PARTIES: z.string().trim().min(1).max(2_048).optional(),
     CLERK_JWT_KEY: OptionalWorkerSecretSchema,
     CLERK_SECRET_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_AUTH_CONFIGS: OptionalWorkerSecretSchema,
-    DATABASE_URL: z.string().url().optional(),
-    ENTITLEMENTS_CACHE: z.custom<KVNamespace>(),
+    ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
     HYPERDRIVE: HyperdriveSchema,
-    IDEMPOTENCY: z.custom<DurableObjectNamespace>().optional(),
+    IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
     INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
     // Polar product ids per paid tier — non-secret config bound as plain wrangler vars
@@ -54,30 +179,27 @@ export const GatewayWorkerEnvSchema = z
     POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
     POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
     POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
-    QUOTA_TRACKER: z.custom<DurableObjectNamespace>(),
-    RATE_LIMITER: z.custom<DurableObjectNamespace>(),
+    POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
+    QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
+    RATE_LIMITER: DurableObjectNamespaceBindingSchema,
   })
-  .strict();
+  .strict()
+  .superRefine(requireProductionReleaseSha);
 
 export const AgentWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
-    AGENT_RUN: z.custom<DurableObjectNamespace>(),
-    // Daytona sandbox backend (replaces Blaxel). Secret-store-bound → resolved
-    // request-scoped in the ProjectSandbox DO via resolveWorkerSecret().
+    ...WorkerReleaseBindingsSchema,
+    AGENT_RUN: DurableObjectNamespaceBindingSchema,
+    // Secret-store-bound and resolved request-scoped in the ProjectSandbox DO.
     DAYTONA_API_KEY: WorkerSecretSchema,
     DAYTONA_API_URL: z.string().url(),
     DAYTONA_TARGET: z.string().min(1).default("us"),
     DAYTONA_SANDBOX_SNAPSHOT: z.string().min(1),
     DAYTONA_ORG_ID: z.string().min(1).optional(),
-    // Shared HMAC secret for the preview-proxy access-token contract (WS5).
+    DAYTONA_PREVIEW_HOST_SUFFIXES: z.string().min(1).max(1_024).optional(),
+    // Shared HMAC secret for the preview-proxy access-token contract.
     PREVIEW_TOKEN_SECRET: WorkerSecretSchema,
-    // Blaxel (retired — kept optional for rollback until post-QA; no longer read by code).
-    BL_API_KEY: OptionalWorkerSecretSchema,
-    BL_REGION: OptionalWorkerSecretSchema,
-    BL_WORKSPACE: OptionalWorkerSecretSchema,
-    BLAXEL_SANDBOX_IMAGE: z.string().min(1).optional(),
-    BLAXEL_SANDBOX_MEMORY_MB: z.string().regex(/^\d+$/).optional(),
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     // Platform-provided DeepSeek key for the free tier (Secrets-Store-bound, resolved
     // request-scoped in the AgentRun DO via resolveWorkerSecret()).
@@ -85,71 +207,53 @@ export const AgentWorkerEnvSchema = z
     HYPERDRIVE: HyperdriveSchema,
     INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     OUTPUT_DOWNLOAD_BASE_URL: z.string().url().optional(),
-    OUTPUT_DOWNLOAD_SIGNING_SECRET: z.string().min(32),
-    PREVIEW_HOSTNAME: z.string().trim().min(1).max(255).optional(),
-    PROJECT_SANDBOX: z.custom<DurableObjectNamespace>(),
-    QUOTA_TRACKER: z.custom<DurableObjectNamespace>().optional(),
-    R2_AUDIT: z.custom<R2Bucket>(),
-    R2_OUTPUTS: z.custom<R2Bucket>(),
+    OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecretSchema,
+    PREVIEW_HOSTNAME: PreviewHostnameSchema,
+    PROJECT_SANDBOX: DurableObjectNamespaceBindingSchema,
+    QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
+    R2_AUDIT: R2BucketBindingSchema,
+    R2_OUTPUTS: R2BucketBindingSchema,
     R2_OUTPUTS_BUCKET_NAME: z.string().min(1).optional(),
-    SANDBOX_STATE: z.custom<KVNamespace>().optional(),
+    SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
   })
-  .strict();
+  .strict()
+  .superRefine(requireProductionReleaseSha)
+  .superRefine(requireProductionPreviewHostname);
 
 export const WebhooksWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
-    AGENT: z.custom<Fetcher>().optional(),
-    // Daytona GDPR-fallback delete path (used only when the AGENT binding is absent).
-    DAYTONA_API_KEY: OptionalWorkerSecretSchema,
-    DAYTONA_API_URL: z.string().url().optional(),
-    DAYTONA_TARGET: OptionalWorkerSecretSchema,
-    DAYTONA_ORG_ID: OptionalWorkerSecretSchema,
-    // Blaxel (retired — kept optional for rollback).
-    BL_API_KEY: OptionalWorkerSecretSchema,
-    BL_REGION: OptionalWorkerSecretSchema,
-    BL_WORKSPACE: OptionalWorkerSecretSchema,
-    CLERK_SECRET_KEY: OptionalWorkerSecretSchema,
-    CLERK_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
+    ...WorkerReleaseBindingsSchema,
+    AGENT: FetcherBindingSchema,
     CLERK_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_ANALYTICS_API_TOKEN: OptionalWorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
-    DAYTONA_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
-    ENTITLEMENTS_CACHE: z.custom<KVNamespace>(),
-    GATEWAY: z.custom<Fetcher>().optional(),
-    SANDBOX_STATE: z.custom<KVNamespace>().optional(),
+    DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecretSchema,
+    ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
+    GATEWAY: FetcherBindingSchema,
+    SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
     HYPERDRIVE: HyperdriveSchema,
     INTERNAL_ALERT_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
     INTERNAL_ALERT_WEBHOOK_URL: z.string().url().optional(),
     INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
-    OPS_WORKFLOW: z.custom<unknown>(),
+    OPS_WORKFLOW: WorkflowBindingSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
+    POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
+    POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
+    POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     POLAR_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
-    R2_OUTPUTS: z.custom<R2Bucket>(),
-    R2_SNAPSHOTS: z.custom<R2Bucket>(),
-    R2_UPLOADS: z.custom<R2Bucket>(),
-    WEBHOOK_IDEMPOTENCY: z.custom<DurableObjectNamespace>(),
-    WEBHOOK_WORKFLOW: z.custom<unknown>(),
+    R2_OUTPUTS: R2BucketBindingSchema,
+    R2_OUTPUTS_BUCKET_NAME: z.string().min(1).optional(),
+    R2_UPLOADS: R2BucketBindingSchema,
+    WEBHOOK_IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
+    WEBHOOK_WORKFLOW: WorkflowBindingSchema,
   })
-  .strict();
-
-export type GatewayWorkerEnv = z.infer<typeof GatewayWorkerEnvSchema>;
-export type AgentWorkerEnv = z.infer<typeof AgentWorkerEnvSchema>;
-export type WebhooksWorkerEnv = z.infer<typeof WebhooksWorkerEnvSchema>;
-
-export function parseGatewayWorkerEnv(env: unknown): GatewayWorkerEnv {
-  return GatewayWorkerEnvSchema.parse(env);
-}
-
-export function parseAgentWorkerEnv(env: unknown): AgentWorkerEnv {
-  return AgentWorkerEnvSchema.parse(env);
-}
-
-export function parseWebhooksWorkerEnv(env: unknown): WebhooksWorkerEnv {
-  return WebhooksWorkerEnvSchema.parse(env);
-}
+  .strict()
+  .superRefine(requireProductionReleaseSha);
 
 export async function resolveWorkerSecret(
   secret: WorkerSecret | undefined,
@@ -161,4 +265,39 @@ export async function resolveWorkerSecret(
     return secret;
   }
   return secret.get();
+}
+
+function requireProductionPreviewHostname(
+  bindings: { CHEATCODE_ENVIRONMENT: "development" | "production"; PREVIEW_HOSTNAME: string },
+  context: z.RefinementCtx,
+): void {
+  if (bindings.CHEATCODE_ENVIRONMENT !== "production") {
+    return;
+  }
+  if (bindings.PREVIEW_HOSTNAME.includes(":")) {
+    context.addIssue({
+      code: "custom",
+      message: "Production preview hostname must be a DNS hostname without a port",
+      path: ["PREVIEW_HOSTNAME"],
+    });
+  }
+  if (bindings.PREVIEW_HOSTNAME !== "trycheatcode.com") {
+    context.addIssue({
+      code: "custom",
+      message: "Production previews require the owned trycheatcode.com wildcard route",
+      path: ["PREVIEW_HOSTNAME"],
+    });
+  }
+}
+
+function isMultiLabelDnsHostname(hostname: string): boolean {
+  if (hostname.length > 253 || !hostname.includes(".")) {
+    return false;
+  }
+  return hostname
+    .split(".")
+    .every(
+      (label) =>
+        label.length >= 1 && label.length <= 63 && /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$/u.test(label),
+    );
 }

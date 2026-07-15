@@ -1,0 +1,3 @@
+-- The generated schema snapshot removes the obsolete project-backup column.
+-- Its destructive SQL is intentionally deferred until matching Workers are live;
+-- see infra/supabase/migrations/post/0036_remove_project_backup_scaffolding.sql.

@@ -9,18 +9,19 @@ import {
   ApprovalDecisionDataSchema,
   type ApprovalDecisionResponse,
   ApprovalRequestDataSchema,
+  type LogicalModelId,
   type ModelFallbackData,
   ModelFallbackDataSchema,
 } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { z } from "zod";
+import { pendingAssistantMessageRetryAt } from "./agent-run-message-persistence";
 import { nextAgentRunAlarm } from "./agent-run-retention";
+import { pendingStatusRetryAt } from "./agent-run-status-persistence";
 import { deleteRunStateValues, getRunStateValue, setRunStateValue } from "./agent-run-storage";
 
-/** Tool-approval default-deny window (run-control §2.5: 5 minutes). */
-export const TOOL_APPROVAL_TIMEOUT_MS = 5 * 60_000;
-/** Model-fallback auto-allow window (run-control §2.5: 120 seconds). */
-export const MODEL_FALLBACK_DECISION_TIMEOUT_MS = 120_000;
+/** Model-fallback auto-allow window. */
+const MODEL_FALLBACK_DECISION_TIMEOUT_MS = 120_000;
 const APPROVAL_SUMMARY_MAX = 400;
 const PENDING_APPROVAL_KEY = "pending_approval";
 const APPROVAL_DECISION_PREFIX = "approval_decision:";
@@ -49,7 +50,7 @@ const ApprovalDecisionRecordSchema = z
   .strict();
 type ApprovalDecisionRecord = z.infer<typeof ApprovalDecisionRecordSchema>;
 
-/** Body of the DO `/approval` endpoint (run-control §5.2). */
+/** Body of the DO `/approval` endpoint. */
 export const ApprovalDecisionInputSchema = z
   .object({
     approvalId: z.string().uuid(),
@@ -87,14 +88,14 @@ interface ResolveParams {
 }
 
 /**
- * Per-run approval controller (run-control §5.1/§5.2). Owns the in-memory
- * resolver map plus the pause/resolve/alarm/cancel/orphan state machine. The DO
- * wires thin closures into {@link RunApprovalControllerDeps} so the heavy logic
- * lives here, keeping `agent-run.ts` under the line cap.
+ * Per-run approval controller. Owns the in-memory resolver map plus the
+ * pause/resolve/alarm/cancel/orphan state machine. The DO wires thin closures
+ * into {@link RunApprovalControllerDeps} so the heavy logic lives here.
  */
 export class RunApprovalController {
-  private chain: Promise<unknown> = Promise.resolve();
+  private requestChain: Promise<unknown> = Promise.resolve();
   private readonly resolvers = new Map<string, (decision: RunDecision) => void>();
+  private settlementChain: Promise<unknown> = Promise.resolve();
 
   public constructor(private readonly deps: RunApprovalControllerDeps) {}
 
@@ -106,26 +107,58 @@ export class RunApprovalController {
     return { requestDecision: (input) => this.requestDecision(input) };
   }
 
-  /** Serializes concurrent gated calls onto a single pending slot (§5.1). */
+  /** Serializes concurrent gated calls onto a single pending slot. */
   private requestDecision(input: ApprovalRequestInput): Promise<RunDecision> {
-    const result = this.chain.then(() => this.beginRequest(input));
-    this.chain = result.catch(() => undefined);
+    const result = this.requestChain.then(() => this.beginRequest(input));
+    this.requestChain = result.catch(() => undefined);
     return result;
   }
 
   private async beginRequest(input: ApprovalRequestInput): Promise<RunDecision> {
+    const pending = buildPending(input);
+    let resolveDecision!: (decision: RunDecision) => void;
+    const decision = new Promise<RunDecision>((resolve) => {
+      resolveDecision = resolve;
+    });
+    const opened = await this.serializeSettlement(() => this.openRequest(pending, resolveDecision));
+    return opened ? decision : { decidedBy: "cancel", decision: "deny" };
+  }
+
+  private async openRequest(
+    pending: PendingApproval,
+    resolveDecision: (decision: RunDecision) => void,
+  ): Promise<boolean> {
     const identity = this.deps.identity();
     if (this.deps.isCanceled() || !identity) {
-      return { decidedBy: "cancel", decision: "deny" };
+      return false;
     }
-    const pending = buildPending(input);
-    return new Promise<RunDecision>((resolve, reject) => {
-      this.resolvers.set(pending.approvalId, resolve);
-      this.openApproval(pending, identity).catch((error: unknown) => {
-        this.resolvers.delete(pending.approvalId);
-        reject(error instanceof Error ? error : new Error("Approval setup failed."));
+    this.resolvers.set(pending.approvalId, resolveDecision);
+    try {
+      await this.openApproval(pending, identity);
+    } catch (error) {
+      await this.rollbackOpenFailure(pending, identity);
+      throw error instanceof Error ? error : new Error("Approval setup failed.");
+    }
+    return true;
+  }
+
+  private async rollbackOpenFailure(
+    pending: PendingApproval,
+    identity: RunIdentity,
+  ): Promise<void> {
+    this.resolvers.delete(pending.approvalId);
+    try {
+      clearPendingApproval(this.deps.ctx);
+    } catch (error) {
+      this.logger(identity).error("approval_setup_cleanup_failed", {
+        approvalId: pending.approvalId,
+        error,
       });
-    });
+    }
+    if (!this.deps.isCanceled()) {
+      await this.deps.setRunStatus("running").catch(() => undefined);
+    }
+    await this.deps.armAlarm().catch(() => undefined);
   }
 
   private async openApproval(pending: PendingApproval, identity: RunIdentity): Promise<void> {
@@ -136,40 +169,65 @@ export class RunApprovalController {
     this.logRequested(pending, identity);
   }
 
-  /** POST `/approval` path (decidedBy: "user"); idempotent on replays (§5.1). */
-  public async applyDecision(
+  /** POST `/approval` path (decidedBy: "user"); idempotent on replays. */
+  public applyDecision(
+    input: Pick<ApprovalDecisionInput, "approvalId" | "decision"> & { reason?: string },
+  ): Promise<ApprovalDecisionResponse> {
+    return this.serializeSettlement(() => this.applyDecisionInternal(input));
+  }
+
+  private async applyDecisionInternal(
     input: Pick<ApprovalDecisionInput, "approvalId" | "decision"> & { reason?: string },
   ): Promise<ApprovalDecisionResponse> {
     const recorded = readApprovalDecision(this.deps.ctx, input.approvalId);
     if (recorded) {
-      if (recorded.decision !== input.decision) {
-        throw conflictDecisionError();
-      }
-      return this.decisionResponse(recorded);
+      return this.decisionResponseForInput(recorded, input.decision);
     }
     const pending = readPendingApproval(this.deps.ctx);
     if (!pending || pending.approvalId !== input.approvalId) {
       throw unknownApprovalError();
     }
+    if (this.deps.isCanceled()) {
+      const record = await this.resolveCanceled(pending);
+      return this.decisionResponseForInput(record, input.decision);
+    }
     if (!this.resolvers.has(input.approvalId)) {
       await this.finalizeOrphaned(pending);
       throw orphanedApprovalError();
     }
-    const record = await this.resolveInternal({
-      approvalId: input.approvalId,
-      decidedBy: "user",
-      decision: input.decision,
-      kind: pending.kind,
-      ...(input.reason ? { reason: input.reason } : {}),
-    });
-    return this.decisionResponse(record);
+    const isExpired = Date.now() >= pending.expiresAt;
+    const record = await this.resolveInternal(
+      isExpired
+        ? {
+            approvalId: input.approvalId,
+            decidedBy: "timeout",
+            decision: pending.timeoutDecision,
+            kind: pending.kind,
+          }
+        : {
+            approvalId: input.approvalId,
+            decidedBy: "user",
+            decision: input.decision,
+            kind: pending.kind,
+            ...(input.reason ? { reason: input.reason } : {}),
+          },
+    );
+    return this.decisionResponseForInput(record, input.decision);
   }
 
-  /** Alarm path (§5.1): apply the timeout decision, or finalize if orphaned. */
-  public async handleAlarmIfDue(): Promise<boolean> {
+  /** Alarm path: apply the timeout decision, or finalize if orphaned. */
+  public handleAlarmIfDue(): Promise<boolean> {
+    return this.serializeSettlement(() => this.handleAlarmIfDueInternal());
+  }
+
+  private async handleAlarmIfDueInternal(): Promise<boolean> {
     const pending = readPendingApproval(this.deps.ctx);
     if (!pending) {
       return false;
+    }
+    if (this.deps.isCanceled()) {
+      await this.resolveCanceled(pending);
+      return true;
     }
     if (Date.now() < pending.expiresAt) {
       await this.deps.armAlarm();
@@ -188,19 +246,33 @@ export class RunApprovalController {
     return true;
   }
 
-  /** Cancel path (§5.1): resolve any pending decision as deny+cancel. */
-  public async cancelPending(): Promise<boolean> {
+  /** Cancel path: resolve any pending decision as deny+cancel. */
+  public cancelPending(): Promise<boolean> {
+    return this.serializeSettlement(() => this.cancelPendingInternal());
+  }
+
+  private async cancelPendingInternal(): Promise<boolean> {
     const pending = readPendingApproval(this.deps.ctx);
     if (!pending) {
       return false;
     }
-    await this.resolveInternal({
+    await this.resolveCanceled(pending);
+    return true;
+  }
+
+  private resolveCanceled(pending: PendingApproval): Promise<ApprovalDecisionRecord> {
+    return this.resolveInternal({
       approvalId: pending.approvalId,
       decidedBy: "cancel",
       decision: "deny",
       kind: pending.kind,
     });
-    return true;
+  }
+
+  private serializeSettlement<Result>(operation: () => Promise<Result>): Promise<Result> {
+    const result = this.settlementChain.then(operation);
+    this.settlementChain = result.catch(() => undefined);
+    return result;
   }
 
   private async resolveInternal(params: ResolveParams): Promise<ApprovalDecisionRecord> {
@@ -214,17 +286,41 @@ export class RunApprovalController {
       ...(params.reason ? { reason: params.reason } : {}),
     };
     recordApprovalDecision(this.deps.ctx, record);
-    await this.deps.append(approvalDecisionChunk(record, runId), {
-      allowAfterCancelRequest: params.decidedBy === "cancel",
+    await this.settleDecisionSideEffect(record, identity, "append", () =>
+      this.deps.append(approvalDecisionChunk(record, runId), {
+        allowAfterCancelRequest: params.decidedBy === "cancel",
+      }),
+    );
+    await this.settleDecisionSideEffect(record, identity, "clear_pending", async () => {
+      clearPendingApproval(this.deps.ctx);
     });
-    clearPendingApproval(this.deps.ctx);
     if (params.decidedBy !== "cancel") {
-      await this.deps.setRunStatus("running");
+      await this.settleDecisionSideEffect(record, identity, "resume_run", () =>
+        this.deps.setRunStatus("running"),
+      );
     }
-    await this.deps.armAlarm();
+    await this.settleDecisionSideEffect(record, identity, "arm_alarm", () => this.deps.armAlarm());
     this.releaseResolver(record);
     this.logDecided(record, params.kind, identity);
     return record;
+  }
+
+  private async settleDecisionSideEffect(
+    record: ApprovalDecisionRecord,
+    identity: RunIdentity | null,
+    operation: string,
+    effect: () => Promise<void>,
+  ): Promise<void> {
+    try {
+      await effect();
+    } catch (error) {
+      const logger = identity ? this.logger(identity) : createLogger();
+      logger.error("approval_decision_settle_failed", {
+        approvalId: record.approvalId,
+        error,
+        operation,
+      });
+    }
   }
 
   private releaseResolver(record: ApprovalDecisionRecord): void {
@@ -259,6 +355,16 @@ export class RunApprovalController {
       ok: true,
       runStatus: this.currentRunStatus(),
     };
+  }
+
+  private decisionResponseForInput(
+    record: ApprovalDecisionRecord,
+    submittedDecision: ApprovalDecisionRecord["decision"],
+  ): ApprovalDecisionResponse {
+    if (record.decision !== submittedDecision) {
+      throw conflictDecisionError();
+    }
+    return this.decisionResponse(record);
   }
 
   private currentRunStatus(): ApprovalDecisionResponse["runStatus"] {
@@ -338,17 +444,15 @@ export class RunApprovalController {
 }
 
 /**
- * Emits the informational `data-model-fallback` part, then opens the interactive
- * fallback pause (run-control §5.5). Returns the user/timeout decision.
+ * Opens the interactive fallback pause. The caller appends the informational
+ * transition only after both approval and durable model attribution succeed.
  */
 export async function offerModelFallback(params: {
-  append: (chunk: UIMessageChunk) => Promise<void>;
   broker: ApprovalBroker;
-  fromModel: string;
+  fromModel: LogicalModelId;
   reason: ModelFallbackData["reason"];
-  toModel: string;
+  toModel: LogicalModelId;
 }): Promise<RunDecision> {
-  await params.append(modelFallbackChunk(params.fromModel, params.toModel, params.reason));
   return params.broker.requestDecision({
     kind: "model-fallback",
     summary: `Fall back from ${params.fromModel} to ${params.toModel} (${params.reason}).`.slice(
@@ -360,24 +464,43 @@ export async function offerModelFallback(params: {
   });
 }
 
-/** Re-arms the DO alarm to the earliest of retention vs. the approval deadline (§5.1). */
+/** Appends the transition only after fallback attribution is durably committed. */
+export async function appendModelFallbackTransition(params: {
+  append: (chunk: UIMessageChunk) => Promise<void>;
+  fromModel: LogicalModelId;
+  reason: ModelFallbackData["reason"];
+  toModel: LogicalModelId;
+}): Promise<void> {
+  await params.append(modelFallbackChunk(params.fromModel, params.toModel, params.reason));
+}
+
+/** Re-arms the DO alarm to the earliest of retention vs. the approval deadline. */
 export async function armAgentRunAlarm(ctx: DurableObjectState): Promise<void> {
+  if (!getRunStateValue(ctx, "run_id")) {
+    await ctx.storage.deleteAlarm();
+    return;
+  }
   const pending = readPendingApproval(ctx);
   const retentionAlarm = nextAgentRunAlarm(Date.now());
-  const target = pending ? Math.min(pending.expiresAt, retentionAlarm) : retentionAlarm;
+  const approvalAlarm = pending ? Math.min(pending.expiresAt, retentionAlarm) : retentionAlarm;
+  const target = Math.min(
+    approvalAlarm,
+    pendingAssistantMessageRetryAt(ctx),
+    pendingStatusRetryAt(ctx),
+  );
   await ctx.storage.setAlarm(target);
 }
 
-/** Pending-approval shape for the `GET /runs/status` snapshot (run-control §4.2). */
+/** Pending-approval shape for the `GET /runs/status` snapshot. */
 export function pendingApprovalSnapshot(ctx: DurableObjectState): PendingApproval | undefined {
   return readPendingApproval(ctx) ?? undefined;
 }
 
-export function savePendingApproval(ctx: DurableObjectState, pending: PendingApproval): void {
+function savePendingApproval(ctx: DurableObjectState, pending: PendingApproval): void {
   setRunStateValue(ctx, PENDING_APPROVAL_KEY, JSON.stringify(pending));
 }
 
-export function readPendingApproval(ctx: DurableObjectState): PendingApproval | null {
+function readPendingApproval(ctx: DurableObjectState): PendingApproval | null {
   const raw = getRunStateValue(ctx, PENDING_APPROVAL_KEY);
   if (!raw) {
     return null;
@@ -386,7 +509,7 @@ export function readPendingApproval(ctx: DurableObjectState): PendingApproval | 
   return parsed.success ? parsed.data : null;
 }
 
-export function clearPendingApproval(ctx: DurableObjectState): void {
+function clearPendingApproval(ctx: DurableObjectState): void {
   deleteRunStateValues(ctx, [PENDING_APPROVAL_KEY]);
 }
 
@@ -451,8 +574,8 @@ function approvalDecisionChunk(record: ApprovalDecisionRecord, runId: string): U
 }
 
 function modelFallbackChunk(
-  fromModel: string,
-  toModel: string,
+  fromModel: LogicalModelId,
+  toModel: LogicalModelId,
   reason: ModelFallbackData["reason"],
 ): UIMessageChunk {
   return {

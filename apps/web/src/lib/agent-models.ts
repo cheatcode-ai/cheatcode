@@ -1,8 +1,9 @@
-import { AGENT_MODEL_CATALOG, type CatalogModelId } from "@cheatcode/types";
+import { AGENT_MODEL_CATALOG, type CatalogModelId, type LogicalModelId } from "@cheatcode/types";
 
-export const DEFAULT_AGENT_MODEL_ID = "auto";
+const AUTO_AGENT_MODEL_ID = "auto";
+export const DEFAULT_AGENT_MODEL_ID = AUTO_AGENT_MODEL_ID;
 
-export type AgentModelId = "auto" | CatalogModelId;
+export type AgentModelId = typeof AUTO_AGENT_MODEL_ID | CatalogModelId;
 export type AgentModelProvider = "auto" | (typeof AGENT_MODEL_CATALOG)[number]["provider"];
 
 export interface AgentModelOption {
@@ -10,12 +11,12 @@ export interface AgentModelOption {
   id: AgentModelId;
   label: string;
   provider: AgentModelProvider;
-  requestValue: string | undefined;
+  requestValue: LogicalModelId | undefined;
 }
 
-export const DEFAULT_AGENT_MODEL_OPTION: AgentModelOption = {
-  description: "Cheatcode chooses the production default for the current run.",
-  id: DEFAULT_AGENT_MODEL_ID,
+const AUTO_AGENT_MODEL_OPTION: AgentModelOption = {
+  description: "Uses the project's preferred model, then Cheatcode's production default.",
+  id: AUTO_AGENT_MODEL_ID,
   label: "Auto",
   provider: "auto",
   requestValue: undefined,
@@ -24,7 +25,7 @@ export const DEFAULT_AGENT_MODEL_OPTION: AgentModelOption = {
 // Re-derived from the single catalog in @cheatcode/types so the picker never drifts.
 // Shape `{ id, label, provider, requestValue, description }` is a stable contract for ModelMenu.
 export const AGENT_MODEL_OPTIONS: readonly AgentModelOption[] = [
-  DEFAULT_AGENT_MODEL_OPTION,
+  AUTO_AGENT_MODEL_OPTION,
   ...AGENT_MODEL_CATALOG.map((entry) => ({
     description: entry.description,
     id: entry.id,
@@ -34,11 +35,11 @@ export const AGENT_MODEL_OPTIONS: readonly AgentModelOption[] = [
   })),
 ];
 
-export function agentModelLabel(modelId: AgentModelId): string {
-  return agentModelOption(modelId).label;
-}
+export const DEFAULT_AGENT_MODEL_OPTION: AgentModelOption =
+  AGENT_MODEL_OPTIONS.find((option) => option.id === DEFAULT_AGENT_MODEL_ID) ??
+  AUTO_AGENT_MODEL_OPTION;
 
-export function agentModelRequestValue(modelId: AgentModelId): string | undefined {
+export function agentModelRequestValue(modelId: AgentModelId): LogicalModelId | undefined {
   return agentModelOption(modelId).requestValue;
 }
 

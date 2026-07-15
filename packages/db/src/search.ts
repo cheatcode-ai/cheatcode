@@ -50,7 +50,17 @@ export async function searchWorkspace(
   input: WorkspaceSearchInput,
 ): Promise<WorkspaceSearchRecord[]> {
   const pattern = `%${escapeLikePattern(input.q)}%`;
+  const projectResults = await searchProjectRecords(db, userId, pattern, input.limit);
+  const threadResults = await searchThreadRecords(db, userId, pattern, input.limit);
+  return [...projectResults, ...threadResults];
+}
 
+async function searchProjectRecords(
+  db: Database,
+  userId: UserId,
+  pattern: string,
+  limit: number,
+): Promise<WorkspaceProjectSearchRecord[]> {
   const projectRows = await db
     .select({
       id: projects.id,
@@ -73,8 +83,22 @@ export async function searchWorkspace(
       ),
     )
     .orderBy(desc(projects.updatedAt))
-    .limit(input.limit);
+    .limit(limit);
+  return projectRows.map((row) => ({
+    type: "project",
+    id: toProjectId(row.id),
+    name: row.name,
+    latestThreadId: row.latestThreadId ? toThreadId(row.latestThreadId) : null,
+    updatedAt: row.updatedAt,
+  }));
+}
 
+async function searchThreadRecords(
+  db: Database,
+  userId: UserId,
+  pattern: string,
+  limit: number,
+): Promise<WorkspaceThreadSearchRecord[]> {
   const threadRows = await db
     .select({
       id: threads.id,
@@ -96,17 +120,8 @@ export async function searchWorkspace(
       ),
     )
     .orderBy(desc(threads.updatedAt))
-    .limit(input.limit);
-
-  const projectResults: WorkspaceSearchRecord[] = projectRows.map((row) => ({
-    type: "project",
-    id: toProjectId(row.id),
-    name: row.name,
-    latestThreadId: row.latestThreadId ? toThreadId(row.latestThreadId) : null,
-    updatedAt: row.updatedAt,
-  }));
-
-  const threadResults: WorkspaceSearchRecord[] = threadRows.map((row) => ({
+    .limit(limit);
+  return threadRows.map((row) => ({
     type: "thread",
     id: toThreadId(row.id),
     title: row.title ?? "",
@@ -115,8 +130,6 @@ export async function searchWorkspace(
     updatedAt: row.updatedAt,
     activeRunId: row.activeRunId,
   }));
-
-  return [...projectResults, ...threadResults];
 }
 
 /**

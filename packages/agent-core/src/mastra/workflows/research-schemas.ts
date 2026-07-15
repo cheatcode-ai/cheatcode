@@ -1,6 +1,6 @@
 import { z } from "zod/v4";
 
-export const ResearchSourceSchema = z
+const ResearchSourceSchema = z
   .object({
     title: z.string().optional(),
     url: z.string().url(),
@@ -46,9 +46,6 @@ export const DeepResearchFanoutInputSchema = z
 
 export const ResearchQueryListSchema = z.array(ResearchQuerySchema).min(1).max(25);
 
-export type DeepResearchInput = z.infer<typeof DeepResearchInputSchema>;
 export type ResearchFinding = z.infer<typeof ResearchFindingSchema>;
-export type ResearchQuery = z.infer<typeof ResearchQuerySchema>;
 export type ResearchReport = z.infer<typeof ResearchReportSchema>;
 export type ResearchSource = z.infer<typeof ResearchSourceSchema>;
-export type DeepResearchFanoutInput = z.infer<typeof DeepResearchFanoutInputSchema>;

@@ -6,7 +6,7 @@ import { useAppStore } from "@/lib/store/app-store";
 const AUTO_CLEAR_MS = 6_000;
 
 /**
- * Client-only reconnect notice (run-control §7.4). Renders when the transport's
+ * Client-only reconnect notice. Renders when the transport's
  * `prepareReconnectToStreamRequest` recorded a non-zero resume cursor; auto-
  * clears after ~6 s and on unmount/thread change (ChatPanel remounts per
  * thread, so the unmount cleanup prevents a stale notice leaking across).

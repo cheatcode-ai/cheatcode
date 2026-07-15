@@ -1,41 +1,41 @@
 # AGENTS.md
 
-> Cross-tool context for AI coding agents working on Cheatcode V2 (OpenAI Codex, Cursor, Gemini CLI, Aider, Cline, etc.). Follows the [agents.md](https://agents.md) open spec. The complete architecture lives in [`plan.md`](./plan.md).
+> Cross-tool context for AI coding agents working on Cheatcode V2 (OpenAI Codex, Cursor, Gemini CLI, Aider, Cline, etc.). Follows the [agents.md](https://agents.md) open spec. The live source, deployment configuration, migrations, and package READMEs define the current architecture.
 
 ## Project
 
 Cheatcode is a generalist AI agent platform on Cloudflare. Users describe what they want; agents build apps, slides, research, browser automation, and media. **TypeScript everywhere. BYOK across all paid providers.**
 
-Status: clean greenfield V2 build. The legacy V1 tree under `cheatcode/` is
-preserved as ignored reference material and must not be deleted unless the user
-explicitly asks to delete the V1 code by name — see `plan.md` Section 20.
+Status: active V2 build. The user authorized permanent removal of the local V1
+source tree on July 13, 2026; the repository now contains V2 code only.
 
 ## Stack
 
 | Layer | Choice |
 |---|---|
 | Backend | Cloudflare Workers + Durable Objects + Workflows |
-| Frontend | Next.js 16.2.6 + React 19.2.6 + Tailwind 4.3 + shadcn + AI Elements + Streamdown on Cloudflare Workers via OpenNext |
-| Agent framework | Mastra 1.35 on Vercel AI SDK v6.0.182 |
-| Sandbox | Blaxel Sandboxes via `@blaxel/core@0.2.84` per project |
-| Browser | Stagehand v3.2 LOCAL inside the Blaxel sandbox image |
+| Frontend | Next.js 16.2.9 + React 19.2.7 + Tailwind 4.3.1 + shadcn 4.6.0 + AI Elements + Streamdown on Vercel |
+| Agent framework | Mastra 1.42.0 on Vercel AI SDK v6.0.205 |
+| Sandbox | Daytona per-user sandboxes via REST-over-fetch |
+| Browser | Stagehand v3.7.0 LOCAL inside the Daytona sandbox snapshot |
 | Database | Supabase Postgres via Hyperdrive + Drizzle 0.45.2 |
-| Auth | Clerk 7.3.4 |
-| Billing | Polar 0.46.4 |
-| OAuth tools | Composio `@composio/core@0.10.0` |
+| Auth | Clerk 7.5.2 |
+| Billing | Polar 0.48.1 |
+| OAuth tools | Composio v3.1 REST via bounded `@cheatcode/composio` client |
 | Storage | R2 (no Supabase Storage) |
-| Observability | Workers Logs + Workers Tracing + Workers Analytics Engine (no third-party APM in V1) |
-| Lint/format | Biome 2.4 (single config, no ESLint+Prettier except next plugin) |
+| Observability | Workers Logs + Workers Tracing + Workers Analytics Engine (no third-party APM in the initial release) |
+| Lint/format | Biome 2.5.0 (single config, no ESLint+Prettier except next plugin) |
 | QA | Direct `agent-browser --auto-connect --session cheatcode-debug` UI operation + console/network/log review; no scripted test harnesses |
-| Monorepo | pnpm 10 + Turborepo 2.5 |
+| Monorepo | pnpm 10 + Turborepo 2.9.18 |
 
 ## Repo layout
 
 ```
 apps/                    Deployable services
-  web/                   Next.js 16 on Cloudflare Workers via OpenNext
+  web/                   Next.js 16 frontend deployed by Vercel
   gateway-worker/        Public Hono router + Clerk JWT + rate limit
-  agent-worker/          Agent loop + AgentRun DO + ProjectSandbox DO
+  agent-worker/          Agent loop + AgentRun DO + per-user ProjectSandbox DO
+  preview-proxy/         Cloudflare Worker in front of Daytona previews
   webhooks-worker/       Polar/Clerk/Composio webhooks + internal ops workflows
 
 packages/                Shared libraries
@@ -47,10 +47,10 @@ packages/                Shared libraries
   observability/         Structured logger + error handler + Analytics Engine emitters
   env/                   t3-env + Zod
   types/                 Zod schemas + branded IDs + InferAgentUIMessage
-  ui/                    Shared V1-parity UI primitives, icon barrel, AI response renderer
+  ui/                    Shared Cheatcode UI primitives, icon barrel, AI response renderer
 
-skills/                  9 curated Anthropic SKILL.md skills
-infra/                   Wrangler configs, Supabase migrations, Blaxel sandbox Dockerfile
+skills/                  8 curated Anthropic SKILL.md skills
+infra/                   Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile
 scripts/                 Operational helpers only: build skills, secrets, deploy orchestration, migrations, audit archive
 ```
 
@@ -91,9 +91,8 @@ May 27, 2026 user override: never use scripts for product testing. Product QA
 means direct `agent-browser` UI operation, screenshots, console/network
 inspection, and running app-log review only. Delete any future V2 product-flow
 validator, prompt runner, browser wrapper, or throwaway QA helper on sight
-instead of running it. Preserved V1 tests under `cheatcode/` are ignored
-reference material only; do not run, copy, or delete them unless the user
-explicitly asks to delete V1 code by name.
+instead of running it. The removed V1 tree must not be restored, copied back,
+or used as a source of product-test scripts.
 
 May 28, 2026 hardening: do not wrap product QA in `pnpm`, `tsx`, shell loops,
 `/tmp` helpers, generated files, browser-driver wrappers, package aliases, or
@@ -130,15 +129,14 @@ CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_ANALYTICS_API_TOKEN=
 OUTPUT_DOWNLOAD_SIGNING_SECRET=
 
-# Blaxel
-BL_API_KEY=
-BL_WORKSPACE=cheatcode
-BL_REGION=us-pdx-1
-BLAXEL_SANDBOX_IMAGE=sandbox/cheatcode-sandbox:yoo6c20wgw03
+# Daytona
+DAYTONA_API_KEY=
+DAYTONA_API_URL=https://app.daytona.io/api
+DAYTONA_TARGET=us
+DAYTONA_SANDBOX_SNAPSHOT=
+PREVIEW_TOKEN_SECRET=
 
-# Supabase — Workers/Next connect as app_worker only (never service_role).
-NEXT_PUBLIC_SUPABASE_URL=
-NEXT_PUBLIC_SUPABASE_ANON_KEY=
+# Supabase — Workers connect as app_worker only (never service_role).
 DATABASE_URL=
 # SUPABASE_MIGRATION_URL (admin/DDL role) is NOT here — it lives in a git-ignored
 # .env.migrate, used only by scripts/migrate.ts and scripts/archive-audit-log.ts.
@@ -149,7 +147,6 @@ NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
 
 # Polar
-NEXT_PUBLIC_POLAR_PRO_MONTHLY_PRODUCT_ID=
 POLAR_ACCESS_TOKEN=
 POLAR_WEBHOOK_SECRET=
 
@@ -166,10 +163,8 @@ INTERNAL_MAINTENANCE_SECRET=
 NEXT_PUBLIC_GATEWAY_URL=https://gateway.trycheatcode.com
 ```
 
-Never commit `.env.local`. Use `wrangler secrets-store secret create` for production app
-secrets. Blaxel credentials (`BL_API_KEY`, `BL_WORKSPACE`, `BL_REGION`) are standard
-Worker secrets on `cheatcode-agent`; sync them with `pnpm sync:worker-secrets -- --apply`,
-which uses `wrangler versions secret put`.
+Never commit `.env.local`. Use `pnpm sync:secrets -- --store-id <STORE_ID> --apply` to create or
+rotate production Secrets Store entries by name without printing their values.
 
 ## Code conventions (CI-enforced)
 
@@ -184,7 +179,7 @@ which uses `wrangler versions secret put`.
 9. **BYOK keys never logged.** Decrypt only inside the active `withUserContext()` transaction and pass request-scoped values downward. Do not cache plaintext in module scope, KV, DO storage, logs, or R2.
 10. **Workers connect as `app_worker` Postgres role**, never `service_role`.
 
-Full lint + strict-mode config in `plan.md` Section 21.
+The enforced rules live in the root `biome.jsonc` and TypeScript configs.
 
 ## Naming
 
@@ -202,8 +197,8 @@ feat(agent): add wide research workflow
 fix(sandbox): handle snapshot restore on cold start
 refactor(db): split provider_keys into keys.ts
 chore(skills): update pitch-deck references
-chore: bump @blaxel/core to 0.2.84
-docs(plan): update Section 12 with build-time bundler pattern
+chore(sandbox): update Daytona snapshot
+docs(architecture): document the build-time bundler pattern
 ```
 
 PR titles follow the same convention. Single-line, <72 chars.
@@ -212,24 +207,25 @@ PR titles follow the same convention. Single-line, <72 chars.
 
 - ❌ **Don't use Node `fs` at runtime in Workers** — no filesystem. Bundle at build time.
 - ❌ **Don't use Supabase Realtime** — Durable Objects own streaming.
-- ❌ **Don't add Inngest, Sentry, Langfuse, or Axiom** — Workers-native primitives only for V1.
+- ❌ **Don't add Inngest, Sentry, Langfuse, or Axiom** — use Workers-native primitives.
 - ❌ **Don't store files in Postgres** — R2 + `generated_outputs` index.
 - ❌ **Don't use `service_role` from Workers.**
 - ❌ **Don't use `postgres.js`** — use `pg` (node-postgres) for Hyperdrive compatibility.
 - ❌ **Don't `drizzle-kit push` in production** — `generate` → review → `migrate`.
 - ❌ **Don't bypass `packages/byok`** to access provider keys.
-- ❌ **Don't expose Cheatcode as an MCP server** — V1 consumes MCPs only.
-- ❌ **Don't introduce new vendors** without proposing the change in plan.md first.
+- ❌ **Don't expose Cheatcode as an MCP server** — Cheatcode consumes MCPs only.
+- ❌ **Don't add hard step, token, or cost ceilings to agent loops** — use semantic completion; cancellation and timeouts are operational guards.
+- ❌ **Don't introduce new vendors** without an explicit architecture decision and matching documentation/config updates.
 
-## Plan.md is source of truth
+## Architecture change discipline
 
-If a proposed change contradicts `plan.md`, **update plan.md in the same PR** before implementing. Architectural drift is the top failure mode.
+The deleted `plan.md` is not authoritative and must not be restored. Base changes on the live code, schemas, migrations, deployment configuration, and package READMEs. Update these documents in the same change whenever an architectural boundary moves.
 
 Specifically check before changing:
-- Section 4: locked tech stack versions
-- Section 7: Postgres schema
-- Section 11: feature → architecture mapping
-- Section 21: code quality + lint rules
+- `pnpm-workspace.yaml` and the lockfile for exact dependency versions
+- `packages/db/src/schema`, `packages/db/drizzle`, and `infra/supabase/migrations` for Postgres behavior
+- Worker `wrangler.jsonc`, `apps/web/vercel.json`, and `.github/workflows` for deployment topology
+- `biome.jsonc` and TypeScript configs for code-quality rules
 
 ## Documentation
 
@@ -237,8 +233,8 @@ Each package has a `README.md` with: purpose, public exports, code checks, env v
 
 ## Getting help
 
-- Architecture questions → `plan.md`
-- Tool/library version questions → `plan.md` Section 4 (locked exact pins)
-- Schema questions → `plan.md` Section 7
-- Skill writing → `plan.md` Section 12
-- Lint/strict-mode → `plan.md` Section 21
+- Architecture questions → live app/package boundaries and their READMEs
+- Tool/library version questions → `pnpm-workspace.yaml` and `pnpm-lock.yaml`
+- Schema questions → `packages/db/src/schema`, Drizzle migrations, and Supabase migrations
+- Skill writing → `skills/*/SKILL.md` plus `scripts/build-skills.ts`
+- Lint/strict-mode → `biome.jsonc` and the root/package TypeScript configs

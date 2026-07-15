@@ -1,14 +1,15 @@
+import type { LogicalModelId } from "@cheatcode/types";
 import { redactSecrets } from "./redact";
 
 const MAX_BLOB_LENGTH = 1024;
 
-export interface AnalyticsDatasetPoint {
+interface AnalyticsDatasetPoint {
   blobs?: string[];
   doubles?: number[];
   indexes?: string[];
 }
 
-export interface AnalyticsDataset {
+interface AnalyticsDataset {
   writeDataPoint(point: AnalyticsDatasetPoint): void;
 }
 
@@ -18,30 +19,29 @@ interface AnalyticsDataPoint {
   indexes?: (string | undefined)[];
 }
 
-export interface AgentMetric {
+interface AgentMetricFields {
   agentName: string;
-  cacheReadTokens?: number;
-  cacheWriteTokens?: number;
-  completionTokens?: number;
   durationMs?: number;
   envTag?: string;
   errorCode?: string;
-  model: string;
-  promptTokens?: number;
   runId: string;
   status: "success" | "error";
   stepIdx?: number;
   stepType: string;
   toolCallCount?: number;
-  usdCostMicros?: number;
   userId: string;
   versionTag?: string;
   workerName: string;
 }
 
-export interface UserEvent {
+type ModelAttribution =
+  | { logicalModelId: LogicalModelId; plannedModelId?: never }
+  | { logicalModelId?: never; plannedModelId: LogicalModelId | "unknown" };
+
+export type AgentMetric = AgentMetricFields & ModelAttribution;
+
+interface UserEvent {
   authMethod?: string;
-  cacheReadTokens?: number;
   cohortMonth?: string;
   cohortWeek?: string;
   country?: string;
@@ -53,9 +53,10 @@ export interface UserEvent {
   eventName: string;
   confidence?: number;
   fromPlan?: string;
-  model?: string;
+  logicalModelId?: LogicalModelId;
   mrrCents?: number;
   plan?: string;
+  plannedModelId?: LogicalModelId | "unknown";
   promptLength?: number;
   referrer?: string;
   resultBytes?: number;
@@ -66,32 +67,36 @@ export interface UserEvent {
   stepType?: string;
   templateId?: string;
   toolName?: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  tokensUsed?: number;
   toPlan?: string;
   toolCalls?: number;
   userId: string;
   utmSource?: string;
-  valueUsdMicros?: number;
 }
 
 export interface ErrorEvent {
+  causeCode?: string;
+  causeConstraint?: string;
+  causeName?: string;
+  causeRetriable?: boolean;
+  causeStatus?: number;
+  constraint?: string;
   durationMs?: number;
   errorCategory: string;
   errorCode: string;
+  errorName?: string;
   httpStatus?: number;
-  message?: string;
+  retriable?: boolean;
   retryCount?: number;
   route?: string;
   runId?: string;
-  stack?: string;
+  sourceErrorCode?: string;
+  status?: number;
   userId?: string;
   versionTag?: string;
   workerName: string;
 }
 
-export interface PerformanceMetric {
+interface PerformanceMetric {
   dbQueryMs?: number;
   envTag?: string;
   llmMs?: number;
@@ -106,21 +111,8 @@ export interface PerformanceMetric {
   workerName: string;
 }
 
-export interface CostEvent {
-  cacheHit?: boolean;
-  day: string;
-  model: string;
-  runId: string;
-  tokensIn?: number;
-  tokensOut?: number;
-  toolName?: string;
-  usdMicros?: number;
-  userId: string;
-}
-
 export interface AnalyticsBindings {
   AGENT_METRICS?: AnalyticsDataset;
-  COST_EVENTS?: AnalyticsDataset;
   ERROR_EVENTS?: AnalyticsDataset;
   PERFORMANCE_METRICS?: AnalyticsDataset;
   USER_EVENTS?: AnalyticsDataset;
@@ -132,7 +124,7 @@ export function emitAgentMetric(env: AnalyticsBindings, metric: AgentMetric): vo
     blobs: [
       metric.runId,
       metric.agentName,
-      metric.model,
+      metric.logicalModelId ?? metric.plannedModelId,
       metric.stepType,
       metric.status,
       metric.errorCode,
@@ -140,16 +132,7 @@ export function emitAgentMetric(env: AnalyticsBindings, metric: AgentMetric): vo
       metric.envTag,
       metric.versionTag,
     ],
-    doubles: [
-      metric.durationMs,
-      metric.promptTokens,
-      metric.completionTokens,
-      metric.cacheReadTokens,
-      metric.cacheWriteTokens,
-      metric.usdCostMicros,
-      metric.stepIdx,
-      metric.toolCallCount,
-    ],
+    doubles: [metric.durationMs, metric.stepIdx, metric.toolCallCount],
   });
 }
 
@@ -165,7 +148,7 @@ export function emitUserEvent(env: AnalyticsBindings, event: UserEvent): void {
       event.runId,
       event.authMethod,
       event.templateId,
-      event.model,
+      event.logicalModelId ?? event.plannedModelId,
       event.errorCode,
       event.detector,
       event.runStatus,
@@ -180,15 +163,10 @@ export function emitUserEvent(env: AnalyticsBindings, event: UserEvent): void {
     ],
     doubles: [
       event.mrrCents,
-      event.valueUsdMicros,
       event.promptLength,
       event.durationMs,
-      event.tokensUsed,
       event.toolCalls,
       event.confidence,
-      event.tokensIn,
-      event.tokensOut,
-      event.cacheReadTokens,
       event.stepIdx,
       event.resultBytes,
     ],
@@ -205,10 +183,22 @@ export function emitErrorEvent(env: AnalyticsBindings, event: ErrorEvent): void 
       event.userId,
       event.runId,
       event.versionTag,
-      truncate(event.message),
-      stackTop(event.stack),
+      event.errorName,
+      event.sourceErrorCode,
+      event.constraint,
+      event.causeName,
+      event.causeCode,
+      event.causeConstraint,
+      booleanLabel(event.retriable),
+      booleanLabel(event.causeRetriable),
     ],
-    doubles: [event.httpStatus, event.retryCount, event.durationMs],
+    doubles: [
+      event.httpStatus,
+      event.retryCount,
+      event.durationMs,
+      event.status,
+      event.causeStatus,
+    ],
   });
 }
 
@@ -233,20 +223,6 @@ export function emitPerformanceMetric(env: AnalyticsBindings, metric: Performanc
   });
 }
 
-export function emitCostEvent(env: AnalyticsBindings, event: CostEvent): void {
-  writePoint(env.COST_EVENTS, {
-    indexes: [event.userId],
-    blobs: [
-      event.model,
-      event.toolName,
-      event.cacheHit === undefined ? undefined : String(event.cacheHit),
-      event.runId,
-      event.day,
-    ],
-    doubles: [event.usdMicros, event.tokensIn, event.tokensOut],
-  });
-}
-
 function writePoint(dataset: AnalyticsDataset | undefined, point: AnalyticsDataPoint): void {
   dataset?.writeDataPoint({
     indexes: sanitizeBlobs(point.indexes).slice(0, 1),
@@ -268,6 +244,6 @@ function truncate(value: string | undefined): string {
   return normalized.length > MAX_BLOB_LENGTH ? normalized.slice(0, MAX_BLOB_LENGTH) : normalized;
 }
 
-function stackTop(stack: string | undefined): string {
-  return truncate(stack?.split("\n").slice(0, 3).join("\n"));
+function booleanLabel(value: boolean | undefined): string | undefined {
+  return value === undefined ? undefined : String(value);
 }

@@ -1,35 +1,42 @@
-import type { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import type {
+  AgentRunId,
+  LogicalModelId,
+  ProjectId,
+  ProjectMode,
+  ThreadId,
+  UserId,
+} from "@cheatcode/types";
 import {
   AGENT_MODEL_CATALOG,
+  LogicalModelIdSchema,
   PRODUCTION_DEFAULT_MODEL_ID,
+  ProjectModeSchema,
   AgentRunId as toAgentRunId,
   ProjectId as toProjectId,
   ThreadId as toThreadId,
 } from "@cheatcode/types";
-import { and, eq, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
+import { findEntitlementByUserId, lockUserEntitlementMutations } from "./billing";
 import type { Database } from "./client";
 import type { RunPersonalization } from "./profiles";
-import { attachProjectSandboxWithLimit, countActiveProjects, createProject } from "./projects";
+import { countActiveProjects, createProject, lockUserProjectMutations } from "./projects";
 import {
-  type AgentRunConfig,
   type AgentRunError,
   agentRuns,
-  entitlements,
   type ProjectSettings,
   projects,
   type ThreadLaunchIntent,
   threads,
-  usageEvents,
 } from "./schema";
 
-export type AgentRunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "canceled";
+const FREE_ACTIVE_PROJECT_LIMIT = 3;
 
-const DEFAULT_RUN_BUDGET_CAP_USD = 5;
+export type AgentRunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "canceled";
 
 /**
  * Total wall-clock minutes the agent "worked" for this user since the start of
  * today in `timezone` (a CF-edge IANA zone; pass "UTC" as a safe default). Sums
- * finished runs' (finishedAt − startedAt). Powers bud's "cheatcode worked Nm
+ * finished runs' (finishedAt − startedAt). Powers Cheatcode's "cheatcode worked Nm
  * today" home headline.
  */
 export async function sumWorkedMinutesToday(
@@ -54,12 +61,11 @@ export async function sumWorkedMinutesToday(
 }
 
 export interface AgentRunHandle {
-  budgetCapUsd?: number;
   importRepoUrl?: string;
   isFirstRun?: boolean;
   masterInstructions?: string;
-  modelId?: string;
-  projectMode?: "app-builder" | "app-builder-mobile" | "general";
+  modelId: LogicalModelId;
+  projectMode?: ProjectMode;
   projectId: ProjectId;
   runId: AgentRunId;
   status: AgentRunStatus;
@@ -70,26 +76,21 @@ export interface AgentRunHandle {
 }
 
 export interface CreateAgentRunInput {
-  agentName: string;
-  budgetCapUsd?: number;
-  /** Active-project quota ceiling, enforced when this run lazily creates the chat's project. */
-  maxActiveProjects: number;
-  maxConcurrentSandboxes?: number;
-  modelId?: string;
+  idempotencyKeyHash: string;
+  modelId?: LogicalModelId;
   personalization?: RunPersonalization;
-  /** Resolves the sandbox DO name from the (possibly just-created) project id. */
-  resolveSandboxName: (projectId: string) => Promise<string>;
-  source: "web" | "api";
+  requestBodyHash: string;
   threadId: ThreadId;
   userId: UserId;
 }
 
 export type CreateAgentRunResult =
-  | { run: AgentRunHandle; type: "created" }
+  | { modelExplicit: boolean; run: AgentRunHandle; type: "created" }
+  | { run: AgentRunHandle; type: "idempotent-replay" }
+  | { type: "idempotency-key-reused" }
   | { type: "thread-not-found" }
   | { archiveAfter: Date | null; type: "project-read-only" }
   | { limit: number; type: "project-limit-reached"; used: number }
-  | { limit: number; sandboxCount: number; type: "sandbox-limit-reached" }
   | { run: AgentRunHandle; type: "active-run-exists" };
 
 export interface UpdateAgentRunStatusInput {
@@ -99,16 +100,9 @@ export interface UpdateAgentRunStatusInput {
   userId: UserId;
 }
 
-export interface RecordAgentRunUsageInput {
-  agentRunId: AgentRunId;
-  costUsd: number;
-  eventType: string;
-  /** When set (platform_free DeepSeek runs), meter these tokens against the lifetime allowance. */
-  freeDeepseekTokens?: number;
-  inputTokens: number;
-  model?: string;
-  outputTokens: number;
-  provider?: string;
+export interface UpdateAgentRunLogicalModelInput {
+  logicalModelId: LogicalModelId;
+  runId: AgentRunId;
   userId: UserId;
 }
 
@@ -120,7 +114,7 @@ interface ThreadForRunRow {
   masterInstructions: string | null;
   overQuota: boolean;
   projectId: string;
-  projectMode: "app-builder" | "app-builder-mobile" | "general";
+  projectMode: ProjectMode;
   projectSettings: ProjectSettings;
   workspaceSlug: string;
 }
@@ -130,54 +124,84 @@ interface CreatedRunRow {
   status: string;
 }
 
+interface RunModelPlan {
+  logicalModelId: LogicalModelId;
+  modelExplicit: boolean;
+}
+
 export async function createAgentRunForThread(
   db: Database,
   input: CreateAgentRunInput,
 ): Promise<CreateAgentRunResult> {
-  return db.transaction(async (tx) => {
-    const ensured = await ensureProjectForRun(tx as Database, input);
-    if (ensured) {
-      return ensured;
-    }
-    const thread = await findThreadForRun(tx as Database, input);
-    if (!thread) {
-      return { type: "thread-not-found" };
-    }
-    const blockedResult = await blockedRunCreationResult(tx as Database, input, thread);
-    if (blockedResult) {
-      return blockedResult;
-    }
-    const attachResult = await attachSandboxForRun(tx as Database, input, thread);
-    if (attachResult) {
-      return attachResult;
-    }
+  return db.transaction((tx) => createAgentRunTransaction(tx as Database, input));
+}
 
-    const budgetCapUsd = resolveRunBudgetCap(input.budgetCapUsd, thread.projectSettings);
-    const modelId = resolveRunModelId(input.modelId, thread.projectSettings, input.personalization);
-    const isFirstRun = await isFirstAgentRunForUser(tx as Database, input.userId);
-    const config = agentRunConfig({
-      ...input,
-      ...(budgetCapUsd === undefined ? {} : { budgetCapUsd }),
-    });
-    const created = await insertPendingRun(tx as Database, input, config, modelId);
-    const activated = await activateCreatedRun(tx as Database, input, created.id);
-    if (!activated) {
-      await cancelSupersededRun(tx as Database, created.id);
-      const active = await findActiveAgentRunForThread(tx as Database, {
-        threadId: input.threadId,
-        userId: input.userId,
-      });
-      if (!active) {
-        throw new Error("Thread active run changed but could not be resolved");
-      }
-      return { run: active, type: "active-run-exists" };
-    }
+async function createAgentRunTransaction(
+  db: Database,
+  input: CreateAgentRunInput,
+): Promise<CreateAgentRunResult> {
+  await lockRunIdempotencyKey(db, input);
+  const replay = await idempotentRunCreationResult(db, input);
+  if (replay) {
+    return replay;
+  }
+  // Billing reconciliation takes the same entitlement -> project lock order. Read the ceiling
+  // under those locks so a concurrent upgrade/downgrade cannot race lazy project creation.
+  await lockUserEntitlementMutations(db, input.userId);
+  await lockUserProjectMutations(db, input.userId);
+  const entitlement = await findEntitlementByUserId(db, input.userId);
+  const ensured = await ensureProjectForRun(
+    db,
+    input,
+    entitlement?.maxProjects ?? FREE_ACTIVE_PROJECT_LIMIT,
+  );
+  if (ensured) {
+    return ensured;
+  }
+  const thread = await findThreadForRun(db, input);
+  if (!thread) {
+    return { type: "thread-not-found" };
+  }
+  const blockedResult = await blockedRunCreationResult(db, input, thread);
+  if (blockedResult) {
+    return blockedResult;
+  }
+  return createAndActivateRun(db, input, thread);
+}
 
+async function createAndActivateRun(
+  db: Database,
+  input: CreateAgentRunInput,
+  thread: ThreadForRunRow,
+): Promise<CreateAgentRunResult> {
+  const modelPlan = resolveRunModelPlan(
+    input.modelId,
+    thread.projectSettings,
+    input.personalization,
+  );
+  const isFirstRun = await isFirstAgentRunForUser(db, input.userId);
+  const created = await insertPendingRun(db, input, modelPlan.logicalModelId);
+  if (await activateCreatedRun(db, input, created.id)) {
     return {
-      run: createdRunHandle(thread, config, modelId, created, isFirstRun),
+      modelExplicit: modelPlan.modelExplicit,
+      run: createdRunHandle(thread, modelPlan.logicalModelId, created, isFirstRun),
       type: "created",
     };
+  }
+  await cancelSupersededRun(db, created.id);
+  const active = await findActiveAgentRunForThread(db, {
+    threadId: input.threadId,
+    userId: input.userId,
   });
+  if (!active) {
+    throw new Error("Thread active run changed but could not be resolved");
+  }
+  return { run: active, type: "active-run-exists" };
+}
+
+async function lockRunIdempotencyKey(db: Database, input: CreateAgentRunInput): Promise<void> {
+  const identity = `cheatcode:run-idempotency:${input.userId}:${input.idempotencyKeyHash}`;
+  await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
 }
 
 /**
@@ -191,6 +215,7 @@ export async function createAgentRunForThread(
 async function ensureProjectForRun(
   db: Database,
   input: CreateAgentRunInput,
+  maxActiveProjects: number,
 ): Promise<CreateAgentRunResult | null> {
   const [locked] = await db
     .select({
@@ -215,8 +240,8 @@ async function ensureProjectForRun(
     return null;
   }
   const used = await countActiveProjects(db, input.userId);
-  if (used >= input.maxActiveProjects) {
-    return { limit: input.maxActiveProjects, type: "project-limit-reached", used };
+  if (used >= maxActiveProjects) {
+    return { limit: maxActiveProjects, type: "project-limit-reached", used };
   }
   const intent: ThreadLaunchIntent = locked.launchIntent ?? {};
   const project = await createProject(db, {
@@ -228,12 +253,14 @@ async function ensureProjectForRun(
   });
   await db
     .update(threads)
-    .set({ projectId: project.id, updatedAt: sql`now()` })
+    // Launch intent is single-use input for lazy project materialization. Keeping a
+    // project-bound copy creates two sources of truth for mode and settings.
+    .set({ launchIntent: null, projectId: project.id, updatedAt: sql`now()` })
     .where(and(eq(threads.id, input.threadId), isNull(threads.projectId)));
   return null;
 }
 
-/** Concise kebab project name from the chat's first prompt (bud's `simple-todo-app`). */
+/** Concise kebab project name from the chat's first prompt (Cheatcode's `simple-todo-app`). */
 function projectNameFromTitle(title: string | null): string {
   const stripped = (title ?? "")
     .toLowerCase()
@@ -259,11 +286,8 @@ async function blockedRunCreationResult(
   if (thread.activeRunId) {
     return {
       run: await activeRunHandle(db, {
-        projectId: thread.projectId,
         runId: thread.activeRunId,
-        threadId: thread.id,
         userId: input.userId,
-        workspaceSlug: thread.workspaceSlug,
       }),
       type: "active-run-exists",
     };
@@ -274,46 +298,20 @@ async function blockedRunCreationResult(
   return null;
 }
 
-async function attachSandboxForRun(
-  db: Database,
-  input: CreateAgentRunInput,
-  thread: ThreadForRunRow,
-): Promise<CreateAgentRunResult | null> {
-  if (input.maxConcurrentSandboxes === undefined) {
-    return null;
-  }
-  const result = await attachProjectSandboxWithLimit(db, {
-    maxConcurrentSandboxes: input.maxConcurrentSandboxes,
-    projectId: toProjectId(thread.projectId),
-    sandboxId: await input.resolveSandboxName(thread.projectId),
-    userId: input.userId,
-  });
-  if (result.type === "limit-reached") {
-    return {
-      limit: result.limit,
-      sandboxCount: result.sandboxCount,
-      type: "sandbox-limit-reached",
-    };
-  }
-  return result.type === "project-not-found" ? { type: "thread-not-found" } : null;
-}
-
 function createdRunHandle(
   thread: ThreadForRunRow,
-  config: AgentRunConfig,
-  modelId: string | undefined,
+  modelId: LogicalModelId,
   created: CreatedRunRow,
   isFirstRun: boolean,
 ): AgentRunHandle {
   return {
     projectId: toProjectId(thread.projectId),
-    ...(config.budgetCapUsd === undefined ? {} : { budgetCapUsd: config.budgetCapUsd }),
     ...(thread.projectSettings.importRepoUrl
       ? { importRepoUrl: thread.projectSettings.importRepoUrl }
       : {}),
     ...(isFirstRun ? { isFirstRun } : {}),
     ...(thread.masterInstructions ? { masterInstructions: thread.masterInstructions } : {}),
-    ...(modelId === undefined ? {} : { modelId }),
+    modelId,
     projectMode: thread.projectMode,
     runId: toAgentRunId(created.id),
     status: toAgentRunStatus(created.status),
@@ -378,14 +376,14 @@ async function findThreadForRun(
 async function insertPendingRun(
   db: Database,
   input: CreateAgentRunInput,
-  config: AgentRunConfig,
-  modelId: string | undefined,
+  modelId: LogicalModelId,
 ): Promise<CreatedRunRow> {
   const rows = await db
     .insert(agentRuns)
     .values({
-      config,
-      ...(modelId ? { modelId } : {}),
+      idempotencyKeyHash: input.idempotencyKeyHash,
+      modelId,
+      requestBodyHash: input.requestBodyHash,
       status: "pending",
       threadId: input.threadId,
       userId: input.userId,
@@ -396,6 +394,40 @@ async function insertPendingRun(
     throw new Error("Failed to create agent run");
   }
   return created;
+}
+
+async function idempotentRunCreationResult(
+  db: Database,
+  input: CreateAgentRunInput,
+): Promise<CreateAgentRunResult | null> {
+  const [existing] = await db
+    .select({
+      requestBodyHash: agentRuns.requestBodyHash,
+      runId: agentRuns.id,
+      threadId: agentRuns.threadId,
+    })
+    .from(agentRuns)
+    .where(
+      and(
+        eq(agentRuns.userId, input.userId),
+        eq(agentRuns.idempotencyKeyHash, input.idempotencyKeyHash),
+      ),
+    )
+    .limit(1);
+  if (!existing) {
+    return null;
+  }
+  if (existing.threadId !== input.threadId || existing.requestBodyHash !== input.requestBodyHash) {
+    return { type: "idempotency-key-reused" };
+  }
+  const run = await findAgentRunForUser(db, {
+    runId: toAgentRunId(existing.runId),
+    userId: input.userId,
+  });
+  if (!run) {
+    throw new Error("Idempotent run exists without a readable run handle");
+  }
+  return { run, type: "idempotent-replay" };
 }
 
 async function activateCreatedRun(
@@ -432,39 +464,36 @@ async function cancelSupersededRun(db: Database, runId: string): Promise<void> {
     .where(eq(agentRuns.id, runId));
 }
 
-export function resolveRunBudgetCap(
-  inputBudgetCapUsd: number | undefined,
-  projectSettings: ProjectSettings,
-): number {
-  return inputBudgetCapUsd ?? projectSettings.budgetCapUsd ?? DEFAULT_RUN_BUDGET_CAP_USD;
-}
-
-export function resolveRunModelId(
-  inputModelId: string | undefined,
+function resolveRunModelPlan(
+  inputModelId: LogicalModelId | undefined,
   projectSettings: ProjectSettings,
   personalization?: RunPersonalization,
-): string | undefined {
-  const explicit = cleanModelId(inputModelId);
+): RunModelPlan {
+  const explicit = parseLogicalModelId(inputModelId);
   if (explicit) {
     // An explicitly-disabled model is rejected pre-resolution (400); pass the pick through unchanged.
-    return explicit;
+    return { logicalModelId: explicit, modelExplicit: true };
   }
   const disabled = new Set(personalization?.disabledModels ?? []);
-  for (const candidate of [cleanModelId(projectSettings.defaultModel)]) {
+  for (const candidate of [parseLogicalModelId(projectSettings.defaultModel)]) {
     if (candidate && !disabled.has(candidate)) {
-      return candidate;
+      return { logicalModelId: candidate, modelExplicit: true };
     }
   }
-  // "Auto": let the DO fall back to the production default unless the user disabled it.
+  // "Auto" is a concrete plan; the execution layer may later attribute a logical fallback.
   if (!disabled.has(PRODUCTION_DEFAULT_MODEL_ID)) {
-    return undefined;
+    return { logicalModelId: PRODUCTION_DEFAULT_MODEL_ID, modelExplicit: false };
   }
-  return AGENT_MODEL_CATALOG.find((entry) => !disabled.has(entry.id))?.id;
+  const fallback = AGENT_MODEL_CATALOG.find((entry) => !disabled.has(entry.id));
+  if (!fallback) {
+    throw new Error("At least one agent model must remain enabled");
+  }
+  return { logicalModelId: fallback.id, modelExplicit: false };
 }
 
-function cleanModelId(value: string | null | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : undefined;
+function parseLogicalModelId(value: string | null | undefined): LogicalModelId | undefined {
+  const parsed = LogicalModelIdSchema.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
 }
 
 export async function findActiveAgentRunForThread(
@@ -543,7 +572,13 @@ export async function updateAgentRunStatus(
         ...(isTerminalRunStatus(input.status) ? { finishedAt: sql`now()` } : {}),
         status: input.status,
       })
-      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.userId, input.userId)))
+      .where(
+        and(
+          eq(agentRuns.id, input.runId),
+          eq(agentRuns.userId, input.userId),
+          notInArray(agentRuns.status, ["completed", "failed", "canceled"]),
+        ),
+      )
       .returning({ threadId: agentRuns.threadId });
     const updated = updateRows[0];
     if (!updated) {
@@ -565,79 +600,87 @@ export async function updateAgentRunStatus(
   });
 }
 
-export async function recordAgentRunUsage(
+/** Persists the product-level model identity selected for the next stream attempt. */
+export async function updateAgentRunLogicalModelId(
   db: Database,
-  input: RecordAgentRunUsageInput,
+  input: UpdateAgentRunLogicalModelInput,
 ): Promise<boolean> {
-  return db.transaction(async (tx) => {
-    const costUsd = normalizedCost(input.costUsd);
-    await tx.insert(usageEvents).values({
-      agentRunId: input.agentRunId,
-      costUsd,
-      eventType: input.eventType,
-      inputTokens: input.inputTokens,
-      ...(input.model ? { model: input.model } : {}),
-      outputTokens: input.outputTokens,
-      ...(input.provider ? { provider: input.provider } : {}),
-      userId: input.userId,
-    });
-
-    const updatedRows = await tx
-      .update(agentRuns)
-      .set({
-        costUsd: sql`${agentRuns.costUsd} + ${costUsd}`,
-        tokensIn: sql`${agentRuns.tokensIn} + ${input.inputTokens}`,
-        tokensOut: sql`${agentRuns.tokensOut} + ${input.outputTokens}`,
-      })
-      .where(and(eq(agentRuns.id, input.agentRunId), eq(agentRuns.userId, input.userId)))
-      .returning({ id: agentRuns.id });
-
-    // Meter platform-credited DeepSeek tokens against the per-user lifetime allowance.
-    // Atomic row-locked `+=` keyed by user, in the SAME tx as the run-total update, so the
-    // counter tracks agent_runs.tokens_* exactly (per-step delta, counted once) — plan WS3.
-    if (input.freeDeepseekTokens && input.freeDeepseekTokens > 0) {
-      await tx
-        .update(entitlements)
-        .set({
-          freeDeepseekTokensUsed: sql`${entitlements.freeDeepseekTokensUsed} + ${input.freeDeepseekTokens}`,
-        })
-        .where(eq(entitlements.userId, input.userId));
-    }
-    return Boolean(updatedRows[0]);
-  });
+  const rows = await db
+    .update(agentRuns)
+    .set({ modelId: input.logicalModelId })
+    .where(
+      and(
+        eq(agentRuns.id, input.runId),
+        eq(agentRuns.userId, input.userId),
+        notInArray(agentRuns.status, ["completed", "failed", "canceled"]),
+      ),
+    )
+    .returning({ id: agentRuns.id });
+  return Boolean(rows[0]);
 }
 
-function agentRunConfig(input: CreateAgentRunInput): AgentRunConfig {
-  return {
-    agentName: input.agentName,
-    ...(input.budgetCapUsd === undefined ? {} : { budgetCapUsd: input.budgetCapUsd }),
-    source: input.source,
-  };
+/**
+ * Compensates a committed run row only after its run-keyed Durable Object has
+ * authoritatively reported no state. The run row and matching thread pointer
+ * move together so a failed admission cannot strand the thread.
+ */
+export async function reconcileAbsentAgentRunStart(
+  db: Database,
+  input: { runId: AgentRunId; userId: UserId },
+): Promise<"failed" | "not-found" | "terminal"> {
+  return db.transaction(async (tx) => {
+    const [run] = await tx
+      .select({ status: agentRuns.status, threadId: agentRuns.threadId })
+      .from(agentRuns)
+      .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.userId, input.userId)))
+      .for("update")
+      .limit(1);
+    if (!run) {
+      return "not-found";
+    }
+    const status = toAgentRunStatus(run.status);
+    if (!isTerminalRunStatus(status)) {
+      await tx
+        .update(agentRuns)
+        .set({
+          error: {
+            message: "The run service did not admit this run.",
+            type: "run_start_absent",
+          },
+          finishedAt: sql`now()`,
+          status: "failed",
+        })
+        .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.userId, input.userId)));
+    }
+    await tx
+      .update(threads)
+      .set({ activeRunId: null, updatedAt: sql`now()` })
+      .where(
+        and(
+          eq(threads.id, run.threadId),
+          eq(threads.userId, input.userId),
+          eq(threads.activeRunId, input.runId),
+        ),
+      );
+    return isTerminalRunStatus(status) ? "terminal" : "failed";
+  });
 }
 
 async function activeRunHandle(
   db: Database,
   input: {
-    projectId: string;
     runId: string;
-    threadId: string;
     userId: UserId;
-    workspaceSlug: string;
   },
 ): Promise<AgentRunHandle> {
   const existing = await findAgentRunForUser(db, {
     runId: toAgentRunId(input.runId),
     userId: input.userId,
   });
-  return (
-    existing ?? {
-      projectId: toProjectId(input.projectId),
-      runId: toAgentRunId(input.runId),
-      status: "running",
-      threadId: toThreadId(input.threadId),
-      workspaceSlug: input.workspaceSlug,
-    }
-  );
+  if (!existing) {
+    throw new Error(`Active agent run ${input.runId} is missing its database row`);
+  }
+  return existing;
 }
 
 function agentRunHandleFromRow(row: {
@@ -650,7 +693,7 @@ function agentRunHandleFromRow(row: {
   workspaceSlug: string;
 }): AgentRunHandle {
   return {
-    ...(row.modelId ? { modelId: row.modelId } : {}),
+    modelId: parseLogicalModelId(row.modelId) ?? PRODUCTION_DEFAULT_MODEL_ID,
     projectMode: projectModeFromDb(row.projectMode),
     projectId: toProjectId(row.projectId),
     runId: toAgentRunId(row.runId),
@@ -660,15 +703,8 @@ function agentRunHandleFromRow(row: {
   };
 }
 
-function projectModeFromDb(value: string): "app-builder" | "app-builder-mobile" | "general" {
-  if (value === "app-builder" || value === "app-builder-mobile") {
-    return value;
-  }
-  return "general";
-}
-
-function normalizedCost(value: number): string {
-  return Number.isFinite(value) && value > 0 ? value.toFixed(6) : "0";
+function projectModeFromDb(value: string): ProjectMode {
+  return ProjectModeSchema.parse(value);
 }
 
 function toAgentRunStatus(value: string): AgentRunStatus {

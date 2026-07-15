@@ -1,120 +1,181 @@
-/**
- * Build-time content registry for the `/101` route. A typed TS module (no MDX, no
- * runtime fs — same philosophy as the bundled skills). Verbatim design copy is
- * used where the artboard provided it; below-the-fold sections carry
- * accurate-to-product placeholder copy flagged `draft` for the content pass.
- */
+/** Build-time content registry for the `/101` product guide. */
 export type Cheatcode101Block =
-  | { items: string[]; kind: "bullets" }
-  | { kind: "footnote"; text: string }
+  | { kind: "example"; label: string; prompt: string }
+  | { items: readonly Cheatcode101Faq[]; kind: "faqs" }
   | { kind: "paragraph"; text: string };
 
+export interface Cheatcode101Faq {
+  answer: string;
+  question: string;
+}
+
 export interface Cheatcode101Section {
-  blocks: Cheatcode101Block[];
-  draft?: boolean;
+  blocks: readonly Cheatcode101Block[];
   id: string;
   title: string;
 }
 
-export const CHEATCODE_101_HERO = "Your AI agent team, working from any browser.";
+export const CHEATCODE_101_TAGLINE = "Your AI agent team, working from any browser.";
 
 export const CHEATCODE_101_SECTIONS: readonly Cheatcode101Section[] = [
   {
     blocks: [
       {
         kind: "paragraph",
-        text: "Cheatcode is a generalist AI agent platform. Tell it what you want to make and a team of agents plans the work, builds it, and shows you every step — apps, decks, research, data analysis, browser automation, and media, all from any browser.",
+        text: "Cheatcode is a generalist AI agent with a full cloud computer. Unlike a chatbot that only replies, Cheatcode can plan and carry out work across code, files, the live web, connected tools, and a real browser. A team of agents handles the work while the workspace keeps every step visible.",
       },
     ],
     id: "what-is-cheatcode",
-    title: "What is cheatcode?",
+    title: "What is Cheatcode?",
   },
   {
     blocks: [
       {
         kind: "paragraph",
-        text: "Describe an app and Cheatcode scaffolds it, writes the code, and gives you a live preview you can interact with. Keep chatting to iterate, then ship when it is ready.",
+        text: "Describe an app and Cheatcode scaffolds it, writes the code, and gives you a live preview you can use. Keep chatting to iterate in any language or stack, then ship when it is ready.",
       },
       {
         kind: "paragraph",
-        text: "The same chat keeps the project, files, preview, and terminal together so you can keep iterating without losing context.",
+        text: "Start with a request like this:",
+      },
+      {
+        kind: "example",
+        label: "Build & code",
+        prompt:
+          "Build a polished, responsive client portal with authentication, project status, file sharing, and a production-ready landing page.",
       },
     ],
-    id: "build-and-ship",
-    title: "Build & ship apps",
+    id: "build-and-code",
+    title: "Build & Code",
   },
   {
     blocks: [
       {
         kind: "paragraph",
-        text: "Turn rough notes into polished decks and documents. Agents research, draft, and format the output for you.",
+        text: "Cheatcode can turn rough ideas into professional work: source-backed research, reports, spreadsheets, documents, presentations, and data analysis.",
       },
       {
         kind: "paragraph",
-        text: "Generated files appear in the project computer and deliverables list, so you can inspect or download them without leaving the chat.",
+        text: "Agents can search the live web, cross-check claims, organize the findings, and turn them into a finished deliverable without making you move between tools.",
       },
       {
-        kind: "footnote",
-        text: "Documents ship as .docx, decks as .pptx — ready to download, edit, and share. Everything lands in your project files.",
+        kind: "paragraph",
+        text: "Start with a request like this:",
+      },
+      {
+        kind: "example",
+        label: "Research, docs, slides, sheets",
+        prompt:
+          "Research the market for AI customer support platforms, compare the leading companies, and turn the findings into a cited report and an executive presentation.",
+      },
+      {
+        kind: "paragraph",
+        text: "Documents are created as .docx files and presentations as .pptx files — ready to download, edit, and share from your project.",
       },
     ],
-    id: "decks-and-documents",
-    title: "Decks & documents",
+    id: "professional-work",
+    title: "Professional Work",
   },
   {
     blocks: [
       {
         kind: "paragraph",
-        text: "Ask a research question and Cheatcode fans out parallel agents across the live web — searching, fetching sources, and cross-checking claims — then synthesizes a report with citations you can verify. Use it for competitor briefs, market scans, or deep dives, and the findings flow straight into a deck or doc.",
+        text: "Skills are multi-step operating procedures that agents load when a task needs a specialized workflow. Integrations connect real tools and data, including GitHub, Gmail, Slack, Notion, Linear, and hundreds of other apps.",
       },
-    ],
-    id: "research",
-    title: "Research",
-  },
-  {
-    blocks: [
       {
         kind: "paragraph",
-        text: "Turn a recurring task into an automation that runs without you. Describe a schedule (“every morning at 8am, summarize the Mag 7”) or an event in a connected app (“when an invoice email arrives, file it in Notion”) and Cheatcode runs the agent and delivers the result to Slack, Notion, or email.",
+        text: "Use built-in skills, create your own, or connect an account so Cheatcode can do the work inside the tools you already use.",
       },
       {
-        kind: "footnote",
-        text: "Manage automations, watch their run history, and pause or delete them from the Automations page.",
-      },
-    ],
-    id: "automate",
-    title: "Automate",
-  },
-  {
-    blocks: [
-      {
-        kind: "paragraph",
-        text: "Skills are multi-step operating procedures the agent loads on demand — building pitch decks, running deep research, analyzing CSVs, designing landing pages, and more. Integrations connect your real tools and data: link GitHub, Gmail, Slack, Notion, Linear, and hundreds of other apps so agents can act on your accounts, not just talk about them.",
+        kind: "example",
+        label: "Skills & integrations",
+        prompt:
+          "Review my latest GitHub pull requests, summarize the open risks, and draft a concise engineering update for Slack.",
       },
     ],
     id: "skills-and-integrations",
-    title: "Skills & integrations",
+    title: "Skills & Integrations",
   },
   {
     blocks: [
       {
         kind: "paragraph",
-        text: "Agents drive a real browser to get things done on the web — logging in, filling forms, navigating pages, and pulling out data. You can watch the session live in the Computer panel and take over at any point to steer, then hand control back.",
+        text: "Cheatcode can use a real browser to navigate pages, sign in, fill forms, gather information, and complete multi-step work on the web.",
+      },
+      {
+        kind: "paragraph",
+        text: "Browser work runs inside your private cloud computer, and the agent reports its progress and results in the chat.",
+      },
+      {
+        kind: "example",
+        label: "Browser research and automation",
+        prompt:
+          "Compare three suitable project-management tools, collect their current pricing and key limitations, and recommend the best fit for a ten-person product team.",
       },
     ],
     id: "browser-use",
-    title: "Browser use",
+    title: "Browser Use",
   },
   {
     blocks: [
       {
+        kind: "paragraph",
+        text: "A straightforward guide to what Cheatcode is, how it works, and where your work goes.",
+      },
+      {
         items: [
-          "Where does my work live? Everything lands in your project files or in the chat where it was generated, ready to download.",
-          "What does it cost? Bring your own provider keys and pay the providers directly, or use a Cheatcode plan.",
-          "Can I edit the output? Yes — code, docs, and decks are all editable, and you can keep iterating by chatting.",
-          "Can I share a run? Not yet — keep the work in your project and download deliverables when you need to hand them off.",
+          {
+            answer:
+              "Cheatcode is a generalist AI agent platform. It gives a team of agents a cloud computer, project files, tools, and a browser so they can carry out work instead of only describing how to do it.",
+            question: "What is Cheatcode?",
+          },
+          {
+            answer:
+              "A normal chatbot mainly produces text. Cheatcode can plan multi-step work, write and run code, create files, research the live web, use connected tools, and operate a browser while showing you its progress.",
+            question: "How is Cheatcode different from a normal AI chatbot?",
+          },
+          {
+            answer:
+              "Your account gets one private cloud computer, with every project kept in its own workspace folder. Agents can use its files, terminal, and live previews to build and inspect real outputs without touching your local computer.",
+            question: "What does it mean that Cheatcode has a computer?",
+          },
+          {
+            answer:
+              "Yes. Cheatcode can scaffold applications, work in existing codebases, run development commands, inspect previews, and keep iterating from the same chat.",
+            question: "Can Cheatcode code?",
+          },
+          {
+            answer:
+              "Yes. Agents can search and read current sources, cross-check claims, and produce cited research that can feed directly into documents, presentations, or spreadsheets.",
+            question: "Can Cheatcode research the live web?",
+          },
+          {
+            answer:
+              "Yes. Cheatcode can navigate websites, collect information, and complete browser-based workflows inside your private cloud computer.",
+            question: "Can Cheatcode use websites for me?",
+          },
+          {
+            answer:
+              "Integrations connect services such as GitHub, Gmail, Slack, Notion, and Linear. Cheatcode asks you to connect an account before an agent can act inside it.",
+            question: "How do integrations work?",
+          },
+          {
+            answer:
+              "Project work stays with the project: generated files live in its isolated workspace folder and deliverables, while decisions and progress remain in the chat that produced them.",
+            question: "Where does my work live?",
+          },
+          {
+            answer:
+              "You can bring your own provider API keys and pay those providers directly. Cheatcode plans cover the sandbox capacity used to run agent work.",
+            question: "What does Cheatcode cost?",
+          },
+          {
+            answer:
+              "Yes. Code, documents, presentations, and spreadsheets remain editable. You can also keep chatting to revise the result while preserving the project context.",
+            question: "Can I edit the output?",
+          },
         ],
-        kind: "bullets",
+        kind: "faqs",
       },
     ],
     id: "faq",

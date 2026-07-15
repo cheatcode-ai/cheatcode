@@ -2,26 +2,49 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, parse, resolve } from "node:path";
 import { z } from "zod";
 
-const DEFAULT_ENV_FILES = [".env.migrate", ".env.local"] as const;
+const DEFAULT_ENV_FILES = [".env.migrate"] as const;
 
 const MigrationEnvSchema = z
   .object({
-    DATABASE_URL: z.string().url().optional(),
-    SUPABASE_MIGRATION_URL: z.string().url().optional(),
+    CLOUDFLARE_ACCOUNT_ID: z
+      .string()
+      .regex(/^[0-9a-f]{32}$/)
+      .optional(),
+    SUPABASE_MIGRATION_EXPECTED_DATABASE: z.string().trim().min(1).optional(),
+    SUPABASE_MIGRATION_EXPECTED_HOST: z.string().trim().min(1).optional(),
+    SUPABASE_MIGRATION_EXPECTED_ROLE: z.string().trim().min(1).optional(),
+    SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER: z.string().regex(/^\d+$/).optional(),
+    SUPABASE_MIGRATION_URL: z.string().url(),
   })
   .passthrough();
 
 export interface MigrationEnv {
+  cloudflareAccountId?: string;
   databaseUrl: string;
+  expectedDatabase?: string;
+  expectedHost?: string;
+  expectedRole?: string;
+  expectedSystemIdentifier?: string;
 }
 
-export function parseMigrationEnv(env: unknown): MigrationEnv {
+function parseMigrationEnv(env: unknown): MigrationEnv {
   const parsed = MigrationEnvSchema.parse(env);
-  const databaseUrl = parsed.SUPABASE_MIGRATION_URL ?? parsed.DATABASE_URL;
-  if (!databaseUrl) {
-    throw new Error("Set SUPABASE_MIGRATION_URL or DATABASE_URL before running migrations.");
-  }
-  return { databaseUrl };
+  return {
+    databaseUrl: parsed.SUPABASE_MIGRATION_URL,
+    ...(parsed.CLOUDFLARE_ACCOUNT_ID ? { cloudflareAccountId: parsed.CLOUDFLARE_ACCOUNT_ID } : {}),
+    ...(parsed.SUPABASE_MIGRATION_EXPECTED_DATABASE
+      ? { expectedDatabase: parsed.SUPABASE_MIGRATION_EXPECTED_DATABASE }
+      : {}),
+    ...(parsed.SUPABASE_MIGRATION_EXPECTED_HOST
+      ? { expectedHost: parsed.SUPABASE_MIGRATION_EXPECTED_HOST }
+      : {}),
+    ...(parsed.SUPABASE_MIGRATION_EXPECTED_ROLE
+      ? { expectedRole: parsed.SUPABASE_MIGRATION_EXPECTED_ROLE }
+      : {}),
+    ...(parsed.SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER
+      ? { expectedSystemIdentifier: parsed.SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER }
+      : {}),
+  };
 }
 
 export function loadMigrationEnv(root = findWorkspaceRoot(process.cwd())): MigrationEnv {

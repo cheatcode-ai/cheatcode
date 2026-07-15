@@ -1,10 +1,7 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "katex/dist/katex.min.css";
-@plugin "tailwind-scrollbar";
-@plugin "tailwind-scrollbar-hide";
 @source "../../../../node_modules/streamdown/dist/**/*.js";
-@source "../../../../node_modules/ai-elements/dist/**/*.js";
 
 @font-face {
   font-family: "circular";
@@ -32,7 +29,11 @@
 
 @custom-variant dark (&:where(.dark, .dark *));
 
-/* bud-style loading breathe for the Cheatcode mark (booting sandbox / opening files) */
+:root {
+  --cheatcode-sidebar-offset: 248px;
+}
+
+/* cheatcode-style loading breathe for the Cheatcode mark (booting sandbox / opening files) */
 @keyframes cc-breathe {
   0%,
   100% {
@@ -48,6 +49,18 @@
   animation: cc-breathe 1.8s cubic-bezier(0.4, 0, 0.2, 1) infinite;
   will-change: transform, opacity;
 }
+
+/* Cheatcode keeps its scroll surfaces visually quiet: wheel, trackpad, touch, and keyboard scrolling all
+   remain functional, while the native browser gutter is hidden in favor of contextual controls. */
+.chat-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .cc-loading-mark {
     animation: none;
@@ -55,23 +68,80 @@
   }
 }
 
+.cheatcode-app-shell {
+  position: relative;
+  display: flex;
+  height: 100dvh;
+  min-height: 100dvh;
+  overflow: hidden;
+  padding: 8px;
+}
+
 .cheatcode-workspace-frame {
-  padding-top: 8px;
-  padding-right: 8px;
-  padding-bottom: 8px;
-  padding-left: 8px;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+  transform-origin: right center;
+  border-radius: 0;
+  transition:
+    transform 200ms cubic-bezier(0.42, 0, 0.58, 1),
+    border-radius 200ms cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+.cheatcode-sidebar-panel {
+  transform: translateX(calc(-100% - 16px));
+  transition:
+    width 200ms cubic-bezier(0.42, 0, 0.58, 1),
+    transform 200ms cubic-bezier(0.42, 0, 0.58, 1);
+}
+
+.cheatcode-sidebar-panel[data-sidebar-open="true"] {
+  transform: translateX(0);
+}
+
+.cheatcode-sidebar-backdrop {
+  visibility: hidden;
+  pointer-events: none;
+  opacity: 0;
+  transition:
+    opacity 200ms cubic-bezier(0.42, 0, 0.58, 1),
+    visibility 0s linear 200ms;
+}
+
+.cheatcode-sidebar-backdrop[data-sidebar-open="true"] {
+  visibility: visible;
+  pointer-events: auto;
+  opacity: 1;
+  transition:
+    opacity 200ms cubic-bezier(0.42, 0, 0.58, 1),
+    visibility 0s linear;
+}
+
+@media (max-width: 767px) {
+  .cheatcode-workspace-frame[data-mobile-sidebar-open="true"] {
+    will-change: transform;
+    transform: translateX(256px) scale(0.92);
+    border-radius: 24px;
+  }
 }
 
 @media (min-width: 768px) {
+  .cheatcode-sidebar-panel[data-sidebar-mode="docked"] {
+    transform: translateX(0);
+  }
+
   .cheatcode-workspace-frame {
-    padding-left: var(--cheatcode-sidebar-offset, 240px);
+    padding-left: calc(var(--cheatcode-sidebar-offset) - 8px);
     transition: padding-left 200ms cubic-bezier(0.23, 1, 0.32, 1);
   }
 }
 
-@media (max-width: 767px) {
+@media (prefers-reduced-motion: reduce) {
+  .cheatcode-sidebar-backdrop,
+  .cheatcode-sidebar-backdrop[data-sidebar-open="true"],
+  .cheatcode-sidebar-panel,
   .cheatcode-workspace-frame {
-    padding-left: 8px;
+    transition: none;
   }
 }
 
@@ -110,6 +180,25 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --color-bg-primary: var(--bg-primary);
+  --color-bg-elevated: var(--bg-elevated);
+  --color-bg-secondary: var(--bg-secondary);
+  --color-bg-lifted: var(--bg-lifted);
+  --color-bg-inverse: var(--bg-inverse);
+  --color-fg-brand: var(--fg-brand);
+  --color-fg-primary: var(--fg-primary);
+  --color-fg-secondary: var(--fg-secondary);
+  --color-fg-tertiary: var(--fg-tertiary);
+  --color-fg-inverse: var(--fg-inverse);
+  --color-brand-accent-fg: var(--brand-accent-fg);
+  --color-border-default: var(--border-default);
+  --color-border-subtle: var(--border-subtle);
+  --color-border-tree: var(--border-tree);
+  --color-placeholder: var(--placeholder);
+  --color-success-fg: var(--success-fg);
+  --color-success-bg: var(--success-bg);
+  --color-danger-fg: var(--danger-fg);
+  --color-danger-bg: var(--danger-bg);
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -321,39 +410,85 @@
 }
 
 :root {
-  --background: #ffffff;
-  --foreground: #1b1b1b;
-  --card: #ffffff;
-  --card-foreground: #1b1b1b;
-  --popover: #ffffff;
-  --popover-foreground: #1b1b1b;
-  --primary: #1b1b1b;
-  --primary-foreground: #ffffff;
-  --secondary: #f7f7f7;
-  --secondary-foreground: #1b1b1b;
-  --muted: #f7f7f7;
-  --muted-foreground: #707070;
-  --accent: #f8af2c;
-  --accent-foreground: #1b1b1b;
-  --destructive: #d43f3a;
-  --destructive-foreground: #ffffff;
-  --border: #f1f1f1;
-  --input: #f7f7f7;
-  --ring: #1b1b1b;
-  --chart-1: #f8af2c;
-  --chart-2: #5b9a73;
-  --chart-3: #8aa0a8;
-  --chart-4: #d88a6b;
-  --chart-5: #c7a84a;
+  --neutral-0: #fff;
+  --neutral-50: #f7f7f7;
+  --neutral-100: #f8f8f8;
+  --neutral-200: #eee;
+  --neutral-250: #e4e4e4;
+  --neutral-300: #bebebe;
+  --neutral-400: #9b9b9b;
+  --neutral-500: #585858;
+  --neutral-600: #555;
+  --neutral-700: #3a3a3a;
+  --neutral-800: #2e2e2e;
+  --neutral-850: #282828;
+  --neutral-900: #222;
+  --neutral-950: #1b1b1b;
+  --neutral-975: #141414;
+  --neutral-1000: #121212;
+  --accent-p-300: #f9b96c;
+  --accent-p-500: #fba62a;
+  --accent-p-700: #bb7400;
+  --destructive-500: #cc272e;
+  --destructive-400: #e85854;
+  --bg-primary: var(--neutral-0);
+  --bg-elevated: var(--neutral-50);
+  --bg-secondary: var(--neutral-100);
+  --bg-lifted: var(--neutral-50);
+  --bg-inverse: var(--neutral-950);
+  --fg-brand: var(--neutral-800);
+  --fg-primary: var(--neutral-950);
+  --fg-secondary: var(--neutral-500);
+  --fg-tertiary: var(--neutral-700);
+  --fg-inverse: var(--neutral-50);
+  --brand-accent-fg: #805000;
+  --border-default: var(--neutral-50);
+  --border-subtle: var(--neutral-100);
+  --border-tree: var(--neutral-250);
+  --accent-default: var(--accent-p-500);
+  --accent-muted: var(--accent-p-300);
+  --background: var(--bg-primary);
+  --foreground: var(--fg-primary);
+  --card: var(--bg-primary);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--bg-primary);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--accent-default);
+  --primary-foreground: var(--neutral-950);
+  --secondary: var(--bg-elevated);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--bg-elevated);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--bg-elevated);
+  --accent-foreground: var(--fg-primary);
+  --destructive: var(--destructive-500);
+  --destructive-foreground: var(--fg-inverse);
+  --border: var(--border-default);
+  --input: var(--border-default);
+  --placeholder: var(--neutral-500);
+  --focus-ring: var(--neutral-950);
+  --ring: var(--focus-ring);
+  --chart-1: #b84b00;
+  --chart-2: #008479;
+  --chart-3: #144e66;
+  --chart-4: #d6a62e;
+  --chart-5: #d58d25;
   --radius: 0.625rem;
-  --sidebar: #ffffff;
-  --sidebar-foreground: #1b1b1b;
-  --sidebar-primary: #1b1b1b;
-  --sidebar-primary-foreground: #ffffff;
-  --sidebar-accent: #f7f7f7;
-  --sidebar-accent-foreground: #1b1b1b;
-  --sidebar-border: #f1f1f1;
-  --sidebar-ring: #1b1b1b;
+  --sidebar: var(--bg-elevated);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--fg-primary);
+  --sidebar-primary-foreground: var(--fg-inverse);
+  --sidebar-accent: var(--bg-elevated);
+  --sidebar-accent-foreground: var(--fg-primary);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--neutral-400);
+  --success-fg: #007a77;
+  --success-bg: #e7f1f0;
+  --danger-fg: #9a504b;
+  --danger-bg: #f5eceb;
+  --sidebar-lifted-shadow:
+    0 0 1px color-mix(in oklch, var(--foreground) 8%, transparent),
+    inset 0 0 2px color-mix(in oklch, var(--foreground) 2%, transparent);
 
   /* ============================================
    * THREAD SCREEN COLOR SYSTEM
@@ -361,98 +496,121 @@
    * ============================================ */
 
   /* Thread Panel Backgrounds */
-  --thread-panel-bg: #ffffff;
-  --thread-panel-bg-translucent: rgba(255, 255, 255, 0.88);
-  --thread-surface: #f8f8f8;
-  --thread-surface-hover: #f1f1f1;
-  --thread-surface-subtle: rgba(248, 248, 248, 0.68);
+  --thread-panel-bg: var(--bg-primary);
+  --thread-panel-bg-translucent: color-mix(in srgb, var(--bg-primary) 88%, transparent);
+  --thread-surface: var(--bg-secondary);
+  --thread-surface-hover: var(--bg-elevated);
+  --thread-surface-subtle: color-mix(in srgb, var(--bg-secondary) 68%, transparent);
 
   /* Thread Borders */
-  --thread-border: #ececec;
-  --thread-border-subtle: #f1f1f1;
-  --thread-border-hover: #dcdcdc;
-  --thread-divider: #dedede;
+  --thread-border: var(--border-default);
+  --thread-border-subtle: var(--border-subtle);
+  --thread-border-hover: var(--border-tree);
+  --thread-divider: var(--border-tree);
 
   /* Thread Text Colors */
-  --thread-text-primary: #1b1b1b;
-  --thread-text-secondary: #4f4f4f;
-  --thread-text-tertiary: #8a8a8a;
-  --thread-text-muted: #a0a0a0;
-  --thread-text-placeholder: #a0a0a0;
+  --thread-text-primary: var(--fg-primary);
+  --thread-text-secondary: var(--fg-secondary);
+  --thread-text-tertiary: var(--fg-tertiary);
+  --thread-text-muted: var(--placeholder);
+  --thread-text-placeholder: var(--placeholder);
 
   /* Thread Interactive States */
-  --thread-hover-bg: #f7f7f7;
-  --thread-active-bg: #f1f1f1;
-  --thread-focus-ring: #1b1b1b;
+  --thread-hover-bg: var(--bg-elevated);
+  --thread-active-bg: var(--bg-secondary);
 
   /* Thread Status Colors */
-  --thread-status-success: #5b9a73;
-  --thread-status-success-bg: rgba(91, 154, 115, 0.1);
-  --thread-status-success-border: rgba(91, 154, 115, 0.2);
-  --thread-status-success-glow: rgba(91, 154, 115, 0.22);
+  --thread-status-success: var(--success-fg);
+  --thread-status-success-bg: var(--success-bg);
+  --thread-status-success-border: color-mix(in srgb, var(--success-fg) 20%, transparent);
+  --thread-status-success-glow: color-mix(in srgb, var(--success-fg) 22%, transparent);
 
-  --thread-status-warning: #f8af2c;
-  --thread-status-warning-bg: rgba(248, 175, 44, 0.14);
-  --thread-status-warning-border: rgba(248, 175, 44, 0.3);
+  --thread-status-warning: var(--accent-default);
+  --thread-status-warning-bg: color-mix(in srgb, var(--accent-default) 14%, transparent);
+  --thread-status-warning-border: color-mix(in srgb, var(--accent-default) 30%, transparent);
 
-  --thread-status-error: #d43f3a;
-  --thread-status-error-bg: rgba(212, 63, 58, 0.08);
-  --thread-status-error-border: rgba(212, 63, 58, 0.22);
-  --thread-status-error-text: #b8322f;
+  --thread-status-error: var(--danger-fg);
+  --thread-status-error-bg: var(--danger-bg);
+  --thread-status-error-border: color-mix(in srgb, var(--danger-fg) 22%, transparent);
+  --thread-status-error-text: var(--danger-fg);
 
-  --thread-status-info: #6e8ea0;
+  --thread-status-info: var(--fg-secondary);
 
   /* Thread Accent Colors */
-  --thread-accent-purple: #f8af2c;
-  --thread-accent-purple-glow: rgba(248, 175, 44, 0.18);
+  --thread-accent-purple: var(--accent-default);
+  --thread-accent-purple-glow: color-mix(in srgb, var(--accent-default) 18%, transparent);
 
   /* Thread Message Bubbles */
   --thread-user-message-bg: #f5f5f5;
-  --thread-assistant-message-bg: #ffffff;
-  --thread-assistant-message-border: #f1f1f1;
+  --thread-assistant-message-bg: var(--bg-primary);
+  --thread-assistant-message-border: var(--border-default);
 
   /* Thread Code/Tool Colors */
-  --thread-code-bg: #fafafa;
-  --thread-tool-border: #ececec;
+  --thread-code-bg: var(--bg-secondary);
+  --thread-tool-border: var(--border-default);
 
   /* Thread Skeleton/Loading */
-  --thread-skeleton-bg: #ededed;
-  --thread-loading-dot: #f8af2c;
+  --thread-skeleton-bg: var(--bg-elevated);
+  --thread-loading-dot: var(--accent-default);
 }
 
 .dark {
-  --background: #09090b;
-  --foreground: oklch(0.985 0 0);
-  --card: #141414;
-  --card-foreground: oklch(0.985 0 0);
-  --popover: #141414;
-  --popover-foreground: oklch(0.985 0 0);
-  --primary: oklch(0.985 0 0);
-  --primary-foreground: oklch(0.205 0 0);
-  --secondary: oklch(54.65% 0.246 262.87);
-  --secondary-foreground: oklch(0.985 0 0);
-  --muted: #1f1f1f;
-  --muted-foreground: oklch(0.708 0 0);
-  --accent: #1f1f1f;
-  --accent-foreground: oklch(0.985 0 0);
-  --destructive: oklch(0.396 0.141 25.723);
-  --destructive-foreground: oklch(0.637 0.237 25.331);
-  --border: #222222;
-  --input: #1f1f1f;
-  --ring: oklch(0.439 0 0);
-  --chart-1: oklch(0.488 0.243 264.376);
-  --chart-2: oklch(0.696 0.17 162.48);
-  --chart-3: oklch(0.769 0.188 70.08);
-  --chart-4: oklch(0.627 0.265 303.9);
-  --chart-5: oklch(0.645 0.246 16.439);
-  --sidebar: #0f0f0f;
-  --sidebar-foreground: oklch(0.985 0 0);
-  --sidebar-primary: oklch(0.488 0.243 264.376);
-  --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: #1f1f1f;
-  --sidebar-accent-foreground: oklch(0.985 0 0);
-  --sidebar-border: #222222;
-  --sidebar-ring: oklch(0.439 0 0);
+  --bg-primary: var(--neutral-1000);
+  --bg-elevated: var(--neutral-900);
+  --bg-secondary: var(--neutral-950);
+  --bg-lifted: var(--neutral-975);
+  --bg-inverse: var(--neutral-50);
+  --fg-brand: var(--neutral-500);
+  --fg-primary: var(--neutral-50);
+  --fg-secondary: var(--neutral-400);
+  --fg-tertiary: var(--neutral-300);
+  --fg-inverse: var(--neutral-950);
+  --brand-accent-fg: var(--accent-p-300);
+  --border-default: var(--neutral-950);
+  --border-subtle: var(--neutral-900);
+  --border-tree: var(--neutral-850);
+  --background: var(--bg-primary);
+  --foreground: var(--fg-primary);
+  --card: var(--bg-elevated);
+  --card-foreground: var(--fg-primary);
+  --popover: var(--bg-elevated);
+  --popover-foreground: var(--fg-primary);
+  --primary: var(--accent-default);
+  --primary-foreground: var(--fg-inverse);
+  --secondary: var(--bg-secondary);
+  --secondary-foreground: var(--fg-primary);
+  --muted: var(--bg-secondary);
+  --muted-foreground: var(--fg-secondary);
+  --accent: var(--bg-secondary);
+  --accent-foreground: var(--fg-primary);
+  --destructive: var(--destructive-400);
+  --destructive-foreground: var(--fg-primary);
+  --border: var(--border-default);
+  --input: var(--neutral-800);
+  --placeholder: var(--neutral-400);
+  --focus-ring: var(--neutral-50);
+  --ring: var(--focus-ring);
+  --chart-1: #3c68d9;
+  --chart-2: #1ea87b;
+  --chart-3: #d58d25;
+  --chart-4: #9b5ad9;
+  --chart-5: #d64651;
+  --sidebar: var(--bg-elevated);
+  --sidebar-foreground: var(--fg-primary);
+  --sidebar-primary: var(--accent-default);
+  --sidebar-primary-foreground: var(--fg-inverse);
+  --sidebar-accent: var(--bg-secondary);
+  --sidebar-accent-foreground: var(--fg-primary);
+  --sidebar-border: var(--border-default);
+  --sidebar-ring: var(--neutral-600);
+  --success-fg: #a9d9d6;
+  --success-bg: #007a772e;
+  --danger-fg: #edc2bd;
+  --danger-bg: #9a504b2e;
+  --sidebar-lifted-shadow:
+    0 0 1px color-mix(in oklch, var(--background) 100%, transparent),
+    inset 0 0 2px color-mix(in oklch, var(--foreground) 1%, transparent);
+  --thread-user-message-bg: var(--bg-secondary);
 }
 
 @layer base {
@@ -506,35 +664,30 @@
 }
 
 @layer components {
-  .paper-dot-field {
-    background-image: radial-gradient(#d9d9d9 0.9px, transparent 0.9px);
-    background-size: 10px 10px;
-  }
-
   .paper-soft-panel {
-    border: 1px solid #f1f1f1;
-    background: rgba(248, 248, 248, 0.6);
+    border: 1px solid var(--border-default);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
   }
 
   .paper-card {
-    border: 1px solid #f1f1f1;
-    background: #ffffff;
+    border: 1px solid var(--border-default);
+    background: var(--bg-primary);
     box-shadow: 0 0 1px rgba(0, 0, 0, 0.08);
   }
 
-  .bud-composer-shell {
-    border: 2px solid #f7f7f7;
-    background: #ffffff;
+  .cheatcode-composer-shell {
+    border: 2px solid var(--border-default);
+    background: var(--bg-primary);
     box-shadow: none;
   }
 
-  .bud-composer-fill {
-    background: linear-gradient(180deg, #f7f7f7 0%, rgba(247, 247, 247, 0) 100%);
+  .cheatcode-composer-fill {
+    background: linear-gradient(180deg, var(--bg-secondary) 0%, transparent 100%);
   }
 
   /* Composer "working heartbeat" — a gentle amber inset glow that pulses while the
-     agent is actively running (bud parity). Gated in JS on the run status. */
-  .bud-composer-working {
+     agent is actively running (Cheatcode parity). Gated in JS on the run status. */
+  .cheatcode-composer-working {
     animation: cc-heartbeat 1.4s ease-in-out infinite;
   }
 
@@ -544,458 +697,56 @@
     animation: cc-fade-in 0.4s ease-out both;
   }
 
-  .bud-lifted-surface {
-    background: #ffffff;
-    box-shadow:
-      0 0 1px rgba(0, 0, 0, 0.08),
-      inset 0 0 2px rgba(0, 0, 0, 0.02);
+  .cheatcode-lifted-surface {
+    background: var(--bg-primary);
+    box-shadow: var(--sidebar-lifted-shadow);
   }
 
   .cheatcode-auth-dialog::backdrop {
     background: rgba(0, 0, 0, 0.28);
     backdrop-filter: blur(10px);
   }
-
-  .paper-focus-ring {
-    outline: 2px solid transparent;
-    outline-offset: 2px;
-  }
-
-  .paper-focus-ring:focus-visible {
-    outline-color: #1b1b1b;
-  }
 }
 
-/* Custom styles for Markdown chat content */
-.prose.chat-markdown {
-  /* Ensure reasonable spacing */
-  & > * + * {
-    margin-top: 0.75em;
-  }
-
-  /* Fix headings to be more compact in chat context */
-  & h1 {
-    font-size: 1.5rem;
-    font-weight: 700;
-    margin-top: 1em;
-    margin-bottom: 0.5em;
-    line-height: 1.2;
-  }
-
-  & h2 {
-    font-size: 1.25rem;
-    font-weight: 600;
-    margin-top: 0.8em;
-    margin-bottom: 0.4em;
-    line-height: 1.3;
-  }
-
-  & h3 {
-    font-size: 1.125rem;
-    font-weight: 600;
-    margin-top: 0.6em;
-    margin-bottom: 0.3em;
-  }
-
-  & h4,
-  & h5,
-  & h6 {
-    font-size: 1rem;
-    font-weight: 600;
-    margin-top: 0.5em;
-    margin-bottom: 0.25em;
-  }
-
-  /* Improve lists */
-  & li > ul,
-  & li > ol {
-    margin-top: 0.25em;
-    margin-bottom: 0.25em;
-  }
-
-  & ul,
-  & ol {
-    padding-left: 1.5em;
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
-  }
-
-  & ul {
-    list-style-type: disc;
-  }
-
-  & ol {
-    list-style-type: decimal;
-  }
-
-  & li {
-    margin-top: 0.25em;
-    margin-bottom: 0.25em;
-  }
-
-  /* Fix code blocks */
-  & pre {
-    margin-top: 0.5em;
-    margin-bottom: 0.5em;
-    padding: 0.75em 1em;
-    /* background 95 */
-    background-color: rgba(9, 9, 11, 0.95);
-    border-radius: 0.375rem;
-    overflow-x: auto;
-    font-family: var(--font-mono);
-  }
-
-  & pre code {
-    background-color: transparent;
-    padding: 0;
-    font-size: 0.9em;
-    color: inherit;
-    font-family: var(--font-mono);
-    white-space: pre;
-    word-break: normal;
-    overflow-wrap: normal;
-  }
-
-  /* Fix inline code to ensure it wraps when needed */
-  & code:not([class*="language-"]) {
-    padding: 0.2em 0.4em;
-    font-size: 0.85em;
-    font-family: var(--font-mono);
-    background-color: #f5f5f5;
-    border-radius: 3px;
-    word-break: break-word;
-  }
-
-  /* Fix tables */
-  & table {
-    width: 100%;
-    border-collapse: collapse;
-    margin-top: 0.75em;
-    margin-bottom: 0.75em;
-    font-size: 0.9em;
-  }
-
-  & th {
-    background-color: #f1f5f9;
-    font-weight: 600;
-    text-align: left;
-    padding: 0.5em 0.75em;
-  }
-
-  & td {
-    padding: 0.5em 0.75em;
-    border: 1px solid #e2e8f0;
-  }
-
-  /* Fix blockquotes */
-  & blockquote {
-    border-left: 3px solid #cbd5e1;
-    padding-left: 1em;
-    margin-left: 0;
-    font-style: italic;
-    color: #475569;
-  }
-
-  /* Dark mode specific overrides */
-  .dark & {
-    /* Code blocks in dark mode */
-    & pre {
-      background-color: rgba(9, 9, 11, 0.95);
-      /* border: 1px solid #3f3f46; */
-    }
-
-    & code:not([class*="language-"]) {
-      background-color: rgba(9, 9, 11, 0.95);
-      color: #e4e4e7;
-      /* border: 1px solid #3f3f46; */
-    }
-
-    /* Tables in dark mode */
-    & th {
-      background-color: #27272a;
-      border-color: #3f3f46;
-    }
-
-    & td {
-      border-color: #3f3f46;
-    }
-
-    /* Blockquotes in dark mode */
-    & blockquote {
-      border-left-color: #52525b;
-      color: #a1a1aa;
-    }
-
-    /* Syntax highlighting in dark mode */
-    & .hljs-keyword,
-    & .hljs-selector-tag,
-    & .hljs-built_in,
-    & .hljs-name,
-    & .hljs-tag {
-      color: #60a5fa;
-    }
-
-    & .hljs-string,
-    & .hljs-title,
-    & .hljs-section,
-    & .hljs-attribute,
-    & .hljs-literal,
-    & .hljs-template-tag,
-    & .hljs-template-variable,
-    & .hljs-type,
-    & .hljs-addition {
-      color: #4ade80;
-    }
-
-    & .hljs-comment,
-    & .hljs-quote,
-    & .hljs-deletion,
-    & .hljs-meta {
-      color: #71717a;
-    }
-
-    & .hljs-keyword,
-    & .hljs-selector-tag,
-    & .hljs-literal,
-    & .hljs-title,
-    & .hljs-section,
-    & .hljs-doctag,
-    & .hljs-type,
-    & .hljs-name,
-    & .hljs-strong {
-      font-weight: bold;
-    }
-  }
+/* Unlayered focus rules outrank Tailwind's layered `outline-none` utility. */
+:where(
+  button,
+  a,
+  input,
+  textarea,
+  select,
+  summary,
+  [contenteditable="true"],
+  [tabindex]:not([tabindex="-1"])
+):focus:not(:focus-visible) {
+  outline: none;
 }
 
-/* Home page gradient background - extracted from inline styles */
-.gradient-home-bg {
-  background-image: linear-gradient(
-    156.2deg,
-    rgba(0, 0, 0, 1) 14.8%,
-    rgba(32, 104, 177, 1) 68.1%,
-    rgba(222, 229, 237, 1) 129%
-  );
+body
+  :where(
+    button,
+    a,
+    input,
+    textarea,
+    select,
+    summary,
+    [contenteditable="true"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
-.bg-pattern-grid {
-  background-image:
-    linear-gradient(to right, rgba(0, 0, 0, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(0, 0, 0, 0.05) 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-
-.dark .bg-pattern-grid {
-  background-image:
-    linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-  background-size: 20px 20px;
-}
-
-.bg-checker-pattern {
-  background-image:
-    linear-gradient(45deg, #f3f4f6 25%, transparent 25%),
-    linear-gradient(-45deg, #f3f4f6 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, #f3f4f6 75%),
-    linear-gradient(-45deg, transparent 75%, #f3f4f6 75%);
-  background-size: 20px 20px;
-  background-position:
-    0 0,
-    0 10px,
-    10px -10px,
-    -10px 0px;
-  background-color: #ffffff;
-}
-
-.dark .bg-checker-pattern-dark {
-  background-image:
-    linear-gradient(45deg, rgba(39, 39, 42, 0.7) 25%, transparent 25%),
-    linear-gradient(-45deg, rgba(39, 39, 42, 0.7) 25%, transparent 25%),
-    linear-gradient(45deg, transparent 75%, rgba(39, 39, 42, 0.7) 75%),
-    linear-gradient(-45deg, transparent 75%, rgba(39, 39, 42, 0.7) 75%);
-  background-size: 20px 20px;
-  background-position:
-    0 0,
-    0 10px,
-    10px -10px,
-    -10px 0px;
-  background-color: rgba(24, 24, 27, 0.7);
-}
-
-@keyframes shimmer {
-  0% {
-    transform: translateX(-100%);
-  }
-  100% {
-    transform: translateX(200%);
-  }
-}
-
-/* Composer working glow — pulses an amber inset shadow (bud's heartbeat-shadow). */
-@keyframes cc-heartbeat {
-  0%,
-  100% {
-    box-shadow: inset 0 0 12px rgba(248, 175, 44, 0.16);
-  }
-  50% {
-    box-shadow: inset 0 0 22px rgba(248, 175, 44, 0.5);
-  }
-}
-
-/* Gentle entrance fade for new transcript items. */
-@keyframes cc-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes gradient-shift {
-  0% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
-  100% {
-    background-position: 0% 50%;
-  }
-}
-
-@theme {
-  --animate-shimmer: shimmer 1s infinite;
-  --animate-gradient-shift: gradient-shift 2s ease infinite;
-}
-
-.animate-shimmer {
-  @apply relative overflow-hidden rounded-md;
-  @apply bg-gradient-to-r from-primary/10 via-primary/5 to-primary/10;
-  background-size: 200% 200%;
-  animation: var(--animate-gradient-shift);
-}
-
-.animate-shimmer::before {
-  content: "";
-  @apply absolute top-0 left-0 w-full h-full;
-  background: linear-gradient(
-    140deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.3) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  animation: var(--animate-shimmer);
-  width: 100%;
-  transform: translateX(-100%);
-}
-
-.animate-shimmer-gray {
-  @apply relative overflow-hidden rounded-md;
-  @apply bg-gradient-to-r from-gray-200 via-gray-100 to-gray-200;
-  background-size: 200% 200%;
-  animation: var(--animate-gradient-shift);
-}
-
-.animate-shimmer-gray::before {
-  content: "";
-  @apply absolute top-0 left-0 w-full h-full;
-  background: linear-gradient(
-    140deg,
-    rgba(255, 255, 255, 0) 0%,
-    rgba(255, 255, 255, 0.8) 50%,
-    rgba(255, 255, 255, 0) 100%
-  );
-  animation: var(--animate-shimmer);
-  width: 100%;
-  transform: translateX(-100%);
-}
-
-@theme inline {
-  --animate-shiny-text: shiny-text 5s infinite;
-  --animate-liquid-shimmer: liquid-shimmer 2s ease-in-out infinite;
-
-  @keyframes shiny-text {
-    0%,
-    90%,
-    100% {
-      background-position: calc(-100% - var(--shiny-width)) 0;
-    }
-    30%,
-    60% {
-      background-position: calc(100% + var(--shiny-width)) 0;
-    }
-  }
-
-  @keyframes liquid-shimmer {
-    0% {
-      background-position: 200% 0;
-    }
-    100% {
-      background-position: -200% 0;
-    }
-  }
-}
-
-/* Accessibility + paint cost: disable the new decorative run animations when the
-   user requests reduced motion. The infinite composer heartbeat is the main offender. */
-@media (prefers-reduced-motion: reduce) {
-  .bud-composer-working {
-    animation: none;
-  }
-  .cc-fade-in {
-    animation: none;
-  }
-  /* Static spinners/pulses still convey state without the continuous motion.
-     This block is unlayered, so it overrides Tailwind's layered utilities. */
-  .animate-spin {
-    animation: none;
-  }
-  .animate-pulse {
-    animation: none;
-  }
-}
-
-@media (min-width: 768px) {
-  .cc-agent-run-layout[data-preview-surface="true"] {
-    flex-direction: row;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"] > .cc-agent-chat-pane {
-    flex: 1 1 100%;
-    min-width: 0;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"][data-computer-open="true"]
-    > .cc-agent-chat-pane {
-    flex-basis: 30%;
-    max-width: 30%;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"][data-computer-open="false"]
-    > .cc-agent-chat-pane {
-    flex-basis: 100%;
-    max-width: 100%;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"] > .cc-agent-run-divider {
-    flex: 0 0 1px;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"][data-computer-open="false"]
-    > .cc-agent-run-divider {
-    flex-basis: 0;
-    width: 0;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"] > .cc-agent-computer-pane {
-    flex: 1 1 70%;
-    min-width: 0;
-  }
-
-  .cc-agent-run-layout[data-preview-surface="true"][data-computer-open="false"]
-    > .cc-agent-computer-pane {
-    flex: 0 0 0;
-    width: 0;
-  }
+.cheatcode-auth-dialog
+  :where(
+    button,
+    a,
+    input,
+    textarea,
+    select,
+    summary,
+    [contenteditable="true"],
+    [tabindex]:not([tabindex="-1"])
+  ):focus-visible {
+  outline-color: #fff;
 }

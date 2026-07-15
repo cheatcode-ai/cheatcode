@@ -1,4 +1,4 @@
-import type { IntegrationName } from "@cheatcode/types";
+import { type IntegrationName, IntegrationNameSchema } from "@cheatcode/types/integrations";
 import { z } from "zod/v4";
 
 export const COMPOSIO_API_KEY_CONTEXT_KEY = "composioApiKey";
@@ -15,17 +15,13 @@ export interface ComposioQuotaResult {
 }
 
 export interface ComposioQuotaMeter {
-  consumeCall(): Promise<ComposioQuotaResult>;
+  consumeCall(eventId: string): Promise<ComposioQuotaResult>;
 }
 
 // Maps a connected Composio toolkit slug to its connected-account id. Keyed by an
 // open toolkit slug (not a fixed 5-enum) so the agent can use any toolkit the user
 // has connected from the catalog.
 export const ComposioConnectedAccountsSchema = z.record(
-  z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z0-9_]+$/),
-  z.string().min(1),
+  IntegrationNameSchema,
+  z.string().min(1).max(500),
 );

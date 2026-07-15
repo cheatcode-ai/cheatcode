@@ -1,0 +1,3 @@
+-- The generated schema snapshot removes model-token accounting. Its destructive
+-- SQL runs in the post-deploy phase so token-free Workers are live first. See
+-- infra/supabase/migrations/post/0029_remove_token_cost_accounting.sql.

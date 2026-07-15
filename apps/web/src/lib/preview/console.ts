@@ -1,4 +1,4 @@
-import type { SandboxConsoleLine, SandboxConsoleProcess } from "@cheatcode/types";
+import type { SandboxConsoleLine } from "@cheatcode/types";
 
 export type ConsoleSeverity = "error" | "info" | "warn";
 
@@ -17,7 +17,7 @@ const WARN_PATTERN = /\bwarn(ing)?\b/i;
  * source stream; the heuristics live here so they can iterate without a Worker
  * redeploy. stderr defaults to `error` unless it reads as a warning.
  */
-export function parseConsoleSeverity(stream: "stdout" | "stderr", text: string): ConsoleSeverity {
+function parseConsoleSeverity(stream: "stdout" | "stderr", text: string): ConsoleSeverity {
   if (stream === "stderr") {
     return WARN_PATTERN.test(text) ? "warn" : "error";
   }
@@ -47,29 +47,4 @@ export function mergeConsoleLines(
   }
   const merged = [...existing, ...incoming];
   return merged.length > max ? merged.slice(merged.length - max) : merged;
-}
-
-/** e.g. "app-preview · :5173 · running" (mirrors Paper "expo · :8081 · metro live"). */
-export function consoleSummary(
-  process: SandboxConsoleProcess | null,
-  previewUrl: string | null,
-): string {
-  if (process === null) {
-    return "No dev server running";
-  }
-  const port = previewUrl === null ? null : parsePreviewPort(previewUrl);
-  const parts: string[] = [process.id];
-  if (port !== null) {
-    parts.push(`:${port}`);
-  }
-  parts.push(process.status);
-  return parts.join(" · ");
-}
-
-function parsePreviewPort(previewUrl: string): string | null {
-  try {
-    return new URL(previewUrl).port || null;
-  } catch {
-    return null;
-  }
 }

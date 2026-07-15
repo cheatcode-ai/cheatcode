@@ -1,11 +1,11 @@
 import {
-  type BillingTier,
   cancelSubscriptionAtPeriodEnd,
   createCheckoutUrl,
   createCustomerPortalUrl,
+  ensurePolarCustomer,
   PLAN_CATALOG,
+  type PolarServer,
   reactivateSubscription,
-  TIER_ORDER,
 } from "@cheatcode/billing";
 import {
   createDb,
@@ -13,17 +13,20 @@ import {
   findBillingUserById,
   findEntitlementByUserId,
   updateEntitlementSubscriptionState,
+  updateUserPolarCustomerId,
   withUserContext,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
-import { APIError } from "@cheatcode/observability";
+import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
+  BILLING_TIERS,
   BillingCancelSchema,
   type BillingCatalogResponse,
   BillingCatalogResponseSchema,
   BillingCheckoutSchema,
   BillingStateResponseSchema,
   BillingSubscriptionActionResponseSchema,
+  type BillingTier,
   BillingUrlResponseSchema,
   type PaidBillingTier,
   type PlanSummary,
@@ -31,10 +34,11 @@ import {
   type UserId,
 } from "@cheatcode/types";
 import type { Context } from "hono";
-import type { GatewayEnv } from "./index";
+import type { GatewayEnv } from "./gateway-env";
 import { resolveEntitlement } from "./limits";
 import { rateLimit } from "./rate-limit";
 import { buildSandboxUsageSummary } from "./usage-summary";
+import type { WaitUntilContext } from "./wait-until-context";
 
 const POLAR_PRODUCT_ID_ENV = {
   max: "POLAR_PRODUCT_ID_MAX",
@@ -43,10 +47,12 @@ const POLAR_PRODUCT_ID_ENV = {
   ultra: "POLAR_PRODUCT_ID_ULTRA",
 } as const satisfies Record<PaidBillingTier, keyof GatewayEnv>;
 
+const BILLING_REQUEST_MAX_BYTES = 8 * 1024;
+
 type BillingContext = Context<{ Bindings: GatewayEnv }>;
 
 export interface BillingRouteDeps {
-  authenticate: (request: Request, env: GatewayEnv, ctx: ExecutionContext) => Promise<UserId>;
+  authenticate: (request: Request, env: GatewayEnv, ctx: WaitUntilContext) => Promise<UserId>;
   readRequiredSecret: (secret: WorkerSecret | undefined, name: string) => Promise<string>;
 }
 
@@ -73,7 +79,9 @@ export async function billingCheckoutRoute(
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/checkout");
-  const parsedInput = BillingCheckoutSchema.safeParse(await readJsonBody(c));
+  const parsedInput = BillingCheckoutSchema.safeParse(
+    await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
+  );
   if (!parsedInput.success) {
     throw new APIError(400, "invalid_request_body", "Invalid billing checkout payload", {
       details: { issues: parsedInput.error.issues.map((issue) => issue.message) },
@@ -90,6 +98,7 @@ export async function billingCheckoutRoute(
       customerEmail: user.email,
       productId,
       ...(parsedInput.data.returnUrl ? { returnUrl: parsedInput.data.returnUrl } : {}),
+      ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
       ...(parsedInput.data.successUrl ? { successUrl: parsedInput.data.successUrl } : {}),
       userId,
     });
@@ -107,9 +116,7 @@ export async function billingCatalogRoute(
   await rateLimit(c, userId, "GET /v1/billing/catalog");
   const { db, close } = createDb(c.env.HYPERDRIVE);
   try {
-    const entitlement = await withUserContext(db, userId, (tx) =>
-      resolveEntitlement(c.env, tx, userId),
-    );
+    const entitlement = await resolveEntitlement(c.env, db, userId);
     return c.json(BillingCatalogResponseSchema.parse(buildBillingCatalog(c.env, entitlement.tier)));
   } finally {
     c.executionCtx.waitUntil(close());
@@ -121,9 +128,7 @@ export async function myUsageRoute(c: BillingContext, deps: BillingRouteDeps): P
   await rateLimit(c, userId, "GET /v1/me/usage");
   const { db, close } = createDb(c.env.HYPERDRIVE);
   try {
-    const summary = await withUserContext(db, userId, (tx) =>
-      buildSandboxUsageSummary(c.env, tx, userId),
-    );
+    const summary = await buildSandboxUsageSummary(c.env, db, userId);
     return c.json(SandboxUsageSummaryResponseSchema.parse(summary));
   } finally {
     c.executionCtx.waitUntil(close());
@@ -140,15 +145,37 @@ export async function billingPortalRoute(
   const { db, close } = createDb(c.env.HYPERDRIVE);
   try {
     const user = await requireBillingUser(db, userId);
+    const customerId =
+      user.polarCustomerId ??
+      (await ensureAndStorePolarCustomer(db, accessToken, user, c.env.POLAR_SERVER));
     const url = await createCustomerPortalUrl({
       accessToken,
-      ...(user.polarCustomerId ? { customerId: user.polarCustomerId } : {}),
+      customerId,
       externalCustomerId: user.id,
+      ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
     });
     return c.json(BillingUrlResponseSchema.parse({ url }));
   } finally {
     c.executionCtx.waitUntil(close());
   }
+}
+
+async function ensureAndStorePolarCustomer(
+  db: Database,
+  accessToken: string,
+  user: Awaited<ReturnType<typeof requireBillingUser>>,
+  server?: PolarServer,
+): Promise<string> {
+  const polarCustomerId = await ensurePolarCustomer({
+    accessToken,
+    email: user.email,
+    externalCustomerId: user.id,
+    ...(server ? { server } : {}),
+  });
+  await withUserContext(db, user.id, (tx) =>
+    updateUserPolarCustomerId(tx, { polarCustomerId, userId: user.id }),
+  );
+  return polarCustomerId;
 }
 
 export async function billingCancelRoute(
@@ -157,7 +184,9 @@ export async function billingCancelRoute(
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/cancel");
-  const parsedInput = BillingCancelSchema.safeParse(await readJsonBody(c));
+  const parsedInput = BillingCancelSchema.safeParse(
+    await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
+  );
   if (!parsedInput.success) {
     throw new APIError(400, "invalid_request_body", "Invalid billing cancellation payload", {
       details: { issues: parsedInput.error.issues.map((issue) => issue.message) },
@@ -172,10 +201,13 @@ export async function billingCancelRoute(
       accessToken,
       ...(parsedInput.data.comment ? { comment: parsedInput.data.comment } : {}),
       ...(parsedInput.data.reason ? { reason: parsedInput.data.reason } : {}),
+      ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
       subscriptionId: entitlement.polarSubscriptionId,
     });
     await syncSubscriptionState(c, db, userId, result);
-    return c.json(BillingSubscriptionActionResponseSchema.parse(result));
+    return c.json(
+      BillingSubscriptionActionResponseSchema.parse(subscriptionActionResponse(result)),
+    );
   } finally {
     c.executionCtx.waitUntil(close());
   }
@@ -193,10 +225,13 @@ export async function billingReactivateRoute(
     const entitlement = await loadSubscriptionEntitlement(db, userId);
     const result = await reactivateSubscription({
       accessToken,
+      ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
       subscriptionId: entitlement.polarSubscriptionId,
     });
     await syncSubscriptionState(c, db, userId, result);
-    return c.json(BillingSubscriptionActionResponseSchema.parse(result));
+    return c.json(
+      BillingSubscriptionActionResponseSchema.parse(subscriptionActionResponse(result)),
+    );
   } finally {
     c.executionCtx.waitUntil(close());
   }
@@ -244,12 +279,25 @@ async function syncSubscriptionState(
       currentPeriodEnd: dateFromIso(result.currentPeriodEnd),
       currentPeriodStart: dateFromIso(result.currentPeriodStart),
       polarSubscriptionId: result.id,
-      source: "polar",
       subscriptionStatus: result.status,
       userId,
     }),
   );
   c.executionCtx.waitUntil(c.env.ENTITLEMENTS_CACHE.delete(`entitlement:${userId}`));
+}
+
+function subscriptionActionResponse(result: {
+  cancelAtPeriodEnd: boolean;
+  currentPeriodEnd: string | null;
+  currentPeriodStart: string | null;
+  status: string;
+}) {
+  return {
+    cancelAtPeriodEnd: result.cancelAtPeriodEnd,
+    currentPeriodEnd: result.currentPeriodEnd,
+    currentPeriodStart: result.currentPeriodStart,
+    status: result.status,
+  };
 }
 
 function billingStateFromEntitlement(
@@ -271,7 +319,7 @@ function billingStateFromEntitlement(
 function buildBillingCatalog(env: GatewayEnv, currentTier: BillingTier): BillingCatalogResponse {
   return {
     currentTier,
-    plans: TIER_ORDER.map((tier) => planSummaryForTier(env, tier, currentTier)),
+    plans: BILLING_TIERS.map((tier) => planSummaryForTier(env, tier, currentTier)),
   };
 }
 
@@ -287,11 +335,8 @@ function planSummaryForTier(
     displayName: entry.displayName,
     id: tier,
     limits: {
-      dailyCostCapUsd: entry.dailyCostCapUsd,
-      maxConcurrentSandboxes: entry.maxConcurrentSandboxes,
       maxProjects: entry.maxProjects,
       quotaComposioCalls: entry.quotaComposioCalls,
-      quotaDeployments: entry.quotaDeployments,
     },
     monthlyPriceUsd: entry.priceUsdMonthly,
     sandboxHoursPerMonth: entry.sandboxHours,
@@ -317,14 +362,6 @@ function polarProductIdForTier(env: GatewayEnv, tier: PaidBillingTier): string {
 function polarProductIdEnv(env: GatewayEnv, tier: PaidBillingTier): string | undefined {
   const value = env[POLAR_PRODUCT_ID_ENV[tier]];
   return typeof value === "string" && value.trim().length > 0 ? value : undefined;
-}
-
-async function readJsonBody(c: BillingContext): Promise<unknown> {
-  try {
-    return await c.req.json();
-  } catch {
-    return {};
-  }
 }
 
 function dateFromIso(value: string | null): Date | null {

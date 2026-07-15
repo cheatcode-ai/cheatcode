@@ -1,20 +1,27 @@
 "use client";
 
 import { useQuery } from "@tanstack/react-query";
-import { fetchBillingCatalog, fetchSandboxUsage, fetchUsageDaily } from "@/lib/api/billing";
+import {
+  fetchActivityHistory,
+  fetchBillingCatalog,
+  fetchBillingState,
+  fetchSandboxUsage,
+} from "@/lib/api/billing";
 
 type GetToken = () => Promise<null | string>;
 
-export const SANDBOX_USAGE_QUERY_KEY = ["sandbox-usage"] as const;
-export const BILLING_CATALOG_QUERY_KEY = ["billing-catalog"] as const;
+const SANDBOX_USAGE_QUERY_KEY = ["sandbox-usage"] as const;
+const BILLING_CATALOG_QUERY_KEY = ["billing-catalog"] as const;
+export const BILLING_STATE_QUERY_KEY = ["billing-state"] as const;
 
-export function usageDailyQueryKey(days: number): readonly [string, number] {
-  return ["usage-daily", days] as const;
+function activityQueryKey(days: number): readonly [string, number] {
+  return ["activity", days] as const;
 }
 
 /** Live sandbox-hours meter. Refetches on focus since the popover opens after runs. */
-export function useSandboxUsageQuery(getToken: GetToken) {
+export function useSandboxUsageQuery(getToken: GetToken, enabled = true) {
   return useQuery({
+    enabled,
     queryFn: () => fetchSandboxUsage(getToken),
     queryKey: SANDBOX_USAGE_QUERY_KEY,
     refetchOnWindowFocus: true,
@@ -31,11 +38,21 @@ export function useBillingCatalogQuery(getToken: GetToken) {
   });
 }
 
-/** Activity history: per-run start timestamps (punchcard points) + legacy totals. */
-export function useUsageDailyQuery(getToken: GetToken, days: number) {
+/** Subscription controls stay dormant until the in-app manager is opened. */
+export function useBillingStateQuery(getToken: GetToken, enabled = true) {
   return useQuery({
-    queryFn: () => fetchUsageDaily(getToken, days),
-    queryKey: usageDailyQueryKey(days),
+    enabled,
+    queryFn: () => fetchBillingState(getToken),
+    queryKey: BILLING_STATE_QUERY_KEY,
+    staleTime: 30_000,
+  });
+}
+
+/** Activity history for the usage chart. */
+export function useActivityQuery(getToken: GetToken, days: number) {
+  return useQuery({
+    queryFn: () => fetchActivityHistory(getToken, days),
+    queryKey: activityQueryKey(days),
     staleTime: 60_000,
   });
 }
