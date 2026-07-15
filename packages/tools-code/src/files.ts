@@ -122,16 +122,16 @@ export const DeleteFileOutputSchema = z
   })
   .strict();
 
-export type ReadFileInput = z.input<typeof ReadFileInputSchema>;
-export type ReadFileOutput = z.infer<typeof ReadFileOutputSchema>;
+type ReadFileInput = z.input<typeof ReadFileInputSchema>;
+type ReadFileOutput = z.infer<typeof ReadFileOutputSchema>;
 export type WriteFileInput = z.input<typeof WriteFileInputSchema>;
 export type WriteFileOutput = z.infer<typeof WriteFileOutputSchema>;
-export type ListFilesInput = z.input<typeof ListFilesInputSchema>;
-export type ListFilesOutput = z.infer<typeof ListFilesOutputSchema>;
-export type SearchFilesInput = z.input<typeof SearchFilesInputSchema>;
-export type SearchFilesOutput = z.infer<typeof SearchFilesOutputSchema>;
-export type DeleteFileInput = z.input<typeof DeleteFileInputSchema>;
-export type DeleteFileOutput = z.infer<typeof DeleteFileOutputSchema>;
+type ListFilesInput = z.input<typeof ListFilesInputSchema>;
+type ListFilesOutput = z.infer<typeof ListFilesOutputSchema>;
+type SearchFilesInput = z.input<typeof SearchFilesInputSchema>;
+type SearchFilesOutput = z.infer<typeof SearchFilesOutputSchema>;
+type DeleteFileInput = z.input<typeof DeleteFileInputSchema>;
+type DeleteFileOutput = z.infer<typeof DeleteFileOutputSchema>;
 
 export async function executeReadFile(
   input: ReadFileInput,

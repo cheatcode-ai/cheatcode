@@ -35,11 +35,11 @@ export const GitPushInputSchema = z
 
 const GitOutputSchema = ShellExecOutputSchema;
 
-export type GitStatusInput = z.infer<typeof GitStatusInputSchema>;
-export type GitCloneInput = z.infer<typeof GitCloneInputSchema>;
-export type GitCommitInput = z.infer<typeof GitCommitInputSchema>;
-export type GitPushInput = z.infer<typeof GitPushInputSchema>;
-export type GitOutput = z.infer<typeof GitOutputSchema>;
+type GitStatusInput = z.infer<typeof GitStatusInputSchema>;
+type GitCloneInput = z.infer<typeof GitCloneInputSchema>;
+type GitCommitInput = z.infer<typeof GitCommitInputSchema>;
+type GitPushInput = z.infer<typeof GitPushInputSchema>;
+type GitOutput = z.infer<typeof GitOutputSchema>;
 
 export async function executeGitStatus(
   input: GitStatusInput,

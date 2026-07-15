@@ -92,10 +92,10 @@ export const ShellTerminalInputSchema = z
 
 export type ShellExecInput = z.input<typeof ShellExecInputSchema>;
 export type ShellExecOutput = z.infer<typeof ShellExecOutputSchema>;
-export type ShellStartProcessInput = z.input<typeof ShellStartProcessInputSchema>;
-export type ShellProcessOutput = z.infer<typeof ShellProcessOutputSchema>;
-export type ShellKillProcessInput = z.input<typeof ShellKillProcessInputSchema>;
-export type ShellKillProcessOutput = z.infer<typeof ShellKillProcessOutputSchema>;
+type ShellStartProcessInput = z.input<typeof ShellStartProcessInputSchema>;
+type ShellProcessOutput = z.infer<typeof ShellProcessOutputSchema>;
+type ShellKillProcessInput = z.input<typeof ShellKillProcessInputSchema>;
+type ShellKillProcessOutput = z.infer<typeof ShellKillProcessOutputSchema>;
 export type ShellTerminalInput = z.input<typeof ShellTerminalInputSchema>;
 
 export async function executeShellExec(
