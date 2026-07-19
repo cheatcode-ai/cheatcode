@@ -77,11 +77,11 @@ catalog:
   '@ai-sdk/react': 3.0.207
   # 2.5.3-2.5.4 panic in the type-aware module resolver (biomejs/biome#10885).
   # Keep the last non-panicking patch until the upstream fix is released.
-  '@biomejs/biome': 2.5.2
-  '@clerk/backend': 3.11.6
-  '@clerk/nextjs': 7.5.19
-  '@clerk/ui': 1.25.4
-  '@cloudflare/workers-types': 5.20260716.1
+  '@biomejs/biome': 2.5.4
+  '@clerk/backend': 3.11.7
+  '@clerk/nextjs': 7.5.20
+  '@clerk/ui': 1.25.5
+  '@cloudflare/workers-types': 5.20260719.1
   '@commitlint/cli': 21.2.1
   '@commitlint/config-conventional': 21.2.0
   '@hookform/resolvers': 5.4.0
