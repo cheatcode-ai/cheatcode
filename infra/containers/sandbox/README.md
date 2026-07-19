@@ -143,9 +143,12 @@ The repository's top-level `skills/` directory is the only source for curated
 default skills. The snapshot build mounts it as the `default_skills` BuildKit
 context and copies the same reviewed files to
 `/home/node/.cheatcode/default-skills/`, making the active playbooks inspectable
-without maintaining a second copy. Default skills are immutable snapshot data;
-user-authored skills remain canonical in Postgres and are mirrored to
-`/workspace/.cheatcode/skills/<slug>/SKILL.md` for editing.
+without maintaining a second copy. Default skills are immutable snapshot data.
+User-authored metadata remains canonical in Postgres, while its versioned package
+is canonical in R2 and mirrored completely to
+`/workspace/.cheatcode/skills/<slug>/` for editing. The package may contain bounded
+source, schemas, references, templates, and common binary assets; dependency
+folders, virtual environments, caches, locks, and build output remain sandbox-local.
 
 `/workspace/.cheatcode/runtime.json` is generated from Durable Object-managed
 preview process state. It is a human-readable projection only; sandbox code

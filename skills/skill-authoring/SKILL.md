@@ -36,8 +36,9 @@ Default contract:
 - Use `cheatcode-skills skill-authoring/persist/save --skill <slug>` when an existing saved custom skill is edited from the computer and needs to be persisted again. New Skill Creator runs persist through the native `skill_create` tool instead.
 - If the custom skill has a root `.env`, keep that file up to date and persist it with the rest of the skill so the saved skill still works after reload.
 - In project sandboxes, if you need to update an existing saved custom skill that is not loaded yet, enable it first so it is provisioned into `/workspace/.cheatcode/skills/<slug>/`, then edit and persist that custom skill. Do not use this path for built-in or integration skills.
-- Persisted custom skill payloads include `SKILL.md`, other `.md` files, `.ts` files, a root `package.json`, and a root `.env`. Do not persist lockfiles such as `package-lock.json`, `bun.lock`, or `pnpm-lock.yaml`, and do not expect `node_modules`, build output, caches, or other generated artifacts to be saved.
-- If the skill directory has a root `.gitignore`, `cheatcode-skills skill-authoring/persist/save` will respect it as an extra exclusion layer for otherwise-allowed files. `.gitignore` helps exclude optional source files from persistence, but `.gitignore` itself is not persisted.
+- Persist the complete reusable package: instructions and references; JavaScript, TypeScript, Python, shell, SQL, and style source; JSON/YAML/TOML/XML/XSD schemas and data; templates; and common document, image, font, audio, video, archive, and spreadsheet assets. Each file may be at most 1 MiB; a package may contain at most 128 files and 8 MiB of decoded content.
+- Do not persist lockfiles such as `package-lock.json`, `bun.lock`, or `pnpm-lock.yaml`, and do not expect dependency directories, build output, virtual environments, caches, or other generated artifacts to be saved.
+- If the skill directory has a root `.gitignore`, `cheatcode-skills skill-authoring/persist/save` persists it and respects it as an extra exclusion layer for otherwise-allowed files.
 - Persisting a root `package.json` does not install dependencies during save or reload. Dependency bootstrap should happen lazily, only when validating or executing that specific skill.
 - Only author a root `package.json` when the skill truly needs third-party packages beyond Node built-ins and the runtime-provided `@cheatcode/sandbox-skills-runtime`.
 - If the skill only uses Node built-ins plus `@cheatcode/sandbox-skills-runtime`, skip `package.json` and skip dependency installation entirely.
@@ -67,6 +68,9 @@ For tool-based skills that genuinely need executable logic:
   SKILL.md
   <category>/
     <action>.ts
+  scripts/          # optional Python, shell, or JavaScript helpers
+  schemas/          # optional JSON, YAML, XML, or XSD contracts
+  assets/           # optional templates and binary assets
   _shared.ts        # optional
   references/       # optional
 ```

@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process";
-import { readdir, readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import {
   createSkillTool,
@@ -10,11 +10,70 @@ import {
 } from "@cheatcode/sandbox-skills-runtime";
 
 const SANDBOX_CUSTOM_SKILLS_ROOT = "/workspace/.cheatcode/skills";
-const MAX_PERSISTED_FILE_COUNT = 20;
-const MAX_PERSISTED_TOTAL_BYTES = 1024 * 1024;
-const ROOT_PERSISTED_FILE_NAMES = new Set(["package.json", ".env"]);
-const PERSISTED_FILE_EXTENSIONS = new Set([".md", ".ts"]);
+const MAX_PERSISTED_FILE_COUNT = 128;
+const MAX_PERSISTED_FILE_BYTES = 1024 * 1024;
+const MAX_PERSISTED_TOTAL_BYTES = 8 * 1024 * 1024;
+const ROOT_TEXT_FILE_NAMES = new Set([".env", ".gitignore", ".npmrc", "LICENSE"]);
+const TEXT_FILE_EXTENSIONS = new Set([
+  ".css",
+  ".csv",
+  ".gql",
+  ".graphql",
+  ".html",
+  ".js",
+  ".json",
+  ".jsonc",
+  ".jsx",
+  ".md",
+  ".mdx",
+  ".mjs",
+  ".cjs",
+  ".py",
+  ".scss",
+  ".sh",
+  ".sql",
+  ".svg",
+  ".toml",
+  ".ts",
+  ".tsx",
+  ".txt",
+  ".xml",
+  ".xsd",
+  ".yaml",
+  ".yml",
+]);
+const BINARY_FILE_EXTENSIONS = new Set([
+  ".docx",
+  ".gif",
+  ".ico",
+  ".jpeg",
+  ".jpg",
+  ".mp3",
+  ".mp4",
+  ".otf",
+  ".pdf",
+  ".png",
+  ".pptx",
+  ".ttf",
+  ".wav",
+  ".webm",
+  ".webp",
+  ".woff",
+  ".woff2",
+  ".xlsx",
+  ".zip",
+]);
+const SKIPPED_FILE_NAMES = new Set([
+  ".cheatcode-package.json",
+  "bun.lock",
+  "bun.lockb",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+]);
 const SKIPPED_DIRECTORY_NAMES = new Set([
+  ".venv",
+  "__pycache__",
   "node_modules",
   "dist",
   "build",
@@ -23,11 +82,13 @@ const SKIPPED_DIRECTORY_NAMES = new Set([
   "coverage",
   ".git",
   ".cache",
+  "venv",
 ]);
 
 type CustomSkillFilePayload = {
-  path: string;
   content: string;
+  encoding: "base64" | "utf8";
+  path: string;
 };
 
 type PersistCustomSkillResponse = {
@@ -71,19 +132,16 @@ function normalizeRelativeSkillPath(relativePath: string) {
   return relativePath.split(path.sep).join("/");
 }
 
-function isPersistableSkillFile(relativePath: string) {
+function skillFileEncoding(relativePath: string): "base64" | "utf8" | null {
   const normalizedPath = normalizeRelativeSkillPath(relativePath);
   const pathSegments = normalizedPath.split("/").filter(Boolean);
   const fileName = pathSegments[pathSegments.length - 1];
-  if (!fileName) {
-    return false;
-  }
-
-  if (ROOT_PERSISTED_FILE_NAMES.has(fileName)) {
-    return pathSegments.length === 1;
-  }
-
-  return PERSISTED_FILE_EXTENSIONS.has(path.extname(fileName).toLowerCase());
+  if (!fileName || SKIPPED_FILE_NAMES.has(fileName)) return null;
+  if (pathSegments.length === 1 && ROOT_TEXT_FILE_NAMES.has(fileName)) return "utf8";
+  const extension = path.extname(fileName).toLowerCase();
+  if (TEXT_FILE_EXTENSIONS.has(extension)) return "utf8";
+  if (BINARY_FILE_EXTENSIONS.has(extension)) return "base64";
+  return null;
 }
 
 async function collectPersistableSkillFilePaths(
@@ -110,7 +168,7 @@ async function collectPersistableSkillFilePaths(
       }
 
       const relativePath = path.relative(rootDirectory, absolutePath);
-      if (!isPersistableSkillFile(relativePath)) {
+      if (!skillFileEncoding(relativePath)) {
         return [];
       }
 
@@ -181,13 +239,49 @@ async function collectSkillFiles(rootDirectory: string): Promise<CustomSkillFile
   const persistedPaths = candidatePaths.filter(
     (relativePath) => !gitIgnoredPaths.has(relativePath),
   );
-
+  await validateSkillFileStats(rootDirectory, persistedPaths);
   return Promise.all(
+    persistedPaths.map((relativePath) => readSkillFile(rootDirectory, relativePath)),
+  );
+}
+
+async function validateSkillFileStats(
+  rootDirectory: string,
+  persistedPaths: readonly string[],
+): Promise<void> {
+  if (persistedPaths.length > MAX_PERSISTED_FILE_COUNT) {
+    throw new Error(`A saved custom skill can contain at most ${MAX_PERSISTED_FILE_COUNT} files.`);
+  }
+  const sizes = await Promise.all(
     persistedPaths.map(async (relativePath) => ({
-      path: relativePath,
-      content: await readFile(path.join(rootDirectory, relativePath), "utf8"),
+      relativePath,
+      size: (await stat(path.join(rootDirectory, relativePath))).size,
     })),
   );
+  const oversized = sizes.find((file) => file.size > MAX_PERSISTED_FILE_BYTES);
+  if (oversized) {
+    throw new Error(`${oversized.relativePath} exceeds the 1048576-byte file limit.`);
+  }
+  const totalBytes = sizes.reduce((total, file) => total + file.size, 0);
+  if (totalBytes > MAX_PERSISTED_TOTAL_BYTES) {
+    throw new Error(
+      `The custom skill exceeds the ${MAX_PERSISTED_TOTAL_BYTES}-byte package limit.`,
+    );
+  }
+}
+
+async function readSkillFile(
+  rootDirectory: string,
+  relativePath: string,
+): Promise<CustomSkillFilePayload> {
+  const encoding = skillFileEncoding(relativePath);
+  if (!encoding) throw new Error(`Unsupported custom skill file: ${relativePath}`);
+  const content = await readFile(path.join(rootDirectory, relativePath));
+  return {
+    content: encoding === "utf8" ? content.toString("utf8") : content.toString("base64"),
+    encoding,
+    path: relativePath,
+  };
 }
 
 async function resolveSourceDirectory(params: {
@@ -230,7 +324,7 @@ function runPersistPreflight(params: {
       [
         `No persistable files were found for "${params.skillSlug}".`,
         `Looked in ${params.sourceDirectory}.`,
-        "Persisted custom skills currently allow SKILL.md, other .md files, .ts files, a root package.json, and a root .env only.",
+        "Saved custom skills support source, schema, reference, template, and common binary asset files.",
       ].join(" "),
     );
   }
@@ -249,12 +343,16 @@ function runPersistPreflight(params: {
   }
 
   const totalBytes = params.files.reduce(
-    (sum, file) => sum + Buffer.byteLength(file.content, "utf8"),
+    (sum, file) =>
+      sum +
+      (file.encoding === "utf8"
+        ? Buffer.byteLength(file.content, "utf8")
+        : Buffer.from(file.content, "base64").byteLength),
     0,
   );
   if (totalBytes > MAX_PERSISTED_TOTAL_BYTES) {
     throw new Error(
-      `Custom skill "${params.skillSlug}" is ${totalBytes} bytes, which exceeds the 1048576 byte persistence limit.`,
+      `Custom skill "${params.skillSlug}" is ${totalBytes} bytes, which exceeds the ${MAX_PERSISTED_TOTAL_BYTES}-byte package limit.`,
     );
   }
 }
@@ -338,7 +436,7 @@ async function main() {
   await createSkillTool({
     name: "save",
     description: "Persist a custom Cheatcode skill to the user's saved tools.",
-    help: "Reads a custom skill directory and persists it to the user's saved custom tool list. Use this after a new skill or a custom skill update has been validated. Built-in tools and integration tools are rejected by the backend. Only SKILL.md, other .md files, .ts files, a root package.json, and a root .env are persisted, and a root .gitignore can exclude additional files from the upload set.",
+    help: "Reads a custom skill directory and persists its instructions, source, schemas, references, templates, and common binary assets to the user's saved custom tool list. Use this after a new skill or update has been validated. Built-in and integration tools are rejected by the backend. Lockfiles, dependency directories, caches, and build output are excluded; a root .gitignore can exclude additional files.",
     options: SAVE_SKILL_OPTIONS,
     action: persistSkill,
   }).run();

@@ -103,13 +103,13 @@ ProjectSandbox records elapsed sandbox-hours to the same `QuotaTracker` as a sof
 meter so Settings can show real monthly sandbox consumption without blocking
 sandbox file/process work.
 
-Postgres is authoritative for user-authored skills. ProjectSandbox mirrors each
-selected skill to `/workspace/.cheatcode/skills/<slug>/SKILL.md` with a registry
-revision so users can edit it in Files. An unchanged registry revision permits a
-mirror edit to be promoted on the next invocation; concurrent database and file
-edits fail closed to the database version while preserving the file for manual
-resolution. Curated default skills are immutable snapshot files under
-`/home/node/.cheatcode/default-skills/`.
+Postgres is authoritative for user-authored skill metadata and R2 is authoritative
+for each versioned skill package. ProjectSandbox mirrors the complete selected
+package to `/workspace/.cheatcode/skills/<slug>/` so users can inspect and edit its
+instructions, source, schemas, templates, and assets in Files. A hidden mirror
+manifest avoids rewriting unchanged packages and limits cleanup to files previously
+managed by that package, preserving local dependencies and generated output. Curated
+default skills are immutable snapshot files under `/home/node/.cheatcode/default-skills/`.
 
 ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as an atomic,
 generated projection of managed app-preview processes. The Durable Object process

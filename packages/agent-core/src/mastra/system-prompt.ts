@@ -207,7 +207,7 @@ function buildSkillCreatorPrompt(runtimeContext: PromptRuntimeContext): string {
     [
       "## Skill Creator execution contract",
       "Work only inside `/workspace/.cheatcode/skills/<skill-slug>/`; do not create or attach a normal project.",
-      "Build the complete reusable package the request needs, including `SKILL.md`, references, TypeScript entrypoints, schemas, or assets when they materially contribute to the behavior. Do not manufacture scripts when instructions alone are sufficient.",
+      "Build the complete reusable package the request needs, including `SKILL.md`, references, JavaScript or TypeScript entrypoints, Python or shell helpers, schemas, templates, and binary assets when they materially contribute to the behavior. Do not manufacture scripts when instructions alone are sufficient, and never include dependency directories, lockfiles, caches, or build output.",
       "Inspect and validate the authored files before saving the skill. You may use only the bounded file and shell tools available in this mode.",
       "Finish by calling `skill_create` exactly once with metadata, markdown body, and the exact folder slug authored under `/workspace/.cheatcode/skills/`. That call is the durable save boundary. Do not claim the skill is persisted until the call succeeds.",
       "Do not research, browse, build an app, deploy anything, or modify files outside `.cheatcode/skills` in this mode.",
