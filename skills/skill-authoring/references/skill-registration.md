@@ -28,8 +28,9 @@ Use this guidance only when one of these is true:
 Default expectation:
 - for new or updated custom skills, persistence is part of completion by default
 - do not stop after local file creation and validation unless the user explicitly says local-only, draft-only, or stop before saving
-- persisted custom skill payloads include `SKILL.md`, other `.md` files, `.ts` files, a root `package.json`, and a root `.env`; do not persist lockfiles such as `package-lock.json`, `bun.lock`, or `pnpm-lock.yaml`, and do not persist `node_modules`, build output, caches, or other generated artifacts
-- a root `.gitignore` in the skill directory is respected by `cheatcode-skills skill-authoring/persist/save` as an extra exclusion layer for otherwise-allowed files, but `.gitignore` itself is not persisted
+- persist the complete reusable package, including supported source, schema, reference, template, and common binary asset files; each file may be at most 1 MiB, and the package may contain at most 128 files and 8 MiB of decoded content
+- do not persist lockfiles such as `package-lock.json`, `bun.lock`, or `pnpm-lock.yaml`, and do not persist dependency directories, build output, virtual environments, caches, or other generated artifacts
+- a root `.gitignore` in the skill directory is persisted and respected by `cheatcode-skills skill-authoring/persist/save` as an extra exclusion layer for otherwise-allowed files
 - saving a root `package.json` is allowed, but persistence does not install those dependencies during save or reload
 - dependency bootstrap should happen lazily, inside `/workspace/.cheatcode/skills/<slug>/`, when that specific skill is validated or executed
 - treat missing `/workspace/.cheatcode/skills/<slug>/node_modules` as the default signal that the skill's dependencies still need to be installed locally

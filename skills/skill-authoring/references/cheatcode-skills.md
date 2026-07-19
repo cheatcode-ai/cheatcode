@@ -33,6 +33,7 @@ Default usage:
 Preferred patterns:
 - Prompt-only skills can be just `SKILL.md` plus optional reference files.
 - One user-facing action per tool file under `/workspace/.cheatcode/skills/<skill>/<category>/<action>.ts`.
+- Python, shell, JavaScript, schemas, templates, or binary assets may accompany the skill when they are part of the reusable behavior; persistence restores those package files without treating generated dependencies or build output as source.
 - Small `_shared.ts` files for shared output/rendering helpers.
 - Small `_runtime*.ts` or `_shared.ts` helpers only when the skill needs shared transport or normalization logic.
 - Import `SkillRuntimeConfig` from `@cheatcode/sandbox-skills-runtime`.

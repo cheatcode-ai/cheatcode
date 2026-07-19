@@ -16,8 +16,14 @@ import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
 import { sandboxForUser } from "./agent-routing";
 import { requireSkillRuntimePrincipal } from "./skill-runtime-auth";
-import { parsePortableSkillMarkdown, userSkillSlug } from "./user-skill-files";
 import {
+  parsePortableSkillMarkdown,
+  serializeUserSkillMarkdown,
+  userSkillSlug,
+} from "./user-skill-files";
+import {
+  MAX_USER_SKILL_PACKAGE_FILES,
+  MAX_USER_SKILL_PACKAGE_REQUEST_BYTES,
   persistUserSkillPackage,
   readUserSkillPackage,
   UserSkillPackageFileSchema,
@@ -27,7 +33,6 @@ import {
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 type RuntimePrincipal = Awaited<ReturnType<typeof requireSkillRuntimePrincipal>>;
 
-const MAX_RUNTIME_REQUEST_BYTES = 1024 * 1024 + 32 * 1024;
 const SkillSlugSchema = z
   .string()
   .trim()
@@ -36,7 +41,7 @@ const SkillSlugSchema = z
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
 const SaveCustomSkillSchema = z
   .object({
-    files: z.array(UserSkillPackageFileSchema).min(1).max(20),
+    files: z.array(UserSkillPackageFileSchema).min(1).max(MAX_USER_SKILL_PACKAGE_FILES),
     skillSlug: SkillSlugSchema,
   })
   .strict();
@@ -93,9 +98,11 @@ async function listManagedSkills(c: AgentContext): Promise<Response> {
 async function saveCustomSkill(c: AgentContext): Promise<Response> {
   const principal = await requireSkillRuntimePrincipal(c.env, c.req.raw.headers, "skills:write");
   const input = SaveCustomSkillSchema.parse(
-    await readJsonRequest(c.req.raw, MAX_RUNTIME_REQUEST_BYTES, "Custom skill package"),
+    await readJsonRequest(c.req.raw, MAX_USER_SKILL_PACKAGE_REQUEST_BYTES, "Custom skill package"),
   );
-  const markdown = input.files.find((file) => file.path === "SKILL.md")?.content;
+  const markdown = input.files.find(
+    (file) => file.path === "SKILL.md" && file.encoding === "utf8",
+  )?.content;
   if (!markdown) {
     throw invalidSkillPackage("Custom skill package must include SKILL.md");
   }
@@ -115,11 +122,17 @@ async function persistCustomSkill(
   const existing = await findSkillByName(c.env, principal, parsed.name);
   const skill = await upsertRuntimeSkill(c.env, principal, parsed);
   const previous = await readUserSkillPackage(c.env.R2_OUTPUTS, principal.userId, skill.id);
+  const markdown = await serializeUserSkillMarkdown(skill);
+  const files = input.files.map((file) =>
+    file.path === "SKILL.md"
+      ? { content: markdown, encoding: "utf8" as const, path: file.path }
+      : file,
+  );
   const packageValue = await persistUserSkillPackage(
     c.env.R2_OUTPUTS,
     principal.userId,
     skill.id,
-    input.files,
+    files,
   );
   await writeUserSkillPackageMirror(
     await sandboxForUser(c.env, principal.userId),

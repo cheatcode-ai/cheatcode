@@ -26,6 +26,7 @@ import {
   collectUserSkillPackageFromSandbox,
   persistUserSkillPackage,
   readUserSkillPackage,
+  type UserSkillPackageFile,
   writeUserSkillPackageMirror,
 } from "../user-skill-packages";
 import type { AgentRunEnv } from "./agent-run-env";
@@ -67,11 +68,7 @@ async function persistCreatedUserSkill(
   const skill = await saveUserSkillRecord(env, userId, input);
   const collected = await collectUserSkillPackageFromSandbox(sandbox, skill, input.sourceSlug);
   const canonicalMarkdown = await serializeUserSkillMarkdown(skill);
-  const files = collected.some((file) => file.path === "SKILL.md")
-    ? collected.map((file) =>
-        file.path === "SKILL.md" ? { content: canonicalMarkdown, path: file.path } : file,
-      )
-    : [{ content: canonicalMarkdown, path: "SKILL.md" }, ...collected];
+  const files = canonicalSkillFiles(collected, canonicalMarkdown);
   const packageValue = await persistUserSkillPackage(env.R2_OUTPUTS, userId, skill.id, files);
   const filePath = await writeUserSkillPackageMirror(sandbox, skill, packageValue);
   return {
@@ -195,11 +192,25 @@ async function promoteUserSkillMirror(
         userId,
       }),
     );
-    await writeUserSkillMirror(sandbox, updated);
+    const collected = await collectUserSkillPackageFromSandbox(sandbox, updated);
+    const canonicalMarkdown = await serializeUserSkillMarkdown(updated);
+    const files = canonicalSkillFiles(collected, canonicalMarkdown);
+    const packageValue = await persistUserSkillPackage(env.R2_OUTPUTS, userId, updated.id, files);
+    await writeUserSkillPackageMirror(sandbox, updated, packageValue);
     return updated;
   } finally {
     await close();
   }
+}
+
+function canonicalSkillFiles(
+  files: UserSkillPackageFile[],
+  canonicalMarkdown: string,
+): UserSkillPackageFile[] {
+  const canonical = { content: canonicalMarkdown, encoding: "utf8" as const, path: "SKILL.md" };
+  return files.some((file) => file.path === "SKILL.md")
+    ? files.map((file) => (file.path === "SKILL.md" ? canonical : file))
+    : [canonical, ...files];
 }
 
 function runtimeSkill(skill: UserSkillRecord): UserSkillDefinition {
