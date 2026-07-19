@@ -5,6 +5,7 @@ import {
   type ProjectSummary,
   USER_MESSAGE_MAX_CHARACTERS,
 } from "@cheatcode/types";
+import { ArrowUp, X } from "@cheatcode/ui";
 import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AuthModal } from "@/components/auth/auth-modal";
@@ -29,7 +30,6 @@ import {
 } from "@/components/home/use-home-composer-controller";
 import type { AttachmentStatus } from "@/components/home/use-home-prompt-state";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { ArrowUp, X } from "@/components/ui/icons";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";
 import { cn } from "@/lib/ui/cn";
 
@@ -40,11 +40,9 @@ export function HomeComposer(props: HomeComposerProps) {
       <QuickActionsPortal
         activeIntentId={controller.state.intentId}
         onIntentClick={controller.actions.selectQuickIntent}
+        onSkillCreatorPick={controller.actions.publishValue}
+        skillCreatorMode={controller.state.skillCreatorMode}
         slot={props.quickActionsSlot}
-      />
-      <HomeSkillCreatorSuggestions
-        active={controller.state.skillCreatorMode}
-        onPick={controller.actions.publishValue}
       />
       <HomeComposerForm controller={controller} />
       <AttachmentStatusMessage status={controller.state.attachmentStatus} />
@@ -78,7 +76,7 @@ function HomeSlashPopover({ controller }: { controller: HomeComposerController }
   return (
     <ComposerPopover
       activeIndex={controller.menu.triggers.activeIndex}
-      ariaLabel="Skills"
+      ariaLabel={controller.menu.ariaLabel}
       items={controller.menu.items}
       onHoverIndex={controller.menu.triggers.setActiveIndex}
       onSelectIndex={(index) => controller.menu.triggers.commitIndex(index, controller.menu.items)}
@@ -250,29 +248,27 @@ function HomeComposerSubmitControls({
 function QuickActionsPortal({
   activeIntentId,
   onIntentClick,
+  onSkillCreatorPick,
+  skillCreatorMode,
   slot,
 }: {
   activeIntentId: IntentId | null;
   onIntentClick: (intentId: IntentId) => void;
+  onSkillCreatorPick: (text: string) => void;
+  skillCreatorMode: boolean;
   slot: HTMLElement | null | undefined;
 }) {
   if (!slot) {
     return null;
   }
   return createPortal(
-    <HomeQuickActions activeIntentId={activeIntentId} onIntentClick={onIntentClick} />,
+    skillCreatorMode ? (
+      <SkillCreatorSuggestions onPick={onSkillCreatorPick} />
+    ) : (
+      <HomeQuickActions activeIntentId={activeIntentId} onIntentClick={onIntentClick} />
+    ),
     slot,
   );
-}
-
-function HomeSkillCreatorSuggestions({
-  active,
-  onPick,
-}: {
-  active: boolean;
-  onPick: (text: string) => void;
-}) {
-  return active ? <SkillCreatorSuggestions onPick={onPick} /> : null;
 }
 
 function SkillCreatorBadge({ active, onExit }: { active: boolean; onExit: () => void }) {

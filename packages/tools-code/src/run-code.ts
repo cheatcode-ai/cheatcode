@@ -17,7 +17,7 @@ export const RunCodeOutputSchema = z
     stdout: z.string(),
     stderr: z.string(),
     success: z.boolean(),
-    exitCode: z.number().int().nullable(),
+    exitCode: z.number().int(),
   })
   .strict();
 
@@ -36,10 +36,10 @@ export async function executeRunCode(
   });
 
   const output = {
-    stdout: result.stdout ?? result.output ?? "",
-    stderr: result.stderr ?? "",
-    success: result.success ?? result.exitCode === 0,
-    exitCode: result.exitCode ?? null,
+    stdout: result.stdout,
+    stderr: result.stderr,
+    success: result.success,
+    exitCode: result.exitCode,
   };
 
   if (!output.success) {

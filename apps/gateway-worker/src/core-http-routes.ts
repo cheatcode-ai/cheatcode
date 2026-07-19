@@ -1,40 +1,21 @@
-import { verifyInternalMaintenanceRequest } from "@cheatcode/auth";
-import {
-  APIError,
-  readBoundedRequestText,
-  readBoundedResponseJson,
-} from "@cheatcode/observability";
-import {
-  InternalGatewayStateDeleteBodySchema,
-  InternalStateDeleteResponseSchema,
-  UserId as toUserId,
-  type UserId,
-} from "@cheatcode/types";
-import { z } from "zod";
+import { APIError } from "@cheatcode/observability";
+import type { UserId } from "@cheatcode/types";
 import { agentServiceRequest } from "./agent-forwarding";
-import { authenticate, readRequiredSecret } from "./authenticate";
+import { authenticate } from "./authenticate";
+import { registerGatewayDatabaseReadinessRoute } from "./database-readiness";
+import { registerGatewayDurableObjectStorageRoute } from "./durable-object-storage";
 import type { GatewayApp, GatewayEnv } from "./gateway-env";
 import { OPENAPI_DOCUMENT, openApiDocsHtml } from "./openapi";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
-import { createUserSkillRoute, deleteUserSkillRoute, listUserSkillsRoute } from "./skills-routes";
+import { readDownstreamReleaseHealth } from "./release-health";
+import { listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 import type { WaitUntilContext } from "./wait-until-context";
 
-const InternalMaintenanceUserIdSchema = z.string().uuid();
-const MAX_AGENT_HEALTH_RESPONSE_BYTES = 16 * 1024;
-const MAX_INTERNAL_MAINTENANCE_BODY_BYTES = 1024;
-const AgentHealthSchema = z
-  .object({
-    ok: z.literal(true),
-    releaseSha: z.string().min(1),
-    versionId: z.string().min(1).nullable(),
-    worker: z.literal("agent"),
-  })
-  .strict();
-
 export function registerCoreHttpRoutes(app: GatewayApp): void {
+  registerGatewayDatabaseReadinessRoute(app);
+  registerGatewayDurableObjectStorageRoute(app);
   registerHealthRoute(app);
-  registerMaintenanceRoute(app);
   registerDiscoveryRoutes(app);
   registerTelemetryRoutes(app);
   registerOutputRoute(app);
@@ -45,10 +26,33 @@ function registerHealthRoute(app: GatewayApp): void {
   app.get("/health", async (c) => {
     const headers = await rateLimitPublic(c, "GET /health", "publicRead");
     const releaseSha = c.env.CHEATCODE_RELEASE_SHA ?? "development";
-    const agent = await readAgentHealth(c.env);
-    if (agent.releaseSha !== releaseSha) {
+    if (c.env.CHEATCODE_RELEASE_GATE !== "open") {
+      throw new APIError(503, "unavailable_maintenance", "Gateway release is not open", {
+        details: {
+          gatewayReleaseGate: c.env.CHEATCODE_RELEASE_GATE ?? null,
+          gatewayReleaseSha: releaseSha,
+        },
+        retriable: true,
+      });
+    }
+    const [{ health: agent }, { health: webhooks }] = await Promise.all([
+      readDownstreamReleaseHealth(c.env, "agent"),
+      readDownstreamReleaseHealth(c.env, "webhooks"),
+    ]);
+    if (
+      agent.releaseSha !== releaseSha ||
+      agent.releaseGate !== "open" ||
+      webhooks.releaseSha !== releaseSha ||
+      webhooks.releaseGate !== "open"
+    ) {
       throw new APIError(503, "unavailable_maintenance", "Release is still converging", {
-        details: { agentReleaseSha: agent.releaseSha, gatewayReleaseSha: releaseSha },
+        details: {
+          agentReleaseGate: agent.releaseGate,
+          agentReleaseSha: agent.releaseSha,
+          gatewayReleaseSha: releaseSha,
+          webhooksReleaseGate: webhooks.releaseGate,
+          webhooksReleaseSha: webhooks.releaseSha,
+        },
         retriable: true,
       });
     }
@@ -56,41 +60,13 @@ function registerHealthRoute(app: GatewayApp): void {
       c.json({
         agent,
         ok: true,
+        releaseGate: c.env.CHEATCODE_RELEASE_GATE,
         releaseSha,
         versionId: c.env.CF_VERSION_METADATA?.id ?? null,
+        webhooks,
       }),
       headers,
     );
-  });
-}
-
-function registerMaintenanceRoute(app: GatewayApp): void {
-  app.post("/internal/users/:userId/delete-state", async (c) => {
-    const rawBody = await readBoundedRequestText(
-      c.req.raw,
-      MAX_INTERNAL_MAINTENANCE_BODY_BYTES,
-      "Internal maintenance request",
-    );
-    const secret = await readRequiredSecret(
-      c.env.INTERNAL_MAINTENANCE_SECRET,
-      "INTERNAL_MAINTENANCE_SECRET",
-    );
-    await verifyInternalMaintenanceRequest({ rawBody, request: c.req.raw, secret });
-    InternalGatewayStateDeleteBodySchema.parse(parseMaintenanceJson(rawBody));
-    const userId = toUserId(InternalMaintenanceUserIdSchema.parse(c.req.param("userId")));
-    const quotaTracker = c.env.QUOTA_TRACKER.get(c.env.QUOTA_TRACKER.idFromName(`quota:${userId}`));
-    const response = await quotaTracker.fetch("https://quota.internal/delete-all", {
-      method: "POST",
-    });
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new APIError(503, "unavailable_maintenance", "Quota durable state deletion failed", {
-        details: { status: response.status },
-        retriable: true,
-      });
-    }
-    await response.body?.cancel().catch(() => undefined);
-    return c.json(InternalStateDeleteResponseSchema.parse({ ok: true }));
   });
 }
 
@@ -127,39 +103,18 @@ function registerTelemetryRoutes(app: GatewayApp): void {
 }
 
 function registerOutputRoute(app: GatewayApp): void {
+  app.post("/v1/outputs/:outputId/download-url", async (c) => {
+    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
+    const headers = await rateLimit(c, userId, "POST /v1/outputs/:outputId/download-url");
+    return withRateLimitHeaders(
+      await c.env.AGENT.fetch(agentServiceRequest(c.req.raw, userId)),
+      headers,
+    );
+  });
   app.get("/v1/outputs/:outputId/download", async (c) => {
     const headers = await rateLimitPublic(c, "GET /v1/outputs/:outputId/download", "publicRead");
     return withRateLimitHeaders(await c.env.AGENT.fetch(agentServiceRequest(c.req.raw)), headers);
   });
-}
-
-async function readAgentHealth(env: GatewayEnv): Promise<z.infer<typeof AgentHealthSchema>> {
-  let response: Response;
-  try {
-    response = await env.AGENT.fetch(
-      new Request("https://agent.internal/health", { signal: AbortSignal.timeout(3_000) }),
-    );
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", "Agent service is unavailable", {
-      retriable: true,
-    });
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new APIError(503, "unavailable_maintenance", "Agent service is unhealthy", {
-      details: { status: response.status },
-      retriable: true,
-    });
-  }
-  try {
-    return AgentHealthSchema.parse(
-      await readBoundedResponseJson(response, MAX_AGENT_HEALTH_RESPONSE_BYTES, "Agent health"),
-    );
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", "Agent health response is invalid", {
-      retriable: true,
-    });
-  }
 }
 
 function registerSkillRoutes(app: GatewayApp): void {
@@ -168,15 +123,13 @@ function registerSkillRoutes(app: GatewayApp): void {
     await rateLimit(c, userId, "GET /v1/skills");
     return listUserSkillsRoute(c.env, c.executionCtx, userId);
   });
-  app.post("/v1/skills", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/skills");
-    return createUserSkillRoute(c.env, c.executionCtx, c.req.raw, userId);
-  });
   app.delete("/v1/skills/:skillId", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "DELETE /v1/skills/:skillId");
-    return deleteUserSkillRoute(c.env, c.executionCtx, userId, c.req.param("skillId"));
+    const headers = await rateLimit(c, userId, "DELETE /v1/skills/:skillId");
+    return withRateLimitHeaders(
+      await c.env.AGENT.fetch(agentServiceRequest(c.req.raw, userId)),
+      headers,
+    );
   });
 }
 
@@ -192,15 +145,5 @@ async function optionalTelemetryUser(
     return await authenticate(request, env, ctx);
   } catch {
     return "anonymous";
-  }
-}
-
-function parseMaintenanceJson(rawBody: string): unknown {
-  try {
-    return JSON.parse(rawBody) as unknown;
-  } catch {
-    throw new APIError(400, "invalid_request_body", "Internal maintenance body must be JSON", {
-      retriable: false,
-    });
   }
 }

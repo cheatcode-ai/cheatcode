@@ -708,7 +708,8 @@
   }
 }
 
-/* Unlayered focus rules outrank Tailwind's layered `outline-none` utility. */
+/* Cheatcode uses component-level focus fills and shadows instead of browser outlines. */
+body
 :where(
   button,
   a,
@@ -718,35 +719,6 @@
   summary,
   [contenteditable="true"],
   [tabindex]:not([tabindex="-1"])
-):focus:not(:focus-visible) {
-  outline: none;
-}
-
-body
-  :where(
-    button,
-    a,
-    input,
-    textarea,
-    select,
-    summary,
-    [contenteditable="true"],
-    [tabindex]:not([tabindex="-1"])
-  ):focus-visible {
-  outline: 2px solid var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.cheatcode-auth-dialog
-  :where(
-    button,
-    a,
-    input,
-    textarea,
-    select,
-    summary,
-    [contenteditable="true"],
-    [tabindex]:not([tabindex="-1"])
-  ):focus-visible {
-  outline-color: #fff;
+):is(:focus, :focus-visible) {
+  outline: 0;
 }

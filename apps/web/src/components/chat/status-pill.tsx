@@ -1,4 +1,4 @@
-import { Loader2 } from "@/components/ui/icons";
+import { Loader2 } from "@cheatcode/ui";
 
 export type RunStatus = "error" | "ready" | "streaming" | "submitted";
 

@@ -2,18 +2,12 @@ export type AbortTimeoutResult<T> = T | "timeout";
 
 interface AbortTimeoutInput<T> {
   abortController: AbortController;
-  /**
-   * Pending-decision interlock. While approval is pending, the same operation
-   * remains in flight and the timer polls without issuing a second read.
-   */
-  extendWhile?: () => boolean;
   operation: Promise<T>;
   timeoutMs: number;
 }
 
 export async function resolveWithAbortTimeout<T>({
   abortController,
-  extendWhile,
   operation,
   timeoutMs,
 }: AbortTimeoutInput<T>): Promise<AbortTimeoutResult<T>> {
@@ -26,15 +20,10 @@ export async function resolveWithAbortTimeout<T>({
     throw error;
   });
   const timeout = new Promise<"timeout">((resolve) => {
-    const fire = () => {
-      if (extendWhile?.()) {
-        timeoutId = setTimeout(fire, 1_000);
-        return;
-      }
+    timeoutId = setTimeout(() => {
       abortController.abort(new Error("operation timed out"));
       resolve("timeout");
-    };
-    timeoutId = setTimeout(fire, timeoutMs);
+    }, timeoutMs);
   });
   const aborted = new Promise<"timeout">((resolve) => {
     resolveAbort = resolve;

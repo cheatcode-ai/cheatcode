@@ -1,11 +1,11 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types";
+import { Monitor, Smartphone } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { QRCodeSVG } from "qrcode.react";
 import { Activity, type ReactNode, useEffect } from "react";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { Monitor, Smartphone } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { PreviewSessionRefresh, useStablePreviewSource } from "@/lib/preview/preview-session";
 import { buildPreviewIframeSrc } from "@/lib/preview/url-bar";
@@ -22,6 +22,7 @@ import { ConsoleStrip } from "./console-strip";
 import { DeviceFrame } from "./device-frame";
 import { PreviewUrlBar } from "./preview-url-bar";
 import { SandboxIdeTab } from "./sandbox-ide-tab";
+import { useBrowserTakeover } from "./use-browser-takeover";
 
 const APP_PREVIEW_IFRAME_ALLOW = "autoplay; fullscreen";
 
@@ -29,13 +30,21 @@ const APP_PREVIEW_IFRAME_SANDBOX =
   "allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-same-origin allow-scripts";
 
 interface PreviewSidePanelProps {
+  activeRunId: string | null;
   deliverableCount: number;
   project: ProjectSummary | null;
   threadId: string;
 }
 
-export function PreviewSidePanel({ deliverableCount, project, threadId }: PreviewSidePanelProps) {
-  const controller = usePreviewPanelController(project, threadId);
+type PreviewPanelContentProps = Omit<PreviewSidePanelProps, "activeRunId">;
+
+export function PreviewSidePanel({
+  activeRunId,
+  deliverableCount,
+  project,
+  threadId,
+}: PreviewSidePanelProps) {
+  const controller = usePreviewPanelController(activeRunId, project, threadId);
   return (
     <PreviewPanelLayout
       controller={controller}
@@ -46,7 +55,11 @@ export function PreviewSidePanel({ deliverableCount, project, threadId }: Previe
   );
 }
 
-function usePreviewPanelController(project: ProjectSummary | null, threadId: string) {
+function usePreviewPanelController(
+  activeRunId: string | null,
+  project: ProjectSummary | null,
+  threadId: string,
+) {
   const { getToken } = useAuth();
   const store = usePreviewPanelStore();
   const isMobile = project?.mode === "app-builder-mobile" || store.expoUrl !== null;
@@ -60,7 +73,13 @@ function usePreviewPanelController(project: ProjectSummary | null, threadId: str
     store.sandboxStatus,
   );
   useFirstPreviewTelemetry(getToken, store.previewPanelOpen, store.previewUrl);
-  return { ...store, isMobile, previewLive };
+  const browserTakeover = useBrowserTakeover(activeRunId, threadId);
+  useEffect(() => {
+    if (!browserTakeover.session) return;
+    store.setActivePreviewTab("app");
+    store.setPreviewPanelOpen(true);
+  }, [browserTakeover.session, store.setActivePreviewTab, store.setPreviewPanelOpen]);
+  return { ...store, browserTakeover, isMobile, previewLive };
 }
 
 function usePreviewPanelStore() {
@@ -95,7 +114,7 @@ function PreviewPanelLayout({
   deliverableCount,
   project,
   threadId,
-}: PreviewSidePanelProps & { controller: ReturnType<typeof usePreviewPanelController> }) {
+}: PreviewPanelContentProps & { controller: ReturnType<typeof usePreviewPanelController> }) {
   return (
     <>
       <OpenPreviewPanelButton controller={controller} />
@@ -141,7 +160,7 @@ function PreviewPanelAside({
   deliverableCount,
   project,
   threadId,
-}: PreviewSidePanelProps & { controller: ReturnType<typeof usePreviewPanelController> }) {
+}: PreviewPanelContentProps & { controller: ReturnType<typeof usePreviewPanelController> }) {
   return (
     <aside
       aria-hidden={!controller.previewPanelOpen}
@@ -154,6 +173,7 @@ function PreviewPanelAside({
           deliverableCount={deliverableCount}
           projectId={project?.id ?? null}
           projectName={project?.name ?? null}
+          browserTakeover={controller.browserTakeover}
           setActivePreviewTab={controller.setActivePreviewTab}
           setPreviewPanelOpen={controller.setPreviewPanelOpen}
         />
@@ -203,6 +223,7 @@ function panelBodyProps(
     previewReloadToken: controller.previewReloadToken,
     previewUrl: controller.previewUrl,
     sandboxStatus: controller.sandboxStatus,
+    browserTakeover: controller.browserTakeover,
     threadId,
   };
 }
@@ -220,6 +241,7 @@ interface PanelBodyProps {
   previewUrl: string | null;
   sandboxStatus: string;
   threadId: string;
+  browserTakeover: ReturnType<typeof useBrowserTakeover>;
 }
 
 function PanelBody({
@@ -235,21 +257,26 @@ function PanelBody({
   previewUrl,
   sandboxStatus,
   threadId,
+  browserTakeover,
 }: PanelBodyProps) {
   return (
     <div className="h-full min-h-0">
       <Activity mode={activePreviewTab === "app" ? "visible" : "hidden"}>
-        <AppTab
-          device={device}
-          expoUrl={expoUrl}
-          hasProject={hasProject}
-          isMobile={isMobile}
-          previewPhase={previewPhase}
-          previewRetry={previewRetry}
-          previewReloadToken={previewReloadToken}
-          previewUrl={previewUrl}
-          sandboxStatus={sandboxStatus}
-        />
+        {browserTakeover.session ? (
+          <BrowserTakeoverSurface browserTakeover={browserTakeover} />
+        ) : (
+          <AppTab
+            device={device}
+            expoUrl={expoUrl}
+            hasProject={hasProject}
+            isMobile={isMobile}
+            previewPhase={previewPhase}
+            previewRetry={previewRetry}
+            previewReloadToken={previewReloadToken}
+            previewUrl={previewUrl}
+            sandboxStatus={sandboxStatus}
+          />
+        )}
       </Activity>
       <Activity mode={activePreviewTab === "files" ? "visible" : "hidden"}>
         <SandboxIdeTab
@@ -262,7 +289,45 @@ function PanelBody({
   );
 }
 
-type AppTabProps = Omit<PanelBodyProps, "activePreviewTab" | "computerOpen" | "threadId">;
+type AppTabProps = Omit<
+  PanelBodyProps,
+  "activePreviewTab" | "browserTakeover" | "computerOpen" | "threadId"
+>;
+
+function BrowserTakeoverSurface({
+  browserTakeover,
+}: {
+  browserTakeover: ReturnType<typeof useBrowserTakeover>;
+}) {
+  const session = browserTakeover.session;
+  if (!session) return null;
+  return (
+    <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[20.5px] bg-background">
+      <div className="flex h-10 shrink-0 items-center justify-between border-border border-b px-3">
+        <div className="flex items-center gap-2 font-medium text-[12px] text-fg-secondary">
+          <span aria-hidden="true" className="h-2 w-2 rounded-full bg-amber-400" />
+          You’re controlling the browser
+        </div>
+        <button
+          className="h-7 rounded-full bg-foreground px-3 font-medium text-[12px] text-background transition-opacity hover:opacity-85 disabled:opacity-50"
+          disabled={browserTakeover.isPending}
+          onClick={() => void browserTakeover.resume()}
+          type="button"
+        >
+          {browserTakeover.isPending ? "Resuming…" : "Resume Cheatcode"}
+        </button>
+      </div>
+      <iframe
+        allow="clipboard-read; clipboard-write; fullscreen"
+        className="min-h-0 min-w-0 flex-1 border-0 bg-background"
+        referrerPolicy="no-referrer"
+        sandbox="allow-forms allow-pointer-lock allow-same-origin allow-scripts"
+        src={session.url}
+        title="Live browser takeover"
+      />
+    </div>
+  );
+}
 
 function AppTab({
   device,

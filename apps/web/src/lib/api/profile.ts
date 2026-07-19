@@ -14,8 +14,11 @@ import {
 
 const PROFILE_PATH = "/v1/me/profile";
 
-export async function getProfile(getToken: () => Promise<null | string>): Promise<UserProfile> {
-  const response = await authorizedFetch(getToken, PROFILE_PATH);
+export async function getProfile(
+  getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
+): Promise<UserProfile> {
+  const response = await authorizedFetch(getToken, PROFILE_PATH, signal ? { signal } : {});
   return UserProfileSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.profile),
   );

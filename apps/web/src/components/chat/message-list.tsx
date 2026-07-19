@@ -3,6 +3,7 @@
 import type { CheatcodeUIMessage } from "@cheatcode/types";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { MessageListView } from "@/components/chat/message-list-view";
+import { groupMessagesIntoTurns } from "@/components/chat/message-turns";
 import {
   type OlderMessagesLoadResult,
   useMessageScrollController,
@@ -12,8 +13,8 @@ import {
 import { useAppStore } from "@/lib/store/app-store";
 
 const LIST_TOP_PADDING = 24;
-const LIST_BOTTOM_PADDING = 160;
-const ESTIMATED_MESSAGE_HEIGHT = 180;
+const LIST_BOTTOM_PADDING = 0;
+const ESTIMATED_TURN_HEIGHT = 640;
 
 interface MessageListProps {
   hasOlderMessages: boolean;
@@ -22,6 +23,8 @@ interface MessageListProps {
   messages: readonly CheatcodeUIMessage[];
   onContinue: () => void;
   onLoadOlderMessages: () => Promise<OlderMessagesLoadResult>;
+  onMessageAppend: (message: CheatcodeUIMessage) => void;
+  threadId: string;
 }
 
 export function MessageList({
@@ -31,12 +34,16 @@ export function MessageList({
   messages,
   onContinue,
   onLoadOlderMessages,
+  onMessageAppend,
+  threadId,
 }: MessageListProps) {
   const scrollState = useMessageScrollState();
+  const turns = groupMessagesIntoTurns(messages);
+  const completedSkillProposalIds = collectCompletedSkillProposalIds(messages);
   const virtualizer = useVirtualizer({
-    count: messages.length,
-    estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
-    getItemKey: (index) => messages[index]?.id ?? index,
+    count: turns.length,
+    estimateSize: () => scrollState.parentRef.current?.clientHeight ?? ESTIMATED_TURN_HEIGHT,
+    getItemKey: (index) => turns[index]?.id ?? index,
     getScrollElement: () => scrollState.parentRef.current,
     overscan: 6,
   });
@@ -56,18 +63,35 @@ export function MessageList({
   }
   return (
     <MessageListView
+      completedSkillProposalIds={completedSkillProposalIds}
       computerOpen={computerOpen}
       hasOlderMessages={hasOlderMessages}
       isLoadingOlderMessages={isLoadingOlderMessages}
       isStreaming={isStreaming}
       listTopPadding={listTopPadding}
       loadOlderMessages={loadOlderMessages}
-      messages={messages}
       onContinue={onContinue}
+      onMessageAppend={onMessageAppend}
       scroll={scroll}
       scrollState={scrollState}
       totalHeight={virtualizer.getTotalSize() + listTopPadding + LIST_BOTTOM_PADDING}
+      turns={turns}
+      threadId={threadId}
       virtualizer={virtualizer}
     />
   );
+}
+
+function collectCompletedSkillProposalIds(
+  messages: readonly CheatcodeUIMessage[],
+): ReadonlySet<string> {
+  const proposalIds = new Set<string>();
+  for (const message of messages) {
+    for (const part of message.parts) {
+      if (part.type === "data-skill-created" && part.data.proposalId) {
+        proposalIds.add(part.data.proposalId);
+      }
+    }
+  }
+  return proposalIds;
 }

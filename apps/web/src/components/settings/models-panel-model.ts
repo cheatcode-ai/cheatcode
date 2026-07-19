@@ -24,7 +24,6 @@ export const SETTINGS_KEY_PROVIDERS = [
   "deepseek",
   "exa",
   "firecrawl",
-  "llamaparse",
 ] as const satisfies readonly Provider[];
 
 export const MODEL_KEY_PROVIDERS = new Set<Provider>([
@@ -47,7 +46,6 @@ const PROVIDER_LABELS = {
   exa: "Exa",
   firecrawl: "Firecrawl",
   google: "Gemini",
-  llamaparse: "LlamaParse",
   openai: "OpenAI",
   openrouter: "OpenRouter",
 } satisfies Record<Provider, string>;

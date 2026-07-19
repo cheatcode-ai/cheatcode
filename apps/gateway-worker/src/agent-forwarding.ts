@@ -34,6 +34,20 @@ export function agentServiceRequest(request: Request, userId?: string): Request 
   return new Request(request, { headers: agentServiceHeaders(request.headers, userId) });
 }
 
+/**
+ * Preserves only the run-scoped capability needed by sandbox skill packages.
+ * Clerk cookies and caller-controlled internal headers never cross this route.
+ */
+export function skillRuntimeServiceRequest(request: Request): Request {
+  const authorization = request.headers.get("Authorization");
+  const headers = new Headers();
+  if (authorization) headers.set("Authorization", authorization);
+  headers.set("Content-Type", request.headers.get("Content-Type") ?? "application/json");
+  const requestId = request.headers.get("X-Request-Id");
+  if (requestId) headers.set("X-Request-Id", requestId);
+  return new Request(request, { headers });
+}
+
 export async function forwardAgentRequest(c: GatewayContext, route: string): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
   const headers = await rateLimit(c, userId, route);

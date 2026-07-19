@@ -45,6 +45,7 @@ export function ModalShell({
       onClick={modal.onClick}
       onKeyDown={modal.onKeyDown}
       ref={modal.dialogRef}
+      style={open ? undefined : { display: "none" }}
     >
       {children}
     </dialog>

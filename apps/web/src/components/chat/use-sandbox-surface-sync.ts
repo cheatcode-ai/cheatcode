@@ -1,4 +1,9 @@
-import type { CheatcodeUIMessage, ProjectSummary } from "@cheatcode/types";
+import {
+  type CheatcodeUIMessage,
+  type ProjectSummary,
+  reconstructedTranscriptUIMessage,
+  type SandboxState,
+} from "@cheatcode/types";
 import type { ChatStatus } from "ai";
 import { useEffect, useMemo, useRef } from "react";
 import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
@@ -10,7 +15,8 @@ type SandboxStatusData = Extract<
 
 export interface SandboxStatusActions {
   setActivePreviewTab: (tab: PreviewTab) => void;
-  setSandboxStatus: (status: SandboxStatusData["status"]) => void;
+  setPreviewPanelOpen: (open: boolean) => void;
+  setSandboxStatus: (status: SandboxState) => void;
 }
 
 interface SandboxSurfaceSyncInput extends SandboxStatusActions {
@@ -26,30 +32,40 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
 
 export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
   const latestStatus = latestSandboxStatusFromMessages(input.messages);
+  const browserActivityKey = latestBrowserActivityKeyFromMessages(input.messages);
   const status = latestStatus?.status ?? null;
   const appliedSnapshotRef = useRef<string | null | undefined>(undefined);
+  const openedBrowserActivityRef = useRef<string | null>(null);
   const defaultedProjectFilesRef = useRef<string | null>(null);
   const previousStatusRef = useRef(input.chatStatus);
   const actions = useMemo(
     () => ({
       setActivePreviewTab: input.setActivePreviewTab,
+      setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
-    [input.setActivePreviewTab, input.setSandboxStatus],
+    [input.setActivePreviewTab, input.setPreviewPanelOpen, input.setSandboxStatus],
   );
 
   useResetSandboxSurface(input);
   useMessageStatusSync(status, actions, appliedSnapshotRef);
   useProjectFilesDefault(input.project, status, actions, defaultedProjectFilesRef);
+  useBrowserActivityDefault(browserActivityKey, actions, openedBrowserActivityRef);
   useCompletionPreview(input.chatStatus, previousStatusRef);
 }
 
 export function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActions): void {
   actions.setSandboxStatus(data.status);
-  // Status parts carry no capability or URL. A proven preview stays sticky across tool statuses.
-  if (data.status !== "cold" && useAppStore.getState().previewUrl === null) {
-    actions.setActivePreviewTab("files");
-  }
+}
+
+export function isBrowserToolName(toolName: string): boolean {
+  return (
+    toolName === "browser_act" ||
+    toolName === "browser_extract" ||
+    toolName === "browser_observe" ||
+    toolName === "browser_open" ||
+    toolName === "browser_screenshot"
+  );
 }
 
 function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
@@ -101,6 +117,21 @@ function useProjectFilesDefault(
   }, [actions, defaultedProjectFilesRef, project, status]);
 }
 
+function useBrowserActivityDefault(
+  activityKey: string | null,
+  actions: SandboxStatusActions,
+  openedBrowserActivityRef: { current: string | null },
+): void {
+  useEffect(() => {
+    if (!activityKey || openedBrowserActivityRef.current === activityKey) {
+      return;
+    }
+    openedBrowserActivityRef.current = activityKey;
+    actions.setActivePreviewTab("app");
+    actions.setPreviewPanelOpen(true);
+  }, [actions, activityKey, openedBrowserActivityRef]);
+}
+
 function useCompletionPreview(
   status: ChatStatus,
   previousStatusRef: { current: ChatStatus },
@@ -127,10 +158,30 @@ function latestSandboxStatusFromMessages(
     if (!message) {
       continue;
     }
-    for (let partIndex = message.parts.length - 1; partIndex >= 0; partIndex -= 1) {
-      const part = message.parts[partIndex];
+    const parts = reconstructedTranscriptUIMessage(message).parts;
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex];
       if (part?.type === "data-sandbox-status") {
         return part.data;
+      }
+    }
+  }
+  return null;
+}
+
+function latestBrowserActivityKeyFromMessages(
+  messages: readonly CheatcodeUIMessage[],
+): string | null {
+  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+    const message = messages[messageIndex];
+    if (!message) {
+      continue;
+    }
+    const parts = reconstructedTranscriptUIMessage(message).parts;
+    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+      const part = parts[partIndex];
+      if (part?.type === "data-tool" && isBrowserToolName(part.data.toolName)) {
+        return `${message.id}:${part.data.toolCallId}`;
       }
     }
   }

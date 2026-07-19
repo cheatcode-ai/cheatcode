@@ -10,9 +10,9 @@ import {
   executeBrowserObserve,
   executeBrowserOpen,
   executeBrowserScreenshot,
+  inspectBrowserPage,
 } from "@cheatcode/tools-browser";
 import { createTool } from "@mastra/core/tools";
-import { withApprovalGate } from "./approval-gate";
 import { browserRuntimeFromContext } from "./tool-runtime-context";
 
 export const mastraBrowserOpen = createTool({
@@ -21,7 +21,8 @@ export const mastraBrowserOpen = createTool({
     "Open a URL in the sandbox's local headed Chromium browser through Stagehand LOCAL mode.",
   inputSchema: BrowserOpenInputSchema,
   outputSchema: BrowserActionsOutputSchema,
-  execute: async (input, context) => executeBrowserOpen(input, browserRuntimeFromContext(context)),
+  execute: async (input, context) =>
+    executeBrowserOpen(input, await browserRuntimeFromContext(context)),
 });
 
 export const mastraBrowserAct = createTool({
@@ -32,11 +33,15 @@ export const mastraBrowserAct = createTool({
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) => {
     const parsedInput = BrowserActInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeBrowserAct(parsedInput, browserRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "browser_act",
+    const runtimeContext = await browserRuntimeFromContext(context);
+    const page = await inspectBrowserPage(runtimeContext);
+    const expectedUrl = new URL(page.url);
+    if (expectedUrl.username || expectedUrl.password) {
+      throw new Error("Browser action URL must not contain embedded credentials.");
+    }
+    return executeBrowserAct(parsedInput, runtimeContext, {
+      allowedOrigin: expectedUrl.origin,
+      expectedUrl: page.url,
     });
   },
 });
@@ -48,7 +53,7 @@ export const mastraBrowserObserve = createTool({
   inputSchema: BrowserObserveInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>
-    executeBrowserObserve(input, browserRuntimeFromContext(context)),
+    executeBrowserObserve(input, await browserRuntimeFromContext(context)),
 });
 
 export const mastraBrowserExtract = createTool({
@@ -58,7 +63,7 @@ export const mastraBrowserExtract = createTool({
   inputSchema: BrowserExtractInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>
-    executeBrowserExtract(input, browserRuntimeFromContext(context)),
+    executeBrowserExtract(input, await browserRuntimeFromContext(context)),
 });
 
 export const mastraBrowserScreenshot = createTool({
@@ -68,5 +73,5 @@ export const mastraBrowserScreenshot = createTool({
   inputSchema: BrowserScreenshotInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>
-    executeBrowserScreenshot(input, browserRuntimeFromContext(context)),
+    executeBrowserScreenshot(input, await browserRuntimeFromContext(context)),
 });

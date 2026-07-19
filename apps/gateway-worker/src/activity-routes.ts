@@ -5,6 +5,7 @@ import {
   listAgentRunStartPoints,
   withUserContext,
 } from "@cheatcode/db";
+import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 import {
   type ActivityHistoryResponse,
@@ -19,6 +20,7 @@ import { QuotaHistoryResultSchema } from "./durable-objects/quota-tracker-contra
 import type { WaitUntilContext } from "./wait-until-context";
 
 export interface ActivityRouteEnv {
+  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
 }
@@ -37,7 +39,10 @@ export async function getActivityHistoryRoute(
   userId: UserId,
 ): Promise<Response> {
   const query = parseActivityQuery(request);
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const sandboxHours = await listSandboxHourHistory(env, userId, query.days);
     const response = await withUserContext(db, userId, (tx) =>

@@ -1,3 +1,4 @@
+import { SlidersHorizontal } from "@cheatcode/ui";
 import type { ComponentType } from "react";
 import {
   SidebarModelsIcon,
@@ -7,7 +8,6 @@ import {
   SidebarSkillsIcon,
 } from "@/components/shell/sidebar-nav-icons";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { SlidersHorizontal } from "@/components/ui/icons";
 
 type NavItemId =
   | "cheatcode-101"
@@ -87,7 +87,7 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     id: "settings",
     label: "Settings",
     section: "footer",
-    target: { href: "/billing", kind: "route", matchPrefix: "/billing" },
+    target: { href: "/usage", kind: "route", matchPrefix: "/usage" },
   },
 ];
 

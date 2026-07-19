@@ -1,6 +1,10 @@
 export type {
   ActivityHistoryResponse,
   ActivityRunPoint,
+  BrowserTakeoverResume,
+  BrowserTakeoverResumeResult,
+  BrowserTakeoverSession,
+  BrowserTakeoverStatus,
   CreateRun,
   CreateThread,
   GreetingResponse,
@@ -12,6 +16,7 @@ export type {
   ProjectSummary,
   Provider,
   ProviderKeySummary,
+  RunIntent,
   SandboxConsoleLine,
   SandboxConsoleProcess,
   SandboxConsoleSnapshot,
@@ -26,6 +31,7 @@ export type {
   SearchResponse,
   SearchResult,
   SearchResultThread,
+  SkillProposalConfirmResponse,
   Thread,
   ToolDomain,
   ToolkitAction,
@@ -41,11 +47,15 @@ export {
   ActivityHistoryResponseSchema,
   ActivityQuerySchema,
   AgentSummarySchema,
+  BrowserTakeoverActiveSchema,
+  BrowserTakeoverResumeResultSchema,
+  BrowserTakeoverResumeSchema,
+  BrowserTakeoverSessionSchema,
+  BrowserTakeoverStatusSchema,
   ComposioConnectionIdSchema,
   CreateProjectSchema,
   CreateRunSchema,
   CreateThreadSchema,
-  CreateUserSkillSchema,
   GitHubRepoUrlSchema,
   GreetingResponseSchema,
   IntegrationCatalogSchema,
@@ -53,7 +63,7 @@ export {
   IntegrationSchema,
   LimitsSnapshotSchema,
   MAX_USER_SKILLS,
-  MeResponseSchema,
+  MessagePartSchema,
   Paginated,
   PaginationQuerySchema,
   PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
@@ -64,6 +74,8 @@ export {
   ProviderSchema,
   RecentThreadsQuerySchema,
   RecentThreadsResponseSchema,
+  RUN_INTENTS,
+  RunIntentSchema,
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
   SandboxFileListSchema,
@@ -79,12 +91,12 @@ export {
   SandboxTerminalResultSchema,
   SearchQuerySchema,
   SearchResponseSchema,
+  SkillProposalConfirmResponseSchema,
   ThreadSchema,
   ToolDomainSchema,
   ToolkitActionsResponseSchema,
   ToolSummarySchema,
   UIMessageRecordSchema,
-  UpdateMeSchema,
   UpdateProjectSchema,
   UpdateSandboxPathFileSchema,
   UpdateThreadSchema,
@@ -93,6 +105,14 @@ export {
   UserSkillSchema,
   UserSkillsResponseSchema,
 } from "./api";
+export type { ArtifactKind, OutputDownloadUrlResponse } from "./artifacts";
+export {
+  ARTIFACT_KINDS,
+  ArtifactKindSchema,
+  OutputDownloadUrlResponseSchema,
+  OutputDownloadUrlSchema,
+  OutputIdSchema,
+} from "./artifacts";
 export type {
   BillingCancel,
   BillingCancellationReason,
@@ -136,14 +156,54 @@ export {
   IntegrationNameSchema,
 } from "./integrations";
 export type {
+  ClerkInstanceIdentity,
+  DaytonaVolumeIdentity,
+  DurableObjectStorageClass,
+  GatewayDatabaseReadinessAggregateResponse,
   InternalAgentStateDeleteBody,
+  InternalDatabaseReadinessRequest,
+  InternalDatabaseReadinessResponse,
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+  InternalResourceDeletionRequest,
   InternalStateDeleteResponse,
+  InternalWorkspaceReconciliationBody,
+  InternalWorkspaceReconciliationResponse,
+  ProductionClerkInstanceIdentity,
+  ResourceDeletionWorkflowPayload,
+  SandboxSnapshotReconciliation,
+  WorkspaceTransitionProject,
 } from "./internal-maintenance";
 export {
+  AgentDatabaseReadinessResponseSchema,
+  CanonicalProjectWorkspaceSlugSchema,
+  ClerkInstanceIdentitySchema,
+  canonicalWorkspaceDigest,
+  DaytonaVolumeIdentitySchema,
+  DURABLE_OBJECT_STORAGE_SCHEMA_VERSIONS,
+  DurableObjectStorageClassSchema,
+  GatewayDatabaseReadinessAggregateResponseSchema,
+  GatewayDatabaseReadinessResponseSchema,
+  INTERNAL_DATABASE_READINESS_PATH,
+  INTERNAL_DURABLE_OBJECT_STORAGE_PATH,
+  INTERNAL_RESOURCE_DELETION_PATH,
   InternalAgentStateDeleteBodySchema,
-  InternalGatewayStateDeleteBodySchema,
+  InternalDatabaseReadinessRequestSchema,
+  InternalDatabaseReadinessResponseSchema,
+  InternalDurableObjectStorageRequestSchema,
+  InternalDurableObjectStorageResponseSchema,
+  InternalProjectDeletionRequestSchema,
+  InternalResourceDeletionRequestSchema,
   InternalStateDeleteResponseSchema,
+  InternalThreadDeletionRequestSchema,
+  InternalWorkspaceReconciliationBodySchema,
+  InternalWorkspaceReconciliationResponseSchema,
   internalUserStateDeletePath,
+  internalUserWorkspaceReconciliationPath,
+  ProductionClerkInstanceIdentitySchema,
+  ResourceDeletionWorkflowPayloadSchema,
+  WebhooksDatabaseReadinessResponseSchema,
+  WorkspaceTransitionProjectSchema,
 } from "./internal-maintenance";
 export type { CatalogModelId, LogicalModelId } from "./models";
 export {
@@ -165,24 +225,24 @@ export {
   UpdateUserProfileSchema,
   UserProfileSchema,
 } from "./profile";
-export type {
-  ApprovalDecisionRequest,
-  ApprovalDecisionResponse,
-} from "./run-control";
-export {
-  ApprovalDecisionRequestSchema,
-  ApprovalDecisionResponseSchema,
-  RunStatusSnapshotSchema,
-} from "./run-control";
+export { RunStatusSnapshotSchema } from "./run-control";
 export {
   ClientErrorBodySchema,
   ClientUserEventBodySchema,
   normalizeTelemetryPath,
   WebVitalsBodySchema,
 } from "./telemetry";
+export type { TranscriptSegmentParts } from "./transcript-segments";
+export {
+  coalesceTranscriptSegmentParts,
+  coalesceTranscriptUIMessages,
+  fragmentMessagePart,
+  hasIncompleteTranscriptUIMessages,
+  reconstructedTranscriptUIMessage,
+  serializedMessagePartsBytes,
+  TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES,
+} from "./transcript-segments";
 export type {
-  ApprovalDecisionData,
-  ApprovalRequestData,
   CheatcodeUIMessage,
   ModelFallbackData,
   SandboxState,
@@ -190,8 +250,9 @@ export type {
   UIMessagePart,
 } from "./ui-message";
 export {
-  ApprovalDecisionDataSchema,
-  ApprovalRequestDataSchema,
   CHEATCODE_DATA_SCHEMAS,
+  MessagePartsSchema,
   ModelFallbackDataSchema,
+  parseMessagePart,
+  TranscriptFragmentDataSchema,
 } from "./ui-message";

@@ -1,9 +1,9 @@
 "use client";
 
 import type { SandboxUsageSummaryResponse, SandboxUsageWarnLevel } from "@cheatcode/types";
+import { ArrowUpRight } from "@cheatcode/ui";
 import { ManageSubscriptionDialog } from "@/components/billing/manage-subscription-dialog";
 import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
-import { ArrowUpRight } from "@/components/ui/icons";
 import { formatHoursTotal, formatHoursUsed } from "@/lib/hooks/use-billing";
 import { cn } from "@/lib/ui/cn";
 import { useSandboxHoursMeter } from "./use-sandbox-hours-meter";

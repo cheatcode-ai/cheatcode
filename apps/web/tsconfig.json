@@ -4,6 +4,7 @@
     "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
+      "@cheatcode/env/web-config": ["../../packages/env/dist/web-config"],
       "@cheatcode/*": ["../../packages/*/src"]
     }
   },

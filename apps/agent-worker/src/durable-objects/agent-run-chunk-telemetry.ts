@@ -1,30 +1,45 @@
+import type { AgentChunkType } from "@cheatcode/agent-core";
 import { emitUserEvent } from "@cheatcode/observability";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
-import { getRunStateValue, setRunStateValue } from "./agent-run-storage";
+import { deleteRunStateValues, getRunStateValue, setRunStateValue } from "./agent-run-storage";
 
 const STEP_IDX_KEY = "telemetry_step_idx";
 
 interface ToolStartState {
   stepIdx: number;
   startedAt: number;
-  toolName: string;
 }
+
+type ToolCallPayload = Extract<AgentChunkType, { type: "tool-call" }>["payload"];
+type ToolResultPayload = Extract<AgentChunkType, { type: "tool-result" }>["payload"];
+type ToolErrorPayload = Extract<AgentChunkType, { type: "tool-error" }>["payload"];
 
 export function emitMastraChunkTelemetry(
   ctx: DurableObjectState,
   env: AgentRunEnv,
   input: StartRunInput,
-  chunk: unknown,
+  chunk: AgentChunkType,
 ): void {
-  const record = asRecord(chunk);
-  const type = stringField(record, "type");
-  if (type === "tool-call") {
-    emitToolStarted(ctx, env, input, record);
+  if (chunk.type === "tool-call") {
+    emitToolStarted(ctx, env, input, chunk.payload);
     return;
   }
-  if (type === "tool-result") {
-    emitToolCompleted(ctx, env, input, record);
+  if (chunk.type === "tool-result") {
+    const durationMs = emitToolCompleted(
+      ctx,
+      env,
+      input,
+      chunk.payload,
+      serializedResultBytes(chunk.payload.result),
+    );
+    if (chunk.payload.toolName === "skill_invoke") {
+      emitSkillInvoked(env, input, chunk.payload, durationMs);
+    }
+    return;
+  }
+  if (chunk.type === "tool-error") {
+    emitToolCompleted(ctx, env, input, chunk.payload, serializedResultBytes(chunk.payload.error));
   }
 }
 
@@ -32,25 +47,20 @@ function emitToolStarted(
   ctx: DurableObjectState,
   env: AgentRunEnv,
   input: StartRunInput,
-  record: Record<string, unknown>,
+  payload: ToolCallPayload,
 ): void {
-  const payload = chunkPayload(record);
-  const toolName = toolNameFromPayload(payload);
-  if (!toolName) {
-    return;
-  }
   const stepIdx = nextStepIdx(ctx);
   setRunStateValue(
     ctx,
-    toolStateKey(payload, toolName),
-    JSON.stringify({ stepIdx, startedAt: Date.now(), toolName }),
+    toolStateKey(payload.toolCallId),
+    JSON.stringify({ stepIdx, startedAt: Date.now() }),
   );
   emitUserEvent(env, {
     eventName: "step_started",
     runId: input.runId,
     stepIdx,
     stepType: "tool",
-    toolName,
+    toolName: payload.toolName,
     userId: input.userId,
   });
 }
@@ -59,27 +69,23 @@ function emitToolCompleted(
   ctx: DurableObjectState,
   env: AgentRunEnv,
   input: StartRunInput,
-  record: Record<string, unknown>,
-): void {
-  const payload = chunkPayload(record);
-  const toolName = toolNameFromPayload(payload);
-  if (!toolName) {
-    return;
-  }
-  const state = readToolStartState(ctx, payload, toolName) ?? {
+  payload: ToolResultPayload | ToolErrorPayload,
+  resultBytes: number,
+): number {
+  const key = toolStateKey(payload.toolCallId);
+  const state = readToolStartState(ctx, payload.toolCallId) ?? {
     startedAt: Date.now(),
     stepIdx: nextStepIdx(ctx),
-    toolName,
   };
+  deleteRunStateValues(ctx, [key]);
   const durationMs = Math.max(0, Date.now() - state.startedAt);
-  const resultBytes = serializedResultBytes(payload);
   emitUserEvent(env, {
     durationMs,
     eventName: "tool_invoked",
     resultBytes,
     runId: input.runId,
     stepIdx: state.stepIdx,
-    toolName,
+    toolName: payload.toolName,
     userId: input.userId,
   });
   emitUserEvent(env, {
@@ -89,25 +95,21 @@ function emitToolCompleted(
     runId: input.runId,
     stepIdx: state.stepIdx,
     stepType: "tool",
-    toolName,
+    toolName: payload.toolName,
     userId: input.userId,
   });
-  if (toolName === "skill_invoke") {
-    emitSkillInvoked(env, input, payload, durationMs);
-  }
+  return durationMs;
 }
 
 function emitSkillInvoked(
   env: AgentRunEnv,
   input: StartRunInput,
-  payload: Record<string, unknown>,
+  payload: ToolResultPayload,
   durationMs: number,
 ): void {
   const skillName =
-    stringField(asRecord(payload["input"]), "skillName") ||
-    stringField(asRecord(payload["args"]), "skillName") ||
-    stringField(asRecord(payload["output"]), "name") ||
-    stringField(asRecord(payload["result"]), "name");
+    stringField(asRecord(payload.args), "skillName") ||
+    stringField(asRecord(payload.result), "name");
   emitUserEvent(env, {
     durationMs,
     eventName: "skill_invoked",
@@ -124,12 +126,8 @@ function nextStepIdx(ctx: DurableObjectState): number {
   return next;
 }
 
-function readToolStartState(
-  ctx: DurableObjectState,
-  payload: Record<string, unknown>,
-  toolName: string,
-): ToolStartState | null {
-  const raw = getRunStateValue(ctx, toolStateKey(payload, toolName));
+function readToolStartState(ctx: DurableObjectState, toolCallId: string): ToolStartState | null {
+  const raw = getRunStateValue(ctx, toolStateKey(toolCallId));
   if (!raw) {
     return null;
   }
@@ -144,33 +142,26 @@ function readToolStartState(
   }
 }
 
-function toolStateKey(payload: Record<string, unknown>, toolName: string): string {
-  const id = stringField(payload, "toolCallId") || stringField(payload, "id") || toolName;
-  return `telemetry_tool:${id}`;
+function toolStateKey(toolCallId: string): string {
+  return `telemetry_tool:${toolCallId}`;
 }
 
 function isToolStartState(value: unknown): value is ToolStartState {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as Record<string, unknown>)["toolName"] === "string" &&
     typeof (value as Record<string, unknown>)["stepIdx"] === "number" &&
     typeof (value as Record<string, unknown>)["startedAt"] === "number"
   );
 }
 
-function chunkPayload(record: Record<string, unknown>): Record<string, unknown> {
-  const payload = asRecord(record["payload"]);
-  return Object.keys(payload).length > 0 ? payload : record;
-}
-
-function toolNameFromPayload(payload: Record<string, unknown>): string {
-  return stringField(payload, "toolName") || stringField(payload, "tool");
-}
-
-function serializedResultBytes(payload: Record<string, unknown>): number {
-  const result = payload["output"] ?? payload["result"] ?? payload;
-  return new TextEncoder().encode(JSON.stringify(result)).byteLength;
+function serializedResultBytes(value: unknown): number {
+  try {
+    const serialized = JSON.stringify(value);
+    return serialized === undefined ? 0 : new TextEncoder().encode(serialized).byteLength;
+  } catch {
+    return 0;
+  }
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

@@ -12,7 +12,6 @@ import type { ThreadLaunchIntent } from "./schema";
 export interface CreateProjectInput {
   defaultModel?: LogicalModelId;
   importRepoUrl?: string;
-  masterInstructions?: string;
   mode: ProjectMode;
   name: string;
   userId: UserId;
@@ -20,12 +19,10 @@ export interface CreateProjectInput {
 
 export interface ProjectSummaryRecord {
   archiveAfter: Date | null;
-  archivedPendingAction: boolean;
   createdAt: Date;
   defaultModel: LogicalModelId | null;
   id: ProjectId;
   importRepoUrl: string | null;
-  masterInstructions: string | null;
   mode: ProjectMode;
   name: string;
   overQuota: boolean;
@@ -37,6 +34,7 @@ export interface ProjectSummaryRecord {
 export interface TimestampPageCursor {
   at: string;
   id: string;
+  segment?: number;
 }
 
 export type TimestampPageRecord<T> = T & { pageCursorAt: string };
@@ -44,15 +42,16 @@ export type TimestampPageRecord<T> = T & { pageCursorAt: string };
 export type BeginProjectDeletionResult =
   | { type: "active-run" }
   | { type: "not-found" }
-  | { type: "cleanup-completed" }
-  | { type: "cleanup-required"; workspaceSlug: string };
+  | { deletedAt: Date; type: "cleanup-required"; workspaceSlug: string };
 
-export type SoftDeleteThreadResult = "active-run" | "deleted" | "not-found";
+export type BeginThreadDeletionResult =
+  | { type: "active-run" }
+  | { type: "not-found" }
+  | { deletedAt: Date; projectId: ProjectId | null; type: "cleanup-required" };
 
 export interface UpdateProjectInput {
   defaultModel?: LogicalModelId | null;
   importRepoUrl?: null | string;
-  masterInstructions?: string | null;
   name?: string;
   projectId: ProjectId;
   userId: UserId;
@@ -62,6 +61,7 @@ export interface ThreadRecord {
   activeRunId: string | null;
   createdAt: Date;
   id: ThreadId;
+  latestModelId: LogicalModelId | null;
   launchIntent: ThreadLaunchIntent | null;
   projectId: ProjectId | null;
   title: string | null;
@@ -70,10 +70,12 @@ export interface ThreadRecord {
 
 export interface MessageRecord {
   agentRunId: string | null;
+  agentRunSegment: number;
+  agentRunSegmentFinal: boolean;
   createdAt: Date;
   id: string;
   parts: UIMessagePart[];
-  role: string;
+  role: "assistant" | "user";
   threadId: ThreadId;
 }
 
@@ -83,15 +85,17 @@ export interface ThreadContextMessageRecord extends MessageRecord {
 
 export interface CreateMessageInput {
   agentRunId?: AgentRunId;
+  agentRunSegment?: number;
+  agentRunSegmentFinal?: boolean;
+  createdAt?: Date;
   parts: UIMessagePart[];
-  role: "assistant" | "system" | "tool" | "user";
+  role: "assistant" | "user";
   threadId: ThreadId;
   userId: UserId;
 }
 
 export interface ProjectWriteState {
   archiveAfter: Date | null;
-  archivedPendingAction: boolean;
   overQuota: boolean;
   readOnly: boolean;
 }

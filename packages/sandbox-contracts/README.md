@@ -13,10 +13,19 @@ objects are not cloned or stripped during validation.
 ## Public exports
 
 - `SandboxLike`, its method input/output types, and `SandboxLikeSchema`
-- `ArtifactRuntime`, artifact upload types, and `ArtifactRuntimeSchema`
+- `ArtifactRuntime`, artifact upload types, `ArtifactRuntimeSchema`, and the canonical
+  `ArtifactKind` type re-exported from `@cheatcode/types/artifacts`; upload results expose durable
+  output identity and presentation metadata, not R2 locators or expiring capabilities
 - `CodeRuntimeContext`, `CodeRuntimeContextSchema`, and `getCodeRuntimeContext`
 - `EnvironmentVariablesSchema`
 - `callSandboxMethod`
+
+Long-running processes require a caller-owned stable `processId`. The sandbox uses that identity
+as an idempotency slot for replacement, inspection, cleanup, and bounded record reaping; anonymous
+fire-and-forget process records are not part of the contract.
+Project preview ports have separate allocate and read capabilities so browser
+actions can prove that a loopback page is the active project's managed preview
+rather than trusting an arbitrary localhost port.
 
 ## Code checks
 

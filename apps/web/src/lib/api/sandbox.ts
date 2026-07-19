@@ -1,6 +1,12 @@
 "use client";
 
 import {
+  BrowserTakeoverResumeResultSchema,
+  BrowserTakeoverResumeSchema,
+  type BrowserTakeoverSession,
+  BrowserTakeoverSessionSchema,
+  type BrowserTakeoverStatus,
+  BrowserTakeoverStatusSchema,
   type SandboxConsoleSnapshot,
   SandboxConsoleSnapshotSchema,
   type SandboxFileEntry,
@@ -14,6 +20,7 @@ import {
   SandboxTerminalResultSchema,
 } from "@cheatcode/types";
 import {
+  API_REQUEST_TIMEOUT_MS,
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,
   readBoundedJsonResponse,
@@ -31,8 +38,13 @@ export async function readSandboxConsole(
   getToken: () => Promise<null | string>,
   threadId: string,
   query: SandboxConsoleQueryInput,
+  signal?: AbortSignal,
 ): Promise<SandboxConsoleSnapshot> {
-  const response = await authorizedFetch(getToken, sandboxConsolePath(threadId, query));
+  const response = await authorizedFetch(
+    getToken,
+    sandboxConsolePath(threadId, query),
+    signal ? { signal } : {},
+  );
   return SandboxConsoleSnapshotSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.console),
   );
@@ -43,8 +55,13 @@ export async function listSandboxFiles(
   threadId: string,
   path: string,
   recursive = false,
+  signal?: AbortSignal,
 ) {
-  const response = await authorizedFetch(getToken, sandboxFilesPath(threadId, path, recursive));
+  const response = await authorizedFetch(
+    getToken,
+    sandboxFilesPath(threadId, path, recursive),
+    signal ? { signal } : {},
+  );
   return SandboxFileListSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.files),
   );
@@ -60,10 +77,15 @@ export async function runSandboxTerminal(
     command,
     ...(cwd === undefined ? {} : { cwd }),
   });
-  const response = await authorizedFetch(getToken, sandboxTerminalPath(threadId), {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
+  const response = await authorizedFetch(
+    getToken,
+    sandboxTerminalPath(threadId),
+    {
+      body: JSON.stringify(body),
+      method: "POST",
+    },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.terminal },
+  );
   return SandboxTerminalResultSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.terminal),
   );
@@ -72,8 +94,13 @@ export async function runSandboxTerminal(
 export async function readSandboxTerminalContext(
   getToken: () => Promise<null | string>,
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<SandboxTerminalContext> {
-  const response = await authorizedFetch(getToken, sandboxTerminalContextPath(threadId));
+  const response = await authorizedFetch(
+    getToken,
+    sandboxTerminalContextPath(threadId),
+    signal ? { signal } : {},
+  );
   return SandboxTerminalContextSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
   );
@@ -82,17 +109,73 @@ export async function readSandboxTerminalContext(
 export async function openSandboxIde(
   getToken: () => Promise<null | string>,
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<SandboxIdeSession> {
-  const response = await authorizedFetch(getToken, sandboxIdePath(threadId));
+  const response = await authorizedFetch(
+    getToken,
+    sandboxIdePath(threadId),
+    signal ? { signal } : {},
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
+  );
   return SandboxIdeSessionSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function readBrowserTakeoverStatus(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+  signal?: AbortSignal,
+): Promise<BrowserTakeoverStatus> {
+  const response = await authorizedFetch(
+    getToken,
+    browserTakeoverPath(threadId),
+    signal ? { signal } : {},
+  );
+  return BrowserTakeoverStatusSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function startBrowserTakeover(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+): Promise<BrowserTakeoverSession> {
+  const response = await authorizedFetch(
+    getToken,
+    `${browserTakeoverPath(threadId)}/start`,
+    { method: "POST" },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
+  );
+  return BrowserTakeoverSessionSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+export async function resumeBrowserAutomation(
+  getToken: () => Promise<null | string>,
+  threadId: string,
+  takeoverId: string,
+): Promise<void> {
+  const body = BrowserTakeoverResumeSchema.parse({ takeoverId });
+  const response = await authorizedFetch(
+    getToken,
+    `${browserTakeoverPath(threadId)}/resume`,
+    { body: JSON.stringify(body), method: "POST" },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
+  );
+  BrowserTakeoverResumeResultSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
   );
 }
 
 export async function openComputerIde(
   getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
 ): Promise<SandboxIdeSession> {
-  const response = await authorizedFetch(getToken, "/v1/computer/ide");
+  const response = await authorizedFetch(getToken, "/v1/computer/ide", signal ? { signal } : {}, {
+    timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning,
+  });
   return SandboxIdeSessionSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
   );
@@ -100,8 +183,13 @@ export async function openComputerIde(
 
 export async function readComputerTerminalContext(
   getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
 ): Promise<SandboxTerminalContext> {
-  const response = await authorizedFetch(getToken, "/v1/computer/terminal/context");
+  const response = await authorizedFetch(
+    getToken,
+    "/v1/computer/terminal/context",
+    signal ? { signal } : {},
+  );
   return SandboxTerminalContextSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
   );
@@ -116,10 +204,15 @@ export async function runComputerTerminal(
     command,
     ...(cwd === undefined ? {} : { cwd }),
   });
-  const response = await authorizedFetch(getToken, "/v1/computer/terminal", {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
+  const response = await authorizedFetch(
+    getToken,
+    "/v1/computer/terminal",
+    {
+      body: JSON.stringify(body),
+      method: "POST",
+    },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.terminal },
+  );
   return SandboxTerminalResultSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.terminal),
   );
@@ -138,6 +231,10 @@ export function compareFileEntries(left: SandboxFileEntry, right: SandboxFileEnt
 function sandboxFilesPath(threadId: string, path: string, recursive: boolean): string {
   const query = new URLSearchParams({ path, recursive: String(recursive) });
   return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/files?${query.toString()}`;
+}
+
+function browserTakeoverPath(threadId: string): string {
+  return `/v1/threads/${encodeURIComponent(threadId)}/browser-takeover`;
 }
 
 function sandboxTerminalPath(threadId: string): string {

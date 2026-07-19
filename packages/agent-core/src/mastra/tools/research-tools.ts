@@ -12,13 +12,18 @@ import {
   FirecrawlSearchInputSchema,
   FirecrawlSearchOutputSchema,
 } from "@cheatcode/tools-research";
-import { createTool } from "@mastra/core/tools";
+import { createTool, type ToolExecutionContext } from "@mastra/core/tools";
 import {
   DeepResearchFanoutInputSchema,
   DeepResearchInputSchema,
   type ResearchReport,
   ResearchReportSchema,
 } from "../workflows";
+import {
+  exaSource,
+  firecrawlSource,
+  registerResearchSources,
+} from "../workflows/research-provenance";
 import { researchRuntimeFromContext } from "./tool-runtime-context";
 import { workflowResultSchema } from "./tool-schemas";
 
@@ -32,6 +37,7 @@ type MutableRequestContext = RequestContextReader & {
 };
 type WorkflowRunLike = {
   readonly runId: string;
+  cancel(): Promise<void>;
   start(args: { inputData: unknown; requestContext?: unknown }): Promise<unknown>;
 };
 type WorkflowLike = {
@@ -42,11 +48,8 @@ type MastraWorkflowHost = {
   getWorkflow(workflowName: string): WorkflowLike;
 };
 
-function mastraFromToolContext(context: unknown): MastraWorkflowHost {
-  if (typeof context !== "object" || context === null) {
-    throw new Error("Mastra tool context is required for workflow tools.");
-  }
-  const candidate = (context as { mastra?: unknown }).mastra;
+function mastraFromToolContext(context: ToolExecutionContext): MastraWorkflowHost {
+  const candidate = context.mastra;
   if (typeof candidate !== "object" || candidate === null) {
     throw new Error("Mastra instance is required for workflow tools.");
   }
@@ -62,7 +65,7 @@ async function runResearchWorkflow({
   inputData,
   workflowName,
 }: {
-  context: unknown;
+  context: ToolExecutionContext;
   inputData: unknown;
   workflowName: "deepResearch" | "deepResearchFanout";
 }): Promise<ResearchReport> {
@@ -72,14 +75,16 @@ async function runResearchWorkflow({
   }
   const workflow = mastraFromToolContext(context).getWorkflow(workflowName);
   const run = await workflow.createRun();
+  const cancellation = bindToolCancellation(context, run);
   const cleanupResearchFlag = markResearchWorkflowActive(requestContext);
   try {
-    const result = workflowResultSchema.parse(
-      await run.start({
-        inputData,
-        ...(requestContext ? { requestContext } : {}),
-      }),
-    );
+    await cancellation.assertNotCanceled();
+    const workflowResult = await run.start({
+      inputData,
+      ...(requestContext ? { requestContext } : {}),
+    });
+    await cancellation.assertNotCanceled();
+    const result = workflowResultSchema.parse(workflowResult);
     if (result.status !== "success" || !result.result) {
       const message =
         result.error instanceof Error ? result.error.message : `${workflowName} workflow failed.`;
@@ -87,15 +92,46 @@ async function runResearchWorkflow({
     }
     return ResearchReportSchema.parse(result.result);
   } finally {
+    await cancellation.cleanup();
     cleanupResearchFlag();
     await workflow.deleteWorkflowRunById(run.runId);
   }
 }
 
-function requestContextFromUnknownToolContext(context: unknown): unknown {
-  return typeof context === "object" && context !== null
-    ? (context as { requestContext?: unknown }).requestContext
-    : undefined;
+function bindToolCancellation(
+  context: ToolExecutionContext,
+  run: WorkflowRunLike,
+): {
+  assertNotCanceled(): Promise<void>;
+  cleanup(): Promise<void>;
+} {
+  const signal = abortSignalFromToolContext(context);
+  let cancelPromise: Promise<void> | undefined;
+  const cancelOnce = () => {
+    cancelPromise ??= run.cancel().catch(() => undefined);
+    return cancelPromise;
+  };
+  const onAbort = () => void cancelOnce();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  if (signal?.aborted) {
+    onAbort();
+  }
+  return {
+    async assertNotCanceled() {
+      if (signal?.aborted) {
+        await cancelOnce();
+        signal.throwIfAborted();
+      }
+    },
+    async cleanup() {
+      signal?.removeEventListener("abort", onAbort);
+      await cancelPromise;
+    },
+  };
+}
+
+function requestContextFromUnknownToolContext(context: ToolExecutionContext): unknown {
+  return context.requestContext;
 }
 
 function researchWorkflowIsActive(requestContext: unknown): boolean {
@@ -146,8 +182,7 @@ export const mastraSearchWeb = createTool({
     "Search the web with Exa and return cited source snippets, highlights, and optional summaries.",
   inputSchema: ExaSearchInputSchema,
   outputSchema: ExaSearchOutputSchema,
-  execute: async (input, context) =>
-    executeExaSearch(ExaSearchInputSchema.parse(input), researchRuntimeFromContext(context)),
+  execute: executeExaTool,
 });
 
 export const mastraSearchWebAdvanced = createTool({
@@ -156,8 +191,7 @@ export const mastraSearchWebAdvanced = createTool({
     "Run filtered Exa research search with domains, dates, categories, highlights, and summaries.",
   inputSchema: ExaSearchInputSchema,
   outputSchema: ExaSearchOutputSchema,
-  execute: async (input, context) =>
-    executeExaSearch(ExaSearchInputSchema.parse(input), researchRuntimeFromContext(context)),
+  execute: executeExaTool,
 });
 
 export const mastraSearchCompany = createTool({
@@ -168,10 +202,13 @@ export const mastraSearchCompany = createTool({
   outputSchema: ExaSearchOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ExaSearchInputSchema.parse(input);
-    return executeExaSearch(
+    const output = await executeExaSearch(
       { ...parsedInput, category: "company" },
       researchRuntimeFromContext(context),
+      abortSignalFromToolContext(context),
     );
+    registerExaOutput(context, output);
+    return output;
   },
 });
 
@@ -181,11 +218,7 @@ export const mastraFirecrawlScrape = createTool({
     "Scrape a known URL with Firecrawl and return markdown, links, metadata, or screenshots.",
   inputSchema: FirecrawlScrapeInputSchema,
   outputSchema: FirecrawlScrapeOutputSchema,
-  execute: async (input, context) =>
-    executeFirecrawlScrape(
-      FirecrawlScrapeInputSchema.parse(input),
-      researchRuntimeFromContext(context),
-    ),
+  execute: executeFirecrawlScrapeTool,
 });
 
 export const mastraFirecrawlSearch = createTool({
@@ -194,11 +227,7 @@ export const mastraFirecrawlSearch = createTool({
     "Search the web with Firecrawl, optionally scraping markdown for each returned result.",
   inputSchema: FirecrawlSearchInputSchema,
   outputSchema: FirecrawlSearchOutputSchema,
-  execute: async (input, context) =>
-    executeFirecrawlSearch(
-      FirecrawlSearchInputSchema.parse(input),
-      researchRuntimeFromContext(context),
-    ),
+  execute: executeFirecrawlSearchTool,
 });
 
 export const mastraFirecrawlExtract = createTool({
@@ -207,11 +236,7 @@ export const mastraFirecrawlExtract = createTool({
     "Extract structured JSON from one or more URLs with Firecrawl using a prompt and optional JSON schema.",
   inputSchema: FirecrawlExtractInputSchema,
   outputSchema: FirecrawlExtractOutputSchema,
-  execute: async (input, context) =>
-    executeFirecrawlExtract(
-      FirecrawlExtractInputSchema.parse(input),
-      researchRuntimeFromContext(context),
-    ),
+  execute: executeFirecrawlExtractTool,
 });
 
 export const mastraDeepResearch = createTool({
@@ -255,3 +280,76 @@ export const mastraCompetitorResearch = createTool({
       workflowName: "deepResearchFanout",
     }),
 });
+
+async function executeExaTool(input: unknown, context: ToolExecutionContext) {
+  const output = await executeExaSearch(
+    ExaSearchInputSchema.parse(input),
+    researchRuntimeFromContext(context),
+    abortSignalFromToolContext(context),
+  );
+  registerExaOutput(context, output);
+  return output;
+}
+
+async function executeFirecrawlScrapeTool(input: unknown, context: ToolExecutionContext) {
+  const output = await executeFirecrawlScrape(
+    FirecrawlScrapeInputSchema.parse(input),
+    researchRuntimeFromContext(context),
+    abortSignalFromToolContext(context),
+  );
+  if (firecrawlStatusIsSuccessful(output.metadata?.statusCode)) {
+    registerResearchSources(context, [
+      firecrawlSource({ title: output.title ?? output.metadata?.title, url: output.url }),
+    ]);
+  }
+  return output;
+}
+
+async function executeFirecrawlSearchTool(input: unknown, context: ToolExecutionContext) {
+  const output = await executeFirecrawlSearch(
+    FirecrawlSearchInputSchema.parse(input),
+    researchRuntimeFromContext(context),
+    abortSignalFromToolContext(context),
+  );
+  registerResearchSources(
+    context,
+    output.results.flatMap((result) => {
+      const url = result.url ?? result.metadata?.sourceURL;
+      return url && firecrawlStatusIsSuccessful(result.metadata?.statusCode)
+        ? [firecrawlSource({ title: result.title ?? result.metadata?.title, url })]
+        : [];
+    }),
+  );
+  return output;
+}
+
+async function executeFirecrawlExtractTool(input: unknown, context: ToolExecutionContext) {
+  const output = await executeFirecrawlExtract(
+    FirecrawlExtractInputSchema.parse(input),
+    researchRuntimeFromContext(context),
+    abortSignalFromToolContext(context),
+  );
+  registerResearchSources(
+    context,
+    output.sources.map((url) => firecrawlSource({ url })),
+  );
+  return output;
+}
+
+function registerExaOutput(
+  context: ToolExecutionContext,
+  output: Awaited<ReturnType<typeof executeExaSearch>>,
+): void {
+  registerResearchSources(
+    context,
+    output.results.map((result) => exaSource({ ...result, requestId: output.requestId })),
+  );
+}
+
+function abortSignalFromToolContext(context: ToolExecutionContext): AbortSignal | undefined {
+  return context.abortSignal;
+}
+
+function firecrawlStatusIsSuccessful(statusCode: number | undefined): boolean {
+  return statusCode === undefined || (statusCode >= 200 && statusCode < 400);
+}

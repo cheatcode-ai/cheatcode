@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { check, jsonb, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -23,13 +23,9 @@ export const userSkills = pgTable(
     body: text("body").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (table) => [
-    index("v2_user_skills_user_idx").on(table.userId),
-    // One live skill per (user, name) so re-creating updates rather than duplicates.
-    uniqueIndex("v2_user_skills_user_name_idx")
-      .on(table.userId, table.name)
-      .where(sql`deleted_at is null`),
+    uniqueIndex("v2_user_skills_user_name_idx").on(table.userId, table.name),
+    check("v2_user_skills_tags_array_check", sql`jsonb_typeof(${table.tags}) = 'array'`),
   ],
 );

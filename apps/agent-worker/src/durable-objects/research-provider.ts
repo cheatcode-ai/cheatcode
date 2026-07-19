@@ -1,10 +1,12 @@
 import { getProviderKey } from "@cheatcode/byok";
 import { createDb, type DatabaseHandle, withUserContext } from "@cheatcode/db";
+import type { WorkerSecret } from "@cheatcode/env";
 import type { createLogger } from "@cheatcode/observability";
 import { UserId } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface ResearchProviderEnv {
+  DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
@@ -22,7 +24,10 @@ export async function resolveResearchCredentials(
   input: ResearchProviderInput,
   logger: ReturnType<typeof createLogger>,
 ): Promise<ResearchCredentials> {
-  const dbHandle = createDb(env.HYPERDRIVE);
+  const dbHandle = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     const credentials = await withUserContext(dbHandle.db, UserId(input.userId), async (db) => {
       const exaApiKey = await getProviderKey(db, "exa");

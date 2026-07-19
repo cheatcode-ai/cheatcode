@@ -1,4 +1,12 @@
+import type {
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+} from "@cheatcode/types";
+import { InternalWorkspaceReconciliationBodySchema } from "@cheatcode/types";
+import { reconcileProjectSandboxStorageRequest } from "./durable-storage-reconciliation";
 import { ProjectSandboxContent } from "./project-sandbox-content";
+import { APP_PREVIEW_SLOT_PREFIX } from "./project-sandbox-process-support";
+import { ProjectWorkspaceSlugSchema, workspaceSlugFromPath } from "./project-sandbox-runtime";
 
 /**
  * Public Durable Object facade. Every operational RPC takes an in-memory lease
@@ -6,10 +14,16 @@ import { ProjectSandboxContent } from "./project-sandbox-content";
  * work without holding blockConcurrencyWhile across Daytona requests.
  */
 export class ProjectSandbox extends ProjectSandboxContent {
+  public reconcileStorageSchema(
+    value: InternalDurableObjectStorageRequest,
+  ): InternalDurableObjectStorageResponse {
+    return reconcileProjectSandboxStorageRequest(this.ctx, this.env, value);
+  }
+
   public override registerOwner(
     ...args: Parameters<ProjectSandboxContent["registerOwner"]>
   ): ReturnType<ProjectSandboxContent["registerOwner"]> {
-    return this.withActiveSandboxOperation(() => super.registerOwner(...args));
+    return this.withActiveOwnerRegistration(args[0], () => super.registerOwner(...args));
   }
 
   public override setQuotaPeriod(
@@ -27,6 +41,8 @@ export class ProjectSandbox extends ProjectSandboxContent {
   public override renewRun(
     ...args: Parameters<ProjectSandboxContent["renewRun"]>
   ): ReturnType<ProjectSandboxContent["renewRun"]> {
+    // Late cleanup is absorbed by account deletion; workspace transitions reject it
+    // because end/alarm can change Daytona activity or auto-stop during a rename.
     return this.withActiveSandboxCleanupSignal(() => super.renewRun(...args));
   }
 
@@ -75,93 +91,125 @@ export class ProjectSandbox extends ProjectSandboxContent {
   public override runCode(
     ...args: Parameters<ProjectSandboxContent["runCode"]>
   ): ReturnType<ProjectSandboxContent["runCode"]> {
-    return this.withActiveSandboxOperation(() => super.runCode(...args));
+    return this.withActiveProjectWorkspaceOperation(null, () => super.runCode(...args));
   }
 
   public override exec(
     ...args: Parameters<ProjectSandboxContent["exec"]>
   ): ReturnType<ProjectSandboxContent["exec"]> {
-    return this.withActiveSandboxOperation(() => super.exec(...args));
+    return this.withActiveProjectWorkspaceOperation(null, () => super.exec(...args));
   }
 
   public override startProcess(
     ...args: Parameters<ProjectSandboxContent["startProcess"]>
   ): ReturnType<ProjectSandboxContent["startProcess"]> {
-    return this.withActiveSandboxOperation(() => super.startProcess(...args));
+    return this.withActiveProjectWorkspaceOperation(null, () => super.startProcess(...args));
   }
 
   public override allocateProjectPort(
     ...args: Parameters<ProjectSandboxContent["allocateProjectPort"]>
   ): ReturnType<ProjectSandboxContent["allocateProjectPort"]> {
-    return this.withActiveSandboxOperation(() => super.allocateProjectPort(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].projectId), () =>
+      super.allocateProjectPort(...args),
+    );
+  }
+
+  public override getProjectPort(
+    ...args: Parameters<ProjectSandboxContent["getProjectPort"]>
+  ): ReturnType<ProjectSandboxContent["getProjectPort"]> {
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].projectId), () =>
+      super.getProjectPort(...args),
+    );
   }
 
   public override allocateProcessPort(
     ...args: Parameters<ProjectSandboxContent["allocateProcessPort"]>
   ): ReturnType<ProjectSandboxContent["allocateProcessPort"]> {
-    return this.withActiveSandboxOperation(() => super.allocateProcessPort(...args));
+    return this.withActiveProjectWorkspaceOperation(
+      workspaceSlugFromProcessId(args[0].processId),
+      () => super.allocateProcessPort(...args),
+    );
   }
 
   public override killAllProcesses(
     ...args: Parameters<ProjectSandboxContent["killAllProcesses"]>
   ): ReturnType<ProjectSandboxContent["killAllProcesses"]> {
-    return this.withActiveSandboxOperation(() => super.killAllProcesses(...args));
+    return this.withActiveSharedWorkspaceMutation(() => super.killAllProcesses(...args));
   }
 
   public override killProcess(
     ...args: Parameters<ProjectSandboxContent["killProcess"]>
   ): ReturnType<ProjectSandboxContent["killProcess"]> {
-    return this.withActiveSandboxOperation(() => super.killProcess(...args));
+    return this.withActiveProjectWorkspaceOperation(
+      workspaceSlugFromProcessId(args[0].processId),
+      () => super.killProcess(...args),
+    );
   }
 
   public override readDevServerLogs(
     ...args: Parameters<ProjectSandboxContent["readDevServerLogs"]>
   ): ReturnType<ProjectSandboxContent["readDevServerLogs"]> {
-    return this.withActiveSandboxOperation(() => super.readDevServerLogs(...args));
+    return this.withActiveProjectWorkspaceOperation(
+      workspaceSlugFromProcessId(args[0].processId),
+      () => super.readDevServerLogs(...args),
+    );
   }
 
   public override downloadProjectArchive(
     ...args: Parameters<ProjectSandboxContent["downloadProjectArchive"]>
   ): ReturnType<ProjectSandboxContent["downloadProjectArchive"]> {
-    return this.withActiveSandboxStreamingOperation((release) =>
-      super.downloadProjectArchiveForRpc(args[0], release),
+    return this.withActiveProjectWorkspaceStreamingOperation(
+      workspaceSlug(args[0].workspaceSlug),
+      (release) => super.downloadProjectArchiveForRpc(args[0], release),
     );
   }
 
   public override readFile(
     ...args: Parameters<ProjectSandboxContent["readFile"]>
   ): ReturnType<ProjectSandboxContent["readFile"]> {
-    return this.withActiveSandboxOperation(() => super.readFile(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.readFile(...args),
+    );
   }
 
   public override previewFile(
     ...args: Parameters<ProjectSandboxContent["previewFile"]>
   ): ReturnType<ProjectSandboxContent["previewFile"]> {
-    return this.withActiveSandboxOperation(() => super.previewFile(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.previewFile(...args),
+    );
   }
 
   public override writeFile(
     ...args: Parameters<ProjectSandboxContent["writeFile"]>
   ): ReturnType<ProjectSandboxContent["writeFile"]> {
-    return this.withActiveSandboxOperation(() => super.writeFile(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.writeFile(...args),
+    );
   }
 
   public override listFiles(
     ...args: Parameters<ProjectSandboxContent["listFiles"]>
   ): ReturnType<ProjectSandboxContent["listFiles"]> {
-    return this.withActiveSandboxOperation(() => super.listFiles(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.listFiles(...args),
+    );
   }
 
   public override searchFiles(
     ...args: Parameters<ProjectSandboxContent["searchFiles"]>
   ): ReturnType<ProjectSandboxContent["searchFiles"]> {
-    return this.withActiveSandboxOperation(() => super.searchFiles(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.searchFiles(...args),
+    );
   }
 
   public override deleteFile(
     ...args: Parameters<ProjectSandboxContent["deleteFile"]>
   ): ReturnType<ProjectSandboxContent["deleteFile"]> {
-    return this.withActiveSandboxOperation(() => super.deleteFile(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
+      super.deleteFile(...args),
+    );
   }
 
   public override getSignedPreviewUrl(
@@ -170,27 +218,78 @@ export class ProjectSandbox extends ProjectSandboxContent {
     return this.withActiveSandboxOperation(() => super.getSignedPreviewUrl(...args));
   }
 
+  public override exposeBrowserTakeover(
+    ...args: Parameters<ProjectSandboxContent["exposeBrowserTakeover"]>
+  ): ReturnType<ProjectSandboxContent["exposeBrowserTakeover"]> {
+    return this.withActiveSandboxOperation(() => super.exposeBrowserTakeover(...args));
+  }
+
+  public override stopBrowserTakeover(
+    ...args: Parameters<ProjectSandboxContent["stopBrowserTakeover"]>
+  ): ReturnType<ProjectSandboxContent["stopBrowserTakeover"]> {
+    return this.withActiveSandboxCleanupSignal(() => super.stopBrowserTakeover(...args));
+  }
+
   public override exposeCodeServer(
     ...args: Parameters<ProjectSandboxContent["exposeCodeServer"]>
   ): ReturnType<ProjectSandboxContent["exposeCodeServer"]> {
-    return this.withActiveSandboxOperation(() => super.exposeCodeServer(...args));
+    return this.withActiveProjectWorkspaceOperation(
+      workspaceSlugFromPath(args[0].workspacePath),
+      () => super.exposeCodeServer(...args),
+    );
   }
 
   public override wakePreview(
     ...args: Parameters<ProjectSandboxContent["wakePreview"]>
   ): ReturnType<ProjectSandboxContent["wakePreview"]> {
-    return this.withActiveSandboxOperation(() => super.wakePreview(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].workspaceSlug), () =>
+      super.wakePreview(...args),
+    );
   }
 
   public override projectPreviewStatus(
     ...args: Parameters<ProjectSandboxContent["projectPreviewStatus"]>
   ): ReturnType<ProjectSandboxContent["projectPreviewStatus"]> {
-    return this.withActiveSandboxOperation(() => super.projectPreviewStatus(...args));
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].workspaceSlug), () =>
+      super.projectPreviewStatus(...args),
+    );
   }
 
   public override cleanupProjectWorkspace(
     ...args: Parameters<ProjectSandboxContent["cleanupProjectWorkspace"]>
   ): ReturnType<ProjectSandboxContent["cleanupProjectWorkspace"]> {
-    return this.withActiveSandboxOperation(() => super.cleanupProjectWorkspace(...args));
+    return this.withActiveProjectWorkspaceCleanup(() => super.cleanupProjectWorkspace(...args));
   }
+
+  public override prepareWorkspaceTransition(
+    ...args: Parameters<ProjectSandboxContent["prepareWorkspaceTransition"]>
+  ): ReturnType<ProjectSandboxContent["prepareWorkspaceTransition"]> {
+    return this.withActiveWorkspaceTransition(transitionId(args[0]), () =>
+      super.prepareWorkspaceTransition(...args),
+    );
+  }
+
+  public override finalizeWorkspaceTransition(
+    ...args: Parameters<ProjectSandboxContent["finalizeWorkspaceTransition"]>
+  ): ReturnType<ProjectSandboxContent["finalizeWorkspaceTransition"]> {
+    return this.withActiveWorkspaceTransition(transitionId(args[0]), () =>
+      super.finalizeWorkspaceTransition(...args),
+    );
+  }
+}
+
+function transitionId(input: unknown): string {
+  const parsed = InternalWorkspaceReconciliationBodySchema.parse(input);
+  return `workspace-sandbox-release:${parsed.releaseSha}`;
+}
+
+function workspaceSlug(value: string | undefined): string | null {
+  const parsed = ProjectWorkspaceSlugSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
+function workspaceSlugFromProcessId(processId: string | undefined): string | null {
+  return processId?.startsWith(APP_PREVIEW_SLOT_PREFIX)
+    ? workspaceSlug(processId.slice(APP_PREVIEW_SLOT_PREFIX.length))
+    : null;
 }

@@ -1,27 +1,33 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types";
+import { Clock3, Loader2, Plus, X } from "@cheatcode/ui";
 import type { ChatContextController } from "@/components/chat/chat-context-controller";
 import { FolderChatsSearch } from "@/components/chat/folder-chats-search";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { Clock3, Plus, X } from "@/components/ui/icons";
 import type { ChatWorkspaceTab } from "@/lib/store/chat-tabs-store";
 import { cn } from "@/lib/ui/cn";
 
 export function ChatContextView({
   controller,
+  isRunning,
   project,
   threadId,
 }: {
   controller: ChatContextController;
+  isRunning: boolean;
   project: ProjectSummary | null;
   threadId: string;
 }) {
   return (
     <div className="relative z-30 h-20 shrink-0 md:h-12" ref={controller.meta.contextRef}>
-      <MobileChatTitle activeThreadId={threadId} tabs={controller.state.tabs} />
+      <MobileChatTitle
+        activeThreadId={threadId}
+        isRunning={isRunning}
+        tabs={controller.state.tabs}
+      />
       <header className="mx-auto flex h-10 w-full max-w-[720px] items-center px-3 text-foreground md:h-12 md:px-1">
-        <ChatTabStrip activeThreadId={threadId} controller={controller} />
+        <ChatTabStrip activeThreadId={threadId} controller={controller} isRunning={isRunning} />
         <ChatHeaderActions controller={controller} project={project} />
       </header>
       {controller.state.folderChatsOpen && project ? (
@@ -37,15 +43,20 @@ export function ChatContextView({
 
 function MobileChatTitle({
   activeThreadId,
+  isRunning,
   tabs,
 }: {
   activeThreadId: string;
+  isRunning: boolean;
   tabs: readonly ChatWorkspaceTab[];
 }) {
   const activeTitle = tabs.find((tab) => tab.id === activeThreadId)?.title ?? "New chat";
   return (
     <div className="flex h-10 items-center justify-center px-16 md:hidden">
-      <p className="max-w-full truncate font-medium text-fg-secondary text-sm">{activeTitle}</p>
+      <p className="flex max-w-full items-center gap-1 truncate font-medium text-fg-secondary text-sm">
+        <span className="truncate">{activeTitle}</span>
+        {isRunning ? <ChatTabSpinner /> : null}
+      </p>
     </div>
   );
 }
@@ -105,9 +116,11 @@ function FolderChatsButton({
 function ChatTabStrip({
   activeThreadId,
   controller,
+  isRunning,
 }: {
   activeThreadId: string;
   controller: ChatContextController;
+  isRunning: boolean;
 }) {
   return (
     <div className="min-w-0 flex-1">
@@ -115,6 +128,7 @@ function ChatTabStrip({
         {controller.state.tabs.map((tab) => (
           <ChatTabPill
             isActive={tab.id === activeThreadId}
+            isRunning={isRunning && tab.id === activeThreadId}
             key={tab.id}
             onClose={controller.actions.closeActiveTab}
             onSelect={() => controller.actions.selectTab(tab)}
@@ -129,19 +143,21 @@ function ChatTabStrip({
 
 function ChatTabPill({
   isActive,
+  isRunning,
   onClose,
   onSelect,
   showClose,
   tab,
 }: {
   isActive: boolean;
+  isRunning: boolean;
   onClose: () => void;
   onSelect: () => void;
   showClose: boolean;
   tab: ChatWorkspaceTab;
 }) {
   return (
-    <div className={chatTabPillClassName(isActive)}>
+    <div className={chatTabPillClassName(isActive, isRunning || (isActive && showClose))}>
       <button
         className="min-w-0 flex-1 truncate text-left"
         onClick={onSelect}
@@ -150,7 +166,9 @@ function ChatTabPill({
       >
         {tab.title}
       </button>
-      {isActive && showClose ? (
+      {isRunning ? (
+        <ChatTabSpinner />
+      ) : isActive && showClose ? (
         <button
           aria-label={`Close ${tab.title}`}
           className="flex size-6 shrink-0 items-center justify-center rounded-full text-placeholder transition-colors hover:bg-secondary hover:text-foreground"
@@ -164,11 +182,26 @@ function ChatTabPill({
   );
 }
 
-function chatTabPillClassName(isActive: boolean): string {
+function ChatTabSpinner() {
+  return (
+    <span
+      aria-label="Working"
+      className="flex size-4 shrink-0 items-center justify-center"
+      role="status"
+    >
+      <Loader2
+        aria-hidden="true"
+        className="size-3.5 animate-spin text-placeholder motion-reduce:animate-none"
+      />
+    </span>
+  );
+}
+
+function chatTabPillClassName(isActive: boolean, hasTrailingControl: boolean): string {
   return cn(
     "flex h-8 max-w-[190px] shrink-0 cursor-pointer select-none items-center gap-1 rounded-full border bg-background py-[5px] pl-3 font-medium text-sm",
     isActive
-      ? "border-border pr-1.5 text-foreground/80"
+      ? cn("border-border text-foreground/80", hasTrailingControl ? "pr-1.5" : "pr-3")
       : "border-transparent pr-3 text-foreground/40 hover:text-foreground/60",
   );
 }

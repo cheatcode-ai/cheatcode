@@ -25,12 +25,6 @@ export async function executeDataChart(
         data: utf8ToBytes(svg),
         filename,
         kind: "image",
-        metadata: {
-          chartType: parsed.chartType,
-          rowCount: rows.length,
-          xKey: parsed.xKey,
-          yKeys: parsed.yKeys,
-        },
       })
     : undefined;
 

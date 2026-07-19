@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
-  "packageManager": "pnpm@10.34.5",
+  "packageManager": "pnpm@11.8.0",
   "engines": {
-    "node": "22.x"
+    "node": "22.22.2"
   },
   "scripts": {
     "build": "next build",
@@ -20,6 +20,7 @@
     "@cheatcode/types": "workspace:*",
     "@cheatcode/ui": "workspace:*",
     "@clerk/nextjs": "catalog:",
+    "@next/env": "catalog:",
     "@clerk/ui": "catalog:",
     "@hookform/resolvers": "catalog:",
     "@tanstack/react-query": "catalog:",

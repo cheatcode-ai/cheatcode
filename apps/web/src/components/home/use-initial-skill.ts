@@ -12,7 +12,6 @@ const SKILL_TO_INTENT: Record<string, SkillIntent> = {
 
 // Skills that fix the build surface but have no intent pill.
 const SKILL_TO_SURFACE: Record<string, SkillSurface> = {
-  "landing-page": "web",
   "mobile-app": "mobile",
 };
 

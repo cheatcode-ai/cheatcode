@@ -244,29 +244,13 @@ function pathParameterSchema(name: string): JsonValue {
   }
   if (name === "provider") {
     return {
-      enum: [
-        "anthropic",
-        "openai",
-        "google",
-        "openrouter",
-        "deepseek",
-        "exa",
-        "firecrawl",
-        "llamaparse",
-      ],
+      enum: ["anthropic", "openai", "google", "openrouter", "deepseek", "exa", "firecrawl"],
       type: "string",
     };
   }
   return { type: "string" };
 }
 
-const UUID_PATH_PARAMETERS = new Set([
-  "approvalId",
-  "outputId",
-  "projectId",
-  "runId",
-  "skillId",
-  "threadId",
-]);
+const UUID_PATH_PARAMETERS = new Set(["outputId", "projectId", "runId", "skillId", "threadId"]);
 
 const COMPONENT_SCHEMA_PREFIX = "#/components/schemas/";

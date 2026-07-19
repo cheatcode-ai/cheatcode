@@ -55,7 +55,10 @@ async function readContextRows(
   env: AgentRunEnv,
   input: StartRunInput,
 ): Promise<ThreadContextMessageRecord[]> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, UserId(input.userId), (tx) =>
       listRecentThreadContextMessages(tx, {
@@ -73,6 +76,8 @@ async function readContextRows(
 function parseConversationMessage(row: ThreadContextMessageRecord): ConversationMessage {
   return ConversationMessageSchema.parse({
     agentRunId: row.agentRunId,
+    agentRunSegment: row.agentRunSegment,
+    agentRunSegmentFinal: row.agentRunSegmentFinal,
     createdAt: row.createdAt.toISOString(),
     id: row.id,
     parts: row.parts,
@@ -116,13 +121,6 @@ function modelRelevantParts(message: ConversationMessage): ConversationUIMessage
         ...(part.state === undefined ? {} : { state: part.state }),
         text: part.text,
         type: "text",
-      });
-    } else if (part.type === "file") {
-      parts.push({
-        ...(part.filename === undefined ? {} : { filename: part.filename }),
-        mediaType: part.mediaType,
-        type: "file",
-        url: part.url,
       });
     }
   }

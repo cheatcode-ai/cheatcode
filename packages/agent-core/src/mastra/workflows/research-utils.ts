@@ -1,7 +1,3 @@
-import type { ResearchFinding, ResearchSource } from "./research-schemas";
-
-const URL_PATTERN = /https?:\/\/[^\s)\]}"'<>]+/g;
-
 export function buildDeepResearchQueries(
   topic: string,
   maxQueries: number,
@@ -55,24 +51,6 @@ export function buildFanoutQueries(input: {
     .map((query) => ({ query }));
 }
 
-export function extractSources(text: string): ResearchSource[] {
-  const urls = text.match(URL_PATTERN) ?? [];
-  const uniqueUrls = [...new Set(urls.map(cleanUrl))].filter(isHttpUrl);
-  return uniqueUrls.map((url) => ({ url }));
-}
-
-export function mergeSources(findings: ResearchFinding[]): ResearchSource[] {
-  const byUrl = new Map<string, ResearchSource>();
-  for (const finding of findings) {
-    for (const source of finding.sources) {
-      if (!byUrl.has(source.url)) {
-        byUrl.set(source.url, source);
-      }
-    }
-  }
-  return [...byUrl.values()];
-}
-
 function dedupeQueries(queries: string[]): string[] {
   const seen = new Set<string>();
   const deduped: string[] = [];
@@ -85,17 +63,4 @@ function dedupeQueries(queries: string[]): string[] {
     }
   }
   return deduped;
-}
-
-function cleanUrl(url: string): string {
-  return url.replace(/[),.;:!?]+$/g, "");
-}
-
-function isHttpUrl(url: string): boolean {
-  try {
-    const parsed = new URL(url);
-    return parsed.protocol === "http:" || parsed.protocol === "https:";
-  } catch {
-    return false;
-  }
 }

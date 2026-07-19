@@ -4,17 +4,11 @@ import {
   setProviderKey,
   validateProviderKey,
 } from "@cheatcode/byok";
-import {
-  createDb,
-  lockUserEntitlementMutations,
-  lockUserProviderKeyMutations,
-  withUserContext,
-} from "@cheatcode/db";
+import { createDb, lockUserProviderKeyMutations, withUserContext } from "@cheatcode/db";
 import { APIError, emitUserEvent, readJsonRequest } from "@cheatcode/observability";
 import { ProviderSchema, ToolDomainSchema, UpsertProviderKeySchema } from "@cheatcode/types";
 import { authenticate } from "./authenticate";
 import type { GatewayApp, GatewayContext } from "./gateway-env";
-import { enforceByokProviderSlotLimit, resolveDatabaseEntitlement } from "./limits";
 import { listAgentsRoute, listToolsRoute } from "./metadata-routes";
 import { rateLimit } from "./rate-limit";
 
@@ -41,7 +35,10 @@ export function registerProviderHttpRoutes(app: GatewayApp): void {
   app.get("/v1/provider-keys", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/provider-keys");
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       return c.json(await withUserContext(db, userId, (tx) => listProviderKeys(tx)));
     } finally {
@@ -66,14 +63,14 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
   }
   const input = parsedInput.data;
   await validateProviderKey(input.provider, input.key);
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const result = await withUserContext(db, userId, async (tx) => {
-      await lockUserEntitlementMutations(tx, userId);
       await lockUserProviderKeyMutations(tx, userId);
-      const entitlement = await resolveDatabaseEntitlement(tx, userId);
       const existingKeys = await listProviderKeys(tx);
-      enforceByokProviderSlotLimit(entitlement, input.provider, existingKeys);
       await setProviderKey(tx, input.provider, input.key);
       const keys = await listProviderKeys(tx);
       const summary =
@@ -103,7 +100,10 @@ async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
       retriable: false,
     });
   }
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     await withUserContext(db, userId, async (tx) => {
       await lockUserProviderKeyMutations(tx, userId);

@@ -1,14 +1,15 @@
 import {
-  fetchClerkUserPrimaryEmail,
+  type ClerkUserSyncSnapshot,
   fetchClerkUserPrimaryEmailStatus,
+  fetchClerkUserSyncSnapshot,
   verifyClerkBearerToken,
 } from "@cheatcode/auth";
 import {
   createDb,
   type Database,
   resolveInternalUserId,
+  syncClerkUser,
   UserDeletionBlockedError,
-  upsertClerkUser,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
@@ -24,6 +25,7 @@ export interface AuthEnv {
   CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_JWT_KEY?: WorkerSecret;
   CLERK_SECRET_KEY?: WorkerSecret;
+  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
@@ -34,7 +36,10 @@ export async function authenticate(
 ): Promise<UserId> {
   const { secretKey, verificationOptions } = await clerkVerification(env);
   const session = await verifyClerkBearerToken(request, verificationOptions);
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     return await resolveOrSyncClerkUser(db, session.clerkUserId, secretKey);
   } finally {
@@ -44,7 +49,7 @@ export async function authenticate(
 
 async function clerkVerification(env: AuthEnv) {
   const jwtKey = await readOptionalSecret(env.CLERK_JWT_KEY, "CLERK_JWT_KEY");
-  const secretKey = await readOptionalSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
+  const secretKey = await readOptionalClerkSecret(env);
   if (!jwtKey && !secretKey) {
     throw new APIError(503, "unavailable_maintenance", "Clerk verification is not configured", {
       hint: "Set CLERK_JWT_KEY or CLERK_SECRET_KEY in the gateway Worker environment.",
@@ -80,15 +85,23 @@ async function resolveOrSyncClerkUser(
       retriable: true,
     });
   }
-  const email = await fetchClerkUserEmail(clerkUserId, secretKey);
-  if (!email) {
+  const snapshot = await fetchCanonicalClerkSnapshot(clerkUserId, secretKey);
+  if (!snapshot.email) {
     throw new APIError(404, "not_found_user", "Authenticated user is missing an email", {
       hint: "Add a primary email address to the Clerk user, then retry.",
       retriable: false,
     });
   }
   try {
-    return (await upsertClerkUser(db, { clerkId: clerkUserId, email })).userId;
+    return (
+      await syncClerkUser(db, {
+        avatarUrl: snapshot.avatarUrl,
+        clerkId: clerkUserId,
+        clerkUpdatedAtMs: snapshot.clerkUpdatedAtMs,
+        displayName: snapshot.displayName,
+        email: snapshot.email,
+      })
+    ).userId;
   } catch (error) {
     throw mapClerkSyncError(error);
   }
@@ -110,9 +123,12 @@ function mapClerkSyncError(error: unknown): unknown {
   });
 }
 
-async function fetchClerkUserEmail(clerkUserId: string, secretKey: string): Promise<string | null> {
+async function fetchCanonicalClerkSnapshot(
+  clerkUserId: string,
+  secretKey: string,
+): Promise<ClerkUserSyncSnapshot> {
   try {
-    return await fetchClerkUserPrimaryEmail({ clerkUserId, secretKey });
+    return await fetchClerkUserSyncSnapshot({ clerkUserId, secretKey });
   } catch {
     throw new APIError(503, "unavailable_maintenance", "Unable to sync Clerk user", {
       hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
@@ -122,7 +138,7 @@ async function fetchClerkUserEmail(clerkUserId: string, secretKey: string): Prom
 }
 
 export async function requireVerifiedClerkEmail(request: Request, env: AuthEnv): Promise<void> {
-  const secretKey = await readRequiredSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
+  const secretKey = await readRequiredClerkSecret(env);
   const session = await verifyClerkBearerToken(request, {
     authorizedParties: clerkAuthorizedParties(env),
     secretKey,
@@ -187,7 +203,7 @@ async function fetchClerkEmailStatus(clerkUserId: string, secretKey: string) {
   }
 }
 
-export async function readOptionalSecret(
+async function readOptionalSecret(
   secret: WorkerSecret | undefined,
   name: string,
 ): Promise<string | undefined> {
@@ -211,6 +227,45 @@ export async function readRequiredSecret(
       hint: `Set ${name} in the gateway Worker environment.`,
       retriable: false,
     });
+  }
+  return value;
+}
+
+export async function readOptionalClerkSecret(
+  env: Pick<AuthEnv, "CHEATCODE_ENVIRONMENT" | "CLERK_SECRET_KEY">,
+): Promise<string | undefined> {
+  const value = await readOptionalSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
+  return value ? assertClerkSecretKeyFamily(value, env.CHEATCODE_ENVIRONMENT) : undefined;
+}
+
+async function readRequiredClerkSecret(
+  env: Pick<AuthEnv, "CHEATCODE_ENVIRONMENT" | "CLERK_SECRET_KEY">,
+): Promise<string> {
+  const value = await readOptionalClerkSecret(env);
+  if (!value) {
+    throw new APIError(503, "unavailable_maintenance", "CLERK_SECRET_KEY is not configured", {
+      hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
+      retriable: false,
+    });
+  }
+  return value;
+}
+
+function assertClerkSecretKeyFamily(
+  value: string,
+  environment: AuthEnv["CHEATCODE_ENVIRONMENT"],
+): string {
+  const requiredPrefix = environment === "production" ? "sk_live_" : "sk_test_";
+  if (!value.startsWith(requiredPrefix)) {
+    throw new APIError(
+      503,
+      "unavailable_maintenance",
+      "Clerk secret key does not match the deployment environment",
+      {
+        hint: `Use a ${requiredPrefix} Clerk key for ${environment}.`,
+        retriable: false,
+      },
+    );
   }
   return value;
 }

@@ -25,24 +25,33 @@ import {
 type GetToken = () => Promise<null | string>;
 
 /** Sandbox-hours usage summary for the header popover and settings meter. */
-export async function fetchSandboxUsage(getToken: GetToken): Promise<SandboxUsageSummaryResponse> {
-  const response = await authorizedFetch(getToken, "/v1/me/usage");
+export async function fetchSandboxUsage(
+  getToken: GetToken,
+  signal?: AbortSignal,
+): Promise<SandboxUsageSummaryResponse> {
+  const response = await authorizedFetch(getToken, "/v1/me/usage", signal ? { signal } : {});
   return SandboxUsageSummaryResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.billing),
   );
 }
 
 /** Plan catalog (tiers, prices, sandbox-hour allowances) resolved server-side. */
-export async function fetchBillingCatalog(getToken: GetToken): Promise<BillingCatalogResponse> {
-  const response = await authorizedFetch(getToken, "/v1/billing/catalog");
+export async function fetchBillingCatalog(
+  getToken: GetToken,
+  signal?: AbortSignal,
+): Promise<BillingCatalogResponse> {
+  const response = await authorizedFetch(getToken, "/v1/billing/catalog", signal ? { signal } : {});
   return BillingCatalogResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.billing),
   );
 }
 
 /** Current subscription state for Cheatcode-owned plan management. */
-export async function fetchBillingState(getToken: GetToken): Promise<BillingStateResponse> {
-  const response = await authorizedFetch(getToken, "/v1/billing/state");
+export async function fetchBillingState(
+  getToken: GetToken,
+  signal?: AbortSignal,
+): Promise<BillingStateResponse> {
+  const response = await authorizedFetch(getToken, "/v1/billing/state", signal ? { signal } : {});
   return BillingStateResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.billing),
   );
@@ -52,18 +61,39 @@ export async function fetchBillingState(getToken: GetToken): Promise<BillingStat
 export async function fetchActivityHistory(
   getToken: GetToken,
   days: number,
+  signal?: AbortSignal,
 ): Promise<ActivityHistoryResponse> {
-  const response = await authorizedFetch(getToken, `/v1/activity?days=${days}`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/activity?days=${days}`,
+    signal ? { signal } : {},
+  );
   return ActivityHistoryResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.billing),
   );
 }
 
 /** Tier-based Polar checkout; the gateway resolves the product id from env. */
-export async function requestCheckout(getToken: GetToken, input: BillingCheckout): Promise<string> {
-  const body = BillingCheckoutSchema.parse(input);
+export async function requestCheckout(
+  getToken: GetToken,
+  input: Pick<BillingCheckout, "tier">,
+): Promise<string> {
+  const body = BillingCheckoutSchema.parse({
+    returnPath: `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    tier: input.tier,
+  });
   const response = await authorizedFetch(getToken, "/v1/billing/checkout", {
     body: JSON.stringify(body),
+    method: "POST",
+  });
+  return BillingUrlResponseSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.billing),
+  ).url;
+}
+
+/** Open Polar's customer portal for invoices and payment-method management. */
+export async function requestBillingPortal(getToken: GetToken): Promise<string> {
+  const response = await authorizedFetch(getToken, "/v1/billing/portal", {
     method: "POST",
   });
   return BillingUrlResponseSchema.parse(

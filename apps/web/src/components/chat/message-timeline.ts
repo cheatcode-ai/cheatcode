@@ -14,6 +14,7 @@ export function buildMessageTimeline(
 ): TimelineItem[] {
   const finalAnswerIndex = streaming ? -1 : lastAnswerTextIndex(parts);
   const items: TimelineItem[] = [];
+  const deferredSkillProposals: TimelineItem[] = [];
   let activity: PendingActivity | null = null;
   const flushActivity = () => {
     if (!activity) return;
@@ -26,6 +27,15 @@ export function buildMessageTimeline(
   };
   parts.forEach((part, index) => {
     if (isHiddenTranscriptPart(part)) return;
+    if (part.type === "data-skill-proposed") {
+      flushActivity();
+      deferredSkillProposals.push({
+        key: partKey(messageId, part, index),
+        kind: "part",
+        part,
+      });
+      return;
+    }
     if (index === finalAnswerIndex || !isStepPart(part)) {
       flushActivity();
       items.push({ key: partKey(messageId, part, index), kind: "part", part });
@@ -35,24 +45,16 @@ export function buildMessageTimeline(
     activity.parts.push(part);
   });
   flushActivity();
-  return items;
-}
-
-export function collectResolvedApprovals(parts: readonly MessagePart[]): ReadonlySet<string> {
-  const resolved = new Set<string>();
-  for (const part of parts) {
-    if (part.type === "data-approval-decision") resolved.add(part.data.approvalId);
-  }
-  return resolved;
+  return [...items, ...deferredSkillProposals];
 }
 
 export function isHiddenTranscriptPart(part: MessagePart): boolean {
   return (
-    part.type === "data-seq" ||
     part.type === "data-artifact" ||
     part.type === "data-sandbox-status" ||
     part.type === "data-plan" ||
-    part.type === "data-task-status"
+    part.type === "data-task-status" ||
+    part.type === "data-transcript-fragment"
   );
 }
 
@@ -75,7 +77,7 @@ function trailingTextIndex(parts: readonly MessagePart[]): number {
   for (let index = parts.length - 1; index >= 0; index -= 1) {
     const part = parts[index];
     if (isNonEmptyText(part)) return index;
-    if (part && (isToolPart(part) || part.type === "data-thinking")) return -1;
+    if (part && isToolPart(part)) return -1;
   }
   return -1;
 }
@@ -94,35 +96,22 @@ function isNonEmptyText(
 }
 
 function isStepPart(part: MessagePart): boolean {
-  return part.type === "text" || part.type === "data-thinking" || isToolPart(part);
+  return part.type === "text" || part.type === "data-project-created" || isToolPart(part);
 }
 
 function partKey(messageId: string, part: MessagePart, partIndex: number): string {
   if (part.type === "text") return `${messageId}:${partIndex}:text:${part.text.slice(0, 80)}`;
-  if (part.type === "data-thinking") return `${messageId}:${partIndex}:thinking`;
   if (part.type === "data-artifact") {
     return `${messageId}:${partIndex}:artifact:${part.data.outputId}`;
   }
-  if (part.type === "data-seq") return `${messageId}:${partIndex}:seq:${part.data.seq}`;
   if (isToolPart(part)) return toolPartKey(messageId, part, partIndex);
   return `${messageId}:${partIndex}:${part.type}:${formatUnknown(part).slice(0, 120)}`;
 }
 
-function toolPartKey(messageId: string, part: MessagePart, partIndex: number): string {
-  const record = asRecord(part);
-  const source = part.type === "data-tool" ? asRecord(record["data"]) : record;
-  const id =
-    stringRecordField(source, "toolCallId") ||
-    stringRecordField(record, "id") ||
-    stringRecordField(record, "state");
-  return `${messageId}:${partIndex}:${part.type}:${id}`;
-}
-
-function asRecord(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function stringRecordField(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  return typeof value === "string" ? value : "";
+function toolPartKey(
+  messageId: string,
+  part: Extract<MessagePart, { type: "data-tool" }>,
+  partIndex: number,
+): string {
+  return `${messageId}:${partIndex}:${part.type}:${part.data.toolCallId}`;
 }

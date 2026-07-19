@@ -1,5 +1,4 @@
 import { createDb } from "@cheatcode/db";
-import { getMeRoute, updateMeRoute } from "./account-routes";
 import { getActivityHistoryRoute } from "./activity-routes";
 import { authenticate, readRequiredSecret } from "./authenticate";
 import { myUsageRoute } from "./billing-routes";
@@ -11,16 +10,6 @@ import { rateLimit } from "./rate-limit";
 import { listRecentThreadsRoute, searchWorkspaceRoute } from "./search-routes";
 
 export function registerAccountHttpRoutes(app: GatewayApp): void {
-  app.get("/v1/me", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/me");
-    return getMeRoute(c.env, c.executionCtx, userId);
-  });
-  app.patch("/v1/me", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "PATCH /v1/me");
-    return updateMeRoute(c.env, c.executionCtx, c.req.raw, userId);
-  });
   app.get("/v1/me/profile", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/me/profile");
@@ -58,7 +47,10 @@ export function registerAccountHttpRoutes(app: GatewayApp): void {
 async function limitsRoute(c: GatewayContext): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/limits");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const snapshot = await buildLimitsSnapshot(c.env, db, userId);
     return c.json(snapshot);

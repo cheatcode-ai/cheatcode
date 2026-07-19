@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { inet, jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { jsonb, pgTable, primaryKey, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 
 export const auditLog = pgTable(
@@ -14,8 +14,6 @@ export const auditLog = pgTable(
       .$type<Record<string, unknown>>()
       .notNull()
       .default(sql`'{}'::jsonb`),
-    ipAddress: inet("ip_address"),
-    userAgent: text("user_agent"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => ({

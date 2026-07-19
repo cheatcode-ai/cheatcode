@@ -1,6 +1,7 @@
 import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 
 interface ResearchJsonRequest {
+  abortSignal?: AbortSignal | undefined;
   apiKey: string;
   body?: unknown;
   maxResponseBytes: number;
@@ -15,10 +16,11 @@ const RESEARCH_REQUEST_MAX_BYTES = 256 * 1024;
 export async function requestResearchJson(input: ResearchJsonRequest): Promise<unknown> {
   try {
     const body = input.body === undefined ? undefined : boundedResearchBody(input.body);
+    input.abortSignal?.throwIfAborted();
     const response = await fetch(input.url, {
       headers: providerHeaders(input.provider, input.apiKey),
       method: input.method ?? "POST",
-      signal: AbortSignal.timeout(input.timeoutMs),
+      signal: requestSignal(input),
       ...(body === undefined ? {} : { body }),
     });
     if (!response.ok) {
@@ -27,6 +29,9 @@ export async function requestResearchJson(input: ResearchJsonRequest): Promise<u
     }
     return await readBoundedResponseJson(response, input.maxResponseBytes, `${input.provider} API`);
   } catch (error) {
+    if (input.abortSignal?.aborted) {
+      throw abortReason(input.abortSignal);
+    }
     if (error instanceof APIError) {
       throw error;
     }
@@ -41,6 +46,15 @@ export async function requestResearchJson(input: ResearchJsonRequest): Promise<u
       retriable: true,
     });
   }
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Research request was canceled", "AbortError");
+}
+
+function requestSignal(input: ResearchJsonRequest): AbortSignal {
+  const timeoutSignal = AbortSignal.timeout(input.timeoutMs);
+  return input.abortSignal ? AbortSignal.any([input.abortSignal, timeoutSignal]) : timeoutSignal;
 }
 
 function boundedResearchBody(value: unknown): string {

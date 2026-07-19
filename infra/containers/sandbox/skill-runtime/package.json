@@ -1,0 +1,21 @@
+{
+  "name": "@cheatcode/sandbox-skills-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "cheatcode-skills": "./bin/cheatcode-skills.mjs"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@types/node": "^24.3.0",
+    "agent-browser": "0.23.1",
+    "tsx": "4.23.1",
+    "typescript": "^5.9.3"
+  }
+}

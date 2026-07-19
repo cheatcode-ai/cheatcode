@@ -1,10 +1,30 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  assertStorageReconciliationRequest,
+  reconcileExactSqliteStorage,
+  storageSchemaEvidence,
+} from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
+import type {
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+} from "@cheatcode/types";
 import {
   type RateLimitConfig,
   RateLimitConsumeBodySchema,
   type RateLimitResult,
 } from "./rate-limit-contract";
+import {
+  assertRateLimiterStorage,
+  hasRateLimiterStorage,
+  initializeRateLimiterStorage,
+  reconcileRateLimiterStorage,
+} from "./rate-limiter-storage";
+import {
+  assertGatewayDurableObjectOpen,
+  gatewayDurableObjectClosedResponse,
+  rearmClosedGatewayDurableObjectAlarm,
+} from "./release-gate";
 import { nextGatewayDurableObjectAlarm, RATE_LIMITER_RETENTION_MS } from "./retention";
 
 interface BucketRow {
@@ -12,7 +32,10 @@ interface BucketRow {
   last_refill_ms: number;
 }
 
-type RateLimiterEnv = Record<never, never>;
+interface RateLimiterEnv {
+  CHEATCODE_RELEASE_GATE: "closed" | "open";
+  CHEATCODE_RELEASE_SHA?: string;
+}
 const MAX_RATE_LIMIT_REQUEST_BYTES = 16 * 1024;
 
 function isBucketRow(value: unknown): value is BucketRow {
@@ -24,11 +47,28 @@ function isBucketRow(value: unknown): value is BucketRow {
 }
 
 export class RateLimiter extends DurableObject<RateLimiterEnv> {
+  private isStorageInitialized = false;
+
+  public reconcileStorageSchema(
+    value: InternalDurableObjectStorageRequest,
+  ): InternalDurableObjectStorageResponse {
+    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "RateLimiter");
+    reconcileExactSqliteStorage(
+      input.mode,
+      () => assertRateLimiterStorage(this.ctx),
+      () => reconcileRateLimiterStorage(this.ctx),
+    );
+    this.isStorageInitialized = true;
+    return storageSchemaEvidence(input);
+  }
+
   public async consume(
     key: string,
     cost: number,
     config: RateLimitConfig,
   ): Promise<RateLimitResult> {
+    assertGatewayDurableObjectOpen(this.env);
+    this.ensureStorage();
     const now = Date.now();
     const [rawRow] = this.ctx.storage.sql
       .exec("SELECT tokens, last_refill_ms FROM bucket WHERE key = ?", key)
@@ -65,6 +105,9 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
   }
 
   public override async fetch(request: Request): Promise<Response> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return gatewayDurableObjectClosedResponse();
+    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -75,6 +118,15 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
   }
 
   public override async alarm(): Promise<void> {
+    if (!hasRateLimiterStorage(this.ctx)) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
+      return;
+    }
+    this.isStorageInitialized = true;
     this.ctx.storage.sql.exec(
       "DELETE FROM bucket WHERE last_refill_ms < ?",
       Date.now() - RATE_LIMITER_RETENTION_MS,
@@ -82,23 +134,21 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
     if (this.hasBuckets()) {
       await this.ensureCleanupAlarm();
     } else {
-      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      this.isStorageInitialized = false;
     }
   }
 
-  public constructor(ctx: DurableObjectState, env: RateLimiterEnv) {
-    super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS bucket (
-          key TEXT PRIMARY KEY,
-          tokens REAL NOT NULL,
-          last_refill_ms INTEGER NOT NULL,
-          capacity INTEGER NOT NULL,
-          refill_per_sec REAL NOT NULL
-        )`,
-      );
-    });
+  private ensureStorage(): void {
+    if (this.isStorageInitialized) {
+      return;
+    }
+    if (hasRateLimiterStorage(this.ctx)) {
+      assertRateLimiterStorage(this.ctx);
+    } else {
+      initializeRateLimiterStorage(this.ctx);
+    }
+    this.isStorageInitialized = true;
   }
 
   private hasBuckets(): boolean {

@@ -1,3 +1,4 @@
+import type { RunIntent } from "@cheatcode/types";
 import { createChat, listProjectThreadsPage, threadTitle } from "@/lib/api/project-thread";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 
@@ -34,8 +35,14 @@ export async function launchIntoProject(
  * rides the path, not the query. Carries no `surface`/`model` — the chat's launch
  * intent owns the build surface and a per-run model choice rides the zustand store.
  */
-export function buildExistingProjectParams(prompt: string): URLSearchParams {
+export function buildExistingProjectParams(
+  prompt: string,
+  intent: RunIntent | null = null,
+): URLSearchParams {
   const params = new URLSearchParams();
   params.set("promptKey", createPromptHandoff(prompt).promptKey);
+  if (intent) {
+    params.set("intent", intent);
+  }
   return params;
 }

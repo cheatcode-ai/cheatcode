@@ -2,13 +2,13 @@
 
 import type { BillingTier, PlanSummary } from "@cheatcode/types";
 import { PaidBillingTierSchema } from "@cheatcode/types";
+import { CreditCard, Loader2 } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { ManageSubscriptionDialog } from "@/components/billing/manage-subscription-dialog";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { CreditCard, Loader2 } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { requestCheckout } from "@/lib/api/billing";
 import { canCheckoutPlan, isBillingUpgrade } from "@/lib/billing/tiers";
@@ -252,8 +252,6 @@ function usePricingCheckout(getToken: () => Promise<null | string>) {
   return useMutation({
     mutationFn: (plan: PlanSummary) =>
       requestCheckout(getToken, {
-        returnUrl: window.location.href,
-        successUrl: window.location.href,
         tier: PaidBillingTierSchema.parse(plan.id),
       }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Checkout failed"),

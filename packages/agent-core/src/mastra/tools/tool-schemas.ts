@@ -7,7 +7,7 @@ import { ResearchReportSchema } from "../workflows";
 export const startDevServerInputSchema = z
   .object({
     command: z
-      .array(z.string().min(1).describe("One argv element."))
+      .array(z.string().min(1).max(8_192).describe("One argv element."))
       .min(1)
       .max(128)
       .describe("Dev server command argv."),
@@ -91,8 +91,14 @@ export const skillCreateInputSchema = z
 
 export const skillCreateOutputSchema = z
   .object({
+    body: z.string(),
+    category: z.string(),
+    description: z.string(),
     name: z.string(),
-    saved: z.boolean(),
+    proposalId: z.string().uuid(),
+    proposed: z.literal(true),
+    slug: z.string(),
+    tags: z.array(z.string()),
   })
   .strict();
 
@@ -105,6 +111,12 @@ export const skillInvokeOutputSchema = z
     license: z.string().optional(),
     name: z.string(),
     references: z.array(z.string()),
+    rootPath: z
+      .string()
+      .min(1)
+      .describe(
+        "Filesystem root of the complete skill package. Resolve instructions that mention scripts/, references/, or assets/ from this directory.",
+      ),
   })
   .strict();
 

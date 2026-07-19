@@ -1,15 +1,15 @@
 "use client";
 
 import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types";
+import { ChartNoAxesCombined } from "@cheatcode/ui";
 import { useEffect, useMemo, useState } from "react";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { ChartNoAxesCombined } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { useActivityQuery } from "@/lib/hooks/use-billing";
 import { ActivityYearChart } from "./activity-year-chart-view";
 import { buildActivityYears } from "./activity-year-model";
 
-const QUERY_DAYS = 90;
+const QUERY_DAYS = 366;
 const EMPTY_RUNS: ActivityRunPoint[] = [];
 const EMPTY_SANDBOX_HOURS: SandboxHourPoint[] = [];
 

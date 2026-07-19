@@ -1,9 +1,9 @@
 "use client";
 
 import type { CheatcodeUIMessage } from "@cheatcode/types";
+import { ChevronDown } from "@cheatcode/ui";
 import { useState } from "react";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
-import { ChevronDown, Loader2 } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 const MAX_TOOL_STRING_LENGTH = 600;
@@ -22,10 +22,13 @@ const LARGE_TOOL_FIELDS = new Set([
 ]);
 
 type MessagePart = CheatcodeUIMessage["parts"][number];
-type ThinkingData = Extract<MessagePart, { type: "data-thinking" }>["data"];
+type ToolPart = Extract<MessagePart, { type: "data-tool" }>;
+type ProjectCreatedPart = Extract<MessagePart, { type: "data-project-created" }>;
+type TextPart = Extract<MessagePart, { type: "text" }>;
 type ActivityRow =
-  | { kind: "tools"; key: string; parts: MessagePart[] }
-  | { kind: "part"; key: string; part: MessagePart };
+  | { kind: "tools"; key: string; parts: ToolPart[] }
+  | { kind: "project-created"; key: string; part: ProjectCreatedPart }
+  | { kind: "narration"; key: string; part: TextPart };
 type ToolVerbSpec = { verb: string; argKeys?: string[] };
 type ToolDetailSection = {
   isCommand: boolean;
@@ -118,13 +121,9 @@ function ActivityTimeline({ rows }: { rows: ActivityRow[] }) {
       {rows.map((row) => (
         <div className="relative pt-[5px] pb-2 pl-1 last:pb-0" key={row.key}>
           <TimelineConnector continued />
-          {row.kind === "tools" ? (
-            <ToolGroup parts={row.parts} />
-          ) : row.part.type === "data-thinking" ? (
-            <ThinkingBlock data={row.part.data} />
-          ) : (
-            <ActivityNarration text={(row.part as { text: string }).text} />
-          )}
+          {row.kind === "tools" ? <ToolGroup parts={row.parts} /> : null}
+          {row.kind === "project-created" ? <ProjectCreatedActivity part={row.part} /> : null}
+          {row.kind === "narration" ? <ActivityNarration text={row.part.text} /> : null}
         </div>
       ))}
     </div>
@@ -151,7 +150,7 @@ function activityLabel(stepCount: number, toolCount: number): string {
 
 function buildActivityRows(parts: MessagePart[]): ActivityRow[] {
   const rows: ActivityRow[] = [];
-  let run: { parts: MessagePart[]; startIndex: number } | null = null;
+  let run: { parts: ToolPart[]; startIndex: number } | null = null;
   const flush = () => {
     if (run) {
       rows.push({ kind: "tools", key: `tools:${run.startIndex}`, parts: run.parts });
@@ -165,69 +164,53 @@ function buildActivityRows(parts: MessagePart[]): ActivityRow[] {
       return;
     }
     flush();
-    rows.push({ kind: "part", key: `step:${index}`, part });
+    if (part.type === "data-project-created") {
+      rows.push({ kind: "project-created", key: `project-created:${index}`, part });
+      return;
+    }
+    if (part.type === "text") {
+      rows.push({ kind: "narration", key: `narration:${index}`, part });
+    }
   });
   flush();
   return rows;
 }
 
-export function ThinkingBlock({ data }: { data: ThinkingData }) {
+export function ProjectCreatedActivity({ part }: { part: ProjectCreatedPart }) {
   const [open, setOpen] = useState(false);
-  const streaming = data.delta;
-  const label = thinkingLabel(data);
-  const canExpand = !streaming && data.text.trim().length > 0;
-
   return (
-    <div className="cc-fade-in flex w-full flex-col text-[14px]">
+    <div className="cc-fade-in flex w-full min-w-0 flex-col">
       <button
-        aria-expanded={canExpand ? open : undefined}
-        className="group flex h-5 w-full items-center gap-1 text-fg-secondary transition-colors duration-200 hover:text-foreground disabled:cursor-default"
-        disabled={!canExpand}
+        aria-expanded={open}
+        className="group flex h-5 w-full min-w-0 items-center gap-1.5 text-left text-[14px] text-fg-secondary transition-colors duration-200 hover:text-foreground"
         onClick={() => setOpen((value) => !value)}
         type="button"
       >
-        {streaming ? <Loader2 aria-hidden="true" className="h-3 w-3 animate-spin" /> : null}
-        <span className="whitespace-nowrap">{label}</span>
-        {canExpand ? (
-          <ChevronDown
-            aria-hidden="true"
-            className={cn("h-3 w-3 text-placeholder transition-transform", !open && "-rotate-90")}
-          />
-        ) : null}
+        <span className="min-w-0 flex-1 truncate">Created project {part.data.projectName}</span>
+        <ChevronDown
+          aria-hidden="true"
+          className={cn(
+            "h-3 w-3 shrink-0 text-placeholder transition-transform",
+            !open && "-rotate-90",
+          )}
+        />
       </button>
-      {open && canExpand ? (
-        <div className="mt-1.5 ml-[5px] whitespace-pre-wrap border-border border-l pl-5 text-fg-secondary leading-5">
-          {data.text}
+      {open ? (
+        <div className="relative mt-0 ml-[5px] pt-1.5 pl-5">
+          <ToolDetailCard
+            continued={false}
+            isCommand={false}
+            label="Project"
+            scroll={false}
+            value={part.data.projectName}
+          />
         </div>
       ) : null}
     </div>
   );
 }
 
-function thinkingLabel(data: ThinkingData): string {
-  if (data.delta) {
-    return "Thinking…";
-  }
-  if (typeof data.durationMs === "number") {
-    return `Thought for ${formatThinkingDuration(data.durationMs)}`;
-  }
-  return "Thought";
-}
-
-function formatThinkingDuration(ms: number): string {
-  const seconds = ms / 1000;
-  if (seconds < 10) {
-    return `${seconds.toFixed(seconds === 0 ? 0 : 1)}s`;
-  }
-  if (seconds < 60) {
-    return `${Math.round(seconds)}s`;
-  }
-  const minutes = Math.floor(seconds / 60);
-  const remainder = Math.round(seconds % 60);
-  return remainder === 0 ? `${minutes}m` : `${minutes}m ${remainder}s`;
-}
-
-export function ToolGroup({ parts }: { parts: MessagePart[] }) {
+export function ToolGroup({ parts }: { parts: ToolPart[] }) {
   const rows = collapseToolRuns(parts);
   return (
     <div className="space-y-2">
@@ -238,8 +221,8 @@ export function ToolGroup({ parts }: { parts: MessagePart[] }) {
   );
 }
 
-function collapseToolRuns(parts: MessagePart[]): { key: string; parts: MessagePart[] }[] {
-  const rows: { key: string; parts: MessagePart[] }[] = [];
+function collapseToolRuns(parts: ToolPart[]): { key: string; parts: ToolPart[] }[] {
+  const rows: { key: string; parts: ToolPart[] }[] = [];
   let index = 0;
   while (index < parts.length) {
     const type = parts[index]?.type;
@@ -253,7 +236,7 @@ function collapseToolRuns(parts: MessagePart[]): { key: string; parts: MessagePa
   return rows;
 }
 
-function ToolRow({ parts }: { parts: MessagePart[] }) {
+function ToolRow({ parts }: { parts: ToolPart[] }) {
   const [open, setOpen] = useState(false);
   const first = parts[0];
   if (!first) {
@@ -288,7 +271,7 @@ function toolRowLabel(description: { arg: string | null; verb: string }, extra: 
   return extra > 0 ? `${primary} (+${extra} more)` : primary;
 }
 
-function ToolDetails({ parts }: { parts: MessagePart[] }) {
+function ToolDetails({ parts }: { parts: ToolPart[] }) {
   const sections = buildToolDetailSections(parts);
   return (
     <div className="relative mt-0 ml-[5px] space-y-0 pt-1.5 pl-5">
@@ -306,7 +289,7 @@ function ToolDetails({ parts }: { parts: MessagePart[] }) {
   );
 }
 
-function buildToolDetailSections(parts: MessagePart[]): ToolDetailSection[] {
+function buildToolDetailSections(parts: ToolPart[]): ToolDetailSection[] {
   const occurrences = new Map<string, number>();
   return parts.flatMap((part) => {
     const partIdentity = toolPartIdentity(part);
@@ -379,52 +362,21 @@ function TimelineConnector({ continued }: { continued: boolean }) {
   );
 }
 
-function toolDetailSections(part: MessagePart): Array<Omit<ToolDetailSection, "key">> {
-  const record = asRecord(part);
+function toolDetailSections(part: ToolPart): Array<Omit<ToolDetailSection, "key">> {
   const { name, input } = toolNameAndInput(part);
-  const output = record["output"] ?? record["result"];
   const isCommand = isCommandTool(name);
-  const sections = [
+  return [
     {
       label: isCommand ? "Command" : "Input",
       isCommand,
       scroll: false,
       value: isCommand ? commandValue(input) : formatUnknown(summarizeToolValue(input, 0)),
     },
-  ];
-  if (output !== undefined) {
-    sections.push({
-      label: "Output",
-      isCommand: false,
-      scroll: true,
-      value: formatUnknown(summarizeToolValue(output, 0)),
-    });
-  }
-  return sections.filter((section) => section.value.length > 0);
+  ].filter((section) => section.value.length > 0);
 }
 
-function toolPartIdentity(part: MessagePart): string {
-  const record = asRecord(part);
-  const data = part.type === "data-tool" ? asRecord(record["data"]) : record;
-  const callId =
-    stringRecordField(data, "toolCallId") ||
-    stringRecordField(record, "toolCallId") ||
-    stringRecordField(record, "id");
-  if (callId) {
-    return `${part.type}:${callId}`;
-  }
-  const { input, name } = toolNameAndInput(part);
-  const output = record["output"] ?? record["result"];
-  return `${part.type}:${name}:${toolValueFingerprint([input, output])}`;
-}
-
-function toolValueFingerprint(value: unknown): string {
-  const serialized = formatUnknown(summarizeToolValue(value, 0));
-  let hash = 2_166_136_261;
-  for (let index = 0; index < serialized.length; index += 1) {
-    hash = Math.imul(hash ^ serialized.charCodeAt(index), 16_777_619);
-  }
-  return (hash >>> 0).toString(36);
+function toolPartIdentity(part: ToolPart): string {
+  return `${part.type}:${part.data.toolCallId}`;
 }
 
 function ShellCommand({ value }: { value: string }) {
@@ -462,7 +414,7 @@ function isCommandTool(name: string): boolean {
   return name === "runCode" || name.startsWith("shell_") || name === "start_dev_server";
 }
 
-function describeTool(part: MessagePart): { verb: string; arg: string | null } {
+function describeTool(part: ToolPart): { verb: string; arg: string | null } {
   const { name, input } = toolNameAndInput(part);
   const spec = TOOL_VERBS[name];
   const verb = spec?.verb ?? humanizeToolName(name);
@@ -475,21 +427,10 @@ function describeTool(part: MessagePart): { verb: string; arg: string | null } {
   return { verb, arg: null };
 }
 
-function toolNameAndInput(part: MessagePart): { input: Record<string, unknown>; name: string } {
-  const record = asRecord(part);
-  if (part.type === "data-tool") {
-    const data = asRecord(record["data"]);
-    return { input: asRecord(data["input"]), name: stringRecordField(data, "toolName") };
-  }
-  if (part.type === "dynamic-tool") {
-    return {
-      input: asRecord(record["input"] ?? record["args"]),
-      name: stringRecordField(record, "toolName"),
-    };
-  }
+function toolNameAndInput(part: ToolPart): { input: Record<string, unknown>; name: string } {
   return {
-    input: asRecord(record["input"] ?? record["args"]),
-    name: part.type.replace("tool-", ""),
+    input: part.data.input ?? {},
+    name: part.data.toolName,
   };
 }
 
@@ -508,17 +449,12 @@ function shortenArg(value: string): string {
     : `${collapsed.slice(0, MAX_TOOL_ARG_LENGTH - 1)}…`;
 }
 
-export function isToolPart(part: MessagePart): boolean {
-  return part.type.startsWith("tool-") || part.type === "dynamic-tool" || part.type === "data-tool";
+export function isToolPart(part: MessagePart): part is ToolPart {
+  return part.type === "data-tool";
 }
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? (value as Record<string, unknown>) : {};
-}
-
-function stringRecordField(record: Record<string, unknown>, key: string): string {
-  const value = record[key];
-  return typeof value === "string" ? value : "";
 }
 
 function formatUnknown(value: unknown): string {

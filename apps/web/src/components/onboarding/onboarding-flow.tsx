@@ -1,7 +1,7 @@
 "use client";
 
+import { Sparkles as SparklesIcon } from "@cheatcode/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { Sparkles as SparklesIcon } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { createOnboardingStepProps, renderOnboardingStep } from "./onboarding-step-router";
 import { STEP_ORDER, useOnboardingFlow } from "./use-onboarding-flow";

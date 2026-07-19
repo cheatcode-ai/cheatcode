@@ -11,7 +11,6 @@ import type { BillingTier } from "@cheatcode/types/billing";
  * There is no "credits" unit and no `credits = hours * N` mapping anywhere.
  */
 export interface PlanCatalogEntry {
-  byokProviderSlots: number | null;
   displayName: string;
   id: BillingTier;
   maxProjects: number | null;
@@ -24,7 +23,6 @@ type SandboxUsageWarnLevel = "none" | "warn80" | "warn95" | "exhausted";
 
 export const PLAN_CATALOG = {
   free: {
-    byokProviderSlots: 3,
     displayName: "Free",
     id: "free",
     maxProjects: 3,
@@ -33,7 +31,6 @@ export const PLAN_CATALOG = {
     sandboxHours: 5,
   },
   pro: {
-    byokProviderSlots: 10,
     displayName: "Pro",
     id: "pro",
     maxProjects: 25,
@@ -42,7 +39,6 @@ export const PLAN_CATALOG = {
     sandboxHours: 60,
   },
   premium: {
-    byokProviderSlots: null,
     displayName: "Premium",
     id: "premium",
     maxProjects: 50,
@@ -51,7 +47,6 @@ export const PLAN_CATALOG = {
     sandboxHours: 140,
   },
   ultra: {
-    byokProviderSlots: null,
     displayName: "Ultra",
     id: "ultra",
     maxProjects: 100,
@@ -60,7 +55,6 @@ export const PLAN_CATALOG = {
     sandboxHours: 320,
   },
   max: {
-    byokProviderSlots: null,
     displayName: "Max",
     id: "max",
     maxProjects: null,

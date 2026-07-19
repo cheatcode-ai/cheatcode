@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": "22.x"
+    "node": "22.22.2"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "3.7.0",

@@ -57,7 +57,10 @@ export async function terminalProjectForThread(
   threadId: string,
 ): Promise<{ id: string; name: string; workspaceSlug: string } | null> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, parsedUserId, async (tx) => {
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });

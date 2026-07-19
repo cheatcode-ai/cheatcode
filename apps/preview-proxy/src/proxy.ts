@@ -12,11 +12,7 @@ import {
   refreshPreviewOriginAfterAuthFailure,
   resolvePreviewOrigin,
 } from "./origin";
-import {
-  CHEATCODE_APP_ORIGIN,
-  PREVIEW_SESSION_COOKIE,
-  PREVIEW_TOKEN_QUERY,
-} from "./preview-session";
+import { isReservedPreviewCookieName, PREVIEW_TOKEN_QUERY } from "./preview-session";
 import { relayPreviewWebSocket } from "./websocket-relay";
 
 /**
@@ -177,7 +173,7 @@ async function transformCodeServerResponse(
     "Code-server HTML",
   );
   const body = isCodeServerWorkbenchHtml(html)
-    ? injectCodeServerParentBridge(html, CHEATCODE_APP_ORIGIN)
+    ? injectCodeServerParentBridge(html, input.env.CHEATCODE_APP_ORIGIN)
     : html;
   const headers = new Headers(response.headers);
   headers.delete("Content-Encoding");
@@ -198,7 +194,7 @@ async function forwardWebSocket(input: ProxyInput, origin: PreviewOrigin): Promi
   wsRequest.headers.set(DAYTONA_TOKEN_HEADER, origin.token);
   wsRequest.headers.set(DAYTONA_SKIP_WARNING_HEADER, "true");
   setCanonicalForwardingHeaders(wsRequest.headers, input.originalHost, input.url.protocol);
-  wsRequest.headers.set("Origin", new URL(origin.url).origin);
+  wsRequest.headers.set("Origin", websocketOrigin(input, origin));
   const response = await fetch(wsRequest);
   if (response.webSocket) {
     return relayPreviewWebSocket(
@@ -208,6 +204,16 @@ async function forwardWebSocket(input: ProxyInput, origin: PreviewOrigin): Promi
     );
   }
   return buildClientResponse(response, input, origin);
+}
+
+function websocketOrigin(input: ProxyInput, origin: PreviewOrigin): string {
+  if (!isCodeServerRequest(input)) {
+    return new URL(origin.url).origin;
+  }
+  // Code Server validates WebSocket origins against the public preview host
+  // configured when the sandbox starts. Replacing that origin with Daytona's
+  // private upstream host makes the otherwise valid workbench socket fail 403.
+  return `${input.url.protocol}//${input.originalHost}`;
 }
 
 function buildForwardHeaders(
@@ -326,7 +332,7 @@ function sanitizeOriginCookie(cookie: string): string | null {
   const first = parts.shift()?.trim();
   const separator = first?.indexOf("=") ?? -1;
   const name = separator > 0 && first ? first.slice(0, separator).trim() : "";
-  if (!validOriginCookieName(name) || name.toLowerCase() === PREVIEW_SESSION_COOKIE.toLowerCase()) {
+  if (!validOriginCookieName(name) || isReservedPreviewCookieName(name)) {
     return null;
   }
   const attributes = parts.filter((part) => !/^\s*domain\s*=/iu.test(part));

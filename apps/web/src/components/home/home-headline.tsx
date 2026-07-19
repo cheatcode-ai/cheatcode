@@ -14,7 +14,7 @@ export function HomeHeadline() {
   const { getToken, isSignedIn } = useAuth();
   const { data: greeting } = useQuery({
     enabled: Boolean(isSignedIn),
-    queryFn: () => getGreeting(getToken),
+    queryFn: ({ signal }) => getGreeting(getToken, signal),
     queryKey: ["greeting"],
     retry: 0,
     staleTime: 15 * 60_000,

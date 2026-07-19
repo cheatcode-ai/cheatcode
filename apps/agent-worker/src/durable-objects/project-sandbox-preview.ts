@@ -15,6 +15,9 @@ export interface BuildPreviewUrlInput {
   // Mobile (Expo web) previews use the clean-subdomain URL form because Expo Router derives its
   // route from window.location and each project runs Metro on its own port.
   isMobile?: boolean;
+  // Embedded services such as Code Server exchange messages with their parent.
+  // Give them their final origin up front instead of a temporary local handoff origin.
+  useSubdomain?: boolean;
 }
 
 export interface BuiltPreviewUrl {
@@ -40,9 +43,10 @@ export async function buildPreviewUrl(input: BuildPreviewUrlInput): Promise<Buil
     // clean (`/`) — Expo Router routes from window.location and the `/__sandbox/<host>` path prefix
     // yields "Unmatched Route". The local proxy routes this by Host, matching prod's subdomain
     // routing. Web (Next.js) previews keep the path form, which they tolerate.
-    const url = input.isMobile
-      ? `http://${host}${path}`
-      : `http://${hostname}/__sandbox/${encodePreviewHost(host)}${path}`;
+    const url =
+      input.isMobile || input.useSubdomain
+        ? `http://${host}${path}`
+        : `http://${hostname}/__sandbox/${encodePreviewHost(host)}${path}`;
     return { expiresAt: new Date(capability.expiresAt).toISOString(), url };
   }
   const url = `https://${host}${path}`;

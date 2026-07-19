@@ -1,5 +1,6 @@
 "use client";
 
+import { CreditCard, LifeBuoy, type LucideIcon, MoreVertical, TrendingUp } from "@cheatcode/ui";
 import Link from "next/link";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { FOOTER_NAV, isExternalHref } from "@/components/shell/sidebar-navigation-model";
@@ -11,19 +12,12 @@ import {
 } from "@/components/shell/sidebar-settings-icons";
 import { useSidebarTheme } from "@/components/shell/sidebar-theme";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import {
-  CreditCard,
-  LifeBuoy,
-  type LucideIcon,
-  MoreVertical,
-  TrendingUp,
-} from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 const HELP_ITEM = FOOTER_NAV.find((item) => item.id === "cheatcode-101");
 const RAIL_SETTINGS_MENU_LINKS = [
   { href: "/pricing", icon: CreditCard, label: "Pricing" },
-  { href: "/billing", icon: TrendingUp, label: "Usage" },
+  { href: "/usage", icon: TrendingUp, label: "Usage" },
   { href: "mailto:hi@trycheatcode.com", icon: LifeBuoy, label: "Support" },
 ] as const satisfies readonly SidebarMenuLinkItem[];
 const SIDEBAR_THEME_OPTIONS = [

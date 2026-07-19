@@ -1,14 +1,23 @@
 "use client";
 
+import {
+  Download,
+  Inbox,
+  Loader2,
+  type LucideIcon,
+  Monitor,
+  MoreHorizontal,
+  Play,
+} from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { type CSSProperties, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { Download, Inbox, Loader2, type LucideIcon, MoreHorizontal } from "@/components/ui/icons";
 import { downloadProjectArchive } from "@/lib/api/project-thread";
 import type { PreviewTab } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 import { ComputerToggleButton } from "./computer-toggle-button";
+import type { BrowserTakeoverController } from "./use-browser-takeover";
 
 const TABS: ReadonlyArray<{ label: string; value: PreviewTab }> = [
   { label: "Files", value: "files" },
@@ -17,6 +26,7 @@ const TABS: ReadonlyArray<{ label: string; value: PreviewTab }> = [
 
 interface ComputerPanelTabsProps {
   activePreviewTab: PreviewTab;
+  browserTakeover?: BrowserTakeoverController;
   deliverableCount: number;
   projectId: string | null;
   projectName: string | null;
@@ -26,6 +36,7 @@ interface ComputerPanelTabsProps {
 
 export function ComputerPanelTabs({
   activePreviewTab,
+  browserTakeover,
   deliverableCount,
   projectId,
   projectName,
@@ -36,6 +47,7 @@ export function ComputerPanelTabs({
     <div className="relative z-20 hidden h-12 w-full shrink-0 items-center overflow-visible md:flex">
       <ComputerTabSelector activeTab={activePreviewTab} onSelect={setActivePreviewTab} />
       <ComputerPanelActions
+        {...(browserTakeover ? { browserTakeover } : {})}
         deliverableCount={deliverableCount}
         onClose={() => setPreviewPanelOpen(false)}
         projectId={projectId}
@@ -84,11 +96,13 @@ function ComputerTabSelector({
 }
 
 function ComputerPanelActions({
+  browserTakeover,
   deliverableCount,
   onClose,
   projectId,
   projectName,
 }: {
+  browserTakeover?: BrowserTakeoverController;
   deliverableCount: number;
   onClose: () => void;
   projectId: string | null;
@@ -96,12 +110,42 @@ function ComputerPanelActions({
 }) {
   return (
     <div className="absolute top-[9px] right-1 flex shrink-0 items-center gap-1.5">
+      <BrowserTakeoverButton controller={browserTakeover} />
       <ComputerMoreActions projectId={projectId} projectName={projectName} />
       <CheatcodeTooltip label="Close computer" side="bottom">
         <ComputerToggleButton active aria-label="Close computer" onClick={onClose} />
       </CheatcodeTooltip>
       <DeliverablesButton count={deliverableCount} />
     </div>
+  );
+}
+
+function BrowserTakeoverButton({
+  controller,
+}: {
+  controller: BrowserTakeoverController | undefined;
+}) {
+  if (!controller) return null;
+  if (!controller.canTakeOver && !controller.session) return null;
+  const isActive = controller.session !== null;
+  const Icon = controller.isPending ? Loader2 : isActive ? Play : Monitor;
+  const label = isActive ? "Resume Cheatcode" : "Take over browser";
+  return (
+    <CheatcodeTooltip label={label} side="bottom">
+      <button
+        aria-label={label}
+        className="flex h-7 items-center gap-1.5 rounded-full bg-secondary px-2.5 font-medium text-[12px] text-foreground transition-colors hover:bg-border disabled:opacity-50"
+        disabled={controller.isPending}
+        onClick={() => void (isActive ? controller.resume() : controller.start())}
+        type="button"
+      >
+        <Icon
+          aria-hidden="true"
+          className={cn("h-3.5 w-3.5", controller.isPending && "animate-spin")}
+        />
+        <span>{isActive ? "Resume" : "Take over"}</span>
+      </button>
+    </CheatcodeTooltip>
   );
 }
 

@@ -1,5 +1,9 @@
-import type { ProjectMode, UIMessagePart } from "@cheatcode/types";
-import { ProjectId as toProjectId, ThreadId as toThreadId } from "@cheatcode/types";
+import type { LogicalModelId, ProjectMode, UIMessagePart } from "@cheatcode/types";
+import {
+  LogicalModelIdSchema,
+  ProjectId as toProjectId,
+  ThreadId as toThreadId,
+} from "@cheatcode/types";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "./client";
 import type {
@@ -80,6 +84,7 @@ export function threadReturningColumns() {
     activeRunId: threads.activeRunId,
     createdAt: threads.createdAt,
     id: threads.id,
+    latestModelId: threads.latestModelId,
     launchIntent: threads.launchIntent,
     projectId: threads.projectId,
     title: threads.title,
@@ -90,6 +95,8 @@ export function threadReturningColumns() {
 export function messageReturningColumns() {
   return {
     agentRunId: messages.agentRunId,
+    agentRunSegment: messages.agentRunSegment,
+    agentRunSegmentFinal: messages.agentRunSegmentFinal,
     createdAt: messages.createdAt,
     id: messages.id,
     parts: messages.parts,
@@ -100,8 +107,6 @@ export function messageReturningColumns() {
 
 export function projectSummaryFromRow(row: {
   archiveAfter: Date | null;
-  archivedPendingAction: boolean;
-  masterInstructions: string | null;
   createdAt: Date;
   id: string;
   mode: ProjectMode;
@@ -113,16 +118,14 @@ export function projectSummaryFromRow(row: {
 }): ProjectSummaryRecord {
   return {
     archiveAfter: row.archiveAfter,
-    archivedPendingAction: row.archivedPendingAction,
     createdAt: row.createdAt,
     defaultModel: row.settings.defaultModel ?? null,
     id: toProjectId(row.id),
     importRepoUrl: row.settings.importRepoUrl ?? null,
-    masterInstructions: row.masterInstructions,
     mode: row.mode,
     name: row.name,
     overQuota: row.overQuota,
-    readOnly: row.archivedPendingAction || row.overQuota,
+    readOnly: row.overQuota,
     updatedAt: row.updatedAt,
     workspaceSlug: row.workspaceSlug,
   };
@@ -132,6 +135,7 @@ export function threadFromRow(row: {
   activeRunId: string | null;
   createdAt: Date;
   id: string;
+  latestModelId: string | null;
   launchIntent: ThreadLaunchIntent | null;
   projectId: string | null;
   title: string | null;
@@ -141,6 +145,7 @@ export function threadFromRow(row: {
     activeRunId: row.activeRunId,
     createdAt: row.createdAt,
     id: toThreadId(row.id),
+    latestModelId: parseLogicalModelId(row.latestModelId),
     launchIntent: row.launchIntent,
     projectId: row.projectId ? toProjectId(row.projectId) : null,
     title: row.title,
@@ -148,16 +153,25 @@ export function threadFromRow(row: {
   };
 }
 
+function parseLogicalModelId(value: string | null): LogicalModelId | null {
+  const parsed = LogicalModelIdSchema.safeParse(value);
+  return parsed.success ? parsed.data : null;
+}
+
 export function messageFromRow(row: {
   agentRunId: string | null;
+  agentRunSegment: number;
+  agentRunSegmentFinal: boolean;
   createdAt: Date;
   id: string;
   parts: UIMessagePart[];
-  role: string;
+  role: "assistant" | "user";
   threadId: string;
 }): MessageRecord {
   return {
     agentRunId: row.agentRunId,
+    agentRunSegment: row.agentRunSegment,
+    agentRunSegmentFinal: row.agentRunSegmentFinal,
     createdAt: row.createdAt,
     id: row.id,
     parts: row.parts,

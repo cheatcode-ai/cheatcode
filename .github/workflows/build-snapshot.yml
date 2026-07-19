@@ -25,9 +25,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     environment: production
-    env:
-      DAYTONA_CLI_VERSION: 0.197.0
-      DAYTONA_CLI_SHA256: 75493c6a41e7f0a427e116f150310d1669fd01529d37e7b4abaf89034cb9193b
     steps:
       - name: Authorize snapshot publication
         env:
@@ -67,30 +64,27 @@ jobs:
       - name: Derive immutable snapshot name
         id: snapshot
         run: |
-          snapshot_name="cheatcode-sandbox-viewer-bundle-$(git rev-parse --short=12 HEAD)-${GITHUB_RUN_ID}"
+          source_commit="$(git rev-parse HEAD)"
+          if [[ ! "$source_commit" =~ ^[0-9a-f]{40}$ ]] ||
+            [[ ! "$GITHUB_RUN_ID" =~ ^[1-9][0-9]*$ ]]; then
+            echo "Snapshot provenance did not resolve to canonical commit and workflow-run IDs." >&2
+            exit 1
+          fi
+          snapshot_name="cheatcode-sandbox-viewer-bundle-${source_commit:0:12}-${GITHUB_RUN_ID}"
           echo "name=$snapshot_name" >> "$GITHUB_OUTPUT"
           echo "SNAPSHOT_NAME=$snapshot_name" >> "$GITHUB_ENV"
-      - name: Install checksum-verified Daytona CLI
-        run: |
-          mkdir -p "$RUNNER_TEMP/bin"
-          curl --fail --silent --show-error --location \
-            --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
-            "https://github.com/daytona/clients/releases/download/v${DAYTONA_CLI_VERSION}/daytona-linux-amd64" \
-            --output "$RUNNER_TEMP/daytona"
-          echo "${DAYTONA_CLI_SHA256}  $RUNNER_TEMP/daytona" | sha256sum --check --strict
-          install -m 0755 "$RUNNER_TEMP/daytona" "$RUNNER_TEMP/bin/daytona"
-          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
-      - name: Authenticate Daytona CLI
-        env:
-          DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
-        run: |
-          test -n "$DAYTONA_API_KEY"
-          "$RUNNER_TEMP/bin/daytona" version
-          "$RUNNER_TEMP/bin/daytona" login --api-key "$DAYTONA_API_KEY"
+      - name: Set up checksum-pinned Daytona CLI
+        uses: ./.github/actions/setup-daytona
+        with:
+          api-key: ${{ secrets.DAYTONA_API_KEY }}
       - name: Build immutable image candidate
         run: |
           image_tag="cheatcode-sandbox:$GITHUB_SHA"
-          docker build --platform=linux/amd64 --tag "$image_tag" infra/containers/sandbox
+          docker build \
+            --platform=linux/amd64 \
+            --build-context default_skills=skills \
+            --tag "$image_tag" \
+            infra/containers/sandbox
           echo "IMAGE_TAG=$image_tag" >> "$GITHUB_ENV"
       - name: Scan candidate configuration and image
         run: |
@@ -128,8 +122,43 @@ jobs:
             libreoffice --version
             test -f /home/node/cheatcode-next-template/pnpm-lock.yaml
             test -f /home/node/cheatcode-expo-template/pnpm-lock.yaml
+            test -f /home/node/.cheatcode/default-skills/browser-use/SKILL.md
+            test -f /home/node/.cheatcode/default-skills/pptx/SKILL.md
+            test -f /home/node/.cheatcode/default-skills/pptx/scripts/thumbnail.py
+            test -f /home/node/.cheatcode/default-skills/docx/scripts/office/pack.py
+            test -f /home/node/.cheatcode/default-skills/docx/scripts/office/schemas/mce/mc.xsd
+            test -f /home/node/.cheatcode/default-skills/xlsx/scripts/recalc.py
+            test -f /home/node/.cheatcode/default-skills/webapp-testing/scripts/with_server.py
+            test -f /home/node/.cheatcode/default-skills/manage-skills/_shared.ts
+            test -f /home/node/.cheatcode/default-skills/skill-authoring/SKILL.md
+            test -f /home/node/.cheatcode/default-skills/skill-authoring/persist/save.ts
+            test -f /home/node/.cheatcode/default-skills/generate-media/SKILL.md
+            test -f /home/node/.cheatcode/default-skills/product-self-knowledge/SKILL.md
+            test "$(find /home/node/.cheatcode/default-skills -type f -name "*.py" | wc -l)" -eq 56
+            test "$(find /home/node/.cheatcode/default-skills -type f -name "*.ts" | wc -l)" -eq 12
+            test "$(find /home/node/.cheatcode/default-skills -type f -name "*.xsd" | wc -l)" -eq 117
+            test ! -e /home/node/.cheatcode/default-skills/deploy
+            test ! -e /home/node/.cheatcode/default-skills/landing-page
+            test ! -e /home/node/.cheatcode/default-skills/slide-from-prd
+            test ! -e /home/node/.cheatcode/default-skills/social-post-pack
+            test ! -e /home/node/.cheatcode/default-skills/competitor-brief
+            test -z "$(find /home/node/.cheatcode/default-skills -mindepth 1 -maxdepth 1 -type d -iname "*deploy*" -print -quit)"
             test -f /opt/cheatcode-browser-driver/server.js
             node --check /opt/cheatcode-browser-driver/server.js
+            cheatcode-skills --help
+            cheatcode-browser --help
+            cheatcode-skills manage-skills/manage/list --help
+            cheatcode-skills skill-authoring/persist/save --help
+            python3 /home/node/.cheatcode/default-skills/pptx/scripts/thumbnail.py --help
+            python3 /home/node/.cheatcode/default-skills/docx/scripts/office/validate.py --help
+            python3 /home/node/.cheatcode/default-skills/xlsx/scripts/recalc.py --help
+            python3 /home/node/.cheatcode/default-skills/webapp-testing/scripts/with_server.py --help
+            python3 -c "import defusedxml, lxml, markitdown, pdf2image, pdfplumber, playwright, pypdf, pypdfium2, pytesseract, reportlab"
+            pandoc --version
+            pdfinfo -v
+            qpdf --version
+            tesseract --version
+            test -z "$(grep -R -E "(LEGACY_SKILL_API_KEY|ORCHIDS_API_KEY)" /home/node/.cheatcode/default-skills /opt/cheatcode-skill-runtime || true)"
           '
       - name: Publish and verify immutable snapshot candidate
         run: |

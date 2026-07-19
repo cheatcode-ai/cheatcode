@@ -1,7 +1,7 @@
 "use client";
 
+import { ChevronDown, Plus, X } from "@cheatcode/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { ChevronDown, Plus, X } from "@/components/ui/icons";
 import type { ConsoleTab } from "@/lib/preview/console-terminal.types";
 import { consoleTabLabel } from "@/lib/preview/console-terminal-state";
 import { cn } from "@/lib/ui/cn";

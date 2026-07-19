@@ -2,12 +2,13 @@ import {
   mintPreviewCapability,
   PreviewCapabilityError,
   type PreviewCapabilityKind,
+  readCookieValue,
   type VerifiedPreviewCapability,
   verifyPreviewCapability,
 } from "@cheatcode/auth";
 import { APIError } from "@cheatcode/observability";
 import type { PreviewTarget } from "./host";
-import { PREVIEW_SESSION_COOKIE, PREVIEW_TOKEN_QUERY } from "./preview-session";
+import { PREVIEW_TOKEN_QUERY } from "./preview-session";
 
 interface PreviewTokenSource {
   readonly kind: PreviewCapabilityKind;
@@ -25,12 +26,16 @@ export interface MintedPreviewSession {
 }
 
 /** Query credentials are handoffs; host-only cookie credentials are sessions. */
-function readPreviewToken(request: Request, url: URL): PreviewTokenSource | null {
+function readPreviewToken(
+  request: Request,
+  url: URL,
+  sessionCookieName: string,
+): PreviewTokenSource | null {
   const queryToken = url.searchParams.get(PREVIEW_TOKEN_QUERY);
   if (queryToken) {
     return { kind: "handoff", token: queryToken };
   }
-  const cookieToken = readCookie(request.headers.get("Cookie"), PREVIEW_SESSION_COOKIE);
+  const cookieToken = readCookieValue(request.headers.get("Cookie"), sessionCookieName);
   if (cookieToken) {
     return { kind: "session", token: cookieToken };
   }
@@ -42,10 +47,11 @@ export async function authorizePreviewRequest(input: {
   audience: string;
   request: Request;
   secret: string;
+  sessionCookieName: string;
   target: PreviewTarget;
   url: URL;
 }): Promise<AuthorizedPreview> {
-  const source = readPreviewToken(input.request, input.url);
+  const source = readPreviewToken(input.request, input.url, input.sessionCookieName);
   if (!source) {
     throw new APIError(401, "auth_token_missing", "Missing preview access token", {
       retriable: false,
@@ -114,21 +120,4 @@ function invalidToken(): APIError {
   return new APIError(401, "auth_token_invalid", "Invalid preview access token", {
     retriable: false,
   });
-}
-
-function readCookie(cookieHeader: string | null, name: string): string | null {
-  if (!cookieHeader) {
-    return null;
-  }
-  for (const cookie of cookieHeader.split(";")) {
-    const trimmed = cookie.trim();
-    const separatorIndex = trimmed.indexOf("=");
-    if (separatorIndex === -1) {
-      continue;
-    }
-    if (trimmed.slice(0, separatorIndex) === name) {
-      return trimmed.slice(separatorIndex + 1);
-    }
-  }
-  return null;
 }

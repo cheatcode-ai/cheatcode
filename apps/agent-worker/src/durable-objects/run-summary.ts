@@ -1,16 +1,10 @@
 import { isMessagePartRow } from "../streaming/ui-message-stream";
 
-export type AgentRunSnapshotStatus =
-  | "idle"
-  | "running"
-  | "paused"
-  | "completed"
-  | "failed"
-  | "canceled";
+export type AgentRunSnapshotStatus = "idle" | "running" | "completed" | "failed" | "canceled";
 
 const SUMMARY_MAX_LENGTH = 240;
 const SUMMARY_QUERY_PAGE_SIZE = 100;
-const SNAPSHOT_STATUSES = new Set(["running", "paused", "completed", "failed", "canceled"]);
+const SNAPSHOT_STATUSES = new Set(["running", "completed", "failed", "canceled"]);
 
 export function snapshotAgentRunStatus(status: string | undefined): AgentRunSnapshotStatus {
   return SNAPSHOT_STATUSES.has(status ?? "") ? (status as AgentRunSnapshotStatus) : "idle";

@@ -1,4 +1,4 @@
-import type { CheatcodeUIMessage, ProjectSummary } from "@cheatcode/types";
+import type { CheatcodeUIMessage, ProjectSummary, RunIntent } from "@cheatcode/types";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
 import { useCallback } from "react";
@@ -22,6 +22,7 @@ interface ChatSubmissionInput {
   getToken: () => Promise<null | string>;
   hasReceivedStreamDataRef: { current: boolean };
   hasSubmittedRef: { current: boolean };
+  initialRunIntent: RunIntent | null;
   onSubmitDraft?: (() => void) | undefined;
   pendingSubmissionRef: { current: PendingSubmission | null };
   project: ProjectSummary | null;
@@ -68,7 +69,10 @@ export function useChatSubmission(input: ChatSubmissionInput): {
     input.hasSubmittedRef.current = true;
     input.hasReceivedStreamDataRef.current = false;
     input.pendingSubmissionRef.current = pendingSubmission(messageId, text, false);
-    void input.sendMessage(userMessage(messageId, text), modelBody(input.selectedModel));
+    void input.sendMessage(
+      userMessage(messageId, text, null),
+      modelBody(input.selectedModel, null),
+    );
   }, [input]);
 
   return { continueRun, submitText };
@@ -81,7 +85,10 @@ function submitInCurrentThread(input: ChatSubmissionInput, text: string): void {
   input.hasReceivedStreamDataRef.current = false;
   const messageId = crypto.randomUUID();
   input.pendingSubmissionRef.current = pendingSubmission(messageId, text, true);
-  void input.sendMessage(userMessage(messageId, text), modelBody(input.selectedModel));
+  void input.sendMessage(
+    userMessage(messageId, text, input.initialRunIntent),
+    modelBody(input.selectedModel, input.initialRunIntent),
+  );
   input.setDraft(input.threadId, "");
   input.onSubmitDraft?.();
 }
@@ -142,10 +149,33 @@ function pendingSubmission(
   return { messageId, restoreToComposer, submittedAt: Date.now(), text };
 }
 
-function userMessage(messageId: string, text: string): CheatcodeUIMessage {
-  return { id: messageId, parts: [{ text, type: "text" }], role: "user" };
+function userMessage(
+  messageId: string,
+  text: string,
+  intent: RunIntent | null,
+): CheatcodeUIMessage {
+  const parts: CheatcodeUIMessage["parts"] = [{ text, type: "text" }];
+  if (intent === "skill-creator") {
+    parts.unshift({
+      data: { intent: "skill-creator", v: 1 },
+      type: "data-run-intent",
+    });
+  }
+  return {
+    id: messageId,
+    parts,
+    role: "user",
+  };
 }
 
-function modelBody(selectedModel: null | string): { body: { model?: string } } {
-  return { body: { ...(selectedModel ? { model: selectedModel } : {}) } };
+function modelBody(
+  selectedModel: null | string,
+  intent: RunIntent | null,
+): { body: { intent?: RunIntent; model?: string } } {
+  return {
+    body: {
+      ...(intent ? { intent } : {}),
+      ...(selectedModel ? { model: selectedModel } : {}),
+    },
+  };
 }

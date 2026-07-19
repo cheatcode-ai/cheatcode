@@ -1,57 +1,15 @@
 import type { UIMessage } from "ai";
 import { z } from "zod";
+import { ArtifactKindSchema, OutputIdSchema } from "./artifacts";
 import type { AgentRunId, UserId } from "./ids";
 import { type LogicalModelId, LogicalModelIdSchema } from "./models";
 
-const TaskStatusSchema = z.enum(["pending", "running", "completed", "failed", "canceled"]);
-const SandboxStateSchema = z.enum(["cold", "starting", "ready", "sleeping", "failed"]);
-
-/**
- * Tool-approval / model-fallback pause request. Emitted (persisted + replayable)
- * when the run enters the `paused` state awaiting a user Allow/Deny decision.
- * `kind` distinguishes a destructive-tool gate from an interactive model
- * fallback; `toolName` is present only for `kind: "tool-approval"`. `runId` is
- * embedded because the DO's `start` chunk does not populate UIMessage metadata,
- * and the client needs it to POST the decision to
- * `/v1/runs/{runId}/approvals/{approvalId}`. `timeoutDecision` is what the DO
- * alarm applies if no decision arrives before `expiresAt`.
- */
-export const ApprovalRequestDataSchema = z
-  .object({
-    v: z.literal(1),
-    approvalId: z.string().uuid(),
-    runId: z.string().min(1),
-    kind: z.enum(["tool-approval", "model-fallback"]),
-    toolName: z.string().min(1).optional(),
-    summary: z.string().min(1).max(400),
-    requestedAt: z.number().int(),
-    expiresAt: z.number().int(),
-    timeoutDecision: z.enum(["allow", "deny"]),
-  })
-  .strict();
-
-/**
- * Resolution of an approval request. Appended after the matching
- * `approval-request` part so the client renders the gate as resolved (buttons
- * disabled). `decidedBy` records who/what closed it: an explicit user decision,
- * the DO timeout alarm, or a run cancellation.
- */
-export const ApprovalDecisionDataSchema = z
-  .object({
-    v: z.literal(1),
-    approvalId: z.string().uuid(),
-    runId: z.string().min(1),
-    decision: z.enum(["allow", "deny"]),
-    decidedBy: z.enum(["user", "timeout", "cancel"]),
-    reason: z.string().max(500).optional(),
-  })
-  .strict();
+const TaskStatusSchema = z.enum(["pending", "running", "completed", "failed"]);
+const SandboxStreamStatusSchema = z.enum(["starting", "ready", "failed"]);
 
 /**
  * Informational model-transition part. Replaces the silent text-delta fallback
- * notice: carries the from/to model and the classified provider reason so the
- * fallback card can explain why routing changed. The interactive pause itself
- * travels via an `approval-request` part with `kind: "model-fallback"`.
+ * notice and explains why routing changed.
  */
 export const ModelFallbackDataSchema = z
   .object({
@@ -90,42 +48,58 @@ const TaskStatusDataSchema = z
 const SandboxStatusDataSchema = z
   .object({
     v: z.literal(1),
-    status: SandboxStateSchema,
+    status: SandboxStreamStatusSchema,
+  })
+  .strict();
+
+const ProjectCreatedDataSchema = z
+  .object({
+    v: z.literal(1),
+    projectId: z.string().uuid(),
+    projectName: z.string().min(1).max(200),
+  })
+  .strict();
+
+const SkillCreatedDataSchema = z
+  .object({
+    v: z.literal(1),
+    description: z.string().min(1).max(400).optional(),
+    filePath: z.string().min(1).max(1_000).optional(),
+    id: z.string().uuid().optional(),
+    name: z.string().min(1).max(80),
+    proposalId: z.string().uuid().optional(),
+    slug: z.string().min(1).max(80).optional(),
+  })
+  .strict();
+
+const SkillProposedDataSchema = z
+  .object({
+    v: z.literal(1),
+    body: z.string().min(1).max(40_000),
+    category: z.string().min(1).max(80),
+    description: z.string().min(1).max(400),
+    name: z.string().min(1).max(80),
+    proposalId: z.string().uuid(),
+    slug: z.string().min(1).max(80),
+    tags: z.array(z.string().min(1).max(40)).max(12),
+  })
+  .strict();
+
+const RunIntentDataSchema = z
+  .object({
+    v: z.literal(1),
+    intent: z.literal("skill-creator"),
   })
   .strict();
 
 const ArtifactDataSchema = z
   .object({
     v: z.literal(1),
-    downloadUrl: z
-      .string()
-      .url()
-      .refine(isSafeArtifactDownloadUrl, "Artifact download URL must use HTTPS"),
-    filename: z.string().min(1).optional(),
-    kind: z.enum(["slide", "pdf", "image", "video", "audio", "xlsx", "docx", "folder", "link"]),
+    filename: z.string().min(1),
+    kind: ArtifactKindSchema,
     mimeType: z.string().min(1),
-    outputId: z.string().min(1),
-    sizeBytes: z.number().int().nonnegative().optional(),
-  })
-  .strict();
-
-function isSafeArtifactDownloadUrl(value: string): boolean {
-  const authority = value.slice(value.indexOf("://") + 3).split(/[/?#]/u, 1)[0] ?? "";
-  if (!authority || authority.includes("@")) {
-    return false;
-  }
-  if (value.startsWith("https://")) {
-    return true;
-  }
-  return /^http:\/\/(?:localhost|127\.0\.0\.1)(?::\d+)?(?:[/?#]|$)/u.test(value);
-}
-
-const ThinkingDataSchema = z
-  .object({
-    v: z.literal(1),
-    delta: z.boolean(),
-    durationMs: z.number().finite().nonnegative().optional(),
-    text: z.string(),
+    outputId: OutputIdSchema,
+    sizeBytes: z.number().int().nonnegative(),
   })
   .strict();
 
@@ -133,7 +107,7 @@ const ToolDataSchema = z
   .object({
     v: z.literal(1),
     input: z.record(z.string(), z.unknown()).optional(),
-    toolCallId: z.string().min(1).optional(),
+    toolCallId: z.string().min(1),
     toolName: z.string().min(1),
   })
   .strict();
@@ -147,6 +121,19 @@ const ErrorDataSchema = z
   })
   .strict();
 
+export const TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS = 16 * 1024;
+
+/** Lossless transport envelope for one UI part that is larger than a transcript segment. */
+export const TranscriptFragmentDataSchema = z
+  .object({
+    v: z.literal(1),
+    final: z.boolean(),
+    index: z.number().int().nonnegative(),
+    partId: z.string().min(1).max(64),
+    payload: z.string().max(TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS),
+  })
+  .strict();
+
 const SeqDataSchema = z
   .object({
     v: z.literal(1),
@@ -155,24 +142,58 @@ const SeqDataSchema = z
   .strict();
 
 export const CHEATCODE_DATA_SCHEMAS = {
-  "approval-decision": ApprovalDecisionDataSchema,
-  "approval-request": ApprovalRequestDataSchema,
   artifact: ArtifactDataSchema,
   error: ErrorDataSchema,
   "model-fallback": ModelFallbackDataSchema,
   plan: PlanDataSchema,
+  "project-created": ProjectCreatedDataSchema,
+  "run-intent": RunIntentDataSchema,
   "sandbox-status": SandboxStatusDataSchema,
+  "skill-created": SkillCreatedDataSchema,
+  "skill-proposed": SkillProposedDataSchema,
   seq: SeqDataSchema,
   "task-status": TaskStatusDataSchema,
-  thinking: ThinkingDataSchema,
   tool: ToolDataSchema,
+  "transcript-fragment": TranscriptFragmentDataSchema,
 } as const;
 
-export type ApprovalRequestData = z.infer<typeof ApprovalRequestDataSchema>;
-export type ApprovalDecisionData = z.infer<typeof ApprovalDecisionDataSchema>;
+const TextMessagePartSchema = z
+  .object({
+    state: z.enum(["streaming", "done"]).default("done"),
+    text: z.string(),
+    type: z.literal("text"),
+  })
+  .strict();
+function dataMessagePartSchema<Name extends keyof typeof CHEATCODE_DATA_SCHEMAS>(name: Name) {
+  return z
+    .object({
+      data: CHEATCODE_DATA_SCHEMAS[name],
+      id: z.string().optional(),
+      type: z.literal(`data-${name}`),
+    })
+    .strict();
+}
+
+/** Exact V2 message-part contract persisted in Postgres and replayed to the web client. */
+export const MessagePartSchema = z.discriminatedUnion("type", [
+  TextMessagePartSchema,
+  dataMessagePartSchema("artifact"),
+  dataMessagePartSchema("error"),
+  dataMessagePartSchema("model-fallback"),
+  dataMessagePartSchema("plan"),
+  dataMessagePartSchema("project-created"),
+  dataMessagePartSchema("run-intent"),
+  dataMessagePartSchema("sandbox-status"),
+  dataMessagePartSchema("skill-created"),
+  dataMessagePartSchema("skill-proposed"),
+  dataMessagePartSchema("task-status"),
+  dataMessagePartSchema("tool"),
+  dataMessagePartSchema("transcript-fragment"),
+]);
+
 export type ModelFallbackData = z.infer<typeof ModelFallbackDataSchema>;
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
-export type SandboxState = z.infer<typeof SandboxStateSchema>;
+export type SandboxState = "cold" | z.infer<typeof SandboxStreamStatusSchema>;
 
 type CheatcodeDataParts = {
   [DataPart in keyof typeof CHEATCODE_DATA_SCHEMAS]: z.infer<
@@ -181,14 +202,39 @@ type CheatcodeDataParts = {
 };
 
 type CheatcodeMetadata = {
-  runId: AgentRunId;
-  modelId: LogicalModelId;
-  userId: UserId;
+  modelId?: LogicalModelId;
+  runId?: AgentRunId;
+  transcriptSegment?: {
+    agentRunId: AgentRunId;
+    index: number;
+    isFinal: boolean;
+  };
+  userId?: UserId;
 };
 
-export type CheatcodeUIMessage = UIMessage<CheatcodeMetadata, CheatcodeDataParts>;
+type CheatcodeUIMessageBase = UIMessage<
+  CheatcodeMetadata,
+  CheatcodeDataParts,
+  Record<never, never>
+>;
+type MessagePartType = z.input<typeof MessagePartSchema>["type"];
 
-export type UIMessagePart = {
-  type: string;
-  [key: string]: unknown;
+type ClientMessagePart = Extract<
+  CheatcodeUIMessageBase["parts"][number],
+  { type: MessagePartType }
+>;
+
+export type UIMessagePart = z.input<typeof MessagePartSchema>;
+
+/** Validates one part against the exact persisted V2 message contract. */
+export function parseMessagePart(value: unknown): UIMessagePart {
+  return MessagePartSchema.parse(value);
+}
+
+export const MessagePartsSchema = z
+  .array(MessagePartSchema)
+  .transform((parts): ClientMessagePart[] => parts as ClientMessagePart[]);
+
+export type CheatcodeUIMessage = CheatcodeUIMessageBase & {
+  parts: ClientMessagePart[];
 };

@@ -80,9 +80,9 @@ export const projectRoutes: OpenApiRoute[] = [
     method: "delete",
     operationId: "deleteProject",
     path: "/v1/projects/{projectId}",
-    responses: { "204": emptyResponse("Project archived") },
+    responses: { "202": emptyResponse("Project deletion accepted") },
     security: [{ bearerAuth: [] }],
-    summary: "Archive a project",
+    summary: "Delete a project",
     tags: ["projects"],
   },
   {
@@ -144,9 +144,9 @@ export const projectRoutes: OpenApiRoute[] = [
     method: "delete",
     operationId: "deleteThread",
     path: "/v1/threads/{threadId}",
-    responses: { "204": emptyResponse("Thread archived") },
+    responses: { "202": emptyResponse("Thread deletion accepted") },
     security: [{ bearerAuth: [] }],
-    summary: "Archive a thread",
+    summary: "Delete a thread",
     tags: ["threads"],
   },
   {

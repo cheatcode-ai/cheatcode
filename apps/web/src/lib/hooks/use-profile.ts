@@ -12,7 +12,7 @@ export function useProfileQuery() {
   const { getToken, isSignedIn } = useAuth();
   return useQuery({
     enabled: Boolean(isSignedIn),
-    queryFn: () => getProfile(getToken),
+    queryFn: ({ signal }) => getProfile(getToken, signal),
     queryKey: PROFILE_QUERY_KEY,
     staleTime: 30_000,
   });

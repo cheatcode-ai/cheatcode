@@ -34,6 +34,7 @@ import {
   type UserId,
 } from "@cheatcode/types";
 import type { Context } from "hono";
+import { resolveCorsOrigin } from "./cors";
 import type { GatewayEnv } from "./gateway-env";
 import { resolveEntitlement } from "./limits";
 import { rateLimit } from "./rate-limit";
@@ -48,6 +49,8 @@ const POLAR_PRODUCT_ID_ENV = {
 } as const satisfies Record<PaidBillingTier, keyof GatewayEnv>;
 
 const BILLING_REQUEST_MAX_BYTES = 8 * 1024;
+const PRODUCTION_WEB_ORIGIN = "https://trycheatcode.com";
+const LOCAL_WEB_ORIGIN = "http://localhost:3000";
 
 type BillingContext = Context<{ Bindings: GatewayEnv }>;
 
@@ -62,7 +65,10 @@ export async function billingStateRoute(
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/billing/state");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const entitlement = await withUserContext(db, userId, (tx) =>
       findEntitlementByUserId(tx, userId),
@@ -90,16 +96,20 @@ export async function billingCheckoutRoute(
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
   const productId = polarProductIdForTier(c.env, parsedInput.data.tier);
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const user = await requireBillingUser(db, userId);
+    const redirect = checkoutRedirectUrls(c, parsedInput.data.returnPath);
     const url = await createCheckoutUrl({
       accessToken,
       customerEmail: user.email,
       productId,
-      ...(parsedInput.data.returnUrl ? { returnUrl: parsedInput.data.returnUrl } : {}),
+      returnUrl: redirect.returnUrl,
       ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
-      ...(parsedInput.data.successUrl ? { successUrl: parsedInput.data.successUrl } : {}),
+      successUrl: redirect.successUrl,
       userId,
     });
     return c.json(BillingUrlResponseSchema.parse({ url }));
@@ -108,13 +118,34 @@ export async function billingCheckoutRoute(
   }
 }
 
+function checkoutRedirectUrls(
+  c: BillingContext,
+  returnPath = "/pricing",
+): { returnUrl: string; successUrl: string } {
+  const returnUrl = new URL(returnPath, billingWebOrigin(c));
+  const successUrl = new URL(returnUrl);
+  successUrl.searchParams.set("checkout", "success");
+  return { returnUrl: returnUrl.toString(), successUrl: successUrl.toString() };
+}
+
+function billingWebOrigin(c: BillingContext): string {
+  if (c.env.CHEATCODE_ENVIRONMENT === "production") {
+    return PRODUCTION_WEB_ORIGIN;
+  }
+  const requestOrigin = c.req.header("Origin");
+  return resolveCorsOrigin(requestOrigin, "development") ?? LOCAL_WEB_ORIGIN;
+}
+
 export async function billingCatalogRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/billing/catalog");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const entitlement = await resolveEntitlement(c.env, db, userId);
     return c.json(BillingCatalogResponseSchema.parse(buildBillingCatalog(c.env, entitlement.tier)));
@@ -126,7 +157,10 @@ export async function billingCatalogRoute(
 export async function myUsageRoute(c: BillingContext, deps: BillingRouteDeps): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/me/usage");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const summary = await buildSandboxUsageSummary(c.env, db, userId);
     return c.json(SandboxUsageSummaryResponseSchema.parse(summary));
@@ -142,7 +176,10 @@ export async function billingPortalRoute(
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/portal");
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const user = await requireBillingUser(db, userId);
     const customerId =
@@ -194,7 +231,10 @@ export async function billingCancelRoute(
     });
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const entitlement = await loadSubscriptionEntitlement(db, userId);
     const result = await cancelSubscriptionAtPeriodEnd({
@@ -220,7 +260,10 @@ export async function billingReactivateRoute(
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/reactivate");
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE);
+  const { db, close } = createDb(c.env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const entitlement = await loadSubscriptionEntitlement(db, userId);
     const result = await reactivateSubscription({

@@ -186,10 +186,9 @@ function positionActivityBuckets(
   buckets: Map<string, ActivityBucket>,
   dayIndexes: Map<string, number>,
 ): ActivityCell[] {
-  const maxActivity = Math.max(
-    1,
-    ...[...buckets.values()].map((bucket) => bucket.runCount + bucket.hours),
-  );
+  const values = [...buckets.values()];
+  const maxRuns = Math.max(1, ...values.map((bucket) => bucket.runCount));
+  const maxHours = Math.max(1, ...values.map((bucket) => bucket.hours));
   return [...buckets.entries()].flatMap(([id, bucket]) => {
     const dayIndex = dayIndexes.get(localDateKey(bucket.bucketStart));
     if (dayIndex === undefined) {
@@ -201,7 +200,7 @@ function positionActivityBuckets(
         bucketStart: bucket.bucketStart,
         hours: bucket.hours,
         id,
-        level: activityLevel(bucket.runCount + bucket.hours, maxActivity),
+        level: activityLevel(Math.max(bucket.runCount / maxRuns, bucket.hours / maxHours)),
         runCount: bucket.runCount,
         x: dayIndex * DAY_WIDTH + DAY_WIDTH / 2,
         y: Math.max(4.4, Math.min(GRID_HEIGHT - 4.4, (minutes / 1_440) * GRID_HEIGHT)),
@@ -210,8 +209,7 @@ function positionActivityBuckets(
   });
 }
 
-function activityLevel(activity: number, maxActivity: number): ActivityLevel {
-  const ratio = activity / maxActivity;
+function activityLevel(ratio: number): ActivityLevel {
   if (ratio <= 0.25) return 1;
   if (ratio <= 0.5) return 2;
   if (ratio <= 0.75) return 3;

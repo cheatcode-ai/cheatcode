@@ -22,7 +22,7 @@ function activityQueryKey(days: number): readonly [string, number] {
 export function useSandboxUsageQuery(getToken: GetToken, enabled = true) {
   return useQuery({
     enabled,
-    queryFn: () => fetchSandboxUsage(getToken),
+    queryFn: ({ signal }) => fetchSandboxUsage(getToken, signal),
     queryKey: SANDBOX_USAGE_QUERY_KEY,
     refetchOnWindowFocus: true,
     staleTime: 30_000,
@@ -32,7 +32,7 @@ export function useSandboxUsageQuery(getToken: GetToken, enabled = true) {
 /** Plan catalog. Static per deploy/session, so it never goes stale within a session. */
 export function useBillingCatalogQuery(getToken: GetToken) {
   return useQuery({
-    queryFn: () => fetchBillingCatalog(getToken),
+    queryFn: ({ signal }) => fetchBillingCatalog(getToken, signal),
     queryKey: BILLING_CATALOG_QUERY_KEY,
     staleTime: Number.POSITIVE_INFINITY,
   });
@@ -42,7 +42,7 @@ export function useBillingCatalogQuery(getToken: GetToken) {
 export function useBillingStateQuery(getToken: GetToken, enabled = true) {
   return useQuery({
     enabled,
-    queryFn: () => fetchBillingState(getToken),
+    queryFn: ({ signal }) => fetchBillingState(getToken, signal),
     queryKey: BILLING_STATE_QUERY_KEY,
     staleTime: 30_000,
   });
@@ -51,7 +51,7 @@ export function useBillingStateQuery(getToken: GetToken, enabled = true) {
 /** Activity history for the usage chart. */
 export function useActivityQuery(getToken: GetToken, days: number) {
   return useQuery({
-    queryFn: () => fetchActivityHistory(getToken, days),
+    queryFn: ({ signal }) => fetchActivityHistory(getToken, days, signal),
     queryKey: activityQueryKey(days),
     staleTime: 60_000,
   });

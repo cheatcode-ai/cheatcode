@@ -1,45 +1,52 @@
 "use client";
 
 import type { CheatcodeUIMessage } from "@cheatcode/types";
+import { ArrowDown } from "@cheatcode/ui";
 import type { ReactVirtualizer } from "@tanstack/react-virtual";
 import { MessageParts } from "@/components/chat/message-parts";
+import type { MessageTurn } from "@/components/chat/message-turns";
 import { WorkingIndicator } from "@/components/chat/status-pill";
 import type {
   MessageScrollController,
   MessageScrollState,
   OlderMessagesLoadResult,
 } from "@/components/chat/use-message-list-scroll";
-import { ArrowDown } from "@/components/ui/icons";
 import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { cn } from "@/lib/ui/cn";
 
 export function MessageListView({
+  completedSkillProposalIds,
   computerOpen,
   hasOlderMessages,
   isLoadingOlderMessages,
   isStreaming,
   listTopPadding,
   loadOlderMessages,
-  messages,
   onContinue,
+  onMessageAppend,
   scroll,
   scrollState,
   totalHeight,
+  turns,
+  threadId,
   virtualizer,
 }: MessageListViewProps) {
   return (
     <div className="relative min-h-0 flex-1">
       <MessageViewport
+        completedSkillProposalIds={completedSkillProposalIds}
         hasOlderMessages={hasOlderMessages}
         isLoadingOlderMessages={isLoadingOlderMessages}
         isStreaming={isStreaming}
         listTopPadding={listTopPadding}
         loadOlderMessages={loadOlderMessages}
-        messages={messages}
         onContinue={onContinue}
+        onMessageAppend={onMessageAppend}
         scroll={scroll}
         scrollState={scrollState}
         totalHeight={totalHeight}
+        turns={turns}
+        threadId={threadId}
         virtualizer={virtualizer}
       />
       {scrollState.isScrollToBottomVisible ? (
@@ -50,24 +57,27 @@ export function MessageListView({
 }
 
 interface MessageListViewProps {
+  completedSkillProposalIds: ReadonlySet<string>;
   computerOpen: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   isStreaming: boolean;
   listTopPadding: number;
   loadOlderMessages: () => Promise<OlderMessagesLoadResult>;
-  messages: readonly CheatcodeUIMessage[];
   onContinue: () => void;
+  onMessageAppend: (message: CheatcodeUIMessage) => void;
   scroll: MessageScrollController;
   scrollState: MessageScrollState;
   totalHeight: number;
+  turns: readonly MessageTurn[];
+  threadId: string;
   virtualizer: ReactVirtualizer<HTMLDivElement, Element>;
 }
 
 function MessageViewport(props: Omit<MessageListViewProps, "computerOpen">) {
   return (
     <div
-      className="chat-scrollbar h-full overflow-y-auto px-4"
+      className="chat-scrollbar h-full overflow-y-auto overscroll-contain px-4 [container-type:size]"
       onScroll={props.scroll.handleScroll}
       ref={props.scrollState.parentRef}
       role="log"
@@ -78,15 +88,18 @@ function MessageViewport(props: Omit<MessageListViewProps, "computerOpen">) {
 }
 
 function VirtualMessageContent({
+  completedSkillProposalIds,
   hasOlderMessages,
   isLoadingOlderMessages,
   isStreaming,
   listTopPadding,
   loadOlderMessages,
-  messages,
   onContinue,
+  onMessageAppend,
   scrollState,
   totalHeight,
+  turns,
+  threadId,
   virtualizer,
 }: Omit<MessageListViewProps, "computerOpen" | "scroll">) {
   return (
@@ -99,11 +112,11 @@ function VirtualMessageContent({
         <OlderMessagesButton isLoading={isLoadingOlderMessages} onLoad={loadOlderMessages} />
       ) : null}
       {virtualizer.getVirtualItems().map((virtualItem) => {
-        const message = messages[virtualItem.index];
-        if (!message) {
+        const turn = turns[virtualItem.index];
+        if (!turn) {
           return null;
         }
-        const isLastMessage = virtualItem.index === messages.length - 1;
+        const isLastTurn = virtualItem.index === turns.length - 1;
         return (
           <div
             className="absolute top-0 left-0 w-full pb-4"
@@ -112,12 +125,58 @@ function VirtualMessageContent({
             ref={virtualizer.measureElement}
             style={{ transform: `translateY(${virtualItem.start + listTopPadding}px)` }}
           >
-            <MessageBubble
-              message={message}
-              onContinue={!isStreaming && isLastMessage ? onContinue : undefined}
-              streaming={isStreaming && isLastMessage}
+            <MessageTurnContent
+              completedSkillProposalIds={completedSkillProposalIds}
+              isLastTurn={isLastTurn}
+              isStreaming={isStreaming}
+              onContinue={onContinue}
+              onMessageAppend={onMessageAppend}
+              threadId={threadId}
+              turn={turn}
             />
           </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function MessageTurnContent({
+  completedSkillProposalIds,
+  isLastTurn,
+  isStreaming,
+  onContinue,
+  onMessageAppend,
+  threadId,
+  turn,
+}: {
+  completedSkillProposalIds: ReadonlySet<string>;
+  isLastTurn: boolean;
+  isStreaming: boolean;
+  onContinue: () => void;
+  onMessageAppend: (message: CheatcodeUIMessage) => void;
+  threadId: string;
+  turn: MessageTurn;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex flex-col gap-3 transition-opacity duration-200 motion-reduce:transition-none",
+        isLastTurn ? "pb-[240px] md:pb-[210px]" : "pb-1",
+      )}
+    >
+      {turn.messages.map((message, index) => {
+        const isLastMessage = index === turn.messages.length - 1;
+        return (
+          <MessageBubble
+            completedSkillProposalIds={completedSkillProposalIds}
+            key={message.id}
+            message={message}
+            onContinue={!isStreaming && isLastTurn && isLastMessage ? onContinue : undefined}
+            onMessageAppend={onMessageAppend}
+            streaming={isStreaming && isLastTurn && isLastMessage}
+            threadId={threadId}
+          />
         );
       })}
     </div>
@@ -168,13 +227,19 @@ function ScrollToBottomButton({
 }
 
 function MessageBubble({
+  completedSkillProposalIds,
   message,
   onContinue,
+  onMessageAppend,
   streaming,
+  threadId,
 }: {
+  completedSkillProposalIds: ReadonlySet<string>;
   message: CheatcodeUIMessage;
   onContinue?: (() => void) | undefined;
+  onMessageAppend: (message: CheatcodeUIMessage) => void;
   streaming: boolean;
+  threadId: string;
 }) {
   const isUser = message.role === "user";
   const elapsed = useElapsedSeconds(streaming);
@@ -188,7 +253,14 @@ function MessageBubble({
         )}
       >
         {isUser ? null : <AssistantHeader elapsedSeconds={elapsed} streaming={streaming} />}
-        <MessageParts message={message} onContinue={onContinue} streaming={streaming} />
+        <MessageParts
+          completedSkillProposalIds={completedSkillProposalIds}
+          message={message}
+          onContinue={onContinue}
+          onMessageAppend={onMessageAppend}
+          streaming={streaming}
+          threadId={threadId}
+        />
       </div>
     </article>
   );

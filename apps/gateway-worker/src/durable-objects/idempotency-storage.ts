@@ -1,157 +1,131 @@
-const IDEMPOTENCY_ENTRY_COLUMNS = [
-  { defaultValue: null, isNotNull: false, isPrimaryKey: true, name: "key", type: "TEXT" },
-  { defaultValue: null, isNotNull: true, isPrimaryKey: false, name: "body_hash", type: "TEXT" },
-  { defaultValue: null, isNotNull: false, isPrimaryKey: false, name: "claim_id", type: "TEXT" },
-  { defaultValue: null, isNotNull: true, isPrimaryKey: false, name: "state", type: "TEXT" },
-  {
-    defaultValue: null,
-    isNotNull: false,
-    isPrimaryKey: false,
-    name: "response_status",
-    type: "INTEGER",
-  },
-  {
-    defaultValue: null,
-    isNotNull: false,
-    isPrimaryKey: false,
-    name: "response_headers_json",
-    type: "TEXT",
-  },
-  {
-    defaultValue: null,
-    isNotNull: false,
-    isPrimaryKey: false,
-    name: "response_body",
-    type: "TEXT",
-  },
-  {
-    defaultValue: null,
-    isNotNull: true,
-    isPrimaryKey: false,
-    name: "expires_at",
-    type: "INTEGER",
-  },
+import {
+  assertExactSqliteSchema,
+  assertSqliteRowCountPreserved,
+  type ExpectedSqliteObject,
+  setCurrentSqliteStorageVersion,
+} from "@cheatcode/durable-storage";
+
+interface ExpectedColumn {
+  defaultValue: string | null;
+  isNotNull: boolean;
+  isPrimaryKey: boolean;
+  name: string;
+  type: string;
+}
+
+const IDEMPOTENCY_COLUMNS = [
+  column("key", "TEXT", true, true),
+  column("body_hash", "TEXT", true),
+  column("claim_id", "TEXT"),
+  column("state", "TEXT", true),
+  column("response_status", "INTEGER"),
+  column("response_headers_json", "TEXT"),
+  column("response_body", "TEXT"),
+  column("expires_at", "INTEGER", true),
 ] as const;
 
-const REQUIRED_PERSISTED_COLUMNS = [
-  "key",
-  "body_hash",
-  "state",
-  "response_status",
-  "response_headers_json",
-  "response_body",
-  "expires_at",
-] as const;
+const REQUIRED_COLUMNS = IDEMPOTENCY_COLUMNS.filter(({ name }) => name !== "claim_id");
 
-/** Reconcile deployed Durable Object storage to the one current idempotency schema. */
+const IDEMPOTENCY_TABLE_SQL = `CREATE TABLE idempotency_entry (
+  key TEXT PRIMARY KEY CHECK (length(key) BETWEEN 1 AND 255),
+  body_hash TEXT NOT NULL CHECK (length(body_hash) = 64 AND body_hash NOT GLOB '*[^a-f0-9]*'),
+  claim_id TEXT CHECK (claim_id IS NULL OR length(claim_id) = 36),
+  state TEXT NOT NULL CHECK (state IN ('in_flight', 'completed')),
+  response_status INTEGER CHECK (response_status IS NULL OR response_status BETWEEN 100 AND 599),
+  response_headers_json TEXT,
+  response_body TEXT CHECK (response_body IS NULL OR length(cast(response_body AS blob)) <= 65536),
+  expires_at INTEGER NOT NULL CHECK (expires_at >= 0)
+) STRICT`;
+
+const IDEMPOTENCY_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
+  {
+    name: "idempotency_entry",
+    sql: IDEMPOTENCY_TABLE_SQL,
+    tableName: "idempotency_entry",
+    type: "table",
+  },
+];
+
+/** Reconciles every dormant object to the one current persisted schema. */
 export function initializeIdempotencyStorage(ctx: DurableObjectState): void {
-  const columns = ctx.storage.sql.exec("PRAGMA table_info(idempotency_entry)").toArray();
+  normalizeIdempotencyStorage(ctx, false);
+  assertIdempotencyStorage(ctx);
+}
+
+export function hasIdempotencyStorage(ctx: DurableObjectState): boolean {
+  return tableColumns(ctx, "idempotency_entry").length > 0;
+}
+
+/** One-shot cutover normalizer; a later release removes this force-rebuild entrypoint. */
+export function reconcileIdempotencyStorage(ctx: DurableObjectState): void {
+  normalizeIdempotencyStorage(ctx, true);
+  assertExactSqliteSchema(ctx, IDEMPOTENCY_STORAGE_SCHEMA);
+}
+
+export function assertIdempotencyStorage(ctx: DurableObjectState): void {
+  assertExactSqliteSchema(ctx, IDEMPOTENCY_STORAGE_SCHEMA);
+}
+
+function normalizeIdempotencyStorage(ctx: DurableObjectState, forceRebuild: boolean): void {
+  const columns = tableColumns(ctx, "idempotency_entry");
   if (columns.length === 0) {
-    createIdempotencyEntryTable(ctx, "idempotency_entry");
+    createIdempotencyTable(ctx, "idempotency_entry");
+    setCurrentSqliteStorageVersion(ctx);
     return;
   }
-  if (hasExactColumns(columns, IDEMPOTENCY_ENTRY_COLUMNS)) {
+  if (!forceRebuild && hasExactColumns(columns, IDEMPOTENCY_COLUMNS)) {
+    setCurrentSqliteStorageVersion(ctx);
     return;
   }
-  if (!REQUIRED_PERSISTED_COLUMNS.every((name) => hasColumn(columns, name))) {
-    throw new Error("Unsupported idempotency_entry schema; refusing a lossy reconciliation.");
+  if (!REQUIRED_COLUMNS.every(({ name }) => hasColumn(columns, name))) {
+    throw new Error("Unsupported idempotency_entry schema; refusing lossy evolution.");
   }
-
-  const hasClaimId = hasColumn(columns, "claim_id");
+  const claimId = hasColumn(columns, "claim_id") ? "claim_id" : "NULL";
   ctx.storage.transactionSync(() => {
-    ctx.storage.sql.exec("DROP TABLE IF EXISTS idempotency_entry_current");
-    createIdempotencyEntryTable(ctx, "idempotency_entry_current");
-    copyIdempotencyEntries(ctx, hasClaimId);
-    ctx.storage.sql.exec("DROP TABLE idempotency_entry");
-    ctx.storage.sql.exec("ALTER TABLE idempotency_entry_current RENAME TO idempotency_entry");
-  });
-}
-
-function createIdempotencyEntryTable(
-  ctx: DurableObjectState,
-  table: "idempotency_entry" | "idempotency_entry_current",
-): void {
-  if (table === "idempotency_entry") {
+    ctx.storage.sql.exec("DROP TABLE IF EXISTS idempotency_entry_next");
+    createIdempotencyTable(ctx, "idempotency_entry_next");
     ctx.storage.sql.exec(
-      `CREATE TABLE idempotency_entry (
-        key TEXT PRIMARY KEY,
-        body_hash TEXT NOT NULL,
-        claim_id TEXT,
-        state TEXT NOT NULL CHECK (state IN ('in_flight', 'completed')),
-        response_status INTEGER,
-        response_headers_json TEXT,
-        response_body TEXT,
-        expires_at INTEGER NOT NULL
-      )`,
-    );
-    return;
-  }
-  ctx.storage.sql.exec(
-    `CREATE TABLE idempotency_entry_current (
-      key TEXT PRIMARY KEY,
-      body_hash TEXT NOT NULL,
-      claim_id TEXT,
-      state TEXT NOT NULL CHECK (state IN ('in_flight', 'completed')),
-      response_status INTEGER,
-      response_headers_json TEXT,
-      response_body TEXT,
-      expires_at INTEGER NOT NULL
-    )`,
-  );
-}
-
-function copyIdempotencyEntries(ctx: DurableObjectState, hasClaimId: boolean): void {
-  if (hasClaimId) {
-    ctx.storage.sql.exec(
-      `INSERT OR REPLACE INTO idempotency_entry_current (
+      `INSERT INTO idempotency_entry_next (
         key, body_hash, claim_id, state, response_status,
         response_headers_json, response_body, expires_at
       )
-      SELECT key, body_hash, claim_id, state, response_status,
+      SELECT key, body_hash, ${claimId}, state, response_status,
              response_headers_json, response_body, expires_at
-      FROM idempotency_entry
-      WHERE typeof(key) = 'text'
-        AND typeof(body_hash) = 'text'
-        AND (claim_id IS NULL OR typeof(claim_id) = 'text')
-        AND state IN ('in_flight', 'completed')
-        AND (response_status IS NULL OR typeof(response_status) = 'integer')
-        AND (response_headers_json IS NULL OR typeof(response_headers_json) = 'text')
-        AND (response_body IS NULL OR typeof(response_body) = 'text')
-        AND typeof(expires_at) = 'integer'`,
+        FROM idempotency_entry`,
     );
-    return;
-  }
-  ctx.storage.sql.exec(
-    `INSERT OR REPLACE INTO idempotency_entry_current (
-      key, body_hash, claim_id, state, response_status,
-      response_headers_json, response_body, expires_at
-    )
-    SELECT key, body_hash, NULL, state, response_status,
-           response_headers_json, response_body, expires_at
-    FROM idempotency_entry
-    WHERE typeof(key) = 'text'
-      AND typeof(body_hash) = 'text'
-      AND state IN ('in_flight', 'completed')
-      AND (response_status IS NULL OR typeof(response_status) = 'integer')
-      AND (response_headers_json IS NULL OR typeof(response_headers_json) = 'text')
-      AND (response_body IS NULL OR typeof(response_body) = 'text')
-      AND typeof(expires_at) = 'integer'`,
-  );
+    assertSqliteRowCountPreserved(ctx, "idempotency_entry", "idempotency_entry_next");
+    ctx.storage.sql.exec("DROP TABLE idempotency_entry");
+    ctx.storage.sql.exec("ALTER TABLE idempotency_entry_next RENAME TO idempotency_entry");
+  });
+  setCurrentSqliteStorageVersion(ctx);
 }
 
-function hasExactColumns(
-  rows: unknown[],
-  expected: ReadonlyArray<{
-    defaultValue: string | null;
-    isNotNull: boolean;
-    isPrimaryKey: boolean;
-    name: string;
-    type: string;
-  }>,
-): boolean {
+function createIdempotencyTable(
+  ctx: DurableObjectState,
+  table: "idempotency_entry" | "idempotency_entry_next",
+): void {
+  ctx.storage.sql.exec(IDEMPOTENCY_TABLE_SQL.replace("idempotency_entry", table));
+}
+
+function tableColumns(ctx: DurableObjectState, table: string): unknown[] {
+  return ctx.storage.sql.exec(`PRAGMA table_info(${table})`).toArray();
+}
+
+function hasExactColumns(rows: unknown[], expected: readonly ExpectedColumn[]): boolean {
   return (
     rows.length === expected.length &&
-    expected.every((column, index) => isColumn(rows[index], index, column))
+    expected.every((value, index) => {
+      const row = rows[index];
+      return (
+        isRecord(row) &&
+        row["cid"] === index &&
+        row["name"] === value.name &&
+        row["type"] === value.type &&
+        row["notnull"] === Number(value.isNotNull) &&
+        row["pk"] === Number(value.isPrimaryKey) &&
+        row["dflt_value"] === value.defaultValue
+      );
+    })
   );
 }
 
@@ -159,28 +133,14 @@ function hasColumn(rows: unknown[], name: string): boolean {
   return rows.some((row) => isRecord(row) && row["name"] === name);
 }
 
-function isColumn(
-  value: unknown,
-  index: number,
-  expected: {
-    defaultValue: string | null;
-    isNotNull: boolean;
-    isPrimaryKey: boolean;
-    name: string;
-    type: string;
-  },
-): boolean {
-  if (!isRecord(value)) {
-    return false;
-  }
-  return (
-    value["cid"] === index &&
-    value["name"] === expected.name &&
-    value["type"] === expected.type &&
-    value["notnull"] === Number(expected.isNotNull) &&
-    value["dflt_value"] === expected.defaultValue &&
-    value["pk"] === Number(expected.isPrimaryKey)
-  );
+function column(
+  name: string,
+  type: string,
+  isNotNull = false,
+  isPrimaryKey = false,
+  defaultValue: string | null = null,
+): ExpectedColumn {
+  return { defaultValue, isNotNull, isPrimaryKey, name, type };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

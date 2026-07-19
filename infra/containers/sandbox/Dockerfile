@@ -1,4 +1,4 @@
-FROM node:22-bookworm-slim@sha256:6c74791e557ce11fc957704f6d4fe134a7bc8d6f5ca4403205b2966bd488f6b3
+FROM node:22.22.2-bookworm-slim@sha256:9f6d5975c7dca860947d3915877f85607946403fc55349f39b4bc3688448bb6e
 
 ARG CODE_SERVER_VERSION=4.128.0
 ARG CODE_SERVER_SHA256=79ba26bf186e5268a22b7c17b30a5f288a16c37791f0b86c27859e8fef103188
@@ -22,7 +22,8 @@ RUN set -eux; \
   apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::Check-Valid-Until=false -o Acquire::https::No-Cache=true update; \
   apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::http::Pipeline-Depth=0 install -y --no-install-recommends \
   file python3 python3-pip python3-venv git curl wget gnupg netcat-openbsd sudo \
-  procps xvfb \
+  procps xvfb x11vnc novnc websockify \
+  pandoc poppler-utils qpdf tesseract-ocr \
   libreoffice-calc libreoffice-impress libreoffice-writer \
   libnss3 libatk-bridge2.0-0 libdrm2 libxkbcommon0 libgbm1 libasound2 \
   fonts-liberation libappindicator3-1 libnspr4 libxcomposite1 libxdamage1 \
@@ -31,6 +32,9 @@ RUN set -eux; \
 
 COPY package-manager/package.json package-manager/package-lock.json /opt/cheatcode-package-manager/
 COPY doc-runtime/package.json doc-runtime/package-lock.json /opt/cheatcode-doc-runtime/
+COPY skill-runtime/package.json skill-runtime/package-lock.json skill-runtime/tsconfig.json /opt/cheatcode-skill-runtime/
+COPY skill-runtime/bin/ /opt/cheatcode-skill-runtime/bin/
+COPY skill-runtime/src/ /opt/cheatcode-skill-runtime/src/
 WORKDIR /opt/cheatcode-package-manager
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && rm -rf /usr/local/lib/node_modules/npm \
@@ -40,6 +44,14 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/pnpx /usr/local/bin/pnpx
 WORKDIR /opt/cheatcode-doc-runtime
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+  && npm cache clean --force
+WORKDIR /opt/cheatcode-skill-runtime
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
+  && chmod a+rx /opt/cheatcode-skill-runtime/bin/*.mjs \
+  && chmod a+rx /opt/cheatcode-skill-runtime/node_modules/agent-browser/bin/agent-browser-* \
+  && ln -sf /opt/cheatcode-skill-runtime/bin/cheatcode-skills.mjs /usr/local/bin/cheatcode-skills \
+  && ln -sf /opt/cheatcode-skill-runtime/bin/cheatcode-browser.mjs /usr/local/bin/cheatcode-browser \
+  && ln -sf /opt/cheatcode-skill-runtime/node_modules/.bin/agent-browser /usr/local/bin/agent-browser \
   && npm cache clean --force
 
 RUN curl -fsSL \
@@ -58,6 +70,7 @@ RUN pip3 install --break-system-packages --disable-pip-version-check --no-cache-
 ENV DISPLAY=:99
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 ENV CHROME_PATH=/usr/local/bin/cheatcode-chromium
+ENV NODE_PATH=/opt/cheatcode-doc-runtime/node_modules:/opt/cheatcode-skill-runtime/node_modules
 COPY browser-driver /opt/cheatcode-browser-driver
 WORKDIR /opt/cheatcode-browser-driver
 RUN npm ci --omit=dev --no-audit --no-fund \
@@ -66,7 +79,7 @@ RUN npm ci --omit=dev --no-audit --no-fund \
   && ln -sf "$(find /opt/pw-browsers -path '*/chrome-linux*/chrome' -print -quit)" /usr/local/bin/cheatcode-chromium \
   && chmod -R a+rX /opt/cheatcode-browser-driver /opt/pw-browsers \
   && npm cache clean --force
-ENV PATH="/opt/cheatcode-browser-driver/node_modules/.bin:${PATH}"
+ENV PATH="/opt/cheatcode-browser-driver/node_modules/.bin:/opt/cheatcode-skill-runtime/node_modules/.bin:${PATH}"
 
 RUN mkdir -p /workspace && chown -R node:node /workspace
 WORKDIR /workspace
@@ -114,7 +127,8 @@ RUN set -eux; \
     version="$3"; \
     checksum="$4"; \
     vsix="/tmp/${namespace}.${name}-${version}.vsix"; \
-    curl -fsSL "https://open-vsx.org/api/${namespace}/${name}/${version}/file/${namespace}.${name}-${version}.vsix" -o "$vsix"; \
+    curl -fsSL --retry 5 --retry-all-errors --retry-delay 2 \
+      "https://open-vsx.org/api/${namespace}/${name}/${version}/file/${namespace}.${name}-${version}.vsix" -o "$vsix"; \
     echo "${checksum}  ${vsix}" | sha256sum --check --strict; \
     code-server \
       --extensions-dir /home/node/.local/share/code-server/extensions \
@@ -148,6 +162,11 @@ RUN set -eux; \
     --extensions-dir /home/node/.local/share/code-server/extensions \
     --list-extensions | sort
 
+# The bundled catalog is the single source of truth for both the agent prompt and
+# the inspectable sandbox copy. It intentionally contains no user-app deploy skill.
+COPY --from=default_skills --chown=node:node / /home/node/.cheatcode/default-skills/
+COPY --chown=node:node skill-runtime/tsconfig.json /home/node/.cheatcode/tsconfig.json
+
 # Template dependency churn must not invalidate the larger browser and editor layers.
 COPY --chown=node:node app-templates/ /home/node/.cheatcode-template-manifests/
 COPY --chown=node:node app-generators/ /home/node/.cheatcode-app-generators/
@@ -166,6 +185,7 @@ RUN set -eux; \
     --yes --ts --tailwind --biome --app --src-dir --use-pnpm --skip-install --disable-git; \
   cp /home/node/.cheatcode-template-manifests/next/package.json /home/node/cheatcode-next-template/package.json; \
   cp /home/node/.cheatcode-template-manifests/next/pnpm-lock.yaml /home/node/cheatcode-next-template/pnpm-lock.yaml; \
+  cp /home/node/.cheatcode-template-manifests/next/pnpm-workspace.yaml /home/node/cheatcode-next-template/pnpm-workspace.yaml; \
   rm -rf \
     /home/node/cheatcode-next-template/.next \
     /home/node/cheatcode-next-template/node_modules \
@@ -186,6 +206,7 @@ RUN set -eux; \
   mv /home/node/cheatcode-expo-template/_vscode /home/node/cheatcode-expo-template/.vscode; \
   cp /home/node/.cheatcode-template-manifests/expo/package.json /home/node/cheatcode-expo-template/package.json; \
   cp /home/node/.cheatcode-template-manifests/expo/pnpm-lock.yaml /home/node/cheatcode-expo-template/pnpm-lock.yaml; \
+  cp /home/node/.cheatcode-template-manifests/expo/pnpm-workspace.yaml /home/node/cheatcode-expo-template/pnpm-workspace.yaml; \
   cd /home/node/cheatcode-expo-template; \
   node -e 'const fs=require("node:fs");const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo??={};j.expo.name="cheatcode-expo-template";j.expo.slug="cheatcode-expo-template";j.expo.web={...(j.expo.web??{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2)+"\n")'; \
   rm -rf .git .expo node_modules package-lock.json AGENTS.md CLAUDE.md .claude; \

@@ -1,4 +1,3 @@
-import { pendingApprovalSnapshot } from "./agent-run-approvals";
 import { getRunStateValue, readStoredRunSnapshot } from "./agent-run-storage";
 import { type AgentRunSnapshotStatus, summarizeAgentRunStorage } from "./run-summary";
 
@@ -9,13 +8,11 @@ interface StatusPayloadInput {
 
 export function agentRunStatusPayload(input: StatusPayloadInput): unknown | null {
   const summary = statusSummary(input);
-  const pending = pendingApprovalSnapshot(input.ctx);
-  const pendingApproval = pending ? { pendingApproval: pending } : {};
   const stored = readStoredRunSnapshot(input.ctx);
   if (!stored) {
     return null;
   }
-  return { ...stored, ...pendingApproval, ok: true, status: input.status, summary };
+  return { ...stored, ok: true, status: input.status, summary };
 }
 
 function statusSummary(input: StatusPayloadInput): string {

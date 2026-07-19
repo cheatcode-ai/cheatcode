@@ -1,4 +1,6 @@
 {
+  "infra/supabase/migrations/pre/0006_worker_database_roles.sql": "d02bec64d1134ffa179e43cb8cdc8239408a22476f60a937b8b29eda3bbfe2a3",
   "infra/supabase/migrations/post/0025_v2_automations_grants.sql": "103de0c5c6f8ff46b9d2fdb64c7df686cca9685ceea5978ed2734b7b382edede",
-  "infra/supabase/migrations/post/0026_v2_replay_shares_grants.sql": "6074acf0f79499d4693fa05f248c98d5deebcd5ef13c0228741c09af74ac12f4"
+  "infra/supabase/migrations/post/0026_v2_replay_shares_grants.sql": "6074acf0f79499d4693fa05f248c98d5deebcd5ef13c0228741c09af74ac12f4",
+  "infra/supabase/migrations/post/0049_stage_qa_project_deletions.sql": "1ad266c442e7d7bc807be8bb380f78bf47b2ea57d024cf755cc4a7dbd533080e"
 }

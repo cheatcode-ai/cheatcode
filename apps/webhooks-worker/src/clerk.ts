@@ -1,3 +1,4 @@
+import type { ClerkUserSyncInput, ClerkUserSyncResult } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import type { WebhookEvent, WebhookEventType } from "@clerk/backend/webhooks";
@@ -18,6 +19,7 @@ const ClerkUserDataSchema = z
     last_name: z.string().nullable().optional(),
     primary_email_address_id: z.string().min(1).nullable().optional(),
     email_addresses: z.array(ClerkEmailAddressSchema),
+    updated_at: z.number().int().safe().nonnegative(),
     username: z.string().nullable().optional(),
   })
   .passthrough();
@@ -54,30 +56,21 @@ function parseClerkDeletedUserData(data: unknown): z.infer<typeof ClerkDeletedUs
 }
 
 export interface ClerkUserRepository {
-  upsertUser(input: {
-    avatarUrl?: string | null;
-    clerkId: string;
-    displayName?: string | null;
-    email: string;
-  }): Promise<ClerkUserSyncResult>;
+  syncUser(input: ClerkUserSyncInput): Promise<ClerkUserSyncResult>;
   markUserDeleted(clerkId: string, deletedAt: Date): Promise<UserId | null>;
 }
 
-interface ClerkUserSyncResult {
-  avatarUrl: string | null;
-  displayName: string | null;
-  email: string;
-  emailChanged: boolean;
-  polarCustomerId: string | null;
-  profileChanged: boolean;
-  userId: UserId;
-}
-
-type ClerkWebhookAction = "upserted" | "deleted" | "skipped";
+type ClerkWebhookAction =
+  | "deleted"
+  | "identity_synced"
+  | "identity_unchanged"
+  | "skipped"
+  | "stale_event_ignored";
 
 export interface ClerkWebhookResult {
   avatarUrl?: string | null;
   clerkId?: string;
+  clerkUpdatedAtMs?: number;
   displayName?: string | null;
   email?: string;
   emailChanged?: boolean;
@@ -137,16 +130,18 @@ async function upsertClerkWebhookUser(
       retriable: false,
     });
   }
-  const syncResult = await repository.upsertUser({
+  const syncResult = await repository.syncUser({
     avatarUrl: avatarUrlFromClerkUser(data),
     clerkId: data.id,
+    clerkUpdatedAtMs: data.updated_at,
     displayName: displayNameFromClerkUser(data),
     email,
   });
   return {
-    action: "upserted",
+    action: clerkSyncAction(syncResult.outcome),
     avatarUrl: syncResult.avatarUrl,
     clerkId: data.id,
+    clerkUpdatedAtMs: syncResult.clerkUpdatedAtMs,
     displayName: syncResult.displayName,
     email: syncResult.email,
     emailChanged: syncResult.emailChanged,
@@ -155,6 +150,16 @@ async function upsertClerkWebhookUser(
     profileChanged: syncResult.profileChanged,
     userId: syncResult.userId,
   };
+}
+
+function clerkSyncAction(outcome: ClerkUserSyncResult["outcome"]): ClerkWebhookAction {
+  if (outcome === "stale") {
+    return "stale_event_ignored";
+  }
+  if (outcome === "unchanged") {
+    return "identity_unchanged";
+  }
+  return "identity_synced";
 }
 
 async function deleteClerkWebhookUser(

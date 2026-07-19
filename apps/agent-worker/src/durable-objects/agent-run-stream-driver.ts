@@ -1,9 +1,17 @@
-import type { ApprovalBroker } from "@cheatcode/agent-core";
+import type { AgentChunkType } from "@cheatcode/agent-core";
 import { type createLogger, emitUserEvent } from "@cheatcode/observability";
-import type { ArtifactRuntime, CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
-import { FALLBACK_MODEL_ID, type LogicalModelId } from "@cheatcode/types";
+import type {
+  ArtifactRuntime,
+  CodeRuntimeContext,
+  WorkspaceResolver,
+} from "@cheatcode/sandbox-contracts";
+import {
+  FALLBACK_MODEL_ID,
+  type LogicalModelId,
+  type ModelFallbackData,
+  ModelFallbackDataSchema,
+} from "@cheatcode/types";
 import type { ModelMessage, UIMessageChunk } from "ai";
-import { appendModelFallbackTransition, offerModelFallback } from "./agent-run-approvals";
 import { loadThreadModelContext } from "./agent-run-conversation";
 import type { AgentRunEnv } from "./agent-run-env";
 import { runMastraStream } from "./agent-run-mastra-stream";
@@ -21,17 +29,16 @@ type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 /** Thin DO closures the stream driver needs. */
 export interface StreamDriverDeps {
   append: (chunk: UIMessageChunk) => Promise<void>;
-  appendCheckedMastraChunk: (input: StartRunInput, chunk: unknown) => Promise<number>;
+  appendCheckedMastraChunk: (input: StartRunInput, chunk: AgentChunkType) => Promise<number>;
   createArtifactRuntime: (input: StartRunInput) => ArtifactRuntime;
-  createBroker: () => ApprovalBroker;
   env: AgentRunEnv;
-  hasPendingDecision: () => boolean;
   persistLogicalModel: (
     input: StartRunInput,
     logicalModelId: LogicalModelId,
     logger: ReturnType<typeof createLogger>,
   ) => Promise<void>;
   setRunStage: (stage: string) => void;
+  waitForBrowserTakeover: (signal: AbortSignal) => Promise<number>;
 }
 
 interface StreamRunParams {
@@ -40,6 +47,7 @@ interface StreamRunParams {
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
   sandbox: ProjectSandboxStub;
+  workspaceResolver: WorkspaceResolver;
 }
 
 type PreparedStreamRunParams = StreamRunParams & { modelMessages: ModelMessage[] };
@@ -50,8 +58,7 @@ interface StreamAttemptState {
 
 /**
  * Runs the Mastra stream against the primary BYOK provider, falling back to the
- * OpenAI default through the interactive consent flow on a provider
- * rate-limit or provider-balance failure.
+ * OpenAI default on a provider rate-limit or provider-balance failure.
  */
 export async function streamMastraRunWithFallback(
   deps: StreamDriverDeps,
@@ -106,15 +113,6 @@ async function handleFallback(
     throw error;
   }
   const fallbackReason = classifyFallbackReason(error);
-  const decision = await offerModelFallback({
-    broker: deps.createBroker(),
-    fromModel: primaryCredential.logicalModelId,
-    reason: fallbackReason,
-    toModel: fallbackCredential.logicalModelId,
-  });
-  if (decision.decision === "deny") {
-    throw error;
-  }
   params.logger.warn("llm_provider_fallback_started", {
     fromLogicalModelId: primaryCredential.logicalModelId,
     fromTransportProvider: primaryCredential.transportProvider,
@@ -158,15 +156,32 @@ async function streamMastraRun(
       attemptState.hasVisibleOutput = attemptState.hasVisibleOutput || appendedCount > 0;
       return appendedCount;
     },
-    approvalBroker: deps.createBroker(),
     artifactRuntime: deps.createArtifactRuntime(params.input),
     credential,
     env: deps.env,
-    hasPendingDecision: deps.hasPendingDecision,
     input: params.input,
     logger: params.logger,
     modelMessages: params.modelMessages,
     sandbox: params.sandbox,
     setRunStage: deps.setRunStage,
+    waitForBrowserTakeover: deps.waitForBrowserTakeover,
+    workspaceResolver: params.workspaceResolver,
+  });
+}
+
+async function appendModelFallbackTransition(params: {
+  append: (chunk: UIMessageChunk) => Promise<void>;
+  fromModel: LogicalModelId;
+  reason: ModelFallbackData["reason"];
+  toModel: LogicalModelId;
+}): Promise<void> {
+  await params.append({
+    data: ModelFallbackDataSchema.parse({
+      v: 1,
+      fromModel: params.fromModel,
+      reason: params.reason,
+      toModel: params.toModel,
+    }),
+    type: "data-model-fallback",
   });
 }

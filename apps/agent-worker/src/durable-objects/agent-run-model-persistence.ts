@@ -21,7 +21,10 @@ interface PersistAgentRunLogicalModelInput {
 export async function persistAgentRunLogicalModel(
   input: PersistAgentRunLogicalModelInput,
 ): Promise<void> {
-  const dbHandle = createDb(input.env.HYPERDRIVE);
+  const dbHandle = createDb(input.env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: input.env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     const updated = await withUserContext(dbHandle.db, UserId(input.userId), (db) =>
       updateAgentRunLogicalModelId(db, {

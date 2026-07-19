@@ -1,86 +1,146 @@
 import { createInternalMaintenanceHeaders } from "@cheatcode/auth";
 import { ComposioClient, isComposioNotFoundError } from "@cheatcode/composio";
-import type { UserDeletionContext } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 import {
-  APIError,
-  readBoundedResponseJson,
-  withBoundedResponseBody,
-} from "@cheatcode/observability";
-import {
+  canonicalWorkspaceDigest,
   type InternalAgentStateDeleteBody,
   InternalAgentStateDeleteBodySchema,
-  InternalGatewayStateDeleteBodySchema,
   InternalStateDeleteResponseSchema,
+  type InternalWorkspaceReconciliationBody,
+  InternalWorkspaceReconciliationBodySchema,
+  type InternalWorkspaceReconciliationResponse,
+  InternalWorkspaceReconciliationResponseSchema,
   internalUserStateDeletePath,
+  internalUserWorkspaceReconciliationPath,
   type UserId,
 } from "@cheatcode/types";
-import { HTTPClient, Polar } from "@polar-sh/sdk";
+import {
+  requireAgentLifecycleSecret,
+  type WebhooksMaintenanceSecretBindings,
+} from "./internal-maintenance";
 
-export interface LifecycleEnv {
+export interface AgentStateDeletionEnv extends WebhooksMaintenanceSecretBindings {
   AGENT: Fetcher;
+}
+
+export interface LifecycleEnv extends AgentStateDeletionEnv {
   COMPOSIO_API_KEY?: WorkerSecret;
-  GATEWAY: Fetcher;
-  INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
   POLAR_SERVER?: "production" | "sandbox";
+  QUOTA_TRACKER: DurableObjectNamespace;
   R2_OUTPUTS: R2Bucket;
-  R2_UPLOADS: R2Bucket;
 }
 
 const INTERNAL_AGENT_RESPONSE_MAX_BYTES = 64 * 1024;
-const POLAR_ORDER_MAX_PAGES = 100;
-const POLAR_REQUEST_TIMEOUT_MS = 30_000;
-const POLAR_RESPONSE_MAX_BYTES = 1024 * 1024;
+const COMPOSIO_DELETE_CONCURRENCY = 5;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
 
-interface PolarDeletionResult {
-  customerDeleted: boolean;
-  refundCreated: boolean;
-  subscriptionRevoked: boolean;
-}
-
-export async function deleteUserGatewayDurableState(
+export async function deleteUserQuotaDurableState(
   env: LifecycleEnv,
   userId: UserId,
 ): Promise<void> {
-  const body = JSON.stringify(InternalGatewayStateDeleteBodySchema.parse({}));
-  const pathname = internalUserStateDeletePath(userId);
+  await deleteQuotaNamespaceState(env.QUOTA_TRACKER, userId);
+}
+
+async function deleteQuotaNamespaceState(
+  namespace: DurableObjectNamespace,
+  userId: UserId,
+): Promise<void> {
+  const quota = namespace.get(namespace.idFromName(`quota:${userId}`));
+  const response = await quota.fetch("https://quota.internal/delete-all", {
+    method: "POST",
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new APIError(503, "unavailable_maintenance", "Quota durable state deletion failed", {
+      details: { status: response.status },
+      retriable: true,
+    });
+  }
+  await response.body?.cancel().catch(() => undefined);
+}
+
+export async function deleteUserAgentAccountState(
+  env: AgentStateDeletionEnv,
+  userId: UserId,
+  deletionFence: string,
+): Promise<void> {
+  return deleteAgentState(env, userId, { deletionFence, scope: "account" });
+}
+
+type AgentRunDeletionAuthority = Extract<
+  InternalAgentStateDeleteBody,
+  { scope: "runs" }
+>["authority"];
+
+export async function deleteUserAgentRunStatePage(
+  env: AgentStateDeletionEnv,
+  userId: UserId,
+  runIds: string[],
+  authority: AgentRunDeletionAuthority,
+): Promise<void> {
+  return deleteAgentState(env, userId, { authority, runIds, scope: "runs" });
+}
+
+export async function deleteProjectAgentWorkspace(
+  env: AgentStateDeletionEnv,
+  input: { deletedAt: Date; projectId: string; userId: UserId; workspaceSlug: string },
+): Promise<void> {
+  return deleteAgentState(env, input.userId, {
+    deletedAt: input.deletedAt.toISOString(),
+    projectId: input.projectId,
+    scope: "project",
+    workspaceSlug: input.workspaceSlug,
+  });
+}
+
+export async function reconcileUserAgentWorkspaces(
+  env: AgentStateDeletionEnv,
+  userId: UserId,
+  payload: InternalWorkspaceReconciliationBody,
+): Promise<InternalWorkspaceReconciliationResponse> {
+  const parsed = InternalWorkspaceReconciliationBodySchema.parse(payload);
+  const body = JSON.stringify(parsed);
+  const pathname = internalUserWorkspaceReconciliationPath(userId);
   const headers = await internalMaintenanceHeaders(env, pathname, body);
-  const response = await env.GATEWAY.fetch(`https://gateway.internal${pathname}`, {
+  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
     body,
     headers,
     method: "POST",
   });
   if (!response.ok) {
+    const status = response.status;
     await response.body?.cancel().catch(() => undefined);
-    throw new APIError(503, "unavailable_maintenance", "Gateway durable state deletion failed", {
-      details: { status: response.status },
-      retriable: true,
+    throw new APIError(503, "unavailable_maintenance", "Workspace reconciliation failed", {
+      details: { status },
+      retriable: isRetriableUpstreamStatus(status),
     });
   }
-  InternalStateDeleteResponseSchema.parse(
-    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Gateway Worker"),
+  const result = InternalWorkspaceReconciliationResponseSchema.parse(
+    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Agent Worker"),
   );
-}
-
-export async function deleteUserAgentAccountState(
-  env: LifecycleEnv,
-  userId: UserId,
-): Promise<void> {
-  return deleteAgentState(env, userId, { scope: "account" });
-}
-
-export async function deleteUserAgentRunStatePage(
-  env: LifecycleEnv,
-  userId: UserId,
-  runIds: string[],
-): Promise<void> {
-  return deleteAgentState(env, userId, { runIds, scope: "runs" });
+  const expectedDigest = await canonicalWorkspaceDigest(
+    parsed.projects.map((project) => project.canonicalWorkspaceSlug),
+  );
+  const isExpectedPhase =
+    result.transitionPhase === "completed" ||
+    (parsed.phase === "prepare" && result.transitionPhase === "prepared");
+  if (
+    result.canonicalDigest !== expectedDigest ||
+    result.canonicalWorkspaceCount !== parsed.projects.length ||
+    result.releaseSha !== parsed.releaseSha ||
+    !isExpectedPhase
+  ) {
+    throw new APIError(409, "conflict_state_invalid", "Workspace evidence does not match request", {
+      retriable: false,
+    });
+  }
+  return result;
 }
 
 async function deleteAgentState(
-  env: LifecycleEnv,
+  env: AgentStateDeletionEnv,
   userId: UserId,
   payload: InternalAgentStateDeleteBody,
 ): Promise<void> {
@@ -93,152 +153,16 @@ async function deleteAgentState(
     method: "POST",
   });
   if (!response.ok) {
+    const status = response.status;
     await response.body?.cancel().catch(() => undefined);
     throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
-      details: { status: response.status },
-      retriable: true,
+      details: { status },
+      retriable: isRetriableUpstreamStatus(status),
     });
   }
   InternalStateDeleteResponseSchema.parse(
     await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Agent Worker"),
   );
-}
-
-export async function deleteUserPolarBilling(
-  env: LifecycleEnv,
-  manifest: UserDeletionContext,
-): Promise<PolarDeletionResult> {
-  if (!manifest.polarCustomerId && !manifest.polarSubscriptionId) {
-    return { customerDeleted: false, refundCreated: false, subscriptionRevoked: false };
-  }
-  const token = await optionalSecret(env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  if (!token) {
-    throw new APIError(503, "unavailable_maintenance", "Polar deletion credentials are missing", {
-      hint: "Set POLAR_ACCESS_TOKEN before retrying the user deletion Workflow.",
-      retriable: false,
-    });
-  }
-  const polar = createPolarClient(token, env.POLAR_SERVER ?? "production");
-  const subscriptionRevoked = await revokePolarSubscription(polar, manifest);
-  const refundCreated = await refundLatestPolarSubscriptionOrder(polar, manifest);
-  const customerDeleted = await deletePolarCustomer(polar, manifest.userId);
-  return { customerDeleted, refundCreated, subscriptionRevoked };
-}
-
-function createPolarClient(accessToken: string, server: "production" | "sandbox"): Polar {
-  const httpClient = new HTTPClient({
-    fetcher: async (input, init) => {
-      const response = await fetch(input, init);
-      return withBoundedResponseBody(response, POLAR_RESPONSE_MAX_BYTES, "Polar");
-    },
-  });
-  return new Polar({ accessToken, httpClient, server, timeoutMs: POLAR_REQUEST_TIMEOUT_MS });
-}
-
-async function revokePolarSubscription(
-  polar: Polar,
-  manifest: UserDeletionContext,
-): Promise<boolean> {
-  if (!manifest.polarSubscriptionId) {
-    return false;
-  }
-  try {
-    await polar.subscriptions.revoke({ id: manifest.polarSubscriptionId });
-    return true;
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return false;
-    }
-    throw upstreamLifecycleError("Polar subscription revoke failed", error);
-  }
-}
-
-async function refundLatestPolarSubscriptionOrder(
-  polar: Polar,
-  manifest: UserDeletionContext,
-): Promise<boolean> {
-  if (!manifest.polarSubscriptionId) {
-    return false;
-  }
-  const order = await latestRefundableSubscriptionOrder(polar, manifest);
-  const amount = order ? proratedRefundAmount(order.refundableAmount, manifest) : 0;
-  if (!order || amount < 1) {
-    return false;
-  }
-  try {
-    await polar.refunds.create({
-      amount,
-      comment: "GDPR deletion requested by customer.",
-      orderId: order.id,
-      reason: "customer_request",
-    });
-    return true;
-  } catch (error) {
-    if (isAlreadyRefundedError(error) || isNotFoundError(error)) {
-      return false;
-    }
-    throw upstreamLifecycleError("Polar prorated refund failed", error);
-  }
-}
-
-async function latestRefundableSubscriptionOrder(
-  polar: Polar,
-  manifest: UserDeletionContext,
-): Promise<{ id: string; refundableAmount: number } | null> {
-  const pages = await polar.orders.list({
-    externalCustomerId: manifest.userId,
-    limit: 100,
-    productBillingType: "recurring",
-    sorting: ["-created_at"],
-  });
-  let pagesRead = 0;
-  for await (const page of pages) {
-    pagesRead += 1;
-    if (pagesRead > POLAR_ORDER_MAX_PAGES) {
-      throw new APIError(
-        503,
-        "upstream_provider_outage",
-        "Polar order listing exceeded the safe pagination limit",
-        { retriable: true },
-      );
-    }
-    const order = page.result.items.find(
-      (candidate) =>
-        candidate.paid &&
-        candidate.subscriptionId === manifest.polarSubscriptionId &&
-        candidate.totalAmount > candidate.refundedAmount,
-    );
-    if (order) {
-      return { id: order.id, refundableAmount: order.totalAmount - order.refundedAmount };
-    }
-  }
-  return null;
-}
-
-function proratedRefundAmount(refundableAmount: number, manifest: UserDeletionContext): number {
-  const periodStart = manifest.polarCurrentPeriodStartMs;
-  const periodEnd = manifest.polarCurrentPeriodEndMs;
-  if (!periodStart || !periodEnd || periodEnd <= periodStart) {
-    return 0;
-  }
-  const now = Date.now();
-  const remainingRatio = Math.max(0, Math.min(1, (periodEnd - now) / (periodEnd - periodStart)));
-  return Math.floor(refundableAmount * remainingRatio);
-}
-
-async function deletePolarCustomer(polar: Polar, userId: UserId): Promise<boolean> {
-  try {
-    await polar.customers.deleteExternal({
-      anonymize: true,
-      externalId: userId,
-    });
-    return true;
-  } catch (error) {
-    if (isNotFoundError(error)) {
-      return false;
-    }
-    throw upstreamLifecycleError("Polar customer deletion failed", error);
-  }
 }
 
 export async function revokeUserComposioConnectionPage(
@@ -262,26 +186,51 @@ export async function revokeUserComposioConnectionPage(
   }
   const composio = new ComposioClient(apiKey);
   let revoked = 0;
-  for (const connectionId of connectionIds) {
-    try {
-      await composio.deleteConnectedAccount(connectionId, COMPOSIO_REQUEST_TIMEOUT_MS);
-      revoked += 1;
-    } catch (error) {
-      if (isComposioNotFoundError(error)) {
-        revoked += 1;
-      } else {
-        throw upstreamLifecycleError("Composio connection revoke failed", error);
-      }
-    }
+  for (let offset = 0; offset < connectionIds.length; offset += COMPOSIO_DELETE_CONCURRENCY) {
+    const batch = connectionIds.slice(offset, offset + COMPOSIO_DELETE_CONCURRENCY);
+    revoked += await revokeComposioBatch(composio, batch);
   }
   return revoked;
+}
+
+async function revokeComposioBatch(
+  composio: ComposioClient,
+  connectionIds: string[],
+): Promise<number> {
+  const results = await Promise.allSettled(
+    connectionIds.map((connectionId) => revokeComposio(composio, connectionId)),
+  );
+  const failure = results.find((result) => result.status === "rejected");
+  if (failure?.status === "rejected") {
+    throw failure.reason;
+  }
+  return results.filter((result) => result.status === "fulfilled" && result.value).length;
+}
+
+async function revokeComposio(composio: ComposioClient, connectionId: string): Promise<boolean> {
+  try {
+    await composio.deleteConnectedAccount(connectionId, COMPOSIO_REQUEST_TIMEOUT_MS);
+    return true;
+  } catch (error) {
+    if (isComposioNotFoundError(error)) {
+      return true;
+    }
+    throw upstreamLifecycleError("Composio connection revoke failed", error);
+  }
 }
 
 export async function deleteUserR2ObjectBatch(
   bucket: R2Bucket,
   userId: UserId,
 ): Promise<{ deleted: number; hasMore: boolean }> {
-  const listed = await bucket.list({ limit: 1_000, prefix: `${userId}/` });
+  return deleteR2ObjectPrefixBatch(bucket, `${userId}/`);
+}
+
+export async function deleteR2ObjectPrefixBatch(
+  bucket: R2Bucket,
+  prefix: string,
+): Promise<{ deleted: number; hasMore: boolean }> {
+  const listed = await bucket.list({ limit: 1_000, prefix });
   const keys = listed.objects.map((object) => object.key);
   if (keys.length > 0) {
     await bucket.delete(keys);
@@ -289,30 +238,16 @@ export async function deleteUserR2ObjectBatch(
   return { deleted: keys.length, hasMore: listed.truncated };
 }
 
-async function requiredSecret(
-  secret: WorkerSecret | string | undefined,
-  name: string,
-): Promise<string> {
-  const value = await optionalSecret(secret, name);
-  if (!value) {
-    throw new APIError(503, "unavailable_maintenance", `${name} is not configured`, {
-      hint: `Set ${name} on the webhooks Worker before running lifecycle maintenance.`,
-      retriable: false,
-    });
-  }
-  return value;
-}
-
 async function internalMaintenanceHeaders(
-  env: LifecycleEnv,
+  env: AgentStateDeletionEnv,
   pathname: string,
   rawBody: string,
 ): Promise<Headers> {
-  const secret = await requiredSecret(
-    env.INTERNAL_MAINTENANCE_SECRET,
-    "INTERNAL_MAINTENANCE_SECRET",
-  );
+  const secret = await requireAgentLifecycleSecret(env);
   const headers = await createInternalMaintenanceHeaders({
+    audience: "agent",
+    capability: "agent-lifecycle",
+    issuer: "webhooks",
     method: "POST",
     pathname,
     rawBody,
@@ -350,18 +285,6 @@ function upstreamLifecycleError(message: string, error: unknown): APIError {
   });
 }
 
-function isNotFoundError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const normalized = `${error.name} ${error.message}`.toLowerCase();
-  return normalized.includes("notfound") || normalized.includes("not found");
-}
-
-function isAlreadyRefundedError(error: unknown): boolean {
-  if (!(error instanceof Error)) {
-    return false;
-  }
-  const normalized = `${error.name} ${error.message}`.toLowerCase();
-  return normalized.includes("refundedalready") || normalized.includes("already refunded");
+function isRetriableUpstreamStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }

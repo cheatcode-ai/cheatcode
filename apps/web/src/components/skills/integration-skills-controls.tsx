@@ -1,9 +1,9 @@
 "use client";
 
 import type { ToolkitCategory } from "@cheatcode/types";
+import { MoreVertical, Search } from "@cheatcode/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { MoreVertical, Search } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 const ALL_CATEGORY = "all";

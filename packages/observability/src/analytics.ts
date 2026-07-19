@@ -50,6 +50,7 @@ interface UserEvent {
   durationMs?: number;
   errorCode?: string;
   eventDate?: string;
+  eventId?: string;
   eventName: string;
   confidence?: number;
   fromPlan?: string;
@@ -145,7 +146,7 @@ export function emitUserEvent(env: AnalyticsBindings, event: UserEvent): void {
       event.referrer,
       event.utmSource,
       event.country,
-      event.runId,
+      event.eventId ?? event.runId,
       event.authMethod,
       event.templateId,
       event.logicalModelId ?? event.plannedModelId,

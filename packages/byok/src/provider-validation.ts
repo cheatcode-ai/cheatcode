@@ -66,19 +66,6 @@ const PROVIDER_VALIDATORS = {
     url: "https://generativelanguage.googleapis.com/v1beta/models",
     headers: (key: string) => ({ "x-goog-api-key": key }),
   },
-  llamaparse: {
-    invalidStatuses: [401, 403],
-    label: "LlamaParse",
-    method: "GET",
-    schema: z
-      .object({
-        items: z.array(z.unknown()).max(10).optional(),
-        total_size: z.number().optional(),
-      })
-      .strip(),
-    url: "https://api.cloud.llamaindex.ai/api/v2/parse?page_size=1",
-    headers: (key: string) => ({ authorization: `Bearer ${key}` }),
-  },
   openai: {
     invalidStatuses: [401, 403],
     label: "OpenAI",

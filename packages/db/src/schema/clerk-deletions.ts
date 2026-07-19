@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp } from "drizzle-orm/pg-core";
+import { check, pgTable, text } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 
 /**
@@ -10,7 +10,6 @@ export const deletedClerkIdentities = pgTable(
   v2TableName("deleted_clerk_identities"),
   {
     clerkIdentityHash: text("clerk_identity_hash").primaryKey(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
     check(

@@ -8,5 +8,10 @@
     "databaseSha256": "24d53786bae1900dc688441e6c2de53a005f31cee6ae2c775c9b2dd54f60fbee",
     "reason": "The original applied SQL blob is unavailable; pin both observed identities so any further drift fails closed.",
     "sourceSha256": "716a7cd8752b0d54066b9c510f4a33d349a68fcd292e6a37997a0831f32bc536"
+  },
+  "packages/db/drizzle/0046_dry_jubilee.sql": {
+    "databaseSha256": "e5c1de5c849882dc8b8bc19c97659f1e5bb66fc3ab627ed31306480d3ff5f598",
+    "reason": "The applied blob omitted the terminal newline required by repository formatting; both byte identities are pinned.",
+    "sourceSha256": "d33a7ae25c1f34e73faaa4303083a7efb3722458aa425d3be42fde2c9d53f4f6"
   }
 }

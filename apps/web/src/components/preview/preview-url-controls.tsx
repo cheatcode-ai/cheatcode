@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "@/components/ui/icons";
+import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "@cheatcode/ui";
 import { buildPreviewIframeSrc } from "@/lib/preview/url-bar";
 import { useAppStore } from "@/lib/store/app-store";
 

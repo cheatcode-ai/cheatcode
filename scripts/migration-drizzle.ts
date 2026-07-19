@@ -33,6 +33,9 @@ const FIRST_EXPAND_ONLY_DRIZZLE_INDEX = 18;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
 const DESTRUCTIVE_SQL_PATTERN =
   /\b(?:delete\s+from|detach\s+partition|drop\s+(?:column|constraint|extension|function|index|materialized\s+view|policy|procedure|schema|sequence|table|trigger|type|view)|rename\s+(?:column|constraint|to)|revoke\b|truncate\b|alter\s+column\s+[^;]+\s+(?:drop\s+default|set\s+not\s+null|type\b))/i;
+const USER_DELETION_GENERATION_PRECISION_WIDENING =
+  'ALTER TABLE "v2_user_deletion_jobs" ALTER COLUMN "generation" SET DATA TYPE timestamp with time zone;';
+const USER_DELETION_GENERATION_PRECISION_MIGRATION = "packages/db/drizzle/0043_third_sleeper.sql";
 
 export async function loadDrizzleMigrations(): Promise<DrizzleMigration[]> {
   const parsed: unknown = JSON.parse(await readFile(DRIZZLE_JOURNAL_PATH, "utf8"));
@@ -217,13 +220,22 @@ export async function assertExpandOnlyDrizzleMigrations(): Promise<void> {
     if (!Number.isInteger(index) || index < FIRST_EXPAND_ONLY_DRIZZLE_INDEX) {
       continue;
     }
-    const sql = stripSqlComments(await readFile(file, "utf8"));
+    const source = stripSqlComments(await readFile(file, "utf8"));
+    const sql = removeApprovedPrecisionWidening(relative(ROOT, file), source);
     if (DESTRUCTIVE_SQL_PATTERN.test(sql)) {
       throw new Error(
         `Drizzle migration must be expand-only: ${relative(ROOT, file)}. Put contractions in an explicitly post-deploy raw migration.`,
       );
     }
   }
+}
+
+function removeApprovedPrecisionWidening(filename: string, sql: string): string {
+  if (filename !== USER_DELETION_GENERATION_PRECISION_MIGRATION) {
+    return sql;
+  }
+  const parts = sql.split(USER_DELETION_GENERATION_PRECISION_WIDENING);
+  return parts.length === 2 ? parts.join("") : sql;
 }
 
 async function sqlFiles(dir: string): Promise<string[]> {

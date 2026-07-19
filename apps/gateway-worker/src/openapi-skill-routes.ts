@@ -1,8 +1,11 @@
-import { CreateUserSkillSchema, UserSkillSchema, UserSkillsResponseSchema } from "@cheatcode/types";
+import {
+  SkillProposalConfirmResponseSchema,
+  UserSkillSchema,
+  UserSkillsResponseSchema,
+} from "@cheatcode/types";
 import {
   emptyResponse,
   type JsonValue,
-  jsonBody,
   jsonResponse,
   type OpenApiRoute,
   schemaRef,
@@ -10,7 +13,7 @@ import {
 import { zodJsonSchema } from "./openapi-zod";
 
 export const skillSchemas: Record<string, JsonValue> = {
-  CreateUserSkill: zodJsonSchema(CreateUserSkillSchema, "input"),
+  SkillProposalConfirmResponse: zodJsonSchema(SkillProposalConfirmResponseSchema),
   UserSkill: zodJsonSchema(UserSkillSchema),
   UserSkillsResponse: zodJsonSchema(UserSkillsResponseSchema),
 };
@@ -27,12 +30,24 @@ export const skillRoutes: OpenApiRoute[] = [
   },
   {
     method: "post",
-    operationId: "createUserSkill",
-    path: "/v1/skills",
-    requestBody: jsonBody(schemaRef("CreateUserSkill")),
-    responses: { "201": jsonResponse("Created user skill", schemaRef("UserSkill")) },
+    operationId: "confirmSkillProposal",
+    path: "/v1/threads/{threadId}/skill-proposals/{runId}/{proposalId}/confirm",
+    responses: {
+      "200": jsonResponse("Confirmed skill proposal", schemaRef("SkillProposalConfirmResponse")),
+    },
     security: [{ bearerAuth: [] }],
-    summary: "Create or update a user skill by name",
+    summary: "Create a skill from a persisted agent proposal",
+    tags: ["skills"],
+  },
+  {
+    method: "post",
+    operationId: "openUserSkill",
+    path: "/v1/skills/{skillId}/open",
+    responses: {
+      "200": jsonResponse("Skill file IDE session", schemaRef("SandboxIdeSession")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Open a custom skill file in the Computer",
     tags: ["skills"],
   },
   {

@@ -1,0 +1,24 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "allowImportingTsExtensions": true,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@cheatcode/sandbox-skills-runtime": [
+        "./src/index.ts",
+        "/opt/cheatcode-skill-runtime/src/index.ts"
+      ]
+    }
+  },
+  "include": [
+    "src/**/*.ts",
+    "/workspace/.cheatcode/skills/**/*.ts",
+    "/home/node/.cheatcode/default-skills/**/*.ts",
+    "/opt/cheatcode-skill-runtime/src/**/*.ts"
+  ]
+}

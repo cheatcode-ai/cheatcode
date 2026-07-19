@@ -10,9 +10,14 @@ import {
 export async function searchWorkspace(
   getToken: () => Promise<null | string>,
   query: string,
+  signal?: AbortSignal,
 ): Promise<SearchResponse> {
   const params = new URLSearchParams({ q: query });
-  const response = await authorizedFetch(getToken, `/v1/search?${params.toString()}`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/search?${params.toString()}`,
+    signal ? { signal } : {},
+  );
   return SearchResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
   );

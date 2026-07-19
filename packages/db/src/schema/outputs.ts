@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { bigint, index, jsonb, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
+import { check, index, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -10,25 +10,19 @@ export const generatedOutputs = pgTable(
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    projectId: uuid("project_id"),
-    agentRunId: uuid("agent_run_id"),
-    kind: text("kind").notNull(),
+    agentRunId: uuid("agent_run_id").notNull(),
     filename: text("filename").notNull(),
-    r2Bucket: text("r2_bucket").notNull().default("cheatcode-outputs"),
-    r2Key: text("r2_key").notNull(),
+    r2Key: text("r2_key").notNull().unique("v2_generated_outputs_r2_key_unique"),
     mimeType: text("mime_type").notNull(),
-    sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
-    sha256: text("sha256").notNull(),
-    metadata: jsonb("metadata")
-      .$type<Record<string, unknown>>()
-      .notNull()
-      .default(sql`'{}'::jsonb`),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   },
   (table) => [
-    index("v2_generated_outputs_expiry_idx")
-      .on(table.expiresAt, table.id)
-      .where(sql`${table.expiresAt} is not null`),
+    index("v2_generated_outputs_agent_run_idx").on(table.agentRunId),
+    check(
+      "v2_generated_outputs_r2_identity_check",
+      sql`${table.r2Key} = ${table.userId}::text || '/' || split_part(${table.r2Key}, '/', 2) || '/' || ${table.agentRunId}::text || '/' || ${table.id}::text || '-' || ${table.filename}
+        and split_part(${table.r2Key}, '/', 2) ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$'
+        and strpos(${table.filename}, '/') = 0`,
+    ),
   ],
 );

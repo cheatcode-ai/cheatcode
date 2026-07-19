@@ -1,9 +1,7 @@
 "use client";
 
 import {
-  type ApprovalDecisionRequest,
-  type ApprovalDecisionResponse,
-  ApprovalDecisionResponseSchema,
+  AgentRunId,
   CHEATCODE_DATA_SCHEMAS,
   type CheatcodeUIMessage,
   Paginated,
@@ -25,6 +23,7 @@ import {
 } from "@cheatcode/types";
 import { safeValidateUIMessages } from "ai";
 import {
+  API_REQUEST_TIMEOUT_MS,
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,
   consumeBoundedResponse,
@@ -49,8 +48,8 @@ export interface CursorPage<T> {
 
 /**
  * The single chat-creation entry point. Project-less when `projectId` is omitted —
- * the chat's first run lazily creates + names the project — or attached to an
- * existing project when `projectId` is present. The launch intent
+ * the first workspace-backed tool lazily creates + names the project — or attached
+ * to an existing project when `projectId` is present. The launch intent
  * (`initialPrompt`/`mode`/`importRepoUrl`/`defaultModel`) rides the thread and is
  * consumed once, at first-run project creation.
  */
@@ -85,6 +84,7 @@ export async function wakeSandboxPreview(
     getToken,
     `/v1/threads/${encodeURIComponent(threadId)}/sandbox/preview/wake`,
     { method: "POST", ...(signal ? { signal } : {}) },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
   );
   return SandboxPreviewWakeSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
@@ -112,8 +112,13 @@ export async function listProjectsPage(
   getToken: () => Promise<null | string>,
   cursor: string | null = null,
   limit = 25,
+  signal?: AbortSignal,
 ): Promise<CursorPage<ProjectSummary>> {
-  const response = await authorizedFetch(getToken, paginatedPath("/v1/projects", limit, cursor));
+  const response = await authorizedFetch(
+    getToken,
+    paginatedPath("/v1/projects", limit, cursor),
+    signal ? { signal } : {},
+  );
   return ProjectPageSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
   );
@@ -124,9 +129,14 @@ export async function listProjectThreadsPage(
   projectId: string,
   cursor: string | null = null,
   limit = 25,
+  signal?: AbortSignal,
 ): Promise<CursorPage<Thread>> {
   const path = `/v1/projects/${encodeURIComponent(projectId)}/threads`;
-  const response = await authorizedFetch(getToken, paginatedPath(path, limit, cursor));
+  const response = await authorizedFetch(
+    getToken,
+    paginatedPath(path, limit, cursor),
+    signal ? { signal } : {},
+  );
   return ThreadPageSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
   );
@@ -136,8 +146,13 @@ export async function listProjectThreadsPage(
 export async function listRecentThreads(
   getToken: () => Promise<null | string>,
   limit = 20,
+  signal?: AbortSignal,
 ): Promise<SearchResultThread[]> {
-  const response = await authorizedFetch(getToken, `/v1/threads?limit=${limit}`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/threads?limit=${limit}`,
+    signal ? { signal } : {},
+  );
   return RecentThreadsResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
   ).threads;
@@ -146,8 +161,13 @@ export async function listRecentThreads(
 export async function getProject(
   getToken: () => Promise<null | string>,
   projectId: string,
+  signal?: AbortSignal,
 ): Promise<ProjectSummary> {
-  const response = await authorizedFetch(getToken, `/v1/projects/${encodeURIComponent(projectId)}`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/projects/${encodeURIComponent(projectId)}`,
+    signal ? { signal } : {},
+  );
   return ProjectSummarySchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
   );
@@ -156,8 +176,13 @@ export async function getProject(
 export async function getThread(
   getToken: () => Promise<null | string>,
   threadId: string,
+  signal?: AbortSignal,
 ): Promise<Thread> {
-  const response = await authorizedFetch(getToken, `/v1/threads/${encodeURIComponent(threadId)}`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/threads/${encodeURIComponent(threadId)}`,
+    signal ? { signal } : {},
+  );
   return ThreadSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
   );
@@ -241,9 +266,14 @@ async function fetchProjectArchive(
   getToken: () => Promise<null | string>,
   projectId: string,
 ): Promise<Response> {
-  return authorizedFetch(getToken, `/v1/projects/${encodeURIComponent(projectId)}/download`, {
-    method: "POST",
-  });
+  return authorizedFetch(
+    getToken,
+    `/v1/projects/${encodeURIComponent(projectId)}/download`,
+    {
+      method: "POST",
+    },
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.archive },
+  );
 }
 
 async function downloadArchiveWithBoundedBlob(
@@ -366,28 +396,13 @@ export async function cancelRun(
   });
 }
 
-export async function decideRunApproval(
-  getToken: () => Promise<null | string>,
-  runId: string,
-  approvalId: string,
-  body: ApprovalDecisionRequest,
-): Promise<ApprovalDecisionResponse> {
-  const response = await authorizedFetch(
-    getToken,
-    `/v1/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
-    { body: JSON.stringify(body), method: "POST" },
-  );
-  return ApprovalDecisionResponseSchema.parse(
-    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
-  );
-}
-
 export async function listThreadMessagesPage(
   getToken: () => Promise<null | string>,
   threadId: string,
   cursor: string | null = null,
+  signal?: AbortSignal,
 ): Promise<CursorPage<CheatcodeUIMessage>> {
-  const page = await listThreadMessageRecordsPage(getToken, threadId, cursor);
+  const page = await listThreadMessageRecordsPage(getToken, threadId, cursor, signal);
   const messages = await Promise.all(page.data.map(messageRecordToUiMessage));
   return { ...page, data: messages.filter(isCheatcodeUIMessage) };
 }
@@ -396,14 +411,17 @@ export async function listThreadMessageRecordsPage(
   getToken: () => Promise<null | string>,
   threadId: string,
   cursor: string | null = null,
+  signal?: AbortSignal,
 ): Promise<CursorPage<UIMessageRecord>> {
   const response = await authorizedFetch(
     getToken,
     paginatedPath(`/v1/threads/${encodeURIComponent(threadId)}/messages`, 100, cursor),
+    signal ? { signal } : {},
   );
-  return ThreadMessagePageSchema.parse(
+  const page = ThreadMessagePageSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.messages),
   );
+  return page;
 }
 
 function paginatedPath(path: string, limit: number, cursor: string | null): string {
@@ -412,7 +430,7 @@ function paginatedPath(path: string, limit: number, cursor: string | null): stri
   return `${path}?${query.toString()}`;
 }
 
-async function messageRecordToUiMessage(
+export async function messageRecordToUiMessage(
   record: UIMessageRecord,
 ): Promise<CheatcodeUIMessage | null> {
   const role = uiMessageRole(record.role);
@@ -423,7 +441,23 @@ async function messageRecordToUiMessage(
     dataSchemas: CHEATCODE_DATA_SCHEMAS,
     messages: [{ id: record.id, parts: record.parts, role }],
   });
-  return parsed.success ? (parsed.data[0] ?? null) : null;
+  const message = parsed.success ? (parsed.data[0] ?? null) : null;
+  if (message?.role !== "assistant" || !record.agentRunId) {
+    return message;
+  }
+  const agentRunId = AgentRunId(record.agentRunId);
+  return {
+    ...message,
+    id: agentRunId,
+    metadata: {
+      runId: agentRunId,
+      transcriptSegment: {
+        agentRunId,
+        index: record.agentRunSegment,
+        isFinal: record.agentRunSegmentFinal,
+      },
+    },
+  };
 }
 
 function isCheatcodeUIMessage(value: CheatcodeUIMessage | null): value is CheatcodeUIMessage {
@@ -431,7 +465,7 @@ function isCheatcodeUIMessage(value: CheatcodeUIMessage | null): value is Cheatc
 }
 
 function uiMessageRole(value: string): CheatcodeUIMessage["role"] | null {
-  if (value === "assistant" || value === "system" || value === "user") {
+  if (value === "assistant" || value === "user") {
     return value;
   }
   return null;

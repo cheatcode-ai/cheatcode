@@ -1,5 +1,10 @@
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod/v4";
+import {
+  type CharacterLimiter,
+  createCharacterLimiter,
+  takeLimitedContent,
+} from "./output-limiter";
 import { requestResearchJson } from "./provider-http";
 import type { ResearchRuntimeContext } from "./runtime";
 import { requireResearchProviderKey } from "./runtime";
@@ -36,24 +41,17 @@ interface ExaClientLike {
   search(query: string, options: ExaToolSearchOptions): Promise<unknown>;
 }
 
-interface CharacterLimiter {
-  remaining: number;
-  wasTruncated: boolean;
-}
-
 export async function executeExaSearch(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client: ExaClientLike = createExaClient(runtimeContext),
+  abortSignal?: AbortSignal,
 ): Promise<ExaSearchOutput> {
   const parsedInput = ExaSearchInputSchema.parse(input);
+  const client = createExaClient(runtimeContext, abortSignal);
   const response = parseExaResponse(
     await client.search(parsedInput.query, exaSearchOptions(parsedInput)),
   );
-  const limiter: CharacterLimiter = {
-    remaining: EXA_OUTPUT_CONTENT_MAX_CHARACTERS,
-    wasTruncated: false,
-  };
+  const limiter = createCharacterLimiter(EXA_OUTPUT_CONTENT_MAX_CHARACTERS);
   const results = response.results.map((result) =>
     normalizeExaResult(result, parsedInput, limiter),
   );
@@ -67,11 +65,15 @@ export async function executeExaSearch(
   });
 }
 
-function createExaClient(runtimeContext: ResearchRuntimeContext): ExaClientLike {
+function createExaClient(
+  runtimeContext: ResearchRuntimeContext,
+  abortSignal: AbortSignal | undefined,
+): ExaClientLike {
   const apiKey = requireResearchProviderKey(runtimeContext, "exa");
   return {
     search: (query, options) =>
       requestResearchJson({
+        abortSignal,
         apiKey,
         body: { query, ...options },
         maxResponseBytes: EXA_RESPONSE_MAX_BYTES,
@@ -139,11 +141,11 @@ function normalizeExaResult(
   if (result.score !== undefined) {
     normalized.score = result.score;
   }
-  const summary = takeContent(result.summary, 4_000, limiter);
+  const summary = takeLimitedContent(result.summary, 4_000, limiter);
   if (summary !== undefined) {
     normalized.summary = summary;
   }
-  const text = takeContent(result.text, input.textMaxCharacters, limiter);
+  const text = takeLimitedContent(result.text, input.textMaxCharacters, limiter);
   if (text !== undefined) {
     normalized.text = text;
   }
@@ -162,7 +164,7 @@ function normalizeHighlights(
       limiter.wasTruncated = true;
       break;
     }
-    const normalized = takeContent(highlight, Math.min(2_000, remaining), limiter);
+    const normalized = takeLimitedContent(highlight, Math.min(2_000, remaining), limiter);
     if (normalized !== undefined) {
       output.push(normalized);
       remaining -= normalized.length;
@@ -172,27 +174,6 @@ function normalizeHighlights(
     limiter.wasTruncated = true;
   }
   return output;
-}
-
-function takeContent(
-  value: string | undefined,
-  maxCharacters: number,
-  limiter: CharacterLimiter,
-): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const allowed = Math.min(maxCharacters, limiter.remaining);
-  if (allowed <= 0 && value.length > 0) {
-    limiter.wasTruncated = true;
-    return undefined;
-  }
-  const normalized = value.slice(0, allowed);
-  limiter.remaining -= normalized.length;
-  if (normalized.length < value.length) {
-    limiter.wasTruncated = true;
-  }
-  return normalized;
 }
 
 function truncate(value: string, maxCharacters: number): string {

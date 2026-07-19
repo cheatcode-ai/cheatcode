@@ -1,0 +1,4 @@
+-- Raw post-deploy migration 0057 owns the data repair, validated integrity
+-- constraints, scoped foreign-key action, replacement indexes, and redundant
+-- index removal. This Drizzle entry records the final authoritative schema
+-- without running blocking or destructive DDL before the writer gate closes.

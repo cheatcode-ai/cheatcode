@@ -1,13 +1,23 @@
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
 import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/tools-code";
+import { ProjectId } from "@cheatcode/types";
 import { z } from "zod";
 
-const CommandArgvSchema = z.array(z.string().min(1)).min(1).max(128);
+const CommandArgvSchema = z.array(z.string().min(1).max(8_192)).min(1).max(128);
 const ProcessIdSchema = z
   .string()
   .min(1)
   .max(200)
   .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u, "Process IDs may contain letters, numbers, . _ : -.");
+
+export const ProjectWorkspaceSlugSchema = z
+  .string()
+  .min(1)
+  .max(64)
+  .regex(
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/u,
+    "Workspace slugs may contain lowercase letters, numbers, and single hyphens.",
+  );
 
 export const ProjectRunCodeInputSchema = z
   .object({
@@ -40,7 +50,7 @@ export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
     .max(24 * 60 * 60 * 1000)
     .optional(),
   maxRestarts: z.number().int().min(0).max(25).optional(),
-  processId: ProcessIdSchema.optional(),
+  processId: ProcessIdSchema,
   restartOnFailure: z.boolean().optional(),
   waitForPort: z
     .object({
@@ -124,6 +134,12 @@ export const ProjectAllocatePortInputSchema = z
   })
   .strict();
 
+export const ProjectGetPortInputSchema = z
+  .object({
+    projectId: ProjectWorkspaceSlugSchema,
+  })
+  .strict();
+
 export const ProjectAllocateProcessPortInputSchema = z
   .object({
     maxPort: z.number().int().min(1_024).max(65_535),
@@ -145,7 +161,7 @@ export const ProjectWakePreviewInputSchema = z
     // Which project's dev server to wake — its ProcessRecord slot is keyed by the project's
     // workspaceSlug (matching the start_dev_server tool + app-builder paths). Absent for a
     // project-less chat, where there is no dev server to revive.
-    workspaceSlug: z.string().min(1).max(200).optional(),
+    workspaceSlug: ProjectWorkspaceSlugSchema.optional(),
   })
   .strict();
 
@@ -154,7 +170,7 @@ export const ProjectWakePreviewInputSchema = z
 // Always provided: only a project chat calls this, and every project owns a workspace slug.
 export const ProjectPreviewStatusInputSchema = z
   .object({
-    workspaceSlug: z.string().min(1).max(200),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
   })
   .strict();
 
@@ -169,25 +185,39 @@ export const ProjectSignedPreviewUrlInputSchema = z
   })
   .strict();
 
+export const ProjectBrowserTakeoverInputSchema = z
+  .object({
+    expiresInSeconds: z
+      .number()
+      .int()
+      .min(60)
+      .max(10 * 60),
+    runId: z.string().uuid(),
+    takeoverId: z.string().uuid(),
+  })
+  .strict();
+
+export const ProjectBrowserTakeoverStopInputSchema = z
+  .object({ runId: z.string().uuid() })
+  .strict();
+
 // Per-project teardown inside the shared per-user sandbox: names ONE project's workspace folder
 // (/workspace/<workspaceSlug>) whose dev server, port, and folder should be reclaimed — without
 // ever touching the shared sandbox itself.
 export const ProjectCleanupWorkspaceInputSchema = z
   .object({
-    workspaceSlug: z.string().min(1).max(200),
+    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
   })
-  .strict();
+  .strict()
+  .refine(
+    (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
+    "Workspace slug does not belong to the requested project.",
+  );
 
 export const ProjectArchiveInputSchema = z
   .object({
-    workspaceSlug: z
-      .string()
-      .min(1)
-      .max(200)
-      .refine(
-        (slug) => !slug.includes("/") && slug !== "." && slug !== "..",
-        "Workspace slug must be a single path segment.",
-      ),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
   })
   .strict();
 
@@ -201,11 +231,19 @@ export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSche
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;
 export type ProjectKillProcessInput = z.input<typeof ProjectKillProcessInputSchema>;
 export type ProjectAllocatePortInput = z.input<typeof ProjectAllocatePortInputSchema>;
+export type ProjectGetPortInput = z.input<typeof ProjectGetPortInputSchema>;
 export type ProjectAllocateProcessPortInput = z.input<typeof ProjectAllocateProcessPortInputSchema>;
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;
 export type ProjectPreviewStatusInput = z.input<typeof ProjectPreviewStatusInputSchema>;
 export type ProjectSignedPreviewUrlInput = z.input<typeof ProjectSignedPreviewUrlInputSchema>;
+export type ProjectBrowserTakeoverInput = z.input<typeof ProjectBrowserTakeoverInputSchema>;
+export type ProjectBrowserTakeoverStopInput = z.input<typeof ProjectBrowserTakeoverStopInputSchema>;
+export interface ProjectBrowserTakeoverResult {
+  expiresAt: string;
+  takeoverId: string;
+  url: string;
+}
 export type ProjectArchiveInput = z.input<typeof ProjectArchiveInputSchema>;
 
 /** Result of waking a preview: the (possibly restarted) dev-server preview URL + liveness. */
@@ -226,6 +264,32 @@ export interface ProjectSandboxRuntimeState {
   sandboxId?: string;
 }
 export type ProjectCleanupWorkspaceInput = z.input<typeof ProjectCleanupWorkspaceInputSchema>;
+export type ParsedProjectCleanupWorkspaceInput = z.output<
+  typeof ProjectCleanupWorkspaceInputSchema
+>;
+
+/** Returns the immutable project folder segment for a canonical /workspace path. */
+export function workspaceSlugFromPath(path: string | undefined): string | null {
+  if (!path) {
+    return null;
+  }
+  const segments: string[] = [];
+  for (const segment of path.split("/")) {
+    if (!segment || segment === ".") {
+      continue;
+    }
+    if (segment === "..") {
+      segments.pop();
+      continue;
+    }
+    segments.push(segment);
+  }
+  if (segments[0] !== "workspace" || segments.length < 2) {
+    return null;
+  }
+  const parsed = ProjectWorkspaceSlugSchema.safeParse(segments[1]);
+  return parsed.success ? parsed.data : null;
+}
 
 function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;

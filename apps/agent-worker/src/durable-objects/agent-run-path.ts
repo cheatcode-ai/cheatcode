@@ -1,5 +1,5 @@
 import type { createLogger } from "@cheatcode/observability";
-import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import type { CodeRuntimeContext, WorkspaceResolver } from "@cheatcode/sandbox-contracts";
 import type { UIMessageChunk } from "ai";
 import { restartMobilePreview, runAppBuilder, warmSandbox } from "./agent-run-app-builder";
 import type { AgentRunEnv } from "./agent-run-env";
@@ -18,38 +18,34 @@ export interface AgentRunPathOptions {
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => void;
   streamDriverDeps: StreamDriverDeps;
+  workspaceResolver: WorkspaceResolver;
 }
+
+type ProjectBoundStartRunInput = StartRunInput & {
+  projectId: string;
+  workspaceSlug: string;
+};
+
+type ProjectBoundAgentRunPathOptions = AgentRunPathOptions & {
+  input: ProjectBoundStartRunInput;
+};
 
 export async function executeAgentRunPath(
   options: AgentRunPathOptions,
 ): Promise<"completed" | "continue"> {
-  await ensureProjectWorkspaceDir(options);
   if (isAppBuilderMode(options.input.projectMode)) {
-    return executeAppBuilderPath(options);
+    await options.workspaceResolver();
+    return executeAppBuilderPath({
+      ...options,
+      input: requireProjectBinding(options.input),
+    });
   }
   await streamMastraRunWithFallback(options.streamDriverDeps, options);
   return options.isCanceled() ? "completed" : "continue";
 }
 
-async function ensureProjectWorkspaceDir(options: AgentRunPathOptions): Promise<void> {
-  if (!options.sandbox.exec) {
-    return;
-  }
-  try {
-    await options.sandbox.exec({
-      command: ["mkdir", "-p", `/workspace/${options.input.workspaceSlug}`],
-      timeoutMs: 15_000,
-    });
-  } catch (error) {
-    options.logger.warn("workspace_dir_ensure_failed", {
-      error,
-      workspaceSlug: options.input.workspaceSlug,
-    });
-  }
-}
-
 async function executeAppBuilderPath(
-  options: AgentRunPathOptions,
+  options: ProjectBoundAgentRunPathOptions,
 ): Promise<"completed" | "continue"> {
   await warmSandbox(options.sandbox, options.logger);
   if (options.isCanceled()) {
@@ -65,6 +61,7 @@ async function executeAppBuilderPath(
     input: options.input,
     logger: options.logger,
     sandbox: options.sandbox,
+    workspaceResolver: options.workspaceResolver,
   });
   if (options.isCanceled()) {
     return "completed";
@@ -73,7 +70,9 @@ async function executeAppBuilderPath(
   return "continue";
 }
 
-async function restartMobilePreviewIfNeeded(options: AgentRunPathOptions): Promise<void> {
+async function restartMobilePreviewIfNeeded(
+  options: ProjectBoundAgentRunPathOptions,
+): Promise<void> {
   if (options.input.projectMode !== "app-builder-mobile") {
     return;
   }
@@ -84,6 +83,13 @@ async function restartMobilePreviewIfNeeded(options: AgentRunPathOptions): Promi
       error,
     });
   }
+}
+
+function requireProjectBinding(input: StartRunInput): ProjectBoundStartRunInput {
+  if (!input.projectId || !input.workspaceSlug) {
+    throw new Error("Workspace resolver completed without a project binding.");
+  }
+  return input as ProjectBoundStartRunInput;
 }
 
 function isAppBuilderMode(mode: StartRunInput["projectMode"]): boolean {

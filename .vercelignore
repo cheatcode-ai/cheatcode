@@ -4,7 +4,17 @@
 /plans/
 # Build artifacts (match anywhere; Vercel installs + builds fresh)
 node_modules
+.pnpm-store
 .next
 .wrangler
 .turbo
 *.log
+# Local-only credentials and container orchestration never enter Vercel uploads.
+.env
+.env.*
+**/.dev.vars
+**/.dev.vars.*
+compose.yaml
+.dockerignore
+infra/containers/dev
+supabase

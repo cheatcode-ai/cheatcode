@@ -10,7 +10,13 @@ import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-pa
 export const ShellExecInputSchema = z
   .object({
     command: z
-      .array(z.string().min(1).describe("One argv element. Do not pass a shell-joined string."))
+      .array(
+        z
+          .string()
+          .min(1)
+          .max(8_192)
+          .describe("One argv element. Do not pass a shell-joined string."),
+      )
       .min(1)
       .max(128)
       .describe("Command argv to run inside the sandbox."),
@@ -47,7 +53,11 @@ export const ShellStartProcessInputSchema = ShellExecInputSchema.extend({
     .max(24 * 60 * 60 * 1000)
     .default(60 * 60 * 1000),
   maxRestarts: z.number().int().min(0).max(25).default(3),
-  processId: z.string().min(1).max(200).optional(),
+  processId: z
+    .string()
+    .min(1)
+    .max(200)
+    .describe("Stable idempotency slot for replacing, inspecting, and stopping the process."),
   restartOnFailure: z.boolean().default(true),
   waitForPort: z
     .object({
@@ -141,7 +151,7 @@ export async function executeShellStartProcess(
       ...(parsedInput.env ? { env: parsedInput.env } : {}),
       keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
       maxRestarts: parsedInput.maxRestarts,
-      ...(parsedInput.processId ? { processId: parsedInput.processId } : {}),
+      processId: parsedInput.processId,
       restartOnFailure: parsedInput.restartOnFailure,
       ...(parsedInput.timeoutMs ? { timeoutMs: parsedInput.timeoutMs } : {}),
       ...(waitForPort ? { waitForPort } : {}),

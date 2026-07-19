@@ -16,7 +16,6 @@ export const PROVIDER_META: Record<Provider, { label: string }> = {
   exa: { label: "Exa" },
   firecrawl: { label: "Firecrawl" },
   google: { label: "Gemini" },
-  llamaparse: { label: "LlamaParse" },
   openai: { label: "OpenAI" },
   openrouter: { label: "OpenRouter" },
 };

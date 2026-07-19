@@ -6,7 +6,7 @@
   "main": "./src/index.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "dev": "wrangler dev --port 8789 --var CHEATCODE_ENVIRONMENT:development",
+    "deploy": "wrangler deploy",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -16,6 +16,7 @@
     "@cheatcode/byok": "workspace:*",
     "@cheatcode/composio": "workspace:*",
     "@cheatcode/db": "workspace:*",
+    "@cheatcode/durable-storage": "workspace:*",
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/types": "workspace:*",

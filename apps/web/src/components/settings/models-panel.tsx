@@ -1,6 +1,6 @@
 "use client";
 
-import { Brain } from "@/components/ui/icons";
+import { Brain } from "@cheatcode/ui";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { ModelsCatalog } from "./models-panel-list";
 import { SETTINGS_KEY_PROVIDERS } from "./models-panel-model";

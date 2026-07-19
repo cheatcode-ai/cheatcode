@@ -1,9 +1,21 @@
-import { createDb, findGeneratedOutputOwner, getProject, withUserContext } from "@cheatcode/db";
+import {
+  createDb,
+  findGeneratedOutput,
+  getProject,
+  isAgentStateDeletionAuthorized,
+  loadWorkspaceTransitionOwner,
+  withUserContext,
+} from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, readBoundedRequestText } from "@cheatcode/observability";
 import {
   InternalAgentStateDeleteBodySchema,
   InternalStateDeleteResponseSchema,
+  InternalWorkspaceReconciliationBodySchema,
+  InternalWorkspaceReconciliationResponseSchema,
+  internalUserStateDeletePath,
+  internalUserWorkspaceReconciliationPath,
+  OutputIdSchema,
   ProjectId,
   UserId,
 } from "@cheatcode/types";
@@ -17,13 +29,14 @@ import {
   sandboxStubForUser,
 } from "./agent-routing";
 import {
+  assertAgentInternalHostname,
+  assertAgentLifecycleCapability,
   parseInternalMaintenanceJson,
-  verifyAgentMaintenanceRequest,
+  verifyAgentLifecycleRequest,
 } from "./internal-maintenance";
-import { resolveLocalPreviewOrigin } from "./local-preview";
 import {
+  createOutputDownloadCapability,
   OutputDownloadQuerySchema,
-  OutputIdSchema,
   verifySignedOutputDownload,
 } from "./output-download";
 import { GatewayUserIdSchema, readGatewayUserId } from "./tenancy";
@@ -33,81 +46,126 @@ const RUN_STATE_DELETE_CONCURRENCY = 16;
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerAgentSystemHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.get("/__internal/local-preview-origin", resolveInternalLocalPreviewOrigin);
   app.post("/internal/users/:userId/delete-state", deleteInternalUserState);
+  app.post("/internal/users/:userId/reconcile-workspaces", reconcileInternalUserWorkspaces);
+  app.post("/v1/outputs/:outputId/download-url", mintOutputDownloadUrl);
   app.get("/v1/outputs/:outputId/download", downloadOutput);
   app.post("/v1/projects/:projectId/download", downloadProjectArchive);
 }
 
-async function resolveInternalLocalPreviewOrigin(c: AgentContext): Promise<Response> {
-  const previewUrl = c.req.header("X-Cheatcode-Local-Preview-Url");
-  const previewHost = c.req.header("X-Cheatcode-Local-Preview-Host");
-  if (!previewUrl || !previewHost) {
-    throw new APIError(400, "invalid_request_body", "Missing local preview origin headers", {
-      retriable: false,
-    });
-  }
-  const headers = localPreviewHeaders(c, previewHost);
-  const resolved = await resolveLocalPreviewOrigin(new Request(previewUrl, { headers }), c.env);
-  if (!resolved) {
-    throw new APIError(404, "invalid_request_body", "Local preview origin not found", {
-      retriable: false,
-    });
-  }
-  if (resolved.authorization.fromQuery) {
+async function reconcileInternalUserWorkspaces(c: AgentContext): Promise<Response> {
+  if (c.env.CHEATCODE_RELEASE_GATE !== "closed") {
     throw new APIError(
-      400,
-      "invalid_request_body",
-      "WebSocket preview requires an established session",
+      409,
+      "conflict_state_invalid",
+      "Workspace reconciliation requires the closed release gate",
       { retriable: false },
     );
   }
-  return c.json({
-    originalHost: resolved.originalHost,
-    signed: resolved.origin.signed,
-    token: resolved.origin.token,
-    url: resolved.origin.url,
-  });
-}
-
-function localPreviewHeaders(c: AgentContext, previewHost: string): Headers {
-  const headers = new Headers({ Host: previewHost });
-  copyHeader(c, headers, "X-Cheatcode-Local-Preview-Cookie", "Cookie");
-  copyHeader(c, headers, "Origin", "Origin");
-  copyHeader(
-    c,
-    headers,
-    "X-Cheatcode-Local-Preview-Client-Host",
-    "X-Cheatcode-Local-Preview-Client-Host",
+  assertAgentInternalHostname(c.req.raw);
+  assertAgentLifecycleCapability(c.req.raw);
+  const userId = UserId(GatewayUserIdSchema.parse(c.req.param("userId")));
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_INTERNAL_MAINTENANCE_BODY_BYTES,
+    "Internal workspace reconciliation",
   );
-  return headers;
+  await verifyAgentLifecycleRequest({
+    expectedPathname: internalUserWorkspaceReconciliationPath(userId),
+    rawBody,
+    request: c.req.raw,
+    secrets: c.env,
+  });
+  const body = InternalWorkspaceReconciliationBodySchema.parse(
+    parseInternalMaintenanceJson(rawBody),
+  );
+  if (c.env.CHEATCODE_RELEASE_SHA !== body.releaseSha) {
+    throw new APIError(409, "conflict_state_invalid", "Agent release does not match transition", {
+      details: { actualReleaseSha: c.env.CHEATCODE_RELEASE_SHA ?? null },
+      retriable: false,
+    });
+  }
+  await assertWorkspaceTransitionInventory(c.env, userId, body);
+  const sandbox = await sandboxStubForUser(c.env, userId);
+  const result =
+    body.phase === "prepare"
+      ? await sandbox.prepareWorkspaceTransition(body)
+      : await sandbox.finalizeWorkspaceTransition(body);
+  return c.json(InternalWorkspaceReconciliationResponseSchema.parse(result));
 }
 
-function copyHeader(
-  c: AgentContext,
-  target: Headers,
-  sourceName: string,
-  targetName: string,
-): void {
-  const value = c.req.header(sourceName);
-  if (value) {
-    target.set(targetName, value);
+async function assertWorkspaceTransitionInventory(
+  env: AgentEnv,
+  userId: UserId,
+  body: z.infer<typeof InternalWorkspaceReconciliationBodySchema>,
+): Promise<void> {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
+  try {
+    const owner = await withUserContext(db, userId, (transaction) =>
+      loadWorkspaceTransitionOwner(transaction, userId),
+    );
+    if (!owner || !workspaceInventoryMatches(owner.projects, body.projects, body.phase)) {
+      throw new APIError(
+        409,
+        "conflict_state_invalid",
+        "Postgres workspace inventory does not match transition",
+        { retriable: false },
+      );
+    }
+  } finally {
+    await close();
   }
 }
 
+function workspaceInventoryMatches(
+  actual: Array<{
+    canonicalWorkspaceSlug: string;
+    currentWorkspaceSlug: string;
+    projectId: string;
+  }>,
+  requested: Array<{
+    canonicalWorkspaceSlug: string;
+    currentWorkspaceSlug: string;
+    projectId: string;
+  }>,
+  phase: "finalize" | "prepare",
+): boolean {
+  if (actual.length !== requested.length) {
+    return false;
+  }
+  const requestedById = new Map(requested.map((project) => [project.projectId, project]));
+  return actual.every((project) => {
+    const request = requestedById.get(project.projectId);
+    return (
+      request?.canonicalWorkspaceSlug === project.canonicalWorkspaceSlug &&
+      (phase === "finalize"
+        ? project.currentWorkspaceSlug === request.canonicalWorkspaceSlug
+        : project.currentWorkspaceSlug === request.currentWorkspaceSlug ||
+          project.currentWorkspaceSlug === request.canonicalWorkspaceSlug)
+    );
+  });
+}
+
 async function deleteInternalUserState(c: AgentContext): Promise<Response> {
+  assertAgentInternalHostname(c.req.raw);
+  assertAgentLifecycleCapability(c.req.raw);
+  const userId = UserId(GatewayUserIdSchema.parse(c.req.param("userId")));
   const rawBody = await readBoundedRequestText(
     c.req.raw,
     MAX_INTERNAL_MAINTENANCE_BODY_BYTES,
     "Internal maintenance request",
   );
-  await verifyAgentMaintenanceRequest({
+  await verifyAgentLifecycleRequest({
+    expectedPathname: internalUserStateDeletePath(userId),
     rawBody,
     request: c.req.raw,
-    secret: c.env.INTERNAL_MAINTENANCE_SECRET,
+    secrets: c.env,
   });
-  const userId = UserId(GatewayUserIdSchema.parse(c.req.param("userId")));
   const body = InternalAgentStateDeleteBodySchema.parse(parseInternalMaintenanceJson(rawBody));
+  await assertAgentStateDeletionAuthority(c.env, userId, body);
   if (body.scope === "runs") {
     await deleteRunStates(c.env, userId, body.runIds);
     return deletedStateResponse(c);
@@ -118,8 +176,37 @@ async function deleteInternalUserState(c: AgentContext): Promise<Response> {
     return deletedStateResponse(c);
   }
   const sandbox = await sandboxForUser(c.env, userId);
-  await sandbox.cleanupProjectWorkspace({ workspaceSlug: body.workspaceSlug });
+  await sandbox.cleanupProjectWorkspace({
+    projectId: body.projectId,
+    workspaceSlug: body.workspaceSlug,
+  });
   return deletedStateResponse(c);
+}
+
+async function assertAgentStateDeletionAuthority(
+  env: AgentEnv,
+  userId: UserId,
+  body: z.infer<typeof InternalAgentStateDeleteBodySchema>,
+): Promise<void> {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
+  try {
+    const isAuthorized = await withUserContext(db, userId, (transaction) =>
+      isAgentStateDeletionAuthorized(transaction, userId, body),
+    );
+    if (!isAuthorized) {
+      throw new APIError(
+        409,
+        "conflict_state_invalid",
+        "Agent state deletion no longer matches an authoritative database generation",
+        { retriable: false },
+      );
+    }
+  } finally {
+    await close();
+  }
 }
 
 async function deleteRunStates(env: AgentEnv, userId: string, runIds: string[]): Promise<void> {
@@ -156,6 +243,25 @@ function deletedStateResponse(c: AgentContext): Response {
   return c.json(InternalStateDeleteResponseSchema.parse({ ok: true }));
 }
 
+async function mintOutputDownloadUrl(c: AgentContext): Promise<Response> {
+  const outputId = parseOutputId(c.req.param("outputId"));
+  const userId = UserId(readGatewayUserId(c.req.raw.headers));
+  const output = await findDownloadableOutput(c.env, outputId, userId);
+  if (!(await c.env.R2_OUTPUTS.head(output.r2Key))) {
+    throw new APIError(404, "not_found_output", "Output object not found", { retriable: false });
+  }
+  const capability = await createOutputDownloadCapability({
+    baseUrl: outputDownloadBaseUrl(c.env),
+    outputId,
+    secret: await resolveOutputSigningSecret(c.env.OUTPUT_DOWNLOAD_SIGNING_SECRET),
+    userId,
+  });
+  const response = c.json(capability);
+  response.headers.set("Cache-Control", "private, max-age=0, no-store");
+  response.headers.set("Referrer-Policy", "no-referrer");
+  return response;
+}
+
 async function downloadOutput(c: AgentContext): Promise<Response> {
   const outputId = parseOutputId(c.req.param("outputId"));
   const query = parseOutputDownloadQuery(c);
@@ -164,13 +270,14 @@ async function downloadOutput(c: AgentContext): Promise<Response> {
     outputId,
     secret: await resolveOutputSigningSecret(c.env.OUTPUT_DOWNLOAD_SIGNING_SECRET),
     signature: query.sig,
+    userId: query.userId,
   });
   if (!isValid) {
     throw new APIError(403, "permission_denied", "Invalid or expired output download URL", {
       retriable: false,
     });
   }
-  const output = await findDownloadableOutput(c.env, outputId);
+  const output = await findDownloadableOutput(c.env, outputId, query.userId);
   const object = await c.env.R2_OUTPUTS.get(output.r2Key);
   if (!object?.body) {
     throw new APIError(404, "not_found_output", "Output object not found", { retriable: false });
@@ -201,6 +308,7 @@ function parseOutputDownloadQuery(c: AgentContext): z.infer<typeof OutputDownloa
   const parsed = OutputDownloadQuerySchema.safeParse({
     expires: c.req.query("expires"),
     sig: c.req.query("sig"),
+    userId: c.req.query("userId"),
   });
   if (!parsed.success) {
     throw new APIError(400, "invalid_query_param", "Invalid output download signature", {
@@ -211,17 +319,17 @@ function parseOutputDownloadQuery(c: AgentContext): z.infer<typeof OutputDownloa
   return parsed.data;
 }
 
-async function findDownloadableOutput(env: AgentEnv, outputId: string) {
-  const { db, close } = createDb(env.HYPERDRIVE);
+async function findDownloadableOutput(env: AgentEnv, outputId: string, userId: UserId) {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
-    const output = await findGeneratedOutputOwner(db, outputId);
+    const output = await withUserContext(db, userId, (tx) =>
+      findGeneratedOutput(tx, { outputId, userId }),
+    );
     if (!output) {
       throw new APIError(404, "not_found_output", "Output not found", { retriable: false });
-    }
-    if (output.expiresAt.getTime() < Date.now()) {
-      throw new APIError(410, "gone_output_expired", "Output download has expired", {
-        retriable: false,
-      });
     }
     return output;
   } finally {
@@ -237,6 +345,14 @@ async function resolveOutputSigningSecret(secret: WorkerSecret): Promise<string 
       retriable: true,
     });
   }
+}
+
+function outputDownloadBaseUrl(env: AgentEnv): string | undefined {
+  const previewHostname = env.PREVIEW_HOSTNAME.trim();
+  if (previewHostname === "localhost:8787" || previewHostname === "127.0.0.1:8787") {
+    return `http://${previewHostname}`;
+  }
+  return env.OUTPUT_DOWNLOAD_BASE_URL;
 }
 
 async function downloadProjectArchive(c: AgentContext): Promise<Response> {
@@ -267,7 +383,10 @@ async function downloadProjectArchive(c: AgentContext): Promise<Response> {
 }
 
 async function loadProject(env: AgentEnv, userId: UserId, projectId: ProjectId) {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, userId, (tx) => getProject(tx, { projectId, userId }));
   } finally {
@@ -276,13 +395,21 @@ async function loadProject(env: AgentEnv, userId: UserId, projectId: ProjectId) 
 }
 
 function downloadContentDisposition(filename: string): string {
-  const safeName = Array.from(filename, (character) => {
+  const sanitized = Array.from(filename, (character) => {
     const codePoint = character.codePointAt(0) ?? 0;
-    return codePoint <= 31 || codePoint === 127 || character === "\\" || character === '"'
+    return codePoint <= 31 ||
+      codePoint === 127 ||
+      character === "/" ||
+      character === "\\" ||
+      character === '"'
       ? "_"
       : character;
-  }).join("");
-  return `attachment; filename="${safeName}"; filename*=UTF-8''${encodeURIComponent(filename)}`;
+  })
+    .slice(0, 200)
+    .join("");
+  const safeName = sanitized || "cheatcode-output";
+  const asciiFallback = safeName.replaceAll(/[^\x20-\x7e]/gu, "_");
+  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(safeName)}`;
 }
 
 function projectArchiveFilename(projectName: string): string {

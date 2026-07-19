@@ -86,7 +86,7 @@ function sanitizeLogValue(value: unknown, depth: number, key?: string): unknown 
   if (!value || typeof value !== "object") {
     return value;
   }
-  const output: Record<string, unknown> = {};
+  const output: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
   for (const [entryKey, entryValue] of Object.entries(value).slice(0, MAX_LOG_ENTRIES)) {
     output[entryKey] = sanitizeLogValue(entryValue, depth + 1, entryKey);
   }

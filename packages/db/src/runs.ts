@@ -1,3 +1,4 @@
+import { entitlementValuesForTier } from "@cheatcode/billing";
 import type {
   AgentRunId,
   LogicalModelId,
@@ -8,6 +9,7 @@ import type {
 } from "@cheatcode/types";
 import {
   AGENT_MODEL_CATALOG,
+  BillingTierSchema,
   LogicalModelIdSchema,
   PRODUCTION_DEFAULT_MODEL_ID,
   ProjectModeSchema,
@@ -15,23 +17,27 @@ import {
   ProjectId as toProjectId,
   ThreadId as toThreadId,
 } from "@cheatcode/types";
-import { and, eq, isNotNull, isNull, notInArray, sql } from "drizzle-orm";
-import { findEntitlementByUserId, lockUserEntitlementMutations } from "./billing";
+import { and, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
+import { findAgentEntitlementByUserId, lockUserEntitlementMutations } from "./billing";
 import type { Database } from "./client";
 import type { RunPersonalization } from "./profiles";
-import { countActiveProjects, createProject, lockUserProjectMutations } from "./projects";
+import type { ProjectSummaryRecord } from "./project-types";
 import {
-  type AgentRunError,
+  countActiveProjects,
+  createProject,
+  getProject,
+  lockUserProjectMutations,
+} from "./projects";
+import {
   agentRuns,
+  artifactUploadIntents,
   type ProjectSettings,
   projects,
   type ThreadLaunchIntent,
   threads,
 } from "./schema";
 
-const FREE_ACTIVE_PROJECT_LIMIT = 3;
-
-export type AgentRunStatus = "pending" | "running" | "paused" | "completed" | "failed" | "canceled";
+export type AgentRunStatus = "pending" | "running" | "completed" | "failed" | "canceled";
 
 /**
  * Total wall-clock minutes the agent "worked" for this user since the start of
@@ -63,16 +69,14 @@ export async function sumWorkedMinutesToday(
 export interface AgentRunHandle {
   importRepoUrl?: string;
   isFirstRun?: boolean;
-  masterInstructions?: string;
   modelId: LogicalModelId;
   projectMode?: ProjectMode;
-  projectId: ProjectId;
+  projectId?: ProjectId;
   runId: AgentRunId;
   status: AgentRunStatus;
   threadId: ThreadId;
-  /** Immutable /workspace subfolder name for the project (per-user sandbox model). Every run has
-   * a project (ensureProjectForRun creates it before the run), so this is always set. */
-  workspaceSlug: string;
+  /** Present after a workspace-backed tool materializes the chat's project. */
+  workspaceSlug?: string;
 }
 
 export interface CreateAgentRunInput {
@@ -93,8 +97,14 @@ export type CreateAgentRunResult =
   | { limit: number; type: "project-limit-reached"; used: number }
   | { run: AgentRunHandle; type: "active-run-exists" };
 
+export type MaterializeThreadProjectResult =
+  | { project: ProjectSummaryRecord; type: "created" | "existing" }
+  | { type: "thread-not-found" }
+  | { archiveAfter: Date | null; type: "project-read-only" }
+  | { limit: number; type: "project-limit-reached"; used: number };
+
 export interface UpdateAgentRunStatusInput {
-  error?: AgentRunError;
+  artifactsQuiesced: boolean;
   runId: AgentRunId;
   status: AgentRunStatus;
   userId: UserId;
@@ -109,14 +119,13 @@ export interface UpdateAgentRunLogicalModelInput {
 interface ThreadForRunRow {
   activeRunId: string | null;
   archiveAfter: Date | null;
-  archivedPendingAction: boolean;
   id: string;
-  masterInstructions: string | null;
   overQuota: boolean;
-  projectId: string;
+  importRepoUrl: string | null;
+  projectId: string | null;
   projectMode: ProjectMode;
   projectSettings: ProjectSettings;
-  workspaceSlug: string;
+  workspaceSlug: string | null;
 }
 
 interface CreatedRunRow {
@@ -145,19 +154,6 @@ async function createAgentRunTransaction(
   if (replay) {
     return replay;
   }
-  // Billing reconciliation takes the same entitlement -> project lock order. Read the ceiling
-  // under those locks so a concurrent upgrade/downgrade cannot race lazy project creation.
-  await lockUserEntitlementMutations(db, input.userId);
-  await lockUserProjectMutations(db, input.userId);
-  const entitlement = await findEntitlementByUserId(db, input.userId);
-  const ensured = await ensureProjectForRun(
-    db,
-    input,
-    entitlement?.maxProjects ?? FREE_ACTIVE_PROJECT_LIMIT,
-  );
-  if (ensured) {
-    return ensured;
-  }
   const thread = await findThreadForRun(db, input);
   if (!thread) {
     return { type: "thread-not-found" };
@@ -181,7 +177,7 @@ async function createAndActivateRun(
   );
   const isFirstRun = await isFirstAgentRunForUser(db, input.userId);
   const created = await insertPendingRun(db, input, modelPlan.logicalModelId);
-  if (await activateCreatedRun(db, input, created.id)) {
+  if (await activateCreatedRun(db, input, created.id, modelPlan.logicalModelId)) {
     return {
       modelExplicit: modelPlan.modelExplicit,
       run: createdRunHandle(thread, modelPlan.logicalModelId, created, isFirstRun),
@@ -204,19 +200,30 @@ async function lockRunIdempotencyKey(db: Database, input: CreateAgentRunInput): 
   await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
 }
 
-/**
- * Chat-first lazy project materialization. Locks the thread row; if it has no
- * project yet (a project-less chat reaching its first run), enforces the active-
- * project quota and creates the project from the chat's launch intent, named from
- * the chat title. Runs inside the run-creation transaction so a later sandbox or
- * active-run block rolls the new project back. Returns a terminal result on
- * failure, or null once a project exists.
- */
-async function ensureProjectForRun(
+/** Materialize a project atomically when a workspace-backed tool first needs it. */
+export async function materializeThreadProject(
   db: Database,
-  input: CreateAgentRunInput,
+  input: { threadId: ThreadId; userId: UserId },
+): Promise<MaterializeThreadProjectResult> {
+  return db.transaction(async (tx) => {
+    const transaction = tx as Database;
+    await lockUserEntitlementMutations(transaction, input.userId);
+    await lockUserProjectMutations(transaction, input.userId);
+    const entitlement = await findAgentEntitlementByUserId(transaction, input.userId);
+    const tier = BillingTierSchema.parse(entitlement?.tier ?? "free");
+    return materializeThreadProjectLocked(
+      transaction,
+      input,
+      entitlementValuesForTier(tier).maxProjects,
+    );
+  });
+}
+
+async function materializeThreadProjectLocked(
+  db: Database,
+  input: { threadId: ThreadId; userId: UserId },
   maxActiveProjects: number,
-): Promise<CreateAgentRunResult | null> {
+): Promise<MaterializeThreadProjectResult> {
   const [locked] = await db
     .select({
       launchIntent: threads.launchIntent,
@@ -237,7 +244,17 @@ async function ensureProjectForRun(
     return { type: "thread-not-found" };
   }
   if (locked.projectId) {
-    return null;
+    const project = await getProject(db, {
+      projectId: toProjectId(locked.projectId),
+      userId: input.userId,
+    });
+    if (!project) {
+      return { type: "thread-not-found" };
+    }
+    if (project.readOnly) {
+      return { archiveAfter: project.archiveAfter, type: "project-read-only" };
+    }
+    return { project, type: "existing" };
   }
   const used = await countActiveProjects(db, input.userId);
   if (used >= maxActiveProjects) {
@@ -257,7 +274,7 @@ async function ensureProjectForRun(
     // project-bound copy creates two sources of truth for mode and settings.
     .set({ launchIntent: null, projectId: project.id, updatedAt: sql`now()` })
     .where(and(eq(threads.id, input.threadId), isNull(threads.projectId)));
-  return null;
+  return { project, type: "created" };
 }
 
 /** Concise kebab project name from the chat's first prompt (Cheatcode's `simple-todo-app`). */
@@ -292,7 +309,7 @@ async function blockedRunCreationResult(
       type: "active-run-exists",
     };
   }
-  if (thread.archivedPendingAction || thread.overQuota) {
+  if (thread.overQuota) {
     return { archiveAfter: thread.archiveAfter, type: "project-read-only" };
   }
   return null;
@@ -305,31 +322,16 @@ function createdRunHandle(
   isFirstRun: boolean,
 ): AgentRunHandle {
   return {
-    projectId: toProjectId(thread.projectId),
-    ...(thread.projectSettings.importRepoUrl
-      ? { importRepoUrl: thread.projectSettings.importRepoUrl }
-      : {}),
+    ...(thread.projectId ? { projectId: toProjectId(thread.projectId) } : {}),
+    ...(thread.importRepoUrl ? { importRepoUrl: thread.importRepoUrl } : {}),
     ...(isFirstRun ? { isFirstRun } : {}),
-    ...(thread.masterInstructions ? { masterInstructions: thread.masterInstructions } : {}),
     modelId,
     projectMode: thread.projectMode,
     runId: toAgentRunId(created.id),
     status: toAgentRunStatus(created.status),
     threadId: toThreadId(thread.id),
-    workspaceSlug: assertWorkspaceSlug(thread.workspaceSlug, thread.id),
+    ...(thread.workspaceSlug ? { workspaceSlug: thread.workspaceSlug } : {}),
   };
-}
-
-/**
- * Post-migration invariant: every run has a project, so its workspace slug is always set (the DB
- * column is NOT NULL and every join here is an inner join). This asserts that at the boundary
- * rather than silently defaulting to a shared folder, surfacing any data corruption loudly.
- */
-function assertWorkspaceSlug(slug: string | null | undefined, threadId: string): string {
-  if (!slug) {
-    throw new Error(`Thread ${threadId} run is missing a workspace slug`);
-  }
-  return slug;
 }
 
 async function isFirstAgentRunForUser(db: Database, userId: UserId): Promise<boolean> {
@@ -348,29 +350,43 @@ async function findThreadForRun(
     .select({
       activeRunId: threads.activeRunId,
       archiveAfter: projects.archiveAfter,
-      archivedPendingAction: projects.archivedPendingAction,
       id: threads.id,
-      masterInstructions: projects.masterInstructions,
       overQuota: projects.overQuota,
-      // Non-null via the innerJoin (and ensureProjectForRun guarantees a project by now).
       projectId: projects.id,
       projectMode: projects.mode,
       projectSettings: projects.settings,
+      launchIntent: threads.launchIntent,
       workspaceSlug: projects.workspaceSlug,
     })
     .from(threads)
-    .innerJoin(projects, eq(projects.id, threads.projectId))
+    .leftJoin(projects, eq(projects.id, threads.projectId))
     .where(
       and(
         eq(threads.id, input.threadId),
         eq(threads.userId, input.userId),
-        eq(projects.userId, input.userId),
         isNull(threads.deletedAt),
-        isNull(projects.deletedAt),
+        or(
+          isNull(threads.projectId),
+          and(eq(projects.userId, input.userId), isNull(projects.deletedAt)),
+        ),
       ),
     )
     .limit(1);
-  return thread ? { ...thread, projectMode: projectModeFromDb(thread.projectMode) } : null;
+  if (!thread) {
+    return null;
+  }
+  const launchIntent = thread.launchIntent ?? {};
+  const projectSettings = thread.projectSettings ?? {
+    ...(launchIntent.defaultModel ? { defaultModel: launchIntent.defaultModel } : {}),
+    ...(launchIntent.importRepoUrl ? { importRepoUrl: launchIntent.importRepoUrl } : {}),
+  };
+  return {
+    ...thread,
+    importRepoUrl: projectSettings.importRepoUrl ?? null,
+    overQuota: Boolean(thread.overQuota),
+    projectMode: projectModeFromDb(thread.projectMode ?? launchIntent.mode ?? "general"),
+    projectSettings,
+  };
 }
 
 async function insertPendingRun(
@@ -434,10 +450,11 @@ async function activateCreatedRun(
   db: Database,
   input: CreateAgentRunInput,
   runId: string,
+  modelId: LogicalModelId,
 ): Promise<boolean> {
   const rows = await db
     .update(threads)
-    .set({ activeRunId: runId, updatedAt: sql`now()` })
+    .set({ activeRunId: runId, latestModelId: modelId, updatedAt: sql`now()` })
     .where(
       and(
         eq(threads.id, input.threadId),
@@ -454,10 +471,6 @@ async function cancelSupersededRun(db: Database, runId: string): Promise<void> {
   await db
     .update(agentRuns)
     .set({
-      error: {
-        message: "A run became active before this run could start.",
-        type: "conflict_run_already_active",
-      },
       finishedAt: sql`now()`,
       status: "canceled",
     })
@@ -503,6 +516,7 @@ export async function findActiveAgentRunForThread(
   const rows = await db
     .select({
       modelId: agentRuns.modelId,
+      launchIntent: threads.launchIntent,
       projectId: projects.id,
       projectMode: projects.mode,
       runId: agentRuns.id,
@@ -512,15 +526,17 @@ export async function findActiveAgentRunForThread(
     })
     .from(threads)
     .innerJoin(agentRuns, eq(agentRuns.id, threads.activeRunId))
-    .innerJoin(projects, eq(projects.id, threads.projectId))
+    .leftJoin(projects, eq(projects.id, threads.projectId))
     .where(
       and(
         eq(threads.id, input.threadId),
         eq(threads.userId, input.userId),
         eq(agentRuns.userId, input.userId),
-        eq(projects.userId, input.userId),
         isNull(threads.deletedAt),
-        isNull(projects.deletedAt),
+        or(
+          isNull(threads.projectId),
+          and(eq(projects.userId, input.userId), isNull(projects.deletedAt)),
+        ),
       ),
     )
     .limit(1);
@@ -535,6 +551,7 @@ export async function findAgentRunForUser(
   const rows = await db
     .select({
       modelId: agentRuns.modelId,
+      launchIntent: threads.launchIntent,
       projectId: projects.id,
       projectMode: projects.mode,
       runId: agentRuns.id,
@@ -544,15 +561,17 @@ export async function findAgentRunForUser(
     })
     .from(agentRuns)
     .innerJoin(threads, eq(threads.id, agentRuns.threadId))
-    .innerJoin(projects, eq(projects.id, threads.projectId))
+    .leftJoin(projects, eq(projects.id, threads.projectId))
     .where(
       and(
         eq(agentRuns.id, input.runId),
         eq(agentRuns.userId, input.userId),
         eq(threads.userId, input.userId),
-        eq(projects.userId, input.userId),
         isNull(threads.deletedAt),
-        isNull(projects.deletedAt),
+        or(
+          isNull(threads.projectId),
+          and(eq(projects.userId, input.userId), isNull(projects.deletedAt)),
+        ),
       ),
     )
     .limit(1);
@@ -564,11 +583,14 @@ export async function updateAgentRunStatus(
   db: Database,
   input: UpdateAgentRunStatusInput,
 ): Promise<boolean> {
+  if (input.artifactsQuiesced && !isTerminalRunStatus(input.status)) {
+    throw new Error("Artifact quiescence can only accompany a terminal run status");
+  }
   return db.transaction(async (tx) => {
+    const transaction = tx as Database;
     const updateRows = await tx
       .update(agentRuns)
       .set({
-        ...(input.error ? { error: input.error } : {}),
         ...(isTerminalRunStatus(input.status) ? { finishedAt: sql`now()` } : {}),
         status: input.status,
       })
@@ -582,7 +604,16 @@ export async function updateAgentRunStatus(
       .returning({ threadId: agentRuns.threadId });
     const updated = updateRows[0];
     if (!updated) {
+      if (
+        input.artifactsQuiesced &&
+        (await hasTerminalAgentRun(transaction, input.runId, input.userId))
+      ) {
+        await markArtifactUploadsQuiesced(transaction, input.runId, input.userId);
+      }
       return false;
+    }
+    if (input.artifactsQuiesced) {
+      await markArtifactUploadsQuiesced(transaction, input.runId, input.userId);
     }
     if (isTerminalRunStatus(input.status)) {
       await tx
@@ -600,6 +631,35 @@ export async function updateAgentRunStatus(
   });
 }
 
+async function hasTerminalAgentRun(
+  db: Database,
+  runId: AgentRunId,
+  userId: UserId,
+): Promise<boolean> {
+  const run = await db.query.agentRuns.findFirst({
+    columns: { status: true },
+    where: and(eq(agentRuns.id, runId), eq(agentRuns.userId, userId)),
+  });
+  return run ? isTerminalRunStatus(toAgentRunStatus(run.status)) : false;
+}
+
+async function markArtifactUploadsQuiesced(
+  db: Database,
+  runId: AgentRunId,
+  userId: UserId,
+): Promise<void> {
+  await db
+    .update(artifactUploadIntents)
+    .set({ quiescedAt: sql`now()` })
+    .where(
+      and(
+        eq(artifactUploadIntents.agentRunId, runId),
+        eq(artifactUploadIntents.userId, userId),
+        isNull(artifactUploadIntents.quiescedAt),
+      ),
+    );
+}
+
 /** Persists the product-level model identity selected for the next stream attempt. */
 export async function updateAgentRunLogicalModelId(
   db: Database,
@@ -615,8 +675,16 @@ export async function updateAgentRunLogicalModelId(
         notInArray(agentRuns.status, ["completed", "failed", "canceled"]),
       ),
     )
-    .returning({ id: agentRuns.id });
-  return Boolean(rows[0]);
+    .returning({ id: agentRuns.id, threadId: agentRuns.threadId });
+  const updated = rows[0];
+  if (!updated) {
+    return false;
+  }
+  await db
+    .update(threads)
+    .set({ latestModelId: input.logicalModelId })
+    .where(and(eq(threads.id, updated.threadId), eq(threads.userId, input.userId)));
+  return true;
 }
 
 /**
@@ -643,10 +711,6 @@ export async function reconcileAbsentAgentRunStart(
       await tx
         .update(agentRuns)
         .set({
-          error: {
-            message: "The run service did not admit this run.",
-            type: "run_start_absent",
-          },
           finishedAt: sql`now()`,
           status: "failed",
         })
@@ -684,22 +748,23 @@ async function activeRunHandle(
 }
 
 function agentRunHandleFromRow(row: {
+  launchIntent: ThreadLaunchIntent | null;
   modelId: null | string;
-  projectId: string;
-  projectMode: string;
+  projectId: string | null;
+  projectMode: string | null;
   runId: string;
   status: string;
   threadId: string;
-  workspaceSlug: string;
+  workspaceSlug: string | null;
 }): AgentRunHandle {
   return {
     modelId: parseLogicalModelId(row.modelId) ?? PRODUCTION_DEFAULT_MODEL_ID,
-    projectMode: projectModeFromDb(row.projectMode),
-    projectId: toProjectId(row.projectId),
+    projectMode: projectModeFromDb(row.projectMode ?? row.launchIntent?.mode ?? "general"),
+    ...(row.projectId ? { projectId: toProjectId(row.projectId) } : {}),
     runId: toAgentRunId(row.runId),
     status: toAgentRunStatus(row.status),
     threadId: toThreadId(row.threadId),
-    workspaceSlug: assertWorkspaceSlug(row.workspaceSlug, row.threadId),
+    ...(row.workspaceSlug ? { workspaceSlug: row.workspaceSlug } : {}),
   };
 }
 
@@ -711,7 +776,6 @@ function toAgentRunStatus(value: string): AgentRunStatus {
   if (
     value === "pending" ||
     value === "running" ||
-    value === "paused" ||
     value === "completed" ||
     value === "failed" ||
     value === "canceled"

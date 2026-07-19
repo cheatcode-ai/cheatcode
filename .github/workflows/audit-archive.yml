@@ -1,0 +1,177 @@
+name: Audit Archive
+
+run-name: Audit archive ${{ inputs.mode }} at ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Plan the operation or apply it to production.
+        required: true
+        default: dry-run
+        type: choice
+        options:
+          - dry-run
+          - apply
+      confirmation:
+        description: Type PLAN_AUDIT_ARCHIVE or APPLY_AUDIT_ARCHIVE to match the selected mode.
+        required: true
+        type: string
+      archive_before_days:
+        description: Archive complete partitions at least this many days old (minimum 30).
+        required: true
+        default: "90"
+        type: string
+      create_months_ahead:
+        description: Ensure this many future monthly partitions exist (1-60).
+        required: true
+        default: "24"
+        type: string
+      purge_verified_before_days:
+        description: Optional age for purging detached DB tables after verified R2 archival (minimum 30).
+        required: false
+        default: ""
+        type: string
+      purge_confirmation:
+        description: For apply with purge, type DROP_VERIFIED_AUDIT_PARTITIONS.
+        required: false
+        default: ""
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: production-control-plane
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    environment: production
+    steps:
+      - name: Authorize protected maintenance operation
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          MODE: ${{ inputs.mode }}
+          PURGE_CONFIRMATION: ${{ inputs.purge_confirmation }}
+          PURGE_VERIFIED_BEFORE_DAYS: ${{ inputs.purge_verified_before_days }}
+        run: |
+          if [ "$GITHUB_REF" != "refs/heads/main" ]; then
+            echo "Audit maintenance must be dispatched from main." >&2
+            exit 1
+          fi
+          case "$MODE" in
+            dry-run)
+              if [ "$CONFIRMATION" != "PLAN_AUDIT_ARCHIVE" ]; then
+                echo "Dry-run confirmation must exactly match PLAN_AUDIT_ARCHIVE." >&2
+                exit 1
+              fi
+              if [ -n "$PURGE_CONFIRMATION" ]; then
+                echo "Dry-run does not accept purge_confirmation." >&2
+                exit 1
+              fi
+              ;;
+            apply)
+              if [ "$CONFIRMATION" != "APPLY_AUDIT_ARCHIVE" ]; then
+                echo "Apply confirmation must exactly match APPLY_AUDIT_ARCHIVE." >&2
+                exit 1
+              fi
+              if [ -n "$PURGE_VERIFIED_BEFORE_DAYS" ] &&
+                 [ "$PURGE_CONFIRMATION" != "DROP_VERIFIED_AUDIT_PARTITIONS" ]; then
+                echo "Production purge requires DROP_VERIFIED_AUDIT_PARTITIONS." >&2
+                exit 1
+              fi
+              ;;
+            *)
+              echo "Unknown audit archive mode: $MODE" >&2
+              exit 1
+              ;;
+          esac
+          if [ -z "$PURGE_VERIFIED_BEFORE_DAYS" ] && [ -n "$PURGE_CONFIRMATION" ]; then
+            echo "purge_confirmation requires purge_verified_before_days." >&2
+            exit 1
+          fi
+      - name: Record absolute job deadline origin
+        run: echo "CHEATCODE_AUDIT_ARCHIVE_JOB_STARTED_AT_MS=$(date +%s%3N)" >> "$GITHUB_ENV"
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ github.sha }}
+      - uses: ./.github/actions/setup-repository
+        with:
+          release-sha: ${{ github.sha }}
+      - name: Require successful static checks for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          successful_runs="$(gh api --method GET \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/static-checks.yml/runs" \
+            --field branch=main \
+            --field event=push \
+            --field head_sha="$GITHUB_SHA" \
+            --field per_page=1 \
+            --field status=success \
+            --jq '.total_count')"
+          if [ "$successful_runs" -lt 1 ]; then
+            echo "Static Checks has not succeeded for $GITHUB_SHA on main." >&2
+            exit 1
+          fi
+      - name: Validate protected production configuration
+        env:
+          AUDIT_ARCHIVE_CLOUDFLARE_API_TOKEN: ${{ inputs.mode == 'apply' && secrets.AUDIT_ARCHIVE_CLOUDFLARE_API_TOKEN || '' }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          MODE: ${{ inputs.mode }}
+          SUPABASE_MIGRATION_EXPECTED_DATABASE: ${{ vars.SUPABASE_MIGRATION_EXPECTED_DATABASE }}
+          SUPABASE_MIGRATION_EXPECTED_HOST: ${{ vars.SUPABASE_MIGRATION_EXPECTED_HOST }}
+          SUPABASE_MIGRATION_EXPECTED_ROLE: ${{ vars.SUPABASE_MIGRATION_EXPECTED_ROLE }}
+          SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER: ${{ vars.SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER }}
+          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
+        run: |
+          required=(
+            CLOUDFLARE_ACCOUNT_ID
+            SUPABASE_MIGRATION_EXPECTED_DATABASE
+            SUPABASE_MIGRATION_EXPECTED_HOST
+            SUPABASE_MIGRATION_EXPECTED_ROLE
+            SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER
+            SUPABASE_MIGRATION_URL
+          )
+          if [ "$MODE" = "apply" ]; then
+            required+=(AUDIT_ARCHIVE_CLOUDFLARE_API_TOKEN)
+          fi
+          missing=()
+          for name in "${required[@]}"; do
+            if [ -z "${!name}" ]; then missing+=("$name"); fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            printf 'Missing production configuration: %s\n' "${missing[*]}" >&2
+            exit 1
+          fi
+      - name: Run bounded audit archive maintenance
+        env:
+          ARCHIVE_BEFORE_DAYS: ${{ inputs.archive_before_days }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ inputs.mode == 'apply' && secrets.AUDIT_ARCHIVE_CLOUDFLARE_API_TOKEN || '' }}
+          CREATE_MONTHS_AHEAD: ${{ inputs.create_months_ahead }}
+          MODE: ${{ inputs.mode }}
+          PURGE_CONFIRMATION: ${{ inputs.purge_confirmation }}
+          PURGE_VERIFIED_BEFORE_DAYS: ${{ inputs.purge_verified_before_days }}
+          SUPABASE_MIGRATION_EXPECTED_DATABASE: ${{ vars.SUPABASE_MIGRATION_EXPECTED_DATABASE }}
+          SUPABASE_MIGRATION_EXPECTED_HOST: ${{ vars.SUPABASE_MIGRATION_EXPECTED_HOST }}
+          SUPABASE_MIGRATION_EXPECTED_ROLE: ${{ vars.SUPABASE_MIGRATION_EXPECTED_ROLE }}
+          SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER: ${{ vars.SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER }}
+          SUPABASE_MIGRATION_URL: ${{ secrets.SUPABASE_MIGRATION_URL }}
+        run: |
+          args=(
+            "--$MODE"
+            --archive-before-days "$ARCHIVE_BEFORE_DAYS"
+            --create-months-ahead "$CREATE_MONTHS_AHEAD"
+          )
+          if [ -n "$PURGE_VERIFIED_BEFORE_DAYS" ]; then
+            args+=(--purge-verified-before-days "$PURGE_VERIFIED_BEFORE_DAYS")
+          fi
+          if [ -n "$PURGE_CONFIRMATION" ]; then
+            args+=(--confirm-purge "$PURGE_CONFIRMATION")
+          fi
+          pnpm audit:archive -- "${args[@]}"

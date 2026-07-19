@@ -11,7 +11,6 @@ import {
   ComposioConnectedAccountsSchema,
   type ComposioQuotaMeter,
 } from "../composio-context";
-import { withApprovalGate } from "./approval-gate";
 
 const MAX_COMPOSIO_ARGUMENTS_JSON_CHARS = 100_000;
 const MAX_COMPOSIO_OUTPUT_CHARS = 20_000;
@@ -484,7 +483,7 @@ function pruneJsonRecord(
   state: JsonPruneState,
   depth: number,
 ): Record<string, unknown> {
-  const output: Record<string, unknown> = {};
+  const output = Object.create(null) as Record<string, unknown>;
   let keyCount = 0;
   for (const key in value) {
     if (!Object.hasOwn(value, key)) {
@@ -552,17 +551,8 @@ export const mastraComposioExecute = createTool({
   outputSchema: composioExecuteOutputSchema,
   execute: async (input, context) => {
     const parsedInput = composioExecuteInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () =>
-        executeComposioAction(
-          parsedInput,
-          composioRuntimeFromContext(context),
-          composioQuotaEventId(context),
-        ),
-      input: parsedInput,
-      toolName: "composio_execute",
-    });
+    const runtime = composioRuntimeFromContext(context);
+    return executeComposioAction(parsedInput, runtime, composioQuotaEventId(context));
   },
 });
 

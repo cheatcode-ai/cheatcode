@@ -1,8 +1,8 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
+import { Link as LinkIcon, X } from "@cheatcode/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { Link as LinkIcon, X } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 // Curated display names for the most common toolkits. Any other connected toolkit

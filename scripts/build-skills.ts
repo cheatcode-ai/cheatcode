@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type BundledSkill,
@@ -73,15 +73,36 @@ function parseTags(raw: string | undefined): string[] {
     .filter((tag) => tag.length > 0);
 }
 
+const BUNDLED_TEXT_EXTENSIONS = new Set([".md", ".txt", ".json", ".yaml", ".yml"]);
+
 function readTextFiles(dir: string): Record<string, string> {
   if (!existsSync(dir)) {
     return {};
   }
-  return Object.fromEntries(
-    readdirSync(dir)
-      .filter((file) => statSync(join(dir, file)).isFile())
-      .map((file) => [file, readFileSync(join(dir, file), "utf8")]),
-  );
+
+  const files: Array<[string, string]> = [];
+  const visit = (current: string): void => {
+    for (const entry of readdirSync(current).sort()) {
+      const absolutePath = join(current, entry);
+      const stat = statSync(absolutePath);
+      if (stat.isDirectory()) {
+        visit(absolutePath);
+        continue;
+      }
+      if (!stat.isFile()) {
+        continue;
+      }
+      const extension = entry.includes(".") ? `.${entry.split(".").pop()?.toLowerCase()}` : "";
+      if (!BUNDLED_TEXT_EXTENSIONS.has(extension)) {
+        continue;
+      }
+      const relativePath = relative(dir, absolutePath).split(sep).join("/");
+      files.push([relativePath, readFileSync(absolutePath, "utf8")]);
+    }
+  };
+
+  visit(dir);
+  return Object.fromEntries(files);
 }
 
 function bundleSkill(slug: string): BundledSkill {

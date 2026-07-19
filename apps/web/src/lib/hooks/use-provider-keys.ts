@@ -15,8 +15,8 @@ export function useProviderKeysQuery() {
   const { getToken, isSignedIn } = useAuth();
   return useQuery({
     enabled: Boolean(isSignedIn),
-    queryFn: async (): Promise<ProviderKeySummary[]> => {
-      const response = await authorizedFetch(getToken, "/v1/provider-keys");
+    queryFn: async ({ signal }): Promise<ProviderKeySummary[]> => {
+      const response = await authorizedFetch(getToken, "/v1/provider-keys", { signal });
       return ProviderKeySummarySchema.array().parse(
         await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.providerKeys),
       );

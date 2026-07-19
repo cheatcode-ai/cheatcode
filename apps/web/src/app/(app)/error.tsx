@@ -1,7 +1,7 @@
 "use client";
 
+import { SquareAsterisk } from "@cheatcode/ui";
 import { useEffect } from "react";
-import { SquareAsterisk } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { reportClientError } from "@/lib/error-reporter";
 

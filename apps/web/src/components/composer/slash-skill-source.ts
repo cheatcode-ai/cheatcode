@@ -1,40 +1,54 @@
-import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
-import type { UserSkill } from "@cheatcode/types";
+import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 
-const MAX_SLASH_ITEMS = 10;
+const MAX_SLASH_ITEMS = 200;
 
 /**
- * Maps the caller's custom skills + the bundled skill manifest + the current `/`
- * query into menu items. The manifest is browser-safe (name/description/category/
- * tags — no bodies); user skills come from `/v1/skills` (also body-less). A user
- * skill that shadows a bundled name is dropped (bundled wins, matching the agent's
- * `skill_invoke` resolution order). Custom skills are listed FIRST so they surface
- * in the empty-query menu rather than being sliced off behind the 8 bundled ones.
- * Selecting a row removes the slash token and lets the composer render the selected
- * skill as a chip, then prepend `/<name> ` on submit — name-based, so bundled and
- * custom invoke identically.
+ * Builds the Bud-style `/` catalog: user-created skills first, followed by the
+ * integration catalog. Selection metadata lets each composer preserve its existing
+ * skill/tool submission contract while presenting one unified menu.
  */
-export function slashSkillItems(query: string, userSkills: UserSkill[] = []): ComposerMenuItem[] {
+export function slashSkillItems(
+  query: string,
+  userSkills: UserSkill[] = [],
+  toolkits: readonly ToolkitCatalogEntry[] = [],
+): ComposerMenuItem[] {
   const needle = query.trim().toLowerCase();
-  const bundledNames = new Set(SKILL_MANIFEST.map((skill) => skill.name));
   const items: ComposerMenuItem[] = [];
-  const append = (name: string, description: string) => {
-    if (
-      items.length < MAX_SLASH_ITEMS &&
-      (needle.length === 0 || name.toLowerCase().includes(needle))
-    ) {
-      items.push({ hint: description, id: name, insert: "", label: name });
-    }
-  };
-
   for (const skill of userSkills) {
-    if (!bundledNames.has(skill.name)) {
-      append(skill.name, skill.description);
+    if (matchesQuery(skill.name, skill.description, needle) && items.length < MAX_SLASH_ITEMS) {
+      items.push({
+        hint: skill.description,
+        id: `user-skill:${skill.id}`,
+        insert: "",
+        label: skill.name,
+        skillName: skill.name,
+        visual: "user-skill",
+      });
     }
   }
-  for (const skill of SKILL_MANIFEST) {
-    append(skill.name, skill.description);
+  for (const toolkit of toolkits) {
+    if (
+      matchesQuery(toolkit.displayName, toolkit.description, needle) &&
+      items.length < MAX_SLASH_ITEMS
+    ) {
+      items.push({
+        hint: toolkit.description,
+        id: `integration:${toolkit.name}`,
+        insert: "",
+        integrationName: toolkit.name,
+        label: toolkit.displayName,
+        visual: "integration",
+      });
+    }
   }
   return items;
+}
+
+function matchesQuery(name: string, description: string, needle: string): boolean {
+  return (
+    needle.length === 0 ||
+    name.toLowerCase().includes(needle) ||
+    description.toLowerCase().includes(needle)
+  );
 }

@@ -19,8 +19,9 @@ import {
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface LlmProviderEnv {
-  HYPERDRIVE: Hyperdrive;
+  DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
+  HYPERDRIVE: Hyperdrive;
 }
 
 interface LlmProviderInput {
@@ -173,7 +174,10 @@ async function resolveProviderKey(
   logger: ReturnType<typeof createLogger>,
   platformFallback: PlatformFallbackContext,
 ): Promise<LlmCredential> {
-  const dbHandle = createDb(env.HYPERDRIVE);
+  const dbHandle = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   const brandedUserId = UserId(userId);
   try {
     const resolved = await withUserContext(dbHandle.db, brandedUserId, (db) =>

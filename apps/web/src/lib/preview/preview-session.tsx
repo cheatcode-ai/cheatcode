@@ -26,7 +26,7 @@ export function useStablePreviewSource(source: string | null): string | null {
   return stable.identity === identity ? stable.source : source;
 }
 
-/** Refreshes the production preview cookie without navigating the visible app/editor iframe. */
+/** Refreshes the preview cookie without navigating the visible app/editor iframe. */
 export function PreviewSessionRefresh({ previewUrl }: { previewUrl: string | null }) {
   const src = previewSessionRefreshUrl(previewUrl);
   if (!src) {
@@ -61,7 +61,7 @@ function previewSessionRefreshUrl(previewUrl: string | null): string | null {
   try {
     const parsed = new URL(previewUrl);
     const token = parsed.searchParams.get(PREVIEW_TOKEN_QUERY);
-    if (!token || parsed.protocol !== "https:" || !isPreviewHostname(parsed.hostname)) {
+    if (!token || !isPreviewProtocol(parsed) || !isPreviewHostname(parsed.hostname)) {
       return null;
     }
     const refresh = new URL(PREVIEW_SESSION_PATH, parsed.origin);
@@ -70,6 +70,13 @@ function previewSessionRefreshUrl(previewUrl: string | null): string | null {
   } catch {
     return null;
   }
+}
+
+function isPreviewProtocol(url: URL): boolean {
+  return (
+    url.protocol === "https:" ||
+    (env.NEXT_PUBLIC_PREVIEW_HOSTNAME === "localhost" && url.protocol === "http:")
+  );
 }
 
 function isPreviewHostname(hostname: string): boolean {

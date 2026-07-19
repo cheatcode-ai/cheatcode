@@ -1,7 +1,7 @@
 import type { Provider, ProviderKeySummary } from "@cheatcode/types";
+import { Check, Eye, EyeOff, Loader2 } from "@cheatcode/ui";
 import type { FormEventHandler } from "react";
 import type { FieldError, UseFormRegister } from "react-hook-form";
-import { Check, Eye, EyeOff, Loader2 } from "@/components/ui/icons";
 import {
   PROVIDER_META,
   type ProviderKeyEditorStatus,

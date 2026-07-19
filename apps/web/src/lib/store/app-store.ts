@@ -81,17 +81,9 @@ type PersistedAppStore = Pick<
   "activePreviewTab" | "agentModelId" | "previewDevice" | "sidebarCollapsed"
 >;
 
-const DEFAULT_PERSISTED_APP_STORE: PersistedAppStore = {
-  activePreviewTab: "app",
-  agentModelId: DEFAULT_AGENT_MODEL_ID,
-  previewDevice: "desktop",
-  sidebarCollapsed: false,
-};
-
 export const useAppStore = create<AppStore>()(
   persist(createAppStore, {
     merge: mergePersistedAppStore,
-    migrate: () => ({ ...DEFAULT_PERSISTED_APP_STORE }),
     name: "cheatcode-ui-v2",
     // Preview and Expo URLs are bearer capabilities. They must remain memory-only and are
     // reacquired from authenticated endpoints whenever the corresponding panel opens.
@@ -103,7 +95,6 @@ export const useAppStore = create<AppStore>()(
     }),
     skipHydration: true,
     storage: createJSONStorage(() => localStorage),
-    version: 1,
   }),
 );
 

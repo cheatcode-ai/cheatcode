@@ -81,7 +81,7 @@ function useToolkitSelection(toolkits: readonly ToolkitCatalogEntry[]) {
 function useCatalogController(getToken: () => Promise<null | string>) {
   const queryClient = useQueryClient();
   const query = useQuery({
-    queryFn: () => fetchIntegrationCatalog(getToken),
+    queryFn: ({ signal }) => fetchIntegrationCatalog(getToken, signal),
     queryKey: INTEGRATION_CATALOG_QUERY,
     staleTime: 30_000,
   });

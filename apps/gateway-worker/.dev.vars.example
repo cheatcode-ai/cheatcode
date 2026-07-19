@@ -1,8 +1,0 @@
-# Use one of these for local Clerk verification.
-CLERK_SECRET_KEY=
-CLERK_JWT_KEY=
-CLERK_AUTHORIZED_PARTIES=http://localhost:3000,http://127.0.0.1:3000
-POLAR_ACCESS_TOKEN=
-COMPOSIO_API_KEY=
-COMPOSIO_AUTH_CONFIGS={"github":"ac_...","gmail":"ac_...","slack":"ac_...","notion":"ac_...","linear":"ac_..."}
-INTERNAL_MAINTENANCE_SECRET=

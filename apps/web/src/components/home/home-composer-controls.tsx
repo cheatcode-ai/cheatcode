@@ -1,13 +1,12 @@
 "use client";
 
+import { Puzzle, X } from "@cheatcode/ui";
 import {
   type ComposerIntent,
   type IntentId,
   QUICK_ACTION_PRIMARY_INTENTS,
   QUICK_ACTION_SECONDARY_INTENTS,
 } from "@/components/home/home-composer-intents";
-import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { X } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 const SKILL_CREATOR_SUGGESTIONS = [
@@ -19,18 +18,26 @@ const SKILL_CREATOR_SUGGESTIONS = [
 
 export function SkillCreatorSuggestions({ onPick }: { onPick: (text: string) => void }) {
   return (
-    <div className="mx-auto mt-6 w-full max-w-[448px] rounded-[17px] border border-border bg-background p-1.5">
-      <p className="px-2 pt-1 pb-1 font-medium text-[12px] text-placeholder">Create skills</p>
-      <ul>
+    <div className="mx-auto w-full max-w-[448px] overflow-hidden rounded-[17px] border border-border bg-secondary/60">
+      <div className="px-3 py-1.5 font-medium text-[11px] text-muted-foreground">Create skills</div>
+      <ul className="flex flex-col rounded-[16px] bg-background p-1">
         {SKILL_CREATOR_SUGGESTIONS.map((suggestion) => (
           <li key={suggestion}>
             <button
-              className="flex w-full items-center gap-2.5 rounded-[11px] px-2 py-1.5 text-left font-medium text-[13px] text-foreground leading-5 transition-colors hover:bg-secondary"
+              className="flex w-full cursor-pointer items-start justify-between rounded-full px-2.5 py-1.5 hover:bg-secondary"
               onClick={() => onPick(suggestion)}
               type="button"
             >
-              <CheatcodeMark aria-hidden="true" className="h-3.5 w-3.5 shrink-0 text-placeholder" />
-              <span className="min-w-0 flex-1 truncate">{suggestion}</span>
+              <span className="flex min-w-0 items-start gap-2.5">
+                <Puzzle
+                  aria-hidden="true"
+                  className="mt-0.75 size-3 shrink-0 text-muted-foreground"
+                  strokeWidth={2.25}
+                />
+                <span className="min-w-0 text-left text-[13px] text-foreground leading-snug">
+                  {suggestion}
+                </span>
+              </span>
             </button>
           </li>
         ))}

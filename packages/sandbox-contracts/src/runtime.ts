@@ -1,4 +1,7 @@
+import type { ArtifactKind } from "@cheatcode/types/artifacts";
 import { z } from "zod";
+
+export type { ArtifactKind } from "@cheatcode/types/artifacts";
 
 const ENVIRONMENT_VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const MAX_ENVIRONMENT_VARIABLES = 128;
@@ -20,11 +23,10 @@ export interface SandboxRunCodeInput {
 }
 
 export interface SandboxRunCodeResult {
-  exitCode?: number;
-  output?: string;
-  stderr?: string;
-  stdout?: string;
-  success?: boolean;
+  exitCode: number;
+  stderr: string;
+  stdout: string;
+  success: boolean;
 }
 
 export interface SandboxExecInput {
@@ -127,7 +129,8 @@ export interface SandboxStartProcessInput extends SandboxExecInput {
   isMobile?: boolean;
   keepAliveTimeoutMs?: number;
   maxRestarts?: number;
-  processId?: string;
+  /** Stable idempotency slot used to replace, inspect, and reap this process. */
+  processId: string;
   restartOnFailure?: boolean;
   waitForPort?: {
     path?: string;
@@ -174,6 +177,10 @@ export interface SandboxAllocateProjectPortInput {
   stack: "web" | "mobile";
 }
 
+interface SandboxGetProjectPortInput {
+  projectId: string;
+}
+
 export interface SandboxAllocateProcessPortInput {
   maxPort: number;
   minPort: number;
@@ -186,6 +193,7 @@ export interface SandboxLike {
   deleteFile?(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
   ensureReady?(): Promise<SandboxStatus>;
   exec?(input: SandboxExecInput): Promise<SandboxExecResult>;
+  getProjectPort?(input: SandboxGetProjectPortInput): Promise<number | null>;
   getSignedPreviewUrl?(input: SandboxSignedPreviewUrlInput): Promise<SandboxSignedPreviewUrlResult>;
   killAllProcesses?(): Promise<number>;
   killProcess?(input: SandboxKillProcessInput): Promise<SandboxKillProcessResult>;
@@ -197,23 +205,18 @@ export interface SandboxLike {
   writeFile?(input: SandboxWriteFileInput): Promise<SandboxWriteFileResult>;
 }
 
-export type ArtifactKind = "audio" | "docx" | "image" | "pdf" | "slide" | "video" | "xlsx";
-
 export interface ArtifactUploadInput {
   contentType: string;
   data: Uint8Array;
   filename: string;
   kind: ArtifactKind;
-  metadata?: Record<string, unknown>;
 }
 
 export interface ArtifactUploadResult {
-  downloadUrl: string;
   filename: string;
   kind: ArtifactKind;
   mimeType: string;
   outputId: string;
-  r2Key: string;
   sizeBytes: number;
 }
 
@@ -223,10 +226,19 @@ export interface ArtifactRuntime {
 
 export interface CodeRuntimeContext {
   artifacts?: ArtifactRuntime | undefined;
+  ensureWorkspace?: WorkspaceResolver | undefined;
   sandbox: SandboxLike;
   /** The project folder inside the shared per-user sandbox. */
   workspaceDir?: string | undefined;
 }
+
+export interface WorkspaceBinding {
+  projectId: string;
+  workspaceDir: string;
+  workspaceSlug: string;
+}
+
+export type WorkspaceResolver = () => Promise<WorkspaceBinding>;
 
 export const ArtifactRuntimeSchema = z.custom<ArtifactRuntime>(
   isArtifactRuntime,
@@ -241,6 +253,7 @@ export const SandboxLikeSchema = z.custom<SandboxLike>(
 export const CodeRuntimeContextSchema = z
   .object({
     artifacts: ArtifactRuntimeSchema.optional(),
+    ensureWorkspace: z.custom<WorkspaceResolver>((value) => typeof value === "function").optional(),
     sandbox: SandboxLikeSchema,
     workspaceDir: z.string().optional(),
   })

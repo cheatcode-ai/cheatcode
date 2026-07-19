@@ -37,10 +37,10 @@ const RAW_CATALOG_MODEL_ID_VALUES = [
 /**
  * The single source of truth for the agent model catalog shown in the picker.
  *
- * Curated to the design's Models list (06b): Claude Sonnet 4.6, Claude Opus 4.8,
- * GPT-5.4 Thinking, GPT-5.4 Mini. Gemini 2.5 Flash and the standalone OpenRouter-Auto
- * row are intentionally NOT here — they stay reachable as free-string `body.model` ids
- * routed via OpenRouter, but are not drawn in the picker.
+ * Curated to the live Models list: Claude Sonnet 4.6, Claude Opus 4.8,
+ * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 model. Gemini 2.5
+ * Flash and the standalone OpenRouter-Auto row stay reachable as provider-prefixed
+ * request ids routed through OpenRouter, but are not drawn in the picker.
  *
  * Catalog order doubles as the resolution priority: the production default is first,
  * and Opus 4.8 is preferred over the GPT-5.4 entries when that default is disabled.

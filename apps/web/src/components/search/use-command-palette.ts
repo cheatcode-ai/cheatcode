@@ -23,7 +23,7 @@ export function useCommandPalette() {
   const searchResults = useQuery({
     enabled: state.open && Boolean(isSignedIn) && trimmed.length > 0,
     placeholderData: keepPreviousData,
-    queryFn: () => searchWorkspace(getToken, trimmed),
+    queryFn: ({ signal }) => searchWorkspace(getToken, trimmed, signal),
     queryKey: ["command-palette-search", trimmed],
     staleTime: 10_000,
   });

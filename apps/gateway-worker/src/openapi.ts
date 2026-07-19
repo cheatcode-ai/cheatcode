@@ -4,6 +4,7 @@ import {
   ClientUserEventBodySchema,
   CreateRunSchema,
   ErrorResponseSchema,
+  OutputDownloadUrlResponseSchema,
   RunStatusSnapshotSchema,
   ToolDomainSchema,
   ToolSummarySchema,
@@ -25,7 +26,6 @@ import {
 import { discoveryRoutes, discoverySchemas } from "./openapi-discovery-routes";
 import { integrationSchemas } from "./openapi-integration-schemas";
 import { projectRoutes, projectSchemas } from "./openapi-project-routes";
-import { runControlRoutes, runControlSchemas } from "./openapi-run-control-routes";
 import { sandboxRoutes, sandboxSchemas } from "./openapi-sandbox-routes";
 import { arraySchemaFor, idempotencyKeyParameter, objectSchemaFor } from "./openapi-schema-utils";
 import { skillRoutes, skillSchemas } from "./openapi-skill-routes";
@@ -71,6 +71,7 @@ const COMPONENT_SCHEMAS: Record<string, JsonValue> = {
     required: ["openapi"],
     type: "object",
   },
+  OutputDownloadUrl: zodJsonSchema(OutputDownloadUrlResponseSchema),
   RunStatus: zodJsonSchema(RunStatusSnapshotSchema),
   Tool: zodJsonSchema(ToolSummarySchema),
   WebVitals: zodJsonSchema(WebVitalsBodySchema, "input"),
@@ -101,6 +102,12 @@ const outputDownloadParameters: JsonValue[] = [
     name: "sig",
     required: true,
     schema: { maxLength: 256, minLength: 32, type: "string" },
+  },
+  {
+    in: "query",
+    name: "userId",
+    required: true,
+    schema: { format: "uuid", type: "string" },
   },
 ];
 
@@ -166,7 +173,22 @@ const routes: OpenApiRoute[] = [
     summary: "Cancel an agent run",
     tags: ["runs"],
   },
-  ...runControlRoutes,
+  {
+    method: "post",
+    operationId: "createOutputDownloadUrl",
+    path: "/v1/outputs/{outputId}/download-url",
+    rateLimited: true,
+    responses: {
+      "200": jsonResponse("Short-lived output download URL", schemaRef("OutputDownloadUrl")),
+      "400": jsonResponse("Invalid output id", schemaRef("Error")),
+      "404": jsonResponse("Not found", schemaRef("Error")),
+      "410": jsonResponse("Expired", schemaRef("Error")),
+      "503": jsonResponse("Signing service unavailable", schemaRef("Error")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Create a short-lived generated output download URL",
+    tags: ["outputs"],
+  },
   {
     method: "get",
     operationId: "downloadOutput",
@@ -372,7 +394,6 @@ export const OPENAPI_DOCUMENT = buildOpenApiDocument({
     ...billingSchemas,
     ...discoverySchemas,
     ...projectSchemas,
-    ...runControlSchemas,
     ...sandboxSchemas,
     ...skillSchemas,
   },

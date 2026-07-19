@@ -38,8 +38,13 @@ export function createOnboardingStepProps(flow: ReturnType<typeof useOnboardingF
     onIntro: () => finish("intro", "done"),
     onNameContinue: (name) => finish("name", "done", name === "" ? undefined : name),
     onNameSkip: () => finish("name", "skipped"),
-    onPlanComplete: (target) =>
-      void flow.completeOnboarding(target, target === "/" ? "done" : "skipped"),
+    onPlanComplete: (target) => {
+      const isDashboardChoice = target === "/";
+      void flow.completeOnboarding(
+        isDashboardChoice ? flow.defaultTarget : target,
+        isDashboardChoice ? "done" : "skipped",
+      );
+    },
     onToolsContinue: () => finish("tools", "done"),
     onToolsSkip: () => finish("tools", "skipped"),
   };

@@ -26,24 +26,36 @@ Promotion is a separate reviewed source change: update the agent-worker
 migration/backend release path. Keeping publication and promotion separate preserves
 the currently running snapshot as an immediate rollback target.
 
-### Manual fallback
+The protected production release preflight independently installs the same
+checksum-pinned Daytona CLI and scans every paginated snapshot-list page. It accepts
+the configured name only when exactly one active snapshot has the reviewed region and
+2-vCPU/4-GiB/10-GiB resources, provider identifiers and image reference have canonical
+shapes, validation was not skipped, and no provider error is present. The source
+commit encoded in the immutable name must be an ancestor of the exact release, with no
+later change anywhere under this sandbox image directory.
+The same preflight requires the configured shared workspace volume to exist exactly once in the
+snapshot's organization and to be ready without a provider error. Daytona's current FUSE/object-
+store volume contract exposes no fixed region or capacity field; target region is enforced by the
+snapshot and every canonical sandbox, while storage scales through the provider object store. The
+preflight also scans the complete sandbox inventory and rejects duplicate live canonical label
+identities, proving recovery does not depend on a replacement retaining the historical physical
+sandbox name.
 
-Requires the Daytona CLI (`daytona`) authenticated to the org, and Docker.
+### Local build check
+
+Docker can validate the AMD64 image locally without publishing it:
 
 ```sh
-# Build for the Daytona runner (AMD64 is required).
-docker build --platform=linux/amd64 -t cheatcode-sandbox:<immutable-tag> \
+docker build --platform=linux/amd64 \
+  --build-context default_skills=skills \
+  -t cheatcode-sandbox:<immutable-tag> \
   infra/containers/sandbox
-
-# Push the local image straight into Daytona's registry (no external registry needed)
-# and register it as a snapshot with baked resources (≤ Tier-2 caps: 4 vCPU / 8 GiB / 10 GiB).
-daytona snapshot push cheatcode-sandbox:<immutable-tag> \
-  --name cheatcode-sandbox-viewer-bundle-<commit-sha>-<unique-run-id> \
-  --cpu 2 --memory 4 --disk 10 --region us
 ```
 
-Then set the agent-worker `DAYTONA_SANDBOX_SNAPSHOT` var to the new snapshot name.
-The authoritative current default is committed in
+Do not authenticate a laptop to Daytona or publish a snapshot manually. Dispatch
+the protected **Build Sandbox Snapshot** workflow from `main` with
+`BUILD_SNAPSHOT`, review its emitted immutable name, and commit that name to the
+agent-worker `DAYTONA_SANDBOX_SNAPSHOT` var. The authoritative current default is committed in
 [`apps/agent-worker/wrangler.jsonc`](../../../apps/agent-worker/wrangler.jsonc).
 
 > Use an **immutable tag**, not `:latest` (rejected) and not a digest (digest pinning is
@@ -89,25 +101,28 @@ and FFmpeg artifacts because the product launches headed Chromium directly.
 Stagehand currently resolves `@ai-sdk/provider-utils` 3.0.29. That release contains
 the bounded JSON-response reader that Vercel shipped in 3.0.28. GitHub's current
 `GHSA-866g-f22w-33x8` range nevertheless marks every 3.x version through 3.0.97
-affected, so `npm audit` reports 19 low transitive paths. Keep that exception
-visible and reassess it with each Stagehand/AI SDK release; do not apply npm's
-suggested breaking Stagehand downgrade. Static checks fail on moderate-or-higher
-findings across every sandbox lock without hiding this low-severity report.
+affected, so `npm audit` reports the resulting low-severity transitive paths. The
+driver independently caps every non-streaming provider response and restricts
+Node fetches to the exact selected Anthropic, Google, or OpenAI API hostname,
+containing both that resource-consumption surface and the related download-URL
+SSRF advisory. Chromium navigation remains inside the isolated sandbox and does
+not use this provider transport. Keep the exception visible and reassess it with
+each Stagehand/AI SDK release; do not apply npm's suggested breaking Stagehand
+downgrade. Static checks fail on moderate-or-higher findings across every
+sandbox lock without hiding this low-severity report.
 
 Snapshot publication builds and scans the exact local AMD64 image before pushing it
 to Daytona. Trivy fails on every fixable medium-or-higher vulnerability and every
 high-or-critical embedded secret; Debian findings without an available package fix
 remain visible in the full report but cannot block a rebuild indefinitely.
 
-Trivy's current fixable image report has two path-specific metadata mismatches, not
-executable vulnerable packages. It treats VS Code's built-in extension manifest
-at `lib/vscode/extensions/npm/package.json` as the npm CLI because the extension is
-also named `npm`, and its pnpm advisory data omits the patched 10.x range. The upstream
-pnpm advisory `GHSA-gj8w-mvpf-x27x` explicitly fixes the 10.x line in 10.34.2, so the
-pinned 10.34.5 is not affected. `.trivyignore.yaml` suppresses only the exact package
-URLs and image paths for these false positives, records the rationale, and expires the
-exceptions on October 15, 2026. Re-verify those paths after every code-server or pnpm
-upgrade; never replace these entries with a broad vulnerability-ID ignore.
+Trivy's current fixable image report has one path-specific metadata mismatch, not an
+executable vulnerable package. It treats VS Code's built-in extension manifest at
+`lib/vscode/extensions/npm/package.json` as the npm CLI because the extension is also
+named `npm`. `.trivyignore.yaml` suppresses only that exact package URL and image path,
+records the rationale, and expires the exception on October 15, 2026. Re-verify the
+path after every code-server upgrade; never replace the entry with a broad
+vulnerability-ID ignore.
 
 The browser driver is a privileged trust boundary inside the otherwise
 user-programmable sandbox. Project commands run as `node`; only the immutable
@@ -121,6 +136,25 @@ after 55 minutes, and requires both the bearer token and run ID. Worker calls
 reach it through a short-lived Daytona-signed port URL; arbitrary workspace code
 does not receive that URL or either credential. Preserve this boundary when
 changing the driver launch path.
+
+## Skills and workspace metadata
+
+The repository's top-level `skills/` directory is the only source for curated
+default skills. The snapshot build mounts it as the `default_skills` BuildKit
+context and copies the same reviewed files to
+`/home/node/.cheatcode/default-skills/`, making the active playbooks inspectable
+without maintaining a second copy. Default skills are immutable snapshot data;
+user-authored skills remain canonical in Postgres and are mirrored to
+`/workspace/.cheatcode/skills/<slug>/SKILL.md` for editing.
+
+`/workspace/.cheatcode/runtime.json` is generated from Durable Object-managed
+preview process state. It is a human-readable projection only; sandbox code
+must never treat it as the lifecycle authority.
+
+Cheatcode does not deploy or synchronize generated user apps. The curated
+catalog therefore has no deploy skill, deploy runtime, or app-side Composio
+bridge. Connected-app skills invoke the existing request-scoped Composio tools
+for explicit user actions only.
 
 Regenerate JavaScript locks from their owning directories with the repository's
 pinned package-manager versions:

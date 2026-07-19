@@ -1,8 +1,8 @@
 "use client";
 
+import type { LucideIcon } from "@cheatcode/ui";
 import type { ReactNode } from "react";
 import { useEffect, useRef } from "react";
-import type { LucideIcon } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 export function SidebarInlineActions({ children, open }: { children: ReactNode; open: boolean }) {

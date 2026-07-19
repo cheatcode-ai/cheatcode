@@ -14,19 +14,19 @@ source tree on July 13, 2026; the repository now contains V2 code only.
 | Layer | Choice |
 |---|---|
 | Backend | Cloudflare Workers + Durable Objects + Workflows |
-| Frontend | Next.js 16.2.9 + React 19.2.7 + Tailwind 4.3.1 + shadcn 4.6.0 + AI Elements + Streamdown on Vercel |
-| Agent framework | Mastra 1.42.0 on Vercel AI SDK v6.0.205 |
+| Frontend | Next.js 16.2.10 + React 19.2.7 + Tailwind 4.3.2 + shadcn 4.6.0 + AI Elements + Streamdown on Vercel |
+| Agent framework | Mastra 1.51.0 on Vercel AI SDK v6.0.205 |
 | Sandbox | Daytona per-user sandboxes via REST-over-fetch |
 | Browser | Stagehand v3.7.0 LOCAL inside the Daytona sandbox snapshot |
 | Database | Supabase Postgres via Hyperdrive + Drizzle 0.45.2 |
-| Auth | Clerk 7.5.2 |
+| Auth | Clerk 7.5.19 |
 | Billing | Polar 0.48.1 |
 | OAuth tools | Composio v3.1 REST via bounded `@cheatcode/composio` client |
 | Storage | R2 (no Supabase Storage) |
 | Observability | Workers Logs + Workers Tracing + Workers Analytics Engine (no third-party APM in the initial release) |
-| Lint/format | Biome 2.5.0 (single config, no ESLint+Prettier except next plugin) |
+| Lint/format | Biome 2.5.2 (single config, no ESLint+Prettier except next plugin) |
 | QA | Direct `agent-browser --auto-connect --session cheatcode-debug` UI operation + console/network/log review; no scripted test harnesses |
-| Monorepo | pnpm 10 + Turborepo 2.9.18 |
+| Monorepo | pnpm 11.8.0 + Turborepo 2.10.5 |
 
 ## Repo layout
 
@@ -51,13 +51,13 @@ packages/                Shared libraries
 
 skills/                  8 curated Anthropic SKILL.md skills
 infra/                   Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile
-scripts/                 Operational helpers only: build skills, secrets, deploy orchestration, migrations, audit archive
+scripts/                 Operational helpers only: build skills, local startup, deploy orchestration, migrations, audit archive
 ```
 
 ## Build
 
 ```bash
-pnpm install                            # Install workspace deps (use pnpm@10, not npm/yarn)
+pnpm install                            # Install workspace deps (use pnpm@11.8.0, not npm/yarn)
 pnpm turbo skills:build                 # Bundle skills/ into packages/skills/src/generated.ts (REQUIRED before build)
 pnpm turbo db:generate                  # Generate Drizzle types from schema
 pnpm turbo build                        # Production build
@@ -117,32 +117,37 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 ## Run locally
 
 ```bash
-pnpm dev                                # apps/web (Next dev) + all Workers (wrangler dev) + Miniflare
+pnpm dev                                # Compose: Postgres + migrations + Next + chained Workers
+pnpm dev:down                           # Stop the local Compose stack
 ```
 
 Required local env vars in `.env.local` (template in `.env.example`):
 
 ```
-# Cloudflare
-CLOUDFLARE_API_TOKEN=
-CLOUDFLARE_ACCOUNT_ID=
-CLOUDFLARE_ANALYTICS_API_TOKEN=
-OUTPUT_DOWNLOAD_SIGNING_SECRET=
+# Local Postgres + per-Worker roles (distinct URL-safe passwords)
+LOCAL_POSTGRES_PASSWORD=
+LOCAL_APP_GATEWAY_PASSWORD=
+LOCAL_APP_AGENT_PASSWORD=
+LOCAL_APP_WEBHOOKS_PASSWORD=
+SUPABASE_MIGRATION_URL=postgresql://postgres:<local-password>@database:5432/postgres
+LOCAL_GATEWAY_DATABASE_URL=postgresql://app_gateway:<gateway-password>@database:5432/postgres
+LOCAL_AGENT_DATABASE_URL=postgresql://app_agent:<agent-password>@database:5432/postgres
+LOCAL_WEBHOOKS_DATABASE_URL=postgresql://app_webhooks:<webhooks-password>@database:5432/postgres
+
+# Per-Worker signed tenant context (three distinct secrets, each at least 32 bytes)
+DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY=
+DATABASE_CONTEXT_SIGNING_SECRET_AGENT=
+DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS=
 
 # Daytona
 DAYTONA_API_KEY=
 DAYTONA_API_URL=https://app.daytona.io/api
 DAYTONA_TARGET=us
 DAYTONA_SANDBOX_SNAPSHOT=
+DAYTONA_WORKSPACE_VOLUME=cheatcode-workspaces-development
 PREVIEW_TOKEN_SECRET=
 
-# Supabase — Workers connect as app_worker only (never service_role).
-DATABASE_URL=
-# SUPABASE_MIGRATION_URL (admin/DDL role) is NOT here — it lives in a git-ignored
-# .env.migrate, used only by scripts/migrate.ts and scripts/archive-audit-log.ts.
-# Never bind it to a Worker.
-
-# Clerk
+# Clerk development instance only
 NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
 CLERK_SECRET_KEY=
 
@@ -157,14 +162,20 @@ COMPOSIO_WEBHOOK_SECRET=
 
 # Internal ops alerts
 INTERNAL_ALERT_WEBHOOK_SECRET=
-INTERNAL_MAINTENANCE_SECRET=
+
+# Capability-scoped ccm2 contracts (four distinct secrets, each at least 32 bytes)
+GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET=
+WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET=
+INTERNAL_WEBHOOK_REPLAY_SECRET=
+RELEASE_DATABASE_READINESS_SECRET=
 
 # Gateway
-NEXT_PUBLIC_GATEWAY_URL=https://gateway.trycheatcode.com
+NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787
 ```
 
-Never commit `.env.local`. Use `pnpm sync:secrets -- --store-id <STORE_ID> --apply` to create or
-rotate production Secrets Store entries by name without printing their values.
+Never commit `.env.local`. It is the sole laptop credential file and accepts only
+Clerk test keys plus sandbox/local credentials. Vercel and Cloudflare receive
+production credentials directly through their protected production environments.
 
 ## Code conventions (CI-enforced)
 
@@ -177,7 +188,9 @@ rotate production Secrets Store entries by name without printing their values.
 7. **Zod-validate at trust boundaries** — HTTP input, LLM output, env, webhooks.
 8. **Files ≤800 lines, functions ≤50 lines, cognitive complexity ≤15.**
 9. **BYOK keys never logged.** Decrypt only inside the active `withUserContext()` transaction and pass request-scoped values downward. Do not cache plaintext in module scope, KV, DO storage, logs, or R2.
-10. **Workers connect as `app_worker` Postgres role**, never `service_role`.
+10. **Workers use separate least-privilege Postgres roles**: `app_gateway`,
+    `app_agent`, and `app_webhooks`. They never use `service_role`; the historical
+    `app_worker` transition role must not exist in the production-ready target.
 
 The enforced rules live in the root `biome.jsonc` and TypeScript configs.
 

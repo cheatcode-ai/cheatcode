@@ -471,9 +471,9 @@ export async function warmSandbox(
     code: "print('ready')",
     language: "python",
   });
-  const stdout = result.stdout ?? result.output ?? "";
+  const stdout = result.stdout;
   logger.info("sandbox_warmed", {
-    success: result.success === true,
+    success: result.success,
     stdoutBytes: stdout.length,
   });
 }

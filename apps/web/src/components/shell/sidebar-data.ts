@@ -26,7 +26,7 @@ export interface SidebarProject {
 export function useSidebarChats(getToken: () => Promise<null | string>, enabled: boolean) {
   const { data, isPending } = useQuery({
     enabled,
-    queryFn: () => listRecentThreads(getToken, 20),
+    queryFn: ({ signal }) => listRecentThreads(getToken, 20, signal),
     queryKey: ["sidebar-chats"],
     retry: false,
     staleTime: 30_000,
@@ -44,7 +44,7 @@ export function useActiveProjectId(
 ): string | null {
   const threadQuery = useQuery({
     enabled: enabled && Boolean(threadId),
-    queryFn: () => getThread(getToken, String(threadId)),
+    queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
     queryKey: ["threads", threadId],
     retry: false,
     staleTime: 5_000,
@@ -59,14 +59,14 @@ export function useSidebarProjects(
 ) {
   const projectsQuery = useQuery({
     enabled,
-    queryFn: () => listProjectsPage(getToken, null, 6),
+    queryFn: ({ signal }) => listProjectsPage(getToken, null, 6, signal),
     queryKey: ["sidebar-projects", "first-page"],
     retry: false,
     staleTime: 30_000,
   });
   const activeProjectQuery = useQuery({
     enabled: enabled && Boolean(activeProjectId),
-    queryFn: () => getProject(getToken, String(activeProjectId)),
+    queryFn: ({ signal }) => getProject(getToken, String(activeProjectId), signal),
     queryKey: ["projects", activeProjectId],
     retry: false,
     staleTime: 5_000,
@@ -78,7 +78,7 @@ export function useSidebarProjects(
   const threadQueries = useQueries({
     queries: projects.map((project) => ({
       enabled: enabled && projectsQuery.isSuccess,
-      queryFn: () => listProjectThreadsPage(getToken, project.id, null, 1),
+      queryFn: ({ signal }) => listProjectThreadsPage(getToken, project.id, null, 1, signal),
       queryKey: ["sidebar-project-threads", project.id] as const,
       retry: false,
       staleTime: 30_000,

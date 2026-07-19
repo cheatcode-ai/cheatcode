@@ -1,7 +1,8 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "ignoreDependencies": ["cloudflare", "supabase", "wrangler"],
-  "ignoreFiles": ["infra/containers/sandbox/browser-driver/server.js"],
+  // CLI launched by operational TypeScript through `pnpm exec wrangler`; Knip
+  // cannot infer child-process binary dependencies from argument arrays.
+  "ignoreDependencies": ["cloudflare", "wrangler"],
   "workspaces": {
     ".": {
       "entry": ["scripts/migrate.ts"]
@@ -11,6 +12,7 @@
         "config": []
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
-    }
+    },
+    "infra/containers/sandbox/browser-driver": {}
   }
 }

@@ -19,6 +19,7 @@ export {
   ExternalLink,
   Eye,
   EyeOff,
+  FileArchive,
   FileSpreadsheet,
   FileText,
   Folder,
@@ -30,7 +31,6 @@ export {
   Link,
   Loader2,
   MessageCircle,
-  Mic,
   Monitor,
   MoreHorizontal,
   MoreVertical,
@@ -39,6 +39,7 @@ export {
   Play,
   Plus,
   Presentation,
+  Puzzle,
   RefreshCw,
   RotateCw,
   Search,
@@ -51,6 +52,7 @@ export {
   Tablet,
   Trash2,
   TrendingUp,
+  Video,
   X,
 } from "./icons";
 export { Response } from "./response";

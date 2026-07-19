@@ -19,6 +19,7 @@ type TerminalRunStatus = "canceled" | "completed" | "failed";
 
 export interface AgentRunLifecycleDeps {
   append: (chunk: UIMessageChunk) => Promise<void>;
+  cleanupBrowserTakeover: () => Promise<void>;
   ctx: DurableObjectState;
   env: AgentRunEnv;
   executeRunPath: (
@@ -84,7 +85,7 @@ function createRunExecution(
 async function executeActiveRun(execution: RunExecution): Promise<void> {
   const { deps, input } = execution;
   await deps.persistRunStatus(input, "running");
-  await deps.append({ type: "start" });
+  await deps.append({ messageId: input.runId, type: "start" });
   await deps.append(runPlanChunk());
   await deps.append({ type: "data-sandbox-status", data: { v: 1, status: "starting" } });
   deps.setRunStage("Preparing project sandbox.");
@@ -187,6 +188,7 @@ async function cleanupRun(execution: RunExecution): Promise<void> {
   if (execution.runLeaseHeartbeat !== undefined) {
     clearInterval(execution.runLeaseHeartbeat);
   }
+  await execution.deps.cleanupBrowserTakeover();
   if (execution.sandbox.killProcess) {
     await execution.sandbox
       .killProcess({ processId: browserDriverProcessId(execution.input.runId) })

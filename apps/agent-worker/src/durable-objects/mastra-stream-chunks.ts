@@ -1,82 +1,169 @@
+import type { AgentChunkType } from "@cheatcode/agent-core";
+import { type ArtifactKind, ArtifactKindSchema } from "@cheatcode/types/artifacts";
+import { TOOL_CAPABILITIES } from "@cheatcode/types/capabilities";
 import type { UIMessageChunk } from "ai";
 
 const ANSWER_TEXT_ID = "answer";
-const SANDBOX_TOOL_NAMES = new Set([
-  "browser_act",
-  "browser_extract",
-  "browser_observe",
-  "browser_open",
-  "browser_screenshot",
-  "data_chart",
-  "docs_generate_docx",
-  "docs_generate_pdf",
-  "docs_generate_slides",
-  "docs_generate_xlsx",
-  "fs_delete",
-  "fs_list",
-  "fs_read",
-  "fs_search",
-  "fs_write",
-  "git_clone",
-  "git_commit",
-  "git_push",
-  "git_status",
-  "runCode",
-  "shell_exec",
-  "shell_kill_process",
-  "shell_start_process",
-  "shell_terminal",
-  "start_dev_server",
-]);
+const SANDBOX_TOOL_NAMES = capabilityNameSet("usesSandbox");
+const ARTIFACT_TOOL_NAMES = capabilityNameSet("producesArtifact");
 
-const ARTIFACT_TOOL_NAMES = new Set([
-  "browser_screenshot",
-  "data_chart",
-  "docs_generate_docx",
-  "docs_generate_pdf",
-  "docs_generate_slides",
-  "docs_generate_xlsx",
-]);
-
-export function mastraChunkToUiChunks(chunk: unknown): UIMessageChunk[] {
-  const record = asRecord(chunk);
-  const chunkType = stringField(record, "type");
-
-  if (chunkType === "text-delta") {
-    return textDeltaChunks(record);
+type ToolCallPayload = Extract<AgentChunkType, { type: "tool-call" }>["payload"];
+type ToolResultPayload = Extract<AgentChunkType, { type: "tool-result" }>["payload"];
+type ToolErrorPayload = Extract<AgentChunkType, { type: "tool-error" }>["payload"];
+type VisibleAgentChunk = Extract<
+  AgentChunkType,
+  { type: "text-delta" | "tool-call" | "tool-error" | "tool-result" }
+>;
+type NonVisibleAgentChunk = Exclude<AgentChunkType, VisibleAgentChunk>;
+type PrivateOutputAgentChunk = Extract<
+  NonVisibleAgentChunk,
+  {
+    type:
+      | "file"
+      | "reasoning-delta"
+      | "reasoning-end"
+      | "reasoning-signature"
+      | "reasoning-start"
+      | "redacted-reasoning"
+      | "source";
   }
+>;
+type ControlAgentChunk = Exclude<NonVisibleAgentChunk, PrivateOutputAgentChunk>;
 
-  if (chunkType === "tool-call") {
-    return toolCallChunks(record);
+export function mastraChunkToUiChunks(chunk: AgentChunkType): UIMessageChunk[] {
+  switch (chunk.type) {
+    case "text-delta":
+      return textDeltaChunks(chunk.payload.text);
+    case "tool-call":
+      return toolCallChunks(chunk.payload);
+    case "tool-result":
+      return toolResultChunks(chunk.payload);
+    case "tool-error":
+      return isSandboxTool(chunk.payload) ? [sandboxStatusChunk("ready")] : [];
+    default:
+      return nonVisibleMastraChunk(chunk);
   }
+}
 
-  if (chunkType === "tool-result" && isSandboxToolChunk(record)) {
-    const payload = chunkPayload(record);
+function nonVisibleMastraChunk(chunk: NonVisibleAgentChunk): UIMessageChunk[] {
+  switch (chunk.type) {
+    // Reasoning is intentionally private; binary/provider-source output must cross the
+    // bounded artifact tools instead of entering the transcript directly.
+    case "file":
+    case "reasoning-delta":
+    case "reasoning-end":
+    case "reasoning-signature":
+    case "reasoning-start":
+    case "redacted-reasoning":
+    case "source":
+      return [];
+    default:
+      return controlMastraChunk(chunk);
+  }
+}
+
+function controlMastraChunk(chunk: ControlAgentChunk): UIMessageChunk[] {
+  switch (chunk.type) {
+    // These lifecycle/control chunks either have a dedicated Cheatcode channel or carry no
+    // user-visible transcript data. Listing them makes a future Mastra union addition fail CI.
+    case "abort":
+    case "background-task-cancelled":
+    case "background-task-completed":
+    case "background-task-failed":
+    case "background-task-output":
+    case "background-task-progress":
+    case "background-task-resumed":
+    case "background-task-running":
+    case "background-task-started":
+    case "background-task-suspended":
+    case "error":
+    case "finish":
+    case "goal":
+    case "is-task-complete":
+    case "object":
+    case "object-result":
+    case "raw":
+    case "response-metadata":
+    case "start":
+    case "step-finish":
+    case "step-output":
+    case "step-start":
+    case "text-end":
+    case "text-start":
+    case "tool-call-delta":
+    case "tool-call-input-streaming-end":
+    case "tool-call-input-streaming-start":
+    case "tool-call-suspended":
+    case "tool-output":
+    case "tripwire":
+    case "watch":
+      return [];
+    default:
+      return [];
+  }
+}
+
+function toolResultChunks(payload: ToolResultPayload): UIMessageChunk[] {
+  if (payload.toolName === "skill_create") {
+    const skill = skillProposedChunkFromResult(payload.result);
+    return skill ? [skill] : [];
+  }
+  if (isSandboxTool(payload)) {
     const chunks = [sandboxStatusChunk("ready")];
-    if (isArtifactToolChunk(record)) {
-      const artifact = artifactChunkFromPayload(payload);
+    if (isArtifactTool(payload)) {
+      const artifact = artifactChunkFromResult(payload.result);
       if (artifact) {
         chunks.push(artifact);
       }
     }
     return chunks;
   }
-
-  if (chunkType === "tool-result" && isArtifactToolChunk(record)) {
-    const payload = chunkPayload(record);
-    const artifact = artifactChunkFromPayload(payload);
+  if (isArtifactTool(payload)) {
+    const artifact = artifactChunkFromResult(payload.result);
     return artifact ? [artifact] : [];
   }
-
   return [];
 }
 
-export function mastraChunkError(chunk: unknown): unknown | null {
-  const record = asRecord(chunk);
-  if (stringField(record, "type") !== "error") {
+function skillProposedChunkFromResult(result: unknown): UIMessageChunk | undefined {
+  const record = asRecord(result);
+  const name = stringField(record, "name");
+  const description = stringField(record, "description");
+  const body = stringField(record, "body");
+  const category = stringField(record, "category");
+  const proposalId = stringField(record, "proposalId");
+  const slug = stringField(record, "slug");
+  const tags = stringArrayField(record, "tags");
+  if (
+    record["proposed"] !== true ||
+    !name ||
+    !description ||
+    !body ||
+    !category ||
+    !proposalId ||
+    !slug ||
+    !tags
+  ) {
+    return undefined;
+  }
+  return {
+    type: "data-skill-proposed",
+    data: { body, category, description, name, proposalId, slug, tags, v: 1 },
+  };
+}
+
+function stringArrayField(record: Record<string, unknown>, key: string): string[] | undefined {
+  const value = record[key];
+  return Array.isArray(value) && value.every((item) => typeof item === "string")
+    ? value
+    : undefined;
+}
+
+export function mastraChunkError(chunk: AgentChunkType): unknown | null {
+  if (chunk.type !== "error") {
     return null;
   }
-  return record["error"] ?? new Error("Unknown Mastra stream error.");
+  return chunk.payload.error ?? new Error("Unknown Mastra stream error.");
 }
 
 export function normalizeMastraStreamError(error: unknown): Error {
@@ -104,12 +191,7 @@ export function normalizeMastraStreamError(error: unknown): Error {
   return normalized;
 }
 
-function textDeltaChunks(record: Record<string, unknown>): UIMessageChunk[] {
-  const payload = chunkPayload(record);
-  const text =
-    stringField(payload, "text") ||
-    stringField(payload, "textDelta") ||
-    stringField(payload, "delta");
+function textDeltaChunks(text: string): UIMessageChunk[] {
   if (text.length === 0) {
     return [];
   }
@@ -128,28 +210,22 @@ const MAX_TOOL_INPUT_STRING = 256;
 
 // Surface every tool call as a transcript row (Cheatcode parity). Sandbox tools also drive
 // the Computer-panel status; non-sandbox tools only get the row.
-function toolCallChunks(record: Record<string, unknown>): UIMessageChunk[] {
-  const payload = chunkPayload(record);
-  const toolName = stringField(payload, "toolName");
-  if (!toolName) {
-    return [];
-  }
-  const chunks: UIMessageChunk[] = [toolActivityChunk(payload, toolName)];
-  if (SANDBOX_TOOL_NAMES.has(toolName)) {
+function toolCallChunks(payload: ToolCallPayload): UIMessageChunk[] {
+  const chunks: UIMessageChunk[] = [toolActivityChunk(payload)];
+  if (SANDBOX_TOOL_NAMES.has(payload.toolName)) {
     chunks.push(sandboxStatusChunk("starting"));
   }
   return chunks;
 }
 
-function toolActivityChunk(payload: Record<string, unknown>, toolName: string): UIMessageChunk {
-  const toolCallId = stringField(payload, "toolCallId");
+function toolActivityChunk(payload: ToolCallPayload): UIMessageChunk {
   const input = toolInputFromPayload(payload);
   return {
     type: "data-tool",
     data: {
       v: 1,
-      toolName,
-      ...(toolCallId ? { toolCallId } : {}),
+      toolCallId: payload.toolCallId,
+      toolName: payload.toolName,
       ...(input ? { input } : {}),
     },
   };
@@ -157,14 +233,10 @@ function toolActivityChunk(payload: Record<string, unknown>, toolName: string): 
 
 // Keep the persisted part small: only scalar args, capped count + string length. The
 // transcript row needs the path/command/url/query, not the full (possibly huge) payload.
-function toolInputFromPayload(
-  payload: Record<string, unknown>,
-): Record<string, unknown> | undefined {
-  for (const key of ["args", "input", "toolInput", "arguments"]) {
-    const raw = asRecord(payload[key]);
-    if (Object.keys(raw).length > 0) {
-      return truncateToolInput(raw);
-    }
+function toolInputFromPayload(payload: ToolCallPayload): Record<string, unknown> | undefined {
+  const input = asRecord(payload.args);
+  if (Object.keys(input).length > 0) {
+    return truncateToolInput(input);
   }
   return undefined;
 }
@@ -211,65 +283,44 @@ function stringField(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function isSandboxToolChunk(record: Record<string, unknown>): boolean {
-  const payload = chunkPayload(record);
-  return SANDBOX_TOOL_NAMES.has(stringField(payload, "toolName"));
+function isSandboxTool(payload: ToolResultPayload | ToolErrorPayload): boolean {
+  return SANDBOX_TOOL_NAMES.has(payload.toolName);
 }
 
-function isArtifactToolChunk(record: Record<string, unknown>): boolean {
-  const payload = chunkPayload(record);
-  return ARTIFACT_TOOL_NAMES.has(stringField(payload, "toolName"));
+function isArtifactTool(payload: ToolResultPayload): boolean {
+  return ARTIFACT_TOOL_NAMES.has(payload.toolName);
 }
 
-function chunkPayload(record: Record<string, unknown>): Record<string, unknown> {
-  const payload = asRecord(record["payload"]);
-  return Object.keys(payload).length > 0 ? payload : record;
-}
-
-function artifactChunkFromPayload(payload: Record<string, unknown>): UIMessageChunk | undefined {
-  const artifact = artifactRecordFromPayload(payload);
+function artifactChunkFromResult(result: unknown): UIMessageChunk | undefined {
+  const artifact = artifactRecordFromResult(result);
   const outputId = stringField(artifact, "outputId");
   const kind = artifactKind(artifact);
-  const downloadUrl = stringField(artifact, "downloadUrl");
   const mimeType = stringField(artifact, "mimeType");
   const filename = stringField(artifact, "filename");
   const sizeBytes = numberField(artifact, "sizeBytes");
-  if (!outputId || !kind || !downloadUrl || !mimeType) {
+  if (!outputId || !kind || !mimeType || !filename || sizeBytes === undefined) {
     return undefined;
   }
   return {
     type: "data-artifact",
     data: {
       v: 1,
-      downloadUrl,
-      ...(filename ? { filename } : {}),
+      filename,
       kind,
       mimeType,
       outputId,
-      ...(sizeBytes !== undefined ? { sizeBytes } : {}),
+      sizeBytes,
     },
   };
 }
 
-function artifactRecordFromPayload(payload: Record<string, unknown>): Record<string, unknown> {
-  const output = asRecord(payload["output"]);
-  if (stringField(output, "downloadUrl")) {
-    return output;
-  }
-  const outputArtifact = asRecord(output["artifact"]);
-  if (stringField(outputArtifact, "downloadUrl")) {
-    return outputArtifact;
-  }
-  const outputResultArtifact = artifactFromResultList(output["results"]);
-  if (outputResultArtifact) {
-    return outputResultArtifact;
-  }
-  const result = asRecord(payload["result"]);
-  if (stringField(result, "downloadUrl")) {
+function artifactRecordFromResult(value: unknown): Record<string, unknown> {
+  const result = asRecord(value);
+  if (stringField(result, "outputId")) {
     return result;
   }
   const resultArtifact = asRecord(result["artifact"]);
-  if (stringField(resultArtifact, "downloadUrl")) {
+  if (stringField(resultArtifact, "outputId")) {
     return resultArtifact;
   }
   const resultListArtifact = artifactFromResultList(result["results"]);
@@ -285,7 +336,7 @@ function artifactFromResultList(value: unknown): Record<string, unknown> | undef
   }
   for (const item of value.slice(0, 10)) {
     const artifact = asRecord(asRecord(item)["artifact"]);
-    if (stringField(artifact, "downloadUrl")) {
+    if (stringField(artifact, "outputId")) {
       return artifact;
     }
   }
@@ -297,20 +348,13 @@ function numberField(record: Record<string, unknown>, key: string): number | und
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function artifactKind(
-  record: Record<string, unknown>,
-): "audio" | "docx" | "image" | "pdf" | "slide" | "video" | "xlsx" | undefined {
-  const value = stringField(record, "kind");
-  if (
-    value === "audio" ||
-    value === "docx" ||
-    value === "image" ||
-    value === "pdf" ||
-    value === "slide" ||
-    value === "video" ||
-    value === "xlsx"
-  ) {
-    return value;
-  }
-  return undefined;
+function artifactKind(record: Record<string, unknown>): ArtifactKind | undefined {
+  const parsed = ArtifactKindSchema.safeParse(stringField(record, "kind"));
+  return parsed.success ? parsed.data : undefined;
+}
+
+function capabilityNameSet(flag: "producesArtifact" | "usesSandbox"): ReadonlySet<string> {
+  return new Set(
+    TOOL_CAPABILITIES.filter((capability) => capability[flag]).map((capability) => capability.name),
+  );
 }

@@ -1,5 +1,5 @@
 import { MAX_USER_SKILLS, UserId as toUserId, type UserId } from "@cheatcode/types";
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { userSkills } from "./schema";
 
@@ -73,10 +73,24 @@ export async function listUserSkillSummaries(
   const rows = await db
     .select(USER_SKILL_SUMMARY_COLUMNS)
     .from(userSkills)
-    .where(and(eq(userSkills.userId, userId), isNull(userSkills.deletedAt)))
+    .where(eq(userSkills.userId, userId))
     .orderBy(desc(userSkills.updatedAt), desc(userSkills.id))
     .limit(MAX_USER_SKILLS);
   return rows;
+}
+
+/** Bounded full records used to project the caller's saved packages into their sandbox. */
+export async function listUserSkillRecords(
+  db: Database,
+  userId: UserId,
+): Promise<UserSkillRecord[]> {
+  const rows = await db
+    .select(USER_SKILL_COLUMNS)
+    .from(userSkills)
+    .where(eq(userSkills.userId, userId))
+    .orderBy(desc(userSkills.updatedAt), desc(userSkills.id))
+    .limit(MAX_USER_SKILLS);
+  return rows.map(fromRow);
 }
 
 /** One of the caller's live skills by name (used by `skill_invoke` for user skills). */
@@ -88,9 +102,22 @@ export async function getUserSkillByName(
   const rows = await db
     .select(USER_SKILL_COLUMNS)
     .from(userSkills)
-    .where(
-      and(eq(userSkills.userId, userId), eq(userSkills.name, name), isNull(userSkills.deletedAt)),
-    )
+    .where(and(eq(userSkills.userId, userId), eq(userSkills.name, name)))
+    .limit(1);
+  const row = rows[0];
+  return row ? fromRow(row) : null;
+}
+
+/** One of the caller's live skills by id (used by authenticated skill actions). */
+export async function getUserSkillById(
+  db: Database,
+  userId: UserId,
+  id: string,
+): Promise<UserSkillRecord | null> {
+  const rows = await db
+    .select(USER_SKILL_COLUMNS)
+    .from(userSkills)
+    .where(and(eq(userSkills.userId, userId), eq(userSkills.id, id)))
     .limit(1);
   const row = rows[0];
   return row ? fromRow(row) : null;
@@ -106,8 +133,8 @@ export interface UpsertUserSkillInput {
 }
 
 /**
- * Create or update (by name) the caller's skill. The partial-unique index keeps one
- * live skill per (user, name), so re-creating the same name edits in place.
+ * Create or update (by name) the caller's skill. The unique index keeps one
+ * skill per (user, name), so re-creating the same name edits in place.
  */
 export async function upsertUserSkill(
   db: Database,
@@ -182,22 +209,21 @@ async function requireUserSkillCapacity(db: Database, userId: UserId): Promise<v
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(userSkills)
-    .where(and(eq(userSkills.userId, userId), isNull(userSkills.deletedAt)));
+    .where(eq(userSkills.userId, userId));
   if ((row?.count ?? 0) >= MAX_USER_SKILLS) {
     throw new UserSkillLimitExceededError();
   }
 }
 
-/** Soft-delete one of the caller's skills. Returns the deleted id, or null if not found. */
+/** Delete one of the caller's skills. Returns the deleted id, or null if not found. */
 export async function deleteUserSkill(
   db: Database,
   userId: UserId,
   id: string,
 ): Promise<string | null> {
   const rows = await db
-    .update(userSkills)
-    .set({ deletedAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(userSkills.id, id), eq(userSkills.userId, userId), isNull(userSkills.deletedAt)))
+    .delete(userSkills)
+    .where(and(eq(userSkills.id, id), eq(userSkills.userId, userId)))
     .returning({ id: userSkills.id });
   return rows[0]?.id ?? null;
 }

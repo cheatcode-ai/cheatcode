@@ -28,9 +28,12 @@ const DAYTONA_LOG_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
 const DAYTONA_ID_MAX_CHARACTERS = 500;
 const DAYTONA_PATH_MAX_CHARACTERS = 4_096;
 const DAYTONA_COMMAND_MAX_CHARACTERS = 100_000;
+const DAYTONA_CURSOR_MAX_CHARACTERS = 4_096;
 const DAYTONA_TEXT_OUTPUT_MAX_CHARACTERS = 4 * 1024 * 1024;
 const DAYTONA_FILE_LIST_MAX_ITEMS = 1_000;
+const DAYTONA_SANDBOX_PAGE_MAX_ITEMS = 100;
 const DAYTONA_SESSION_COMMAND_MAX_ITEMS = 1_000;
+const DAYTONA_VOLUME_NAME_MAX_CHARACTERS = 100;
 
 interface DaytonaClientConfig {
   apiKey: string;
@@ -71,6 +74,14 @@ const SandboxLabelsSchema = z
   .record(z.string().min(1).max(100), z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS))
   .refine((labels) => Object.keys(labels).length <= 50, "Sandbox labels exceed the safe limit.");
 
+const SandboxVolumeSchema = z
+  .object({
+    mountPath: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS),
+    subpath: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS).nullable().optional(),
+    volumeId: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+  })
+  .strip();
+
 const SandboxSchema = z
   .object({
     id: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
@@ -80,6 +91,7 @@ const SandboxSchema = z
     state: z.string().min(1).max(100),
     target: z.string().min(1).max(100),
     user: z.string().min(1).max(100),
+    volumes: z.array(SandboxVolumeSchema).max(50).optional(),
     backupState: z.string().min(1).max(100).nullable().optional(),
     desiredState: z.string().min(1).max(100).nullable().optional(),
   })
@@ -87,15 +99,27 @@ const SandboxSchema = z
 
 export type DaytonaSandbox = z.infer<typeof SandboxSchema>;
 
+const VolumeSchema = z
+  .object({
+    id: z.string().uuid(),
+    name: z.string().min(1).max(DAYTONA_VOLUME_NAME_MAX_CHARACTERS),
+    organizationId: z.string().min(1).max(DAYTONA_ID_MAX_CHARACTERS),
+    state: z.string().min(1).max(100),
+    createdAt: z.string().datetime({ offset: true }),
+    updatedAt: z.string().datetime({ offset: true }),
+    errorReason: z.string().max(2_000).nullable().optional(),
+    lastUsedAt: z.string().datetime({ offset: true }).nullable().optional(),
+  })
+  .strip();
+
+export type DaytonaVolume = z.infer<typeof VolumeSchema>;
+
 const SandboxListSchema = z
-  .object({ items: z.array(SandboxSchema).max(100).default([]) })
-  .strip()
-  .or(
-    z
-      .array(SandboxSchema)
-      .max(100)
-      .transform((items) => ({ items })),
-  );
+  .object({
+    items: z.array(SandboxSchema).max(DAYTONA_SANDBOX_PAGE_MAX_ITEMS),
+    nextCursor: z.string().min(1).max(DAYTONA_CURSOR_MAX_CHARACTERS).nullable(),
+  })
+  .strict();
 
 const ExecuteResponseSchema = z
   .object({
@@ -137,11 +161,10 @@ type DaytonaSession = z.infer<typeof SessionSchema>;
 
 const FileInfoSchema = z
   .object({
+    isDir: z.boolean(),
+    modifiedAt: z.string().datetime({ offset: true }),
     name: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS),
-    size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER).default(0),
-    isDir: z.boolean().default(false),
-    modTime: z.string().max(100).optional(),
-    modifiedAt: z.string().max(100).optional(),
+    size: z.number().int().nonnegative().max(Number.MAX_SAFE_INTEGER),
   })
   .strip();
 
@@ -167,6 +190,7 @@ interface CreateSandboxParams {
   autoStopInterval?: number;
   autoArchiveInterval?: number;
   autoDeleteInterval?: number;
+  volumes?: Array<{ mountPath: string; subpath?: string; volumeId: string }>;
 }
 
 interface ExecuteParams {
@@ -223,6 +247,7 @@ export class DaytonaClient {
     if (params.autoDeleteInterval !== undefined) {
       body["autoDeleteInterval"] = params.autoDeleteInterval;
     }
+    if (params.volumes !== undefined) body["volumes"] = params.volumes;
     const json = await this.control("POST", "/sandbox", { body });
     return SandboxSchema.parse(json);
   }
@@ -237,13 +262,59 @@ export class DaytonaClient {
 
   /** Authoritative lookup when the cached id is missing — names are not unique. */
   async listSandboxesByLabels(labels: Record<string, string>): Promise<DaytonaSandbox[]> {
-    const query = `?labels=${encodeURIComponent(JSON.stringify(labels))}&limit=100`;
-    const json = await this.control("GET", `/sandbox${query}`);
-    return SandboxListSchema.parse(json).items;
+    const sandboxes: DaytonaSandbox[] = [];
+    const seenCursors = new Set<string>();
+    let cursor: string | undefined;
+    while (true) {
+      const query = new URLSearchParams({
+        labels: JSON.stringify(labels),
+        limit: String(DAYTONA_SANDBOX_PAGE_MAX_ITEMS),
+      });
+      if (cursor) {
+        query.set("cursor", cursor);
+      }
+      const json = await this.control("GET", `/sandbox?${query.toString()}`);
+      const page = SandboxListSchema.parse(json);
+      sandboxes.push(...page.items);
+      if (!page.nextCursor) {
+        return sandboxes;
+      }
+      if (seenCursors.has(page.nextCursor)) {
+        throw new DaytonaApiError(502, "Daytona sandbox pagination repeated a cursor", {
+          code: "daytona_invalid_response",
+          retriable: true,
+        });
+      }
+      seenCursors.add(page.nextCursor);
+      cursor = page.nextCursor;
+    }
   }
 
   async deleteSandbox(idOrName: string): Promise<void> {
     await this.control("DELETE", `/sandbox/${encodeURIComponent(idOrName)}`, { allow404: true });
+  }
+
+  /** Replaces the complete label set; omitted labels are removed by Daytona. */
+  async replaceSandboxLabels(idOrName: string, labels: Record<string, string>): Promise<void> {
+    await this.control("PUT", `/sandbox/${encodeURIComponent(idOrName)}/labels`, {
+      body: { labels: SandboxLabelsSchema.parse(labels) },
+    });
+  }
+
+  async createVolume(name: string): Promise<DaytonaVolume> {
+    const json = await this.control("POST", "/volumes", {
+      body: { name: volumeName(name) },
+    });
+    return VolumeSchema.parse(json);
+  }
+
+  async getVolumeByName(name: string): Promise<DaytonaVolume | null> {
+    const json = await this.control(
+      "GET",
+      `/volumes/by-name/${encodeURIComponent(volumeName(name))}`,
+      { allow404: true },
+    );
+    return json === null ? null : VolumeSchema.parse(json);
   }
 
   async startSandbox(idOrName: string): Promise<void> {
@@ -567,6 +638,10 @@ function stripTrailingSlash(value: string): string {
 function basename(path: string): string {
   const index = path.lastIndexOf("/");
   return index === -1 ? path : path.slice(index + 1) || "file";
+}
+
+function volumeName(value: string): string {
+  return z.string().min(1).max(DAYTONA_VOLUME_NAME_MAX_CHARACTERS).parse(value);
 }
 
 async function readBoundedResponseText(response: Response, maxBytes: number): Promise<string> {

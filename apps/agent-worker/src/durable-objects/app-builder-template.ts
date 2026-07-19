@@ -40,7 +40,7 @@ body {
 export function appBuilderPageSource(messageText: string): string {
   return `const cards = [
   ["Gateway", "Clerk auth and rate limits route the request."],
-  ["AgentRun", "Durable Object stores resumable stream parts."],
+  ["Agent session", "Durable Object stores resumable stream parts."],
   ["Sandbox", "Daytona serves this live preview."],
 ];
 

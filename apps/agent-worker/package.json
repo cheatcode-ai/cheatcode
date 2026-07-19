@@ -7,7 +7,7 @@
   "types": "./dist/index.d.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "dev": "wrangler dev --port 8788 --var CHEATCODE_ENVIRONMENT:development",
+    "deploy": "wrangler deploy",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
@@ -16,11 +16,14 @@
     "@cheatcode/auth": "workspace:*",
     "@cheatcode/billing": "workspace:*",
     "@cheatcode/byok": "workspace:*",
+    "@cheatcode/composio": "workspace:*",
     "@cheatcode/db": "workspace:*",
+    "@cheatcode/durable-storage": "workspace:*",
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/preview-bridge": "workspace:*",
     "@cheatcode/sandbox-contracts": "workspace:*",
+    "@cheatcode/skills": "workspace:*",
     "@cheatcode/tools-code": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "ai": "catalog:",

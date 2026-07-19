@@ -1,7 +1,7 @@
 "use client";
 
+import { Monitor } from "@cheatcode/ui";
 import type { ButtonHTMLAttributes } from "react";
-import { Monitor } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 /** The shared Cheatcode-parity Computer pill: light at rest, dark only while open. */

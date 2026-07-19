@@ -1,6 +1,5 @@
-import { ModalShell } from "@cheatcode/ui";
+import { ModalShell, Search } from "@cheatcode/ui";
 import { Command } from "cmdk";
-import { Search } from "@/components/ui/icons";
 import { CommandPaletteResults } from "./command-palette-results";
 import type { useCommandPalette } from "./use-command-palette";
 
