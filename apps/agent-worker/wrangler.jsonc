@@ -16,7 +16,7 @@
     "DAYTONA_ORG_ID": "300a0c8b-dc3b-4c5f-b31c-0f9e0344d00d",
     "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",
     "DAYTONA_TARGET": "us",
-    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-3135caf07ec8-29682200713",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-df6e8265f913-29685267604",
     "DAYTONA_WORKSPACE_VOLUME": "cheatcode-workspaces-production",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
     "PREVIEW_HOSTNAME": "trycheatcode.com",
