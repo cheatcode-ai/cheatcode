@@ -21,7 +21,6 @@ Framework app only.
 
 ```bash
 pnpm --filter @cheatcode/web typecheck
-pnpm check:web-prebuilt-env
 ```
 
 Product QA is direct `agent-browser --auto-connect --session cheatcode-debug`

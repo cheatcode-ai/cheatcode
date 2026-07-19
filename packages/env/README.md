@@ -16,7 +16,6 @@ read raw `process.env` values only to pass them into the pure `./web-config` val
 
 ```bash
 pnpm --filter @cheatcode/env typecheck
-pnpm check:web-prebuilt-env
 ```
 
 ## Env

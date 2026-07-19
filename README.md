@@ -196,10 +196,6 @@ test-shaped Clerk publishable value rather than a deployable credential. Protect
 authenticated `vercel curl` requests using the scoped CI token, so no separate
 protection-bypass secret is distributed. `VERCEL_PRODUCTION_URL` is required and
 must exactly equal the canonical `https://trycheatcode.com` frontend origin.
-`pnpm check:web-prebuilt-env` is the non-secret local/CI proof that a production
-prebuilt selects live credentials and canonical origins through
-`VERCEL_TARGET_ENV=production` while correctly leaving the runtime-only
-`VERCEL_ENV` and `VERCEL_URL` unset until Vercel deploys the artifact.
 Use one least-privilege Cloudflare release token scoped to the production account
 and the exact `trycheatcode.com` zone. It needs account `Workers Scripts Write`
 (the Workflows list/detail/version/instance APIs accept this permission), exact-zone

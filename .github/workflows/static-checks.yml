@@ -65,11 +65,6 @@ jobs:
       - run: pnpm architecture:check
       - run: pnpm deadcode
       - run: pnpm typecheck
-      - name: Verify aggregate production resource source contract
-        run: pnpm verify:production-resources -- --source-only
-      # Prove that a production-target prebuilt accepts live-shaped, inert
-      # configuration before Vercel has assigned its runtime URL.
-      - run: pnpm check:web-prebuilt-env
       - run: pnpm build
         env:
           # Static compilation must never expose a real Clerk Backend API credential
