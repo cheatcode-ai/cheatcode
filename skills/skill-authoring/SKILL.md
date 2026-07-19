@@ -21,7 +21,7 @@ Default contract:
 - Before authoring a new custom skill, inspect existing Cheatcode tools with `cheatcode-skills manage-skills/manage/list`.
 - If a suitable built-in Cheatcode skill already exists for the requested capability, do not create a new custom skill unless the user explicitly says to ignore the built-in option and make a custom one anyway.
 - If a suitable built-in skill exists and is disabled, prefer enabling it instead of creating a duplicate custom skill.
-- In Skill Creator mode, author and validate the complete package first, then call the native `skill_create` tool exactly once. That tool presents Cheatcode's confirmation card and is the only save boundary for a new skill.
+- In Skill Creator mode, author and validate the complete package first, then call the native `skill_create` tool exactly once with the exact authored folder slug. That call persists the package immediately and is the only save boundary for a new skill.
 - Create or update a skill under `/workspace/.cheatcode/skills/<skill-name>/`.
 - Keep the implementation agent-first. These tools are mainly for Cheatcode itself to run in the project sandbox.
 - Default to a prompt-only skill when the reusable behavior can live in `SKILL.md` as instructions, workflows, templates, or guidance for commands and CLI tools that are already available in the sandbox.
@@ -33,7 +33,7 @@ Default contract:
 - `@cheatcode/sandbox-skills-runtime` is provided by the Cheatcode skill runtime. Import it in authored files, but do not add `@cheatcode/sandbox-skills-runtime` to a skill-local `package.json` and do not try to install it from npm.
 - For custom Cheatcode skills that need secrets, store them in the skill root `.env` file and read them from `process.env` instead of hardcoding them.
 - Keep the skill lean: one capability per skill, one action per tool file when possible.
-- Use `cheatcode-skills skill-authoring/persist/save --skill <slug>` when an existing saved custom skill is edited from the computer and needs to be persisted again. New Skill Creator runs use the native `skill_create` confirmation card instead.
+- Use `cheatcode-skills skill-authoring/persist/save --skill <slug>` when an existing saved custom skill is edited from the computer and needs to be persisted again. New Skill Creator runs persist through the native `skill_create` tool instead.
 - If the custom skill has a root `.env`, keep that file up to date and persist it with the rest of the skill so the saved skill still works after reload.
 - In project sandboxes, if you need to update an existing saved custom skill that is not loaded yet, enable it first so it is provisioned into `/workspace/.cheatcode/skills/<slug>/`, then edit and persist that custom skill. Do not use this path for built-in or integration skills.
 - Persisted custom skill payloads include `SKILL.md`, other `.md` files, `.ts` files, a root `package.json`, and a root `.env`. Do not persist lockfiles such as `package-lock.json`, `bun.lock`, or `pnpm-lock.yaml`, and do not expect `node_modules`, build output, caches, or other generated artifacts to be saved.
@@ -93,7 +93,7 @@ Default implementation model:
 20. If dependency installation for that specific skill fails, say so explicitly and stop rather than pretending the skill is ready.
 21. If a tool-based skill cannot be exercised safely end to end, say exactly what blocked validation and what remains unverified.
 22. Prompt-only skills do not need executable validation beyond making sure the prompt and file structure are correct.
-23. For a new Skill Creator package, call `skill_create` exactly once after validation so Cheatcode can present the native confirmation card. For edits to an already-saved skill, persist with `cheatcode-skills skill-authoring/persist/save --skill <slug>`.
+23. For a new Skill Creator package, call `skill_create` exactly once after validation and pass the exact folder slug under `/workspace/.cheatcode/skills/` so Cheatcode can persist the complete package atomically. For edits to an already-saved skill, persist with `cheatcode-skills skill-authoring/persist/save --skill <slug>`.
 24. If the new skill likely requires credentials and they are not already available, explain the missing auth requirement clearly at the end, including where the user can obtain it and that the custom skill should keep those secrets in its root `.env` file so they persist with the skill.
 25. After creation or persistence, explain the new skill in user-facing terms: what the user can ask Cheatcode to do with it, and that Cheatcode can use it automatically when a future request clearly matches it. Do not default to CLI commands, code snippets, tool paths, or `cheatcode-skills ...` usage examples unless the user explicitly asks for technical usage or debugging details.
 26. If the user's original goal was to perform a task with the new capability, continue immediately after validation and persistence by using the new skill unless the user asked to stop at implementation only.

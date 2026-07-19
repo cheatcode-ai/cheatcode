@@ -233,11 +233,8 @@ export {
 } from "./skills";
 export {
   createThreadMessage,
-  findSkillConfirmationMessage,
-  getThreadAgentRunMessage,
   listRecentThreadContextMessages,
   listThreadMessages,
-  lockSkillProposal,
 } from "./thread-messages";
 export type {
   ClaimedUserDeletionJob,

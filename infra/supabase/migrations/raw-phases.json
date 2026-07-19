@@ -61,5 +61,6 @@
   "infra/supabase/migrations/post/0072_remove_obsolete_run_gates.sql": "pre-deploy",
   "infra/supabase/migrations/post/0073_finalize_direct_run_statuses.sql": "post-deploy",
   "infra/supabase/migrations/post/0074_remove_product_policy_residue.sql": "post-deploy",
-  "infra/supabase/migrations/post/0075_attribute_thread_models.sql": "pre-deploy"
+  "infra/supabase/migrations/post/0075_attribute_thread_models.sql": "pre-deploy",
+  "infra/supabase/migrations/post/0076_remove_skill_proposals.sql": "pre-deploy"
 }

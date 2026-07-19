@@ -316,7 +316,7 @@ export function renderManagedConnectedAccountsOutput(
 }
 
 const MANAGED_SKILLS_CREATE_HINT =
-  'If the capability you need is not listed above, and the user wants Cheatcode to do it on demand rather than build it into the project, consider creating a reusable custom skill via `cheatcode-skills skill-authoring/create --name "<skill name>" --goal "<summary>" [--skill <slug>]` and then follow the Cheatcode skill-authoring flow.';
+  "If the capability you need is not listed above and the user wants a reusable custom capability, use Skill Creator mode. Author the complete package there and call the native `skill_create` tool exactly once to persist it atomically.";
 
 export function renderManagedSkillsListOutput(
   skills: readonly ManagedSkillListItem[],

@@ -15,6 +15,8 @@ export const PROMPT_WORKSPACE_DIR_CONTEXT_KEY = "promptWorkspaceDir";
 export const USER_SKILLS_CONTEXT_KEY = "userSkills";
 /** Request-scoped capability that loads one custom skill body on demand. */
 export const USER_SKILL_LOADER_CONTEXT_KEY = "userSkillLoader";
+/** Request-scoped capability that atomically persists a Skill Creator package. */
+export const USER_SKILL_CREATOR_CONTEXT_KEY = "userSkillCreator";
 
 /** Body-less custom-skill metadata carried on every run. */
 export interface UserSkillRuntime {
@@ -34,12 +36,46 @@ export interface UserSkillLoader {
   load(name: string): Promise<UserSkillDefinition | null>;
 }
 
+/** Validated metadata passed to the user-scoped Skill Creator persistence boundary. */
+export interface UserSkillCreateInput {
+  body: string;
+  category: string;
+  description: string;
+  name: string;
+  sourceSlug: string;
+  tags: string[];
+}
+
+/** Client-safe identity returned only after the complete skill package is durable. */
+export interface UserSkillCreateResult {
+  description: string;
+  filePath: string;
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/** Persists one authored skill package within the active user's run context. */
+export interface UserSkillCreator {
+  create(input: UserSkillCreateInput): Promise<UserSkillCreateResult>;
+}
+
 export function userSkillLoaderFromRequestContext(
   requestContext: { get(key: string): unknown } | undefined,
 ): UserSkillLoader | null {
   const value = requestContext?.get(USER_SKILL_LOADER_CONTEXT_KEY);
   if (value && typeof (value as UserSkillLoader).load === "function") {
     return value as UserSkillLoader;
+  }
+  return null;
+}
+
+export function userSkillCreatorFromRequestContext(
+  requestContext: { get(key: string): unknown } | undefined,
+): UserSkillCreator | null {
+  const value = requestContext?.get(USER_SKILL_CREATOR_CONTEXT_KEY);
+  if (value && typeof (value as UserSkillCreator).create === "function") {
+    return value as UserSkillCreator;
   }
   return null;
 }
@@ -172,8 +208,8 @@ function buildSkillCreatorPrompt(runtimeContext: PromptRuntimeContext): string {
       "## Skill Creator execution contract",
       "Work only inside `/workspace/.cheatcode/skills/<skill-slug>/`; do not create or attach a normal project.",
       "Build the complete reusable package the request needs, including `SKILL.md`, references, TypeScript entrypoints, schemas, or assets when they materially contribute to the behavior. Do not manufacture scripts when instructions alone are sufficient.",
-      "Inspect and validate the authored files before proposing the skill. You may use only the bounded file and shell tools available in this mode.",
-      "Finish by calling `skill_create` exactly once with metadata and markdown body that match the authored `SKILL.md`. The native confirmation card is the save boundary; do not claim the skill is persisted before the user confirms it.",
+      "Inspect and validate the authored files before saving the skill. You may use only the bounded file and shell tools available in this mode.",
+      "Finish by calling `skill_create` exactly once with metadata, markdown body, and the exact folder slug authored under `/workspace/.cheatcode/skills/`. That call is the durable save boundary. Do not claim the skill is persisted until the call succeeds.",
       "Do not research, browse, build an app, deploy anything, or modify files outside `.cheatcode/skills` in this mode.",
     ].join("\n"),
     requiredBundledSkillInstructions("skill-authoring"),

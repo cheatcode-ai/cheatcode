@@ -1,5 +1,4 @@
 import {
-  type AgentRunId,
   coalesceTranscriptSegmentParts,
   ThreadId,
   UIMessageRecordSchema,
@@ -19,13 +18,6 @@ import { messages, threads } from "./schema";
 
 const THREAD_CONTEXT_MAX_MESSAGES = 64;
 const THREAD_CONTEXT_MAX_SERIALIZED_BYTES = 1024 * 1024;
-
-/** Serializes retries of one user-confirmed Skill Creator proposal. */
-export async function lockSkillProposal(db: Database, proposalId: string): Promise<void> {
-  await db.execute(
-    sql`select pg_advisory_xact_lock(hashtextextended(${`skill-proposal:${proposalId}`}, 0))`,
-  );
-}
 
 interface ThreadContextQueryInput {
   maxMessages: number;
@@ -58,68 +50,6 @@ export async function listThreadMessages(
     .orderBy(desc(messages.createdAt), desc(messages.agentRunSegment), desc(messages.id))
     .limit(boundedPageLimit(input.limit));
   return rows.map((row) => ({ ...messageFromRow(row), pageCursorAt: row.pageCursorAt }));
-}
-
-/** Reassembles the complete persisted assistant transcript for one run. */
-export async function getThreadAgentRunMessage(
-  db: Database,
-  input: { runId: AgentRunId; threadId: ThreadId; userId: UserId },
-): Promise<MessageRecord | null> {
-  const rows = await db
-    .select(messageReturningColumns())
-    .from(messages)
-    .where(
-      and(
-        eq(messages.agentRunId, input.runId),
-        eq(messages.threadId, input.threadId),
-        eq(messages.userId, input.userId),
-        eq(messages.role, "assistant"),
-      ),
-    )
-    .orderBy(messages.agentRunSegment, messages.id);
-  const first = rows[0];
-  if (!first) {
-    return null;
-  }
-  const parts = coalesceTranscriptSegmentParts(
-    rows.map((row) => ({
-      index: row.agentRunSegment,
-      isFinal: row.agentRunSegmentFinal,
-      parts: row.parts,
-    })),
-  );
-  if (!parts) {
-    return null;
-  }
-  return {
-    ...messageFromRow(first),
-    agentRunSegment: 0,
-    agentRunSegmentFinal: true,
-    parts,
-  };
-}
-
-/** Finds the deterministic confirmation message for a previously committed proposal. */
-export async function findSkillConfirmationMessage(
-  db: Database,
-  input: { proposalId: string; threadId: ThreadId; userId: UserId },
-): Promise<MessageRecord | null> {
-  const [row] = await db
-    .select(messageReturningColumns())
-    .from(messages)
-    .where(
-      and(
-        eq(messages.threadId, input.threadId),
-        eq(messages.userId, input.userId),
-        eq(messages.role, "assistant"),
-        sql`${messages.parts} @> ${JSON.stringify([
-          { data: { proposalId: input.proposalId }, type: "data-skill-created" },
-        ])}::jsonb`,
-      ),
-    )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
-    .limit(1);
-  return row ? messageFromRow(row) : null;
 }
 
 /**

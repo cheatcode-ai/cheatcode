@@ -85,20 +85,25 @@ export const skillCreateInputSchema = z
       .max(400)
       .describe("One line: what the skill does and when to use it."),
     name: z.string().trim().min(1).max(80).describe("Short skill name."),
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(80)
+      .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u)
+      .describe("Exact folder name authored under /workspace/.cheatcode/skills/."),
     tags: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
   })
   .strict();
 
 export const skillCreateOutputSchema = z
   .object({
-    body: z.string(),
-    category: z.string(),
+    created: z.literal(true),
     description: z.string(),
+    filePath: z.string(),
+    id: z.string().uuid(),
     name: z.string(),
-    proposalId: z.string().uuid(),
-    proposed: z.literal(true),
     slug: z.string(),
-    tags: z.array(z.string()),
   })
   .strict();
 

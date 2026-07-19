@@ -105,12 +105,15 @@ export async function deleteUserSkillPackage(
 export async function collectUserSkillPackageFromSandbox(
   sandbox: SandboxLike,
   skill: UserSkillRecord,
+  sourceSlug?: string,
 ): Promise<UserSkillPackageFile[]> {
   const fallback = [{ content: await serializeUserSkillMarkdown(skill), path: "SKILL.md" }];
   if (!sandbox.listFiles || !sandbox.readFile) {
     return fallback;
   }
-  const directory = userSkillDirectoryPath(skill.name);
+  const directory = sourceSlug
+    ? `/workspace/.cheatcode/skills/${sourceSlug}`
+    : userSkillDirectoryPath(skill.name);
   const listing = await sandbox
     .listFiles({ includeHidden: true, path: directory, recursive: true })
     .catch(() => null);

@@ -67,21 +67,7 @@ const SkillCreatedDataSchema = z
     filePath: z.string().min(1).max(1_000).optional(),
     id: z.string().uuid().optional(),
     name: z.string().min(1).max(80),
-    proposalId: z.string().uuid().optional(),
     slug: z.string().min(1).max(80).optional(),
-  })
-  .strict();
-
-const SkillProposedDataSchema = z
-  .object({
-    v: z.literal(1),
-    body: z.string().min(1).max(40_000),
-    category: z.string().min(1).max(80),
-    description: z.string().min(1).max(400),
-    name: z.string().min(1).max(80),
-    proposalId: z.string().uuid(),
-    slug: z.string().min(1).max(80),
-    tags: z.array(z.string().min(1).max(40)).max(12),
   })
   .strict();
 
@@ -150,7 +136,6 @@ export const CHEATCODE_DATA_SCHEMAS = {
   "run-intent": RunIntentDataSchema,
   "sandbox-status": SandboxStatusDataSchema,
   "skill-created": SkillCreatedDataSchema,
-  "skill-proposed": SkillProposedDataSchema,
   seq: SeqDataSchema,
   "task-status": TaskStatusDataSchema,
   tool: ToolDataSchema,
@@ -185,7 +170,6 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
   dataMessagePartSchema("run-intent"),
   dataMessagePartSchema("sandbox-status"),
   dataMessagePartSchema("skill-created"),
-  dataMessagePartSchema("skill-proposed"),
   dataMessagePartSchema("task-status"),
   dataMessagePartSchema("tool"),
   dataMessagePartSchema("transcript-fragment"),

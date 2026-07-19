@@ -47,14 +47,6 @@ const SkillSelectionSchema = z.object({ skillSlug: SkillSlugSchema }).strict();
 const DefaultAccountSchema = z
   .object({ connectedAccountId: z.string().trim().min(1).max(256) })
   .strict();
-const CreateRequestSchema = z
-  .object({
-    requestSummary: z.string().trim().min(1).max(500),
-    skillName: z.string().trim().min(1).max(80),
-    skillSlug: SkillSlugSchema.optional(),
-  })
-  .strict();
-
 const KNOWN_INTEGRATIONS = [
   "gmail",
   "github",
@@ -85,7 +77,6 @@ interface ManagedSkillItem {
 export function registerSkillRuntimeManagedRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
   app.get("/skill-runtime/managed-skills", listManagedSkills);
   app.post("/skill-runtime/managed-skills/custom/save", saveCustomSkill);
-  app.post("/skill-runtime/managed-skills/custom/prepare-create-request", prepareCreateRequest);
   app.post("/skill-runtime/managed-skills/prepare-change", prepareSkillChange);
   app.post("/skill-runtime/managed-skills/prepare-connect-account", prepareConnectAccount);
   app.post("/skill-runtime/managed-skills/connect-link", connectLinkFallback);
@@ -140,23 +131,6 @@ async function persistCustomSkill(
     saved: previous?.revision !== packageValue.revision,
     skill: runtimeSkillResponse(skill, input.skillSlug, packageValue.revision),
     source: "custom" as const,
-  });
-}
-
-async function prepareCreateRequest(c: AgentContext): Promise<Response> {
-  await requireSkillRuntimePrincipal(c.env, c.req.raw.headers, "skills:write");
-  const input = CreateRequestSchema.parse(
-    await readJsonRequest(c.req.raw, 8 * 1024, "Custom skill creation request"),
-  );
-  const skillSlug = input.skillSlug ?? userSkillSlug(input.skillName);
-  return c.json({
-    requiresConfirmation: true,
-    uiAction: {
-      kind: "create_skill" as const,
-      requestSummary: input.requestSummary,
-      skillName: input.skillName,
-      skillSlug,
-    },
   });
 }
 

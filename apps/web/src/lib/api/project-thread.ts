@@ -430,7 +430,7 @@ function paginatedPath(path: string, limit: number, cursor: string | null): stri
   return `${path}?${query.toString()}`;
 }
 
-export async function messageRecordToUiMessage(
+async function messageRecordToUiMessage(
   record: UIMessageRecord,
 ): Promise<CheatcodeUIMessage | null> {
   const role = uiMessageRole(record.role);

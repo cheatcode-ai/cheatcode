@@ -105,7 +105,7 @@ function controlMastraChunk(chunk: ControlAgentChunk): UIMessageChunk[] {
 
 function toolResultChunks(payload: ToolResultPayload): UIMessageChunk[] {
   if (payload.toolName === "skill_create") {
-    const skill = skillProposedChunkFromResult(payload.result);
+    const skill = skillCreatedChunkFromResult(payload.result);
     return skill ? [skill] : [];
   }
   if (isSandboxTool(payload)) {
@@ -125,38 +125,20 @@ function toolResultChunks(payload: ToolResultPayload): UIMessageChunk[] {
   return [];
 }
 
-function skillProposedChunkFromResult(result: unknown): UIMessageChunk | undefined {
+function skillCreatedChunkFromResult(result: unknown): UIMessageChunk | undefined {
   const record = asRecord(result);
   const name = stringField(record, "name");
   const description = stringField(record, "description");
-  const body = stringField(record, "body");
-  const category = stringField(record, "category");
-  const proposalId = stringField(record, "proposalId");
+  const filePath = stringField(record, "filePath");
+  const id = stringField(record, "id");
   const slug = stringField(record, "slug");
-  const tags = stringArrayField(record, "tags");
-  if (
-    record["proposed"] !== true ||
-    !name ||
-    !description ||
-    !body ||
-    !category ||
-    !proposalId ||
-    !slug ||
-    !tags
-  ) {
+  if (record["created"] !== true || !name || !description || !filePath || !id || !slug) {
     return undefined;
   }
   return {
-    type: "data-skill-proposed",
-    data: { body, category, description, name, proposalId, slug, tags, v: 1 },
+    type: "data-skill-created",
+    data: { description, filePath, id, name, slug, v: 1 },
   };
-}
-
-function stringArrayField(record: Record<string, unknown>, key: string): string[] | undefined {
-  const value = record[key];
-  return Array.isArray(value) && value.every((item) => typeof item === "string")
-    ? value
-    : undefined;
 }
 
 export function mastraChunkError(chunk: AgentChunkType): unknown | null {

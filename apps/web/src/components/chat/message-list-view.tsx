@@ -15,7 +15,6 @@ import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { cn } from "@/lib/ui/cn";
 
 export function MessageListView({
-  completedSkillProposalIds,
   computerOpen,
   hasOlderMessages,
   isLoadingOlderMessages,
@@ -23,7 +22,6 @@ export function MessageListView({
   listTopPadding,
   loadOlderMessages,
   onContinue,
-  onMessageAppend,
   scroll,
   scrollState,
   totalHeight,
@@ -34,14 +32,12 @@ export function MessageListView({
   return (
     <div className="relative min-h-0 flex-1">
       <MessageViewport
-        completedSkillProposalIds={completedSkillProposalIds}
         hasOlderMessages={hasOlderMessages}
         isLoadingOlderMessages={isLoadingOlderMessages}
         isStreaming={isStreaming}
         listTopPadding={listTopPadding}
         loadOlderMessages={loadOlderMessages}
         onContinue={onContinue}
-        onMessageAppend={onMessageAppend}
         scroll={scroll}
         scrollState={scrollState}
         totalHeight={totalHeight}
@@ -57,7 +53,6 @@ export function MessageListView({
 }
 
 interface MessageListViewProps {
-  completedSkillProposalIds: ReadonlySet<string>;
   computerOpen: boolean;
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
@@ -65,7 +60,6 @@ interface MessageListViewProps {
   listTopPadding: number;
   loadOlderMessages: () => Promise<OlderMessagesLoadResult>;
   onContinue: () => void;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   scroll: MessageScrollController;
   scrollState: MessageScrollState;
   totalHeight: number;
@@ -88,14 +82,12 @@ function MessageViewport(props: Omit<MessageListViewProps, "computerOpen">) {
 }
 
 function VirtualMessageContent({
-  completedSkillProposalIds,
   hasOlderMessages,
   isLoadingOlderMessages,
   isStreaming,
   listTopPadding,
   loadOlderMessages,
   onContinue,
-  onMessageAppend,
   scrollState,
   totalHeight,
   turns,
@@ -126,11 +118,9 @@ function VirtualMessageContent({
             style={{ transform: `translateY(${virtualItem.start + listTopPadding}px)` }}
           >
             <MessageTurnContent
-              completedSkillProposalIds={completedSkillProposalIds}
               isLastTurn={isLastTurn}
               isStreaming={isStreaming}
               onContinue={onContinue}
-              onMessageAppend={onMessageAppend}
               threadId={threadId}
               turn={turn}
             />
@@ -142,19 +132,15 @@ function VirtualMessageContent({
 }
 
 function MessageTurnContent({
-  completedSkillProposalIds,
   isLastTurn,
   isStreaming,
   onContinue,
-  onMessageAppend,
   threadId,
   turn,
 }: {
-  completedSkillProposalIds: ReadonlySet<string>;
   isLastTurn: boolean;
   isStreaming: boolean;
   onContinue: () => void;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   threadId: string;
   turn: MessageTurn;
 }) {
@@ -169,11 +155,9 @@ function MessageTurnContent({
         const isLastMessage = index === turn.messages.length - 1;
         return (
           <MessageBubble
-            completedSkillProposalIds={completedSkillProposalIds}
             key={message.id}
             message={message}
             onContinue={!isStreaming && isLastTurn && isLastMessage ? onContinue : undefined}
-            onMessageAppend={onMessageAppend}
             streaming={isStreaming && isLastTurn && isLastMessage}
             threadId={threadId}
           />
@@ -227,17 +211,13 @@ function ScrollToBottomButton({
 }
 
 function MessageBubble({
-  completedSkillProposalIds,
   message,
   onContinue,
-  onMessageAppend,
   streaming,
   threadId,
 }: {
-  completedSkillProposalIds: ReadonlySet<string>;
   message: CheatcodeUIMessage;
   onContinue?: (() => void) | undefined;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   streaming: boolean;
   threadId: string;
 }) {
@@ -254,10 +234,8 @@ function MessageBubble({
       >
         {isUser ? null : <AssistantHeader elapsedSeconds={elapsed} streaming={streaming} />}
         <MessageParts
-          completedSkillProposalIds={completedSkillProposalIds}
           message={message}
           onContinue={onContinue}
-          onMessageAppend={onMessageAppend}
           streaming={streaming}
           threadId={threadId}
         />

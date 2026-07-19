@@ -1,8 +1,4 @@
-import {
-  SkillProposalConfirmResponseSchema,
-  UserSkillSchema,
-  UserSkillsResponseSchema,
-} from "@cheatcode/types";
+import { UserSkillSchema, UserSkillsResponseSchema } from "@cheatcode/types";
 import {
   emptyResponse,
   type JsonValue,
@@ -13,7 +9,6 @@ import {
 import { zodJsonSchema } from "./openapi-zod";
 
 export const skillSchemas: Record<string, JsonValue> = {
-  SkillProposalConfirmResponse: zodJsonSchema(SkillProposalConfirmResponseSchema),
   UserSkill: zodJsonSchema(UserSkillSchema),
   UserSkillsResponse: zodJsonSchema(UserSkillsResponseSchema),
 };
@@ -26,17 +21,6 @@ export const skillRoutes: OpenApiRoute[] = [
     responses: { "200": jsonResponse("User skills", schemaRef("UserSkillsResponse")) },
     security: [{ bearerAuth: [] }],
     summary: "List the current user's skills",
-    tags: ["skills"],
-  },
-  {
-    method: "post",
-    operationId: "confirmSkillProposal",
-    path: "/v1/threads/{threadId}/skill-proposals/{runId}/{proposalId}/confirm",
-    responses: {
-      "200": jsonResponse("Confirmed skill proposal", schemaRef("SkillProposalConfirmResponse")),
-    },
-    security: [{ bearerAuth: [] }],
-    summary: "Create a skill from a persisted agent proposal",
     tags: ["skills"],
   },
   {
