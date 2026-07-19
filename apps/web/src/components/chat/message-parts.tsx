@@ -5,7 +5,7 @@ import {
   type ModelFallbackData,
   reconstructedTranscriptUIMessage,
 } from "@cheatcode/types";
-import { Check, FileText, Loader2, Puzzle } from "@cheatcode/ui";
+import { FileText, Loader2, Puzzle } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -30,21 +30,17 @@ import {
   formatUnknown,
   isHiddenTranscriptPart,
 } from "@/components/chat/message-timeline";
-import { confirmSkillProposal, openUserSkill, USER_SKILLS_QUERY } from "@/lib/api/skills";
+import { openUserSkill } from "@/lib/api/skills";
 import { useAppStore } from "@/lib/store/app-store";
 
 export function MessageParts({
-  completedSkillProposalIds,
   message,
   onContinue,
-  onMessageAppend,
   streaming,
   threadId,
 }: {
-  completedSkillProposalIds: ReadonlySet<string>;
   message: CheatcodeUIMessage;
   onContinue?: (() => void) | undefined;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   streaming: boolean;
   threadId: string;
 }) {
@@ -61,11 +57,8 @@ export function MessageParts({
           <ActivityDisclosure key={item.key} parts={item.parts} streaming={streaming} />
         ) : (
           <MessagePartView
-            completedSkillProposalIds={completedSkillProposalIds}
             key={item.key}
-            message={visibleMessage}
             onContinue={onContinue}
-            onMessageAppend={onMessageAppend}
             part={item.part}
             threadId={threadId}
           />
@@ -98,22 +91,12 @@ function UserMessageParts({ message }: { message: CheatcodeUIMessage }) {
 }
 
 interface MessagePartViewProps {
-  completedSkillProposalIds: ReadonlySet<string>;
-  message: CheatcodeUIMessage;
   onContinue?: (() => void) | undefined;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   part: MessagePart;
   threadId: string;
 }
 
-function MessagePartView({
-  completedSkillProposalIds,
-  message,
-  onContinue,
-  onMessageAppend,
-  part,
-  threadId,
-}: MessagePartViewProps) {
+function MessagePartView({ onContinue, part, threadId }: MessagePartViewProps) {
   if (part.type === "text") {
     return (
       <div className="chat-markdown max-w-none text-[14px] text-foreground leading-6">
@@ -130,40 +113,12 @@ function MessagePartView({
     );
   }
   if (isHiddenTranscriptPart(part)) return null;
-  return (
-    <MessagePartFallback
-      completedSkillProposalIds={completedSkillProposalIds}
-      message={message}
-      onMessageAppend={onMessageAppend}
-      part={part}
-      threadId={threadId}
-    />
-  );
+  return <MessagePartFallback part={part} threadId={threadId} />;
 }
 
-function MessagePartFallback({
-  completedSkillProposalIds,
-  message,
-  onMessageAppend,
-  part,
-  threadId,
-}: Pick<
-  MessagePartViewProps,
-  "completedSkillProposalIds" | "message" | "onMessageAppend" | "part" | "threadId"
->) {
+function MessagePartFallback({ part, threadId }: Pick<MessagePartViewProps, "part" | "threadId">) {
   if (part.type === "data-model-fallback") return <ModelFallbackBlock data={part.data} />;
   if (part.type === "data-project-created") return <ProjectCreatedActivity part={part} />;
-  if (part.type === "data-skill-proposed") {
-    if (completedSkillProposalIds.has(part.data.proposalId)) return null;
-    return (
-      <SkillProposalBlock
-        data={part.data}
-        message={message}
-        onMessageAppend={onMessageAppend}
-        threadId={threadId}
-      />
-    );
-  }
   if (part.type === "data-skill-created") {
     return <SkillCreatedBlock data={part.data} threadId={threadId} />;
   }
@@ -171,62 +126,7 @@ function MessagePartFallback({
   return <DataBlock title={part.type} value={formatUnknown(part)} />;
 }
 
-type SkillProposedData = Extract<MessagePart, { type: "data-skill-proposed" }>["data"];
 type SkillCreatedData = Extract<MessagePart, { type: "data-skill-created" }>["data"];
-
-function SkillProposalBlock({
-  data,
-  message,
-  onMessageAppend,
-  threadId,
-}: {
-  data: SkillProposedData;
-  message: CheatcodeUIMessage;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
-  threadId: string;
-}) {
-  const { getToken } = useAuth();
-  const queryClient = useQueryClient();
-  const runId =
-    message.metadata?.runId ?? message.metadata?.transcriptSegment?.agentRunId ?? message.id;
-  const mutation = useMutation({
-    mutationFn: () => confirmSkillProposal(getToken, threadId, runId, data.proposalId),
-    onError: (error) =>
-      toast.error(error instanceof Error ? error.message : "That skill could not be created."),
-    onSuccess: ({ message: confirmation }) => {
-      onMessageAppend(confirmation);
-      void queryClient.invalidateQueries({ queryKey: ["threads", threadId, "messages"] });
-      void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
-    },
-  });
-  return (
-    <div className="cc-fade-in rounded-[18px] border-2 border-border p-0.5">
-      <div className="flex w-full items-center gap-3 rounded-[14px] border border-border bg-secondary p-2.5 text-left">
-        <div className="min-w-0 flex-1">
-          <div className="truncate font-medium text-[13px] text-foreground">
-            Create {data.slug} skill
-          </div>
-          <div className="truncate text-[12px] text-fg-secondary">{data.description}</div>
-        </div>
-        <div className="shrink-0 rounded-full bg-background p-1">
-          <button
-            className="flex h-8 items-center gap-1.5 rounded-full bg-foreground px-3 font-medium text-[12px] text-background transition-opacity hover:opacity-85 disabled:opacity-55"
-            disabled={mutation.isPending}
-            onClick={() => mutation.mutate()}
-            type="button"
-          >
-            {mutation.isPending ? (
-              <Loader2 aria-hidden="true" className="size-3.5 animate-spin" />
-            ) : (
-              <Check aria-hidden="true" className="size-3.5" />
-            )}
-            Create
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function SkillCreatedBlock({ data, threadId }: { data: SkillCreatedData; threadId: string }) {
   const { getToken } = useAuth();

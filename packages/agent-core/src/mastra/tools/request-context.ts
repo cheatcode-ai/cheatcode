@@ -27,8 +27,10 @@ import {
   PROMPT_TASK_MESSAGE_CONTEXT_KEY,
   PROMPT_WORKSPACE_DIR_CONTEXT_KEY,
   RUN_INTENT_CONTEXT_KEY,
+  USER_SKILL_CREATOR_CONTEXT_KEY,
   USER_SKILL_LOADER_CONTEXT_KEY,
   USER_SKILLS_CONTEXT_KEY,
+  type UserSkillCreator,
   type UserSkillLoader,
   type UserSkillRuntime,
 } from "../system-prompt";
@@ -55,6 +57,7 @@ export interface CodeRequestContextOptions {
   runId?: string | undefined;
   taskMessage?: string | undefined;
   userSkills?: UserSkillRuntime[] | undefined;
+  userSkillCreator?: UserSkillCreator | undefined;
   userSkillLoader?: UserSkillLoader | undefined;
 }
 
@@ -99,6 +102,7 @@ function contextEntries(
     [FIRECRAWL_API_KEY_CONTEXT_KEY, options.firecrawlApiKey],
     [BROWSER_RUN_ID_CONTEXT_KEY, options.runId],
     [USER_SKILLS_CONTEXT_KEY, options.userSkills],
+    [USER_SKILL_CREATOR_CONTEXT_KEY, options.userSkillCreator],
     [USER_SKILL_LOADER_CONTEXT_KEY, options.userSkillLoader],
   ];
 }

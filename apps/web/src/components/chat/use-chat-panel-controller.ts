@@ -211,17 +211,8 @@ function useChatPanelActions(
     (value: string) => runtime.store.setDraft(input.threadId, value),
     [input.threadId, runtime.store.setDraft],
   );
-  const appendMessage = useCallback(
-    (message: CheatcodeUIMessage) => {
-      runtime.chat.setMessages((messages) =>
-        messages.some((current) => current.id === message.id) ? messages : [...messages, message],
-      );
-    },
-    [runtime.chat.setMessages],
-  );
   return {
     ...submission,
-    appendMessage,
     loadOlderMessages: runtime.loadOlderMessages,
     setDraft,
     stopRun,
@@ -338,7 +329,7 @@ function handleStreamData(
     handleProjectCreatedData(part.data, input);
   }
   if (part.type === "data-skill-created") {
-    handleSkillCreatedData(part.data, input.queryClient);
+    handleSkillCreatedData(part.data, input.queryClient, input.sandboxActions);
   }
 }
 
@@ -377,10 +368,13 @@ function handleProjectCreatedData(
 function handleSkillCreatedData(
   data: unknown,
   queryClient: ReturnType<typeof useQueryClient>,
+  actions: SandboxStatusActions,
 ): void {
   const parsed = CHEATCODE_DATA_SCHEMAS["skill-created"].safeParse(data);
   if (parsed.success) {
     void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
+    actions.setActivePreviewTab("files");
+    actions.setPreviewPanelOpen(true);
   }
 }
 

@@ -170,7 +170,7 @@ function agentRequestContext(
   prepared: PreparedMastraContext,
 ): ReturnType<typeof createCodeRequestContext> {
   const { credential, input } = options;
-  const { toolCredentials, userSkillLoader, userSkills } = prepared;
+  const { toolCredentials, userSkillCreator, userSkillLoader, userSkills } = prepared;
   const isSkillCreator = input.runIntent === "skill-creator";
   const codeRuntime: CodeRuntimeContext = {
     artifacts: options.artifactRuntime,
@@ -209,6 +209,7 @@ function agentRequestContext(
     runIntent: input.runIntent,
     runId: input.runId,
     taskMessage: input.messageText,
+    ...(isSkillCreator ? { userSkillCreator } : {}),
     userSkillLoader,
     userSkills,
   });

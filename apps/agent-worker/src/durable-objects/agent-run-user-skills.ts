@@ -1,4 +1,11 @@
-import type { UserSkillDefinition, UserSkillLoader, UserSkillRuntime } from "@cheatcode/agent-core";
+import type {
+  UserSkillCreateInput,
+  UserSkillCreateResult,
+  UserSkillCreator,
+  UserSkillDefinition,
+  UserSkillLoader,
+  UserSkillRuntime,
+} from "@cheatcode/agent-core";
 import {
   createDb,
   getUserSkillByName,
@@ -9,11 +16,22 @@ import {
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { UserId } from "@cheatcode/types";
-import { resolveUserSkillMirror, userSkillSlug, writeUserSkillMirror } from "../user-skill-files";
-import { readUserSkillPackage, writeUserSkillPackageMirror } from "../user-skill-packages";
+import {
+  resolveUserSkillMirror,
+  serializeUserSkillMarkdown,
+  userSkillSlug,
+  writeUserSkillMirror,
+} from "../user-skill-files";
+import {
+  collectUserSkillPackageFromSandbox,
+  persistUserSkillPackage,
+  readUserSkillPackage,
+  writeUserSkillPackageMirror,
+} from "../user-skill-packages";
 import type { AgentRunEnv } from "./agent-run-env";
 
 export interface ResolvedUserSkillContext {
+  userSkillCreator: UserSkillCreator;
   userSkills: UserSkillRuntime[];
   userSkillLoader: UserSkillLoader;
 }
@@ -34,7 +52,60 @@ export async function resolveUserSkillContext(
   const userSkillLoader: UserSkillLoader = {
     load: async (name) => loadUserSkill(env, userId, sandbox, name),
   };
-  return { userSkills, userSkillLoader };
+  const userSkillCreator: UserSkillCreator = {
+    create: async (input) => persistCreatedUserSkill(env, userId, sandbox, input),
+  };
+  return { userSkillCreator, userSkills, userSkillLoader };
+}
+
+async function persistCreatedUserSkill(
+  env: AgentRunEnv,
+  userId: UserId,
+  sandbox: SandboxLike,
+  input: UserSkillCreateInput,
+): Promise<UserSkillCreateResult> {
+  const skill = await saveUserSkillRecord(env, userId, input);
+  const collected = await collectUserSkillPackageFromSandbox(sandbox, skill, input.sourceSlug);
+  const canonicalMarkdown = await serializeUserSkillMarkdown(skill);
+  const files = collected.some((file) => file.path === "SKILL.md")
+    ? collected.map((file) =>
+        file.path === "SKILL.md" ? { content: canonicalMarkdown, path: file.path } : file,
+      )
+    : [{ content: canonicalMarkdown, path: "SKILL.md" }, ...collected];
+  const packageValue = await persistUserSkillPackage(env.R2_OUTPUTS, userId, skill.id, files);
+  const filePath = await writeUserSkillPackageMirror(sandbox, skill, packageValue);
+  return {
+    description: skill.description,
+    filePath,
+    id: skill.id,
+    name: skill.name,
+    slug: userSkillSlug(skill.name),
+  };
+}
+
+async function saveUserSkillRecord(
+  env: AgentRunEnv,
+  userId: UserId,
+  input: UserSkillCreateInput,
+): Promise<UserSkillRecord> {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
+  try {
+    return await withUserContext(db, userId, (tx) =>
+      upsertUserSkill(tx, {
+        body: input.body,
+        category: input.category,
+        description: input.description,
+        name: input.name,
+        tags: input.tags,
+        userId,
+      }),
+    );
+  } finally {
+    await close();
+  }
 }
 
 async function loadUserSkill(

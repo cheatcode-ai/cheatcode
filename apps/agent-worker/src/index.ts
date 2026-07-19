@@ -25,9 +25,9 @@ import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
 import { formatAgentRouteError } from "./error-handling";
 import { registerSandboxHttpRoutes } from "./sandbox-http-routes";
-import { registerSkillProposalHttpRoutes } from "./skill-proposal-http-routes";
 import { registerSkillRuntimeExecutionRoutes } from "./skill-runtime-execution-routes";
 import { registerSkillRuntimeManagedRoutes } from "./skill-runtime-managed-routes";
+import { registerUserSkillHttpRoutes } from "./user-skill-http-routes";
 
 export { AgentRun, AgentRunWorkflow, ProjectSandbox };
 
@@ -80,7 +80,7 @@ registerAgentDurableObjectStorageRoute(agentApp);
 registerAgentSystemHttpRoutes(agentApp);
 registerAgentRunHttpRoutes(agentApp);
 registerSandboxHttpRoutes(agentApp);
-registerSkillProposalHttpRoutes(agentApp);
+registerUserSkillHttpRoutes(agentApp);
 registerSkillRuntimeManagedRoutes(agentApp);
 registerSkillRuntimeExecutionRoutes(agentApp);
 

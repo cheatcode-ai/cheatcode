@@ -23,7 +23,6 @@ interface MessageListProps {
   messages: readonly CheatcodeUIMessage[];
   onContinue: () => void;
   onLoadOlderMessages: () => Promise<OlderMessagesLoadResult>;
-  onMessageAppend: (message: CheatcodeUIMessage) => void;
   threadId: string;
 }
 
@@ -34,12 +33,10 @@ export function MessageList({
   messages,
   onContinue,
   onLoadOlderMessages,
-  onMessageAppend,
   threadId,
 }: MessageListProps) {
   const scrollState = useMessageScrollState();
   const turns = groupMessagesIntoTurns(messages);
-  const completedSkillProposalIds = collectCompletedSkillProposalIds(messages);
   const virtualizer = useVirtualizer({
     count: turns.length,
     estimateSize: () => scrollState.parentRef.current?.clientHeight ?? ESTIMATED_TURN_HEIGHT,
@@ -63,7 +60,6 @@ export function MessageList({
   }
   return (
     <MessageListView
-      completedSkillProposalIds={completedSkillProposalIds}
       computerOpen={computerOpen}
       hasOlderMessages={hasOlderMessages}
       isLoadingOlderMessages={isLoadingOlderMessages}
@@ -71,7 +67,6 @@ export function MessageList({
       listTopPadding={listTopPadding}
       loadOlderMessages={loadOlderMessages}
       onContinue={onContinue}
-      onMessageAppend={onMessageAppend}
       scroll={scroll}
       scrollState={scrollState}
       totalHeight={virtualizer.getTotalSize() + listTopPadding + LIST_BOTTOM_PADDING}
@@ -80,18 +75,4 @@ export function MessageList({
       virtualizer={virtualizer}
     />
   );
-}
-
-function collectCompletedSkillProposalIds(
-  messages: readonly CheatcodeUIMessage[],
-): ReadonlySet<string> {
-  const proposalIds = new Set<string>();
-  for (const message of messages) {
-    for (const part of message.parts) {
-      if (part.type === "data-skill-created" && part.data.proposalId) {
-        proposalIds.add(part.data.proposalId);
-      }
-    }
-  }
-  return proposalIds;
 }

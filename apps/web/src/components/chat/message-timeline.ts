@@ -14,7 +14,6 @@ export function buildMessageTimeline(
 ): TimelineItem[] {
   const finalAnswerIndex = streaming ? -1 : lastAnswerTextIndex(parts);
   const items: TimelineItem[] = [];
-  const deferredSkillProposals: TimelineItem[] = [];
   let activity: PendingActivity | null = null;
   const flushActivity = () => {
     if (!activity) return;
@@ -27,15 +26,6 @@ export function buildMessageTimeline(
   };
   parts.forEach((part, index) => {
     if (isHiddenTranscriptPart(part)) return;
-    if (part.type === "data-skill-proposed") {
-      flushActivity();
-      deferredSkillProposals.push({
-        key: partKey(messageId, part, index),
-        kind: "part",
-        part,
-      });
-      return;
-    }
     if (index === finalAnswerIndex || !isStepPart(part)) {
       flushActivity();
       items.push({ key: partKey(messageId, part, index), kind: "part", part });
@@ -45,7 +35,7 @@ export function buildMessageTimeline(
     activity.parts.push(part);
   });
   flushActivity();
-  return [...items, ...deferredSkillProposals];
+  return items;
 }
 
 export function isHiddenTranscriptPart(part: MessagePart): boolean {

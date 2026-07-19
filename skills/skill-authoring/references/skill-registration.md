@@ -11,7 +11,7 @@ What this stage covers:
 - saving edits to an already saved custom skill
 - registering the skill so it appears in the managed tools list
 - refreshing any managed-skill or creator UI state after save
-- handling enablement or follow-up confirmation after persistence
+- refreshing enablement and creator UI state after persistence
 
 What this stage does not change:
 - the authored tool files under `/workspace/.cheatcode/skills/`

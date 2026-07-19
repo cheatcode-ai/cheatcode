@@ -12,6 +12,9 @@ export type {
   ComposioQuotaResult,
 } from "./mastra/composio-context";
 export type {
+  UserSkillCreateInput,
+  UserSkillCreateResult,
+  UserSkillCreator,
   UserSkillDefinition,
   UserSkillLoader,
   UserSkillRuntime,

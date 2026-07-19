@@ -634,13 +634,6 @@ export const UserSkillsResponseSchema = z
   .object({ skills: z.array(UserSkillSchema).max(MAX_USER_SKILLS) })
   .strict();
 
-export const SkillProposalConfirmResponseSchema = z
-  .object({
-    message: UIMessageRecordSchema,
-    skill: UserSkillSchema,
-  })
-  .strict();
-
 export type SandboxHourPoint = z.infer<typeof SandboxHourPointSchema>;
 export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;
@@ -683,5 +676,4 @@ export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
 export type ActivityHistoryResponse = z.infer<typeof ActivityHistoryResponseSchema>;
 export type ActivityRunPoint = z.infer<typeof ActivityRunPointSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;
-export type SkillProposalConfirmResponse = z.infer<typeof SkillProposalConfirmResponseSchema>;
 export type ToolDomain = z.infer<typeof ToolDomainSchema>;

@@ -46,10 +46,6 @@ const GET_AGENT_ROUTES = [
 
 const POST_AGENT_ROUTES = [
   ["/v1/runs/:runId/cancel", "POST /v1/runs/:runId/cancel"],
-  [
-    "/v1/threads/:threadId/skill-proposals/:runId/:proposalId/confirm",
-    "POST /v1/threads/:threadId/skill-proposals/:runId/:proposalId/confirm",
-  ],
   ["/v1/skills/:skillId/open", "POST /v1/skills/:skillId/open"],
   [
     "/v1/threads/:threadId/browser-takeover/start",

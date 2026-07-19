@@ -1,6 +1,9 @@
 import { type BundledSkill, getSkillByName } from "@cheatcode/skills";
 import { createTool } from "@mastra/core/tools";
-import { userSkillLoaderFromRequestContext } from "../system-prompt";
+import {
+  userSkillCreatorFromRequestContext,
+  userSkillLoaderFromRequestContext,
+} from "../system-prompt";
 import { requestContextFromToolContext } from "./tool-runtime-context";
 import {
   skillCreateInputSchema,
@@ -63,33 +66,26 @@ export const mastraSkillInvoke = createTool({
 export const mastraSkillCreate = createTool({
   id: "skill_create",
   description:
-    "Prepare a reusable custom skill for the user's review. Use once in Skill Creator mode when the name, description, and markdown instructions are ready. The user must explicitly create the proposed skill before it is saved.",
+    "Persist a reusable custom skill. Use exactly once in Skill Creator mode after the complete package has been authored and validated.",
   inputSchema: skillCreateInputSchema,
   outputSchema: skillCreateOutputSchema,
-  execute: async (input) => {
+  execute: async (input, context) => {
     const parsed = skillCreateInputSchema.parse(input);
-    return {
+    const creator = userSkillCreatorFromRequestContext(requestContextFromToolContext(context));
+    if (!creator) {
+      throw new Error("Skill creation is available only in Skill Creator mode.");
+    }
+    const result = await creator.create({
       body: parsed.body,
       category: parsed.category ?? "Builder & Apps",
       description: parsed.description,
       name: parsed.name,
-      proposalId: crypto.randomUUID(),
-      proposed: true as const,
-      slug: skillSlug(parsed.name),
+      sourceSlug: parsed.slug,
       tags: parsed.tags ?? [],
-    };
+    });
+    return { created: true as const, ...result };
   },
 });
-
-function skillSlug(name: string): string {
-  const slug = name
-    .normalize("NFKD")
-    .toLowerCase()
-    .replaceAll(/[^a-z0-9]+/gu, "-")
-    .replaceAll(/^-+|-+$/gu, "")
-    .slice(0, 80);
-  return slug || "custom-skill";
-}
 
 export const mastraSkillReadReference = createTool({
   id: "skill_read_reference",

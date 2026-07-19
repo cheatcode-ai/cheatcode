@@ -27,7 +27,6 @@ export function ChatPanel(props: ChatPanelProps) {
         messages={controller.state.messages}
         onContinue={controller.actions.continueRun}
         onLoadOlderMessages={controller.actions.loadOlderMessages}
-        onMessageAppend={controller.actions.appendMessage}
         threadId={props.threadId}
       />
       <PromptComposer
