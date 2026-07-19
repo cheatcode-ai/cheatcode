@@ -8,7 +8,7 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && corepack enable \
-  && corepack prepare pnpm@11.8.0 --activate
+  && corepack prepare pnpm@11.15.0 --activate
 
 WORKDIR /workspace
 
