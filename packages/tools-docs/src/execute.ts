@@ -46,7 +46,6 @@ export async function executeGenerateSlides(
     buildSlidesScript(parsed, filename),
     runtimeContext,
     "slide",
-    { slideCount: parsed.slides.length, theme: parsed.theme },
   );
   return GenerateSlidesOutputSchema.parse({
     ...artifact,
@@ -65,7 +64,6 @@ export async function executeGenerateDocx(
     buildDocxScript(parsed, filename),
     runtimeContext,
     "docx",
-    { sectionCount: parsed.sections.length },
   );
   return GenerateDocxOutputSchema.parse({
     ...artifact,
@@ -80,12 +78,7 @@ export async function executeGeneratePdf(
 ): Promise<GeneratePdfOutput> {
   const parsed = GenerateDocumentInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "pdf");
-  const artifact = await runArtifactScript(
-    buildPdfScript(parsed, filename),
-    runtimeContext,
-    "pdf",
-    { sectionCount: parsed.sections.length },
-  );
+  const artifact = await runArtifactScript(buildPdfScript(parsed, filename), runtimeContext, "pdf");
   return GeneratePdfOutputSchema.parse({
     ...artifact,
     kind: "pdf",
@@ -103,7 +96,6 @@ export async function executeGenerateXlsx(
     buildXlsxScript(parsed, filename),
     runtimeContext,
     "xlsx",
-    { sheetCount: parsed.sheets.length },
   );
   return GenerateXlsxOutputSchema.parse({
     ...artifact,
@@ -116,7 +108,6 @@ async function runArtifactScript(
   code: string,
   runtimeContext: CodeRuntimeContext,
   kind: ArtifactKind,
-  metadata: Record<string, unknown>,
 ): Promise<ArtifactUploadResult> {
   if (!runtimeContext.artifacts) {
     throw new APIError(500, "internal_error", "Artifact storage is unavailable", {
@@ -129,24 +120,23 @@ async function runArtifactScript(
     cwd: runtimeContext.workspaceDir ?? WORKSPACE_ROOT,
     language: "javascript",
   });
-  if (result.success !== true) {
+  if (!result.success) {
     throw new APIError(502, "upstream_sandbox_failed", "Document generation failed", {
       details: {
-        stderrBytes: (result.stderr ?? "").length,
-        stdoutBytes: (result.stdout ?? "").length,
+        stderrBytes: result.stderr.length,
+        stdoutBytes: result.stdout.length,
       },
       retriable: false,
     });
   }
 
-  const generated = parseSandboxArtifact(result.stdout ?? "");
+  const generated = parseSandboxArtifact(result.stdout);
   await writeWorkspaceArtifact(runtimeContext, generated);
   return runtimeContext.artifacts.put({
     contentType: generated.mimeType,
     data: base64ToBytes(generated.base64),
     filename: generated.filename,
     kind,
-    metadata,
   });
 }
 

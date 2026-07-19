@@ -84,7 +84,6 @@ function HomeComputerBody({
         consoleStrip={
           activeTab === "files" ? <ConsoleStrip sandboxAvailable threadId={null} /> : null
         }
-        offsetInnerFrame
       >
         <HomeComputerTabContent activeTab={activeTab} />
       </ComputerSurfaceFrame>

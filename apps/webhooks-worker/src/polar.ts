@@ -3,7 +3,6 @@ import {
   getPolarCustomerState,
   type PolarCustomerStateSubscription,
   type PolarServer,
-  tierLimits,
 } from "@cheatcode/billing";
 import {
   applyEntitlementResourceLimits,
@@ -12,9 +11,9 @@ import {
   findBillingUserById,
   findBillingUserByPolarCustomerId,
   findEntitlementByUserId,
-  recordBillingEvent,
   updateUserPolarCustomerId,
   upsertEntitlement,
+  withUserContext,
 } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
 import { type BillingTier, BillingTierSchema, billingTierRank, UserId } from "@cheatcode/types";
@@ -47,31 +46,26 @@ export async function handlePolarWebhookEvent(
   input: {
     accessToken: string;
     event: unknown;
-    eventId: string | null;
     productTierById: PolarProductTierMap;
     server?: PolarServer;
   },
 ): Promise<PolarWebhookResult> {
   const event = PolarEventSchema.parse(input.event);
-  const payload = billingEventMetadata(event.data);
   const user = await resolvePolarUser(db, event.data);
 
   if (shouldReconcileCustomer(event.type) && user) {
     const result = await reconcilePolarCustomer(db, {
       accessToken: input.accessToken,
-      eventId: input.eventId,
       eventType: event.type,
       productTierById: input.productTierById,
       ...(input.server ? { server: input.server } : {}),
       user,
     });
-    await recordPolarEvent(db, event.type, payload, input.eventId, result.userId ?? user.id);
     return result;
   }
 
-  await recordPolarEvent(db, event.type, payload, input.eventId, user?.id ?? null);
   return {
-    action: user ? "recorded" : "recorded_without_user",
+    action: user ? "acknowledged" : "acknowledged_without_user",
     eventType: event.type,
     ...(user ? { userId: user.id } : {}),
   };
@@ -81,7 +75,6 @@ async function reconcilePolarCustomer(
   db: Database,
   input: {
     accessToken: string;
-    eventId: string | null;
     eventType: string;
     productTierById: PolarProductTierMap;
     server?: PolarServer;
@@ -93,8 +86,7 @@ async function reconcilePolarCustomer(
     externalCustomerId: input.user.id,
     ...(input.server ? { server: input.server } : {}),
   });
-  return db.transaction(async (transaction) => {
-    const tx = transaction as Database;
+  return withUserContext(db, input.user.id, async (tx) => {
     await updateUserPolarCustomerId(tx, {
       polarCustomerId: state.customerId,
       userId: input.user.id,
@@ -160,7 +152,9 @@ async function resolvePolarUser(
 ): Promise<BillingUserRecord | null> {
   const externalUserId = internalUserIdFromData(data);
   if (externalUserId) {
-    const user = await findBillingUserById(db, externalUserId);
+    const user = await withUserContext(db, externalUserId, (tx) =>
+      findBillingUserById(tx, externalUserId),
+    );
     if (user) {
       return user;
     }
@@ -201,52 +195,19 @@ async function writeEntitlement(
   const previousTier = parseTier(previous?.tier);
   const values = entitlementValuesForTier(input.tier);
   await upsertEntitlement(db, {
-    ...values,
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
     currentPeriodStart: input.currentPeriodStart ?? null,
     polarSubscriptionId: input.subscriptionId ?? null,
     subscriptionStatus: input.status,
+    tier: input.tier,
     userId: input.userId,
   });
   await applyEntitlementResourceLimits(db, {
-    byokProviderSlots: tierLimits(input.tier).byokProviderSlots,
     maxProjects: values.maxProjects,
     userId: input.userId,
   });
   return previousTier;
-}
-
-async function recordPolarEvent(
-  db: Database,
-  eventType: string,
-  payload: Record<string, unknown>,
-  eventId: string | null,
-  userId: UserId | null,
-): Promise<void> {
-  await recordBillingEvent(db, {
-    eventType,
-    payload,
-    polarEventId: eventId,
-    userId,
-  });
-}
-
-function billingEventMetadata(data: Record<string, unknown>): Record<string, unknown> {
-  const customer = recordField(data, "customer");
-  const product = recordField(data, "product");
-  return Object.fromEntries(
-    [
-      ["customer_id", stringField(data, "customerId") ?? stringField(customer, "id")],
-      [
-        "external_customer_id",
-        stringField(data, "externalCustomerId") ?? stringField(customer, "externalId"),
-      ],
-      ["object_id", stringField(data, "id")],
-      ["product_id", stringField(data, "productId") ?? stringField(product, "id")],
-      ["status", stringField(data, "status")],
-    ].filter((entry): entry is [string, string] => typeof entry[1] === "string"),
-  );
 }
 
 function recordField(

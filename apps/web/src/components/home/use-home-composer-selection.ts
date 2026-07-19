@@ -119,15 +119,27 @@ function useSkillSelectionActions(
   state: ReturnType<typeof useHomeSelectionState>,
   focusTextarea: () => void,
 ) {
-  const { intent, setIntentId, setRepoUrl, setSkillChip, skillChip } = state;
+  const { intent, setIntentId, setRepoUrl, setSkillChip, setToolChip, skillChip } = state;
   const selectSkill = useCallback(
     (skill: string) => {
       const nextInitial = resolveInitialSkill(skill);
       setIntentId(nextInitial.intent);
-      setSkillChip(nextInitial.chip);
+      // User-generated skills are not part of the build-time manifest, but they
+      // still need the same visible composer context and submission contract.
+      setSkillChip(nextInitial.chip ?? skill);
+      setToolChip(null);
       setRepoUrl(null);
     },
-    [setIntentId, setRepoUrl, setSkillChip],
+    [setIntentId, setRepoUrl, setSkillChip, setToolChip],
+  );
+  const selectTool = useCallback(
+    (tool: IntegrationName) => {
+      setIntentId(null);
+      setSkillChip(null);
+      setToolChip(tool);
+      setRepoUrl(null);
+    },
+    [setIntentId, setRepoUrl, setSkillChip, setToolChip],
   );
   const clearSkillSelection = useCallback(() => {
     if (intent?.skill && skillChip === intent.skill) {
@@ -136,7 +148,7 @@ function useSkillSelectionActions(
     setSkillChip(null);
     focusTextarea();
   }, [focusTextarea, intent, setIntentId, setSkillChip, skillChip]);
-  return { clearSkillSelection, selectSkill };
+  return { clearSkillSelection, selectSkill, selectTool };
 }
 
 function publicSelectionState(state: ReturnType<typeof useHomeSelectionState>) {

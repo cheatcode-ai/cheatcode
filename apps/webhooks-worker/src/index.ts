@@ -1,4 +1,7 @@
-import { verifyInternalMaintenanceRequest } from "@cheatcode/auth";
+import {
+  assertInternalMaintenanceEnvelope,
+  verifyInternalMaintenanceRequest,
+} from "@cheatcode/auth";
 import type { HyperdriveConnection } from "@cheatcode/db";
 import {
   type CloudflareVersionMetadata,
@@ -17,20 +20,45 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
+import {
+  INTERNAL_DATABASE_READINESS_PATH,
+  INTERNAL_DURABLE_OBJECT_STORAGE_PATH,
+  INTERNAL_RESOURCE_DELETION_PATH,
+  InternalResourceDeletionRequestSchema,
+} from "@cheatcode/types";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { Hono } from "hono";
 import { z } from "zod";
 import { verifyComposioWebhook } from "./composio";
+import { registerWebhooksDatabaseReadinessRoute } from "./database-readiness";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
+import { registerWebhooksDurableObjectStorageRoute } from "./durable-object-storage";
 import { internalAlertEventId, verifyInternalAlert } from "./internal-alert";
+import {
+  assertWebhookReplayHostname,
+  assertWebhooksServiceHostname,
+  requireResourceDeletionSecret,
+  requireWebhookReplaySecret,
+} from "./internal-maintenance";
 import {
   enqueueAnalyticsWatchdog,
   enqueueByokRevalidation,
-  enqueueDailyRetentionMetrics,
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
+import { type ReleaseGateBindings, releaseGateError } from "./release-gate";
+import {
+  enqueueResourceDeletionWorkflow,
+  ResourceDeletionWorkflow,
+  type ResourceDeletionWorkflowBindings,
+  reconcileResourceDeletionWorkflows,
+} from "./resource-deletion-workflow";
+import {
+  enqueueDailyRetentionMetrics,
+  reconcileDailyRetentionWorkflows,
+} from "./retention-admission";
+import { admitDueUserDeletionWorkflows } from "./user-deletion-admission";
 import {
   acceptWebhookEvent,
   claimInternalWebhookReplay,
@@ -49,15 +77,22 @@ import {
   type WebhookWorkflowPayload,
 } from "./webhook-workflow";
 
-export { OpsMaintenanceWorkflow, WebhookIdempotencyStore, WebhookWorkflow };
+export {
+  OpsMaintenanceWorkflow,
+  ResourceDeletionWorkflow,
+  WebhookIdempotencyStore,
+  WebhookWorkflow,
+};
 
 const MAX_PROVIDER_WEBHOOK_BODY_BYTES = 1024 * 1024;
 const MAX_INTERNAL_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 export interface WebhooksEnv
   extends AnalyticsBindings,
+    ReleaseGateBindings,
     WebhookIdempotencyBindings,
     OpsWorkflowBindings,
+    ResourceDeletionWorkflowBindings,
     WebhookWorkflowBindings {
   AGENT: Fetcher;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
@@ -68,13 +103,14 @@ export interface WebhooksEnv
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;
   COMPOSIO_WEBHOOK_SECRET?: WorkerSecret;
+  DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
-  GATEWAY: Fetcher;
+  GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecret;
   HYPERDRIVE: HyperdriveConnection;
-  INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
   INTERNAL_ALERT_WEBHOOK_SECRET?: WorkerSecret;
   INTERNAL_ALERT_WEBHOOK_URL?: string;
+  INTERNAL_WEBHOOK_REPLAY_SECRET: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
   POLAR_PRODUCT_ID_MAX?: string;
   POLAR_PRODUCT_ID_PREMIUM?: string;
@@ -82,12 +118,13 @@ export interface WebhooksEnv
   POLAR_PRODUCT_ID_ULTRA?: string;
   POLAR_SERVER?: "production" | "sandbox";
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
+  QUOTA_TRACKER: DurableObjectNamespace;
   R2_OUTPUTS: R2Bucket;
-  R2_OUTPUTS_BUCKET_NAME?: string;
-  R2_UPLOADS: R2Bucket;
+  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
   SANDBOX_STATE?: KVNamespace;
+  WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecret;
 }
 
 function requestId(): string {
@@ -170,22 +207,6 @@ async function internalAlertWebhookSecret(env: WebhooksEnv): Promise<string> {
   return secret;
 }
 
-async function internalMaintenanceSecret(env: WebhooksEnv): Promise<string> {
-  const secret = await readOptionalSecret(
-    env.INTERNAL_MAINTENANCE_SECRET,
-    "INTERNAL_MAINTENANCE_SECRET",
-  );
-  if (!secret) {
-    throw new APIError(
-      503,
-      "unavailable_maintenance",
-      "Internal maintenance verification is not configured",
-      { retriable: false },
-    );
-  }
-  return secret;
-}
-
 async function readOptionalSecret(
   secret: WorkerSecret | undefined,
   name: string,
@@ -246,12 +267,15 @@ webhooksApp.use("*", async (c, next) => {
 webhooksApp.get("/health", (c) =>
   c.json({
     ok: true,
+    releaseGate: c.env.CHEATCODE_RELEASE_GATE,
     releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
     versionId: c.env.CF_VERSION_METADATA?.id ?? null,
     worker: "webhooks",
   }),
 );
 
+registerWebhooksDatabaseReadinessRoute(webhooksApp);
+registerWebhooksDurableObjectStorageRoute(webhooksApp);
 webhooksApp.post("/clerk", async (c) => {
   const signingSecret = await clerkWebhookSigningSecret(c.env);
   const rawBody = await readBoundedRequestText(
@@ -373,15 +397,26 @@ webhooksApp.post("/daytona", async (c) => {
 });
 
 webhooksApp.post("/internal/webhooks/replay", async (c) => {
+  assertWebhookReplayHostname(c.req.raw, c.env.CHEATCODE_ENVIRONMENT);
+  assertInternalMaintenanceEnvelope(c.req.raw, {
+    audience: "webhooks",
+    capability: "webhook-replay",
+    issuer: "operator",
+  });
   const rawBody = await readBoundedRequestText(
     c.req.raw,
     MAX_INTERNAL_WEBHOOK_BODY_BYTES,
     "Webhook replay",
   );
   await verifyInternalMaintenanceRequest({
+    expectedAudience: "webhooks",
+    expectedCapability: "webhook-replay",
+    expectedIssuer: "operator",
+    expectedMethod: "POST",
+    expectedPathname: "/internal/webhooks/replay",
     rawBody,
     request: c.req.raw,
-    secret: await internalMaintenanceSecret(c.env),
+    secret: await requireWebhookReplaySecret(c.env),
   });
   const replay = WebhookReplaySchema.parse(parseJsonBody(rawBody, "Webhook replay"));
   const timestamp = c.req.header("x-cheatcode-maintenance-timestamp");
@@ -400,6 +435,35 @@ webhooksApp.post("/internal/webhooks/replay", async (c) => {
     await releaseInternalWebhookReplay(c.env, command.commandId);
     throw error;
   }
+});
+
+webhooksApp.post(INTERNAL_RESOURCE_DELETION_PATH, async (c) => {
+  assertWebhooksServiceHostname(c.req.raw);
+  assertInternalMaintenanceEnvelope(c.req.raw, {
+    audience: "webhooks",
+    capability: "resource-deletion",
+    issuer: "gateway",
+  });
+  const rawBody = await readBoundedRequestText(
+    c.req.raw,
+    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
+    "Resource deletion request",
+  );
+  await verifyInternalMaintenanceRequest({
+    expectedAudience: "webhooks",
+    expectedCapability: "resource-deletion",
+    expectedIssuer: "gateway",
+    expectedMethod: "POST",
+    expectedPathname: INTERNAL_RESOURCE_DELETION_PATH,
+    rawBody,
+    request: c.req.raw,
+    secret: await requireResourceDeletionSecret(c.env),
+  });
+  const payload = InternalResourceDeletionRequestSchema.parse(
+    parseJsonBody(rawBody, "Resource deletion request"),
+  );
+  const jobId = await enqueueResourceDeletionWorkflow(c.env, payload);
+  return c.json({ jobId, ok: true }, 202);
 });
 
 async function replayWebhookEvent(env: WebhooksEnv, replay: z.infer<typeof WebhookReplaySchema>) {
@@ -572,6 +636,10 @@ const webhooksHandler = {
     const id = requestId();
     const logger = createLogger({ requestId: id });
     try {
+      const releaseGate = webhooksReleaseGateResponse(request, env, id);
+      if (releaseGate) {
+        return releaseGate;
+      }
       const requestWithId = new Request(request);
       requestWithId.headers.set("X-Request-Id", id);
       const response = await webhooksApp.fetch(requestWithId, env, ctx);
@@ -599,23 +667,99 @@ const webhooksHandler = {
     ctx: ExecutionContext,
   ): Promise<void> {
     WebhooksWorkerEnvSchema.parse(env);
+    if (env.CHEATCODE_RELEASE_GATE !== "open") {
+      return;
+    }
     if (controller.cron === DAILY_RETENTION_METRICS_CRON) {
       ctx.waitUntil(enqueueDailyRetentionMetrics(env, controller.scheduledTime));
       return;
     }
-    if (controller.cron === BYOK_REVALIDATION_CRON) {
-      ctx.waitUntil(enqueueByokRevalidation(env, controller.scheduledTime));
-      return;
-    }
     if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
       ctx.waitUntil(enqueueAnalyticsWatchdog(env, controller.scheduledTime));
+      ctx.waitUntil(enqueueByokRevalidation(env, controller.scheduledTime));
+      ctx.waitUntil(
+        admitDueUserDeletionWorkflows(env, controller.scheduledTime).then((result) => {
+          if (
+            result.claimed > 0 ||
+            result.deferred > 0 ||
+            result.discovered > 0 ||
+            result.quarantined > 0 ||
+            result.stale > 0
+          ) {
+            createLogger().info("user_deletion_workflows_admitted", { ...result });
+          }
+        }),
+      );
+      ctx.waitUntil(
+        reconcileResourceDeletionWorkflows(env).then((result) => {
+          if (
+            result.claimed > 0 ||
+            result.projects > 0 ||
+            result.quarantined > 0 ||
+            result.threads > 0
+          ) {
+            createLogger().info("resource_deletion_reconciliation_enqueued", result);
+          }
+        }),
+      );
+      ctx.waitUntil(
+        reconcileDailyRetentionWorkflows(env).then((result) => {
+          if (
+            result.claimed > 0 ||
+            result.created > 0 ||
+            result.deferred > 0 ||
+            result.purged > 0 ||
+            result.restarted > 0 ||
+            result.staleRelease > 0
+          ) {
+            createLogger().info("retention_workflows_reconciled", { ...result });
+          }
+        }),
+      );
       return;
     }
   },
 };
 
+function webhooksReleaseGateResponse(
+  request: Request,
+  env: WebhooksEnv,
+  id: string,
+): Response | undefined {
+  if (env.CHEATCODE_RELEASE_GATE === "open") {
+    return undefined;
+  }
+  const url = new URL(request.url);
+  if (
+    env.CHEATCODE_RELEASE_GATE === "closed" &&
+    request.method === "POST" &&
+    (url.pathname === INTERNAL_DATABASE_READINESS_PATH ||
+      url.pathname === INTERNAL_DURABLE_OBJECT_STORAGE_PATH)
+  ) {
+    return undefined;
+  }
+  if (request.method === "GET" && url.pathname === "/health") {
+    return withRequestId(
+      Response.json(
+        {
+          ok: true,
+          releaseGate: env.CHEATCODE_RELEASE_GATE,
+          releaseSha: env.CHEATCODE_RELEASE_SHA ?? "development",
+          versionId: env.CF_VERSION_METADATA?.id ?? null,
+          worker: "webhooks",
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      ),
+      id,
+    );
+  }
+  const response = releaseGateError(env.CHEATCODE_RELEASE_GATE).toResponse(id);
+  response.headers.set("Cache-Control", "no-store");
+  response.headers.set("Retry-After", "5");
+  return response;
+}
+
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
-const BYOK_REVALIDATION_CRON = "35 0 * * *";
 const DAILY_RETENTION_METRICS_CRON = "20 0 * * *";
 
 export default withErrorHandler(webhooksHandler, {

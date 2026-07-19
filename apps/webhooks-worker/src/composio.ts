@@ -1,33 +1,69 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
-import {
-  type Database,
-  updateUserIntegrationStatusByConnectionId,
-  upsertUserIntegration,
-} from "@cheatcode/db";
+import { type Database, expireComposioConnection } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import {
-  ComposioConnectionIdSchema,
-  type IntegrationName,
-  IntegrationNameSchema,
-  UserId,
-} from "@cheatcode/types";
+import { ComposioConnectionIdSchema, UserId } from "@cheatcode/types";
 import { z } from "zod";
 
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
-
-const ComposioPayloadSchema = z
-  .object({
-    data: z.record(z.string(), z.unknown()).default({}),
-    metadata: z.record(z.string(), z.unknown()).optional(),
-    timestamp: z.string().optional(),
-    type: z.string().min(1),
-  })
-  .passthrough();
+const COMPOSIO_ID_MAX_CHARACTERS = 512;
+const COMPOSIO_SLUG_MAX_CHARACTERS = 256;
+const V1_SIGNATURE_PATTERN = /^v1,([A-Za-z0-9+/]{43}=)$/;
 
 const InternalUserIdSchema = z
   .string()
   .uuid()
   .transform((value) => UserId(value));
+
+const ComposioEventIdSchema = z.string().min(1).max(COMPOSIO_ID_MAX_CHARACTERS);
+const ComposioTimestampSchema = z.string().datetime({ offset: true });
+const ComposioSlugSchema = z.string().trim().min(1).max(COMPOSIO_SLUG_MAX_CHARACTERS);
+
+const ComposioTriggerMessageSchema = z
+  .object({
+    data: z.record(z.string(), z.unknown()),
+    id: ComposioEventIdSchema,
+    metadata: z
+      .object({
+        auth_config_id: ComposioEventIdSchema,
+        connected_account_id: ComposioConnectionIdSchema,
+        log_id: ComposioEventIdSchema,
+        trigger_id: ComposioEventIdSchema,
+        trigger_slug: ComposioSlugSchema,
+        user_id: InternalUserIdSchema,
+      })
+      .strict(),
+    timestamp: ComposioTimestampSchema,
+    type: z.literal("composio.trigger.message"),
+  })
+  .strict();
+
+const ComposioConnectionExpiredSchema = z
+  .object({
+    data: z
+      .object({
+        id: ComposioConnectionIdSchema,
+        status: z.literal("EXPIRED"),
+        toolkit: z.object({ slug: ComposioSlugSchema }).strip(),
+      })
+      .strip(),
+    id: ComposioEventIdSchema,
+    metadata: z
+      .object({
+        org_id: ComposioEventIdSchema,
+        project_id: ComposioEventIdSchema,
+      })
+      .strict(),
+    timestamp: ComposioTimestampSchema,
+    type: z.literal("composio.connected_account.expired"),
+  })
+  .strict();
+
+const ComposioWebhookEventSchema = z.discriminatedUnion("type", [
+  ComposioTriggerMessageSchema,
+  ComposioConnectionExpiredSchema,
+]);
+
+type ComposioWebhookEvent = z.infer<typeof ComposioWebhookEventSchema>;
 
 export interface ComposioWebhookVerificationInput {
   rawBody: string;
@@ -45,7 +81,7 @@ export interface ComposioWebhookResult {
 
 export async function verifyComposioWebhook(
   input: ComposioWebhookVerificationInput,
-): Promise<unknown> {
+): Promise<ComposioWebhookEvent> {
   if (!input.webhookId || !input.webhookTimestamp || !input.webhookSignature) {
     throw invalidComposioSignature("Missing Composio webhook signature headers");
   }
@@ -54,58 +90,52 @@ export async function verifyComposioWebhook(
     `${input.webhookId}.${input.webhookTimestamp}.${input.rawBody}`,
     input.secret,
   );
-  const received = signaturePayload(input.webhookSignature);
-  if (!timingSafeEqual(received, expected)) {
+  const received = v1SignaturePayloads(input.webhookSignature);
+  if (!received.some((signature) => timingSafeEqual(signature, expected))) {
     throw invalidComposioSignature("Invalid Composio webhook signature");
   }
-  return JSON.parse(input.rawBody) as unknown;
+  return parseComposioEvent(input.rawBody);
 }
 
 export async function handleComposioWebhookEvent(
   db: Database,
   event: unknown,
 ): Promise<ComposioWebhookResult> {
-  const payload = ComposioPayloadSchema.parse(event);
-
-  const connectionId = connectionIdFromData(payload.data);
-  const integration =
-    integrationFromData(payload.data) ?? integrationFromMetadata(payload.metadata);
-  const userId = userIdFromPayload(payload);
-
-  if (!payload.type.startsWith("composio.connected_account.")) {
+  const payload = ComposioWebhookEventSchema.parse(event);
+  if (payload.type === "composio.trigger.message") {
     return {
       action: "recorded",
       eventType: payload.type,
-      ...(userId ? { userId } : {}),
+      userId: payload.metadata.user_id,
     };
   }
 
-  if (payload.type === "composio.connected_account.expired" && connectionId) {
-    const updated = await updateUserIntegrationStatusByConnectionId(db, {
-      composioConnectionId: connectionId,
-      status: "expired",
-    });
-    return {
-      action: updated ? "integration_expired" : "integration_expired_without_match",
-      eventType: payload.type,
-    };
-  }
-
-  if (connectionId && integration && userId) {
-    await upsertUserIntegration(db, {
-      composioConnectionId: connectionId,
-      integration,
-      status: statusFromData(payload.data, payload.type),
-      userId,
-    });
-    return { action: "integration_synced", eventType: payload.type, userId };
-  }
-
+  const updated = await expireComposioConnection(db, payload.data.id);
   return {
-    action: "recorded",
+    action: updated ? "integration_expired" : "integration_expired_without_match",
     eventType: payload.type,
-    ...(userId ? { userId } : {}),
   };
+}
+
+function parseComposioEvent(rawBody: string): ComposioWebhookEvent {
+  let event: unknown;
+  try {
+    event = JSON.parse(rawBody);
+  } catch {
+    throw new APIError(400, "invalid_request_body", "Composio webhook JSON is invalid", {
+      retriable: false,
+    });
+  }
+  const parsed = ComposioWebhookEventSchema.safeParse(event);
+  if (!parsed.success) {
+    throw new APIError(
+      400,
+      "invalid_request_body",
+      "Unsupported or invalid Composio V3 webhook payload",
+      { retriable: false },
+    );
+  }
+  return parsed.data;
 }
 
 function invalidComposioSignature(message: string): APIError {
@@ -113,91 +143,28 @@ function invalidComposioSignature(message: string): APIError {
 }
 
 function assertFreshTimestamp(value: string): void {
-  const rawTimestamp = Number(value);
-  const timestampMs = rawTimestamp > 1_000_000_000_000 ? rawTimestamp : rawTimestamp * 1000;
-  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > MAX_CLOCK_SKEW_MS) {
+  if (!/^[0-9]+$/.test(value)) {
+    throw invalidComposioSignature("Invalid Composio webhook timestamp");
+  }
+  const timestampSeconds = Number(value);
+  const timestampMs = timestampSeconds * 1000;
+  if (
+    !Number.isSafeInteger(timestampSeconds) ||
+    !Number.isSafeInteger(timestampMs) ||
+    Math.abs(Date.now() - timestampMs) > MAX_CLOCK_SKEW_MS
+  ) {
     throw invalidComposioSignature("Stale Composio webhook timestamp");
   }
 }
 
-function signaturePayload(signature: string): string {
-  const parts = signature.split(",");
-  return parts.length > 1 ? (parts[1] ?? "") : signature;
-}
-
-function connectionIdFromData(data: Record<string, unknown>): string | null {
-  const candidate = firstString(data, [
-    "id",
-    "connectedAccountId",
-    "connected_account_id",
-    "accountId",
-  ]);
-  return candidate ? ComposioConnectionIdSchema.parse(candidate) : null;
-}
-
-function integrationFromData(data: Record<string, unknown>): IntegrationName | null {
-  const toolkit = recordField(data, "toolkit");
-  return parseIntegrationName(
-    firstString(data, ["toolkitSlug", "toolkit_slug", "integration", "appName"]) ??
-      firstString(toolkit, ["slug", "name"]),
-  );
-}
-
-function integrationFromMetadata(
-  metadata: Record<string, unknown> | undefined,
-): IntegrationName | null {
-  return parseIntegrationName(
-    firstString(metadata, ["toolkitSlug", "toolkit_slug", "integration", "trigger_slug"]),
-  );
-}
-
-function parseIntegrationName(value: string | null): IntegrationName | null {
-  const parsed = value ? IntegrationNameSchema.safeParse(value) : null;
-  return parsed?.success ? parsed.data : null;
-}
-
-function userIdFromPayload(payload: z.infer<typeof ComposioPayloadSchema>): UserId | null {
-  const candidate =
-    firstString(payload.data, ["userId", "user_id", "externalUserId", "external_user_id"]) ??
-    firstString(payload.metadata, ["userId", "user_id", "externalUserId", "external_user_id"]);
-  const parsed = candidate ? InternalUserIdSchema.safeParse(candidate) : null;
-  return parsed?.success ? parsed.data : null;
-}
-
-function statusFromData(data: Record<string, unknown>, eventType: string): string {
-  const status = firstString(data, ["status", "state"]);
-  if (status) {
-    return status;
-  }
-  if (eventType.includes("expired")) {
-    return "expired";
-  }
-  if (eventType.includes("deleted") || eventType.includes("revoked")) {
-    return "revoked";
-  }
-  return "connected";
-}
-
-function recordField(
-  record: Record<string, unknown> | undefined,
-  key: string,
-): Record<string, unknown> | undefined {
-  const value = record?.[key];
-  if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return undefined;
-  }
-  return value as Record<string, unknown>;
-}
-
-function firstString(
-  record: Record<string, unknown> | undefined,
-  keys: readonly string[],
-): string | null {
-  for (const key of keys) {
-    const value = record?.[key];
-    if (typeof value === "string" && value.trim().length > 0) {
-      return value.trim();
+function v1SignaturePayloads(signature: string): string[] {
+  const payloads: string[] = [];
+  for (const candidate of signature.split(" ")) {
+    const payload = V1_SIGNATURE_PATTERN.exec(candidate)?.[1];
+    if (!payload) {
+      throw invalidComposioSignature("Invalid Composio webhook signature format");
     }
+    payloads.push(payload);
   }
-  return null;
+  return payloads;
 }

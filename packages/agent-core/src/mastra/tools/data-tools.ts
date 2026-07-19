@@ -10,7 +10,7 @@ import {
   executeDataScrapeToCsv,
 } from "@cheatcode/tools-data";
 import { createTool } from "@mastra/core/tools";
-import { codeRuntimeFromContext } from "./tool-runtime-context";
+import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 
 export const mastraDataAnalyzeCsv = createTool({
   id: "data_analyze_csv",
@@ -28,7 +28,7 @@ export const mastraDataChart = createTool({
   inputSchema: DataChartInputSchema,
   outputSchema: DataChartOutputSchema,
   execute: async (input, context) =>
-    executeDataChart(DataChartInputSchema.parse(input), codeRuntimeFromContext(context)),
+    executeDataChart(DataChartInputSchema.parse(input), await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraDataScrapeToCsv = createTool({

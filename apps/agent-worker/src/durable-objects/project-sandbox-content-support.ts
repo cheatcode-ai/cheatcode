@@ -106,10 +106,6 @@ if archive_size > max_output_bytes:
 
 export { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES };
 
-export function isSingleWorkspaceSegment(slug: string): boolean {
-  return slug.length > 0 && !slug.includes("/") && slug !== "." && slug !== "..";
-}
-
 export function lowercaseExtension(path: string): string {
   const filename = basename(path).toLowerCase();
   const dot = filename.lastIndexOf(".");

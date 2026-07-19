@@ -54,6 +54,8 @@ if(window.__CHEATCODE_CS_BRIDGE__)return;
 window.__CHEATCODE_CS_BRIDGE__=true;
 if(window.parent===window)return;
 var cheatcodeParentOrigin=__CHEATCODE_PARENT_ORIGIN_JSON__;
+var cheatcodeInitialFilePath=new URL(window.location.href).searchParams.get("cc_open_file")||"";
+var cheatcodeInitialFileName=cheatcodeInitialFilePath.split("/").filter(Boolean).pop()||"";
 
 var cheatcodeTheme=new URL(window.location.href).searchParams.get("cc_theme");
 if(cheatcodeTheme==="dark"||cheatcodeTheme==="light"){
@@ -211,14 +213,16 @@ setTimeout(function(){try{window.dispatchEvent(new Event("resize"));}catch(_err)
 setTimeout(function(){try{window.dispatchEvent(new Event("resize"));}catch(_err){}},150);
 }
 
-function maybeOpenInitialDeliverable(){
+function maybeOpenInitialFile(){
 try{
 if(window.__CHEATCODE_CS_OPENED_INITIAL_DELIVERABLE__)return;
 if(!document.querySelector(".editor-group-container.empty"))return;
 var rows=document.querySelectorAll("[role='treeitem']");
 for(var i=0;i<rows.length;i++){
 var text=(rows[i].textContent||"").trim();
-if(/\.(pptx?|pdf|docx?|xlsx?|ods|odt)\b/i.test(text)&&visible(rows[i])){
+var isRequestedFile=cheatcodeInitialFileName&&text.indexOf(cheatcodeInitialFileName)!==-1;
+var isDeliverable=/\.(pptx?|pdf|docx?|xlsx?|ods|odt)\b/i.test(text);
+if((isRequestedFile||(!cheatcodeInitialFileName&&isDeliverable))&&visible(rows[i])){
 window.__CHEATCODE_CS_OPENED_INITIAL_DELIVERABLE__=true;
 var target=rows[i].querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||rows[i];
 dispatchClick(target);
@@ -298,7 +302,7 @@ if(!owner||!owner.classList.contains("empty"))states[i].remove();
 var group=document.querySelector(".editor-group-container.empty");
 if(!group||group.querySelector(":scope > .cheatcode-directory-state,:scope > .cheatcode-computer-empty"))return;
 var state=document.createElement("div");
-if(currentWorkspaceName().toLowerCase()==="computer"){
+if(currentWorkspaceName().toLowerCase()==="computer"&&!cheatcodeInitialFileName){
 state.className="cheatcode-computer-empty";
 state.setAttribute("aria-hidden","true");
 state.innerHTML='<span class="cheatcode-computer-mark"><span class="cheatcode-computer-mark-main">✦</span><span class="cheatcode-computer-mark-small">✦</span></span>';
@@ -320,7 +324,7 @@ normalizeExplorerChrome();
 markWorkbenchSplitViews();
 if(sidebarCollapsed)applySidebarState(true);
 if(workspaceResetRequested)resetWorkspaceView();
-maybeOpenInitialDeliverable();
+maybeOpenInitialFile();
 ensureDirectoryState();
 reportBridgeReady();
 }
@@ -329,6 +333,12 @@ window.addEventListener("message",function(event){
 if(event.source!==window.parent||event.origin!==cheatcodeParentOrigin)return;
 var message=event.data;
 if(!message)return;
+if(message.type==="CHEATCODE_REQUEST_CODE_SERVER_STATE"){
+if(bridgeReadyReported)postBridgeReady();
+else normalizeWorkbench();
+var requestedSidebar=document.querySelector(".part.sidebar");
+if(requestedSidebar)reportSidebarState(requestedSidebar);
+}
 if(message.type==="CHEATCODE_CLOSE_ALL_EDITORS")closeAllEditors();
 if(message.type==="CHEATCODE_RESET_WORKSPACE_VIEW"){workspaceResetRequested=true;resetWorkspaceView();}
 if(message.type==="CHEATCODE_TOGGLE_SIDEBAR")toggleSidebar();
@@ -336,13 +346,16 @@ if(message.type==="CHEATCODE_SET_SIDEBAR_COLLAPSED")applySidebarState(message.co
 });
 
 var bridgeReadyReported=false;
+function postBridgeReady(){
+try{window.parent.postMessage({type:"CHEATCODE_CODE_SERVER_READY"},cheatcodeParentOrigin)}catch(_err){}
+}
 function reportBridgeReady(){
 if(bridgeReadyReported)return;
 var views=markWorkbenchSplitViews();
 var collapse=document.querySelector("[aria-label='Collapse Folders in Explorer']");
 if(!views||!collapse)return;
 bridgeReadyReported=true;
-try{window.parent.postMessage({type:"CHEATCODE_CODE_SERVER_READY"},cheatcodeParentOrigin)}catch(_err){}
+postBridgeReady();
 }
 
 var lastSidebarVisible=null;

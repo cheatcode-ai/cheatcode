@@ -3,9 +3,9 @@
   "private": true,
   "version": "0.0.0",
   "engines": {
-    "node": "22.x"
+    "node": "22.22.2"
   },
   "dependencies": {
-    "create-next-app": "16.2.9"
+    "create-next-app": "16.2.10"
   }
 }

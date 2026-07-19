@@ -1,11 +1,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import { updateCustomerProfile } from "@cheatcode/billing";
 import {
   createDb,
   type Database,
   type HyperdriveConnection,
   markClerkUserDeleted,
-  upsertClerkUser,
+  syncClerkUser,
+  withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import {
@@ -14,7 +16,13 @@ import {
   createLogger,
   emitUserEvent,
 } from "@cheatcode/observability";
-import { type BillingTier, billingTierRank, type UserId } from "@cheatcode/types";
+import {
+  type BillingTier,
+  BillingTierSchema,
+  billingTierRank,
+  UserId as toUserId,
+  type UserId,
+} from "@cheatcode/types";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
 import { z } from "zod";
 import { handleClerkWebhookEvent } from "./clerk";
@@ -22,8 +30,8 @@ import { handleComposioWebhookEvent } from "./composio";
 import { DaytonaWebhookSchema } from "./daytona";
 import { refreshEntitlementCache } from "./entitlement-cache";
 import { recordInternalAlert, VerifiedInternalAlertSchema } from "./internal-alert";
-import { enqueueUserDeletionWorkflow, type OpsWorkflowBindings } from "./ops-workflow";
 import { handlePolarWebhookEvent } from "./polar";
+import { assertReleaseOpen, type ReleaseGateBindings } from "./release-gate";
 import {
   completeWebhookEvent,
   failWebhookEvent,
@@ -45,14 +53,12 @@ const WebhookWorkflowPayloadSchema = z.object({
 
 export type WebhookWorkflowPayload = z.infer<typeof WebhookWorkflowPayloadSchema>;
 
-export interface WebhookWorkflowBindings {
+export interface WebhookWorkflowBindings extends ReleaseGateBindings {
   WEBHOOK_WORKFLOW: Workflow<WebhookWorkflowPayload>;
 }
 
-interface WebhookWorkflowEnv
-  extends AnalyticsBindings,
-    OpsWorkflowBindings,
-    WebhookIdempotencyBindings {
+interface WebhookWorkflowEnv extends AnalyticsBindings, WebhookIdempotencyBindings {
+  DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
   HYPERDRIVE: HyperdriveConnection;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
@@ -63,11 +69,25 @@ interface WebhookWorkflowEnv
   POLAR_SERVER?: "production" | "sandbox";
 }
 
-type BillingEventCandidate = {
-  action: string;
-  eventType: string;
-  userId?: UserId;
-};
+const WebhookActionResultSchema = z
+  .object({
+    action: z.string().min(1),
+    displayName: z.string().nullable().optional(),
+    email: z.string().min(1).optional(),
+    eventType: z.string().min(1),
+    polarCustomerId: z.string().nullable().optional(),
+    previousTier: BillingTierSchema.optional(),
+    tier: BillingTierSchema.optional(),
+    userId: z.string().uuid().transform(toUserId).optional(),
+  })
+  .strip();
+
+type WebhookActionResult = z.infer<typeof WebhookActionResultSchema>;
+
+const WEBHOOK_RETRY_OPTIONS = {
+  retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
+  timeout: "5 minutes",
+} as const;
 
 export interface WebhookProcessResult {
   action: string;
@@ -85,33 +105,31 @@ export class WebhookWorkflow extends WorkflowEntrypoint<
     event: Readonly<WorkflowEvent<WebhookWorkflowPayload>>,
     step: WorkflowStep,
   ): Promise<WebhookProcessResult> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      throw new NonRetryableError(
+        "Webhook processing is fenced by a closed release",
+        "WebhookReleaseGateClosed",
+      );
+    }
     const payload = WebhookWorkflowPayloadSchema.parse(event.payload);
     try {
       await step.do("mark webhook running", async () => {
         await startWebhookEvent(this.env, webhookStateInput(payload, event.instanceId));
         return { ok: true };
       });
-      const result = await step.do(
-        "process verified webhook",
-        {
-          retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
-          timeout: "5 minutes",
-        },
-        async () => processWebhookPayload(this.env, payload),
+      const actionResult = await step.do(
+        "persist verified webhook",
+        WEBHOOK_RETRY_OPTIONS,
+        async () => persistWebhookPayload(this.env, payload),
       );
-      if (shouldStartUserDeletion(result)) {
-        await step.do("enqueue user deletion lifecycle", async () => {
-          return enqueueUserDeletionWorkflow(this.env, {
-            requestedAt: payload.acceptedAt,
-            userId: result.userId,
-          });
-        });
-      }
+      // The provider result is durable before derived effects. A retry therefore
+      // cannot mistake an idempotent database no-op for evidence that they ran.
+      await applyDerivedWebhookEffects(this.env, step, payload, actionResult);
       await step.do("mark webhook processed", async () => {
         await completeWebhookEvent(this.env, webhookStateInput(payload, event.instanceId));
         return { ok: true };
       });
-      return result;
+      return toWebhookProcessResult(payload.provider, actionResult, actionResult.tier);
     } catch (error) {
       await recordTerminalWebhookFailure(this.env, step, payload, event.instanceId, error);
       throw error;
@@ -123,6 +141,7 @@ export async function enqueueVerifiedWebhook(
   env: WebhookWorkflowBindings,
   payload: WebhookWorkflowPayload,
 ): Promise<DeterministicWorkflowResult> {
+  assertReleaseOpen(env);
   const parsed = WebhookWorkflowPayloadSchema.parse(payload);
   return createDeterministicWorkflow(env.WEBHOOK_WORKFLOW, {
     id: webhookWorkflowId(parsed),
@@ -134,14 +153,14 @@ export async function enqueueVerifiedWebhook(
   });
 }
 
-async function processWebhookPayload(
+async function persistWebhookPayload(
   env: WebhookWorkflowEnv,
   value: unknown,
-): Promise<WebhookProcessResult> {
+): Promise<WebhookActionResult> {
   const payload = WebhookWorkflowPayloadSchema.parse(value);
   const infrastructureResult = await processInfrastructureWebhook(env, payload);
   if (infrastructureResult) {
-    return toWebhookProcessResult(payload.provider, infrastructureResult);
+    return WebhookActionResultSchema.parse(infrastructureResult);
   }
   return processDatabaseWebhook(env, payload);
 }
@@ -149,37 +168,88 @@ async function processWebhookPayload(
 async function processDatabaseWebhook(
   env: WebhookWorkflowEnv,
   payload: WebhookWorkflowPayload,
-): Promise<WebhookProcessResult> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+): Promise<WebhookActionResult> {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_webhooks",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
+  });
   try {
     const result = await processProviderWebhook(db, env, payload);
-    const tier = resultTier(result);
-    if (result.userId && (payload.provider === "clerk" || payload.provider === "polar")) {
-      await refreshEntitlementCache(db, env.ENTITLEMENTS_CACHE, result.userId);
-    }
-    if (payload.provider === "clerk") {
-      await syncPolarCustomerFromClerkUpdate(env, result);
-    }
-    // Analytics writes are a non-throwing tail. Emitting before a fallible provider
-    // synchronization would duplicate events when the Workflow retries this step.
-    if (result.userId && payload.provider === "clerk" && result.eventType === "user.created") {
-      emitUserEvent(env, {
-        authMethod: authMethodFromClerkEvent(payload.event),
-        eventName: "signup_completed",
-        userId: result.userId,
-      });
-    }
-    emitPolarBillingEvents(env, payload.provider, result, tier);
-    return toWebhookProcessResult(payload.provider, result, tier);
+    return WebhookActionResultSchema.parse(result);
   } finally {
     await close();
   }
 }
 
+async function applyDerivedWebhookEffects(
+  env: WebhookWorkflowEnv,
+  step: WorkflowStep,
+  payload: WebhookWorkflowPayload,
+  result: WebhookActionResult,
+): Promise<void> {
+  const userId = result.userId;
+  if (userId && (payload.provider === "clerk" || payload.provider === "polar")) {
+    await step.do("refresh webhook entitlement cache", WEBHOOK_RETRY_OPTIONS, async () => {
+      await refreshWebhookEntitlementCache(env, userId);
+      return { ok: true };
+    });
+  }
+  if (payload.provider === "clerk") {
+    await step.do("sync clerk profile to Polar", WEBHOOK_RETRY_OPTIONS, async () => {
+      await syncPolarCustomerFromClerkUpdate(env, result);
+      return { ok: true };
+    });
+  }
+  if (userId && (payload.provider === "clerk" || payload.provider === "polar")) {
+    await step.do("emit webhook analytics", async () => {
+      emitWebhookAnalytics(env, payload, result);
+      return { ok: true };
+    });
+  }
+}
+
+async function refreshWebhookEntitlementCache(
+  env: WebhookWorkflowEnv,
+  userId: UserId,
+): Promise<void> {
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_webhooks",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
+  });
+  try {
+    await withUserContext(db, userId, (tx) =>
+      refreshEntitlementCache(tx, env.ENTITLEMENTS_CACHE, userId),
+    );
+  } finally {
+    await close();
+  }
+}
+
+function emitWebhookAnalytics(
+  env: WebhookWorkflowEnv,
+  payload: WebhookWorkflowPayload,
+  result: WebhookActionResult,
+): void {
+  if (
+    result.userId &&
+    payload.provider === "clerk" &&
+    result.eventType === "user.created" &&
+    result.action !== "stale_event_ignored"
+  ) {
+    emitUserEvent(env, {
+      authMethod: authMethodFromClerkEvent(payload.event),
+      eventId: payload.eventId,
+      eventName: "signup_completed",
+      userId: result.userId,
+    });
+  }
+  emitPolarBillingEvents(env, payload.provider, payload.eventId, result, result.tier);
+}
+
 async function processInfrastructureWebhook(
   env: WebhookWorkflowEnv,
   payload: WebhookWorkflowPayload,
-): Promise<BillingEventCandidate | null> {
+): Promise<WebhookActionResult | null> {
   if (payload.provider === "daytona") {
     const event = DaytonaWebhookSchema.parse(payload.event);
     const updated = await updateDaytonaSandboxState(env, {
@@ -206,7 +276,7 @@ async function processProviderWebhook(
     return handleClerkWebhookEvent(
       {
         markUserDeleted: (clerkId, deletedAt) => markClerkUserDeleted(db, clerkId, deletedAt),
-        upsertUser: (input) => upsertClerkUser(db, input),
+        syncUser: (input) => syncClerkUser(db, input),
       },
       payload.event as WebhookEvent,
       new Date(payload.acceptedAt),
@@ -216,7 +286,6 @@ async function processProviderWebhook(
     return handlePolarWebhookEvent(db, {
       accessToken: await polarAccessToken(env),
       event: payload.event,
-      eventId: payload.eventId,
       productTierById: polarProductTierById(env),
       ...(env.POLAR_SERVER ? { server: env.POLAR_SERVER } : {}),
     });
@@ -231,7 +300,7 @@ async function processProviderWebhook(
 
 function toWebhookProcessResult(
   provider: WebhookProvider,
-  result: BillingEventCandidate,
+  result: WebhookActionResult,
   tier?: string,
 ): WebhookProcessResult {
   return {
@@ -290,7 +359,8 @@ async function recordTerminalWebhookFailure(
 function emitPolarBillingEvents(
   env: WebhookWorkflowEnv,
   provider: WebhookWorkflowPayload["provider"],
-  result: BillingEventCandidate,
+  eventId: string,
+  result: WebhookActionResult,
   tier: string | undefined,
 ): void {
   if (!result.userId || provider !== "polar") {
@@ -298,6 +368,7 @@ function emitPolarBillingEvents(
   }
   if (shouldEmitFirstPaid(result, tier)) {
     emitUserEvent(env, {
+      eventId,
       eventName: "first_paid",
       plan: tier,
       userId: result.userId,
@@ -306,6 +377,7 @@ function emitPolarBillingEvents(
   if (shouldEmitTierUpgraded(result, tier)) {
     const fromPlan = previousTier(result);
     emitUserEvent(env, {
+      eventId,
       eventName: "tier_upgraded",
       ...(fromPlan ? { fromPlan } : {}),
       toPlan: tier,
@@ -316,17 +388,13 @@ function emitPolarBillingEvents(
 
 async function syncPolarCustomerFromClerkUpdate(
   env: WebhookWorkflowEnv,
-  result: {
-    displayName?: string | null;
-    email?: string;
-    eventType: string;
-    polarCustomerId?: string | null;
-    profileChanged?: boolean;
-  },
+  result: WebhookActionResult,
 ): Promise<void> {
+  // An equal-version replay can mean the database committed immediately before
+  // the Workflow checkpoint was lost. Reapply this idempotent projection too.
   if (
     result.eventType !== "user.updated" ||
-    !result.profileChanged ||
+    result.action === "stale_event_ignored" ||
     !result.email ||
     !result.polarCustomerId
   ) {
@@ -404,14 +472,6 @@ function eventData(event: unknown): Record<string, unknown> | undefined {
     : undefined;
 }
 
-function resultTier(result: unknown): string | undefined {
-  if (!result || typeof result !== "object") {
-    return undefined;
-  }
-  const tier = (result as Record<string, unknown>)["tier"];
-  return typeof tier === "string" ? tier : undefined;
-}
-
 function previousTier(result: unknown): string | undefined {
   if (!result || typeof result !== "object") {
     return undefined;
@@ -446,10 +506,4 @@ function shouldEmitTierUpgraded(
 
 function webhookWorkflowId(payload: WebhookWorkflowPayload): string {
   return `webhook-${payload.provider}-${payload.bodyHash.slice(0, 32)}`;
-}
-
-function shouldStartUserDeletion(
-  result: WebhookProcessResult,
-): result is WebhookProcessResult & { userId: UserId } {
-  return result.provider === "clerk" && result.action === "deleted" && Boolean(result.userId);
 }

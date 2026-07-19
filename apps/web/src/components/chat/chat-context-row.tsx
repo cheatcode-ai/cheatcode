@@ -5,14 +5,23 @@ import { useChatContextController } from "@/components/chat/chat-context-control
 import { ChatContextView } from "@/components/chat/chat-context-view";
 
 export function ChatContextRow({
+  isRunning,
   project,
   threadId,
   title,
 }: {
+  isRunning: boolean;
   project: ProjectSummary | null;
   threadId: string;
   title: null | string | undefined;
 }) {
   const controller = useChatContextController({ project, threadId, title });
-  return <ChatContextView controller={controller} project={project} threadId={threadId} />;
+  return (
+    <ChatContextView
+      controller={controller}
+      isRunning={isRunning}
+      project={project}
+      threadId={threadId}
+    />
+  );
 }

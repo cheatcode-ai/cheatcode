@@ -1,5 +1,14 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  assertStorageReconciliationRequest,
+  reconcileExactSqliteStorage,
+  storageSchemaEvidence,
+} from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
+import type {
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+} from "@cheatcode/types";
 import { z } from "zod";
 import {
   IdempotencyBeginBodySchema,
@@ -7,7 +16,16 @@ import {
   IdempotencyBeginResultSchema,
   IdempotencyCompleteBodySchema,
 } from "./idempotency-contract";
-import { initializeIdempotencyStorage } from "./idempotency-storage";
+import {
+  assertIdempotencyStorage,
+  hasIdempotencyStorage,
+  initializeIdempotencyStorage,
+  reconcileIdempotencyStorage,
+} from "./idempotency-storage";
+import {
+  gatewayDurableObjectClosedResponse,
+  rearmClosedGatewayDurableObjectAlarm,
+} from "./release-gate";
 
 interface IdempotencyRow {
   body_hash: string;
@@ -19,11 +37,32 @@ interface IdempotencyRow {
   state: "completed" | "in_flight";
 }
 
-type IdempotencyEnv = Record<never, never>;
+interface IdempotencyEnv {
+  CHEATCODE_RELEASE_GATE: "closed" | "open";
+  CHEATCODE_RELEASE_SHA?: string;
+}
 const MAX_IDEMPOTENCY_REQUEST_BYTES = 1024 * 1024;
 
 export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
+  private isStorageInitialized = false;
+
+  public reconcileStorageSchema(
+    value: InternalDurableObjectStorageRequest,
+  ): InternalDurableObjectStorageResponse {
+    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "IdempotencyStore");
+    reconcileExactSqliteStorage(
+      input.mode,
+      () => assertIdempotencyStorage(this.ctx),
+      () => reconcileIdempotencyStorage(this.ctx),
+    );
+    this.isStorageInitialized = true;
+    return storageSchemaEvidence(input);
+  }
+
   public override async fetch(request: Request): Promise<Response> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return gatewayDurableObjectClosedResponse();
+    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -45,19 +84,22 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
   }
 
   public override async alarm(): Promise<void> {
+    if (!hasIdempotencyStorage(this.ctx)) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
+      return;
+    }
+    this.isStorageInitialized = true;
     this.deleteExpired(Date.now());
     await this.scheduleNextAlarm();
   }
 
-  public constructor(ctx: DurableObjectState, env: IdempotencyEnv) {
-    super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      initializeIdempotencyStorage(this.ctx);
-    });
-  }
-
   private async begin(value: unknown): Promise<IdempotencyBeginResult> {
     const input = IdempotencyBeginBodySchema.parse(value);
+    this.ensureStorage();
     this.deleteExpired(input.now);
     const row = this.readRow(input.key);
     if (!row) {
@@ -97,6 +139,7 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
 
   private async complete(value: unknown): Promise<void> {
     const input = IdempotencyCompleteBodySchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE idempotency_entry
        SET state = 'completed',
@@ -135,7 +178,20 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
       await this.ctx.storage.setAlarm(expiresAt);
       return;
     }
-    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.isStorageInitialized = false;
+  }
+
+  private ensureStorage(): void {
+    if (this.isStorageInitialized) {
+      return;
+    }
+    if (hasIdempotencyStorage(this.ctx)) {
+      assertIdempotencyStorage(this.ctx);
+    } else {
+      initializeIdempotencyStorage(this.ctx);
+    }
+    this.isStorageInitialized = true;
   }
 }
 

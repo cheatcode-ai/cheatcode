@@ -7,8 +7,8 @@ import {
   type AgentRunHandle,
   createDb,
   findActiveAgentRunForThread,
+  findAgentEntitlementByUserId,
   findAgentRunForUser,
-  findEntitlementByUserId,
   getProjectWriteState,
   getThread,
   type RunPersonalization,
@@ -78,7 +78,10 @@ export async function requireWritableThreadProject(
   threadId: string,
 ): Promise<void> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     await withUserContext(db, parsedUserId, async (tx) => {
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
@@ -86,7 +89,7 @@ export async function requireWritableThreadProject(
         throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
       }
       if (!thread.projectId) {
-        // Project-less chat (no first run yet): nothing to gate — the run creates it.
+        // Project-less chats stay writable until a workspace-backed tool materializes a project.
         return;
       }
       const state = await getProjectWriteState(tx, {
@@ -139,7 +142,6 @@ export async function startAgentRun(
   const stub = agentRunForRunId(env, run.runId);
   const startBody = JSON.stringify({
     isFirstRun: Boolean(run.isFirstRun),
-    ...(run.masterInstructions ? { masterInstructions: run.masterInstructions } : {}),
     ...(personalization.agentDisplayName
       ? { agentDisplayName: personalization.agentDisplayName }
       : {}),
@@ -149,8 +151,9 @@ export async function startAgentRun(
     messageText,
     model: run.modelId,
     modelExplicit,
-    projectId: run.projectId,
-    workspaceSlug: run.workspaceSlug,
+    ...(body.intent ? { runIntent: body.intent } : {}),
+    ...(run.projectId ? { projectId: run.projectId } : {}),
+    ...(run.workspaceSlug ? { workspaceSlug: run.workspaceSlug } : {}),
     ...(run.projectMode ? { projectMode: run.projectMode } : {}),
     runId: run.runId,
     sandboxName,
@@ -253,13 +256,16 @@ export async function runEntitlementPolicy(
   env: AgentEnv,
   userId: string,
 ): Promise<RunEntitlementPolicy> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   let entitlement: EntitlementCache;
   let periodEnd: Date;
   try {
     ({ entitlement, periodEnd } = await withUserContext(db, UserId(userId), async (tx) => {
       const loadedEntitlement = entitlementCacheFromValues(
-        (await findEntitlementByUserId(tx, UserId(userId))) ?? { tier: "free" },
+        (await findAgentEntitlementByUserId(tx, UserId(userId))) ?? { tier: "free" },
       );
       return {
         entitlement: loadedEntitlement,
@@ -399,7 +405,10 @@ export async function activeRunForThreadRoute(
   userId: string,
   threadId: string,
 ): Promise<AgentRunHandle | null> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, UserId(userId), (tx) =>
       findActiveAgentRunForThread(tx, {
@@ -417,7 +426,10 @@ export async function runForRoute(
   userId: string,
   runId: string,
 ): Promise<AgentRunHandle> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     const run = await withUserContext(db, UserId(userId), (tx) =>
       findAgentRunForUser(tx, {

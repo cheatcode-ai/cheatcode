@@ -1,27 +1,27 @@
 "use client";
 
-import type { SandboxTerminalContext } from "@cheatcode/types";
-import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
-import { useEffect, useMemo, useReducer } from "react";
-import { toast } from "sonner";
-import {
-  readComputerTerminalContext,
-  readSandboxTerminalContext,
-  runComputerTerminal,
-  runSandboxTerminal,
-} from "@/lib/api/sandbox";
-import type { ConsoleTab, TerminalMutationInput } from "./console-terminal.types";
+import { useMemo, useReducer } from "react";
+import type {
+  ConsoleTab,
+  ConsoleTerminalAction,
+  GetToken,
+  TerminalMutationInput,
+} from "./console-terminal.types";
 import {
   consoleTerminalReducer,
   createConsoleTerminalState,
   DEFAULT_TERMINAL_DISPLAY_WORKSPACE,
-  terminalErrorResult,
   terminalHostFromPreview,
 } from "./console-terminal-state";
+import {
+  terminalScopeKey,
+  useContextCwd,
+  useTerminalContext,
+  useTerminalMutation,
+} from "./use-console-terminal-data";
 
-type GetToken = () => Promise<null | string>;
-type TerminalDispatch = Dispatch<Parameters<typeof consoleTerminalReducer>[1]>;
+type TerminalDispatch = Dispatch<ConsoleTerminalAction>;
 
 interface UseConsoleTerminalInput {
   getToken: GetToken;
@@ -90,55 +90,6 @@ export function useConsoleTerminal({
   };
 }
 
-function useTerminalContext(
-  getToken: GetToken,
-  threadId: null | string,
-  isReady: boolean,
-): SandboxTerminalContext | undefined {
-  return useQuery({
-    enabled: isReady,
-    queryFn: () => readTerminalContext(getToken, threadId),
-    queryKey: ["sandbox-terminal-context", terminalScopeKey(threadId)],
-    retry: 1,
-    staleTime: 30_000,
-  }).data;
-}
-
-function useContextCwd(dispatch: TerminalDispatch, cwd: string | undefined): void {
-  useEffect(() => {
-    if (cwd !== undefined) {
-      dispatch({ type: "set-context-cwd", cwd });
-    }
-  }, [cwd, dispatch]);
-}
-
-function useTerminalMutation(
-  getToken: GetToken,
-  threadId: null | string,
-  dispatch: TerminalDispatch,
-) {
-  return useMutation({
-    mutationFn: (input: TerminalMutationInput) => runTerminal(getToken, threadId, input),
-    onError: (error, input) => {
-      dispatch({
-        input,
-        result: terminalErrorResult(input.command, error),
-        type: "append-result",
-      });
-      toast.error(error instanceof Error ? error.message : "Terminal command failed");
-    },
-    onMutate: (input) => {
-      dispatch({ command: input, type: "set-pending" });
-    },
-    onSettled: () => {
-      dispatch({ command: null, type: "set-pending" });
-    },
-    onSuccess: (result, input) => {
-      dispatch({ input, result, type: "append-result" });
-    },
-  });
-}
-
 interface CreateTerminalActionsInput {
   activeConsole: ConsoleTab | undefined;
   dispatch: TerminalDispatch;
@@ -196,20 +147,4 @@ function submitCommand(
   }
   dispatch({ tabId: activeConsole.id, type: "clear-command" });
   mutate({ command, cwd: activeConsole.cwd, tabId: activeConsole.id });
-}
-
-function readTerminalContext(getToken: GetToken, threadId: null | string) {
-  return threadId === null
-    ? readComputerTerminalContext(getToken)
-    : readSandboxTerminalContext(getToken, threadId);
-}
-
-function runTerminal(getToken: GetToken, threadId: null | string, input: TerminalMutationInput) {
-  return threadId === null
-    ? runComputerTerminal(getToken, input.command, input.cwd)
-    : runSandboxTerminal(getToken, threadId, input.command, input.cwd);
-}
-
-function terminalScopeKey(threadId: null | string): string {
-  return threadId ?? "computer";
 }

@@ -1,5 +1,5 @@
-#!/bin/sh
-set -eu
+#!/usr/bin/env bash
+set -euo pipefail
 
 export CHROME_PATH=/usr/local/bin/cheatcode-chromium
 export DISPLAY=:99

@@ -1,25 +1,74 @@
-import { and, eq, exists, gte, isNull, lt, sql } from "drizzle-orm";
+import { sql } from "drizzle-orm";
 import type { Database } from "./client";
-import { agentRuns, users } from "./schema";
+
+export type ActivationEventName = "first_week_mau" | "retention_d28" | "retention_d7";
 
 export interface ActivationEventRecord {
   cohortMonth?: string;
   cohortWeek?: string;
-  eventName: "first_week_mau" | "retention_d28" | "retention_d7";
+  eventName: ActivationEventName;
   userId: string;
 }
 
-export async function listDailyActivationEvents(
+export interface ActivationEventCursor {
+  eventName: ActivationEventName;
+  userId: string;
+}
+
+export interface ActivationEventPage {
+  items: ActivationEventRecord[];
+  nextCursor: ActivationEventCursor | null;
+}
+
+interface ActivationEventRow {
+  cohort_month: string | null;
+  cohort_week: string | null;
+  event_name: ActivationEventName;
+  event_order: number;
+  user_id: string;
+}
+
+const ACTIVATION_EVENT_MAX_PAGE_SIZE = 200;
+/** Returns one stable, bounded page across all daily activation event kinds. */
+export async function listDailyActivationEventPage(
   db: Database,
-  input: { day: string },
-): Promise<ActivationEventRecord[]> {
+  input: { cursor?: ActivationEventCursor; day: string; limit: number },
+): Promise<ActivationEventPage> {
   const day = normalizeDay(input.day);
-  const [retentionD7, retentionD28, firstWeekMau] = await Promise.all([
-    listRetentionEvents(db, day, 7),
-    listRetentionEvents(db, day, 28),
-    listFirstWeekMauEvents(db, day),
-  ]);
-  return [...retentionD7, ...retentionD28, ...firstWeekMau];
+  const limit = pageLimit(input.limit);
+  const result = await db.execute(sql`
+    select * from public.webhooks_list_daily_activation_events(
+      ${day}::date,
+      ${input.cursor?.eventName ?? null},
+      ${input.cursor?.userId ?? null}::uuid,
+      ${limit}
+    )
+  `);
+  return activationEventPage(result.rows as unknown as ActivationEventRow[], limit);
+}
+
+function activationEventPage(rows: ActivationEventRow[], limit: number): ActivationEventPage {
+  const pageRows = rows.slice(0, limit);
+  const items = pageRows.map(toActivationEventRecord);
+  const last = items.at(-1);
+  return {
+    items,
+    nextCursor:
+      rows.length > limit && last ? { eventName: last.eventName, userId: last.userId } : null,
+  };
+}
+
+function toActivationEventRecord(row: ActivationEventRow): ActivationEventRecord {
+  return {
+    ...(row.cohort_month ? { cohortMonth: row.cohort_month } : {}),
+    ...(row.cohort_week ? { cohortWeek: row.cohort_week } : {}),
+    eventName: row.event_name,
+    userId: row.user_id,
+  };
+}
+
+function pageLimit(value: number): number {
+  return Math.max(1, Math.min(ACTIVATION_EVENT_MAX_PAGE_SIZE, Math.trunc(value)));
 }
 
 function normalizeDay(value: string): string {
@@ -27,71 +76,4 @@ function normalizeDay(value: string): string {
     throw new Error("Activation event day must be YYYY-MM-DD.");
   }
   return value;
-}
-
-async function listRetentionEvents(
-  db: Database,
-  day: string,
-  ageDays: 7 | 28,
-): Promise<ActivationEventRecord[]> {
-  const rows = await db
-    .select({
-      cohortMonth: sql<string>`to_char(date_trunc('month', ${users.createdAt}), 'YYYY-MM-DD')`,
-      cohortWeek: sql<string>`to_char(date_trunc('week', ${users.createdAt}), 'YYYY-MM-DD')`,
-      userId: users.id,
-    })
-    .from(users)
-    .where(
-      and(
-        isNull(users.deletedAt),
-        eq(sql`${users.createdAt}::date`, sql`${day}::date - (${ageDays}::int * interval '1 day')`),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(agentRuns)
-            .where(
-              and(
-                eq(agentRuns.userId, users.id),
-                gte(agentRuns.startedAt, sql`${day}::date`),
-                lt(agentRuns.startedAt, sql`(${day}::date + interval '1 day')`),
-              ),
-            )
-            .limit(1),
-        ),
-      ),
-    );
-  const eventName = ageDays === 7 ? "retention_d7" : "retention_d28";
-  return rows.map((row) => ({
-    cohortMonth: row.cohortMonth,
-    cohortWeek: row.cohortWeek,
-    eventName,
-    userId: row.userId,
-  }));
-}
-
-async function listFirstWeekMauEvents(db: Database, day: string): Promise<ActivationEventRecord[]> {
-  const rows = await db
-    .select({
-      cohortWeek: sql<string>`to_char(date_trunc('week', ${users.createdAt}), 'YYYY-MM-DD')`,
-      userId: users.id,
-    })
-    .from(users)
-    .where(
-      and(
-        isNull(users.deletedAt),
-        eq(sql`${users.createdAt}::date`, sql`${day}::date - interval '7 days'`),
-        sql`(
-          select count(*)::int
-          from ${agentRuns}
-          where ${agentRuns.userId} = ${users.id}
-            and ${agentRuns.startedAt} >= ${users.createdAt}
-            and ${agentRuns.startedAt} < (${users.createdAt} + interval '7 days')
-        ) >= 3`,
-      ),
-    );
-  return rows.map((row) => ({
-    cohortWeek: row.cohortWeek,
-    eventName: "first_week_mau",
-    userId: row.userId,
-  }));
 }

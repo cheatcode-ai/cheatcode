@@ -11,7 +11,8 @@ const DRIVER_PORT_MAX = 59_999;
 const DRIVER_LIFETIME_MS = 55 * 60 * 1000;
 const START_BROWSER_SCRIPT = "/opt/cheatcode/start-browser.sh";
 const MAX_DRIVER_PAYLOAD_BYTES = 500_000;
-const MAX_DRIVER_RESPONSE_BYTES = 10 * 1024 * 1024;
+// Driver responses can contain an 8 MiB PNG expanded as base64 plus JSON framing.
+const MAX_DRIVER_RESPONSE_BYTES = 12 * 1024 * 1024;
 const MAX_BROWSER_RESULT_BYTES = 160 * 1024;
 const MAX_BROWSER_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_BROWSER_SCREENSHOT_BASE64_CHARACTERS = Math.ceil(MAX_BROWSER_SCREENSHOT_BYTES / 3) * 4;
@@ -59,6 +60,13 @@ export const BrowserActInputSchema = z
   })
   .strict();
 
+const BrowserActGuardSchema = z
+  .object({
+    allowedOrigin: BrowserUrlSchema,
+    expectedUrl: BrowserUrlSchema,
+  })
+  .strict();
+
 export const BrowserObserveInputSchema = z
   .object({
     instruction: z.string().min(1).max(2_000).describe("What to observe on the current page."),
@@ -91,6 +99,8 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
     .strict(),
   z
     .object({
+      allowedOrigin: BrowserUrlSchema,
+      expectedUrl: BrowserUrlSchema,
       type: z.literal("act"),
       instruction: z.string().min(1).max(2_000),
       timeoutMs: z.number().int().positive().max(120_000).default(10_000),
@@ -124,12 +134,10 @@ const BrowserActionsInputSchema = z
 
 const BrowserArtifactSchema = z
   .object({
-    downloadUrl: z.string().url().max(2_048),
     filename: z.string().min(1).max(200),
     kind: z.literal("image"),
     mimeType: z.literal("image/png"),
     outputId: z.string().min(1).max(500),
-    r2Key: z.string().min(1).max(2_048),
     sizeBytes: z.number().int().nonnegative().max(MAX_BROWSER_SCREENSHOT_BYTES),
   })
   .strict();
@@ -181,6 +189,7 @@ const BrowserDriverErrorSchema = z
 
 type BrowserOpenInput = z.input<typeof BrowserOpenInputSchema>;
 type BrowserActInput = z.input<typeof BrowserActInputSchema>;
+type BrowserActGuard = z.infer<typeof BrowserActGuardSchema>;
 type BrowserObserveInput = z.input<typeof BrowserObserveInputSchema>;
 type BrowserExtractInput = z.input<typeof BrowserExtractInputSchema>;
 type BrowserScreenshotInput = z.input<typeof BrowserScreenshotInputSchema>;
@@ -194,8 +203,9 @@ export async function executeBrowserOpen(
   runtimeContext: BrowserRuntimeContext,
 ): Promise<BrowserActionsOutput> {
   const parsedInput = BrowserOpenInputSchema.parse(input);
+  const url = normalizeLoopbackUrl(parsedInput.url);
   return executeBrowserActions(
-    { actions: [{ type: "goto", url: parsedInput.url, waitUntil: parsedInput.waitUntil }] },
+    { actions: [{ type: "goto", url, waitUntil: parsedInput.waitUntil }] },
     runtimeContext,
   );
 }
@@ -203,12 +213,16 @@ export async function executeBrowserOpen(
 export async function executeBrowserAct(
   input: BrowserActInput,
   runtimeContext: BrowserRuntimeContext,
+  guard: BrowserActGuard,
 ): Promise<BrowserActionsOutput> {
   const parsedInput = BrowserActInputSchema.parse(input);
+  const parsedGuard = BrowserActGuardSchema.parse(guard);
   return executeBrowserActions(
     {
       actions: [
         {
+          allowedOrigin: parsedGuard.allowedOrigin,
+          expectedUrl: parsedGuard.expectedUrl,
           type: "act",
           instruction: parsedInput.instruction,
           timeoutMs: parsedInput.timeoutMs,
@@ -217,6 +231,25 @@ export async function executeBrowserAct(
     },
     runtimeContext,
   );
+}
+
+/** Reads the exact active-page URL used to classify and bind a browser action. */
+export async function inspectBrowserPage(
+  runtimeContext: BrowserRuntimeContext,
+): Promise<{ url: string }> {
+  const ready = await readyBrowserDriver(runtimeContext);
+  const result = await requestBrowserDriver(
+    null,
+    "/state",
+    ready.runtimeContext,
+    ready.connection,
+    30_000,
+  );
+  if (!result.ok) {
+    throw browserDriverRequestError(result);
+  }
+  const state = BrowserDriverStateSchema.parse(result.body);
+  return { url: state.url };
 }
 
 export async function executeBrowserObserve(
@@ -257,6 +290,11 @@ async function executeBrowserActions(
   runtimeContext: BrowserRuntimeContext,
 ): Promise<BrowserActionsOutput> {
   const parsedInput = BrowserActionsInputSchema.parse(input);
+  const ready = await readyBrowserDriver(runtimeContext);
+  return postBrowserActions(parsedInput, ready.runtimeContext, ready.connection);
+}
+
+async function readyBrowserDriver(runtimeContext: BrowserRuntimeContext) {
   const parsedRuntime = BrowserRuntimeContextSchema.parse(runtimeContext);
   await callSandboxMethod(parsedRuntime.sandbox, "exec", {
     command: [START_BROWSER_SCRIPT],
@@ -264,7 +302,7 @@ async function executeBrowserActions(
   });
   const connection = await browserDriverConnection(parsedRuntime);
   await ensureBrowserDriverServer(parsedRuntime, connection);
-  return postBrowserActions(parsedInput, parsedRuntime, connection);
+  return { connection, runtimeContext: parsedRuntime };
 }
 
 async function requestBrowserDriver(
@@ -474,15 +512,7 @@ async function postBrowserActions(
 
 function requireBrowserDriverOutput(result: BrowserDriverHttpResult) {
   if (!result.ok) {
-    const driverError = BrowserDriverErrorSchema.safeParse(result.body);
-    throw new APIError(502, "tool_execution_failed", "Sandbox browser driver request failed", {
-      details: {
-        responseShape: driverError.success ? "recognized" : "invalid",
-        status: result.status,
-      },
-      hint: "Restart the sandbox browser tool and retry the browser action.",
-      retriable: true,
-    });
+    throw browserDriverRequestError(result);
   }
   const parsedOutput = BrowserDriverActionsOutputSchema.safeParse(result.body);
   if (!parsedOutput.success) {
@@ -498,6 +528,18 @@ function requireBrowserDriverOutput(result: BrowserDriverHttpResult) {
     );
   }
   return parsedOutput.data;
+}
+
+function browserDriverRequestError(result: BrowserDriverHttpResult): APIError {
+  const driverError = BrowserDriverErrorSchema.safeParse(result.body);
+  return new APIError(502, "tool_execution_failed", "Sandbox browser driver request failed", {
+    details: {
+      responseShape: driverError.success ? "recognized" : "invalid",
+      status: result.status,
+    },
+    hint: "Restart the sandbox browser tool and retry the browser action.",
+    retriable: true,
+  });
 }
 
 async function normalizeBrowserActionResults(
@@ -563,9 +605,6 @@ async function normalizeBrowserActionResult(
     data: bytes,
     filename: `browser-screenshot-${index + 1}-${crypto.randomUUID()}.png`,
     kind: "image",
-    metadata: {
-      ...(action.url ? { sourceUrl: action.url } : {}),
-    },
   });
   return {
     artifact: browserArtifactResult(artifact),
@@ -612,6 +651,13 @@ const BrowserDriverHealthSchema = z
     model: z.string().min(1),
     ok: z.literal(true),
     runId: z.string().min(1),
+  })
+  .strict();
+
+const BrowserDriverStateSchema = z
+  .object({
+    ok: z.literal(true),
+    url: BrowserUrlSchema,
   })
   .strict();
 
@@ -699,8 +745,16 @@ async function sha256Bytes(value: string): Promise<Uint8Array> {
 }
 
 function isHttpUrl(value: string): boolean {
-  const protocol = new URL(value).protocol;
-  return protocol === "http:" || protocol === "https:";
+  const url = new URL(value);
+  return (url.protocol === "http:" || url.protocol === "https:") && !url.username && !url.password;
+}
+
+function normalizeLoopbackUrl(value: string): string {
+  const url = new URL(value);
+  if (url.hostname === "localhost" || url.hostname === "[::1]") {
+    url.hostname = "127.0.0.1";
+  }
+  return url.href;
 }
 
 function serializedSizeWithin(value: unknown, maxBytes: number): boolean {

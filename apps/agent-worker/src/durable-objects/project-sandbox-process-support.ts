@@ -1,5 +1,5 @@
 import { APIError } from "@cheatcode/observability";
-import type { DaytonaSandbox } from "@cheatcode/tools-code";
+import { type DaytonaSandbox, WorkspacePathSchema } from "@cheatcode/tools-code";
 import { z } from "zod";
 import type { ProjectStartProcessInputSchema } from "./project-sandbox-runtime";
 
@@ -10,11 +10,16 @@ export const PORT_ALLOC_KEY = "port_alloc";
 export const PROCESS_PORT_ALLOC_KEY = "process_port_alloc";
 const PROCESS_PORT_RESERVATION_TTL_MS = 6 * 60 * 60 * 1_000;
 export const PROC_PREFIX = "proc:";
+export const MAX_TRACKED_PROCESSES = 32;
 const WEB_PORT_BASE = 5173;
 
 export const ProcessRecordSchema = z
   .object({
-    sessionId: z.string(),
+    sessionId: z
+      .string()
+      .min(1)
+      .max(250)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
     cmdId: z.string(),
     command: z.string(),
     port: z.number().optional(),
@@ -22,7 +27,7 @@ export const ProcessRecordSchema = z
     keepAliveTimeoutMs: z.number().int().nonnegative().optional(),
     maxRestarts: z.number().int().nonnegative().optional(),
     restartOnFailure: z.boolean().optional(),
-    cwd: z.string(),
+    cwd: WorkspacePathSchema,
     startedAtMs: z.number().int().nonnegative().optional(),
   })
   .strict();
@@ -34,6 +39,29 @@ export type ProcessPolicy = Pick<
   "keepAliveTimeoutMs" | "maxRestarts" | "restartOnFailure"
 >;
 
+export class ProcessMutationQueue {
+  private tail: Promise<void> = Promise.resolve();
+
+  public async run<T>(operation: () => Promise<T>): Promise<T> {
+    const previous = this.tail;
+    let release = (): void => undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const queued = previous.catch(() => undefined).then(() => gate);
+    this.tail = queued;
+    await previous.catch(() => undefined);
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.tail === queued) {
+        this.tail = Promise.resolve();
+      }
+    }
+  }
+}
+
 export const PortAllocationSchema = z
   .object({
     webNext: z.number().int().positive().default(WEB_PORT_BASE),
@@ -41,7 +69,6 @@ export const PortAllocationSchema = z
     ports: z.record(z.string(), z.number().int().positive()).default({}),
   })
   .strict();
-export type PortAllocation = z.infer<typeof PortAllocationSchema>;
 
 export const ProcessPortReservationsSchema = z
   .record(
@@ -61,14 +88,6 @@ export function timeoutSeconds(timeoutMs: number | undefined): number {
 }
 
 export function assertValidProcessStart(input: ParsedProcessStartInput): void {
-  if (input.waitForPort && !input.processId) {
-    throw new APIError(
-      400,
-      "invalid_request_body",
-      "Port-bound processes require a stable process ID.",
-      { retriable: false },
-    );
-  }
   if ((input.maxRestarts ?? 0) > 0 && input.restartOnFailure !== true) {
     throw new APIError(400, "invalid_request_body", "maxRestarts requires restartOnFailure.", {
       retriable: false,
@@ -206,24 +225,6 @@ export function isFailedState(state: string): boolean {
 
 export function shellQuote(arg: string): string {
   return `'${arg.replaceAll("'", "'\\''")}'`;
-}
-
-export async function scrubPersistedProcessEnvironments(
-  storage: DurableObjectStorage,
-): Promise<void> {
-  const records = await storage.list({ prefix: PROC_PREFIX });
-  for (const [key, value] of records) {
-    if (typeof value !== "object" || value === null || !("env" in value)) {
-      continue;
-    }
-    const { env: _removedEnvironment, ...scrubbed } = value as Record<string, unknown>;
-    const parsed = ProcessRecordSchema.safeParse(scrubbed);
-    if (parsed.success) {
-      await storage.put(key, parsed.data);
-    } else {
-      await storage.delete(key);
-    }
-  }
 }
 
 export function sleep(ms: number): Promise<void> {

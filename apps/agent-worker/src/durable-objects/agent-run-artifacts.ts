@@ -1,11 +1,13 @@
 import {
+  type ArtifactUploadIdentity,
   createDb,
   type DatabaseHandle,
-  getProject,
-  saveGeneratedOutput,
+  finalizeArtifactUpload,
+  guardArtifactUpload,
+  reserveArtifactUpload,
   withUserContext,
 } from "@cheatcode/db";
-import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import type { WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
@@ -15,25 +17,19 @@ import {
 } from "@cheatcode/observability";
 import type { ArtifactUploadInput, ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
 import type { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
-import { createSignedOutputDownloadUrl } from "../output-download";
+import { ArtifactKindSchema } from "@cheatcode/types/artifacts";
 
+const ARTIFACT_DIGEST_DOMAIN = "cheatcode:artifact-upload:v2";
 const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
-const MAX_ARTIFACT_METADATA_BYTES = 64 * 1024;
 const MAX_CONTENT_TYPE_LENGTH = 255;
-const OUTPUTS_BUCKET_NAME = "cheatcode-outputs";
-const OUTPUT_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
-const VALID_ARTIFACT_KINDS = new Set(["audio", "docx", "image", "pdf", "slide", "video", "xlsx"]);
 const VALID_CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/iu;
 
 type AgentRunLogger = ReturnType<typeof createLogger>;
 
 interface ArtifactEnv extends AnalyticsBindings {
+  DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
-  OUTPUT_DOWNLOAD_BASE_URL?: string;
-  OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
-  PREVIEW_HOSTNAME: string;
   R2_OUTPUTS: R2Bucket;
-  R2_OUTPUTS_BUCKET_NAME?: string;
 }
 
 interface ArtifactRunInput {
@@ -49,63 +45,130 @@ interface StoreAgentArtifactOptions {
   input: ArtifactRunInput;
 }
 
+interface PreparedArtifact {
+  contentSha256: string;
+  filename: string;
+  identity: ArtifactUploadIdentity;
+  outputId: string;
+  r2Key: string;
+}
+
 export async function storeAgentArtifact({
   artifact,
   env,
   input,
 }: StoreAgentArtifactOptions): Promise<ArtifactUploadResult> {
   assertArtifactUpload(artifact);
-  const outputId = crypto.randomUUID();
-  const filename = sanitizeFilename(artifact.filename);
-  // Resolve the signed URL before writing either durable store. A missing signing secret must not
-  // leave an inaccessible R2 object or database row behind for a retry to duplicate.
-  const downloadUrl = await signedOutputUrl(outputId, env);
-  const bucketName = env.R2_OUTPUTS_BUCKET_NAME?.trim() || OUTPUTS_BUCKET_NAME;
+  const prepared = await prepareArtifact(artifact, input);
   const logger = createRunLogger({ threadId: input.threadId, userId: input.userId });
-  const projectId = await requireArtifactProject(env, input, logger);
+  const dbHandle = artifactDatabase(env);
+  try {
+    await persistPreparedArtifact(dbHandle, env, artifact, input, prepared);
+    return artifactUploadResult(artifact, prepared);
+  } finally {
+    await closeDatabase(dbHandle, logger);
+  }
+}
+
+async function prepareArtifact(
+  artifact: ArtifactUploadInput,
+  input: ArtifactRunInput,
+): Promise<PreparedArtifact> {
+  const filename = sanitizeFilename(artifact.filename);
+  const contentSha256 = await sha256Hex(artifact.data);
+  const outputId = await deterministicOutputId(artifact, input.runId, filename, contentSha256);
   const r2Key = outputObjectKey({
     agentRunId: input.runId,
     filename,
     outputId,
-    projectId,
+    projectId: input.projectId,
     userId: input.userId,
   });
-  const sha256 = await sha256Hex(artifact.data);
-  await writeArtifactObject(env, artifact, { filename, outputId, r2Key });
-  let alreadyHadGeneratedOutput: boolean;
-  try {
-    alreadyHadGeneratedOutput = await persistGeneratedArtifact({
-      artifact,
-      bucketName,
-      env,
-      filename,
-      input,
-      outputId,
-      projectId,
+  return {
+    contentSha256,
+    filename,
+    identity: {
+      agentRunId: input.runId,
+      id: outputId,
+      projectId: input.projectId,
       r2Key,
-      sha256,
       userId: input.userId,
-      logger,
-    });
-  } catch (error) {
-    await env.R2_OUTPUTS.delete(r2Key).catch(() => undefined);
-    throw error;
+    },
+    outputId,
+    r2Key,
+  };
+}
+
+async function persistPreparedArtifact(
+  dbHandle: DatabaseHandle,
+  env: ArtifactEnv,
+  artifact: ArtifactUploadInput,
+  input: ArtifactRunInput,
+  prepared: PreparedArtifact,
+): Promise<void> {
+  const reservation = await withUserContext(dbHandle.db, input.userId, (db) =>
+    reserveArtifactUpload(db, prepared.identity),
+  );
+  if (reservation.state === "committed") {
+    await verifyCommittedArtifactObject(env, artifact, prepared);
+    return;
   }
-  emitFirstArtifactEvent(env, input, alreadyHadGeneratedOutput);
-  return artifactUploadResult(artifact, { downloadUrl, filename, outputId, r2Key });
+  if (reservation.state === "fenced") {
+    throw unavailableArtifactOwnership();
+  }
+  const guard = await withUserContext(dbHandle.db, input.userId, (db) =>
+    guardArtifactUpload(db, prepared.identity),
+  );
+  if (guard.state === "committed") {
+    await verifyCommittedArtifactObject(env, artifact, prepared);
+    return;
+  }
+  if (guard.state === "fenced") {
+    throw unavailableArtifactOwnership();
+  }
+  if (guard.state === "reservation-lost") {
+    throw lostArtifactReservation();
+  }
+  await putAndFinalize(dbHandle, env, artifact, input, prepared);
+}
+
+async function putAndFinalize(
+  dbHandle: DatabaseHandle,
+  env: ArtifactEnv,
+  artifact: ArtifactUploadInput,
+  input: ArtifactRunInput,
+  prepared: PreparedArtifact,
+): Promise<void> {
+  await writeArtifactObject(env, artifact, prepared);
+  const createdAt = new Date();
+  const finalized = await withUserContext(dbHandle.db, input.userId, (db) =>
+    finalizeArtifactUpload(db, {
+      ...prepared.identity,
+      createdAt,
+      filename: prepared.filename,
+      mimeType: artifact.contentType,
+    }),
+  );
+  if (finalized.state === "committed") {
+    emitFirstArtifactEvent(env, input, prepared.outputId, finalized.isFirstForUser);
+    return;
+  }
+  await env.R2_OUTPUTS.delete(prepared.r2Key);
+  if (finalized.state === "fenced") {
+    throw unavailableArtifactOwnership();
+  }
+  throw lostArtifactReservation();
 }
 
 function artifactUploadResult(
   artifact: ArtifactUploadInput,
-  identity: { downloadUrl: string; filename: string; outputId: string; r2Key: string },
+  prepared: PreparedArtifact,
 ): ArtifactUploadResult {
   return {
-    downloadUrl: identity.downloadUrl,
-    filename: identity.filename,
+    filename: prepared.filename,
     kind: artifact.kind,
     mimeType: artifact.contentType,
-    outputId: identity.outputId,
-    r2Key: identity.r2Key,
+    outputId: prepared.outputId,
     sizeBytes: artifact.data.byteLength,
   };
 }
@@ -113,77 +176,110 @@ function artifactUploadResult(
 async function writeArtifactObject(
   env: ArtifactEnv,
   artifact: ArtifactUploadInput,
-  identity: { filename: string; outputId: string; r2Key: string },
+  identity: PreparedArtifact,
 ): Promise<void> {
-  await env.R2_OUTPUTS.put(identity.r2Key, artifact.data, {
+  const stored = await env.R2_OUTPUTS.put(identity.r2Key, artifact.data, {
     customMetadata: {
+      contentSha256: identity.contentSha256,
       filename: identity.filename,
       kind: artifact.kind,
       outputId: identity.outputId,
     },
     httpMetadata: { contentType: artifact.contentType },
+    onlyIf: { etagDoesNotMatch: "*" },
+    sha256: identity.contentSha256,
   });
+  const object = stored ?? (await env.R2_OUTPUTS.head(identity.r2Key));
+  assertStoredArtifactObject(object, artifact, identity);
 }
 
-async function persistGeneratedArtifact(options: {
-  artifact: ArtifactUploadInput;
-  bucketName: string;
-  env: ArtifactEnv;
-  filename: string;
-  input: ArtifactRunInput;
-  logger: AgentRunLogger;
-  outputId: string;
-  projectId: ProjectId;
-  r2Key: string;
-  sha256: string;
-  userId: UserId;
-}): Promise<boolean> {
-  const dbHandle = createDb(options.env.HYPERDRIVE);
-  try {
-    return await withUserContext(dbHandle.db, options.userId, async (db) => {
-      const saved = await saveGeneratedOutput(db, generatedOutputRecord(options));
-      return !saved.isFirstForUser;
-    });
-  } finally {
-    await closeDatabase(dbHandle, options.logger);
+async function verifyCommittedArtifactObject(
+  env: ArtifactEnv,
+  artifact: ArtifactUploadInput,
+  identity: PreparedArtifact,
+): Promise<void> {
+  assertStoredArtifactObject(await env.R2_OUTPUTS.head(identity.r2Key), artifact, identity);
+}
+
+function assertStoredArtifactObject(
+  object: R2Object | null,
+  artifact: ArtifactUploadInput,
+  identity: PreparedArtifact,
+): void {
+  const metadata = object?.customMetadata;
+  const checksum = object?.checksums.sha256;
+  if (
+    !object ||
+    object.key !== identity.r2Key ||
+    object.size !== artifact.data.byteLength ||
+    object.httpMetadata?.contentType !== artifact.contentType ||
+    !metadata ||
+    metadata["contentSha256"] !== identity.contentSha256 ||
+    metadata["filename"] !== identity.filename ||
+    metadata["kind"] !== artifact.kind ||
+    metadata["outputId"] !== identity.outputId ||
+    !checksum ||
+    bytesToHex(new Uint8Array(checksum)) !== identity.contentSha256
+  ) {
+    throw invalidStoredArtifact();
   }
 }
 
-function generatedOutputRecord(options: {
-  artifact: ArtifactUploadInput;
-  bucketName: string;
-  filename: string;
-  input: ArtifactRunInput;
-  outputId: string;
-  projectId: ProjectId;
-  r2Key: string;
-  sha256: string;
-  userId: UserId;
-}) {
-  return {
-    expiresAt: new Date(Date.now() + OUTPUT_RETENTION_MS),
-    filename: options.filename,
-    id: options.outputId,
-    kind: options.artifact.kind,
-    metadata: options.artifact.metadata ?? {},
-    mimeType: options.artifact.contentType,
-    agentRunId: options.input.runId,
-    projectId: options.projectId,
-    r2Bucket: options.bucketName,
-    r2Key: options.r2Key,
-    sha256: options.sha256,
-    sizeBytes: options.artifact.data.byteLength,
-    userId: options.userId,
-  };
+async function deterministicOutputId(
+  artifact: ArtifactUploadInput,
+  runId: AgentRunId,
+  filename: string,
+  contentSha256: string,
+): Promise<string> {
+  const digestInput = new TextEncoder().encode(
+    [
+      ARTIFACT_DIGEST_DOMAIN,
+      runId,
+      artifact.kind,
+      artifact.contentType,
+      filename,
+      contentSha256,
+    ].join("\0"),
+  );
+  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", digestInput)).slice(0, 16);
+  return uuidV8(bytes);
+}
+
+async function sha256Hex(data: Uint8Array): Promise<string> {
+  return bytesToHex(new Uint8Array(await crypto.subtle.digest("SHA-256", arrayBufferView(data))));
+}
+
+function arrayBufferView(data: Uint8Array): Uint8Array<ArrayBuffer> {
+  return data.buffer instanceof ArrayBuffer
+    ? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    : new Uint8Array(data);
+}
+
+function bytesToHex(bytes: Uint8Array): string {
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function uuidV8(bytes: Uint8Array): string {
+  const versionByte = bytes[6];
+  const variantByte = bytes[8];
+  if (versionByte === undefined || variantByte === undefined) {
+    throw new Error("Artifact identity digest was incomplete");
+  }
+  bytes[6] = (versionByte & 0x0f) | 0x80;
+  bytes[8] = (variantByte & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function emitFirstArtifactEvent(
   env: ArtifactEnv,
   input: ArtifactRunInput,
-  alreadyHadGeneratedOutput: boolean,
+  outputId: string,
+  isFirstForUser: boolean,
 ): void {
-  if (!alreadyHadGeneratedOutput) {
+  if (isFirstForUser) {
     emitUserEvent(env, {
+      eventId: `artifact:${outputId}`,
       eventName: "first_generated_artifact",
       runId: input.runId,
       userId: input.userId,
@@ -207,23 +303,8 @@ function assertArtifactUpload(artifact: ArtifactUploadInput): void {
   ) {
     throw invalidArtifact("Artifact content type is invalid");
   }
-  if (!VALID_ARTIFACT_KINDS.has(artifact.kind)) {
+  if (!ArtifactKindSchema.safeParse(artifact.kind).success) {
     throw invalidArtifact("Artifact kind is invalid");
-  }
-  if (artifact.metadata && serializedByteLength(artifact.metadata) > MAX_ARTIFACT_METADATA_BYTES) {
-    throw invalidArtifact(`Artifact metadata exceeds ${MAX_ARTIFACT_METADATA_BYTES} bytes`);
-  }
-}
-
-function serializedByteLength(value: unknown): number {
-  try {
-    const serialized = JSON.stringify(value);
-    if (serialized === undefined) {
-      throw new TypeError("Value is not JSON serializable");
-    }
-    return new TextEncoder().encode(serialized).byteLength;
-  } catch {
-    throw invalidArtifact("Artifact metadata must be JSON serializable");
   }
 }
 
@@ -231,51 +312,39 @@ function invalidArtifact(message: string): APIError {
   return new APIError(400, "tool_validation_failed", message, { retriable: false });
 }
 
-async function requireArtifactProject(
-  env: ArtifactEnv,
-  input: ArtifactRunInput,
-  logger: AgentRunLogger,
-): Promise<ProjectId> {
-  const dbHandle = createDb(env.HYPERDRIVE);
-  try {
-    const project = await withUserContext(dbHandle.db, input.userId, (db) =>
-      getProject(db, { projectId: input.projectId, userId: input.userId }),
-    );
-    if (!project) {
-      throw new APIError(404, "not_found_project", "Artifact project not found", {
-        retriable: false,
-      });
-    }
-    return project.id;
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
-}
-
-async function signedOutputUrl(outputId: string, env: ArtifactEnv): Promise<string> {
-  const secret = await resolveWorkerSecret(env.OUTPUT_DOWNLOAD_SIGNING_SECRET);
-  return createSignedOutputDownloadUrl({
-    baseUrl: outputDownloadBaseUrl(env),
-    outputId,
-    secret,
+function unavailableArtifactOwnership(): APIError {
+  return new APIError(409, "conflict_state_invalid", "Artifact run is no longer active", {
+    retriable: false,
   });
 }
 
-function outputDownloadBaseUrl(env: ArtifactEnv): string | undefined {
-  const previewHostname = env.PREVIEW_HOSTNAME.trim();
-  if (previewHostname === "localhost:8787" || previewHostname === "127.0.0.1:8787") {
-    return `http://${previewHostname}`;
-  }
-  return env.OUTPUT_DOWNLOAD_BASE_URL;
+function lostArtifactReservation(): APIError {
+  return new APIError(409, "conflict_state_invalid", "Artifact upload reservation was removed", {
+    retriable: true,
+  });
+}
+
+function invalidStoredArtifact(): APIError {
+  return new APIError(
+    409,
+    "conflict_state_invalid",
+    "Artifact object identity does not match its durable upload intent",
+    { retriable: false },
+  );
+}
+
+function artifactDatabase(env: ArtifactEnv): DatabaseHandle {
+  return createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
 }
 
 async function closeDatabase(dbHandle: DatabaseHandle, logger: AgentRunLogger): Promise<void> {
   try {
     await dbHandle.close();
   } catch (error) {
-    logger.warn("db_close_failed", {
-      error,
-    });
+    logger.warn("db_close_failed", { error });
   }
 }
 
@@ -313,13 +382,4 @@ function outputObjectKey(input: {
     input.agentRunId,
     `${input.outputId}-${input.filename}`,
   ].join("/");
-}
-
-async function sha256Hex(data: Uint8Array): Promise<string> {
-  const buffer = new ArrayBuffer(data.byteLength);
-  new Uint8Array(buffer).set(data);
-  const digest = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
 }

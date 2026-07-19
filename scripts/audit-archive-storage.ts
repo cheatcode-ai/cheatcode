@@ -1,15 +1,10 @@
-import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { rm, stat } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-
-interface CommandResult {
-  code: number;
-  stderr: string;
-  stdout: string;
-}
+import { type CapturedCommandResult, runCapturedBoundedCommand } from "./bounded-command";
+import { timeoutBeforeDeadline } from "./operation-deadline";
 
 export interface ArchiveObjectIdentity {
   sha256: string;
@@ -18,6 +13,8 @@ export interface ArchiveObjectIdentity {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const MAX_ATTEMPTS = 4;
+const MAX_COMMAND_OUTPUT_BYTES = 2 * 1024 * 1024;
+const R2_COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
 
 export async function uploadAndVerifyArchive(
   accountId: string,
@@ -26,24 +23,30 @@ export async function uploadAndVerifyArchive(
   filePath: string,
   verifyPath: string,
   expected: ArchiveObjectIdentity,
+  deadline: number,
 ): Promise<void> {
-  await runCheckedWithRetry(accountId, "pnpm", [
-    "exec",
-    "wrangler",
-    "r2",
-    "object",
-    "put",
-    `${bucket}/${key}`,
-    "--file",
-    filePath,
-    "--content-type",
-    "application/x-ndjson",
-    "--content-encoding",
-    "gzip",
-    "--remote",
-    "--force",
-  ]);
-  await verifyRemoteArchive(accountId, bucket, key, verifyPath, expected);
+  await runCheckedWithRetry(
+    accountId,
+    "pnpm",
+    [
+      "exec",
+      "wrangler",
+      "r2",
+      "object",
+      "put",
+      `${bucket}/${key}`,
+      "--file",
+      filePath,
+      "--content-type",
+      "application/x-ndjson",
+      "--content-encoding",
+      "gzip",
+      "--remote",
+      "--force",
+    ],
+    deadline,
+  );
+  await verifyRemoteArchive(accountId, bucket, key, verifyPath, expected, deadline);
 }
 
 export async function verifyRemoteArchive(
@@ -52,6 +55,7 @@ export async function verifyRemoteArchive(
   key: string,
   verifyPath: string,
   expected: ArchiveObjectIdentity,
+  deadline: number,
 ): Promise<void> {
   await runCheckedWithRetry(
     accountId,
@@ -67,6 +71,7 @@ export async function verifyRemoteArchive(
       verifyPath,
       "--remote",
     ],
+    deadline,
     async () => {
       await rm(verifyPath, { force: true });
     },
@@ -93,18 +98,19 @@ function runCheckedWithRetry(
   accountId: string,
   command: string,
   args: readonly string[],
+  deadline: number,
   beforeAttempt?: () => Promise<void>,
 ): Promise<void> {
   return retry(async () => {
     await beforeAttempt?.();
-    const result = await runCommand(accountId, command, args);
+    const result = await runCommand(accountId, command, args, deadline);
     if (result.code !== 0) {
       throw new Error(commandFailure(result));
     }
-  });
+  }, deadline);
 }
 
-async function retry(operation: () => Promise<void>): Promise<void> {
+async function retry(operation: () => Promise<void>, deadline: number): Promise<void> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -113,7 +119,9 @@ async function retry(operation: () => Promise<void>): Promise<void> {
     } catch (error) {
       lastError = error;
       if (attempt < MAX_ATTEMPTS) {
-        await delay(2 ** (attempt - 1) * 1_000);
+        await delay(
+          timeoutBeforeDeadline(2 ** (attempt - 1) * 1_000, deadline, "R2 archive retry"),
+        );
       }
     }
   }
@@ -124,31 +132,17 @@ function runCommand(
   accountId: string,
   command: string,
   args: readonly string[],
-): Promise<CommandResult> {
-  return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, {
-      cwd: ROOT,
-      env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    let stdout = "";
-    let stderr = "";
-    child.stdout?.setEncoding("utf8");
-    child.stderr?.setEncoding("utf8");
-    child.stdout?.on("data", (chunk: string) => {
-      stdout += chunk;
-    });
-    child.stderr?.on("data", (chunk: string) => {
-      stderr += chunk;
-    });
-    child.on("error", reject);
-    child.on("close", (code) => {
-      resolvePromise({ code: code ?? 1, stderr, stdout });
-    });
+  deadline: number,
+): Promise<CapturedCommandResult> {
+  return runCapturedBoundedCommand(command, args, {
+    cwd: ROOT,
+    env: { ...process.env, CLOUDFLARE_ACCOUNT_ID: accountId },
+    maxOutputBytes: MAX_COMMAND_OUTPUT_BYTES,
+    timeoutMs: timeoutBeforeDeadline(R2_COMMAND_TIMEOUT_MS, deadline, "R2 archive command"),
   });
 }
 
-function commandFailure(result: CommandResult): string {
+function commandFailure(result: CapturedCommandResult): string {
   const lines = `${result.stderr}\n${result.stdout}`
     .split(/\r?\n/)
     .map((line) => line.trim())

@@ -29,7 +29,6 @@ const CancellationReasonSchema = z.enum([
 type CancellationReason = z.infer<typeof CancellationReasonSchema>;
 
 export interface TierLimits {
-  byokProviderSlots: number | null;
   maxProjects: number | null;
   quotaComposioCalls: number | null;
   quotaSandboxHours: number | null;
@@ -60,9 +59,6 @@ export type EntitlementCache = z.infer<typeof EntitlementCacheSchema>;
 export interface EntitlementCacheInput {
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
-  maxProjects?: number;
-  quotaComposioCalls?: number;
-  quotaSandboxHours?: number | string;
   subscriptionStatus?: string;
   tier?: string;
   updatedAt?: Date | null;
@@ -70,7 +66,6 @@ export interface EntitlementCacheInput {
 
 function tierLimitsFromCatalog(entry: PlanCatalogEntry): TierLimits {
   return {
-    byokProviderSlots: entry.byokProviderSlots,
     maxProjects: entry.maxProjects,
     quotaComposioCalls: entry.quotaComposioCalls,
     quotaSandboxHours: entry.sandboxHours,
@@ -93,8 +88,7 @@ const CheckoutResponseSchema = z
 
 const CustomerSessionResponseSchema = z
   .object({
-    customerPortalUrl: z.string().url().max(2_048).optional(),
-    url: z.string().url().max(2_048).optional(),
+    customerPortalUrl: z.string().url().max(2_048),
   })
   .strip();
 
@@ -341,9 +335,9 @@ export function entitlementCacheFromValues(input: EntitlementCacheInput): Entitl
   return EntitlementCacheSchema.parse({
     currentPeriodEnd: isoDateOrNull(input.currentPeriodEnd),
     currentPeriodStart: isoDateOrNull(input.currentPeriodStart),
-    maxProjects: input.maxProjects ?? defaults.maxProjects,
-    quotaComposioCalls: input.quotaComposioCalls ?? defaults.quotaComposioCalls,
-    quotaSandboxHours: numericQuota(input.quotaSandboxHours ?? defaults.quotaSandboxHours),
+    maxProjects: defaults.maxProjects,
+    quotaComposioCalls: defaults.quotaComposioCalls,
+    quotaSandboxHours: numericQuota(defaults.quotaSandboxHours),
     subscriptionStatus: input.subscriptionStatus ?? "none",
     tier,
     updatedAt: isoDateOrNow(input.updatedAt),
@@ -423,13 +417,7 @@ function parseCustomerPortalUrl(response: unknown): string {
       retriable: true,
     });
   }
-  const url = parsed.data.customerPortalUrl ?? parsed.data.url;
-  if (!url) {
-    throw new APIError(502, "upstream_provider_outage", "Polar portal URL is missing", {
-      retriable: true,
-    });
-  }
-  return url;
+  return parsed.data.customerPortalUrl;
 }
 
 function parseSubscriptionAction(response: unknown): SubscriptionActionResult {

@@ -29,14 +29,19 @@ export function usePreviewConsole(threadId: string | null, enabled: boolean): Pr
 
   const { error, isFetching } = useQuery<SandboxConsoleSnapshot>({
     enabled: enabled && threadId !== null,
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const { consoleCursor, consoleProcess } = useAppStore.getState();
-      const snapshot = await readSandboxConsole(getToken, requireThreadId(threadId), {
-        lastPid: consoleProcess?.pid ?? undefined,
-        processId: consoleProcess?.id ?? undefined,
-        stderrCursor: consoleCursor.stderr,
-        stdoutCursor: consoleCursor.stdout,
-      });
+      const snapshot = await readSandboxConsole(
+        getToken,
+        requireThreadId(threadId),
+        {
+          lastPid: consoleProcess?.pid ?? undefined,
+          processId: consoleProcess?.id ?? undefined,
+          stderrCursor: consoleCursor.stderr,
+          stdoutCursor: consoleCursor.stdout,
+        },
+        signal,
+      );
       applySnapshot(snapshot);
       return snapshot;
     },

@@ -32,6 +32,8 @@ default app flow.
 Polar SDK calls have a 30-second request deadline and a 1 MiB response-stream
 ceiling. Responses are then projected into bounded customer, subscription, URL,
 and active-subscription shapes before reaching application state.
+Customer-session parsing accepts Polar's required `customerPortalUrl` field only; obsolete generic
+URL aliases are rejected at the provider boundary.
 
 ## Code Checks
 

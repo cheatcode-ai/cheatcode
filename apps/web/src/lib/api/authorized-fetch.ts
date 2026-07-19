@@ -5,6 +5,17 @@ import { gatewayRequestUrl } from "@/lib/api/gateway-url";
 
 const KIBIBYTE = 1024;
 const MEBIBYTE = 1024 * KIBIBYTE;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
+export const API_REQUEST_TIMEOUT_MS = {
+  archive: 15 * 60_000,
+  provisioning: 120_000,
+  terminal: 620_000,
+} as const;
+
+export interface AuthorizedFetchOptions {
+  timeoutMs?: number;
+}
 
 export const API_RESPONSE_LIMIT_BYTES = {
   archive: PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
@@ -28,8 +39,10 @@ export async function authorizedFetch(
   getToken: () => Promise<null | string>,
   path: string,
   init: RequestInit = {},
+  options: AuthorizedFetchOptions = {},
 ): Promise<Response> {
-  const token = await getToken();
+  const signal = requestSignal(init.signal, options.timeoutMs);
+  const token = await waitForAbortSignal(getToken(), signal);
   if (!token) {
     throw new Error("Authentication token is unavailable");
   }
@@ -41,11 +54,54 @@ export async function authorizedFetch(
   const response = await fetch(gatewayRequestUrl(path), {
     ...init,
     headers,
+    signal,
   });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }
   return response;
+}
+
+function requestSignal(
+  callerSignal: AbortSignal | null | undefined,
+  configuredTimeoutMs: number | undefined,
+): AbortSignal {
+  const timeoutMs =
+    configuredTimeoutMs === undefined ? DEFAULT_REQUEST_TIMEOUT_MS : configuredTimeoutMs;
+  if (!Number.isSafeInteger(timeoutMs) || timeoutMs <= 0) {
+    throw new Error("Request timeout must be a positive safe integer.");
+  }
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
+  return callerSignal ? AbortSignal.any([callerSignal, timeoutSignal]) : timeoutSignal;
+}
+
+export async function waitForAbortSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    throw requestAbortError(signal);
+  }
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener("abort", onAbort);
+      reject(requestAbortError(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    void promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error: unknown) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function requestAbortError(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException("Request was aborted.", "AbortError");
 }
 
 export async function readBoundedJsonResponse(response: Response, limit: number): Promise<unknown> {

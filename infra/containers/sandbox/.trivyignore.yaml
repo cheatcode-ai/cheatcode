@@ -49,13 +49,3 @@ vulnerabilities:
     expired_at: 2026-10-15
     statement: >-
       VS Code's built-in npm language extension is metadata, not the npm CLI.
-  - id: CVE-2026-55697
-    paths:
-      - opt/cheatcode-package-manager/node_modules/pnpm/package.json
-    purls:
-      - pkg:npm/pnpm@10.34.5
-    expired_at: 2026-10-15
-    statement: >-
-      The pnpm maintainer advisory GHSA-gj8w-mvpf-x27x lists 10.34.2 and later
-      on the 10.x line as patched. Trivy currently reports only the 11.x patched
-      range; the sandbox pins patched pnpm 10.34.5.

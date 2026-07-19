@@ -13,7 +13,12 @@ export function ChatPanel(props: ChatPanelProps) {
   const controller = useChatPanelController(props);
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
-      <ChatContextRow project={props.project} threadId={props.threadId} title={props.threadTitle} />
+      <ChatContextRow
+        isRunning={controller.state.isMessageListStreaming}
+        project={props.project}
+        threadId={props.threadId}
+        title={props.threadTitle}
+      />
       <StreamReconnectBanner />
       <MessageList
         hasOlderMessages={props.hasOlderMessages}
@@ -22,12 +27,15 @@ export function ChatPanel(props: ChatPanelProps) {
         messages={controller.state.messages}
         onContinue={controller.actions.continueRun}
         onLoadOlderMessages={controller.actions.loadOlderMessages}
+        onMessageAppend={controller.actions.appendMessage}
+        threadId={props.threadId}
       />
       <PromptComposer
         onChange={controller.actions.setDraft}
         onStop={controller.actions.stopRun}
         onSubmit={controller.actions.submitText}
         project={props.project}
+        resolvedModelId={props.latestModelId}
         status={controller.state.composerStatus}
         threadId={props.threadId}
         value={controller.state.draft}

@@ -1,7 +1,7 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types";
-import { ConfirmDialog, ModalShell } from "@cheatcode/ui";
+import { ConfirmDialog, ModalShell, Plus, Search, X } from "@cheatcode/ui";
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -14,9 +14,14 @@ import type {
   ProjectPickerController,
   ProjectPickerVariant,
 } from "@/components/composer/project-picker-controller";
+import {
+  ProjectEditIcon,
+  ProjectFolderIcon,
+  ProjectMoreIcon,
+  ProjectTrashIcon,
+} from "@/components/composer/project-picker-icons";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { ChevronDown, Folder, MoreHorizontal, Plus, Search, X } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 export function ProjectPickerTrigger({
@@ -31,35 +36,30 @@ export function ProjectPickerTrigger({
   variant: ProjectPickerVariant;
 }) {
   return (
-    <CheatcodeTooltip canShrink className="w-full max-w-full" label="Choose folder">
+    <CheatcodeTooltip canShrink className="max-w-full" label="Choose project">
       <button
         aria-controls={controller.meta.dialogId}
         aria-expanded={controller.state.isOpen}
-        aria-haspopup="dialog"
-        aria-label="Choose folder"
+        aria-haspopup="menu"
+        aria-label="Choose project"
         className={cn(
-          "flex h-8 w-full min-w-0 max-w-[132px] cursor-pointer items-center gap-1.5 overflow-hidden rounded-full bg-background px-2.5 font-medium text-[13px] text-foreground leading-5 shadow-[0_0_0_1px_rgba(0,0,0,0.06)] transition-[background-color,color,transform,box-shadow] duration-200 hover:bg-secondary active:scale-[0.99] max-[340px]:max-w-[92px] max-[340px]:gap-1 max-[340px]:px-2",
-          compact ? "sm:max-w-[160px]" : "sm:max-w-[220px]",
+          "group/button relative isolate inline-flex h-8 min-w-0 shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-background px-2.5 font-medium text-secondary-foreground text-sm transition duration-200 hover:bg-accent/70 hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 max-[340px]:max-w-[92px] max-[340px]:gap-1 max-[340px]:px-2 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+          compact ? "max-w-[160px]" : "max-w-[220px]",
         )}
         data-variant={variant}
+        id={controller.meta.triggerId}
         onClick={controller.actions.toggle}
         onKeyDown={(event) => handleTriggerKeyDown(event, controller)}
         ref={controller.meta.triggerRef}
         type="button"
       >
-        <Folder aria-hidden="true" className="size-4 shrink-0" />
-        <span className="min-w-0 truncate">
-          {selectedProject?.name ?? (variant === "home" ? "Choose project" : "Choose folder")}
+        <ProjectFolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+        <span
+          className="min-w-0 max-w-full truncate font-medium text-xs"
+          title={selectedProject?.name}
+        >
+          {selectedProject?.name ?? "Choose project"}
         </span>
-        {variant === "thread" ? (
-          <ChevronDown
-            aria-hidden="true"
-            className={cn(
-              "size-3.5 shrink-0 transition-transform duration-200",
-              controller.state.isOpen && "rotate-180",
-            )}
-          />
-        ) : null}
       </button>
     </CheatcodeTooltip>
   );
@@ -67,50 +67,47 @@ export function ProjectPickerTrigger({
 
 export function ProjectPickerMenu({ controller }: { controller: ProjectPickerController }) {
   return (
-    <dialog
-      aria-label="Choose project"
-      className={cn(
-        "absolute top-auto right-auto bottom-full left-0 z-30 m-0 mb-2 flex w-[min(262px,calc(100vw-32px))] origin-bottom-left flex-col gap-1 rounded-2xl border-0 bg-background p-1.5 text-foreground shadow-[0_25px_50px_-12px_rgba(0,0,0,0.25)] transition-[opacity,transform] duration-150 ease-out",
-        controller.state.isOpen ? "translate-y-0 opacity-100" : "translate-y-1 opacity-0",
-      )}
+    <div
+      aria-labelledby={controller.meta.triggerId}
+      className="absolute right-auto bottom-full left-0 z-30 mb-2 w-[min(262px,calc(100vw-32px))] origin-bottom-left rounded-2xl border-0 bg-popover p-1.5 text-popover-foreground shadow-2xl outline-none"
       id={controller.meta.dialogId}
-      open
+      role="menu"
+      tabIndex={-1}
     >
-      <ProjectSearch controller={controller} />
       <div
-        aria-label="Projects"
-        className="flex flex-col gap-1"
+        className="flex w-[min(250px,calc(100vw-44px))] flex-col gap-1"
         id={controller.meta.optionsMenuId}
         onFocus={(event) => handleMenuFocus(event, MAIN_MENU_ITEM_SELECTOR)}
         onKeyDown={(event) => handleMainMenuKeyDown(event, controller)}
         ref={controller.meta.optionsMenuRef}
-        role="menu"
+        role="none"
       >
+        <ProjectSearch controller={controller} />
         <button
-          className="flex h-8 w-[250px] cursor-pointer items-center justify-center gap-1.5 rounded-full bg-secondary px-3 font-medium text-[13px] text-foreground leading-[19.5px] transition-colors duration-150 hover:bg-bg-elevated"
+          className="flex h-8 cursor-pointer items-center justify-center gap-1.5 rounded-full bg-secondary px-3 font-medium text-foreground text-xs transition-colors hover:bg-secondary/80"
           data-project-picker-menu-item="true"
           onClick={controller.actions.selectNewProject}
           role="menuitem"
           tabIndex={0}
           type="button"
         >
-          <Plus aria-hidden="true" className="size-4" />
+          <Plus aria-hidden="true" className="size-3.5" />
           New project
         </button>
         <ProjectRows controller={controller} />
       </div>
-    </dialog>
+    </div>
   );
 }
 
 function ProjectSearch({ controller }: { controller: ProjectPickerController }) {
   return (
-    <div className="flex h-8 w-full items-center gap-1.5 rounded-full bg-secondary pr-2 pl-2.5">
-      <Search aria-hidden="true" className="size-3.5 shrink-0 text-foreground opacity-50" />
+    <div className="flex h-8 items-center gap-1.5 rounded-full bg-secondary pr-2 pl-2.5">
+      <Search aria-hidden="true" className="size-3.5 shrink-0 opacity-50" />
       <input
         aria-controls={controller.meta.optionsMenuId}
         aria-label="Search projects"
-        className="h-8 min-w-0 flex-1 bg-transparent font-medium text-[13px] text-foreground leading-[19.5px] outline-none placeholder:text-placeholder"
+        className="h-8 min-w-0 flex-1 bg-transparent text-foreground text-xs outline-none placeholder:text-muted-foreground"
         onChange={(event) => controller.actions.updateSearch(event.target.value)}
         onFocus={() => resetMenuTabStop(controller.meta.optionsMenuRef)}
         onKeyDown={(event) => handleSearchKeyDown(event, controller.meta.optionsMenuRef)}
@@ -139,7 +136,7 @@ function ProjectRows({ controller }: { controller: ProjectPickerController }) {
     return (
       <div
         aria-disabled="true"
-        className="px-3 py-3 text-[13px] text-placeholder"
+        className="px-3 py-3 text-muted-foreground text-xs"
         role="menuitem"
         tabIndex={-1}
       >
@@ -149,7 +146,7 @@ function ProjectRows({ controller }: { controller: ProjectPickerController }) {
   }
   return (
     <div
-      className="chat-scrollbar flex max-h-36 w-[250px] flex-col overflow-y-auto overscroll-contain"
+      className="chat-scrollbar flex max-h-48 flex-col overflow-y-auto overscroll-contain"
       role="none"
     >
       {controller.state.projects.map((project) => (
@@ -157,7 +154,7 @@ function ProjectRows({ controller }: { controller: ProjectPickerController }) {
       ))}
       {controller.state.hasMore ? (
         <button
-          className="h-9 shrink-0 rounded-[14px] px-3 text-left font-medium text-[13px] text-fg-secondary transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+          className="h-8 shrink-0 rounded-xl px-3 text-left font-medium text-muted-foreground text-xs transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
           data-project-picker-menu-item="true"
           disabled={controller.state.isLoadingMore}
           onClick={controller.actions.loadMore}
@@ -191,7 +188,13 @@ function ProjectRow({
     return () => cancelAnimationFrame(frame);
   }, [isMenuOpen]);
   return (
-    <div className="group/project rounded-[14px] transition-colors duration-200" role="none">
+    <div
+      className={cn(
+        "group/folder rounded-xl transition-colors duration-200",
+        isMenuOpen && "rounded-[18px] bg-bg-secondary",
+      )}
+      role="none"
+    >
       <ProjectRowButton
         controller={controller}
         isMenuOpen={isMenuOpen}
@@ -223,12 +226,12 @@ function ProjectRowButton(props: ProjectRowButtonProps) {
   return (
     <div
       className={cn(
-        "flex h-9 w-full items-center gap-1.5 rounded-[14px] px-3 text-left",
+        "flex w-full items-center gap-1.5 rounded-xl px-3 py-1.5 text-left",
         project.readOnly
-          ? "cursor-not-allowed text-placeholder"
+          ? "cursor-not-allowed text-muted-foreground opacity-50"
           : isSelected
-            ? "cursor-pointer bg-fg-primary/5 text-foreground"
-            : "cursor-pointer text-fg-secondary hover:bg-background hover:text-foreground",
+            ? cn("cursor-pointer text-foreground", isMenuOpen ? "bg-transparent" : "bg-background")
+            : "cursor-pointer text-muted-foreground hover:bg-background hover:text-foreground",
       )}
       role="none"
     >
@@ -242,10 +245,8 @@ function ProjectRowButton(props: ProjectRowButtonProps) {
         tabIndex={-1}
         type="button"
       >
-        <Folder aria-hidden="true" className="size-3 shrink-0" strokeWidth={2.25} />
-        <span className="min-w-0 flex-1 truncate font-medium text-[13px] leading-[19.5px]">
-          {project.name}
-        </span>
+        <ProjectFolderIcon className="size-3 shrink-0" />
+        <span className="min-w-0 flex-1 truncate text-xs">{project.name}</span>
         {project.readOnly ? (
           <span className="shrink-0 text-[11px] text-placeholder">read-only</span>
         ) : null}
@@ -276,9 +277,9 @@ function ProjectRowMenuButton({
       aria-haspopup="menu"
       aria-label={`Open ${project.name} project menu`}
       className={cn(
-        "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-placeholder opacity-0 transition-[background-color,color,opacity] duration-150 hover:bg-secondary hover:text-foreground focus-visible:opacity-100",
+        "flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-full text-muted-foreground opacity-0 transition-opacity hover:bg-secondary hover:text-foreground focus-visible:opacity-100 disabled:cursor-not-allowed",
         (isMenuOpen || isSelected) && "opacity-100",
-        !project.readOnly && "group-hover/project:opacity-100",
+        !project.readOnly && "group-hover/folder:opacity-100",
       )}
       data-project-picker-menu-item="true"
       disabled={project.readOnly}
@@ -292,7 +293,7 @@ function ProjectRowMenuButton({
       tabIndex={-1}
       type="button"
     >
-      <MoreHorizontal aria-hidden="true" className="size-3.5" strokeWidth={2.25} />
+      <ProjectMoreIcon className="size-3.5" />
     </button>
   );
 }
@@ -332,6 +333,7 @@ function ProjectRowActions({
         >
           <ProjectRowAction
             actionRef={firstActionRef}
+            icon="edit"
             isFirst
             isMenuOpen={isMenuOpen}
             label="Rename"
@@ -339,6 +341,7 @@ function ProjectRowActions({
             variant="default"
           />
           <ProjectRowAction
+            icon="trash"
             isMenuOpen={isMenuOpen}
             label="Delete"
             onClick={() => controller.actions.requestDelete(project)}
@@ -352,6 +355,7 @@ function ProjectRowActions({
 
 function ProjectRowAction({
   actionRef,
+  icon,
   isFirst = false,
   isMenuOpen,
   label,
@@ -359,6 +363,7 @@ function ProjectRowAction({
   variant,
 }: {
   actionRef?: RefObject<HTMLButtonElement | null> | undefined;
+  icon: "edit" | "trash";
   isFirst?: boolean | undefined;
   isMenuOpen: boolean;
   label: string;
@@ -369,8 +374,8 @@ function ProjectRowAction({
     <button
       className={
         variant === "destructive"
-          ? "flex h-8 w-full cursor-pointer items-center rounded-full py-1.5 pr-3 pl-7 text-left font-medium text-[13px] text-danger-fg transition-colors hover:bg-danger-bg"
-          : "flex h-8 w-full cursor-pointer items-center rounded-full py-1.5 pr-3 pl-7 text-left font-medium text-[13px] text-fg-secondary transition-colors hover:bg-background hover:text-foreground"
+          ? "flex w-full cursor-pointer items-center gap-2 rounded-full py-1.5 pr-3 pl-7 text-left text-destructive text-xs hover:bg-background hover:text-destructive"
+          : "flex w-full cursor-pointer items-center gap-2 rounded-full py-1.5 pr-3 pl-7 text-left text-muted-foreground text-xs hover:bg-background hover:text-foreground"
       }
       data-project-picker-submenu-item="true"
       onClick={onClick}
@@ -379,6 +384,11 @@ function ProjectRowAction({
       tabIndex={isMenuOpen && isFirst ? 0 : -1}
       type="button"
     >
+      {icon === "edit" ? (
+        <ProjectEditIcon className="size-3.5 shrink-0" />
+      ) : (
+        <ProjectTrashIcon className="size-3.5 shrink-0" />
+      )}
       {label}
     </button>
   );
@@ -663,7 +673,7 @@ function ProjectDeleteDialog({ controller }: { controller: ProjectPickerControll
       busy={controller.state.deleteBusy}
       cancelLabel="Cancel"
       confirmLabel="Delete project"
-      description="This removes the project, its workspace folder, and all generated files. Your cloud computer and other projects stay intact. Deployed previews stay live until they expire."
+      description="This removes the project, its workspace folder, and all generated files. Your cloud computer and other projects stay intact."
       destructive
       id="composer-delete-project-dialog"
       onCancel={controller.actions.cancelDelete}

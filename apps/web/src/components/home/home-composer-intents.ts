@@ -1,7 +1,7 @@
+import { Globe, Smartphone, Star, TrendingUp } from "@cheatcode/ui";
 import type { ComponentType } from "react";
 import { skillSurface } from "@/components/home/use-initial-skill";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { Globe, Smartphone, Star, TrendingUp } from "@/components/ui/icons";
 
 export type IntentId = "data" | "mobile-app" | "research" | "slides" | "web-app";
 

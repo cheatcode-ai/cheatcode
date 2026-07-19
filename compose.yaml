@@ -1,0 +1,156 @@
+name: cheatcode-local
+
+x-app-build: &app-build
+  context: .
+  dockerfile: infra/containers/dev/Dockerfile
+
+x-app-image: &app-image
+  image: cheatcode-local-dev
+
+x-database-build: &database-build
+  context: .
+  dockerfile: infra/containers/dev/database.Dockerfile
+
+x-database-image: &database-image
+  image: cheatcode-local-database
+
+x-app-environment: &app-environment
+  CHEATCODE_LOCAL_DATABASE: "true"
+  SUPABASE_MIGRATION_EXPECTED_DATABASE: postgres
+  SUPABASE_MIGRATION_EXPECTED_HOST: database
+  SUPABASE_MIGRATION_EXPECTED_ROLE: postgres
+  SUPABASE_MIGRATION_URL: ${SUPABASE_MIGRATION_URL:?Set SUPABASE_MIGRATION_URL in .env.local}
+
+services:
+  database:
+    <<: *database-image
+    build: *database-build
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD in .env.local}
+      POSTGRES_USER: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+    ports:
+      - "127.0.0.1:${LOCAL_DATABASE_PORT:-54322}:5432"
+    restart: unless-stopped
+    stop_grace_period: 30s
+    volumes:
+      # Supabase Vault ciphertext is bound to pgsodium's root key in this directory.
+      - database-config:/etc/postgresql-custom
+      - database-data:/var/lib/postgresql/data
+
+  database-bootstrap:
+    <<: *database-image
+    command:
+      - bash
+      - -euc
+      - >-
+        psql
+        --set=app_gateway_password="$$APP_GATEWAY_PASSWORD"
+        --set=app_agent_password="$$APP_AGENT_PASSWORD"
+        --set=app_webhooks_password="$$APP_WEBHOOKS_PASSWORD"
+        --set=database_context_signing_secret_agent="$$DATABASE_CONTEXT_SIGNING_SECRET_AGENT"
+        --set=database_context_signing_secret_gateway="$$DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY"
+        --set=database_context_signing_secret_webhooks="$$DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS"
+        --file=/bootstrap/bootstrap-database.sql
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      APP_AGENT_PASSWORD: ${LOCAL_APP_AGENT_PASSWORD:?Set LOCAL_APP_AGENT_PASSWORD in .env.local}
+      APP_GATEWAY_PASSWORD: ${LOCAL_APP_GATEWAY_PASSWORD:?Set LOCAL_APP_GATEWAY_PASSWORD in .env.local}
+      APP_WEBHOOKS_PASSWORD: ${LOCAL_APP_WEBHOOKS_PASSWORD:?Set LOCAL_APP_WEBHOOKS_PASSWORD in .env.local}
+      DATABASE_CONTEXT_SIGNING_SECRET_AGENT: ${DATABASE_CONTEXT_SIGNING_SECRET_AGENT:?Set DATABASE_CONTEXT_SIGNING_SECRET_AGENT in .env.local}
+      DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: ${DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY:?Set DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY in .env.local}
+      DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: ${DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS:?Set DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS in .env.local}
+      PGDATABASE: postgres
+      PGHOST: database
+      PGPASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD in .env.local}
+      PGUSER: postgres
+    restart: "no"
+    volumes:
+      - ./infra/containers/dev/bootstrap-database.sql:/bootstrap/bootstrap-database.sql:ro
+
+  app:
+    <<: *app-image
+    build: *app-build
+    command:
+      - bash
+      - -euc
+      - |
+        pnpm turbo build --filter=./packages/*
+        pnpm tsx scripts/migrate.ts --apply --phase=pre-deploy
+        pnpm tsx scripts/migrate.ts --apply --phase=post-deploy
+        pnpm tsx scripts/migrate.ts --apply --phase=release-finalization
+        exec pnpm dev:services -- --bind 0.0.0.0 --skip-initial-build
+    depends_on:
+      database-bootstrap:
+        condition: service_completed_successfully
+    environment: *app-environment
+    develop:
+      watch:
+        - action: sync
+          path: .
+          target: /workspace
+          ignore:
+            - .env
+            - .env.*
+            - .git/
+            - .next/
+            - .turbo/
+            - .vercel/
+            - .wrangler/
+            - infra/supabase/migrations/
+            - package.json
+            - packages/db/drizzle/
+            - pnpm-lock.yaml
+            - pnpm-workspace.yaml
+            - "**/.next/"
+            - "**/.turbo/"
+            - "**/.wrangler/"
+            - "**/dist/"
+            - "**/node_modules/"
+            - node_modules/
+        - action: sync+restart
+          path: infra/supabase/migrations
+          target: /workspace/infra/supabase/migrations
+        - action: sync+restart
+          path: packages/db/drizzle
+          target: /workspace/packages/db/drizzle
+        - action: rebuild
+          path: package.json
+        - action: rebuild
+          path: pnpm-lock.yaml
+        - action: rebuild
+          path: pnpm-workspace.yaml
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - Promise.all([fetch('http://127.0.0.1:3000/cheatcode-symbol.png'),fetch('http://127.0.0.1:8787/health')]).then(async([web,gateway])=>{if(!web.ok||!web.headers.get('content-type')?.startsWith('image/png')||!gateway.ok||(await gateway.json()).ok!==true)process.exit(1)}).catch(()=>process.exit(1))
+      interval: 5s
+      timeout: 5s
+      retries: 24
+      start_period: 30s
+    init: true
+    ports:
+      - "127.0.0.1:3000:3000"
+      - "127.0.0.1:8787:8787"
+      - "127.0.0.1:9239:9239"
+    stop_grace_period: 20s
+    volumes:
+      - ./.env.local:/workspace/.env.local:ro
+      - app-next:/workspace/apps/web/.next
+      - app-wrangler:/workspace/apps/gateway-worker/.wrangler
+
+volumes:
+  app-next:
+  app-wrangler:
+  database-config:
+  database-data:

@@ -48,7 +48,12 @@ additionally requires:
 Any failure returns `401` (no redirect). A `handoff` capability is accepted only
 from `__cc_pt`, expires after at most 60 seconds, and is accepted only on GET/HEAD
 navigation/session-exchange requests. A `session` capability is accepted only
-from the `__Host-cc_pt` cookie and expires after at most 10 minutes.
+from the environment's host-only cookie and expires after at most 10 minutes.
+Production uses `__Host-cc_pt`; local HTTP uses the dev-only `cc_pt` name because
+Chrome does not accept the `__Host-` prefix over local HTTP. Both cookies are
+`Secure; SameSite=None; Partitioned`: the documented local app origin is
+`127.0.0.1`, while isolated preview hosts are beneath `localhost`, so the local
+iframe intentionally exercises the same cross-site cookie boundary as production.
 
 ### Cookie hand-off
 
@@ -104,7 +109,7 @@ depend on the code-execution tool package.
 - Forwards method, body (streamed), and headers to `{originUrl}{path+search}`.
 - On the dedicated code-server port only, buffers at most 4 MiB of workbench
   HTML and injects the shared parent-frame bridge. The bridge accepts messages
-  only from `https://trycheatcode.com` and posts state only to that exact origin;
+  only from `CHEATCODE_APP_ORIGIN` and posts state only to that exact origin;
   arbitrary generated-app HTML remains streamed and unmodified.
 - Injects:
   - `x-daytona-preview-token: <daytona token>`
@@ -125,7 +130,7 @@ depend on the code-execution tool package.
 - Rejects browser requests that rely on the session cookie when `Origin` or
   Fetch Metadata identifies a different preview origin. Cookie-authenticated
   iframe navigations additionally require a referrer from the exact preview
-  origin or `https://trycheatcode.com`; this blocks sibling-preview navigation
+  origin or `CHEATCODE_APP_ORIGIN`; this blocks sibling-preview navigation
   attacks before sandbox code handles a state-changing GET. The Vercel iframes
   use `referrerpolicy="origin"`, so the query-to-cookie redirect retains that
   trusted signal without disclosing an app path or query. This check runs before
@@ -137,7 +142,7 @@ depend on the code-execution tool package.
 - Marks authenticated HTML `private, no-store`, makes other responses private
   while preserving browser-cache directives, and varies responses by the
   cookie/origin/Fetch-Metadata inputs used at the boundary.
-- Adds `frame-ancestors 'self' https://trycheatcode.com`,
+- Adds `frame-ancestors 'self' <CHEATCODE_APP_ORIGIN>`,
   `Origin-Agent-Cluster: ?1`, and `X-Robots-Tag: noindex, nofollow` to non-WS
   responses. OAC prevents `document.domain` relaxation when the browser honors
   it, but it is a browser hint rather than a complete security boundary.
@@ -169,6 +174,7 @@ released together.
 
 | Binding               | Type            | Source                                  |
 | --------------------- | --------------- | --------------------------------------- |
+| `CHEATCODE_APP_ORIGIN` | var            | exact trusted Vercel/local app origin   |
 | `CHEATCODE_ENVIRONMENT` | var           | `wrangler.jsonc` (`production`)         |
 | `CHEATCODE_RELEASE_SHA` | release var   | guarded deploy command                  |
 | `CF_VERSION_METADATA` | version metadata | Cloudflare runtime                    |
@@ -179,22 +185,50 @@ released together.
 | `PREVIEW_TOKEN_SECRET`| Secrets Store   | `preview-token-secret`                  |
 
 Secrets bind from store `ba25994718db4707ab99a498e22eb5a6` (shared with
-`agent-worker`). Local dev: copy `.dev.vars.example` to `.dev.vars`. Secrets are
-resolved request-scoped via `resolveWorkerSecret`; the token and API key are
-never logged.
+`agent-worker`). Local development reads the same bindings from the root,
+git-ignored `.env.local`; there is no per-Worker credential file. Secrets are
+resolved request-scoped via `resolveWorkerSecret`; the token and API key are never
+logged.
+
+Root `pnpm dev` runs this Worker as the fourth member of the chained Wrangler
+process. The gateway's generated local-only Service Binding routes
+`*.localhost:8787` HTTP and WebSocket traffic here; a path-form handoff is first
+redirected to that canonical local origin so the session cookie is scoped
+correctly. The redirect preserves only an origin referrer, which is the trusted
+navigation signal required by the cookie-authenticated follow-up and cannot
+disclose the handoff path or token. No preview domain or cloud development
+deployment is required.
 
 Optional Analytics Engine bindings `ERROR_EVENTS` and `PERFORMANCE_METRICS` feed
 the shared `@cheatcode/observability` emitters.
 
 ## DNS / route setup
 
-- Route: `*.${PREVIEW_HOSTNAME}/*` on the preview domain's Cloudflare zone.
+- Worker route: `*.${PREVIEW_HOSTNAME}/*` points only to
+  `cheatcode-preview-proxy`. Cloudflare's most-specific-route rule lets the exact
+  gateway and webhooks routes override it.
+- Exact no-script routes for `clerk.trycheatcode.com/*`,
+  `docs.trycheatcode.com/*`, and `www.trycheatcode.com/*` negate the wildcard
+  for Clerk, documentation, and the Vercel frontend hostname.
+  `preview.trycheatcode.com` deliberately has no exact route and inherits the
+  preview wildcard for release health checks.
+- [`infra/cloudflare/production-route-contract.json`](../../infra/cloudflare/production-route-contract.json)
+  is the production contract. `stage-closed` creates only a missing exact
+  no-script route through the Workers Routes API before deploying the wildcard;
+  it never updates or deletes an existing route. Conflicts, semantic duplicates,
+  and overlapping wildcard routes stop the release. The contract is checked
+  again after preview deployment and before the gateway can reopen.
 - DNS: a **proxied** wildcard record `*` -> the zone (orange-cloud) so
   Cloudflare terminates TLS and runs this Worker for every sub-subdomain.
 - TLS: the wildcard is one label deep beyond the configured apex; Cloudflare
   Universal SSL covers a single wildcard level, so
   no extra certificate is required. (If preview hosts ever gain another label,
   Advanced Certificate Manager / a custom cert would be needed.)
+
+The production Cloudflare token needs Zone Read plus Workers Routes Read and
+Write. This follows Cloudflare's documented
+[route matching and no-script negation](https://developers.cloudflare.com/workers/configuration/routing/routes/#matching-behavior)
+and the [Workers Routes API](https://developers.cloudflare.com/api/resources/workers/subresources/routes/).
 
 ## Code checks
 

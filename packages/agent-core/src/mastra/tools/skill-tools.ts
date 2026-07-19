@@ -1,9 +1,6 @@
 import { type BundledSkill, getSkillByName } from "@cheatcode/skills";
 import { createTool } from "@mastra/core/tools";
-import {
-  userSkillLoaderFromRequestContext,
-  userSkillStoreFromRequestContext,
-} from "../system-prompt";
+import { userSkillLoaderFromRequestContext } from "../system-prompt";
 import { requestContextFromToolContext } from "./tool-runtime-context";
 import {
   skillCreateInputSchema,
@@ -29,7 +26,7 @@ function sortedRecordKeys(record: Record<string, string>): string[] {
 export const mastraSkillInvoke = createTool({
   id: "skill_invoke",
   description:
-    "Load the full instructions for a bundled Cheatcode skill. Use when the request matches a listed skill description.",
+    "Load the full instructions and filesystem root for a complete Cheatcode skill package. Use rootPath as the working directory for the package's scripts, references, and assets.",
   inputSchema: skillInvokeInputSchema,
   outputSchema: skillInvokeOutputSchema,
   execute: async (input, context) => {
@@ -44,6 +41,7 @@ export const mastraSkillInvoke = createTool({
         license: bundled.license,
         name: bundled.name,
         references: sortedRecordKeys(bundled.references),
+        rootPath: `/home/node/.cheatcode/default-skills/${bundled.name}`,
       };
     }
     const loader = userSkillLoaderFromRequestContext(requestContextFromToolContext(context));
@@ -57,6 +55,7 @@ export const mastraSkillInvoke = createTool({
       instructions: userSkill.body,
       name: userSkill.name,
       references: [],
+      rootPath: userSkill.rootPath,
     };
   },
 });
@@ -64,25 +63,33 @@ export const mastraSkillInvoke = createTool({
 export const mastraSkillCreate = createTool({
   id: "skill_create",
   description:
-    "Save a reusable custom skill for this user. Use in Skill Creator mode once the skill (name, one-line description, and markdown instructions) is ready. Re-using a name updates that skill.",
+    "Prepare a reusable custom skill for the user's review. Use once in Skill Creator mode when the name, description, and markdown instructions are ready. The user must explicitly create the proposed skill before it is saved.",
   inputSchema: skillCreateInputSchema,
   outputSchema: skillCreateOutputSchema,
-  execute: async (input, context) => {
+  execute: async (input) => {
     const parsed = skillCreateInputSchema.parse(input);
-    const store = userSkillStoreFromRequestContext(requestContextFromToolContext(context));
-    if (!store) {
-      throw new Error("Saving skills is not available in this run.");
-    }
-    await store.save({
+    return {
       body: parsed.body,
+      category: parsed.category ?? "Builder & Apps",
       description: parsed.description,
       name: parsed.name,
-      ...(parsed.category ? { category: parsed.category } : {}),
-      ...(parsed.tags ? { tags: parsed.tags } : {}),
-    });
-    return { name: parsed.name, saved: true };
+      proposalId: crypto.randomUUID(),
+      proposed: true as const,
+      slug: skillSlug(parsed.name),
+      tags: parsed.tags ?? [],
+    };
   },
 });
+
+function skillSlug(name: string): string {
+  const slug = name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replaceAll(/[^a-z0-9]+/gu, "-")
+    .replaceAll(/^-+|-+$/gu, "")
+    .slice(0, 80);
+  return slug || "custom-skill";
+}
 
 export const mastraSkillReadReference = createTool({
   id: "skill_read_reference",

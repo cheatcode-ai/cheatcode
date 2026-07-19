@@ -30,6 +30,8 @@ export type {
   SandboxStatus,
   SandboxWriteFileInput,
   SandboxWriteFileResult,
+  WorkspaceBinding,
+  WorkspaceResolver,
 } from "./runtime";
 export {
   ArtifactRuntimeSchema,

@@ -10,7 +10,12 @@ planned logical model for admission events and the resolved logical model for
 stream-attempt/completion events. Pre-attempt failures retain planned attribution;
 provider-local transport IDs stay in structured logs. Daily activation cohorts emit
 `retention_d7`, `retention_d28`, and
-`first_week_mau`. Model token counts and model costs are not collected.
+`first_week_mau` in 200-point Workflow pages and bind the logical cohort event to
+its UTC day in blob 13. Their deterministic `activation:<day>:<event>:<user>`
+identity occupies blob 6 (the run-identity position used by other events). Because
+Analytics Engine writes are append-only and Workflow steps are replayable, every
+activation cohort query must count `DISTINCT blob6`; raw row counts and sampled
+counts are not valid cohort totals. Model token counts and model costs are not collected.
 Mastra chunk telemetry adds step/tool/skill fields while staying within the
 Workers Analytics Engine 20-blob/20-double limit.
 Error events reserve blobs 7-14 for the safe error name, source code,

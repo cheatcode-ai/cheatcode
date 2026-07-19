@@ -3,13 +3,14 @@ import {
   callSandboxMethod,
   EnvironmentVariablesSchema,
   type getCodeRuntimeContext,
+  type SandboxStartProcessInput,
 } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
 import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
 
 const StartDevServerInputSchema = z
   .object({
-    command: z.array(z.string().min(1)).min(1).max(128),
+    command: z.array(z.string().min(1).max(8_192)).min(1).max(128),
     cwd: WorkspacePathSchema,
     env: EnvironmentVariablesSchema.optional(),
     // Mobile (Expo Metro) dev server: threads through to the ProcessRecord so the authenticated
@@ -38,8 +39,17 @@ const StartDevServerOutputSchema = z
   })
   .strict();
 
-type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
-type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
+export type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
+export type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
+
+export interface PreparedStartDevServer {
+  mayUseNetwork: boolean;
+  port: number;
+  process: SandboxStartProcessInput & {
+    cwd: string;
+    env: Record<string, string>;
+  };
+}
 
 // Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<slug>
 // so multiple projects' servers persist side by side in the one per-user sandbox (Cheatcode parity).
@@ -49,44 +59,51 @@ export async function executeStartDevServer(
   input: StartDevServerInput,
   runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
 ): Promise<StartDevServerOutput> {
+  return executePreparedStartDevServer(
+    await prepareStartDevServer(input, runtimeContext),
+    runtimeContext,
+  );
+}
+
+/** Resolves dynamic port allocation and command normalization before execution. */
+export async function prepareStartDevServer(
+  input: StartDevServerInput,
+  runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
+): Promise<PreparedStartDevServer> {
   const parsedInput = StartDevServerInputSchema.parse(input);
-  // The dev server is SYSTEM-confined to the run's project folder: cwd is forced to the run's
-  // workspaceDir (/workspace/<slug>) regardless of what the model passed, and the port + process
-  // slot both key off the LAST path segment of that forced cwd. This is what stops every general
-  // project's dev server from running in /workspace root and colliding on 5173/app-preview:workspace
-  // in the shared per-user sandbox — each project persists on its own stable port + slot (Cheatcode parity).
   const cwd = resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir);
   const slug = deriveWorkspaceSlug(cwd);
-  const name = `${APP_PREVIEW_SLOT_PREFIX}${slug}`;
-  // A mobile/Expo dev server has exactly one correct invocation: `expo start --web` on the project's
-  // own allocated port. The model sometimes emits a broken variant via start_dev_server — a
-  // hallucinated `--no-dev-client` that makes expo exit, or a hardcoded `--port 5173` that collides
-  // with another project in the shared per-user sandbox — which lands in this project's preview slot
-  // and leaves the panel blank. Normalize any `expo start` command (from the model OR the app-builder,
-  // where it's a no-op) to the canonical form; web (Next/Vite) commands pass through untouched.
   const isExpo = isExpoStartCommand(parsedInput.command);
   const isMobile = isExpo || parsedInput.isMobile;
   const port = await allocateDevServerPort(runtimeContext, slug, isMobile);
-  const command = isExpo ? expoWebCommand(port) : parsedInput.command;
-  const process = await callSandboxMethod(runtimeContext.sandbox, "startProcess", {
-    command,
-    cwd,
-    env: { ...parsedInput.env, PORT: String(port) },
-    isMobile,
-    keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
-    maxRestarts: parsedInput.maxRestarts,
-    processId: name,
-    restartOnFailure: parsedInput.restartOnFailure,
-    timeoutMs: parsedInput.timeoutMs,
-    waitForPort: {
-      port,
+  return {
+    mayUseNetwork: isExpo,
+    port,
+    process: {
+      command: isExpo ? expoWebCommand(port) : parsedInput.command,
+      cwd,
+      env: { ...parsedInput.env, PORT: String(port) },
+      isMobile,
+      keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
+      maxRestarts: parsedInput.maxRestarts,
+      processId: `${APP_PREVIEW_SLOT_PREFIX}${slug}`,
+      restartOnFailure: parsedInput.restartOnFailure,
       timeoutMs: parsedInput.timeoutMs,
+      waitForPort: { port, timeoutMs: parsedInput.timeoutMs },
     },
-  });
+  };
+}
+
+/** Executes only the fully resolved process plan. */
+export async function executePreparedStartDevServer(
+  prepared: PreparedStartDevServer,
+  runtimeContext: ReturnType<typeof getCodeRuntimeContext>,
+): Promise<StartDevServerOutput> {
+  const process = await callSandboxMethod(runtimeContext.sandbox, "startProcess", prepared.process);
   return StartDevServerOutputSchema.parse({
     processId: process.id,
     pid: process.pid,
-    port,
+    port: prepared.port,
     status: process.status,
   });
 }

@@ -1,6 +1,10 @@
 "use client";
 
+import type { IntegrationName } from "@cheatcode/types";
+import { FileArchive, FileText, Folder } from "@cheatcode/ui";
 import { useId } from "react";
+import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { cn } from "@/lib/ui/cn";
 
 /**
@@ -13,7 +17,10 @@ export interface ComposerMenuItem {
   hint?: string | undefined;
   id: string;
   insert: string;
+  integrationName?: IntegrationName | undefined;
   label: string;
+  skillName?: string | undefined;
+  visual: "archive" | "directory" | "file" | "integration" | "status" | "user-skill";
 }
 
 interface ComposerPopoverProps {
@@ -48,8 +55,8 @@ export function ComposerPopover({
       aria-activedescendant={`${baseId}-${safeIndex}`}
       aria-label={ariaLabel}
       className={cn(
-        "absolute bottom-full left-0 z-30 mb-2 flex max-h-72 w-80 max-w-[calc(100vw-2rem)] flex-col gap-1 overflow-y-auto rounded-[18px]",
-        "border border-border bg-background p-1 shadow-[0_18px_70px_rgba(0,0,0,0.12)]",
+        "absolute bottom-full left-0 z-50 mb-2 flex max-h-[234px] w-[320px] max-w-[calc(100vw-2rem)] flex-col overflow-y-auto rounded-lg",
+        "fade-in-0 zoom-in-95 animate-in border border-border bg-popover p-1 shadow-lg duration-150",
       )}
       role="listbox"
       tabIndex={-1}
@@ -90,7 +97,6 @@ function ComposerPopoverRow({
       className={popoverRowClassName(item.disabled === true, isActive)}
       disabled={item.disabled}
       id={id}
-      onClick={selectEnabledItem}
       onMouseDown={(event) => {
         event.preventDefault();
         selectEnabledItem();
@@ -99,21 +105,54 @@ function ComposerPopoverRow({
       role="option"
       type="button"
     >
-      <span className="font-mono text-[12px] tracking-wide">{item.label}</span>
-      {item.hint ? (
-        <span className="line-clamp-2 text-[11px] text-placeholder leading-snug">{item.hint}</span>
-      ) : null}
+      <ComposerMenuIcon item={item} />
+      <span className="truncate font-medium text-foreground text-xs">{item.label}</span>
     </button>
   );
 }
 
+function ComposerMenuIcon({ item }: { item: ComposerMenuItem }) {
+  if (item.visual === "integration" && item.integrationName) {
+    return (
+      <IntegrationBrandLogo displayName={item.label} size="menu" slug={item.integrationName} />
+    );
+  }
+  if (item.visual === "user-skill") {
+    return (
+      <span className="flex size-4 shrink-0 items-center justify-center text-primary">
+        <CheatcodeMark aria-hidden="true" className="size-4" />
+      </span>
+    );
+  }
+  if (item.visual === "directory") {
+    return (
+      <Folder aria-hidden="true" className="size-4 shrink-0 text-primary" strokeWidth={2.25} />
+    );
+  }
+  if (item.visual === "archive") {
+    return (
+      <FileArchive aria-hidden="true" className="size-4 shrink-0 text-primary" strokeWidth={2.25} />
+    );
+  }
+  if (item.visual === "file") {
+    return (
+      <FileText
+        aria-hidden="true"
+        className="size-4 shrink-0 text-placeholder"
+        strokeWidth={2.25}
+      />
+    );
+  }
+  return <span aria-hidden="true" className="size-4 shrink-0" />;
+}
+
 function popoverRowClassName(isDisabled: boolean, isActive: boolean): string {
   return cn(
-    "flex w-full flex-col items-start gap-0.5 rounded-[14px] px-2 py-1.5 text-left transition-colors",
+    "flex min-h-8 w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm outline-none transition-colors duration-100",
     isDisabled
       ? "cursor-default text-placeholder"
       : isActive
-        ? "bg-bg-secondary text-foreground"
-        : "text-fg-secondary hover:bg-bg-secondary hover:text-foreground",
+        ? "cursor-pointer bg-accent-foreground/10"
+        : "cursor-pointer hover:bg-accent-foreground/5",
   );
 }

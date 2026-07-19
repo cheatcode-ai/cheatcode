@@ -1,10 +1,17 @@
 "use client";
 
-import type { CheatcodeUIMessage, ProjectSummary, Thread } from "@cheatcode/types";
+import {
+  type CheatcodeUIMessage,
+  coalesceTranscriptUIMessages,
+  hasIncompleteTranscriptUIMessages,
+  type ProjectSummary,
+  type RunIntent,
+  type Thread,
+} from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { PreviewSidePanel } from "@/components/preview/preview-side-panel";
 import {
@@ -18,10 +25,11 @@ import {
   getThread,
   listThreadMessagesPage,
 } from "@/lib/api/project-thread";
-import { consumePromptHandoff } from "@/lib/input/prompt-handoff";
+import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
 
 const PROMPT_URL_STATE = {
+  intent: parseAsString,
   model: parseAsString,
   promptKey: parseAsString,
   repo: parseAsString,
@@ -31,9 +39,13 @@ const PROMPT_URL_STATE = {
 export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string }) {
   const shell = useProjectsShell(threadIdProp);
   if (shell.hasError) {
-    return <ChatUnavailableState />;
+    return <ChatUnavailableState isRetrying={shell.isRetrying} onRetry={shell.retry} />;
   }
-  if (!shell.threadId || shell.initialMessagesQuery.isPending) {
+  if (
+    !shell.threadId ||
+    shell.initialMessagesQuery.isPending ||
+    shell.initialMessagesQuery.isTranscriptContinuationPending
+  ) {
     return <WorkspaceLoadingState />;
   }
   return <ProjectsWorkspace shell={shell} threadId={shell.threadId} />;
@@ -47,11 +59,12 @@ function useProjectsShell(threadIdProp: string | undefined) {
   const projectId = threadQuery.data?.projectId ?? null;
   const projectQuery = useProjectQuery(getToken, projectId);
   const initialMessagesQuery = useThreadMessagesQuery(getToken, threadId);
+  const retry = useProjectsRetry({ initialMessagesQuery, projectId, projectQuery, threadQuery });
   const initialMessages = useMemo(
     () => chronologicalMessages(initialMessagesQuery.data?.pages ?? []),
     [initialMessagesQuery.data?.pages],
   );
-  const { clearPromptParams, prompt } = useInitialChatPrompt(
+  const { clearPromptParams, prompt, runIntent } = useInitialChatPrompt(
     threadQuery.data ?? null,
     initialMessagesQuery.isPending ? null : initialMessages,
   );
@@ -60,12 +73,8 @@ function useProjectsShell(threadIdProp: string | undefined) {
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
   const hasPreviewSurface = hasProject || sandboxStatus !== "cold";
   const deliverableCount = countDeliverables(initialMessages);
-  const loadOlderMessages = useCallback(async () => {
-    const result = await initialMessagesQuery.fetchNextPage();
-    return chronologicalMessages(result.data?.pages ?? []);
-  }, [initialMessagesQuery.fetchNextPage]);
+  const loadOlderMessages = useOlderThreadMessagesLoader(initialMessagesQuery);
 
-  useDraftSeed(threadId, prompt);
   useRefreshThreadProjectOnSandboxChange({
     projectId,
     queryClient,
@@ -75,16 +84,53 @@ function useProjectsShell(threadIdProp: string | undefined) {
   return {
     clearPromptParams,
     deliverableCount,
-    hasError: initialMessagesQuery.isError || projectQuery.isError || threadQuery.isError,
+    hasError:
+      initialMessagesQuery.isError ||
+      initialMessagesQuery.hasTranscriptIntegrityError ||
+      projectQuery.isError ||
+      threadQuery.isError,
     hasPreviewSurface,
     initialMessages,
     initialMessagesQuery,
+    isRetrying: retry.isRetrying,
     loadOlderMessages,
     previewPanelOpen,
     projectQuery,
     prompt,
+    runIntent,
+    retry: retry.run,
     threadId,
     threadQuery,
+  };
+}
+
+function useProjectsRetry(input: {
+  initialMessagesQuery: ReturnType<typeof useThreadMessagesQuery>;
+  projectId: null | string;
+  projectQuery: ReturnType<typeof useProjectQuery>;
+  threadQuery: ReturnType<typeof useThreadQuery>;
+}) {
+  const run = useCallback(() => {
+    const requests: Promise<unknown>[] = [
+      input.threadQuery.refetch(),
+      input.initialMessagesQuery.refetch(),
+    ];
+    if (input.projectId) {
+      requests.push(input.projectQuery.refetch());
+    }
+    void Promise.all(requests);
+  }, [
+    input.initialMessagesQuery.refetch,
+    input.projectId,
+    input.projectQuery.refetch,
+    input.threadQuery.refetch,
+  ]);
+  return {
+    isRetrying:
+      input.initialMessagesQuery.isFetching ||
+      input.projectQuery.isFetching ||
+      input.threadQuery.isFetching,
+    run,
   };
 }
 
@@ -99,6 +145,7 @@ function ProjectsWorkspace({
     <WorkspaceRunLayout
       computer={
         <PreviewSidePanel
+          activeRunId={shell.threadQuery.data?.activeRunId ?? null}
           deliverableCount={shell.deliverableCount}
           project={shell.projectQuery.data ?? null}
           threadId={threadId}
@@ -112,7 +159,9 @@ function ProjectsWorkspace({
           hasOlderMessages={Boolean(shell.initialMessagesQuery.hasNextPage)}
           initialMessages={shell.initialMessages}
           isLoadingOlderMessages={shell.initialMessagesQuery.isFetchingNextPage}
+          initialRunIntent={shell.runIntent}
           key={threadId}
+          latestModelId={shell.threadQuery.data?.latestModelId ?? null}
           onLoadOlderMessages={shell.loadOlderMessages}
           onSubmitDraft={shell.clearPromptParams}
           project={shell.projectQuery.data ?? null}
@@ -140,7 +189,7 @@ function countDeliverables(messages: readonly CheatcodeUIMessage[]): number {
 function useInitialChatPrompt(
   thread: Thread | null,
   initialMessages: CheatcodeUIMessage[] | null,
-): { clearPromptParams: () => void; prompt: null | string } {
+): { clearPromptParams: () => void; prompt: null | string; runIntent: RunIntent | null } {
   const [urlState, setUrlState] = useQueryStates(PROMPT_URL_STATE, {
     history: "replace",
     shallow: true,
@@ -154,30 +203,20 @@ function useInitialChatPrompt(
     initialMessages,
     thread,
   });
+  const runIntent = urlState.intent === "skill-creator" ? urlState.intent : null;
   const clearPromptParams = useCallback(() => {
     if (!hasPromptUrlState(urlState)) {
       return;
     }
     void setUrlState({
+      intent: null,
       model: null,
       promptKey: null,
       repo: null,
       surface: null,
     });
   }, [setUrlState, urlState]);
-  return { clearPromptParams, prompt };
-}
-
-function useDraftSeed(threadId: null | string, prompt: null | string): void {
-  const setDraft = useAppStore((state) => state.setDraft);
-  const consumedPromptRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!threadId || !prompt || consumedPromptRef.current === prompt) {
-      return;
-    }
-    consumedPromptRef.current = prompt;
-    setDraft(threadId, prompt);
-  }, [prompt, setDraft, threadId]);
+  return { clearPromptParams, prompt, runIntent };
 }
 
 function useRefreshThreadProjectOnSandboxChange(input: {
@@ -201,13 +240,15 @@ function useRefreshThreadProjectOnSandboxChange(input: {
 function hasPromptUrlState(
   urlState: Record<keyof typeof PROMPT_URL_STATE, null | string>,
 ): boolean {
-  return Boolean(urlState.model ?? urlState.promptKey ?? urlState.repo ?? urlState.surface);
+  return Boolean(
+    urlState.intent ?? urlState.model ?? urlState.promptKey ?? urlState.repo ?? urlState.surface,
+  );
 }
 
 function useThreadQuery(getToken: () => Promise<null | string>, threadId: null | string) {
   return useQuery<Thread>({
     enabled: Boolean(threadId),
-    queryFn: () => getThread(getToken, String(threadId)),
+    queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
     queryKey: ["threads", threadId],
     retry: false,
     staleTime: 5_000,
@@ -217,7 +258,7 @@ function useThreadQuery(getToken: () => Promise<null | string>, threadId: null |
 function useProjectQuery(getToken: () => Promise<null | string>, projectId: null | string) {
   return useQuery<ProjectSummary>({
     enabled: Boolean(projectId),
-    queryFn: () => getProject(getToken, String(projectId)),
+    queryFn: ({ signal }) => getProject(getToken, String(projectId), signal),
     queryKey: ["projects", projectId],
     retry: false,
     staleTime: 5_000,
@@ -226,34 +267,66 @@ function useProjectQuery(getToken: () => Promise<null | string>, projectId: null
 
 function useThreadMessagesQuery(getToken: () => Promise<null | string>, threadId: null | string) {
   const shouldFetch = Boolean(threadId);
-  return useInfiniteQuery({
+  const query = useInfiniteQuery({
     enabled: shouldFetch,
     getNextPageParam: (page: CursorPage<CheatcodeUIMessage>) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => listThreadMessagesPage(getToken, String(threadId), pageParam),
+    queryFn: ({ pageParam, signal }) =>
+      listThreadMessagesPage(getToken, String(threadId), pageParam, signal),
     queryKey: ["threads", threadId, "messages"],
     retry: false,
     staleTime: 5_000,
   });
+  const loaded = query.data?.pages.flatMap((page) => page.data) ?? [];
+  const hasIncompleteTranscript = hasIncompleteTranscriptUIMessages(loaded);
+  const isTranscriptContinuationPending =
+    hasIncompleteTranscript &&
+    !query.isFetchNextPageError &&
+    (query.hasNextPage || query.isFetchingNextPage);
+  const hasTranscriptIntegrityError =
+    hasIncompleteTranscript &&
+    query.data !== undefined &&
+    !query.hasNextPage &&
+    !query.isFetchingNextPage;
+  useEffect(() => {
+    if (
+      hasIncompleteTranscript &&
+      query.hasNextPage &&
+      !query.isFetchingNextPage &&
+      !query.isFetchNextPageError
+    ) {
+      void query.fetchNextPage();
+    }
+  }, [
+    hasIncompleteTranscript,
+    query.fetchNextPage,
+    query.hasNextPage,
+    query.isFetchNextPageError,
+    query.isFetchingNextPage,
+  ]);
+  return { ...query, hasTranscriptIntegrityError, isTranscriptContinuationPending };
+}
+
+function useOlderThreadMessagesLoader(query: ReturnType<typeof useThreadMessagesQuery>) {
+  return useCallback(async () => {
+    let result = await query.fetchNextPage();
+    while (
+      !result.isError &&
+      !result.isFetchNextPageError &&
+      result.hasNextPage &&
+      hasIncompleteTranscriptUIMessages(result.data?.pages.flatMap((page) => page.data) ?? [])
+    ) {
+      result = await query.fetchNextPage();
+    }
+    return chronologicalMessages(result.data?.pages ?? []);
+  }, [query.fetchNextPage]);
 }
 
 function chronologicalMessages(
   pages: readonly CursorPage<CheatcodeUIMessage>[],
 ): CheatcodeUIMessage[] {
-  return [...pages].reverse().flatMap((page) => page.data);
-}
-
-function usePromptHandoff(promptKey: null | string): null | string | undefined {
-  const [prompt, setPrompt] = useState<null | string | undefined>(promptKey ? undefined : null);
-  useEffect(() => {
-    if (!promptKey) {
-      setPrompt(null);
-      return;
-    }
-    setPrompt(consumePromptHandoff(promptKey));
-  }, [promptKey]);
-  return prompt;
+  return coalesceTranscriptUIMessages([...pages].reverse().flatMap((page) => page.data));
 }
 
 function resolveInitialPrompt(input: {

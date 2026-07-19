@@ -1,4 +1,4 @@
-import { RotateCw } from "@/components/ui/icons";
+import { RotateCw } from "@cheatcode/ui";
 
 export function ErrorRecoveryBlock({
   message,

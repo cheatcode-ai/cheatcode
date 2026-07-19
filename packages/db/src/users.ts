@@ -1,22 +1,26 @@
 import type { UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
-import { clerkIdentityHash, lockClerkIdentity } from "./clerk-identity";
 import type { Database } from "./client";
-import { deletedClerkIdentities, entitlements, users } from "./schema";
+import { users } from "./schema";
 
-export interface ClerkUserUpsert {
+export interface ClerkUserSyncInput {
   avatarUrl?: string | null;
   clerkId: string;
+  clerkUpdatedAtMs: number;
   displayName?: string | null;
   email: string;
 }
 
-export interface ClerkUserUpsertResult {
+export type ClerkUserSyncOutcome = "created" | "stale" | "unchanged" | "updated";
+
+export interface ClerkUserSyncResult {
   avatarUrl: string | null;
+  clerkUpdatedAtMs: number;
   displayName: string | null;
   email: string;
   emailChanged: boolean;
+  outcome: ClerkUserSyncOutcome;
   profileChanged: boolean;
   polarCustomerId: string | null;
   userId: UserId;
@@ -34,187 +38,76 @@ export class UserDeletionBlockedError extends Error {
 }
 
 export async function resolveInternalUserId(db: Database, clerkId: string): Promise<UserId | null> {
+  const result = await db.execute(
+    sql`select public.gateway_resolve_clerk_user(${clerkId}) as user_id`,
+  );
+  const userId = result.rows[0]?.["user_id"];
+  return typeof userId === "string" ? toUserId(userId) : null;
+}
+
+/** Minimal agent-side admission check used before creating user-owned durable state. */
+export async function isUserAccountActive(db: Database, userId: UserId): Promise<boolean> {
   const row = await db.query.users.findFirst({
     columns: { id: true },
-    where: and(eq(users.clerkId, clerkId), isNull(users.deletedAt)),
+    where: and(eq(users.id, userId), isNull(users.deletedAt), isNull(users.deletionFence)),
   });
-
-  return row ? toUserId(row.id) : null;
+  return row !== undefined;
 }
 
-export interface UserAccountRecord {
-  id: UserId;
-  email: string;
-  displayName: string | null;
-  avatarUrl: string | null;
-}
-
-export async function getUserAccount(
+export async function syncClerkUser(
   db: Database,
-  userId: UserId,
-): Promise<UserAccountRecord | null> {
-  const row = await db.query.users.findFirst({
-    columns: { avatarUrl: true, displayName: true, email: true, id: true },
-    where: and(eq(users.id, userId), isNull(users.deletedAt)),
-  });
-  return row
-    ? {
-        avatarUrl: row.avatarUrl,
-        displayName: row.displayName,
-        email: row.email,
-        id: toUserId(row.id),
-      }
-    : null;
-}
-
-/** Update user-owned account fields. Email stays Clerk-authoritative (synced via webhook);
- * only the display-name override is editable here. */
-export async function updateUserAccount(
-  db: Database,
-  userId: UserId,
-  input: { displayName?: string | null },
-): Promise<UserAccountRecord | null> {
-  const [row] = await db
-    .update(users)
-    .set({ displayName: input.displayName ?? null, updatedAt: new Date() })
-    .where(and(eq(users.id, userId), isNull(users.deletedAt)))
-    .returning({
-      avatarUrl: users.avatarUrl,
-      displayName: users.displayName,
-      email: users.email,
-      id: users.id,
-    });
-  return row
-    ? {
-        avatarUrl: row.avatarUrl,
-        displayName: row.displayName,
-        email: row.email,
-        id: toUserId(row.id),
-      }
-    : null;
-}
-
-export async function upsertClerkUser(
-  db: Database,
-  input: ClerkUserUpsert,
-): Promise<ClerkUserUpsertResult> {
-  const identityHash = await clerkIdentityHash(input.clerkId);
-  return db.transaction(async (transaction) => {
-    const tx = transaction as Database;
-    await lockClerkIdentity(tx, identityHash);
-    const retired = await tx.query.deletedClerkIdentities.findFirst({
-      columns: { clerkIdentityHash: true },
-      where: eq(deletedClerkIdentities.clerkIdentityHash, identityHash),
-    });
-    if (retired) {
-      throw new UserDeletionBlockedError("completed");
-    }
-    return upsertActiveClerkUser(tx, input);
-  });
-}
-
-async function upsertActiveClerkUser(
-  db: Database,
-  input: ClerkUserUpsert,
-): Promise<ClerkUserUpsertResult> {
-  const existing = await db.query.users.findFirst({
-    columns: {
-      avatarUrl: true,
-      displayName: true,
-      email: true,
-      polarCustomerId: true,
-    },
-    where: eq(users.clerkId, input.clerkId),
-  });
-  const displayName = normalizedNullable(input.displayName);
-  const avatarUrl = normalizedNullable(input.avatarUrl);
-  const row = await persistClerkUser(db, input, avatarUrl, displayName);
-  if (!row) {
+  input: ClerkUserSyncInput,
+): Promise<ClerkUserSyncResult> {
+  const result = await db.execute(sql`
+    select * from public.sync_clerk_user(
+      ${input.clerkId},
+      ${input.email},
+      ${input.displayName ?? null},
+      ${input.avatarUrl ?? null},
+      ${input.clerkUpdatedAtMs}
+    )
+  `);
+  const row = result.rows[0] as ClerkUserSyncRow | undefined;
+  if (!row || row.sync_state === "in_progress") {
     throw new UserDeletionBlockedError();
   }
-
-  const userId = toUserId(row.id);
-  await db
-    .insert(entitlements)
-    .values({
-      userId,
-      tier: "free",
-    })
-    .onConflictDoNothing();
-
-  return clerkUserUpsertResult(existing, row, userId);
-}
-
-async function persistClerkUser(
-  db: Database,
-  input: ClerkUserUpsert,
-  avatarUrl: string | null,
-  displayName: string | null,
-) {
-  const rows = await db
-    .insert(users)
-    .values({
-      avatarUrl,
-      clerkId: input.clerkId,
-      displayName,
-      email: input.email,
-      deletedAt: null,
-      deletionFence: null,
-    })
-    .onConflictDoUpdate({
-      target: users.clerkId,
-      set: {
-        avatarUrl,
-        displayName,
-        email: input.email,
-        deletedAt: null,
-        deletionFence: null,
-        updatedAt: sql`now()`,
-      },
-      setWhere: isNull(users.deletionFence),
-    })
-    .returning({
-      avatarUrl: users.avatarUrl,
-      displayName: users.displayName,
-      email: users.email,
-      id: users.id,
-      polarCustomerId: users.polarCustomerId,
-    });
-  return rows[0] ?? null;
-}
-
-function clerkUserUpsertResult(
-  existing:
-    | {
-        avatarUrl: string | null;
-        displayName: string | null;
-        email: string;
-        polarCustomerId: string | null;
-      }
-    | null
-    | undefined,
-  row: {
-    avatarUrl: string | null;
-    displayName: string | null;
-    email: string;
-    polarCustomerId: string | null;
-  },
-  userId: UserId,
-): ClerkUserUpsertResult {
+  if (row.sync_state === "completed") {
+    throw new UserDeletionBlockedError("completed");
+  }
+  if (!row.user_id || !row.email || !isClerkUserSyncOutcome(row.sync_state)) {
+    throw new Error("Clerk user synchronization returned an invalid active record");
+  }
+  const clerkUpdatedAtMs = Number(row.clerk_updated_at_ms);
+  if (!Number.isSafeInteger(clerkUpdatedAtMs) || clerkUpdatedAtMs < 0) {
+    throw new Error("Clerk user synchronization returned an invalid source version");
+  }
   return {
-    avatarUrl: row.avatarUrl,
-    displayName: row.displayName,
+    avatarUrl: row.avatar_url,
+    clerkUpdatedAtMs,
+    displayName: row.display_name,
     email: row.email,
-    emailChanged: Boolean(existing && existing.email !== row.email),
-    polarCustomerId: row.polarCustomerId,
-    profileChanged: Boolean(
-      existing &&
-        (existing.email !== row.email ||
-          existing.displayName !== row.displayName ||
-          existing.avatarUrl !== row.avatarUrl),
-    ),
-    userId,
+    emailChanged: row.email_changed,
+    outcome: row.sync_state,
+    polarCustomerId: row.polar_customer_id,
+    profileChanged: row.profile_changed,
+    userId: toUserId(row.user_id),
   };
+}
+
+function isClerkUserSyncOutcome(value: string): value is ClerkUserSyncOutcome {
+  return value === "created" || value === "stale" || value === "unchanged" || value === "updated";
+}
+
+interface ClerkUserSyncRow {
+  avatar_url: string | null;
+  clerk_updated_at_ms: number | string | null;
+  display_name: string | null;
+  email: string | null;
+  email_changed: boolean;
+  polar_customer_id: string | null;
+  profile_changed: boolean;
+  sync_state: "completed" | "created" | "in_progress" | "stale" | "unchanged" | "updated";
+  user_id: string | null;
 }
 
 export async function markClerkUserDeleted(
@@ -222,21 +115,9 @@ export async function markClerkUserDeleted(
   clerkId: string,
   deletedAt: Date,
 ): Promise<UserId | null> {
-  const rows = await db
-    .update(users)
-    .set({
-      deletedAt,
-      deletionFence: null,
-      updatedAt: sql`now()`,
-    })
-    .where(and(eq(users.clerkId, clerkId), isNull(users.deletionFence)))
-    .returning({ id: users.id });
-
-  const row = rows[0];
-  return row ? toUserId(row.id) : null;
-}
-
-function normalizedNullable(value: string | null | undefined): string | null {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+  const result = await db.execute(
+    sql`select public.webhooks_mark_clerk_user_deleted(${clerkId}, ${deletedAt}) as user_id`,
+  );
+  const userId = result.rows[0]?.["user_id"];
+  return typeof userId === "string" ? toUserId(userId) : null;
 }

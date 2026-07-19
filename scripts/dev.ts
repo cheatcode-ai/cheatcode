@@ -1,18 +1,39 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { type ConfigRecord, isRecord, parseJsoncObject } from "./jsonc";
+import { localWorkerConfigs, removeLocalWorkerConfigs } from "./dev-worker-config";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const GATEWAY_WORKER_DIR = join(ROOT, "apps/gateway-worker");
-const AGENT_WORKER_DEV_VARS = "apps/agent-worker/.dev.vars";
+const LOCAL_ENV_FILE = join(ROOT, ".env.local");
 const WRANGLER_INSPECTOR_PORT = "9239";
 
+const TOOLCHAIN_ENV_KEYS = [
+  "CI",
+  "COLORTERM",
+  "COREPACK_HOME",
+  "HOME",
+  "LANG",
+  "LC_ALL",
+  "LOGNAME",
+  "PATH",
+  "PNPM_HOME",
+  "SHELL",
+  "TEMP",
+  "TERM",
+  "TMP",
+  "TMPDIR",
+  "USER",
+  "XDG_CACHE_HOME",
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+] as const;
+
 interface DevOptions {
+  bindAddress: string;
   dryRun: boolean;
   port: string;
-  skipSandboxCheck: boolean;
+  skipInitialBuild: boolean;
   webOnly: boolean;
   workersOnly: boolean;
 }
@@ -20,36 +41,86 @@ interface DevOptions {
 interface CommandSpec {
   args: string[];
   command: string;
+  envKeys: readonly string[];
   name: string;
 }
 
-type BooleanOption = "dryRun" | "skipSandboxCheck" | "webOnly" | "workersOnly";
+type BooleanOption = "dryRun" | "skipInitialBuild" | "webOnly" | "workersOnly";
 
-const WORKER_CONFIGS = [
-  "wrangler.jsonc",
-  "../agent-worker/wrangler.jsonc",
-  "../webhooks-worker/wrangler.jsonc",
-] as const;
-
-const LOCAL_CLERK_SECRET_FILES = [
-  ".env.local",
-  "apps/gateway-worker/.dev.vars",
-  "apps/webhooks-worker/.dev.vars",
-] as const;
-
-const REQUIRED_AGENT_WORKER_SECRETS = [
+const REQUIRED_WORKER_ENV = [
+  "CLERK_SECRET_KEY",
   "DAYTONA_API_KEY",
+  "DAYTONA_API_URL",
+  "DAYTONA_SANDBOX_SNAPSHOT",
+  "DAYTONA_TARGET",
+  "DAYTONA_WORKSPACE_VOLUME",
+  "DAYTONA_WEBHOOK_SIGNING_SECRET",
+  "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
+  "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
+  "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
+  "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
+  "INTERNAL_WEBHOOK_REPLAY_SECRET",
   "PREVIEW_TOKEN_SECRET",
-  "INTERNAL_MAINTENANCE_SECRET",
+  "LOCAL_AGENT_DATABASE_URL",
+  "LOCAL_GATEWAY_DATABASE_URL",
+  "LOCAL_WEBHOOKS_DATABASE_URL",
   "OUTPUT_DOWNLOAD_SIGNING_SECRET",
+  "RELEASE_DATABASE_READINESS_SECRET",
+  "SKILL_RUNTIME_BASE_URL",
+  "SKILL_RUNTIME_TOKEN_SECRET",
+  "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
 ] as const;
 
-const SKIPPABLE_SANDBOX_SECRETS = new Set(["DAYTONA_API_KEY", "PREVIEW_TOKEN_SECRET"]);
+const DISTINCT_LOCAL_SECRET_GROUPS = [
+  [
+    "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
+    "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
+    "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
+  ],
+  [
+    "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
+    "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
+    "INTERNAL_WEBHOOK_REPLAY_SECRET",
+    "RELEASE_DATABASE_READINESS_SECRET",
+  ],
+  ["PREVIEW_TOKEN_SECRET", "OUTPUT_DOWNLOAD_SIGNING_SECRET", "SKILL_RUNTIME_TOKEN_SECRET"],
+] as const;
+
+const REQUIRED_WEB_ENV = [
+  "CLERK_SECRET_KEY",
+  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_GATEWAY_URL",
+  "NEXT_PUBLIC_PREVIEW_HOSTNAME",
+  "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
+] as const;
+
+const WEB_CHILD_ENV_KEYS = [
+  "CLERK_SECRET_KEY",
+  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
+  "NEXT_PUBLIC_GATEWAY_URL",
+  "NEXT_PUBLIC_PREVIEW_HOSTNAME",
+  "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
+] as const;
+
+const FORBIDDEN_LOCAL_ENV = [
+  "ANTHROPIC_API_KEY",
+  "CLOUDFLARE_ACCOUNT_ID",
+  "CLOUDFLARE_ANALYTICS_API_TOKEN",
+  "CLOUDFLARE_API_TOKEN",
+  "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE",
+  "DATABASE_URL",
+  "GOOGLE_API_KEY",
+  "LOCAL_APP_WORKER_PASSWORD",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "TURBO_TEAM",
+  "TURBO_TOKEN",
+  "VERCEL_TOKEN",
+] as const;
 
 const BOOLEAN_FLAGS: ReadonlyMap<string, BooleanOption> = new Map([
   ["--dry-run", "dryRun"],
-  ["--skip-daytona-check", "skipSandboxCheck"],
-  ["--skip-sandbox-check", "skipSandboxCheck"],
+  ["--skip-initial-build", "skipInitialBuild"],
   ["--web-only", "webOnly"],
   ["--workers-only", "workersOnly"],
 ]);
@@ -64,18 +135,19 @@ function writeError(line: string): void {
 
 function usage(): string {
   return [
-    "Usage: pnpm dev -- [--port <next-port>] [--web-only] [--workers-only] [--dry-run] [--skip-sandbox-check]",
+    "Usage: pnpm dev:services -- [--port <next-port>] [--bind <address>] [--web-only] [--workers-only] [--skip-initial-build] [--dry-run]",
     "",
-    "Starts apps/web plus one chained Wrangler dev process for all Workers.",
+    "Builds/watches shared packages, starts apps/web, and runs one chained Worker process.",
     "The gateway Worker is the only HTTP entrypoint; other Workers are service-bound.",
   ].join("\n");
 }
 
 function defaultOptions(): DevOptions {
   return {
+    bindAddress: "127.0.0.1",
     dryRun: false,
     port: "3000",
-    skipSandboxCheck: false,
+    skipInitialBuild: false,
     webOnly: false,
     workersOnly: false,
   };
@@ -102,14 +174,13 @@ function unquoteEnvValue(value: string): string {
   return trimmed.slice(1, -1);
 }
 
-function readEnvFileValues(relativePath: string): Record<string, string> {
-  const filePath = join(ROOT, relativePath);
+function readEnvFileValues(filePath: string): Record<string, string> {
   const values: Record<string, string> = {};
   let content: string;
   try {
     content = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
   } catch {
-    return values;
+    throw new Error(`Missing ${relative(ROOT, filePath)}. Copy .env.example to .env.local.`);
   }
 
   for (const rawLine of content.split(/\r?\n/)) {
@@ -129,44 +200,67 @@ function readEnvFileValues(relativePath: string): Record<string, string> {
   return values;
 }
 
-function validateLocalClerkSecrets(): void {
-  for (const file of LOCAL_CLERK_SECRET_FILES) {
-    const values = readEnvFileValues(file);
-    const publishableKey = values["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"];
-    const secretKey = values["CLERK_SECRET_KEY"];
-    if (publishableKey && !publishableKey.startsWith("pk_test_")) {
-      throw new Error(`${file} must use a Clerk dev publishable key for pnpm dev.`);
+function validateLocalClerkSecrets(values: Record<string, string>): void {
+  const publishableKey = values["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"];
+  const secretKey = values["CLERK_SECRET_KEY"];
+  if (publishableKey && !publishableKey.startsWith("pk_test_")) {
+    throw new Error(".env.local must use a Clerk pk_test_ publishable key.");
+  }
+  if (secretKey && !secretKey.startsWith("sk_test_")) {
+    throw new Error(".env.local must use a Clerk sk_test_ secret key.");
+  }
+}
+
+function validateDistinctLocalSecretGroups(values: Record<string, string>): void {
+  for (const names of DISTINCT_LOCAL_SECRET_GROUPS) {
+    const secrets = names.map((name) => values[name] ?? "");
+    if (secrets.some((secret) => new TextEncoder().encode(secret).byteLength < 32)) {
+      throw new Error(
+        `Local HMAC secrets must contain at least 32 UTF-8 bytes: ${names.join(", ")}.`,
+      );
     }
-    if (secretKey && !secretKey.startsWith("sk_test_")) {
-      throw new Error(`${file} must use a Clerk dev secret key for pnpm dev.`);
+    if (new Set(secrets).size !== secrets.length) {
+      throw new Error(`Local HMAC secrets must be distinct: ${names.join(", ")}.`);
     }
   }
 }
 
-export function missingLocalAgentWorkerSecrets(
+export function missingLocalEnvValues(
   values: Record<string, string>,
-  options: { requireSandbox: boolean },
+  required: readonly string[],
 ): string[] {
-  return REQUIRED_AGENT_WORKER_SECRETS.filter(
-    (key) => (options.requireSandbox || !SKIPPABLE_SANDBOX_SECRETS.has(key)) && !values[key],
-  );
+  return required.filter((key) => !values[key]);
 }
 
-function validateLocalAgentWorkerSecrets(options: { requireSandbox: boolean }): void {
-  const values = readEnvFileValues(AGENT_WORKER_DEV_VARS);
-  const missing = missingLocalAgentWorkerSecrets(values, options);
-  if (missing.length === 0) {
-    return;
+function validateLocalEnv(values: Record<string, string>, options: DevOptions): void {
+  const forbidden = FORBIDDEN_LOCAL_ENV.filter((key) => values[key]);
+  if (forbidden.length > 0) {
+    throw new Error(`Remove cloud-only or unused values from .env.local: ${forbidden.join(", ")}.`);
   }
 
-  throw new Error(
-    [
-      `${AGENT_WORKER_DEV_VARS} is missing required local Worker secrets: ${missing.join(", ")}.`,
-      options.requireSandbox
-        ? "Set DAYTONA_API_KEY + PREVIEW_TOKEN_SECRET (and the maintenance/signing secrets) in the ignored .dev.vars, or pass --skip-sandbox-check."
-        : "Set INTERNAL_MAINTENANCE_SECRET and OUTPUT_DOWNLOAD_SIGNING_SECRET before starting local Workers.",
-    ].join(" "),
-  );
+  validateLocalClerkSecrets(values);
+  const required = [
+    ...(options.workersOnly ? [] : REQUIRED_WEB_ENV),
+    ...(options.webOnly ? [] : REQUIRED_WORKER_ENV),
+  ];
+  const missing = missingLocalEnvValues(values, required);
+  if (missing.length > 0) {
+    throw new Error(`.env.local is missing required local values: ${missing.join(", ")}.`);
+  }
+  if (!options.webOnly) {
+    validateDistinctLocalSecretGroups(values);
+  }
+  if (!options.webOnly && values["POLAR_SERVER"] !== "sandbox") {
+    throw new Error(".env.local must set POLAR_SERVER=sandbox for local development.");
+  }
+  if (
+    !options.webOnly &&
+    values["DAYTONA_WORKSPACE_VOLUME"] !== "cheatcode-workspaces-development"
+  ) {
+    throw new Error(
+      ".env.local must set DAYTONA_WORKSPACE_VOLUME=cheatcode-workspaces-development.",
+    );
+  }
 }
 
 function applyBooleanFlag(options: DevOptions, arg: string): boolean {
@@ -194,6 +288,22 @@ function applyPortOption(options: DevOptions, argv: string[], index: number): nu
   return undefined;
 }
 
+function applyBindOption(options: DevOptions, argv: string[], index: number): number | undefined {
+  const arg = argv[index];
+  if (!arg) {
+    return undefined;
+  }
+  if (arg === "--bind") {
+    options.bindAddress = readOptionValue(argv, index, arg);
+    return index + 1;
+  }
+  if (arg.startsWith("--bind=")) {
+    options.bindAddress = arg.slice("--bind=".length);
+    return index;
+  }
+  return undefined;
+}
+
 function parseArgs(argv: string[]): DevOptions {
   const options = defaultOptions();
   for (let index = 0; index < argv.length; index += 1) {
@@ -202,6 +312,7 @@ function parseArgs(argv: string[]): DevOptions {
       throw new Error(`Missing argument at index ${index}.`);
     }
     const portIndex = applyPortOption(options, argv, index);
+    const bindIndex = applyBindOption(options, argv, index);
     if (arg === "--" || applyBooleanFlag(options, arg)) {
       continue;
     }
@@ -213,95 +324,75 @@ function parseArgs(argv: string[]): DevOptions {
       index = portIndex;
       continue;
     }
+    if (bindIndex !== undefined) {
+      index = bindIndex;
+      continue;
+    }
     throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (options.webOnly && options.workersOnly) {
-    throw new Error("--web-only and --workers-only cannot be combined.");
-  }
+  validateOptions(options);
   return options;
 }
 
-function createLocalWorkerConfig(configPath: string, webPort: string): string {
-  const absolutePath = resolve(GATEWAY_WORKER_DIR, configPath);
-  const parsed = parseJsoncObject(readFileSync(absolutePath, "utf8"), configPath);
-
-  const { secrets_store_secrets: _secretsStoreSecrets, ...localConfig } = parsed;
-  const localDevConfig = applyLocalWorkerOverrides(configPath, localConfig, webPort);
-
-  const outputDir = dirname(absolutePath);
-  mkdirSync(outputDir, { recursive: true });
-  const outputPath = join(outputDir, "wrangler.local-dev.generated.jsonc");
-  writeFileSync(outputPath, `${JSON.stringify(localDevConfig, null, 2)}\n`);
-  return relative(GATEWAY_WORKER_DIR, outputPath);
+function validateOptions(options: DevOptions): void {
+  if (options.webOnly && options.workersOnly) {
+    throw new Error("--web-only and --workers-only cannot be combined.");
+  }
+  if (options.bindAddress !== "127.0.0.1" && options.bindAddress !== "0.0.0.0") {
+    throw new Error("--bind must be 127.0.0.1 or 0.0.0.0.");
+  }
 }
 
-function applyLocalWorkerOverrides(
-  configPath: string,
-  config: ConfigRecord,
-  webPort: string,
-): ConfigRecord {
-  const existingVars = isRecord(config["vars"]) ? config["vars"] : {};
-  const localVars = {
-    ...existingVars,
-    CHEATCODE_ENVIRONMENT: "development",
-  };
-  if (configPath === "wrangler.jsonc") {
-    return {
-      ...config,
-      vars: {
-        ...localVars,
-        CLERK_AUTHORIZED_PARTIES: localClerkAuthorizedParties(webPort),
-      },
-    };
-  }
-  if (configPath !== "../agent-worker/wrangler.jsonc") {
-    return { ...config, vars: localVars };
-  }
-  return {
-    ...config,
-    vars: {
-      ...localVars,
-      OUTPUT_DOWNLOAD_BASE_URL: "http://127.0.0.1:8787",
-      PREVIEW_HOSTNAME: "localhost:8787",
+function commandsFor(options: DevOptions, values: Record<string, string>): CommandSpec[] {
+  const commands: CommandSpec[] = [
+    {
+      name: "packages",
+      command: "pnpm",
+      envKeys: [],
+      args: ["turbo", "watch", "build", "--filter=./packages/*"],
     },
-  };
-}
-
-function localClerkAuthorizedParties(webPort: string): string {
-  const port = Number(webPort);
-  if (!/^\d{1,5}$/u.test(webPort) || !Number.isInteger(port) || port < 1 || port > 65_535) {
-    throw new Error("--port must be an integer between 1 and 65535.");
-  }
-  return `http://localhost:${port},http://127.0.0.1:${port}`;
-}
-
-function localWorkerConfigs(webPort: string): string[] {
-  return WORKER_CONFIGS.map((config) => createLocalWorkerConfig(config, webPort));
-}
-
-function commandsFor(options: DevOptions): CommandSpec[] {
-  const commands: CommandSpec[] = [];
+  ];
   if (!options.workersOnly) {
     commands.push({
       name: "web",
       command: "pnpm",
-      args: ["--dir", "apps/web", "exec", "next", "dev", "--webpack", "--port", options.port],
+      envKeys: WEB_CHILD_ENV_KEYS,
+      args: [
+        "--dir",
+        "apps/web",
+        "exec",
+        "next",
+        "dev",
+        "--turbopack",
+        "--hostname",
+        options.bindAddress,
+        "--port",
+        options.port,
+      ],
     });
   }
   if (!options.webOnly) {
-    const workerConfigs = localWorkerConfigs(options.port);
+    const workerConfigs = localWorkerConfigs(options.port, values);
     commands.push({
       name: "workers",
       command: "pnpm",
+      envKeys: [],
       args: [
         "--dir",
         "apps/gateway-worker",
         "exec",
         "wrangler",
         "dev",
+        "--local",
+        "--env-file",
+        LOCAL_ENV_FILE,
+        "--ip",
+        options.bindAddress,
         "--port",
         "8787",
+        "--inspector-ip",
+        options.bindAddress,
         "--inspector-port",
         WRANGLER_INSPECTOR_PORT,
         ...workerConfigs.flatMap((config) => ["--config", config]),
@@ -314,7 +405,11 @@ function commandsFor(options: DevOptions): CommandSpec[] {
 function runOneShot(command: string, args: string[]): Promise<void> {
   writeLine(`$ ${[command, ...args].join(" ")}`);
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd: ROOT, stdio: "inherit" });
+    const child = spawn(command, args, {
+      cwd: ROOT,
+      env: toolchainEnvironment(),
+      stdio: "inherit",
+    });
     child.on("error", reject);
     child.on("close", (code) => {
       if (code === 0) {
@@ -326,13 +421,45 @@ function runOneShot(command: string, args: string[]): Promise<void> {
   });
 }
 
-function spawnPersistent(spec: CommandSpec): ChildProcess {
+function spawnPersistent(spec: CommandSpec, values: Record<string, string>): ChildProcess {
   writeLine(`$ ${[spec.command, ...spec.args].join(" ")}`);
   return spawn(spec.command, spec.args, {
     cwd: ROOT,
-    env: { ...process.env, FORCE_COLOR: "1" },
+    env: childEnvironment(spec.envKeys, values),
     stdio: "inherit",
   });
+}
+
+function childEnvironment(
+  allowedLocalKeys: readonly string[],
+  values: Record<string, string>,
+): NodeJS.ProcessEnv {
+  const env = toolchainEnvironment();
+  for (const key of allowedLocalKeys) {
+    const value = values[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
+  env["FORCE_COLOR"] = "1";
+  return env;
+}
+
+function toolchainEnvironment(): NodeJS.ProcessEnv {
+  const env: NodeJS.ProcessEnv = {};
+  for (const key of TOOLCHAIN_ENV_KEYS) {
+    const value = process.env[key];
+    if (value) {
+      env[key] = value;
+    }
+  }
+  env["CLOUDFLARE_INCLUDE_PROCESS_ENV"] = "false";
+  // Wrangler gates even an explicit --env-file behind this switch. The dev
+  // command always supplies the one root .env.local path, so enabling the
+  // loader cannot fall back to per-package files or the ambient environment.
+  env["CLOUDFLARE_LOAD_DEV_VARS_FROM_DOT_ENV"] = "true";
+  env["FORCE_COLOR"] = "1";
+  return env;
 }
 
 function stopChildren(children: ChildProcess[]): void {
@@ -366,31 +493,34 @@ function waitForChildren(children: ChildProcess[]): Promise<void> {
 
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
-  const commands = commandsFor(options);
-
-  await runOneShot("pnpm", ["turbo", "skills:build"]);
-  if (!options.webOnly) {
-    validateLocalClerkSecrets();
-    validateLocalAgentWorkerSecrets({ requireSandbox: !options.skipSandboxCheck });
-  }
-
-  if (options.dryRun) {
-    for (const command of commands) {
-      writeLine(`$ ${[command.command, ...command.args].join(" ")}`);
-    }
-    return;
-  }
-
-  const children = commands.map(spawnPersistent);
-  const stop = () => {
-    stopChildren(children);
-  };
-  process.once("SIGINT", stop);
-  process.once("SIGTERM", stop);
+  const values = readEnvFileValues(LOCAL_ENV_FILE);
+  validateLocalEnv(values, options);
   try {
-    await waitForChildren(children);
+    const commands = commandsFor(options, values);
+    if (!options.skipInitialBuild) {
+      await runOneShot("pnpm", ["turbo", "build", "--filter=./packages/*"]);
+    }
+
+    if (options.dryRun) {
+      for (const command of commands) {
+        writeLine(`$ ${[command.command, ...command.args].join(" ")}`);
+      }
+      return;
+    }
+
+    const children = commands.map((command) => spawnPersistent(command, values));
+    const stop = () => {
+      stopChildren(children);
+    };
+    process.once("SIGINT", stop);
+    process.once("SIGTERM", stop);
+    try {
+      await waitForChildren(children);
+    } finally {
+      stopChildren(children);
+    }
   } finally {
-    stopChildren(children);
+    removeLocalWorkerConfigs();
   }
 }
 

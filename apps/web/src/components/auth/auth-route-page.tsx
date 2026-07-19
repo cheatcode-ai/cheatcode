@@ -1,11 +1,11 @@
 "use client";
 
+import { Monitor } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import { AuthModal, type AuthMode } from "@/components/auth/auth-modal";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
-import { Monitor } from "@/components/ui/icons";
 import { safeLocalRedirect } from "@/lib/navigation/safe-local-redirect";
 
 export function AuthRoutePage({ mode }: { mode: AuthMode }) {
@@ -54,7 +54,6 @@ function subscribeToLocationChanges(callback: () => void): () => void {
 
 function readRedirectPath(): string {
   const params = new URLSearchParams(window.location.search);
-  const candidate =
-    params.get("redirect_url") ?? params.get("redirectUrl") ?? params.get("redirect") ?? "/";
+  const candidate = params.get("redirect_url") ?? "/";
   return safeLocalRedirect(candidate, window.location.origin) ?? "/";
 }

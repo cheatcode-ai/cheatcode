@@ -1,31 +1,37 @@
 import {
+  CANONICAL_PROJECT_WORKSPACE_CONSTRAINT,
+  CANONICAL_PROVIDER_KEY_CONSTRAINT,
+  EXACT_INTEGRITY_CONSTRAINTS,
   type ExpectedColumn,
+  FORBIDDEN_SUPERSEDED_INDEXES,
+  REQUIRED_INTEGRITY_CONSTRAINTS,
+  REQUIRED_INTEGRITY_INDEXES,
   TABLE_CONTRACTS,
   type TableContract,
 } from "./supabase-target-contracts";
+import { validateAuditArchiveManifest, validateMigrationLedger } from "./supabase-target-ledger";
+import { validateProductionSecurityTarget } from "./supabase-target-security";
 
 interface QueryResult {
   rows: Record<string, unknown>[];
 }
-
 export interface PgClient {
   connect(): Promise<unknown>;
   end(): Promise<void>;
   query(text: string, values?: unknown[]): Promise<QueryResult>;
 }
-
 export type SupabaseTargetMode = "pre-migration" | "prod-ready";
-
 interface ColumnInfo {
   dataType: string;
+  datetimePrecision?: number;
   nullable: boolean;
 }
-
-// The raw-owned audit table can exist before Drizzle starts; only this atomic
-// Drizzle set indicates an interrupted or foreign bootstrap.
-const V2_DRIZZLE_TABLES = [
+// These tables are created together by the first Drizzle migration and remain
+// permanent schema anchors. Later migrations may add tables, so folding those
+// additions into this atomic set would make every older valid deployment fail
+// preflight before it can migrate forward.
+const V2_FOUNDATION_DRIZZLE_TABLES = [
   "v2_users",
-  "v2_user_profiles",
   "v2_projects",
   "v2_threads",
   "v2_messages",
@@ -34,12 +40,8 @@ const V2_DRIZZLE_TABLES = [
   "v2_user_integrations",
   "v2_generated_outputs",
   "v2_entitlements",
-  "v2_billing_events",
-  "v2_user_skills",
 ] as const;
-
 const FORBIDDEN_TOKEN_ACCOUNTING_TABLES = ["v2_usage_daily_totals", "v2_usage_events"] as const;
-
 const FORBIDDEN_TOKEN_ACCOUNTING_COLUMNS = [
   {
     columns: ["cost_usd", "tokens_cached", "tokens_in", "tokens_out"],
@@ -50,7 +52,6 @@ const FORBIDDEN_TOKEN_ACCOUNTING_COLUMNS = [
     tableName: "v2_entitlements",
   },
 ] as const;
-
 const FORBIDDEN_ENTITLEMENT_SCAFFOLDING_COLUMNS = [
   "flag_private_projects",
   "flag_sso",
@@ -58,9 +59,7 @@ const FORBIDDEN_ENTITLEMENT_SCAFFOLDING_COLUMNS = [
   "max_seats",
   "quota_deployments",
 ] as const;
-
 const FORBIDDEN_PROJECT_BACKUP_COLUMNS = ["container_backup"] as const;
-
 const FORBIDDEN_OBSOLETE_TABLES = [
   "v2_automation_run_requests",
   "v2_automation_runs",
@@ -70,7 +69,6 @@ const FORBIDDEN_OBSOLETE_TABLES = [
   "v2_retired_automation_runs_20260715",
   "v2_retired_automations_20260715",
 ] as const;
-
 class SupabaseTargetError extends Error {
   public readonly issues: readonly string[];
 
@@ -82,7 +80,6 @@ class SupabaseTargetError extends Error {
     this.issues = issues;
   }
 }
-
 export async function assertSupabaseTarget(
   client: PgClient,
   mode: SupabaseTargetMode,
@@ -92,7 +89,6 @@ export async function assertSupabaseTarget(
     throw new SupabaseTargetError(mode, issues);
   }
 }
-
 async function validateSupabaseTarget(
   client: PgClient,
   mode: SupabaseTargetMode,
@@ -106,11 +102,10 @@ async function validateSupabaseTarget(
     ...validateRemovedObsoleteTables(mode, publicTableNames),
     ...validateRemovedEntitlementScaffolding(mode, tables),
     ...validateRemovedProjectBackup(mode, tables),
-    ...(await validateAppWorker(client)),
+    ...(mode === "prod-ready" ? await validateProductionSecurityTarget(client) : []),
     ...(await validateIntegrityConstraints(client, mode)),
+    ...(await validateCanonicalProjectWorkspaces(client, mode)),
     ...(await validateIntegrityIndexes(client, mode)),
-    ...(await validateAuditBoundary(client, mode)),
-    ...(await validateClerkTombstoneBoundary(client, mode)),
     ...(await validateMigrationLedger(client, mode)),
     ...(await validateAuditArchiveManifest(client, mode)),
     ...(await validateFirstArtifactMilestone(client, mode)),
@@ -230,7 +225,7 @@ async function loadPublicTableNames(client: PgClient): Promise<Set<string>> {
 
 async function loadPublicColumns(client: PgClient): Promise<Map<string, Map<string, ColumnInfo>>> {
   const result = await client.query(
-    `select table_name, column_name, data_type, is_nullable
+    `select table_name, column_name, data_type, is_nullable, datetime_precision
        from information_schema.columns
       where table_schema = 'public'
         and table_name = any($1::text[])
@@ -247,7 +242,12 @@ async function loadPublicColumns(client: PgClient): Promise<Map<string, Map<stri
       continue;
     }
     const columns = tables.get(tableName) ?? new Map<string, ColumnInfo>();
-    columns.set(columnName, { dataType, nullable: nullable === "YES" });
+    const datetimePrecision = numberField(row, "datetime_precision");
+    columns.set(columnName, {
+      dataType,
+      ...(datetimePrecision === undefined ? {} : { datetimePrecision }),
+      nullable: nullable === "YES",
+    });
     tables.set(tableName, columns);
   }
   return tables;
@@ -256,6 +256,11 @@ async function loadPublicColumns(client: PgClient): Promise<Map<string, Map<stri
 function stringField(row: Record<string, unknown>, key: string): string | undefined {
   const value = row[key];
   return typeof value === "string" ? value : undefined;
+}
+
+function numberField(row: Record<string, unknown>, key: string): number | undefined {
+  const value = row[key];
+  return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
 function validateColumns(
@@ -267,9 +272,19 @@ function validateColumns(
     if (!columns) {
       return mode === "prod-ready" ? [`public.${contract.tableName} is missing.`] : [];
     }
-    return contract.columns.flatMap((expected) =>
-      validateColumn(mode, contract, expected, columns),
-    );
+    const expectedNames = new Set(contract.columns.map(({ name }) => name));
+    const unexpected =
+      mode === "prod-ready"
+        ? [...columns.keys()]
+            .filter((name) => !expectedNames.has(name))
+            .map(
+              (name) => `Unexpected column public.${contract.tableName}.${name} must be removed.`,
+            )
+        : [];
+    return [
+      ...contract.columns.flatMap((expected) => validateColumn(mode, contract, expected, columns)),
+      ...unexpected,
+    ];
   });
 }
 
@@ -281,7 +296,7 @@ function validateMigrationPresence(
     return [];
   }
 
-  const expectedTableNames = V2_DRIZZLE_TABLES;
+  const expectedTableNames = V2_FOUNDATION_DRIZZLE_TABLES;
   const existing = expectedTableNames.filter((tableName) => publicTableNames.has(tableName));
   if (existing.length === 0 || existing.length === expectedTableNames.length) {
     return [];
@@ -312,90 +327,20 @@ function validateColumn(
   }
   if (
     mode === "prod-ready" &&
-    expected.nullable !== undefined &&
-    actual.nullable !== expected.nullable
+    expected.datetimePrecision !== undefined &&
+    actual.datetimePrecision !== expected.datetimePrecision
   ) {
+    return [
+      `public.${contract.tableName}.${expected.name} must use timestamp precision ${expected.datetimePrecision}.`,
+    ];
+  }
+  if (mode === "prod-ready" && actual.nullable !== expected.nullable) {
     return [
       `public.${contract.tableName}.${expected.name} must be ${expected.nullable ? "nullable" : "NOT NULL"}.`,
     ];
   }
   return [];
 }
-
-async function validateAppWorker(client: PgClient): Promise<string[]> {
-  const result = await client.query(
-    `select rolcanlogin, rolsuper, rolcreatedb, rolcreaterole, rolreplication, rolbypassrls
-       from pg_roles where rolname = 'app_worker'`,
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return [
-      "Postgres role app_worker is missing; provision it with a unique out-of-band credential before running migrations.",
-    ];
-  }
-  const issues: string[] = [];
-  if (row["rolcanlogin"] !== true) {
-    issues.push("Postgres role app_worker must be LOGIN-enabled.");
-  }
-  for (const attribute of [
-    "rolsuper",
-    "rolcreatedb",
-    "rolcreaterole",
-    "rolreplication",
-    "rolbypassrls",
-  ]) {
-    if (row[attribute] === true) {
-      issues.push(`Postgres role app_worker must not have ${attribute}.`);
-    }
-  }
-  return issues;
-}
-
-const REQUIRED_INTEGRITY_CONSTRAINTS = [
-  ["v2_projects", "v2_projects_id_user_id_key"],
-  ["v2_threads", "v2_threads_id_user_id_key"],
-  ["v2_agent_runs", "v2_agent_runs_id_user_id_key"],
-  ["v2_agent_runs", "v2_agent_runs_id_user_id_thread_id_key"],
-  ["v2_threads", "v2_threads_project_user_fk"],
-  ["v2_messages", "v2_messages_thread_user_fk"],
-  ["v2_messages", "v2_messages_agent_run_scope_fk"],
-  ["v2_agent_runs", "v2_agent_runs_thread_user_fk"],
-  ["v2_threads", "v2_threads_active_run_scope_fk"],
-  ["v2_generated_outputs", "v2_generated_outputs_project_user_fk"],
-  ["v2_generated_outputs", "v2_generated_outputs_agent_run_user_fk"],
-  ["v2_generated_outputs", "v2_generated_outputs_r2_object_key"],
-  ["v2_generated_outputs", "v2_generated_outputs_size_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_sha256_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_bucket_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_key_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_filename_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_mime_type_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_kind_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_metadata_check"],
-  ["v2_generated_outputs", "v2_generated_outputs_expiry_check"],
-  ["v2_provider_keys", "v2_provider_keys_provider_check"],
-  ["v2_deleted_clerk_identities", "v2_deleted_clerk_identities_hash_check"],
-  ["v2_agent_runs", "v2_agent_runs_idempotency_key_hash_check"],
-  ["v2_agent_runs", "v2_agent_runs_request_body_hash_check"],
-  ["v2_user_integrations", "v2_user_integrations_composio_connection_id_pk"],
-  ["v2_user_integrations", "v2_user_integrations_default_active_check"],
-  ["v2_user_integrations", "v2_user_integrations_connection_id_check"],
-  ["v2_user_integrations", "v2_user_integrations_integration_check"],
-] as const;
-
-const REQUIRED_INTEGRITY_INDEXES = [
-  "v2_agent_runs_user_idempotency_key_unique",
-  "v2_messages_thread_page_idx",
-  "v2_projects_user_page_idx",
-  "v2_threads_project_page_idx",
-  "v2_threads_user_page_idx",
-  "v2_agent_runs_user_delete_page_idx",
-  "v2_messages_agent_run_assistant_uidx",
-  "v2_generated_outputs_expiry_idx",
-  "v2_user_integrations_delete_page_idx",
-] as const;
-
-const FORBIDDEN_SUPERSEDED_INDEXES = ["v2_threads_user_recent_idx"] as const;
 
 async function validateIntegrityConstraints(
   client: PgClient,
@@ -405,7 +350,11 @@ async function validateIntegrityConstraints(
     return [];
   }
   const result = await client.query(
-    `select relation.relname as table_name, constraint_record.conname
+    `select
+       relation.relname as table_name,
+       constraint_record.conname,
+       pg_get_constraintdef(constraint_record.oid) as definition,
+       constraint_record.confdeltype::text as delete_action
        from pg_constraint constraint_record
        join pg_class relation on relation.oid = constraint_record.conrelid
        join pg_namespace namespace on namespace.oid = relation.relnamespace
@@ -417,12 +366,91 @@ async function validateIntegrityConstraints(
   const present = new Set(
     result.rows.map((row) => `${stringField(row, "table_name")}.${stringField(row, "conname")}`),
   );
-  return REQUIRED_INTEGRITY_CONSTRAINTS.filter(
+  const missing = REQUIRED_INTEGRITY_CONSTRAINTS.filter(
     ([tableName, name]) => !present.has(`${tableName}.${name}`),
   ).map(
     ([tableName, name]) =>
       `Required tenant/output integrity constraint public.${tableName}.${name} is missing or not validated.`,
   );
+  const outputRunForeignKey = result.rows.find(
+    (row) => row["conname"] === "v2_generated_outputs_agent_run_user_fk",
+  );
+  const deleteAction = outputRunForeignKey?.["delete_action"];
+  if (deleteAction !== "a" && deleteAction !== "r") {
+    missing.push("Generated-output/run integrity must use NO ACTION or RESTRICT deletion.");
+  }
+  const workspaceConstraint = result.rows.find(
+    (row) => row["conname"] === CANONICAL_PROJECT_WORKSPACE_CONSTRAINT.name,
+  );
+  if (
+    workspaceConstraint &&
+    normalizedSqlDefinition(workspaceConstraint["definition"]) !==
+      CANONICAL_PROJECT_WORKSPACE_CONSTRAINT.definition
+  ) {
+    missing.push("The canonical project workspace ownership check has the wrong definition.");
+  }
+  const providerConstraint = result.rows.find(
+    (row) => row["conname"] === CANONICAL_PROVIDER_KEY_CONSTRAINT.name,
+  );
+  if (
+    providerConstraint &&
+    normalizedSqlDefinition(providerConstraint["definition"]) !==
+      CANONICAL_PROVIDER_KEY_CONSTRAINT.definition
+  ) {
+    missing.push("The provider-key allowlist check has the wrong definition.");
+  }
+  missing.push(...validateExactIntegrityConstraints(result.rows));
+  return missing;
+}
+
+function validateExactIntegrityConstraints(rows: readonly Record<string, unknown>[]): string[] {
+  return EXACT_INTEGRITY_CONSTRAINTS.flatMap((contract) => {
+    const row = rows.find(
+      (candidate) =>
+        candidate["table_name"] === contract.tableName && candidate["conname"] === contract.name,
+    );
+    if (!row) {
+      return [];
+    }
+    const issues: string[] = [];
+    if (normalizedSqlDefinition(row["definition"]) !== contract.definition) {
+      issues.push(
+        `Integrity constraint public.${contract.tableName}.${contract.name} has the wrong definition.`,
+      );
+    }
+    if (contract.deleteAction !== undefined && row["delete_action"] !== contract.deleteAction) {
+      issues.push(
+        `Integrity constraint public.${contract.tableName}.${contract.name} has the wrong delete action.`,
+      );
+    }
+    return issues;
+  });
+}
+
+function normalizedSqlDefinition(value: unknown): string {
+  return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim() : "";
+}
+
+async function validateCanonicalProjectWorkspaces(
+  client: PgClient,
+  mode: SupabaseTargetMode,
+): Promise<string[]> {
+  if (mode !== "prod-ready") {
+    return [];
+  }
+  const result = await client.query(
+    `select count(*)::text as invalid_count
+       from public.v2_projects
+      where not (
+        octet_length(workspace_slug) between 38 and 64
+        and right(workspace_slug, 37) = '-' || id::text
+        and left(workspace_slug, length(workspace_slug) - 37)
+          ~ '^[a-z0-9]+(-[a-z0-9]+)*$'
+      )`,
+  );
+  return result.rows[0]?.["invalid_count"] === "0"
+    ? []
+    : ["Every project workspace slug must be a safe bounded base owned by its UUID suffix."];
 }
 
 async function validateIntegrityIndexes(
@@ -434,9 +462,17 @@ async function validateIntegrityIndexes(
   }
   const names = [...REQUIRED_INTEGRITY_INDEXES, ...FORBIDDEN_SUPERSEDED_INDEXES];
   const result = await client.query(
-    `select index_relation.relname as index_name, index_record.indisvalid, index_record.indisready
+    `select
+       index_relation.relname as index_name,
+       table_relation.relname as table_name,
+       index_record.indisvalid,
+       index_record.indisready,
+       index_record.indisunique,
+       coalesce(pg_get_expr(index_record.indpred, index_record.indrelid), '') as predicate,
+       pg_get_indexdef(index_record.indexrelid) as definition
        from pg_index index_record
        join pg_class index_relation on index_relation.oid = index_record.indexrelid
+       join pg_class table_relation on table_relation.oid = index_record.indrelid
        join pg_namespace namespace on namespace.oid = index_relation.relnamespace
       where namespace.nspname = 'public'
         and index_relation.relname = any($1::text[])`,
@@ -459,212 +495,214 @@ async function validateIntegrityIndexes(
   const superseded = FORBIDDEN_SUPERSEDED_INDEXES.filter((name) => present.has(name)).map(
     (name) => `Superseded production index public.${name} must be removed.`,
   );
-  return [...missing, ...superseded];
+  return [...missing, ...superseded, ...validateRequiredIndexShapes(result.rows)];
 }
 
-async function validateAuditBoundary(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const tableResult = await client.query(
-    `select c.relname, c.relrowsecurity, c.relforcerowsecurity
-       from pg_class c
-       join pg_namespace n on n.oid = c.relnamespace
-      where n.nspname = 'public'
-        and c.relname in ('v2_audit_log', 'v2_provider_keys')`,
-  );
-  const functionResult = await client.query(
-    `select p.proname, p.prosecdef
-         from pg_proc p
-         join pg_namespace n on n.oid = p.pronamespace
-        where n.nspname = 'public'
-          and (
-            (p.proname = 'append_v2_audit_event'
-              and oidvectortypes(p.proargtypes) = 'text, text, text, jsonb')
-            or (p.proname = 'scrub_current_user_audit' and p.pronargs = 0)
-          )`,
-  );
-  const grantResult = await client.query(
-    `select privilege
-       from pg_roles app_role
-       join pg_class target on target.relname = 'v2_audit_log'
-       join pg_namespace n on n.oid = target.relnamespace and n.nspname = 'public'
-      cross join unnest(array['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']) as privilege
-      where app_role.rolname = 'app_worker'
-        and has_table_privilege(app_role.oid, target.oid, privilege)`,
-  );
-  return validateAuditSecurityRows(tableResult.rows, functionResult.rows, grantResult.rows);
+function validateRequiredIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateMessageTranscriptIndexShapes(rows),
+    ...validateActivationIndexShapes(rows),
+    ...validateLifecycleIndexShapes(rows),
+    ...validateNamedIndexShape(rows, "v2_generated_outputs_agent_run_idx", "agent_run_id", ""),
+    ...validateArtifactIntentIndexShapes(rows),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_projects_deletion_queue_idx",
+      "deleted_at,id",
+      "deleted_atisnotnull",
+    ),
+    ...validateNamedIndexShape(rows, "v2_threads_project_delete_idx", "user_id,project_id,id", ""),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_threads_deletion_queue_idx",
+      "deleted_at,id",
+      "deleted_atisnotnull",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_agent_runs_thread_delete_page_idx",
+      "user_id,thread_id,id",
+      "",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_resource_deletion_jobs_generation_uidx",
+      "kind,resource_id,generation",
+      "",
+    ),
+    ...validateNamedIndexShape(rows, "v2_resource_deletion_jobs_user_idx", "user_id", ""),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_resource_deletion_jobs_ready_idx",
+      "next_attempt_at,id",
+      "status='queued'::text",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_resource_deletion_jobs_lease_idx",
+      "lease_expires_at,id",
+      "status='leased'::text",
+    ),
+  ];
 }
 
-function validateAuditSecurityRows(
-  tableRows: readonly Record<string, unknown>[],
-  functionRows: readonly Record<string, unknown>[],
-  grantRows: readonly Record<string, unknown>[],
+function validateArtifactIntentIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateNamedIndexShape(
+      rows,
+      "v2_artifact_upload_intents_cleanup_idx",
+      "cleanup_not_before,quiesced_at,id",
+      "quiesced_atisnotnull",
+    ),
+    ...validateNamedIndexShape(rows, "v2_artifact_upload_intents_user_idx", "user_id,id", ""),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_artifact_upload_intents_project_idx",
+      "user_id,project_id,id",
+      "",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_artifact_upload_intents_run_idx",
+      "user_id,agent_run_id,id",
+      "",
+    ),
+  ];
+}
+
+function validateLifecycleIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateNamedIndexShape(
+      rows,
+      "v2_messages_thread_page_idx",
+      "user_id,thread_id,created_at,agent_run_segment,id",
+      "",
+      { tableName: "v2_messages", unique: false },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_agent_runs_user_finished_idx",
+      "user_id,finished_at",
+      "finished_atisnotnull",
+      { tableName: "v2_agent_runs", unique: false },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_entitlements_polar_subscription_uidx",
+      "polar_subscription_id",
+      "polar_subscription_idisnotnull",
+      { tableName: "v2_entitlements", unique: true },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_threads_active_run_idx",
+      "active_run_id",
+      "active_run_idisnotnull",
+      { tableName: "v2_threads", unique: false },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_users_deletion_due_idx",
+      "deleted_at,id",
+      "deleted_atisnotnull",
+      { tableName: "v2_users", unique: false },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_user_deletion_refund_intents_idempotency_uidx",
+      "idempotency_key",
+      "",
+      { tableName: "v2_user_deletion_refund_intents", unique: true },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_user_deletion_refund_intents_provider_uidx",
+      "provider_refund_id",
+      "provider_refund_idisnotnull",
+      { tableName: "v2_user_deletion_refund_intents", unique: true },
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_user_deletion_refund_intents_unresolved_idx",
+      "user_id,job_id",
+      "provider_statusisdistinctfrom'succeeded'::text",
+      { tableName: "v2_user_deletion_refund_intents", unique: false },
+    ),
+  ];
+}
+
+function validateActivationIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateNamedIndexShape(
+      rows,
+      "v2_agent_runs_user_started_idx",
+      "user_id,started_atDESC",
+      "",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_users_activation_created_idx",
+      "created_at,id",
+      "deleted_atisnull",
+    ),
+  ];
+}
+
+function validateMessageTranscriptIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateNamedIndexShape(
+      rows,
+      "v2_messages_agent_run_segment_assistant_uidx",
+      "agent_run_id,agent_run_segment",
+      "agent_run_idisnotnullandrole='assistant'::text",
+    ),
+    ...validateNamedIndexShape(
+      rows,
+      "v2_messages_agent_run_final_assistant_uidx",
+      "agent_run_id",
+      "agent_run_idisnotnullandrole='assistant'::textandagent_run_segment_final",
+    ),
+  ];
+}
+
+function validateNamedIndexShape(
+  rows: readonly Record<string, unknown>[],
+  name: string,
+  columns: string,
+  predicate: string,
+  options: { tableName?: string; unique?: boolean } = {},
 ): string[] {
-  const issues: string[] = [];
-  const securityTables = new Map(tableRows.map((row) => [stringField(row, "relname"), row]));
-  for (const tableName of ["v2_audit_log", "v2_provider_keys"]) {
-    const table = securityTables.get(tableName);
-    if (table?.["relrowsecurity"] !== true || table?.["relforcerowsecurity"] !== true) {
-      issues.push(`public.${tableName} must have forced row-level security enabled.`);
-    }
-  }
-  const functions = new Map(
-    functionRows.map((row) => [stringField(row, "proname"), row["prosecdef"]]),
+  return validateIndexShape(
+    rows.find((row) => row["index_name"] === name),
+    columns,
+    predicate,
+    name,
+    options,
   );
-  for (const name of ["append_v2_audit_event", "scrub_current_user_audit"]) {
-    if (functions.get(name) !== true) {
-      issues.push(`public.${name} must exist as SECURITY DEFINER.`);
-    }
-  }
-  if (grantRows.length > 0) {
-    issues.push("app_worker must not mutate public.v2_audit_log directly.");
-  }
-  return issues;
 }
 
-async function validateClerkTombstoneBoundary(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const result = await client.query(
-    `select
-       (select relrowsecurity
-          from pg_class
-         where oid = to_regclass('public.v2_deleted_clerk_identities')) as rls_enabled,
-       has_table_privilege('app_worker', to_regclass('public.v2_deleted_clerk_identities'), 'SELECT') as can_select,
-       has_table_privilege('app_worker', to_regclass('public.v2_deleted_clerk_identities'), 'INSERT') as can_insert,
-       has_table_privilege('app_worker', to_regclass('public.v2_deleted_clerk_identities'), 'UPDATE') as can_update,
-       has_table_privilege('app_worker', to_regclass('public.v2_deleted_clerk_identities'), 'DELETE') as can_delete,
-       has_table_privilege('app_worker', to_regclass('public.v2_deleted_clerk_identities'), 'TRUNCATE') as can_truncate`,
-  );
-  const policyResult = await client.query(
-    `select policyname, cmd
-       from pg_policies
-      where schemaname = 'public'
-        and tablename = 'v2_deleted_clerk_identities'
-        and 'app_worker' = any(roles)
-        and policyname = any($1::text[])`,
-    [["v2_deleted_clerk_identities_select", "v2_deleted_clerk_identities_insert"]],
-  );
-  const row = result.rows[0];
-  if (!row) {
-    return ["Unable to validate the Clerk deletion tombstone access boundary."];
-  }
-  return validateClerkTombstoneAccess(row, policyResult.rows);
-}
-
-function validateClerkTombstoneAccess(
-  row: Record<string, unknown>,
-  policyRows: readonly Record<string, unknown>[],
+function validateIndexShape(
+  row: Record<string, unknown> | undefined,
+  columns: string,
+  predicate: string,
+  label: string,
+  options: { tableName?: string; unique?: boolean } = {},
 ): string[] {
-  const issues: string[] = [];
-  if (row["rls_enabled"] !== true) {
-    issues.push("public.v2_deleted_clerk_identities must have row-level security enabled.");
-  }
-  if (row["can_select"] !== true || row["can_insert"] !== true) {
-    issues.push("app_worker must have SELECT and INSERT on Clerk deletion tombstones.");
-  }
-  if (row["can_update"] === true || row["can_delete"] === true || row["can_truncate"] === true) {
-    issues.push("app_worker must not mutate or remove existing Clerk deletion tombstones.");
-  }
-  const policies = new Map(
-    policyRows.map((policy) => [stringField(policy, "policyname"), policy["cmd"]]),
-  );
-  if (policies.get("v2_deleted_clerk_identities_select") !== "SELECT") {
-    issues.push("app_worker must have the Clerk deletion tombstone SELECT policy.");
-  }
-  if (policies.get("v2_deleted_clerk_identities_insert") !== "INSERT") {
-    issues.push("app_worker must have the Clerk deletion tombstone INSERT policy.");
-  }
-  return issues;
-}
-
-async function validateMigrationLedger(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const shape = await client.query(
-    `select
-       to_regclass('public._raw_migrations') is not null as table_exists,
-       exists (
-         select 1 from information_schema.columns
-          where table_schema = 'public'
-            and table_name = '_raw_migrations'
-            and column_name = 'sha256'
-            and data_type = 'text'
-            and is_nullable = 'NO'
-       ) as checksum_valid_shape,
-       exists (
-         select 1
-           from pg_constraint
-          where conrelid = to_regclass('public._raw_migrations')
-            and conname = '_raw_migrations_sha256_check'
-            and convalidated
-       ) as checksum_constraint_validated`,
-  );
-  const row = shape.rows[0];
+  const definition = stringField(row ?? {}, "definition")?.replaceAll(/[\s"]/g, "") ?? "";
+  const actualPredicate = String(row?.["predicate"] ?? "")
+    .toLowerCase()
+    .replaceAll(/[()\s"]/g, "");
+  const hasExpectedTable =
+    options.tableName === undefined || row?.["table_name"] === options.tableName;
+  const hasExpectedUniqueness =
+    options.unique === undefined || row?.["indisunique"] === options.unique;
   if (
-    row?.["table_exists"] !== true ||
-    row["checksum_valid_shape"] !== true ||
-    row["checksum_constraint_validated"] !== true
+    actualPredicate !== predicate ||
+    !definition.includes(`USINGbtree(${columns})`) ||
+    !hasExpectedTable ||
+    !hasExpectedUniqueness
   ) {
-    return ["Raw migration ledger must have a required, validated SHA-256 identity column."];
+    return [`The ${label} index has the wrong columns or predicate.`];
   }
-  const result = await client.query(
-    `select count(*)::text as missing_count
-       from public._raw_migrations
-      where sha256 is null or sha256 !~ '^[0-9a-f]{64}$'`,
-  );
-  return result.rows[0]?.["missing_count"] === "0"
-    ? []
-    : ["Every applied raw migration must have a valid SHA-256 checksum."];
-}
-
-const ARCHIVE_MANIFEST_COLUMNS = [
-  "partition_name",
-  "month_start",
-  "bucket",
-  "format_version",
-  "object_key",
-  "row_count",
-  "size_bytes",
-  "sha256",
-  "state",
-  "detached_at",
-  "verified_at",
-  "dropped_at",
-] as const;
-
-async function validateAuditArchiveManifest(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const result = await client.query(
-    `select column_name
-       from information_schema.columns
-      where table_schema = 'public'
-        and table_name = '_audit_archive_manifest'`,
-  );
-  const columns = new Set(
-    result.rows
-      .map((row) => stringField(row, "column_name"))
-      .filter((column): column is string => column !== undefined),
-  );
-  return ARCHIVE_MANIFEST_COLUMNS.filter((column) => !columns.has(column)).map(
-    (column) =>
-      `Audit archive manifest column public._audit_archive_manifest.${column} is missing.`,
-  );
+  return [];
 }

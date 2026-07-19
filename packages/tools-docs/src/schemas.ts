@@ -4,12 +4,10 @@ const TextValueSchema = z.string().trim().min(1).max(5_000);
 
 const ArtifactOutputSchema = z
   .object({
-    downloadUrl: z.string().url(),
     filename: z.string().min(1),
     kind: z.enum(["docx", "pdf", "slide", "xlsx"]),
     mimeType: z.string().min(1),
     outputId: z.string().min(1),
-    r2Key: z.string().min(1),
     sizeBytes: z.number().int().nonnegative(),
   })
   .strict();

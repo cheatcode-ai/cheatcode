@@ -1,5 +1,4 @@
 import { createWriteStream, mkdtempSync, rmSync } from "node:fs";
-import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { pipeline } from "node:stream/promises";
@@ -21,11 +20,9 @@ import {
   type DatabaseIdentityExpectation,
   releaseDatabaseMaintenanceLock,
 } from "./database-operation-safety";
+import { closePgClientWithGrace, createDeadlineAwarePgClient } from "./deadline-aware-pg-client";
 import { loadMigrationEnvFromFiles } from "./migration-env";
-
-interface PgModule {
-  Client: new (config: { connectionString: string }) => PgClient;
-}
+import { createAuditArchiveOperationDeadline } from "./release-operation-budget";
 
 interface AuditPartition {
   monthStart: Date;
@@ -61,6 +58,8 @@ interface CatalogPartition extends AuditPartition {
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+const LOCAL_DRY_RUN_TIMEOUT_MS = 30 * 60 * 1_000;
+const ARCHIVE_QUERY_TIMEOUT_MS = 30 * 60 * 1_000;
 const PAGE_SIZE = 5_000;
 
 function writeLine(line = ""): void {
@@ -111,12 +110,6 @@ export function selectArchivePartitions(
 ): AuditPartition[] {
   const cutoff = new Date(now.getTime() - archiveBeforeDays * 86_400_000);
   return partitions.filter((partition) => addUtcMonths(partition.monthStart, 1) <= cutoff);
-}
-
-function createClient(databaseUrl: string): PgClient {
-  const dbRequire = createRequire(join(ROOT, "packages/db/package.json"));
-  const { Client } = dbRequire("pg") as PgModule;
-  return new Client({ connectionString: databaseUrl });
 }
 
 function quotedPartition(name: string): string {
@@ -475,12 +468,21 @@ async function archiveDetachedPartition(
   row: ArchiveManifestRow,
   tempDir: string,
   cloudflareAccountId: string,
+  deadline: number,
 ): Promise<ArchiveResult> {
   const outputPath = join(tempDir, `${row.partitionName}.ndjson.gz`);
   const verifyPath = join(tempDir, `${row.partitionName}.upload.verify.ndjson.gz`);
   const file = await writeArchiveFile(client, row.partitionName, outputPath);
   const key = archiveObjectKey(row.monthStart, file.sha256);
-  await uploadAndVerifyArchive(cloudflareAccountId, row.bucket, key, outputPath, verifyPath, file);
+  await uploadAndVerifyArchive(
+    cloudflareAccountId,
+    row.bucket,
+    key,
+    outputPath,
+    verifyPath,
+    file,
+    deadline,
+  );
   const result = {
     bucket: row.bucket,
     key,
@@ -496,15 +498,20 @@ async function purgeVerifiedPartition(
   row: ArchiveManifestRow,
   tempDir: string,
   cloudflareAccountId: string,
+  deadline: number,
 ): Promise<void> {
   if (!row.objectKey || !row.sha256 || row.sizeBytes === undefined) {
     throw new Error(`Verified manifest lacks object identity: ${row.partitionName}`);
   }
   const verifyPath = join(tempDir, `${row.partitionName}.purge.verify.ndjson.gz`);
-  await verifyRemoteArchive(cloudflareAccountId, row.bucket, row.objectKey, verifyPath, {
-    sha256: row.sha256,
-    sizeBytes: row.sizeBytes,
-  });
+  await verifyRemoteArchive(
+    cloudflareAccountId,
+    row.bucket,
+    row.objectKey,
+    verifyPath,
+    { sha256: row.sha256, sizeBytes: row.sizeBytes },
+    deadline,
+  );
   await client.query("begin");
   try {
     await client.query(`drop table ${quotedPartition(row.partitionName)}`);
@@ -545,6 +552,7 @@ async function executeArchivePlan(
   options: ArchiveOptions,
   tempDir: string,
   cloudflareAccountId: string,
+  deadline: number,
 ): Promise<void> {
   let manifest = await loadArchiveManifest(client);
   let catalog = await loadCatalogPartitions(client);
@@ -555,20 +563,20 @@ async function executeArchivePlan(
   for (const row of pending) {
     writeLine(`resuming detached audit archive ${row.partitionName}`);
     await reportArchiveResult(
-      await archiveDetachedPartition(client, row, tempDir, cloudflareAccountId),
+      await archiveDetachedPartition(client, row, tempDir, cloudflareAccountId, deadline),
     );
   }
   for (const partition of eligible) {
     const detached = await detachForArchive(client, partition, options.bucket);
     await reportArchiveResult(
-      await archiveDetachedPartition(client, detached, tempDir, cloudflareAccountId),
+      await archiveDetachedPartition(client, detached, tempDir, cloudflareAccountId, deadline),
     );
   }
   manifest = await loadArchiveManifest(client);
   catalog = await loadCatalogPartitions(client);
   validateManifestCatalog(manifest, catalog);
   for (const row of purgeCandidates(manifest, options.now, options.purgeVerifiedBeforeDays)) {
-    await purgeVerifiedPartition(client, row, tempDir, cloudflareAccountId);
+    await purgeVerifiedPartition(client, row, tempDir, cloudflareAccountId, deadline);
   }
 }
 
@@ -622,7 +630,7 @@ async function closeArchiveClient(
     }
   }
   try {
-    await client.end();
+    await closePgClientWithGrace(client, "Audit archive database close");
   } catch (error) {
     failures.push(error instanceof Error ? error.message : "Failed to close archive connection");
   }
@@ -635,14 +643,16 @@ async function closeArchiveClient(
 
 function loadArchiveRuntimeConfig() {
   const {
-    cloudflareAccountId,
     databaseUrl,
     expectedDatabase,
     expectedHost,
     expectedRole,
     expectedSystemIdentifier,
+    isLocalDatabase,
   } = loadMigrationEnvFromFiles(ROOT);
+  const cloudflareAccountId = process.env["CLOUDFLARE_ACCOUNT_ID"]?.trim();
   const identity: DatabaseIdentityExpectation = {
+    isLocalDatabase,
     ...(expectedDatabase ? { expectedDatabase } : {}),
     ...(expectedHost ? { expectedHost } : {}),
     ...(expectedRole ? { expectedRole } : {}),
@@ -653,11 +663,17 @@ function loadArchiveRuntimeConfig() {
 
 async function runArchive(options: ArchiveOptions): Promise<void> {
   const { cloudflareAccountId, databaseUrl, identity } = loadArchiveRuntimeConfig();
+  const deadline = archiveOperationDeadline(options, identity);
   assertAdministrativeConnectionTarget(databaseUrl, identity, options.mode);
-  if (options.mode === "apply" && !cloudflareAccountId) {
-    throw new Error("Set CLOUDFLARE_ACCOUNT_ID before applying an audit archive operation.");
+  if (
+    options.mode === "apply" &&
+    (!cloudflareAccountId || !process.env["CLOUDFLARE_API_TOKEN"]?.trim())
+  ) {
+    throw new Error(
+      "CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required for audit archive apply.",
+    );
   }
-  const client = createClient(databaseUrl);
+  const client = createDeadlineAwarePgClient(ROOT, databaseUrl, deadline, ARCHIVE_QUERY_TIMEOUT_MS);
   await client.connect();
   let hasMaintenanceLock = false;
   let operationFailed = false;
@@ -670,9 +686,9 @@ async function runArchive(options: ArchiveOptions): Promise<void> {
     await assertPinnedDatabaseIdentity(client, identity, options.mode);
     await acquireDatabaseMaintenanceLock(client, "audit archive");
     hasMaintenanceLock = true;
+    await ensureFuturePartitions(client, options);
     await assertSupabaseTarget(client, "prod-ready");
     validateManifestCatalog(await loadArchiveManifest(client), await loadCatalogPartitions(client));
-    await ensureFuturePartitions(client, options);
     if (options.mode === "dry-run") {
       await printArchivePlan(client, options);
       return;
@@ -681,7 +697,7 @@ async function runArchive(options: ArchiveOptions): Promise<void> {
     if (!cloudflareAccountId) {
       throw new Error("Audit archive apply requires a pinned Cloudflare account.");
     }
-    await executeArchivePlan(client, options, tempDir, cloudflareAccountId);
+    await executeArchivePlan(client, options, tempDir, cloudflareAccountId, deadline);
   } catch (error) {
     operationFailed = true;
     throw error;
@@ -696,6 +712,17 @@ async function runArchive(options: ArchiveOptions): Promise<void> {
       }
     }
   }
+}
+
+function archiveOperationDeadline(
+  options: ArchiveOptions,
+  identity: DatabaseIdentityExpectation,
+): number {
+  if (!identity.isLocalDatabase) return createAuditArchiveOperationDeadline();
+  if (options.mode === "apply") {
+    throw new Error("Audit archive apply is a protected production maintenance operation.");
+  }
+  return Date.now() + LOCAL_DRY_RUN_TIMEOUT_MS;
 }
 
 function requiredString(row: Record<string, unknown>, key: string): string {

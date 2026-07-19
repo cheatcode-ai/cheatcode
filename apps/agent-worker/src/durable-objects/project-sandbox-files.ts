@@ -67,7 +67,7 @@ function toFileEntry(info: DaytonaFileInfo, parentDir: string, root: string): Fi
     relativePath: relativePath(root, path),
     type: info.isDir ? "directory" : "file",
     size: info.size,
-    modifiedAt: info.modifiedAt ?? info.modTime ?? new Date(0).toISOString(),
+    modifiedAt: info.modifiedAt,
   };
 }
 

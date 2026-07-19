@@ -1,10 +1,11 @@
+import type { AgentChunkType } from "@cheatcode/agent-core";
 import { APIError } from "@cheatcode/observability";
 import { resolveWithAbortTimeout } from "./abort-timeout";
 
-export type MastraChunkRead = IteratorResult<unknown, unknown> | "timeout";
+export type MastraChunkRead = IteratorResult<AgentChunkType, unknown> | "timeout";
 
 export function missingInternalUserResponse(
-  surface: "approval" | "cancel" | "delete-all" | "status" | "streams",
+  surface: "browser takeover" | "cancel" | "delete-all" | "status" | "streams",
 ): Response {
   return new APIError(401, "auth_token_missing", "Missing internal user header", {
     hint: `Call AgentRun ${surface} through agent-worker.`,
@@ -13,17 +14,15 @@ export function missingInternalUserResponse(
 }
 
 export async function readMastraChunk(
-  iterator: AsyncIterator<unknown>,
+  iterator: AsyncIterator<AgentChunkType>,
   timeoutMs?: number,
   abortController?: AbortController,
-  extendWhile?: () => boolean,
 ): Promise<MastraChunkRead> {
   if (!timeoutMs) {
     return iterator.next();
   }
   return resolveWithAbortTimeout({
     abortController: abortController ?? new AbortController(),
-    ...(extendWhile ? { extendWhile } : {}),
     operation: iterator.next(),
     timeoutMs,
   });

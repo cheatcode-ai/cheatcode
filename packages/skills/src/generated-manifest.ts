@@ -3,13 +3,36 @@ import type { SkillManifestEntry } from "./types";
 
 export const SKILL_MANIFEST: SkillManifestEntry[] = [
   {
-    "name": "competitor-brief",
-    "description": "Creates concise competitor intelligence briefs with positioning, pricing, product surface, traction, and risks. Use when the user asks for competitor research, company intel, alternatives, or competitive landscape. Do NOT trigger for generic news digests.",
-    "category": "Research & Docs",
+    "name": "browser-use",
+    "description": "Browser automation CLI for the Cheatcode coding agent. Use when the user needs to interact with websites, take screenshots, fill forms, click elements, navigate pages, or automate any browser task.",
+    "category": "Builder & Apps",
     "tags": [
-      "research",
-      "competitive analysis",
-      "market"
+      "browser",
+      "automation",
+      "screenshots",
+      "qa"
+    ]
+  },
+  {
+    "name": "canvas-design",
+    "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations.",
+    "category": "Data & Media",
+    "tags": [
+      "visual design",
+      "poster",
+      "infographic",
+      "image"
+    ]
+  },
+  {
+    "name": "connected-apps",
+    "description": "Uses the user's connected Gmail, GitHub, Notion, Google Workspace, Slack, and other supported accounts for explicit on-demand actions. Use when the user asks Cheatcode to read, search, create, or update something in a connected service.",
+    "category": "Builder & Apps",
+    "tags": [
+      "integrations",
+      "composio",
+      "oauth",
+      "connected apps"
     ]
   },
   {
@@ -34,13 +57,60 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
     ]
   },
   {
-    "name": "landing-page",
-    "description": "Builds production-quality landing pages or app marketing pages from an offer, product, or audience. Use when the user asks for a landing page, homepage, SaaS page, launch page, or conversion page. Do NOT trigger for full app dashboards.",
+    "name": "docx",
+    "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files). Triggers include: any mention of 'Word doc', 'word document', '.docx', or requests to produce professional documents with formatting like tables of contents, headings, page numbers, or letterheads. Also use when extracting or reorganizing content from .docx files, inserting or replacing images in documents, performing find-and-replace in Word files, working with tracked changes or comments, or converting content into a polished Word document. If the user asks for a 'report', 'memo', 'letter', 'template', or similar deliverable as a Word or .docx file, use this skill. Do NOT use for PDFs, spreadsheets, Google Docs, or general coding tasks unrelated to document generation.",
+    "category": "Research & Docs",
+    "tags": [
+      "docx",
+      "word",
+      "report",
+      "document"
+    ]
+  },
+  {
+    "name": "file-reading",
+    "description": "Use this skill when you need to read a file whose content is NOT already in your context — you only know its path. This skill is a router: it tells you which tool to use for each file type (pdf, docx, xlsx, csv, json, images, archives, ebooks) so you read the right amount the right way instead of blindly running cat on a binary. Do NOT use this skill if the file content is already visible in your context — you already have it.",
+    "category": "Research & Docs",
+    "tags": [
+      "files",
+      "inspection",
+      "extraction",
+      "documents"
+    ]
+  },
+  {
+    "name": "frontend-design",
+    "description": "Create distinctive, production-grade frontend interfaces with high design quality. Use this skill when the user asks to build web components, pages, artifacts, posters, or applications (examples include websites, landing pages, dashboards, React components, HTML/CSS layouts, or when styling/beautifying any web UI). Generates creative, polished code and UI design that avoids generic AI aesthetics.",
     "category": "Builder & Apps",
     "tags": [
-      "web",
-      "landing page",
-      "marketing"
+      "frontend",
+      "ui",
+      "responsive",
+      "design"
+    ]
+  },
+  {
+    "name": "generate-media",
+    "description": "Use this skill whenever you need to generate or edit images, or generate or extend videos using the generate_or_edit_media tool. Covers prompt engineering, parameter selection, reference image usage, and video generation/extension. Trigger when the user asks to create, generate, edit, modify, or extend any image or video asset.",
+    "category": "Data & Media",
+    "tags": [
+      "image",
+      "video",
+      "generation",
+      "editing",
+      "gemini",
+      "veo"
+    ]
+  },
+  {
+    "name": "manage-skills",
+    "description": "Inspect and manage globally enabled Cheatcode tools and integrations.",
+    "category": "Builder & Apps",
+    "tags": [
+      "skills",
+      "integrations",
+      "accounts",
+      "composio"
     ]
   },
   {
@@ -54,8 +124,30 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
     ]
   },
   {
+    "name": "pdf",
+    "description": "Use this skill whenever the user wants to do anything with PDF files. This includes reading or extracting text/tables from PDFs, combining or merging multiple PDFs into one, splitting PDFs apart, rotating pages, adding watermarks, creating new PDFs, filling PDF forms, encrypting/decrypting PDFs, extracting images, and OCR on scanned PDFs to make them searchable. If the user mentions a .pdf file or asks to produce one, use this skill.",
+    "category": "Research & Docs",
+    "tags": [
+      "pdf",
+      "document",
+      "forms",
+      "ocr"
+    ]
+  },
+  {
+    "name": "pdf-reading",
+    "description": "Use this skill when you need to read, inspect, or extract content from PDF files — especially when file content is NOT in your context and you need to read it from disk. Covers content inventory, text extraction, page rasterization for visual inspection, embedded image/attachment/table/form-field extraction, and choosing the right reading strategy for different document types (text-heavy, scanned, slide-decks, forms, data-heavy). Do NOT use this skill for PDF creation, form filling, merging, splitting, watermarking, or encryption — use the pdf skill instead.",
+    "category": "Research & Docs",
+    "tags": [
+      "pdf",
+      "extraction",
+      "ocr",
+      "inspection"
+    ]
+  },
+  {
     "name": "pitch-deck",
-    "description": "Generates investor-ready pitch decks from a one-line startup idea or written brief. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, or .pptx deck. Do NOT trigger for internal PRD slides; use slide-from-prd.",
+    "description": "Generates investor-ready pitch decks from a one-line startup idea or written brief. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, or fundraising-focused .pptx deck.",
     "category": "Research & Docs",
     "tags": [
       "slides",
@@ -64,23 +156,59 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
     ]
   },
   {
-    "name": "slide-from-prd",
-    "description": "Turns a PRD, roadmap, memo, or internal product brief into clear presentation slides. Use when the user asks for product update slides, roadmap slides, executive slides, or a PRD-to-deck conversion. Do NOT trigger for fundraising decks; use pitch-deck.",
+    "name": "pptx",
+    "description": "Use this skill any time a .pptx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx file (even if the extracted content will be used elsewhere, like in an email or summary); editing, modifying, or updating existing presentations; combining or splitting slide files; working with templates, layouts, speaker notes, or comments. Trigger whenever the user mentions \\\"deck,\\\" \\\"slides,\\\" \\\"presentation,\\\" or references a .pptx filename, regardless of what they plan to do with the content afterward. If a .pptx file needs to be opened, created, or touched, use this skill.",
     "category": "Research & Docs",
     "tags": [
+      "pptx",
       "slides",
-      "prd",
-      "product"
+      "presentation",
+      "powerpoint"
     ]
   },
   {
-    "name": "social-post-pack",
-    "description": "Creates platform-specific social posts, hooks, image prompts, and variants from a launch, report, or announcement. Use when the user asks for LinkedIn posts, X/Twitter threads, social copy, carousels, or launch content. Do NOT trigger for long-form reports.",
+    "name": "product-self-knowledge",
+    "description": "Stop and consult this skill whenever a response would include specific facts about Cheatcode: capabilities, supported models, pricing, sandbox behavior, browser use, skills, connected apps, BYOK, or feature availability. Verify here instead of relying on model memory.",
+    "category": "Builder & Apps",
+    "tags": [
+      "cheatcode",
+      "product",
+      "pricing",
+      "models",
+      "capabilities"
+    ]
+  },
+  {
+    "name": "skill-authoring",
+    "description": "Create or update project-local Cheatcode skills for direct backend routes, local workflows, or non-Composio external APIs. This is the default skill authoring path.",
+    "category": "Builder & Apps",
+    "tags": [
+      "skills",
+      "authoring",
+      "reusable workflows",
+      "typescript"
+    ]
+  },
+  {
+    "name": "webapp-testing",
+    "description": "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.",
+    "category": "Builder & Apps",
+    "tags": [
+      "qa",
+      "browser",
+      "webapp",
+      "responsive"
+    ]
+  },
+  {
+    "name": "xlsx",
+    "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spreadsheet from scratch or from other data sources; or convert between tabular file formats. Trigger especially when the user references a spreadsheet file by name or path — even casually (like \\\"the xlsx in my downloads\\\") — and wants something done to it or produced from it. Also trigger for cleaning or restructuring messy tabular data files (malformed rows, misplaced headers, junk data) into proper spreadsheets. The deliverable must be a spreadsheet file. Do NOT trigger when the primary deliverable is a Word document, HTML report, standalone Python script, database pipeline, or Google Sheets API integration, even if tabular data is involved.",
     "category": "Data & Media",
     "tags": [
-      "social",
-      "content",
-      "marketing"
+      "xlsx",
+      "excel",
+      "spreadsheet",
+      "formulas"
     ]
   }
 ];

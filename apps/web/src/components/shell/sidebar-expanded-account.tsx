@@ -1,5 +1,6 @@
 "use client";
 
+import { Search } from "@cheatcode/ui";
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthMode } from "@/components/auth/auth-modal";
@@ -8,7 +9,6 @@ import { SidebarPanelToggleIcon } from "@/components/shell/sidebar-nav-icons";
 import { isExternalHref } from "@/components/shell/sidebar-navigation-model";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { Search } from "@/components/ui/icons";
 import { formatHoursUsed, useSandboxUsageQuery } from "@/lib/hooks/use-billing";
 import { cn } from "@/lib/ui/cn";
 
@@ -18,7 +18,7 @@ const CHEATCODE_ACCOUNT_FONT = 'circular, "circular Fallback", sans-serif';
 const CHEATCODE_ACCOUNT_AMOUNT_FONT = "Inter, var(--font-geist-sans), sans-serif";
 const ACCOUNT_DROPDOWN_LINKS = [
   { href: "/pricing", label: "Pricing" },
-  { href: "/billing", label: "Usage" },
+  { href: "/usage", label: "Usage" },
 ] as const satisfies readonly SidebarAccountLink[];
 
 type SidebarAccountLink = { href: string; label: string };
@@ -315,7 +315,7 @@ function SidebarAccountSummary({
       </p>
       <Link
         className="shrink-0 font-medium text-[11px] text-foreground leading-[16.5px] transition-opacity hover:opacity-70"
-        href="/billing"
+        href="/usage"
         onClick={onNavigate}
       >
         Manage
@@ -334,7 +334,7 @@ function SidebarSandboxUsageCard({
   return (
     <Link
       className="flex h-[87px] w-full flex-col gap-2.5 rounded-2xl border border-border bg-secondary p-2.5 pt-1 text-left transition-opacity hover:opacity-90"
-      href="/billing"
+      href="/usage"
       onClick={onNavigate}
     >
       <div className="flex w-full items-center justify-between">

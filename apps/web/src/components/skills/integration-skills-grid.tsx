@@ -1,8 +1,9 @@
-import type { IntegrationName, ToolkitCatalogEntry } from "@cheatcode/types";
+import type { IntegrationName, ToolkitCatalogEntry, UserSkill } from "@cheatcode/types";
+import { Loader2, Sparkles } from "@cheatcode/ui";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
 import type { IntegrationDrawerHandlers } from "@/components/skills/integration-skill-drawer";
+import { UserSkillCard, type UserSkillsCatalog } from "@/components/skills/user-skills-section";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { Loader2, Sparkles } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { cn } from "@/lib/ui/cn";
 
@@ -14,6 +15,8 @@ export function ToolsGrid({
   onOpen,
   onRetry,
   toolkits,
+  userSkills,
+  userSkillsCatalog,
 }: {
   handlers: IntegrationDrawerHandlers;
   isError: boolean;
@@ -22,23 +25,64 @@ export function ToolsGrid({
   onOpen: (name: IntegrationName) => void;
   onRetry: () => void;
   toolkits: readonly ToolkitCatalogEntry[];
+  userSkills: readonly UserSkill[];
+  userSkillsCatalog: UserSkillsCatalog;
 }) {
-  if (isPending) {
+  if (isPending && userSkills.length === 0) {
     return <ToolsCatalogLoading />;
   }
-  if (isError) {
+  if (isError && userSkills.length === 0) {
     return <ToolsError isRetrying={isRetrying} onRetry={onRetry} />;
   }
   return (
-    <div className="mt-7 grid gap-4 md:grid-cols-2">
-      {toolkits.map((toolkit) => (
-        <ToolCard handlers={handlers} key={toolkit.name} onOpen={onOpen} toolkit={toolkit} />
+    <div className="mt-7 grid grid-cols-1 gap-4 sm:grid-cols-2">
+      {userSkills.map((skill) => (
+        <UserSkillCard
+          deleteMutation={userSkillsCatalog.deleteMutation}
+          key={skill.id}
+          onOpen={userSkillsCatalog.openSkill}
+          skill={skill}
+        />
       ))}
-      {toolkits.length === 0 ? (
+      {isPending ? <InlineCatalogLoading /> : null}
+      {isError ? <InlineToolsError isRetrying={isRetrying} onRetry={onRetry} /> : null}
+      {isPending || isError
+        ? null
+        : toolkits.map((toolkit) => (
+            <ToolCard handlers={handlers} key={toolkit.name} onOpen={onOpen} toolkit={toolkit} />
+          ))}
+      {!isPending && !isError && toolkits.length === 0 && userSkills.length === 0 ? (
         <p className="col-span-full mt-1 text-center text-placeholder text-sm">
           No skills match your search
         </p>
       ) : null}
+    </div>
+  );
+}
+
+function InlineCatalogLoading() {
+  return (
+    <div className="col-span-full min-h-36">
+      <CheatcodeLoader className="min-h-36" label="Loading skills catalog" />
+    </div>
+  );
+}
+
+function InlineToolsError({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {
+  return (
+    <div className="col-span-full flex min-h-40 items-center justify-center rounded-[24px] bg-bg-secondary p-5">
+      <RecoveryCard
+        action={{
+          isPending: isRetrying,
+          label: "Reload skills",
+          onClick: onRetry,
+          pendingLabel: "Loading skills…",
+        }}
+        description="Cheatcode couldn't reach the skills catalog. Check your connection and try again."
+        icon={Sparkles}
+        size="compact"
+        title="Skills couldn't load"
+      />
     </div>
   );
 }

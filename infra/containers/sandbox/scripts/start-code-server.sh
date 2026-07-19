@@ -134,19 +134,19 @@ rm -rf "$USER_DATA_DIR/User/workspaceStorage"
 touch "$USER_DATA_DIR/.cheatcode-settings-v6"
 export CS_DISABLE_GETTING_STARTED_OVERRIDE=1
 
-EXTRA_FLAGS=""
+EXTRA_FLAGS=()
 if code-server --help 2>/dev/null | grep -q -- "--disable-getting-started-override"; then
-  EXTRA_FLAGS="$EXTRA_FLAGS --disable-getting-started-override"
+  EXTRA_FLAGS+=(--disable-getting-started-override)
 fi
 if code-server --help 2>/dev/null | grep -q -- "--disable-workspace-trust"; then
-  EXTRA_FLAGS="$EXTRA_FLAGS --disable-workspace-trust"
+  EXTRA_FLAGS+=(--disable-workspace-trust)
 fi
 IFS="," read -r -a TRUSTED_ORIGIN_LIST <<< "$TRUSTED_ORIGINS"
 for TRUSTED_ORIGIN in "${TRUSTED_ORIGIN_LIST[@]}"; do
   TRUSTED_ORIGIN="${TRUSTED_ORIGIN#"${TRUSTED_ORIGIN%%[![:space:]]*}"}"
   TRUSTED_ORIGIN="${TRUSTED_ORIGIN%"${TRUSTED_ORIGIN##*[![:space:]]}"}"
   if [ -n "$TRUSTED_ORIGIN" ]; then
-    EXTRA_FLAGS="$EXTRA_FLAGS --trusted-origins $TRUSTED_ORIGIN"
+    EXTRA_FLAGS+=(--trusted-origins "$TRUSTED_ORIGIN")
   fi
 done
 
@@ -157,4 +157,4 @@ exec code-server "$WORKSPACE" \
   --disable-update-check \
   --extensions-dir "$EXTENSIONS_DIR" \
   --user-data-dir "$USER_DATA_DIR" \
-  $EXTRA_FLAGS
+  "${EXTRA_FLAGS[@]}"

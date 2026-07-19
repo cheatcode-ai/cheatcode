@@ -9,8 +9,9 @@ import {
 
 export async function getGreeting(
   getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
 ): Promise<GreetingResponse> {
-  const response = await authorizedFetch(getToken, "/v1/greeting");
+  const response = await authorizedFetch(getToken, "/v1/greeting", signal ? { signal } : {});
   return GreetingResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.greeting),
   );

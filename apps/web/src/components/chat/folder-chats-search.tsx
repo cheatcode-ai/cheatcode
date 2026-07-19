@@ -1,6 +1,7 @@
 "use client";
 
 import type { ProjectSummary, Thread } from "@cheatcode/types";
+import { Search } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
@@ -10,7 +11,6 @@ import {
   folderChatResultStatus,
 } from "@/components/chat/chat-context-model";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { Search } from "@/components/ui/icons";
 import { type CursorPage, listProjectThreadsPage } from "@/lib/api/project-thread";
 import { cn } from "@/lib/ui/cn";
 
@@ -30,7 +30,8 @@ export function FolderChatsSearch({
     getNextPageParam: (page: CursorPage<Thread>) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => listProjectThreadsPage(getToken, project.id, pageParam),
+    queryFn: ({ pageParam, signal }) =>
+      listProjectThreadsPage(getToken, project.id, pageParam, 25, signal),
     queryKey: ["folder-chats", project.id],
     retry: false,
     staleTime: 30_000,

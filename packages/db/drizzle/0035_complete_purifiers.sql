@@ -1,0 +1,1 @@
+CREATE INDEX "v2_users_activation_created_idx" ON "v2_users" USING btree ("created_at","id") WHERE "v2_users"."deleted_at" is null;

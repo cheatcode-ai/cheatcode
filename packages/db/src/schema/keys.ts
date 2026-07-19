@@ -4,6 +4,7 @@ import {
   check,
   index,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -12,20 +13,48 @@ import {
 import { v2TableName } from "./names";
 import { users } from "./users";
 
-export const providerKeys = pgTable(v2TableName("provider_keys"), {
-  id: uuid("id").primaryKey().default(sql`public.uuidv7()`),
-  userId: uuid("user_id")
-    .notNull()
-    .references(() => users.id, { onDelete: "cascade" }),
-  provider: text("provider").notNull(),
-  vaultSecretId: uuid("vault_secret_id").notNull(),
-  fingerprint: text("fingerprint").notNull(),
-  lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
-  disabledAt: timestamp("disabled_at", { withTimezone: true }),
-  disabledReason: text("disabled_reason"),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  deletedAt: timestamp("deleted_at", { withTimezone: true }),
-});
+export const providerKeys = pgTable(
+  v2TableName("provider_keys"),
+  {
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull(),
+    vaultSecretId: uuid("vault_secret_id").notNull(),
+    fingerprint: text("fingerprint").notNull(),
+    lastRevalidatedAt: timestamp("last_revalidated_at", { withTimezone: true }),
+    revalidationClaimedAt: timestamp("revalidation_claimed_at", { withTimezone: true }),
+    revalidationLeaseToken: uuid("revalidation_lease_token"),
+    disabledAt: timestamp("disabled_at", { withTimezone: true }),
+    disabledReason: text("disabled_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.userId, table.provider] }),
+    fingerprintShape: check(
+      "v2_provider_keys_fingerprint_check",
+      sql`${table.fingerprint} ~ '^[0-9a-f]{12}$'`,
+    ),
+    disabledPair: check(
+      "v2_provider_keys_disabled_pair_check",
+      sql`(${table.disabledAt} is null and ${table.disabledReason} is null) or (${table.disabledAt} is not null and ${table.disabledReason} is not null)`,
+    ),
+    revalidationLeasePair: check(
+      "v2_provider_keys_revalidation_lease_pair_check",
+      sql`(${table.revalidationClaimedAt} is null and ${table.revalidationLeaseToken} is null) or (${table.revalidationClaimedAt} is not null and ${table.revalidationLeaseToken} is not null)`,
+    ),
+    revalidationLeaseIdx: index("v2_provider_keys_revalidation_lease_idx")
+      .on(
+        table.lastRevalidatedAt.asc().nullsFirst(),
+        table.revalidationClaimedAt.asc().nullsFirst(),
+        table.createdAt,
+        table.userId,
+        table.provider,
+      )
+      .where(sql`${table.disabledAt} is null`),
+    vaultSecretUnique: uniqueIndex("v2_provider_keys_vault_secret_uidx").on(table.vaultSecretId),
+  }),
+);
 
 export const userIntegrations = pgTable(
   v2TableName("user_integrations"),

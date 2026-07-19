@@ -7,9 +7,16 @@ export const CODE_SERVER_SETTINGS_MARKER =
   "/home/node/.local/share/code-server/user-data/.cheatcode-settings-v6";
 export const CODE_SERVER_START_TIMEOUT_MS = 120_000;
 
-export function codeServerFolderUrl(rawUrl: string, folderPath: string): string {
+export function codeServerFolderUrl(
+  rawUrl: string,
+  folderPath: string,
+  initialFilePath?: string,
+): string {
   const url = new URL(rawUrl);
   url.searchParams.set("folder", folderPath);
+  if (initialFilePath) {
+    url.searchParams.set("cc_open_file", initialFilePath);
+  }
   return url.toString();
 }
 

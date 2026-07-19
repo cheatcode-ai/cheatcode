@@ -6,13 +6,12 @@ import type {
   ToolkitAction,
   ToolkitCatalogEntry,
 } from "@cheatcode/types";
-import { ModalShell } from "@cheatcode/ui";
+import { FileText, Loader2, ModalShell, Pencil, Plus, Search, Trash2, X } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { PromptLaunchButton } from "@/components/navigation/prompt-launch-button";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { FileText, Loader2, Pencil, Plus, Search, Trash2, X } from "@/components/ui/icons";
 import { fetchToolkitActions } from "@/lib/api/integrations";
 import { cn } from "@/lib/ui/cn";
 
@@ -254,7 +253,7 @@ function ToolkitActions({ enabled, toolkit }: { enabled: boolean; toolkit: Toolk
   const { getToken } = useAuth();
   const query = useQuery({
     enabled,
-    queryFn: () => fetchToolkitActions(getToken, toolkit.name),
+    queryFn: ({ signal }) => fetchToolkitActions(getToken, toolkit.name, signal),
     queryKey: ["toolkit-actions", toolkit.name],
     staleTime: 300_000,
   });

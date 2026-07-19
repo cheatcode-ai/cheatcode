@@ -2,7 +2,6 @@ import {
   type EntitlementCache,
   EntitlementCacheSchema,
   entitlementCacheFromValues,
-  tierLimits,
 } from "@cheatcode/billing";
 import {
   countActiveProjects,
@@ -13,12 +12,7 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, createLogger, readBoundedResponseJson } from "@cheatcode/observability";
-import {
-  type LimitsSnapshot,
-  LimitsSnapshotSchema,
-  type Provider,
-  type UserId,
-} from "@cheatcode/types";
+import { type LimitsSnapshot, LimitsSnapshotSchema, type UserId } from "@cheatcode/types";
 import {
   QUOTA_FEATURES,
   QUOTA_TRACKER_MAX_RESPONSE_BYTES,
@@ -87,32 +81,6 @@ export async function enforceActiveProjectLimit(db: Database, userId: UserId): P
   });
 }
 
-export function enforceByokProviderSlotLimit(
-  entitlement: EntitlementCache,
-  provider: Provider,
-  existingKeys: readonly { disabledAt?: null | string; provider: Provider }[],
-): void {
-  const activeKeys = existingKeys.filter(
-    (key) => key.disabledAt === null || key.disabledAt === undefined,
-  );
-  if (activeKeys.some((key) => key.provider === provider)) {
-    return;
-  }
-  const limit = tierLimits(entitlement.tier).byokProviderSlots;
-  if (limit === null || activeKeys.length < limit) {
-    return;
-  }
-  throw new APIError(403, "permission_plan_required", "BYOK provider slot limit reached", {
-    details: {
-      limit,
-      tier: entitlement.tier,
-      used: activeKeys.length,
-    },
-    hint: "Upgrade your plan or remove an existing provider key before adding another one.",
-    retriable: false,
-  });
-}
-
 export async function resolveEntitlement(
   env: LimitBindings,
   db: Database,
@@ -130,10 +98,7 @@ export async function resolveEntitlement(
 }
 
 /** DB-only authoritative entitlement read for mutation transactions. */
-export async function resolveDatabaseEntitlement(
-  db: Database,
-  userId: UserId,
-): Promise<EntitlementCache> {
+async function resolveDatabaseEntitlement(db: Database, userId: UserId): Promise<EntitlementCache> {
   const row = await findEntitlementByUserId(db, userId);
   return entitlementCacheFromValues(row ?? { tier: "free" });
 }

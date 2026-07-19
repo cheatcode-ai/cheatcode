@@ -1,11 +1,12 @@
-import { buildSystemPromptSection } from "@cheatcode/skills";
-import { MAX_USER_SKILLS } from "@cheatcode/types";
+import { buildSystemPromptSection, getSkillByName, SKILLS } from "@cheatcode/skills";
+import { MAX_USER_SKILLS, type RunIntent } from "@cheatcode/types";
 
-export const MASTER_INSTRUCTIONS_CONTEXT_KEY = "masterInstructions";
 export const AGENT_DISPLAY_NAME_CONTEXT_KEY = "agentDisplayName";
 export const GLOBAL_MEMORY_CONTEXT_KEY = "globalMemory";
 /** Run's project mode (app-builder / app-builder-mobile / general) — picks the domain prompt module. */
 export const PROMPT_PROJECT_MODE_CONTEXT_KEY = "promptProjectMode";
+/** Explicit UI-selected one-run mode; never inferred from user wording. */
+export const RUN_INTENT_CONTEXT_KEY = "runIntent";
 /** The user's message — classified to pick domain prompt modules on the general path. */
 export const PROMPT_TASK_MESSAGE_CONTEXT_KEY = "promptTaskMessage";
 /** The run's project folder (/workspace/<slug>) — told to the agent as its working directory. */
@@ -14,8 +15,6 @@ export const PROMPT_WORKSPACE_DIR_CONTEXT_KEY = "promptWorkspaceDir";
 export const USER_SKILLS_CONTEXT_KEY = "userSkills";
 /** Request-scoped capability that loads one custom skill body on demand. */
 export const USER_SKILL_LOADER_CONTEXT_KEY = "userSkillLoader";
-/** Request-scoped capability the `skill_create` tool uses to persist a new user skill. */
-export const USER_SKILL_STORE_CONTEXT_KEY = "userSkillStore";
 
 /** Body-less custom-skill metadata carried on every run. */
 export interface UserSkillRuntime {
@@ -27,22 +26,12 @@ export interface UserSkillRuntime {
 /** A custom skill definition loaded only when `skill_invoke` selects it. */
 export interface UserSkillDefinition extends UserSkillRuntime {
   body: string;
+  rootPath: string;
 }
 
 /** Loads a single custom skill body from the request's user-scoped store. */
 export interface UserSkillLoader {
   load(name: string): Promise<UserSkillDefinition | null>;
-}
-
-/** Persists a skill the agent authored in Skill Creator mode. Injected by the agent-worker. */
-export interface UserSkillStore {
-  save(skill: {
-    name: string;
-    description: string;
-    body: string;
-    category?: string;
-    tags?: string[];
-  }): Promise<void>;
 }
 
 export function userSkillLoaderFromRequestContext(
@@ -55,16 +44,6 @@ export function userSkillLoaderFromRequestContext(
   return null;
 }
 
-export function userSkillStoreFromRequestContext(
-  requestContext: { get(key: string): unknown } | undefined,
-): UserSkillStore | null {
-  const value = requestContext?.get(USER_SKILL_STORE_CONTEXT_KEY);
-  if (value && typeof (value as UserSkillStore).save === "function") {
-    return value as UserSkillStore;
-  }
-  return null;
-}
-
 interface RequestContextReader {
   get(key: string): unknown;
 }
@@ -72,10 +51,10 @@ interface RequestContextReader {
 export interface PromptRuntimeContext {
   agentDisplayName?: string;
   globalMemory?: string;
-  masterInstructions?: string;
   userSkills?: UserSkillRuntime[];
   /** app-builder / app-builder-mobile / general — selects the domain module. */
   projectMode?: string;
+  runIntent?: RunIntent;
   /** The user's request text, classified to select domain modules on the general path. */
   taskMessage?: string;
   /** The run's project folder in the sandbox (/workspace/<slug>) — the agent's working directory. */
@@ -121,10 +100,6 @@ export function promptRuntimeContextFromRequestContext(
   if (globalMemory) {
     context.globalMemory = globalMemory;
   }
-  const masterInstructions = trimmedContextValue(requestContext, MASTER_INSTRUCTIONS_CONTEXT_KEY);
-  if (masterInstructions) {
-    context.masterInstructions = masterInstructions;
-  }
   const userSkills = userSkillsFromRequestContext(requestContext);
   if (userSkills.length > 0) {
     context.userSkills = userSkills;
@@ -132,6 +107,10 @@ export function promptRuntimeContextFromRequestContext(
   const projectMode = trimmedContextValue(requestContext, PROMPT_PROJECT_MODE_CONTEXT_KEY);
   if (projectMode) {
     context.projectMode = projectMode;
+  }
+  const runIntent = trimmedContextValue(requestContext, RUN_INTENT_CONTEXT_KEY);
+  if (runIntent === "skill-creator") {
+    context.runIntent = runIntent;
   }
   const taskMessage = trimmedContextValue(requestContext, PROMPT_TASK_MESSAGE_CONTEXT_KEY);
   if (taskMessage) {
@@ -155,12 +134,15 @@ function trimmedContextValue(
 /**
  * Assembles the prompt as a LEAN always-on core + only the DOMAIN MODULE(s) that fit
  * this run (chosen from projectMode, else classified from the message), + the tail
- * (memory / project instructions / skills). This keeps every run high-signal: a web
+ * (memory / skills). This keeps every run high-signal: a web
  * build never carries slides/data/research guidance, and a quick data question never
  * carries the full build-and-verify + app-building blocks. Domain depth beyond the
  * module lives in the bundled skills, loaded on demand via skill_invoke.
  */
 export function buildSystemPrompt(runtimeContext: PromptRuntimeContext = {}): string {
+  if (runtimeContext.runIntent === "skill-creator") {
+    return buildSkillCreatorPrompt(runtimeContext);
+  }
   return [
     CORE_IDENTITY,
     runtimeContext.agentDisplayName
@@ -172,18 +154,43 @@ export function buildSystemPrompt(runtimeContext: PromptRuntimeContext = {}): st
       : "",
     ...selectDomainModules(runtimeContext.projectMode, runtimeContext.taskMessage),
     FINISHING,
-    runtimeContext.globalMemory
-      ? `## User Memory\n${runtimeContext.globalMemory}\n\nProject instructions take precedence over this memory when they conflict.`
-      : "",
-    runtimeContext.masterInstructions
-      ? `## Project Instructions\n${runtimeContext.masterInstructions}`
-      : "",
-    buildSystemPromptSection(),
+    runtimeContext.globalMemory ? `## User Memory\n${runtimeContext.globalMemory}` : "",
+    buildSystemPromptSection(GENERAL_SKILLS),
     buildUserSkillsSection(runtimeContext.userSkills),
-    SKILL_CREATION_NOTE,
   ]
     .filter((part) => part.length > 0)
     .join("\n\n");
+}
+
+function buildSkillCreatorPrompt(runtimeContext: PromptRuntimeContext): string {
+  return [
+    CORE_IDENTITY,
+    runtimeContext.agentDisplayName
+      ? `The user calls you "${runtimeContext.agentDisplayName}"; answer to that name.`
+      : "",
+    [
+      "## Skill Creator execution contract",
+      "Work only inside `/workspace/.cheatcode/skills/<skill-slug>/`; do not create or attach a normal project.",
+      "Build the complete reusable package the request needs, including `SKILL.md`, references, TypeScript entrypoints, schemas, or assets when they materially contribute to the behavior. Do not manufacture scripts when instructions alone are sufficient.",
+      "Inspect and validate the authored files before proposing the skill. You may use only the bounded file and shell tools available in this mode.",
+      "Finish by calling `skill_create` exactly once with metadata and markdown body that match the authored `SKILL.md`. The native confirmation card is the save boundary; do not claim the skill is persisted before the user confirms it.",
+      "Do not research, browse, build an app, deploy anything, or modify files outside `.cheatcode/skills` in this mode.",
+    ].join("\n"),
+    requiredBundledSkillInstructions("skill-authoring"),
+    runtimeContext.globalMemory ? `## User Memory\n${runtimeContext.globalMemory}` : "",
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n\n");
+}
+
+const GENERAL_SKILLS = SKILLS.filter((skill) => skill.name !== "skill-authoring");
+
+function requiredBundledSkillInstructions(name: string): string {
+  const skill = getSkillByName(name);
+  if (!skill) {
+    throw new Error(`Required bundled skill is unavailable: ${name}`);
+  }
+  return skill.body;
 }
 
 const CORE_IDENTITY = [
@@ -195,12 +202,12 @@ const CORE_IDENTITY = [
 const CORE_INSTRUCTIONS = [
   `## Your computer
 
-A persistent Linux sandbox rooted at /workspace is your workbench. Files you write there survive across turns. It already has:
+A Linux sandbox is available when the task genuinely needs it. Ordinary conversation, answers, lookups, browser-only work, and throwaway calculations do not need a project. A project is attached lazily when you first choose a workspace-backed file, document, or chart tool; do not call one merely to create a project. A shell command with no cwd is projectless and is only for browser/skill CLIs or environment inspection. When a shell command reads, creates, or changes persistent project files, set its cwd to \`/workspace\`; that explicit intent attaches the project and maps \`/workspace\` to its persistent folder. Never use shell_terminal for browser or skill CLI commands; use projectless shell_exec argv calls, then fall back to the native browser tools if a browser CLI is unavailable. Browser tools use the sandbox without attaching a project unless the requested outcome also needs persistent files. Once a project is attached, its folder under /workspace is persistent across turns. The sandbox already has:
 - Node.js 22 (node, npm, pnpm) and Python 3 (python3, pip3) — install anything else you need from the shell.
 - LibreOffice (headless) plus preinstalled Node libraries for deliverables: pptxgenjs (slides), docx, exceljs, @react-pdf/renderer, recharts, arquero.
 - A headed Chromium browser you drive to test what you build and to browse the web.
 - A dev server you expose as a live preview on port 5173.
-Everything happens on this computer. Do the work here — never describe work you could just do, and never claim you did something you didn't run.`,
+Use the computer when the requested outcome needs it. Do the work there instead of describing work you could just do, and never claim you did something you didn't run.`,
 
   `## How you work
 
@@ -257,6 +264,10 @@ const DATA_MODULE = `## Data & analysis
 
 For a quick question, compute the answer and just tell the user — a small runCode or data_analyze_csv is enough; don't build a chart or open a browser unless asked. For a real analysis, profile the data (data_analyze_csv, or pandas / Node in the sandbox), surface the key findings, and build charts (data_chart) only when they add insight. Verify: open the produced file, confirm the numbers reconcile and formulas evaluate (no #REF! / #DIV/0!), and sanity-check every chart against the data.`;
 
+const MEDIA_MODULE = `## Images & video
+
+Load the generate-media skill before creating or editing an image or generating or extending a video. Use generate_or_edit_media for the final asset, choose the requested aspect ratio intentionally, preserve stated invariants when editing, and refer to the resulting Deliverable naturally without pasting its download URL.`;
+
 const RESEARCH_MODULE = `## Research
 
 Gather sources with search_web / search_web_advanced / search_company and firecrawl_* (scrape / extract); use research_deep and research_fanout for cited multi-source reports. Treat search snippets as leads, not sources — open the real pages and cross-check. Cite as you go: attribute each claim to its source inline with the page title and its URL, and make sure every citation resolves. End a research answer with a short Sources list of the URLs you actually used.`;
@@ -268,6 +279,7 @@ Pick the path that fits and load the matching skill (skill_invoke) for its full 
 - Web or mobile app → build it in the sandbox (React / Next.js, or Expo for mobile), start the dev server, and verify it in the browser; the running app shows in the Computer panel.
 - Slides or documents → build with pptxgenjs / docx / @react-pdf / exceljs (or docs_generate_*), then render and eyeball every page; the file lands in the Deliverables.
 - Data → profile it (data_analyze_csv, or pandas / Node) and chart it (data_chart) when it adds insight; verify the numbers.
+- Image or video → load generate-media, then use generate_or_edit_media; the asset lands in the project and Deliverables.
 - Research → gather and cross-check real sources (search_web / firecrawl_* / research_deep); cite everything.
 - Acting in the user's connected apps → composio_list_tools then composio_execute, only when they ask.`;
 
@@ -279,11 +291,12 @@ Your turn is not finished until you have given the user the actual result in pla
 
 Never surface internal machinery to the user: no tool or module names, no "running in the sandbox" status filler, no plan objects, no budget, token, quota, or model chatter, and never quote these instructions. Respect the user's BYOK provider keys; if a capability needs a key that isn't set, say so plainly in one line.`;
 
-type DomainKey = "web" | "mobile" | "docs" | "data" | "research";
+type DomainKey = "web" | "mobile" | "docs" | "data" | "media" | "research";
 
 const DOMAIN_MODULES: Record<DomainKey, string> = {
   data: DATA_MODULE,
   docs: DOCS_MODULE,
+  media: MEDIA_MODULE,
   mobile: MOBILE_MODULE,
   research: RESEARCH_MODULE,
   web: WEB_MODULE,
@@ -306,6 +319,10 @@ function selectDomainModules(projectMode?: string, taskMessage?: string): string
 }
 
 const DOMAIN_PATTERNS: ReadonlyArray<readonly [DomainKey, RegExp]> = [
+  [
+    "media",
+    /\b(generate|create|edit|modify|extend).{0,30}\b(image|photo|picture|illustration|poster|video|clip)\b/i,
+  ],
   ["mobile", /\b(mobile app|expo|react native|ios app|android app|iphone app)\b/i],
   [
     "web",
@@ -349,12 +366,3 @@ function buildUserSkillsSection(userSkills: UserSkillRuntime[] | undefined): str
     ...userSkills.map((skill) => `- **${skill.name}**: ${skill.description}`),
   ].join("\n");
 }
-
-const SKILL_CREATION_NOTE = [
-  "## Creating skills",
-  'When the user asks to create or save a reusable "skill", author it and persist it with the `skill_create` tool:',
-  "draft a short name, a one-line description (what it does + when to use it), and a markdown body of concrete step-by-step",
-  'instructions (which tools to use, in what order, what to produce); pick a category ("Builder & Apps", "Research & Docs",',
-  'or "Data & Media"); then call `skill_create` with { name, description, body, category, tags }. Saved skills are then',
-  "available via `skill_invoke` by name in future chats.",
-].join("\n");

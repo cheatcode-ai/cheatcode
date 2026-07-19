@@ -1,8 +1,8 @@
 "use client";
 
+import { ArrowUpRight, ChevronDown, Play } from "@cheatcode/ui";
 import { useEffect, useState } from "react";
 import { PromptLaunchButton } from "@/components/navigation/prompt-launch-button";
-import { ArrowUpRight, ChevronDown, Play } from "@/components/ui/icons";
 import type {
   Cheatcode101Block,
   Cheatcode101Faq,

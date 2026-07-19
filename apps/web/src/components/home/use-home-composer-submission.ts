@@ -1,6 +1,6 @@
 "use client";
 
-import type { IntegrationName, ProjectSummary } from "@cheatcode/types";
+import type { IntegrationName, ProjectSummary, RunIntent } from "@cheatcode/types";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
@@ -19,11 +19,13 @@ interface HomeSubmissionState {
   repoUrl: string | null;
   selectedProject: ProjectSummary | null;
   skillChip: string | null;
+  skillCreatorMode: boolean;
   toolChip: IntegrationName | null;
   value: string;
 }
 
 interface HomeSubmissionSnapshot {
+  intent: RunIntent | null;
   model: null | string;
   project: ProjectSummary | null;
   prompt: string;
@@ -88,6 +90,7 @@ function buildSubmissionSnapshot(state: HomeSubmissionState): HomeSubmissionSnap
     return null;
   }
   return {
+    intent: state.skillCreatorMode ? "skill-creator" : null,
     model: agentModelRequestValue(state.agentModelId) ?? null,
     project: state.selectedProject,
     prompt,
@@ -121,7 +124,7 @@ async function launchExistingProject(
       runtime.endSubmitting();
       return;
     }
-    navigateToChat(runtime.router, result.threadId, snapshot.prompt);
+    navigateToChat(runtime.router, result.threadId, snapshot.prompt, snapshot.intent);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not open that project.");
     runtime.endSubmitting();
@@ -145,7 +148,7 @@ async function startNewChat(
       ...(snapshot.repoUrl ? { importRepoUrl: snapshot.repoUrl } : {}),
       ...(snapshot.model ? { defaultModel: snapshot.model } : {}),
     });
-    navigateToChat(runtime.router, thread.id, snapshot.prompt);
+    navigateToChat(runtime.router, thread.id, snapshot.prompt, snapshot.intent);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not start that chat.");
     runtime.endSubmitting();
@@ -158,6 +161,7 @@ function preservePromptForSignIn(
 ): void {
   try {
     const params = buildLaunchParams({
+      intent: snapshot.intent,
       model: snapshot.model,
       prompt: snapshot.prompt,
       repo: snapshot.repoUrl,
@@ -174,7 +178,8 @@ function navigateToChat(
   router: SubmissionRuntime["router"],
   threadId: string,
   prompt: string,
+  intent: RunIntent | null,
 ): void {
-  const handoff = buildExistingProjectParams(prompt).toString();
+  const handoff = buildExistingProjectParams(prompt, intent).toString();
   router.push(`/chats/${encodeURIComponent(threadId)}?${handoff}`);
 }

@@ -1,4 +1,5 @@
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import type { RunIntent } from "@cheatcode/types";
 import { RequestContext } from "@mastra/core/request-context";
 import {
   COMPOSIO_API_KEY_CONTEXT_KEY,
@@ -22,24 +23,20 @@ import { EXA_API_KEY_CONTEXT_KEY, FIRECRAWL_API_KEY_CONTEXT_KEY } from "../resea
 import {
   AGENT_DISPLAY_NAME_CONTEXT_KEY,
   GLOBAL_MEMORY_CONTEXT_KEY,
-  MASTER_INSTRUCTIONS_CONTEXT_KEY,
   PROMPT_PROJECT_MODE_CONTEXT_KEY,
   PROMPT_TASK_MESSAGE_CONTEXT_KEY,
   PROMPT_WORKSPACE_DIR_CONTEXT_KEY,
+  RUN_INTENT_CONTEXT_KEY,
   USER_SKILL_LOADER_CONTEXT_KEY,
-  USER_SKILL_STORE_CONTEXT_KEY,
   USER_SKILLS_CONTEXT_KEY,
   type UserSkillLoader,
   type UserSkillRuntime,
-  type UserSkillStore,
 } from "../system-prompt";
-import { APPROVAL_BROKER_CONTEXT_KEY, type ApprovalBroker } from "./approval-context";
 import { BROWSER_RUN_ID_CONTEXT_KEY } from "./browser-runtime";
 
 export interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
   anthropicApiKey?: string | undefined;
-  approvalBroker?: ApprovalBroker | undefined;
   composioApiKey?: string | undefined;
   composioConnectedAccounts?: ComposioConnectedAccounts | undefined;
   composioQuotaMeter?: ComposioQuotaMeter | undefined;
@@ -50,16 +47,15 @@ export interface CodeRequestContextOptions {
   globalMemory?: string | undefined;
   googleApiKey?: string | undefined;
   llmProvider?: LlmProvider | undefined;
-  masterInstructions?: string | undefined;
   modelId?: string | undefined;
   openaiApiKey?: string | undefined;
   openrouterApiKey?: string | undefined;
   projectMode?: string | undefined;
+  runIntent?: RunIntent | undefined;
   runId?: string | undefined;
   taskMessage?: string | undefined;
   userSkills?: UserSkillRuntime[] | undefined;
   userSkillLoader?: UserSkillLoader | undefined;
-  userSkillStore?: UserSkillStore | undefined;
 }
 
 export function createCodeRequestContext(
@@ -85,10 +81,10 @@ function contextEntries(
   return [
     [LLM_PROVIDER_CONTEXT_KEY, options.llmProvider],
     [LLM_MODEL_ID_CONTEXT_KEY, options.modelId],
-    [MASTER_INSTRUCTIONS_CONTEXT_KEY, options.masterInstructions],
     [AGENT_DISPLAY_NAME_CONTEXT_KEY, options.agentDisplayName],
     [GLOBAL_MEMORY_CONTEXT_KEY, options.globalMemory],
     [PROMPT_PROJECT_MODE_CONTEXT_KEY, options.projectMode],
+    [RUN_INTENT_CONTEXT_KEY, options.runIntent],
     [PROMPT_TASK_MESSAGE_CONTEXT_KEY, options.taskMessage],
     [ANTHROPIC_API_KEY_CONTEXT_KEY, options.anthropicApiKey],
     [COMPOSIO_API_KEY_CONTEXT_KEY, options.composioApiKey],
@@ -102,10 +98,8 @@ function contextEntries(
     [EXA_API_KEY_CONTEXT_KEY, options.exaApiKey],
     [FIRECRAWL_API_KEY_CONTEXT_KEY, options.firecrawlApiKey],
     [BROWSER_RUN_ID_CONTEXT_KEY, options.runId],
-    [APPROVAL_BROKER_CONTEXT_KEY, options.approvalBroker],
     [USER_SKILLS_CONTEXT_KEY, options.userSkills],
     [USER_SKILL_LOADER_CONTEXT_KEY, options.userSkillLoader],
-    [USER_SKILL_STORE_CONTEXT_KEY, options.userSkillStore],
   ];
 }
 

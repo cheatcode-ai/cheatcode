@@ -1,7 +1,6 @@
-import { createInternalMaintenanceHeaders } from "@cheatcode/auth";
 import {
   beginProjectDeletion,
-  completeProjectWorkspaceCleanup,
+  beginThreadDeletion,
   createDb,
   createProject,
   createThread,
@@ -14,20 +13,17 @@ import {
   lockUserProjectMutations,
   type MessageRecord,
   type ProjectSummaryRecord,
-  softDeleteThread,
   type ThreadRecord,
   updateProject,
   updateThread,
   withUserContext,
 } from "@cheatcode/db";
-import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   CreateProjectSchema,
   type CreateThread,
   CreateThreadSchema,
-  InternalAgentStateDeleteBodySchema,
-  internalUserStateDeletePath,
   Paginated,
   PaginationQuerySchema,
   ProjectId,
@@ -43,26 +39,40 @@ import {
 } from "@cheatcode/types";
 import { z } from "zod";
 import { enforceActiveProjectLimit, type LimitBindings } from "./limits";
+import {
+  enqueueResourceDeletion,
+  type ResourceDeletionEnqueueEnv,
+} from "./resource-deletion-enqueue";
 import type { WaitUntilContext } from "./wait-until-context";
 
 const MAX_PROJECT_REQUEST_BYTES = 64 * 1024;
 
-export interface ProjectRouteEnv extends LimitBindings {
-  AGENT: Fetcher;
+export interface ProjectRouteEnv extends LimitBindings, ResourceDeletionEnqueueEnv {
+  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
-  INTERNAL_MAINTENANCE_SECRET?: WorkerSecret;
 }
 
 const IdParamSchema = z.string().uuid();
-const PageCursorSchema = z
-  .object({
-    at: z.string().datetime(),
-    id: z.string().uuid(),
-    kind: z.enum(["messages", "projects", "threads"]),
+const CursorIdentitySchema = z.object({
+  at: z.string().datetime(),
+  id: z.string().uuid(),
+});
+const PageCursorSchema = z.discriminatedUnion("kind", [
+  CursorIdentitySchema.extend({
+    kind: z.literal("messages"),
+    segment: z.number().int().nonnegative(),
+    v: z.literal(2),
+  }).strict(),
+  CursorIdentitySchema.extend({
+    kind: z.literal("projects"),
     v: z.literal(1),
-  })
-  .strict();
-type PageCursorKind = z.infer<typeof PageCursorSchema>["kind"];
+  }).strict(),
+  CursorIdentitySchema.extend({
+    kind: z.literal("threads"),
+    v: z.literal(1),
+  }).strict(),
+]);
+type PageCursorKind = "messages" | "projects" | "threads";
 
 export async function listProjectsRoute(
   env: ProjectRouteEnv,
@@ -71,7 +81,10 @@ export async function listProjectsRoute(
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "projects");
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const projects = await withUserContext(db, userId, (tx) =>
       listProjects(tx, {
@@ -104,7 +117,10 @@ export async function createProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const project = await withUserContext(db, userId, async (tx) => {
       await enforceActiveProjectLimit(tx, userId);
@@ -117,9 +133,6 @@ export async function createProjectRoute(
         ...(parsedInput.data.defaultModel === undefined
           ? {}
           : { defaultModel: parsedInput.data.defaultModel }),
-        ...(parsedInput.data.masterInstructions
-          ? { masterInstructions: parsedInput.data.masterInstructions }
-          : {}),
         userId,
       });
     });
@@ -135,7 +148,10 @@ export async function getProjectRoute(
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const project = await withUserContext(db, userId, (tx) =>
       getProject(tx, { projectId, userId }),
@@ -162,16 +178,16 @@ export async function updateProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project update payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const input = parsedInput.data;
     const project = await withUserContext(db, userId, (tx) =>
       updateWritableProject(tx, projectId, userId, {
         ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
         ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
-        ...(input.masterInstructions === undefined
-          ? {}
-          : { masterInstructions: input.masterInstructions }),
         ...(input.name === undefined ? {} : { name: input.name }),
       }),
     );
@@ -190,8 +206,10 @@ export async function deleteProjectRoute(
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const maintenanceSecret = await readMaintenanceSecret(env);
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const deletion = await withUserContext(db, userId, (tx) =>
       beginProjectDeletion(tx, { projectId, userId }),
@@ -205,34 +223,14 @@ export async function deleteProjectRoute(
         retriable: true,
       });
     }
-    if (deletion.type === "cleanup-completed") {
-      return new Response(null, { status: 204 });
-    }
-    const cleanupBody = JSON.stringify(
-      InternalAgentStateDeleteBodySchema.parse({
-        scope: "project",
-        workspaceSlug: deletion.workspaceSlug,
-      }),
-    );
-    const pathname = internalUserStateDeletePath(userId);
-    const cleanupHeaders = await createInternalMaintenanceHeaders({
-      method: "POST",
-      pathname,
-      rawBody: cleanupBody,
-      secret: maintenanceSecret,
+    await enqueueResourceDeletion(env, {
+      deletedAt: deletion.deletedAt.toISOString(),
+      kind: "project-deletion",
+      projectId,
+      userId,
+      workspaceSlug: deletion.workspaceSlug,
     });
-    cleanupHeaders.set("content-type", "application/json");
-    await deleteProjectAgentState(env, pathname, cleanupBody, cleanupHeaders);
-    const completed = await withUserContext(db, userId, (tx) =>
-      completeProjectWorkspaceCleanup(tx, { projectId, userId }),
-    );
-    if (!completed) {
-      throw new APIError(503, "unavailable_maintenance", "Project cleanup state was not saved", {
-        hint: "Retry deletion. Workspace cleanup is idempotent.",
-        retriable: true,
-      });
-    }
-    return new Response(null, { status: 204 });
+    return new Response(null, { status: 202 });
   } finally {
     ctx.waitUntil(close());
   }
@@ -246,7 +244,10 @@ export async function listProjectThreadsRoute(
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "threads");
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const threadRows = await withUserContext(db, userId, async (tx) => {
       await requireProject(tx, projectId, userId);
@@ -269,8 +270,8 @@ export async function listProjectThreadsRoute(
 /**
  * `POST /v1/threads` — create a chat (chat-first). With no `projectId` the chat is
  * project-less; its `mode`/`importRepoUrl`/`defaultModel` ride the thread as launch
- * intent until the first run lazily materializes the project. With `projectId` set
- * it's the deliberate "add a chat to an existing project" grouping.
+ * intent until a workspace-backed tool lazily materializes the project. With
+ * `projectId` set it's the deliberate "add a chat to an existing project" grouping.
  */
 export async function createChatRoute(
   env: ProjectRouteEnv,
@@ -285,7 +286,10 @@ export async function createChatRoute(
     throw invalidRequestBody("Invalid thread payload", parsedInput.error);
   }
   const input = parsedInput.data;
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const thread = await withUserContext(db, userId, (tx) =>
       createThreadForRequest(tx, input, userId),
@@ -341,7 +345,10 @@ export async function getThreadRoute(
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const thread = await withUserContext(db, userId, (tx) => getThread(tx, { threadId, userId }));
     if (!thread) {
@@ -366,7 +373,10 @@ export async function updateThreadRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread update payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const thread = await withUserContext(db, userId, (tx) =>
       updateThread(tx, { threadId, title: parsedInput.data.title, userId }),
@@ -386,21 +396,31 @@ export async function deleteThreadRoute(
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const deleted = await withUserContext(db, userId, (tx) =>
-      softDeleteThread(tx, { threadId, userId }),
+      beginThreadDeletion(tx, { threadId, userId }),
     );
-    if (deleted === "not-found") {
+    if (deleted.type === "not-found") {
       throw threadNotFound();
     }
-    if (deleted === "active-run") {
+    if (deleted.type === "active-run") {
       throw new APIError(409, "conflict_run_already_active", "Thread has an active agent run", {
         hint: "Cancel or wait for the run to finish, then retry deletion.",
         retriable: true,
       });
     }
-    return new Response(null, { status: 204 });
+    await enqueueResourceDeletion(env, {
+      deletedAt: deleted.deletedAt.toISOString(),
+      kind: "thread-deletion",
+      projectId: deleted.projectId,
+      threadId,
+      userId,
+    });
+    return new Response(null, { status: 202 });
   } finally {
     ctx.waitUntil(close());
   }
@@ -414,7 +434,10 @@ export async function listThreadMessagesRoute(
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "messages");
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const rows = await withUserContext(db, userId, async (tx) => {
       await requireThread(tx, threadId, userId);
@@ -515,12 +538,10 @@ async function requireThread(
 function projectResponse(project: ProjectSummaryRecord) {
   return {
     archiveAfter: project.archiveAfter?.toISOString() ?? null,
-    archivedPendingAction: project.archivedPendingAction,
     createdAt: project.createdAt.toISOString(),
     defaultModel: project.defaultModel,
     id: project.id,
     importRepoUrl: project.importRepoUrl ?? null,
-    masterInstructions: project.masterInstructions,
     mode: project.mode,
     name: project.name,
     overQuota: project.overQuota,
@@ -534,6 +555,7 @@ function threadResponse(thread: ThreadRecord) {
     activeRunId: thread.activeRunId,
     createdAt: thread.createdAt.toISOString(),
     id: thread.id,
+    latestModelId: thread.latestModelId,
     pendingInitialPrompt:
       thread.projectId === null && thread.activeRunId === null
         ? (thread.launchIntent?.initialPrompt ?? null)
@@ -547,6 +569,8 @@ function threadResponse(thread: ThreadRecord) {
 function messageResponse(message: MessageRecord) {
   return {
     agentRunId: message.agentRunId,
+    agentRunSegment: message.agentRunSegment,
+    agentRunSegmentFinal: message.agentRunSegmentFinal,
     createdAt: message.createdAt.toISOString(),
     id: message.id,
     parts: message.parts,
@@ -556,7 +580,7 @@ function messageResponse(message: MessageRecord) {
 }
 
 interface RoutePagination {
-  cursor?: { at: string; id: string };
+  cursor?: { at: string; id: string; segment?: number };
   limit: number;
 }
 
@@ -573,10 +597,17 @@ function parsePagination(request: Request, kind: PageCursorKind): RoutePaginatio
     return { limit: parsed.data.limit };
   }
   const cursor = decodePageCursor(parsed.data.cursor, kind);
-  return { cursor: { at: cursor.at, id: cursor.id }, limit: parsed.data.limit };
+  return {
+    cursor: {
+      at: cursor.at,
+      id: cursor.id,
+      ...(cursor.kind === "messages" ? { segment: cursor.segment } : {}),
+    },
+    limit: parsed.data.limit,
+  };
 }
 
-function paginateRows<T extends { id: string; pageCursorAt: string }>(
+function paginateRows<T extends { agentRunSegment?: number; id: string; pageCursorAt: string }>(
   rows: T[],
   pagination: RoutePagination,
   kind: PageCursorKind,
@@ -587,9 +618,22 @@ function paginateRows<T extends { id: string; pageCursorAt: string }>(
   return {
     data,
     has_more: hasMore,
-    next_cursor:
-      hasMore && last ? encodePageCursor({ at: last.pageCursorAt, id: last.id, kind, v: 1 }) : null,
+    next_cursor: hasMore && last ? encodePageCursor(pageCursorFromRow(last, kind)) : null,
   };
+}
+
+function pageCursorFromRow(
+  row: { agentRunSegment?: number; id: string; pageCursorAt: string },
+  kind: PageCursorKind,
+): z.infer<typeof PageCursorSchema> {
+  const identity = { at: row.pageCursorAt, id: row.id };
+  if (kind === "messages") {
+    if (!Number.isSafeInteger(row.agentRunSegment) || Number(row.agentRunSegment) < 0) {
+      throw new TypeError("Message page row is missing its transcript segment.");
+    }
+    return { ...identity, kind, segment: Number(row.agentRunSegment), v: 2 };
+  }
+  return { ...identity, kind, v: 1 };
 }
 
 function decodePageCursor(value: string, expectedKind: PageCursorKind) {
@@ -624,46 +668,6 @@ function invalidRequestBody(message: string, error: z.ZodError): APIError {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });
-}
-
-async function deleteProjectAgentState(
-  env: ProjectRouteEnv,
-  pathname: string,
-  body: string,
-  headers: Headers,
-): Promise<void> {
-  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
-    body,
-    headers,
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new APIError(503, "unavailable_maintenance", "Project sandbox cleanup failed", {
-      details: { status: response.status },
-      retriable: true,
-    });
-  }
-  await response.body?.cancel().catch(() => undefined);
-}
-
-async function readMaintenanceSecret(env: ProjectRouteEnv): Promise<string> {
-  let value: string | undefined;
-  try {
-    value = await resolveWorkerSecret(env.INTERNAL_MAINTENANCE_SECRET);
-  } catch {
-    throw new APIError(503, "unavailable_maintenance", "Maintenance secret is unavailable", {
-      hint: "Verify INTERNAL_MAINTENANCE_SECRET on the gateway Worker.",
-      retriable: false,
-    });
-  }
-  if (!value) {
-    throw new APIError(503, "unavailable_maintenance", "Maintenance secret is not configured", {
-      hint: "Set INTERNAL_MAINTENANCE_SECRET on the gateway Worker.",
-      retriable: false,
-    });
-  }
-  return value;
 }
 
 function invalidPathParam(message: string, error: z.ZodError): APIError {

@@ -4,12 +4,11 @@
   "workers_dev": false,
   "preview_urls": false,
   "main": "src/index.ts",
-  "compatibility_date": "2026-05-20",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
-  "version_metadata": { "binding": "CF_VERSION_METADATA" },
-  // Polar product ids per paid tier — non-secret config (they appear in checkout URLs),
-  // bound as plain vars. Ultra/Max have no Polar product yet, so those tiers 503 until
-  // the owner creates the products and adds their ids here.
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
     "CHEATCODE_RELEASE_GATE": "open",
@@ -27,9 +26,18 @@
     {
       "binding": "AGENT",
       "service": "cheatcode-agent"
+    },
+    {
+      "binding": "WEBHOOKS",
+      "service": "cheatcode-webhooks"
     }
   ],
   "secrets_store_secrets": [
+    {
+      "binding": "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "database-context-signing-secret-gateway"
+    },
     {
       "binding": "CLERK_SECRET_KEY",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
@@ -51,9 +59,14 @@
       "secret_name": "composio-auth-configs"
     },
     {
-      "binding": "INTERNAL_MAINTENANCE_SECRET",
+      "binding": "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "internal-maintenance-secret"
+      "secret_name": "gateway-to-webhooks-resource-deletion-secret"
+    },
+    {
+      "binding": "RELEASE_DATABASE_READINESS_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "release-database-readiness-secret"
     }
   ],
   "durable_objects": {
@@ -82,8 +95,7 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "b7cead054a6a4207a475b9544971f04a",
-      "localConnectionString": "postgresql://app_worker:app_worker@localhost:54322/postgres"
+      "id": "67d13808cb3548ea942aec0f4d569400"
     }
   ],
   "migrations": [

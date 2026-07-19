@@ -1,4 +1,5 @@
 import { createDb, sumWorkedMinutesToday, withUserContext } from "@cheatcode/db";
+import type { WorkerSecret } from "@cheatcode/env";
 import {
   createLogger,
   readBoundedResponseJson,
@@ -9,6 +10,7 @@ import { z } from "zod";
 import type { WaitUntilContext } from "./wait-until-context";
 
 export interface GreetingRouteEnv {
+  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
@@ -82,7 +84,10 @@ async function resolveWorkedMinutesToday(
   userId: UserId,
   timezone: string | null,
 ): Promise<number> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     return await withUserContext(db, userId, (tx) =>
       sumWorkedMinutesToday(tx, userId, timezone ?? "UTC"),

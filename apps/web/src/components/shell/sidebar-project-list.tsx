@@ -1,5 +1,6 @@
 "use client";
 
+import { MoreHorizontal, Pencil, Trash2 } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -19,7 +20,6 @@ import {
 } from "@/components/shell/sidebar-list-controls";
 import { SidebarListLoading } from "@/components/shell/sidebar-list-loading";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { MoreHorizontal, Pencil, Trash2 } from "@/components/ui/icons";
 import { createChat, deleteProject } from "@/lib/api/project-thread";
 import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
 import { cn } from "@/lib/ui/cn";

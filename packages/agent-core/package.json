@@ -29,6 +29,7 @@
     "@cheatcode/tools-code": "workspace:*",
     "@cheatcode/tools-data": "workspace:*",
     "@cheatcode/tools-docs": "workspace:*",
+    "@cheatcode/tools-media": "workspace:*",
     "@cheatcode/tools-research": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "@mastra/core": "catalog:",

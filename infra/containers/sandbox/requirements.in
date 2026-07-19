@@ -4,3 +4,13 @@ matplotlib==3.10.7
 openpyxl==3.1.5
 pillow==12.3.0
 ipython==9.13.0
+defusedxml
+lxml
+pdf2image
+pdfplumber
+playwright
+pypdf
+pypdfium2
+pytesseract
+reportlab
+markitdown[pptx]

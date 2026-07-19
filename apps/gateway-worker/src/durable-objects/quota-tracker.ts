@@ -1,7 +1,15 @@
 import { DurableObject } from "cloudflare:workers";
-import { readJsonRequest } from "@cheatcode/observability";
 import {
-  QUOTA_FEATURES,
+  assertStorageReconciliationRequest,
+  reconcileExactSqliteStorage,
+  storageSchemaEvidence,
+} from "@cheatcode/durable-storage";
+import { readJsonRequest } from "@cheatcode/observability";
+import type {
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+} from "@cheatcode/types";
+import {
   QUOTA_TRACKER_MAX_REQUEST_BYTES,
   type QuotaFeature,
   QuotaFeatureSchema,
@@ -23,6 +31,17 @@ import {
   type QuotaSnapshotResult,
   QuotaSnapshotResultSchema,
 } from "./quota-tracker-contract";
+import {
+  assertQuotaTrackerStorage,
+  hasQuotaTrackerStorage,
+  initializeQuotaTrackerStorage,
+  reconcileQuotaTrackerStorage,
+} from "./quota-tracker-storage";
+import {
+  assertGatewayDurableObjectOpen,
+  gatewayDurableObjectClosedResponse,
+  rearmClosedGatewayDurableObjectAlarm,
+} from "./release-gate";
 import { nextGatewayDurableObjectAlarm, QUOTA_TRACKER_RETENTION_MS } from "./retention";
 
 interface CounterRow {
@@ -33,8 +52,6 @@ interface LimitRow {
   feature: QuotaFeature;
   limit_val: number;
 }
-
-const LIMIT_OVERRIDE_COLUMNS = ["feature", "limit_val", "entitlement_version"] as const;
 
 interface HistoryRow {
   amount: number;
@@ -61,7 +78,10 @@ interface QuotaOperationInput {
   periodKey: string;
 }
 
-type QuotaTrackerEnv = Record<never, never>;
+interface QuotaTrackerEnv {
+  CHEATCODE_RELEASE_GATE: "closed" | "open";
+  CHEATCODE_RELEASE_SHA?: string;
+}
 
 function isCounterRow(value: unknown): value is CounterRow {
   return isRecord(value) && typeof value["used"] === "number";
@@ -105,12 +125,28 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
+  private isStorageInitialized = false;
+
+  public reconcileStorageSchema(
+    value: InternalDurableObjectStorageRequest,
+  ): InternalDurableObjectStorageResponse {
+    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "QuotaTracker");
+    reconcileExactSqliteStorage(
+      input.mode,
+      () => assertQuotaTrackerStorage(this.ctx),
+      () => reconcileQuotaTrackerStorage(this.ctx),
+    );
+    this.isStorageInitialized = true;
+    return storageSchemaEvidence(input);
+  }
+
   public async tryConsume(
     feature: QuotaFeature,
     amount: number,
     periodEnd: Date,
     eventId: string,
   ): Promise<QuotaTryConsumeResponse> {
+    this.ensureStorage();
     const periodKey = periodKeyFromDate(periodEnd);
     const input: QuotaOperationInput = {
       amount,
@@ -125,6 +161,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public async peek(feature: QuotaFeature, periodEnd: Date): Promise<QuotaUsageResponse> {
+    this.ensureStorage();
     const limit = this.readLimit(feature);
     const used = this.readUsed(feature, periodKeyFromDate(periodEnd));
     return QuotaUsageResponseSchema.parse({
@@ -141,6 +178,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     eventId: string,
     recordedAt: Date,
   ): Promise<QuotaUsageResponse> {
+    this.ensureStorage();
     const periodKey = periodKeyFromDate(periodEnd);
     const input: QuotaOperationInput = {
       amount,
@@ -157,6 +195,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public async history(feature: QuotaFeature, from: Date): Promise<QuotaHistoryResult> {
+    this.ensureStorage();
     const events = this.ctx.storage.sql
       .exec(
         `SELECT SUM(amount) AS amount,
@@ -177,6 +216,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     limit: number,
     entitlementVersion: number,
   ): Promise<void> {
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `INSERT INTO limit_override (feature, limit_val, entitlement_version)
        VALUES (?, ?, ?)
@@ -191,14 +231,13 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public async deleteAllState(): Promise<void> {
-    this.ctx.storage.sql.exec("DELETE FROM counter");
-    this.ctx.storage.sql.exec("DELETE FROM limit_override");
-    this.ctx.storage.sql.exec("DELETE FROM quota_operation");
-    this.ctx.storage.sql.exec("DELETE FROM usage_event");
-    await this.ctx.storage.deleteAlarm();
+    assertGatewayDurableObjectOpen(this.env);
+    await this.ctx.storage.deleteAll();
+    this.isStorageInitialized = false;
   }
 
   public async snapshot(periodEnd: Date): Promise<QuotaSnapshotResult> {
+    this.ensureStorage();
     const periodKey = periodKeyFromDate(periodEnd);
     const rawRows = this.ctx.storage.sql
       .exec("SELECT feature, limit_val FROM limit_override ORDER BY feature")
@@ -220,6 +259,9 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public override async fetch(request: Request): Promise<Response> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return gatewayDurableObjectClosedResponse();
+    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -276,6 +318,15 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public override async alarm(): Promise<void> {
+    if (!hasQuotaTrackerStorage(this.ctx)) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
+      return;
+    }
+    this.isStorageInitialized = true;
     this.ctx.storage.sql.exec(
       "DELETE FROM counter WHERE updated_at < ?",
       Date.now() - QUOTA_TRACKER_RETENTION_MS,
@@ -291,49 +342,17 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     await this.refreshCleanupAlarm();
   }
 
-  public constructor(ctx: DurableObjectState, env: QuotaTrackerEnv) {
-    super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS counter (
-          feature TEXT NOT NULL,
-          period_key TEXT NOT NULL,
-          used REAL NOT NULL DEFAULT 0,
-          updated_at INTEGER NOT NULL,
-          PRIMARY KEY (feature, period_key)
-        )`,
-      );
-      this.ensureLimitOverrideSchema();
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS usage_event (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          feature TEXT NOT NULL,
-          amount REAL NOT NULL,
-          recorded_at INTEGER NOT NULL
-        )`,
-      );
-      this.ctx.storage.sql.exec(
-        "CREATE INDEX IF NOT EXISTS usage_event_feature_time_idx ON usage_event(feature, recorded_at)",
-      );
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE IF NOT EXISTS quota_operation (
-          event_id TEXT PRIMARY KEY,
-          operation TEXT NOT NULL,
-          feature TEXT NOT NULL,
-          period_key TEXT NOT NULL,
-          amount REAL NOT NULL,
-          allowed INTEGER NOT NULL,
-          limit_val REAL NOT NULL,
-          remaining REAL NOT NULL,
-          used REAL NOT NULL,
-          recorded_at INTEGER NOT NULL
-        )`,
-      );
-      this.ctx.storage.sql.exec(
-        "CREATE INDEX IF NOT EXISTS quota_operation_feature_time_idx ON quota_operation(feature, recorded_at)",
-      );
-      this.deleteUnsupportedFeatures();
-    });
+  private ensureStorage(): void {
+    assertGatewayDurableObjectOpen(this.env);
+    if (this.isStorageInitialized) {
+      return;
+    }
+    if (hasQuotaTrackerStorage(this.ctx)) {
+      assertQuotaTrackerStorage(this.ctx);
+    } else {
+      initializeQuotaTrackerStorage(this.ctx);
+    }
+    this.isStorageInitialized = true;
   }
 
   private consumeOnce(input: QuotaOperationInput): QuotaTryConsumeResponse {
@@ -432,54 +451,6 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     return false;
   }
 
-  private deleteUnsupportedFeatures(): void {
-    for (const table of ["counter", "limit_override", "quota_operation", "usage_event"] as const) {
-      this.ctx.storage.sql.exec(
-        `DELETE FROM ${table} WHERE feature NOT IN (?, ?)`,
-        QUOTA_FEATURES.composioCalls,
-        QUOTA_FEATURES.sandboxHours,
-      );
-    }
-  }
-
-  private ensureLimitOverrideSchema(): void {
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS limit_override (
-        feature TEXT PRIMARY KEY,
-        limit_val REAL NOT NULL,
-        entitlement_version INTEGER NOT NULL
-      )`,
-    );
-    const columns = this.ctx.storage.sql.exec("PRAGMA table_info(limit_override)").toArray();
-    if (hasExactLimitOverrideColumns(columns)) {
-      return;
-    }
-    const canPreserveLimits =
-      hasNamedColumn(columns, "feature") && hasNamedColumn(columns, "limit_val");
-    this.ctx.storage.transactionSync(() => {
-      this.ctx.storage.sql.exec("DROP TABLE IF EXISTS limit_override_next");
-      this.ctx.storage.sql.exec(
-        `CREATE TABLE limit_override_next (
-          feature TEXT PRIMARY KEY,
-          limit_val REAL NOT NULL,
-          entitlement_version INTEGER NOT NULL
-        )`,
-      );
-      if (canPreserveLimits) {
-        this.ctx.storage.sql.exec(
-          `INSERT OR REPLACE INTO limit_override_next (feature, limit_val, entitlement_version)
-           SELECT feature, limit_val, 0
-           FROM limit_override
-           WHERE typeof(feature) = 'text'
-             AND typeof(limit_val) IN ('integer', 'real')
-             AND limit_val >= 0`,
-        );
-      }
-      this.ctx.storage.sql.exec("DROP TABLE limit_override");
-      this.ctx.storage.sql.exec("ALTER TABLE limit_override_next RENAME TO limit_override");
-    });
-  }
-
   private readLimit(feature: QuotaFeature): number {
     const [rawRow] = this.ctx.storage.sql
       .exec("SELECT limit_val FROM limit_override WHERE feature = ?", feature)
@@ -545,20 +516,6 @@ function historyResult(rows: unknown[]): QuotaHistoryResult {
   return QuotaHistoryResultSchema.parse(
     rows.filter(isHistoryRow).map((row) => ({ amount: row.amount, recordedAt: row.recorded_at })),
   );
-}
-
-function hasExactLimitOverrideColumns(rows: unknown[]): boolean {
-  if (rows.length !== LIMIT_OVERRIDE_COLUMNS.length) {
-    return false;
-  }
-  return LIMIT_OVERRIDE_COLUMNS.every((name, index) => {
-    const row = rows[index];
-    return isRecord(row) && row["name"] === name;
-  });
-}
-
-function hasNamedColumn(rows: unknown[], name: string): boolean {
-  return rows.some((row) => isRecord(row) && row["name"] === name);
 }
 
 function periodKeyFromDate(date: Date): string {

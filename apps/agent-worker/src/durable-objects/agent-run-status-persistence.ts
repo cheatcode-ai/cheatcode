@@ -1,20 +1,63 @@
 import { createDb, updateAgentRunStatus, withUserContext } from "@cheatcode/db";
+import type { WorkerSecret } from "@cheatcode/env";
 import { createLogger } from "@cheatcode/observability";
 import { AgentRunId, UserId } from "@cheatcode/types";
 import { z } from "zod";
-import { deleteRunStateValues, getRunStateValue, setRunStateValue } from "./agent-run-storage";
+import type { AgentRunEnv } from "./agent-run-env";
+import { pendingAssistantMessageRetryAt } from "./agent-run-message-persistence";
+import { emitStoredAgentRunMetric } from "./agent-run-metrics";
+import {
+  deleteRunStateValues,
+  getRunStateValue,
+  isAgentRunDeleted,
+  setRunStateValue,
+} from "./agent-run-storage";
 
-export type PersistableRunStatus = "running" | "paused" | "completed" | "failed" | "canceled";
+export type PersistableRunStatus = "running" | "completed" | "failed" | "canceled";
 
 interface AgentRunStatusPersistenceEnv {
+  DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
 export interface PersistAgentRunStatusInput {
-  error?: { message: string; type: string };
+  artifactsQuiesced: boolean;
   runId: string;
   status: PersistableRunStatus;
   userId: string;
+}
+
+export function isTerminalPersistableRunStatus(
+  status: PersistableRunStatus,
+): status is Extract<PersistableRunStatus, "canceled" | "completed" | "failed"> {
+  return status === "canceled" || status === "completed" || status === "failed";
+}
+
+export async function persistSerializedAgentRunStatus(
+  ctx: DurableObjectState,
+  env: AgentRunEnv,
+  input: PersistAgentRunStatusInput,
+  serialize: (operation: () => Promise<void>) => Promise<void>,
+  armAlarm: () => Promise<void>,
+): Promise<void> {
+  if (isAgentRunDeleted(ctx)) {
+    return;
+  }
+  await serialize(async () => {
+    if (isAgentRunDeleted(ctx)) {
+      return;
+    }
+    emitStoredAgentRunMetric(ctx, env, input);
+    if (
+      isTerminalPersistableRunStatus(input.status) &&
+      pendingAssistantMessageRetryAt(ctx) !== Number.POSITIVE_INFINITY
+    ) {
+      deferAgentRunStatus(ctx, input);
+      return;
+    }
+    await persistOrQueueAgentRunStatus(ctx, env, input);
+  });
+  await armAlarm();
 }
 
 const PENDING_STATUS_KEY = "pending_db_status";
@@ -25,12 +68,9 @@ const MAX_STATUS_RETRY_MS = 5 * 60 * 1000;
 const PendingStatusSchema = z
   .object({
     attempt: z.number().int().nonnegative(),
-    error: z
-      .object({ message: z.string().max(2_000), type: z.string().max(200) })
-      .strict()
-      .optional(),
+    artifactsQuiesced: z.boolean(),
     runId: z.string().uuid(),
-    status: z.enum(["running", "paused", "completed", "failed", "canceled"]),
+    status: z.enum(["running", "completed", "failed", "canceled"]),
     userId: z.string().uuid(),
   })
   .strict();
@@ -41,11 +81,14 @@ async function persistAgentRunStatus(
   env: AgentRunStatusPersistenceEnv,
   input: PersistAgentRunStatusInput,
 ): Promise<boolean> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     const updated = await withUserContext(db, UserId(input.userId), (tx) =>
       updateAgentRunStatus(tx, {
-        ...(input.error ? { error: input.error } : {}),
+        artifactsQuiesced: input.artifactsQuiesced,
         runId: AgentRunId(input.runId),
         status: input.status,
         userId: UserId(input.userId),
@@ -76,7 +119,7 @@ async function persistAgentRunStatus(
   }
 }
 
-export async function persistOrQueueAgentRunStatus(
+async function persistOrQueueAgentRunStatus(
   ctx: DurableObjectState,
   env: AgentRunStatusPersistenceEnv,
   input: PersistAgentRunStatusInput,
@@ -85,6 +128,11 @@ export async function persistOrQueueAgentRunStatus(
     clearPendingStatus(ctx);
     return;
   }
+  deferAgentRunStatus(ctx, input);
+}
+
+/** Keep Postgres nonterminal until an earlier durable transcript outbox has flushed. */
+function deferAgentRunStatus(ctx: DurableObjectState, input: PersistAgentRunStatusInput): void {
   const previous = readPendingStatus(ctx);
   queuePendingStatus(ctx, input, (previous?.attempt ?? -1) + 1);
 }
@@ -133,7 +181,7 @@ function readPendingStatus(ctx: DurableObjectState): PendingStatus | null {
 
 function statusInputFromPending(pending: PendingStatus): PersistAgentRunStatusInput {
   return {
-    ...(pending.error ? { error: pending.error } : {}),
+    artifactsQuiesced: pending.artifactsQuiesced,
     runId: pending.runId,
     status: pending.status,
     userId: pending.userId,

@@ -33,7 +33,7 @@ export function useMentionFileItems({
     isPending: filesIsPending,
   } = useQuery({
     enabled,
-    queryFn: () => listSandboxFiles(getToken, threadId, dirPath),
+    queryFn: ({ signal }) => listSandboxFiles(getToken, threadId, dirPath, false, signal),
     queryKey: ["mention-files", threadId, dirPath],
     retry: false,
     staleTime: 30_000,
@@ -88,9 +88,14 @@ function mentionItem(entry: SandboxFileEntry, dirPart: string): ComposerMenuItem
     id: entry.path,
     insert: isDirectory ? `@${path}/` : `@${path} `,
     label: isDirectory ? `${entry.name}/` : entry.name,
+    visual: isDirectory ? "directory" : archiveFile(entry.name) ? "archive" : "file",
   };
 }
 
 function disabledRow(id: string, label: string): ComposerMenuItem {
-  return { disabled: true, id, insert: "", label };
+  return { disabled: true, id, insert: "", label, visual: "status" };
+}
+
+function archiveFile(name: string): boolean {
+  return /\.(?:7z|bz2|gz|rar|tar|tgz|xz|zip)$/iu.test(name);
 }

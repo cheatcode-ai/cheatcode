@@ -1,8 +1,7 @@
 "use client";
 
-import { ModalShell } from "@cheatcode/ui";
+import { Loader2, ModalShell } from "@cheatcode/ui";
 import { type KeyboardEvent, useEffect, useId, useRef, useState } from "react";
-import { Loader2 } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 interface SidebarInlineRenameInputProps {

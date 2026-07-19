@@ -28,7 +28,6 @@ import {
   encodeBase64,
   imageMimeType,
   isOfficePreviewExtension,
-  isSingleWorkspaceSegment,
   lowercaseExtension,
   MAX_PREVIEW_BYTES,
   PREVIEW_DIR,
@@ -50,10 +49,14 @@ import {
   shellQuote,
   timeoutSeconds,
 } from "./project-sandbox-process-support";
-import { ProjectSandboxProcesses } from "./project-sandbox-processes";
 import {
   type ProjectArchiveInput,
   ProjectArchiveInputSchema,
+  type ProjectBrowserTakeoverInput,
+  ProjectBrowserTakeoverInputSchema,
+  type ProjectBrowserTakeoverResult,
+  type ProjectBrowserTakeoverStopInput,
+  ProjectBrowserTakeoverStopInputSchema,
   type ProjectCleanupWorkspaceInput,
   ProjectCleanupWorkspaceInputSchema,
   type ProjectCodeServerInput,
@@ -78,13 +81,17 @@ import {
   type ProjectWriteFileInput,
   ProjectWriteFileInputSchema,
 } from "./project-sandbox-runtime";
+import { ProjectSandboxWorkspaceTransition } from "./project-sandbox-workspace-transition";
 
 const PREVIEW_STATUS_PROBE_TIMEOUT_MS = 3_000;
 const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
 const SIGNED_PREVIEW_TTL_SECONDS = 60 * 60;
 const SANDBOX_READ_FILE_MAX_BYTES = 1024 * 1024;
+const BROWSER_TAKEOVER_PORT_MIN = 60_000;
+const BROWSER_TAKEOVER_PORT_MAX = 60_999;
+const BROWSER_TAKEOVER_SCRIPT = "/opt/cheatcode/start-browser-takeover.sh";
 
-export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
+export abstract class ProjectSandboxContent extends ProjectSandboxWorkspaceTransition {
   public downloadProjectArchive(input: ProjectArchiveInput): Promise<Response> {
     return this.downloadProjectArchiveForRpc(input, () => undefined);
   }
@@ -244,6 +251,48 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
     return { token: link.token, url: link.url };
   }
 
+  public async exposeBrowserTakeover(
+    input: ProjectBrowserTakeoverInput,
+  ): Promise<ProjectBrowserTakeoverResult> {
+    const parsed = ProjectBrowserTakeoverInputSchema.parse(input);
+    const browserDriver = await this.processRecord(browserDriverProcessId(parsed.runId));
+    if (!browserDriver) {
+      throw new APIError(409, "conflict_state_invalid", "No live browser session is available", {
+        hint: "Let Cheatcode open a website before taking over the browser.",
+        retriable: true,
+      });
+    }
+    const processId = browserTakeoverProcessId(parsed.runId);
+    const port = await this.allocateProcessPort({
+      maxPort: BROWSER_TAKEOVER_PORT_MAX,
+      minPort: BROWSER_TAKEOVER_PORT_MIN,
+      processId,
+    });
+    const password = crypto.randomUUID().replaceAll("-", "");
+    await this.startProcess({
+      command: ["sh", BROWSER_TAKEOVER_SCRIPT],
+      env: { TAKEOVER_PASSWORD: password, TAKEOVER_PORT: String(port) },
+      keepAliveTimeoutMs: parsed.expiresInSeconds * 1_000,
+      maxRestarts: 0,
+      processId,
+      restartOnFailure: false,
+      waitForPort: { path: "/vnc.html", port, timeoutMs: 30_000 },
+    });
+    const id = await this.ensureSandbox();
+    const signed = await this.client().getSignedPreviewUrl(id, port, parsed.expiresInSeconds);
+    const url = noVncSessionUrl(signed.url, password);
+    return {
+      expiresAt: new Date(Date.now() + parsed.expiresInSeconds * 1_000).toISOString(),
+      takeoverId: parsed.takeoverId,
+      url,
+    };
+  }
+
+  public async stopBrowserTakeover(input: ProjectBrowserTakeoverStopInput): Promise<void> {
+    const parsed = ProjectBrowserTakeoverStopInputSchema.parse(input);
+    await this.killProcess({ processId: browserTakeoverProcessId(parsed.runId) });
+  }
+
   public async exposeCodeServer(input: ProjectCodeServerInput): Promise<{
     expiresAt: string;
     port: number;
@@ -257,9 +306,6 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
       parsed.workspacePath === WORKSPACE_DIR
         ? await this.ensureCodeServerDisplayFolder(id, parsed.workspacePath)
         : parsed.workspacePath;
-    if (parsed.initialFilePath) {
-      await this.openCodeServerFile(id, parsed.initialFilePath).catch(() => undefined);
-    }
     await this.client()
       .getPreviewLink(id, CODE_SERVER_PORT)
       .catch(() => undefined);
@@ -268,11 +314,12 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
       port: CODE_SERVER_PORT,
       sandboxId: id,
       secret: await this.previewSecret(),
+      useSubdomain: true,
     });
     return {
       expiresAt: built.expiresAt,
       port: CODE_SERVER_PORT,
-      url: codeServerFolderUrl(built.url, displayFolder),
+      url: codeServerFolderUrl(built.url, displayFolder, parsed.initialFilePath),
       workspacePath: parsed.workspacePath,
     };
   }
@@ -343,20 +390,21 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
     return { running, state: runtime.state };
   }
 
-  public async cleanupProjectWorkspace(input: ProjectCleanupWorkspaceInput): Promise<void> {
-    const { workspaceSlug } = ProjectCleanupWorkspaceInputSchema.parse(input);
-    const id = await this.existingSandboxId();
-    if (!id) {
-      return;
-    }
-    const slot = `${APP_PREVIEW_SLOT_PREFIX}${workspaceSlug}`;
-    const port = (await this.portAllocation()).ports[workspaceSlug];
-    await this.deleteProcessRecord(id, slot);
-    if (port !== undefined) {
-      await this.deleteProcessesOnPort(id, port, slot);
+  public cleanupProjectWorkspace(input: ProjectCleanupWorkspaceInput): Promise<void> {
+    const parsed = ProjectCleanupWorkspaceInputSchema.parse(input);
+    return this.deleteProjectWorkspace(parsed, () =>
+      this.performProjectWorkspaceCleanup(parsed.workspaceSlug),
+    );
+  }
+
+  private async performProjectWorkspaceCleanup(workspaceSlug: string): Promise<void> {
+    const id = await this.ensureExistingSandboxStarted();
+    await super.killAllProcesses();
+    if (id) {
+      await this.terminateUntrackedSandboxProcesses(id);
+      await this.removeWorkspaceFolder(id, workspaceSlug);
     }
     await this.freeProjectPort(workspaceSlug);
-    await this.removeWorkspaceFolder(id, workspaceSlug);
   }
 
   private async mobileExpoProxy(
@@ -546,33 +594,35 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProcesses {
     return probe?.exitCode === 0 ? CODE_SERVER_DISPLAY_DIR : workspacePath;
   }
 
-  private async openCodeServerFile(id: string, path: string): Promise<void> {
-    await this.client().execute(id, {
-      command: [
-        "CODE_SERVER_USER_DATA_DIR=/home/node/.local/share/code-server/user-data",
-        "CODE_SERVER_EXTENSIONS_DIR=/home/node/.local/share/code-server/extensions",
-        "code-server",
-        "--user-data-dir /home/node/.local/share/code-server/user-data",
-        "--extensions-dir /home/node/.local/share/code-server/extensions",
-        "--reuse-window",
-        shellQuote(path),
-        ">/tmp/cheatcode-code-server-open-file.log 2>&1 || true",
-      ].join(" "),
-      timeout: 15,
-    });
-  }
-
   private async removeWorkspaceFolder(id: string, workspaceSlug: string): Promise<void> {
-    if (!isSingleWorkspaceSegment(workspaceSlug)) {
-      return;
+    try {
+      await this.client().deleteFilePath(id, `${WORKSPACE_DIR}/${workspaceSlug}`, true);
+    } catch (error) {
+      throw this.toUpstreamError(error, "Project workspace removal failed.");
     }
-    await this.client()
-      .execute(id, {
-        command: `rm -rf ${shellQuote(`${WORKSPACE_DIR}/${workspaceSlug}`)}`,
-        timeout: timeoutSeconds(60_000),
-      })
-      .catch(() => undefined);
   }
+}
+
+function browserDriverProcessId(runId: string): string {
+  return `cheatcode-browser-driver-${safeProcessSuffix(runId)}`;
+}
+
+function browserTakeoverProcessId(runId: string): string {
+  return `cheatcode-browser-takeover-${safeProcessSuffix(runId)}`;
+}
+
+function safeProcessSuffix(value: string): string {
+  return value.replaceAll(/[^A-Za-z0-9_-]/g, "-").slice(0, 120);
+}
+
+function noVncSessionUrl(signedUrl: string, password: string): string {
+  const url = new URL(signedUrl);
+  url.pathname = `${url.pathname.replace(/\/?$/u, "/")}vnc.html`;
+  url.searchParams.set("autoconnect", "1");
+  url.searchParams.set("password", password);
+  url.searchParams.set("reconnect", "1");
+  url.searchParams.set("resize", "remote");
+  return url.toString();
 }
 
 function isDaytonaResponseTooLarge(error: unknown): boolean {

@@ -4,16 +4,21 @@ Public Hono API entrypoint. It verifies Clerk JWTs, resolves the Clerk subject t
 internal `users.id` UUID, lazily syncs the user from Clerk on first authenticated request
 when webhooks have not run yet, rate-limits requests, and forwards agent work to
 `agent-worker` via Service Binding.
+The bootstrap reads one canonical Clerk identity snapshot including `updated_at`;
+the database compare-and-swap prevents a slower Backend API response or delayed webhook
+from regressing a newer email, display name, or avatar.
 
 Provider key writes validate each supported BYOK provider through
 `packages/byok` before calling the Vault-backed RPC. Invalid keys are rejected
 before plaintext is sent to storage, and new providers are blocked when the
-current entitlement tier has reached its BYOK slot limit. `/internal/users/:userId/delete-state`
-is an HMAC-protected maintenance route used by webhooks to clear the user's
-`QuotaTracker` durable state during the Clerk deletion lifecycle. Destructive
-gateway-to-agent cleanup and webhooks-to-gateway deletion calls use the shared
-`ccm1` method/path/millisecond-timestamp/body-hash signature contract and shared
-deletion schemas; no legacy signature format is accepted.
+current entitlement tier has reached its BYOK slot limit. Deleting a key reranks
+the remaining provider catalog in the same transaction so a freed tier slot is
+available immediately. Project and thread deletes enqueue an exact-generation
+resource-deletion job through the webhooks Service Binding. That call uses the
+isolated `ccm2` resource-deletion capability and binds gateway issuer, webhooks
+audience, method, path, timestamp, nonce, and exact body hash. The webhooks
+receiver pins `webhooks.internal`; no shared key or legacy signature format is
+accepted.
 
 User-scoped Postgres transactions contain database work only. Secrets Store,
 KV, Durable Object, service-binding, weather, Polar, and Composio operations
@@ -34,7 +39,9 @@ canonical live rate-limit state.
 Billing routes create Polar checkout/portal sessions and manage end-of-period
 cancellation/reactivation through `/v1/billing/state`, `/v1/billing/cancel`,
 and `/v1/billing/reactivate`. They update V2 entitlement state and clear the
-entitlement KV cache; final product verification still happens by operating the
+entitlement KV cache. Checkout accepts only an optional same-origin local path;
+the gateway derives the trusted frontend origin and both Polar redirect URLs, so
+callers cannot provide an external success or return URL. Final product verification still happens by operating the
 Settings UI directly with `agent-browser`, not a billing test script.
 
 Run creation requires the current Clerk primary email to be verified before the
@@ -42,6 +49,8 @@ request is forwarded to `agent-worker`, so authenticated but unverified users do
 not spawn Daytona sandbox work.
 JWT verification also requires `azp` to match one of the exact HTTP(S) origins in
 `CLERK_AUTHORIZED_PARTIES`; production is pinned to `https://trycheatcode.com`.
+Resolved Clerk Backend API keys fail closed unless they are `sk_live_` in
+production or `sk_test_` in laptop development.
 
 Run-creation idempotency bodies are capped at 64 KiB. The Durable Object uses a
 five-minute in-flight claim lease and retains completed keys for 24 hours; completion
@@ -56,8 +65,9 @@ one run. Reusing a key for a different body or thread fails closed.
 
 Public Clerk credentials, cookies, proxy credentials, plaintext idempotency keys, and
 caller-supplied `X-Cheatcode-*` headers terminate at the gateway. Normal service-binding
-requests receive only gateway-minted internal identity/idempotency headers; local preview
-traffic has a separate, explicit capability/cookie bridge.
+requests receive only gateway-minted internal identity/idempotency headers. Artifact downloads
+use that boundary to mint an owner-checked short-lived URL; only the resulting HMAC-bound
+streaming URL is public. Local preview traffic has a separate, explicit capability/cookie bridge.
 
 Composio account sync follows provider cursors instead of treating the first
 page as complete, and fails closed if a user exceeds the 1,000-account safety
@@ -86,35 +96,43 @@ and accepts authenticated `/v1/user-events` activation pings from the real web U
 Production releases use `CHEATCODE_RELEASE_GATE` as a fail-closed deployment
 barrier. The deploy operation first publishes the final gateway bundle with the
 gate set to `closed`; every public route, including `/health`, returns a
-non-cacheable `503` while the agent converges. The closed health body reports
-the gateway and service-bound agent release identities so deployment can verify
-both before publishing the same gateway bundle with the gate set to `open`.
-The exact HMAC-authenticated user-state deletion route remains available so a
-Clerk deletion lifecycle is not stranded during the release window.
+non-cacheable `503`. Agent and webhooks are then deployed with their own gates
+set to `draining`; the gateway health body proves both service-bound downstream
+SHAs and gates. The release drains AgentRun and every webhook, ops, and
+resource-deletion Workflow before redeploying both services `closed` and allowing
+DDL. In steady state, the public 200 `/health` response also fails closed unless
+both downstream services report `open` at the gateway's exact release SHA. After closed reconciliation,
+contractions, and Vercel promotion, agent and webhooks reopen first and gateway
+opens last. Internal lifecycle work reaches quota state through the webhooks
+Worker's direct cross-Worker Durable Object binding, so gateway has no maintenance
+bypass route during the closed window.
 
-If a barrier step fails, the deploy operation re-deploys and verifies the closed
-gate before stopping. If close-gate recovery itself cannot be verified, the gate
-state is reported as unconfirmed and requires immediate inspection. Once closed,
-recover by rerunning the complete deployment from the same immutable commit. To
-abandon it, keep gateway closed, review and roll agent back if it changed, then
-roll gateway back to the matching known-good open version and verify `/health`;
-never bypass convergence by flipping the gate in the dashboard.
+If a barrier step fails, the deploy operation re-deploys and verifies all three
+writer gates closed before stopping. If recovery cannot be verified, writer state
+is reported as unconfirmed and requires immediate inspection. Once closed,
+recover by rerunning the complete deployment from the same immutable commit. If
+that release cannot continue, keep the gateway closed and dispatch a reviewed,
+forward-compatible `stage-closed` release that explicitly names the superseded
+closed SHA. Never recover a schema contraction by deploying older code or bypass
+convergence by flipping the gate in the dashboard.
 
-The HTTP barrier stops new public work but cannot terminate a request or Durable
-Object execution accepted before closure. Changes to active `AgentRun` behavior
-or gateway-owned Durable Object state therefore need an explicit drain/state
-migration decision; the release gate alone is not an atomic Durable Object
-migration mechanism.
+The HTTP barrier stops new public work, and the draining agent/webhook gates fence
+new admissions while pinned Workflow and Durable Object continuations finish. The
+coordinated release drains relational AgentRun state and every retained writer
+Workflow before moving those services to `closed` and running DDL. Durable Object schema changes use
+explicit in-place reconciliation; the gate alone is not an atomic migration.
 
-`IdempotencyStore` owns one exact SQLite table shape. Constructor initialization
-runs behind the Durable Object input gate and transactionally rebuilds an older
-deployed shape while preserving valid completed and in-flight entries; unknown
-lossy shapes fail closed instead of silently discarding request outcomes.
+`IdempotencyStore` owns one exact SQLite table shape in its stable namespace and
+reconciles dormant objects to that shape when they are next activated. Run
+creation is also durably idempotent in Postgres, so request-cache evolution
+cannot create a duplicate run.
 
 `/v1/tools` and `/v1/agents` read the shared framework-free capability catalog
 from `@cheatcode/types`. The Mastra registries are statically constrained to the
 same exact names; workflows are exposed through tools and are not reported as
-agents.
+agents. Each tool summary also declares whether it uses the sandbox and whether
+it produces an artifact; AgentRun stream status and deliverable routing derive
+from those same traits instead of maintaining parallel tool-name lists.
 
 ## Public exports
 
@@ -134,15 +152,20 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 ## Env
 
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
-- `CHEATCODE_RELEASE_GATE` (`open` normally; generated production release config closes it during agent convergence)
+- `CHEATCODE_RELEASE_GATE` (`open` normally; coordinated production releases close gateway first while agent/webhooks drain, then close all writers)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
 - `CF_VERSION_METADATA`
 - `AGENT`
+- `WEBHOOKS`
+- `PREVIEW_PROXY` (generated local-only Service Binding; production preview
+  traffic reaches the preview Worker through its wildcard route)
 - `RATE_LIMITER`
 - `QUOTA_TRACKER`
 - `IDEMPOTENCY`
 - `ENTITLEMENTS_CACHE`
-- `HYPERDRIVE`
+- `HYPERDRIVE` (dedicated config whose database login is exactly `app_gateway`)
+- `DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY` (role-specific Secrets Store binding;
+  must match the `app_gateway` Supabase Vault HMAC secret)
 - `CLERK_SECRET_KEY` or `CLERK_JWT_KEY`
 - `CLERK_AUTHORIZED_PARTIES` (comma-separated exact HTTP(S) origins)
 - `POLAR_ACCESS_TOKEN`
@@ -150,5 +173,8 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`, `POLAR_PRODUCT_ID_ULTRA`, `POLAR_PRODUCT_ID_MAX`
 - `COMPOSIO_API_KEY`
 - `COMPOSIO_AUTH_CONFIGS`
-- `INTERNAL_MAINTENANCE_SECRET`
+- `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET` (ccm2 `resource-deletion`
+  capability shared only with the webhooks verifier)
+- `RELEASE_DATABASE_READINESS_SECRET` (ccm2 `database-readiness` capability;
+  the release environment receives no destructive capability key)
 - `USER_EVENTS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`

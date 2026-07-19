@@ -21,8 +21,9 @@ export const INTEGRATION_CATALOG_QUERY = ["integration-catalog"] as const;
 
 export async function listIntegrations(
   getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
 ): Promise<Integration[]> {
-  const response = await authorizedFetch(getToken, "/v1/integrations");
+  const response = await authorizedFetch(getToken, "/v1/integrations", signal ? { signal } : {});
   return IntegrationSchema.array().parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.integrations),
   );
@@ -30,8 +31,13 @@ export async function listIntegrations(
 
 export async function fetchIntegrationCatalog(
   getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
 ): Promise<IntegrationCatalog> {
-  const response = await authorizedFetch(getToken, "/v1/integrations/catalog");
+  const response = await authorizedFetch(
+    getToken,
+    "/v1/integrations/catalog",
+    signal ? { signal } : {},
+  );
   return IntegrationCatalogSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.integrations),
   );
@@ -40,8 +46,13 @@ export async function fetchIntegrationCatalog(
 export async function fetchToolkitActions(
   getToken: () => Promise<null | string>,
   name: IntegrationName,
+  signal?: AbortSignal,
 ): Promise<ToolkitAction[]> {
-  const response = await authorizedFetch(getToken, `/v1/integrations/${name}/tools`);
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/integrations/${name}/tools`,
+    signal ? { signal } : {},
+  );
   return ToolkitActionsResponseSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.integrations),
   ).actions;

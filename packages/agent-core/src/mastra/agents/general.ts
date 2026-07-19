@@ -25,6 +25,7 @@ import {
 } from "../llm-context";
 import { buildSystemPrompt, promptRuntimeContextFromRequestContext } from "../system-prompt";
 import { cheatcodeTools } from "../tools/tool-set";
+import { boundedProviderFetch } from "./provider-fetch";
 
 export type { LlmProvider, LlmTransportSelection } from "../llm-context";
 
@@ -36,7 +37,7 @@ function createAnthropicByokModel(
   if (trimmed.length === 0) {
     throw new Error("Anthropic BYOK key is required.");
   }
-  return createAnthropic({ apiKey: trimmed })(modelId);
+  return createAnthropic({ apiKey: trimmed, fetch: boundedProviderFetch })(modelId);
 }
 
 function createOpenAiByokModel(
@@ -47,7 +48,7 @@ function createOpenAiByokModel(
   if (trimmed.length === 0) {
     throw new Error("OpenAI BYOK key is required.");
   }
-  return createOpenAI({ apiKey: trimmed }).responses(modelId);
+  return createOpenAI({ apiKey: trimmed, fetch: boundedProviderFetch }).responses(modelId);
 }
 
 function createGoogleByokModel(
@@ -58,7 +59,7 @@ function createGoogleByokModel(
   if (trimmed.length === 0) {
     throw new Error("Google BYOK key is required.");
   }
-  return createGoogleGenerativeAI({ apiKey: trimmed })(modelId);
+  return createGoogleGenerativeAI({ apiKey: trimmed, fetch: boundedProviderFetch })(modelId);
 }
 
 function createOpenRouterByokModel(
@@ -74,6 +75,7 @@ function createOpenRouterByokModel(
     appName: "Cheatcode",
     appUrl: "https://trycheatcode.com",
     compatibility: "strict",
+    fetch: boundedProviderFetch,
   }).chat(modelId);
 }
 
@@ -90,7 +92,7 @@ function createDeepSeekModel(
   if (trimmed.length === 0) {
     throw new Error("DeepSeek key is required.");
   }
-  return createDeepSeek({ apiKey: trimmed })(modelId);
+  return createDeepSeek({ apiKey: trimmed, fetch: boundedProviderFetch })(modelId);
 }
 
 export function resolveRequestedLlmTransport(model: string): LlmTransportSelection {

@@ -1,5 +1,5 @@
 import { UserId } from "@cheatcode/types";
-import { and, desc, eq, inArray, or, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { userIntegrations } from "./schema";
 
@@ -14,6 +14,11 @@ export interface UserIntegrationRecord {
   updatedAt: Date;
   userId: UserId;
 }
+
+export type AgentIntegrationRecord = Pick<
+  UserIntegrationRecord,
+  "composioConnectionId" | "integration" | "isDefault" | "status"
+>;
 
 export interface UserIntegrationUpsertInput {
   composioConnectionId: string;
@@ -41,7 +46,7 @@ export async function upsertUserIntegrations(
   await db.transaction(async (tx) => {
     const transaction = tx as Database;
     await lockIntegrationToolkits(transaction, firstInput.userId, inputs);
-    const upserted = await transaction
+    await transaction
       .insert(userIntegrations)
       .values(inputs.map(integrationInsertValues))
       .onConflictDoUpdate({
@@ -53,15 +58,19 @@ export async function upsertUserIntegrations(
             else false
           end`,
           status: sql`excluded.status`,
-          updatedAt: sql`now()`,
         },
         setWhere: sql`${userIntegrations.userId} = excluded.user_id
-          and ${userIntegrations.integration} = excluded.integration`,
-      })
-      .returning({ composioConnectionId: userIntegrations.composioConnectionId });
-    if (upserted.length !== inputs.length) {
-      throw new Error("Composio connection ownership invariant violated");
-    }
+          and ${userIntegrations.integration} = excluded.integration
+          and (
+            ${userIntegrations.status} is distinct from excluded.status
+            or ${userIntegrations.isDefault} is distinct from case
+              when lower(excluded.status) in ('active', 'authorized', 'connected', 'enabled')
+                then ${userIntegrations.isDefault}
+              else false
+            end
+          )`,
+      });
+    await requireIntegrationOwnership(transaction, inputs);
     await ensureDefaultToolkits(transaction, firstInput.userId, inputs);
   });
 }
@@ -71,7 +80,7 @@ async function upsertUserIntegrationLocked(
   input: UserIntegrationUpsertInput,
 ): Promise<void> {
   await lockIntegrationAccounts(db, input);
-  const upserted = await db
+  await db
     .insert(userIntegrations)
     .values({
       composioConnectionId: input.composioConnectionId,
@@ -85,15 +94,15 @@ async function upsertUserIntegrationLocked(
       set: {
         ...(!isActiveIntegrationStatus(input.status) ? { isDefault: false } : {}),
         status: input.status,
-        updatedAt: sql`now()`,
       },
       setWhere: sql`${userIntegrations.userId} = ${input.userId}
-        and ${userIntegrations.integration} = ${input.integration}`,
-    })
-    .returning({ composioConnectionId: userIntegrations.composioConnectionId });
-  if (upserted.length !== 1) {
-    throw new Error("Composio connection ownership invariant violated");
-  }
+        and ${userIntegrations.integration} = ${input.integration}
+        and (
+          ${userIntegrations.status} is distinct from ${input.status}
+          or ${userIntegrations.isDefault} is distinct from ${isActiveIntegrationStatus(input.status) ? userIntegrations.isDefault : false}
+        )`,
+    });
+  await requireIntegrationOwnership(db, [input]);
   await ensureDefaultUserIntegration(db, input);
 }
 
@@ -111,6 +120,27 @@ export async function listUserIntegrations(
       desc(userIntegrations.updatedAt),
     );
   return rows.map(toUserIntegrationRecord);
+}
+
+/** Runtime projection for connected-account routing without lifecycle timestamps. */
+export async function listAgentIntegrations(
+  db: Database,
+  userId: UserId,
+): Promise<AgentIntegrationRecord[]> {
+  return db
+    .select({
+      composioConnectionId: userIntegrations.composioConnectionId,
+      integration: userIntegrations.integration,
+      isDefault: userIntegrations.isDefault,
+      status: userIntegrations.status,
+    })
+    .from(userIntegrations)
+    .where(eq(userIntegrations.userId, userId))
+    .orderBy(
+      userIntegrations.integration,
+      desc(userIntegrations.isDefault),
+      desc(userIntegrations.updatedAt),
+    );
 }
 
 export async function findUserIntegrationByConnectionId(
@@ -151,63 +181,30 @@ async function setDefaultUserIntegrationLocked(
   }
   await db
     .update(userIntegrations)
-    .set({ isDefault: false, updatedAt: sql`now()` })
+    .set({ isDefault: false })
     .where(
       and(
         eq(userIntegrations.userId, input.userId),
         eq(userIntegrations.integration, input.integration),
+        ne(userIntegrations.composioConnectionId, input.composioConnectionId),
+        eq(userIntegrations.isDefault, true),
       ),
     );
-  const updated = await db
+  await db
     .update(userIntegrations)
-    .set({ isDefault: true, updatedAt: sql`now()` })
-    .where(accountPredicate(input))
-    .returning({ composioConnectionId: userIntegrations.composioConnectionId });
-  return updated.length > 0;
-}
-
-export async function updateUserIntegrationStatusByConnectionId(
-  db: Database,
-  input: { composioConnectionId: string; status: string },
-): Promise<boolean> {
-  return db.transaction((tx) =>
-    updateUserIntegrationStatusByConnectionIdLocked(tx as Database, input),
-  );
-}
-
-async function updateUserIntegrationStatusByConnectionIdLocked(
-  db: Database,
-  input: { composioConnectionId: string; status: string },
-): Promise<boolean> {
-  const [target] = await db
-    .select({ integration: userIntegrations.integration, userId: userIntegrations.userId })
-    .from(userIntegrations)
-    .where(eq(userIntegrations.composioConnectionId, input.composioConnectionId))
-    .limit(1);
-  if (!target) {
-    return false;
-  }
-  const owner = { integration: target.integration, userId: UserId(target.userId) };
-  await lockIntegrationAccounts(db, owner);
-  const rows = await db
-    .update(userIntegrations)
-    .set({
-      ...(!isActiveIntegrationStatus(input.status) ? { isDefault: false } : {}),
-      status: input.status,
-      updatedAt: sql`now()`,
-    })
-    .where(
-      accountPredicate({
-        composioConnectionId: input.composioConnectionId,
-        ...owner,
-      }),
-    )
-    .returning({ composioConnectionId: userIntegrations.composioConnectionId });
-  if (rows.length === 0) {
-    return false;
-  }
-  await ensureDefaultUserIntegration(db, owner);
+    .set({ isDefault: true })
+    .where(and(accountPredicate(input), eq(userIntegrations.isDefault, false)));
   return true;
+}
+
+export async function expireComposioConnection(
+  db: Database,
+  composioConnectionId: string,
+): Promise<boolean> {
+  const result = await db.execute(
+    sql`select public.webhooks_expire_composio_connection(${composioConnectionId}) as updated`,
+  );
+  return result.rows[0]?.["updated"] === true;
 }
 
 export async function deleteUserIntegrationAccount(
@@ -263,8 +260,7 @@ async function ensureDefaultUserIntegration(
 ): Promise<void> {
   await db.execute(sql`
     update ${userIntegrations}
-       set is_default = false,
-           updated_at = now()
+       set is_default = false
      where user_id = ${input.userId}
        and integration = ${input.integration}
        and is_default = true
@@ -272,8 +268,7 @@ async function ensureDefaultUserIntegration(
   `);
   await db.execute(sql`
     update ${userIntegrations}
-       set is_default = true,
-           updated_at = now()
+       set is_default = true
      where user_id = ${input.userId}
        and integration = ${input.integration}
        and composio_connection_id = (
@@ -334,6 +329,30 @@ function assertBulkUpsertInput(inputs: readonly UserIntegrationUpsertInput[]): v
       throw new Error("Bulk integration reconciliation requires one user and unique connections");
     }
     connectionIds.add(input.composioConnectionId);
+  }
+}
+
+async function requireIntegrationOwnership(
+  db: Database,
+  inputs: readonly UserIntegrationUpsertInput[],
+): Promise<void> {
+  const expected = new Map(inputs.map((input) => [input.composioConnectionId, input]));
+  const rows = await db
+    .select({
+      composioConnectionId: userIntegrations.composioConnectionId,
+      integration: userIntegrations.integration,
+      userId: userIntegrations.userId,
+    })
+    .from(userIntegrations)
+    .where(inArray(userIntegrations.composioConnectionId, [...expected.keys()]));
+  if (
+    rows.length !== inputs.length ||
+    rows.some((row) => {
+      const input = expected.get(row.composioConnectionId);
+      return !input || input.userId !== row.userId || input.integration !== row.integration;
+    })
+  ) {
+    throw new Error("Composio connection ownership invariant violated");
   }
 }
 

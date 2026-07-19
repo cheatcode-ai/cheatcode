@@ -21,13 +21,14 @@ import {
   UserProfileSchema,
 } from "@cheatcode/types";
 import type { z } from "zod";
-import { clerkAuthorizedParties, readOptionalSecret } from "./authenticate";
+import { clerkAuthorizedParties, readOptionalClerkSecret } from "./authenticate";
 import type { WaitUntilContext } from "./wait-until-context";
 
 export interface ProfileRouteEnv {
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_SECRET_KEY?: WorkerSecret;
+  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
@@ -38,7 +39,10 @@ export async function getMyProfileRoute(
   ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   try {
     const record = await withUserContext(db, userId, (tx) => getUserProfile(tx, userId));
     return Response.json(UserProfileSchema.parse(profileResponse(record)));
@@ -60,7 +64,10 @@ export async function updateMyProfileRoute(
     throw invalidRequestBody("Invalid profile payload", parsed.error);
   }
   const body = parsed.data;
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_gateway",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  });
   let result: UserProfileRecord;
   try {
     result = await withUserContext(db, userId, (tx) =>
@@ -106,7 +113,7 @@ async function mirrorOnboardingClaim(
 ): Promise<void> {
   const logger = createLogger({ userId });
   try {
-    const secretKey = await readOptionalSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
+    const secretKey = await readOptionalClerkSecret(env);
     if (!secretKey) {
       logger.warn("onboarding_claim_mirror_skipped");
       return;

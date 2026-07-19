@@ -2,7 +2,7 @@ import type { UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
-import { billingEvents, entitlements, users } from "./schema";
+import { entitlements, users } from "./schema";
 
 export interface BillingUserRecord {
   email: string;
@@ -14,10 +14,7 @@ export interface EntitlementUpsertInput {
   cancelAtPeriodEnd?: boolean;
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
-  maxProjects: number;
   polarSubscriptionId?: string | null;
-  quotaComposioCalls: number;
-  quotaSandboxHours: string;
   subscriptionStatus: string;
   tier: string;
   userId: UserId;
@@ -27,22 +24,17 @@ export interface EntitlementRecord {
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: Date | null;
   currentPeriodStart: Date | null;
-  maxProjects: number;
   polarSubscriptionId: string | null;
-  quotaComposioCalls: number;
-  quotaSandboxHours: string;
   subscriptionStatus: string;
   tier: string;
   updatedAt: Date;
   userId: UserId;
 }
 
-export interface BillingEventInput {
-  eventType: string;
-  payload: Record<string, unknown>;
-  polarEventId?: string | null;
-  userId?: UserId | null;
-}
+export type AgentEntitlementRecord = Pick<
+  EntitlementRecord,
+  "currentPeriodEnd" | "currentPeriodStart" | "subscriptionStatus" | "tier" | "updatedAt"
+>;
 
 export interface EntitlementSubscriptionStateInput {
   cancelAtPeriodEnd: boolean;
@@ -74,15 +66,17 @@ export async function findBillingUserByPolarCustomerId(
   db: Database,
   polarCustomerId: string,
 ): Promise<BillingUserRecord | null> {
-  const row = await db.query.users.findFirst({
-    columns: { email: true, id: true, polarCustomerId: true },
-    where: and(eq(users.polarCustomerId, polarCustomerId), isNull(users.deletedAt)),
-  });
+  const result = await db.execute(
+    sql`select * from public.webhooks_resolve_polar_customer(${polarCustomerId})`,
+  );
+  const row = result.rows[0] as
+    | { email: string; polar_customer_id: string; user_id: string }
+    | undefined;
   return row
     ? {
         email: row.email,
-        id: toUserId(row.id),
-        polarCustomerId: row.polarCustomerId,
+        id: toUserId(row.user_id),
+        polarCustomerId: row.polar_customer_id,
       }
     : null;
 }
@@ -99,16 +93,31 @@ export async function findEntitlementByUserId(
         cancelAtPeriodEnd: row.cancelAtPeriodEnd,
         currentPeriodEnd: row.currentPeriodEnd,
         currentPeriodStart: row.currentPeriodStart,
-        maxProjects: row.maxProjects,
         polarSubscriptionId: row.polarSubscriptionId,
-        quotaComposioCalls: row.quotaComposioCalls,
-        quotaSandboxHours: row.quotaSandboxHours,
         subscriptionStatus: row.subscriptionStatus,
         tier: row.tier,
         updatedAt: row.updatedAt,
         userId: toUserId(row.userId),
       }
     : null;
+}
+
+/** Agent admission/cache projection; billing ownership fields stay outside the runtime role. */
+export async function findAgentEntitlementByUserId(
+  db: Database,
+  userId: UserId,
+): Promise<AgentEntitlementRecord | null> {
+  const row = await db.query.entitlements.findFirst({
+    columns: {
+      currentPeriodEnd: true,
+      currentPeriodStart: true,
+      subscriptionStatus: true,
+      tier: true,
+      updatedAt: true,
+    },
+    where: eq(entitlements.userId, userId),
+  });
+  return row ?? null;
 }
 
 export async function updateUserPolarCustomerId(
@@ -119,7 +128,6 @@ export async function updateUserPolarCustomerId(
     .update(users)
     .set({
       polarCustomerId: input.polarCustomerId,
-      updatedAt: sql`now()`,
     })
     .where(eq(users.id, input.userId));
 }
@@ -147,10 +155,7 @@ export async function upsertEntitlement(
           cancelAtPeriodEnd: values.cancelAtPeriodEnd,
           currentPeriodEnd: values.currentPeriodEnd,
           currentPeriodStart: values.currentPeriodStart,
-          maxProjects: values.maxProjects,
           polarSubscriptionId: values.polarSubscriptionId,
-          quotaComposioCalls: values.quotaComposioCalls,
-          quotaSandboxHours: values.quotaSandboxHours,
           subscriptionStatus: values.subscriptionStatus,
           tier: values.tier,
           updatedAt: sql`now()`,
@@ -176,36 +181,12 @@ export async function updateEntitlementSubscriptionState(
     .where(eq(entitlements.userId, input.userId));
 }
 
-export async function recordBillingEvent(db: Database, input: BillingEventInput): Promise<void> {
-  await db
-    .insert(billingEvents)
-    .values({
-      eventType: input.eventType,
-      payload: input.payload,
-      ...(input.polarEventId !== undefined ? { polarEventId: input.polarEventId } : {}),
-      ...(input.userId !== undefined ? { userId: input.userId } : {}),
-    })
-    .onConflictDoNothing();
-}
-
-/** Remove minimized webhook diagnostics after their operational reconciliation window. */
-export async function purgeExpiredBillingEvents(db: Database, before: Date): Promise<number> {
-  const rows = await db
-    .delete(billingEvents)
-    .where(sql`${billingEvents.processedAt} < ${before}`)
-    .returning({ id: billingEvents.id });
-  return rows.length;
-}
-
 function entitlementValues(input: EntitlementUpsertInput) {
   return {
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
     currentPeriodStart: input.currentPeriodStart ?? null,
-    maxProjects: input.maxProjects,
     polarSubscriptionId: input.polarSubscriptionId ?? null,
-    quotaComposioCalls: input.quotaComposioCalls,
-    quotaSandboxHours: input.quotaSandboxHours,
     subscriptionStatus: input.subscriptionStatus,
     tier: input.tier,
     userId: input.userId,

@@ -22,6 +22,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cheatcode/billing": "workspace:*",
     "@cheatcode/env": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "drizzle-orm": "catalog:",

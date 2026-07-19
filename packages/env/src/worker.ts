@@ -106,8 +106,11 @@ export const PreviewHostnameSchema = z
   .trim()
   .toLowerCase()
   .refine(
-    (hostname) => hostname === "localhost:8787" || isMultiLabelDnsHostname(hostname),
-    "Preview hostname must be localhost:8787 or a multi-label DNS hostname",
+    (hostname) =>
+      hostname === "localhost" ||
+      hostname === "localhost:8787" ||
+      isMultiLabelDnsHostname(hostname),
+    "Preview hostname must be localhost, localhost:8787, or a multi-label DNS hostname",
   );
 
 const HyperdriveSchema = z
@@ -141,6 +144,7 @@ export const WorkerReleaseBindingsSchema = {
 
 interface WorkerReleaseIdentity {
   CHEATCODE_ENVIRONMENT: "development" | "production";
+  CHEATCODE_RELEASE_GATE?: "closed" | "draining" | "open" | undefined;
   CHEATCODE_RELEASE_SHA?: string | undefined;
 }
 
@@ -157,21 +161,48 @@ function requireProductionReleaseSha(
   }
 }
 
+function requireProductionReleaseGate(
+  bindings: WorkerReleaseIdentity,
+  context: z.RefinementCtx,
+): void {
+  if (bindings.CHEATCODE_ENVIRONMENT === "production" && !bindings.CHEATCODE_RELEASE_GATE) {
+    context.addIssue({
+      code: "custom",
+      message: "Production database-writing Workers require an explicit release gate.",
+      path: ["CHEATCODE_RELEASE_GATE"],
+    });
+  }
+}
+
+function requireProductionDaytonaOrg(
+  bindings: WorkerReleaseIdentity & { DAYTONA_ORG_ID?: string | undefined },
+  context: z.RefinementCtx,
+): void {
+  if (bindings.CHEATCODE_ENVIRONMENT === "production" && !bindings.DAYTONA_ORG_ID) {
+    context.addIssue({
+      code: "custom",
+      message: "Production sandbox Workers require the pinned Daytona organization ID.",
+      path: ["DAYTONA_ORG_ID"],
+    });
+  }
+}
+
 export const GatewayWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT: FetcherBindingSchema,
-    CHEATCODE_RELEASE_GATE: z.enum(["open", "closed"]).optional(),
+    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     CLERK_AUTHORIZED_PARTIES: z.string().trim().min(1).max(2_048).optional(),
     CLERK_JWT_KEY: OptionalWorkerSecretSchema,
     CLERK_SECRET_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_AUTH_CONFIGS: OptionalWorkerSecretSchema,
+    DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecretSchema,
     ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
+    GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
     IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
-    INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
     // Polar product ids per paid tier — non-secret config bound as plain wrangler vars
     // (not secrets). Optional so a tier without a Polar product simply 503s on checkout.
@@ -180,32 +211,39 @@ export const GatewayWorkerEnvSchema = z
     POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
     POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
+    PREVIEW_PROXY: FetcherBindingSchema.optional(),
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     RATE_LIMITER: DurableObjectNamespaceBindingSchema,
+    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
+    WEBHOOKS: FetcherBindingSchema,
   })
   .strict()
-  .superRefine(requireProductionReleaseSha);
+  .superRefine(requireProductionReleaseSha)
+  .superRefine(requireProductionReleaseGate);
 
 export const AgentWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT_RUN: DurableObjectNamespaceBindingSchema,
+    AGENT_RUN_WORKFLOW: WorkflowBindingSchema,
+    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     // Secret-store-bound and resolved request-scoped in the ProjectSandbox DO.
     DAYTONA_API_KEY: WorkerSecretSchema,
     DAYTONA_API_URL: z.string().url(),
     DAYTONA_TARGET: z.string().min(1).default("us"),
     DAYTONA_SANDBOX_SNAPSHOT: z.string().min(1),
-    DAYTONA_ORG_ID: z.string().min(1).optional(),
+    DAYTONA_WORKSPACE_VOLUME: z.string().min(1).max(100),
+    DAYTONA_ORG_ID: z.string().uuid().optional(),
     DAYTONA_PREVIEW_HOST_SUFFIXES: z.string().min(1).max(1_024).optional(),
     // Shared HMAC secret for the preview-proxy access-token contract.
     PREVIEW_TOKEN_SECRET: WorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
+    DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecretSchema,
     // Platform-provided DeepSeek key for the free tier (Secrets-Store-bound, resolved
     // request-scoped in the AgentRun DO via resolveWorkerSecret()).
     DEEPSEEK_PLATFORM_API_KEY: OptionalWorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
-    INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
     OUTPUT_DOWNLOAD_BASE_URL: z.string().url().optional(),
     OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecretSchema,
     PREVIEW_HOSTNAME: PreviewHostnameSchema,
@@ -213,11 +251,16 @@ export const AgentWorkerEnvSchema = z
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     R2_AUDIT: R2BucketBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
-    R2_OUTPUTS_BUCKET_NAME: z.string().min(1).optional(),
+    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
+    SKILL_RUNTIME_BASE_URL: z.string().url(),
+    SKILL_RUNTIME_TOKEN_SECRET: WorkerSecretSchema,
+    WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecretSchema,
   })
   .strict()
   .superRefine(requireProductionReleaseSha)
+  .superRefine(requireProductionReleaseGate)
+  .superRefine(requireProductionDaytonaOrg)
   .superRefine(requireProductionPreviewHostname);
 
 export const WebhooksWorkerEnvSchema = z
@@ -225,19 +268,20 @@ export const WebhooksWorkerEnvSchema = z
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT: FetcherBindingSchema,
+    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     CLERK_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_ANALYTICS_API_TOKEN: OptionalWorkerSecretSchema,
     COMPOSIO_API_KEY: OptionalWorkerSecretSchema,
     COMPOSIO_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
+    DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecretSchema,
     DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecretSchema,
     ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
-    GATEWAY: FetcherBindingSchema,
-    SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
+    GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
     INTERNAL_ALERT_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
     INTERNAL_ALERT_WEBHOOK_URL: z.string().url().optional(),
-    INTERNAL_MAINTENANCE_SECRET: OptionalWorkerSecretSchema,
+    INTERNAL_WEBHOOK_REPLAY_SECRET: WorkerSecretSchema,
     OPS_WORKFLOW: WorkflowBindingSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
     POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
@@ -246,14 +290,18 @@ export const WebhooksWorkerEnvSchema = z
     POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     POLAR_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
+    QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
-    R2_OUTPUTS_BUCKET_NAME: z.string().min(1).optional(),
-    R2_UPLOADS: R2BucketBindingSchema,
+    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
+    RESOURCE_DELETION_WORKFLOW: WorkflowBindingSchema,
+    SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
     WEBHOOK_IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
     WEBHOOK_WORKFLOW: WorkflowBindingSchema,
+    WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecretSchema,
   })
   .strict()
-  .superRefine(requireProductionReleaseSha);
+  .superRefine(requireProductionReleaseSha)
+  .superRefine(requireProductionReleaseGate);
 
 export async function resolveWorkerSecret(
   secret: WorkerSecret | undefined,

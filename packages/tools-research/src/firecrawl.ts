@@ -1,5 +1,10 @@
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod/v4";
+import {
+  type CharacterLimiter,
+  createCharacterLimiter,
+  takeLimitedContent,
+} from "./output-limiter";
 import { requestResearchJson } from "./provider-http";
 import type { ResearchRuntimeContext } from "./runtime";
 import { requireResearchProviderKey } from "./runtime";
@@ -73,23 +78,19 @@ interface FirecrawlClientLike {
   search(query: string, params: FirecrawlSearchParams): Promise<unknown>;
 }
 
-interface CharacterLimiter {
-  remaining: number;
-  wasTruncated: boolean;
-}
-
 export async function executeFirecrawlScrape(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client: FirecrawlClientLike = createFirecrawlClient(runtimeContext),
+  abortSignal?: AbortSignal,
 ): Promise<FirecrawlScrapeOutput> {
   const parsedInput = FirecrawlScrapeInputSchema.parse(input);
+  const client = createFirecrawlClient(runtimeContext, abortSignal);
   const response = parseFirecrawlPayload(
     FirecrawlScrapeResponseSchema,
     await client.scrapeUrl(parsedInput.url, firecrawlScrapeParams(parsedInput)),
   );
   assertFirecrawlSuccess(response);
-  const limiter = createCharacterLimiter();
+  const limiter = createCharacterLimiter(FIRECRAWL_OUTPUT_CONTENT_MAX_CHARACTERS);
   const document = normalizeDocument(response, parsedInput.url, limiter, 120_000);
 
   return FirecrawlScrapeOutputSchema.parse({
@@ -102,15 +103,16 @@ export async function executeFirecrawlScrape(
 export async function executeFirecrawlSearch(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client: FirecrawlClientLike = createFirecrawlClient(runtimeContext),
+  abortSignal?: AbortSignal,
 ): Promise<FirecrawlSearchOutput> {
   const parsedInput = FirecrawlSearchInputSchema.parse(input);
+  const client = createFirecrawlClient(runtimeContext, abortSignal);
   const response = parseFirecrawlPayload(
     FirecrawlSearchResponseSchema,
     await client.search(parsedInput.query, firecrawlSearchParams(parsedInput)),
   );
   assertFirecrawlSuccess(response);
-  const limiter = createCharacterLimiter();
+  const limiter = createCharacterLimiter(FIRECRAWL_OUTPUT_CONTENT_MAX_CHARACTERS);
 
   return FirecrawlSearchOutputSchema.parse({
     results: response.data.map((document) =>
@@ -123,9 +125,10 @@ export async function executeFirecrawlSearch(
 export async function executeFirecrawlExtract(
   input: unknown,
   runtimeContext: ResearchRuntimeContext,
-  client: FirecrawlClientLike = createFirecrawlClient(runtimeContext),
+  abortSignal?: AbortSignal,
 ): Promise<FirecrawlExtractOutput> {
   const parsedInput = FirecrawlExtractInputSchema.parse(input);
+  const client = createFirecrawlClient(runtimeContext, abortSignal);
   const response = parseFirecrawlPayload(
     FirecrawlExtractResponseSchema,
     await client.extract(parsedInput.urls, firecrawlExtractParams(parsedInput)),
@@ -140,12 +143,15 @@ export async function executeFirecrawlExtract(
   });
 }
 
-function createFirecrawlClient(runtimeContext: ResearchRuntimeContext): FirecrawlClientLike {
+function createFirecrawlClient(
+  runtimeContext: ResearchRuntimeContext,
+  abortSignal: AbortSignal | undefined,
+): FirecrawlClientLike {
   const apiKey = requireResearchProviderKey(runtimeContext, "firecrawl");
   return {
-    extract: (urls, params) => executeFirecrawlExtractRequest(apiKey, urls, params),
-    scrapeUrl: (url, params) => executeFirecrawlScrapeRequest(apiKey, url, params),
-    search: (query, params) => executeFirecrawlSearchRequest(apiKey, query, params),
+    extract: (urls, params) => executeFirecrawlExtractRequest(apiKey, urls, params, abortSignal),
+    scrapeUrl: (url, params) => executeFirecrawlScrapeRequest(apiKey, url, params, abortSignal),
+    search: (query, params) => executeFirecrawlSearchRequest(apiKey, query, params, abortSignal),
   };
 }
 
@@ -153,8 +159,10 @@ async function executeFirecrawlScrapeRequest(
   apiKey: string,
   url: string,
   params: FirecrawlScrapeParams,
+  abortSignal: AbortSignal | undefined,
 ): Promise<unknown> {
   const value = await requestResearchJson({
+    abortSignal,
     apiKey,
     body: { url, ...params },
     maxResponseBytes: FIRECRAWL_RESPONSE_MAX_BYTES,
@@ -178,8 +186,10 @@ async function executeFirecrawlSearchRequest(
   apiKey: string,
   query: string,
   params: FirecrawlSearchParams,
+  abortSignal: AbortSignal | undefined,
 ): Promise<unknown> {
   return requestResearchJson({
+    abortSignal,
     apiKey,
     body: { query, ...params },
     maxResponseBytes: FIRECRAWL_RESPONSE_MAX_BYTES,
@@ -193,12 +203,14 @@ async function executeFirecrawlExtractRequest(
   apiKey: string,
   urls: string[],
   params: FirecrawlExtractParams,
+  abortSignal: AbortSignal | undefined,
 ): Promise<unknown> {
   const { timeoutMs, ...providerParams } = params;
   const deadline = Date.now() + timeoutMs;
   const started = parseFirecrawlPayload(
     FirecrawlExtractStartResponseSchema,
     await requestResearchJson({
+      abortSignal,
       apiKey,
       body: { urls, ...providerParams },
       maxResponseBytes: FIRECRAWL_RESPONSE_MAX_BYTES,
@@ -208,15 +220,17 @@ async function executeFirecrawlExtractRequest(
     }),
   );
   assertFirecrawlSuccess(started);
-  return pollFirecrawlExtract(apiKey, started.id, deadline);
+  return pollFirecrawlExtract(apiKey, started.id, deadline, abortSignal);
 }
 
 async function pollFirecrawlExtract(
   apiKey: string,
   jobId: string,
   deadline: number,
+  abortSignal: AbortSignal | undefined,
 ): Promise<unknown> {
   for (let attempt = 0; attempt < FIRECRAWL_EXTRACT_MAX_POLL_ATTEMPTS; attempt += 1) {
+    abortSignal?.throwIfAborted();
     const remainingMs = deadline - Date.now();
     if (remainingMs <= 0) {
       break;
@@ -224,6 +238,7 @@ async function pollFirecrawlExtract(
     const status = parseFirecrawlPayload(
       FirecrawlExtractStatusResponseSchema,
       await requestResearchJson({
+        abortSignal,
         apiKey,
         maxResponseBytes: FIRECRAWL_RESPONSE_MAX_BYTES,
         method: "GET",
@@ -238,7 +253,7 @@ async function pollFirecrawlExtract(
     if (status.status === "failed" || status.status === "cancelled") {
       return { ...status, success: false };
     }
-    await delay(Math.min(FIRECRAWL_EXTRACT_POLL_INTERVAL_MS, remainingMs));
+    await abortableDelay(Math.min(FIRECRAWL_EXTRACT_POLL_INTERVAL_MS, remainingMs), abortSignal);
   }
   throw new APIError(504, "tool_timeout", "Firecrawl extraction timed out", {
     hint: "Retry with fewer URLs or a narrower extraction schema.",
@@ -348,31 +363,10 @@ function assignContent<T extends object, K extends keyof T>(
   maxCharacters: number,
   limiter: CharacterLimiter,
 ): void {
-  const normalized = takeContent(value, maxCharacters, limiter);
+  const normalized = takeLimitedContent(value, maxCharacters, limiter);
   if (normalized !== undefined) {
     output[key] = normalized as T[K];
   }
-}
-
-function takeContent(
-  value: string | undefined,
-  maxCharacters: number,
-  limiter: CharacterLimiter,
-): string | undefined {
-  if (value === undefined) {
-    return undefined;
-  }
-  const allowed = Math.min(maxCharacters, limiter.remaining);
-  if (allowed <= 0 && value.length > 0) {
-    limiter.wasTruncated = true;
-    return undefined;
-  }
-  const normalized = value.slice(0, allowed);
-  limiter.remaining -= normalized.length;
-  if (normalized.length < value.length) {
-    limiter.wasTruncated = true;
-  }
-  return normalized;
 }
 
 function normalizeUrls(values: string[] | undefined, maxItems: number): string[] {
@@ -409,10 +403,6 @@ function normalizeUrl(value: string | undefined): string | undefined {
   } catch {
     return undefined;
   }
-}
-
-function createCharacterLimiter(): CharacterLimiter {
-  return { remaining: FIRECRAWL_OUTPUT_CONTENT_MAX_CHARACTERS, wasTruncated: false };
 }
 
 function combinedWarning(
@@ -468,8 +458,32 @@ function parseFirecrawlPayload<T>(schema: z.ZodType<T>, value: unknown): T {
   });
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function abortableDelay(milliseconds: number, abortSignal: AbortSignal | undefined): Promise<void> {
+  abortSignal?.throwIfAborted();
+  return new Promise((resolve, reject) => {
+    if (!abortSignal) {
+      setTimeout(resolve, milliseconds);
+      return;
+    }
+    const cleanup = () => abortSignal.removeEventListener("abort", onAbort);
+    const onAbort = () => {
+      clearTimeout(timeoutId);
+      cleanup();
+      reject(abortReason(abortSignal));
+    };
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, milliseconds);
+    abortSignal.addEventListener("abort", onAbort, { once: true });
+    if (abortSignal.aborted) {
+      onAbort();
+    }
+  });
+}
+
+function abortReason(signal: AbortSignal): unknown {
+  return signal.reason ?? new DOMException("Research polling was canceled", "AbortError");
 }
 
 const FirecrawlRawMetadataSchema = z

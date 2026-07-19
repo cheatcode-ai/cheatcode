@@ -3,10 +3,11 @@ import {
   DeleteFileOutputSchema,
   executeDeleteFile,
   executeGitClone,
-  executeGitCommit,
-  executeGitPush,
   executeGitStatus,
   executeListFiles,
+  executePreparedGitCommit,
+  executePreparedGitPush,
+  executePreparedStartDevServer,
   executeReadFile,
   executeRunCode,
   executeSearchFiles,
@@ -14,7 +15,6 @@ import {
   executeShellKillProcess,
   executeShellStartProcess,
   executeShellTerminal,
-  executeStartDevServer,
   executeWriteFile,
   GitCloneInputSchema,
   GitCommitInputSchema,
@@ -22,6 +22,9 @@ import {
   GitStatusInputSchema,
   ListFilesInputSchema,
   ListFilesOutputSchema,
+  prepareGitCommit,
+  prepareGitPush,
+  prepareStartDevServer,
   ReadFileInputSchema,
   ReadFileOutputSchema,
   RunCodeInputSchema,
@@ -39,8 +42,7 @@ import {
   WriteFileOutputSchema,
 } from "@cheatcode/tools-code";
 import { createTool } from "@mastra/core/tools";
-import { withApprovalGate } from "./approval-gate";
-import { codeRuntimeFromContext } from "./tool-runtime-context";
+import { codeRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 import { startDevServerInputSchema, startDevServerOutputSchema } from "./tool-schemas";
 
 export const mastraRunCode = createTool({
@@ -52,12 +54,7 @@ export const mastraRunCode = createTool({
   execute: async (input, context) => {
     const runtimeContext = codeRuntimeFromContext(context);
     const parsedInput = RunCodeInputSchema.parse(input);
-    const output = await withApprovalGate({
-      context,
-      execute: () => executeRunCode(parsedInput, runtimeContext),
-      input: parsedInput,
-      toolName: "runCode",
-    });
+    const output = await executeRunCode(parsedInput, runtimeContext);
     return RunCodeOutputSchema.parse(output);
   },
 });
@@ -65,17 +62,17 @@ export const mastraRunCode = createTool({
 export const mastraShellExec = createTool({
   id: "shell_exec",
   description:
-    "Run a shell command under /workspace in the project sandbox using argv form. Use for installs, builds, static checks, and deterministic CLI work.",
+    "Run a deterministic sandbox command in argv form. Omit cwd for projectless browser, skill-runtime, or environment-inspection commands. For any command that reads, creates, or changes persistent project files, set cwd to /workspace; that explicitly attaches the project and maps /workspace to its persistent folder.",
   inputSchema: ShellExecInputSchema,
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellExecInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeShellExec(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "shell_exec",
-    });
+    const baseRuntime = codeRuntimeFromContext(context);
+    const runtimeContext =
+      baseRuntime.workspaceDir || parsedInput.cwd
+        ? await workspaceRuntimeFromContext(context)
+        : { ...baseRuntime, workspaceDir: "/workspace" };
+    return executeShellExec(parsedInput, runtimeContext);
   },
 });
 
@@ -87,12 +84,8 @@ export const mastraShellStartProcess = createTool({
   outputSchema: ShellProcessOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellStartProcessInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeShellStartProcess(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "shell_start_process",
-    });
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executeShellStartProcess(parsedInput, runtimeContext);
   },
 });
 
@@ -101,15 +94,11 @@ export const mastraShellKillProcess = createTool({
   description: "Kill a named long-running sandbox process.",
   inputSchema: ShellKillProcessInputSchema,
   outputSchema: ShellKillProcessOutputSchema,
-  execute: async (input, context) => {
-    const parsedInput = ShellKillProcessInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeShellKillProcess(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "shell_kill_process",
-    });
-  },
+  execute: async (input, context) =>
+    executeShellKillProcess(
+      ShellKillProcessInputSchema.parse(input),
+      await workspaceRuntimeFromContext(context),
+    ),
 });
 
 export const mastraShellTerminal = createTool({
@@ -120,12 +109,8 @@ export const mastraShellTerminal = createTool({
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellTerminalInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeShellTerminal(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "shell_terminal",
-    });
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executeShellTerminal(parsedInput, runtimeContext);
   },
 });
 
@@ -135,7 +120,8 @@ export const mastraFsRead = createTool({
     "Read a file under /workspace in the project sandbox. Use fs_list first if unsure of paths.",
   inputSchema: ReadFileInputSchema,
   outputSchema: ReadFileOutputSchema,
-  execute: async (input, context) => executeReadFile(input, codeRuntimeFromContext(context)),
+  execute: async (input, context) =>
+    executeReadFile(input, await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraFsWrite = createTool({
@@ -144,7 +130,8 @@ export const mastraFsWrite = createTool({
     "Write a file under /workspace in the project sandbox. Use for code edits and generated files.",
   inputSchema: WriteFileInputSchema,
   outputSchema: WriteFileOutputSchema,
-  execute: async (input, context) => executeWriteFile(input, codeRuntimeFromContext(context)),
+  execute: async (input, context) =>
+    executeWriteFile(input, await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraFsList = createTool({
@@ -152,7 +139,8 @@ export const mastraFsList = createTool({
   description: "List files under /workspace in the project sandbox, optionally recursively.",
   inputSchema: ListFilesInputSchema,
   outputSchema: ListFilesOutputSchema,
-  execute: async (input, context) => executeListFiles(input, codeRuntimeFromContext(context)),
+  execute: async (input, context) =>
+    executeListFiles(input, await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraFsSearch = createTool({
@@ -160,7 +148,8 @@ export const mastraFsSearch = createTool({
   description: "Search file contents under /workspace in the project sandbox using ripgrep/grep.",
   inputSchema: SearchFilesInputSchema,
   outputSchema: SearchFilesOutputSchema,
-  execute: async (input, context) => executeSearchFiles(input, codeRuntimeFromContext(context)),
+  execute: async (input, context) =>
+    executeSearchFiles(input, await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraFsDelete = createTool({
@@ -170,12 +159,8 @@ export const mastraFsDelete = createTool({
   outputSchema: DeleteFileOutputSchema,
   execute: async (input, context) => {
     const parsedInput = DeleteFileInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeDeleteFile(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "fs_delete",
-    });
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executeDeleteFile(parsedInput, runtimeContext);
   },
 });
 
@@ -185,7 +170,7 @@ export const mastraGitStatus = createTool({
   inputSchema: GitStatusInputSchema,
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) =>
-    executeGitStatus(GitStatusInputSchema.parse(input), codeRuntimeFromContext(context)),
+    executeGitStatus(GitStatusInputSchema.parse(input), await workspaceRuntimeFromContext(context)),
 });
 
 export const mastraGitClone = createTool({
@@ -193,8 +178,11 @@ export const mastraGitClone = createTool({
   description: "Clone a git repository into a relative directory under /workspace.",
   inputSchema: GitCloneInputSchema,
   outputSchema: ShellExecOutputSchema,
-  execute: async (input, context) =>
-    executeGitClone(GitCloneInputSchema.parse(input), codeRuntimeFromContext(context)),
+  execute: async (input, context) => {
+    const parsedInput = GitCloneInputSchema.parse(input);
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executeGitClone(parsedInput, runtimeContext);
+  },
 });
 
 export const mastraGitCommit = createTool({
@@ -202,8 +190,11 @@ export const mastraGitCommit = createTool({
   description: "Create a git commit from all current sandbox repository changes under /workspace.",
   inputSchema: GitCommitInputSchema,
   outputSchema: ShellExecOutputSchema,
-  execute: async (input, context) =>
-    executeGitCommit(GitCommitInputSchema.parse(input), codeRuntimeFromContext(context)),
+  execute: async (input, context) => {
+    const parsedInput = GitCommitInputSchema.parse(input);
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executePreparedGitCommit(prepareGitCommit(parsedInput, runtimeContext), runtimeContext);
+  },
 });
 
 export const mastraGitPush = createTool({
@@ -213,12 +204,11 @@ export const mastraGitPush = createTool({
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
     const parsedInput = GitPushInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeGitPush(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "git_push",
-    });
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executePreparedGitPush(
+      await prepareGitPush(parsedInput, runtimeContext),
+      runtimeContext,
+    );
   },
 });
 
@@ -230,11 +220,10 @@ export const mastraStartDevServer = createTool({
   outputSchema: startDevServerOutputSchema,
   execute: async (input, context) => {
     const parsedInput = startDevServerInputSchema.parse(input);
-    return withApprovalGate({
-      context,
-      execute: () => executeStartDevServer(parsedInput, codeRuntimeFromContext(context)),
-      input: parsedInput,
-      toolName: "start_dev_server",
-    });
+    const runtimeContext = await workspaceRuntimeFromContext(context);
+    return executePreparedStartDevServer(
+      await prepareStartDevServer(parsedInput, runtimeContext),
+      runtimeContext,
+    );
   },
 });

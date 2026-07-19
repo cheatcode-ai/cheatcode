@@ -56,6 +56,7 @@ interface ProjectPickerMeta {
   optionsMenuId: string;
   optionsMenuRef: RefObject<HTMLDivElement | null>;
   searchInputRef: RefObject<HTMLInputElement | null>;
+  triggerId: string;
   triggerRef: RefObject<HTMLButtonElement | null>;
 }
 
@@ -80,7 +81,7 @@ export function useProjectPickerController({
     getNextPageParam: (page: CursorPage<ProjectSummary>) =>
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
     initialPageParam: null as string | null,
-    queryFn: ({ pageParam }) => listProjectsPage(getToken, pageParam),
+    queryFn: ({ pageParam, signal }) => listProjectsPage(getToken, pageParam, 25, signal),
     queryKey: ["sidebar-projects", "picker"],
     retry: false,
     staleTime: 30_000,
@@ -136,6 +137,7 @@ function useProjectPickerLocalState() {
     setPendingDelete,
     setPendingRename,
     setSearch,
+    triggerId: `project-picker-trigger-${reactId}`,
     triggerRef,
   };
 }
@@ -278,6 +280,7 @@ function createProjectPickerController({
       optionsMenuId: local.optionsMenuId,
       optionsMenuRef: local.optionsMenuRef,
       searchInputRef: local.searchInputRef,
+      triggerId: local.triggerId,
       triggerRef: local.triggerRef,
     },
     state: {

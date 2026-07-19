@@ -1,7 +1,12 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import type { CheatcodeUIMessage, ProjectSummary } from "@cheatcode/types";
+import {
+  CHEATCODE_DATA_SCHEMAS,
+  type CheatcodeUIMessage,
+  type ProjectSummary,
+  type Thread,
+} from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChatOnDataCallback, ChatStatus } from "ai";
@@ -22,11 +27,13 @@ import { useChatSubmission } from "@/components/chat/use-chat-submission";
 import type { OlderMessagesLoadResult } from "@/components/chat/use-message-list-scroll";
 import {
   applySandboxStatus,
+  isBrowserToolName,
   type SandboxStatusActions,
   useSandboxSurfaceSync,
 } from "@/components/chat/use-sandbox-surface-sync";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
+import { USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 
@@ -37,7 +44,9 @@ export interface ChatPanelProps {
   autoSubmitPrompt?: null | string | undefined;
   hasOlderMessages: boolean;
   initialMessages?: CheatcodeUIMessage[] | undefined;
+  initialRunIntent?: import("@cheatcode/types").RunIntent | null | undefined;
   isLoadingOlderMessages: boolean;
+  latestModelId: null | string;
   onLoadOlderMessages: () => Promise<CheatcodeUIMessage[]>;
   onSubmitDraft?: (() => void) | undefined;
   project: ProjectSummary | null;
@@ -126,6 +135,7 @@ function usePanelSubmission(
       getToken: runtime.getToken,
       hasReceivedStreamDataRef: runtime.hasReceivedStreamDataRef,
       hasSubmittedRef: runtime.hasSubmittedRef,
+      initialRunIntent: input.initialRunIntent ?? null,
       onSubmitDraft: input.onSubmitDraft,
       pendingSubmissionRef: runtime.pendingSubmissionRef,
       project: input.project,
@@ -141,6 +151,7 @@ function usePanelSubmission(
     [
       input.activeRunId,
       input.onSubmitDraft,
+      input.initialRunIntent,
       input.project,
       input.threadId,
       input.threadTitle,
@@ -200,7 +211,21 @@ function useChatPanelActions(
     (value: string) => runtime.store.setDraft(input.threadId, value),
     [input.threadId, runtime.store.setDraft],
   );
-  return { ...submission, loadOlderMessages: runtime.loadOlderMessages, setDraft, stopRun };
+  const appendMessage = useCallback(
+    (message: CheatcodeUIMessage) => {
+      runtime.chat.setMessages((messages) =>
+        messages.some((current) => current.id === message.id) ? messages : [...messages, message],
+      );
+    },
+    [runtime.chat.setMessages],
+  );
+  return {
+    ...submission,
+    appendMessage,
+    loadOlderMessages: runtime.loadOlderMessages,
+    setDraft,
+    stopRun,
+  };
 }
 
 function chatPanelState(input: ChatPanelProps, runtime: ReturnType<typeof useChatPanelRuntime>) {
@@ -301,10 +326,81 @@ function handleStreamData(
   input.hasReceivedStreamDataRef.current = true;
   input.pendingSubmissionRef.current = null;
   if (part.type === "data-seq") {
-    rememberStreamSeq(input.threadId, part.data.seq);
+    handleSequenceData(part.data, input.threadId);
   }
   if (part.type === "data-sandbox-status") {
-    applySandboxStatus(part.data, input.sandboxActions);
+    handleSandboxStatusData(part.data, input.sandboxActions);
+  }
+  if (part.type === "data-tool") {
+    handleToolData(part.data, input.sandboxActions);
+  }
+  if (part.type === "data-project-created") {
+    handleProjectCreatedData(part.data, input);
+  }
+  if (part.type === "data-skill-created") {
+    handleSkillCreatedData(part.data, input.queryClient);
+  }
+}
+
+function handleSequenceData(data: unknown, threadId: string): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS.seq.safeParse(data);
+  if (parsed.success) {
+    rememberStreamSeq(threadId, parsed.data.seq);
+  }
+}
+
+function handleSandboxStatusData(data: unknown, actions: SandboxStatusActions): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS["sandbox-status"].safeParse(data);
+  if (parsed.success) {
+    applySandboxStatus(parsed.data, actions);
+  }
+}
+
+function handleToolData(data: unknown, actions: SandboxStatusActions): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS.tool.safeParse(data);
+  if (parsed.success && isBrowserToolName(parsed.data.toolName)) {
+    actions.setActivePreviewTab("app");
+    actions.setPreviewPanelOpen(true);
+  }
+}
+
+function handleProjectCreatedData(
+  data: unknown,
+  input: Parameters<typeof useChatSession>[0],
+): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS["project-created"].safeParse(data);
+  if (parsed.success) {
+    handleProjectCreated(parsed.data.projectId, input);
+  }
+}
+
+function handleSkillCreatedData(
+  data: unknown,
+  queryClient: ReturnType<typeof useQueryClient>,
+): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS["skill-created"].safeParse(data);
+  if (parsed.success) {
+    void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
+  }
+}
+
+function handleProjectCreated(
+  projectId: string,
+  input: Parameters<typeof useChatSession>[0],
+): void {
+  input.queryClient.setQueryData<Thread>(["threads", input.threadId], (thread) =>
+    thread ? { ...thread, projectId } : thread,
+  );
+  input.sandboxActions.setActivePreviewTab("files");
+  input.sandboxActions.setPreviewPanelOpen(true);
+  for (const queryKey of [
+    ["threads", input.threadId],
+    ["projects", projectId],
+    ["sidebar-projects"],
+    ["sidebar-project-threads"],
+    ["sidebar-chats"],
+  ]) {
+    void input.queryClient.invalidateQueries({ queryKey });
   }
 }
 
@@ -317,6 +413,7 @@ function handleStreamFinish(isError: boolean, input: Parameters<typeof useChatSe
     ["threads", input.threadId],
     ["threads", input.threadId, "messages"],
     ["sidebar-chats"],
+    ["sidebar-projects"],
     ["sidebar-project-threads"],
   ]) {
     void input.queryClient.invalidateQueries({ queryKey });

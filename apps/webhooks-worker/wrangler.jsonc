@@ -4,9 +4,14 @@
   "workers_dev": false,
   "preview_urls": false,
   "main": "src/index.ts",
-  "compatibility_date": "2026-05-20",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
-  "version_metadata": { "binding": "CF_VERSION_METADATA" },
+  "limits": {
+    "subrequests": 10000
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
   "routes": [
     {
       "pattern": "webhooks.trycheatcode.com/*",
@@ -14,17 +19,22 @@
     }
   ],
   "triggers": {
-    "crons": ["*/5 * * * *", "20 0 * * *", "35 0 * * *"]
+    "crons": ["*/5 * * * *", "20 0 * * *"]
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
+    "CHEATCODE_RELEASE_GATE": "open",
     "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
     "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
-    "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e",
-    "R2_OUTPUTS_BUCKET_NAME": "cheatcode-outputs"
+    "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
   },
   "secrets_store_secrets": [
+    {
+      "binding": "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "database-context-signing-secret-webhooks"
+    },
     {
       "binding": "DAYTONA_WEBHOOK_SIGNING_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
@@ -61,9 +71,24 @@
       "secret_name": "internal-alert-webhook-secret"
     },
     {
-      "binding": "INTERNAL_MAINTENANCE_SECRET",
+      "binding": "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "internal-maintenance-secret"
+      "secret_name": "gateway-to-webhooks-resource-deletion-secret"
+    },
+    {
+      "binding": "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "webhooks-to-agent-lifecycle-secret"
+    },
+    {
+      "binding": "INTERNAL_WEBHOOK_REPLAY_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "internal-webhook-replay-secret"
+    },
+    {
+      "binding": "RELEASE_DATABASE_READINESS_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "release-database-readiness-secret"
     },
     {
       "binding": "POLAR_ACCESS_TOKEN",
@@ -74,18 +99,13 @@
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
-      "id": "b7cead054a6a4207a475b9544971f04a",
-      "localConnectionString": "postgresql://app_worker:app_worker@localhost:54322/postgres"
+      "id": "9473d6e6c3d24aa5b26d6f40d300cdc8"
     }
   ],
   "services": [
     {
       "binding": "AGENT",
       "service": "cheatcode-agent"
-    },
-    {
-      "binding": "GATEWAY",
-      "service": "cheatcode-gateway"
     }
   ],
   "durable_objects": {
@@ -93,6 +113,11 @@
       {
         "name": "WEBHOOK_IDEMPOTENCY",
         "class_name": "WebhookIdempotencyStore"
+      },
+      {
+        "name": "QUOTA_TRACKER",
+        "class_name": "QuotaTracker",
+        "script_name": "cheatcode-gateway"
       }
     ]
   },
@@ -108,13 +133,21 @@
       "binding": "WEBHOOK_WORKFLOW",
       "class_name": "WebhookWorkflow",
       "limits": {
-        "steps": 10
+        "steps": 25000
       }
     },
     {
       "name": "cheatcode-ops-maintenance",
       "binding": "OPS_WORKFLOW",
       "class_name": "OpsMaintenanceWorkflow",
+      "limits": {
+        "steps": 25000
+      }
+    },
+    {
+      "name": "cheatcode-resource-deletion",
+      "binding": "RESOURCE_DELETION_WORKFLOW",
+      "class_name": "ResourceDeletionWorkflow",
       "limits": {
         "steps": 25000
       }
@@ -127,7 +160,6 @@
       "preview_id": "9f160d052a5540f2a3aa70ced948c532"
     },
     {
-      // Daytona sandbox lifecycle cache (sandbox.state.updated webhook → preview-status endpoint).
       "binding": "SANDBOX_STATE",
       "id": "af927eb58bcc481c97e5bf5323fc2907",
       "preview_id": "af927eb58bcc481c97e5bf5323fc2907"
@@ -137,10 +169,6 @@
     {
       "binding": "R2_OUTPUTS",
       "bucket_name": "cheatcode-outputs"
-    },
-    {
-      "binding": "R2_UPLOADS",
-      "bucket_name": "cheatcode-uploads"
     }
   ],
   "analytics_engine_datasets": [

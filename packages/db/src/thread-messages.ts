@@ -1,4 +1,10 @@
-import { ThreadId, UIMessageRecordSchema, type UserId } from "@cheatcode/types";
+import {
+  type AgentRunId,
+  coalesceTranscriptSegmentParts,
+  ThreadId,
+  UIMessageRecordSchema,
+  type UserId,
+} from "@cheatcode/types";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { messageFromRow, messageReturningColumns } from "./project-mappers";
@@ -13,6 +19,13 @@ import { messages, threads } from "./schema";
 
 const THREAD_CONTEXT_MAX_MESSAGES = 64;
 const THREAD_CONTEXT_MAX_SERIALIZED_BYTES = 1024 * 1024;
+
+/** Serializes retries of one user-confirmed Skill Creator proposal. */
+export async function lockSkillProposal(db: Database, proposalId: string): Promise<void> {
+  await db.execute(
+    sql`select pg_advisory_xact_lock(hashtextextended(${`skill-proposal:${proposalId}`}, 0))`,
+  );
+}
 
 interface ThreadContextQueryInput {
   maxMessages: number;
@@ -38,12 +51,75 @@ export async function listThreadMessages(
       and(
         eq(messages.threadId, input.threadId),
         eq(messages.userId, input.userId),
+        completeAssistantTranscriptCondition(),
         messagePageCondition(input.cursor),
       ),
     )
-    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .orderBy(desc(messages.createdAt), desc(messages.agentRunSegment), desc(messages.id))
     .limit(boundedPageLimit(input.limit));
   return rows.map((row) => ({ ...messageFromRow(row), pageCursorAt: row.pageCursorAt }));
+}
+
+/** Reassembles the complete persisted assistant transcript for one run. */
+export async function getThreadAgentRunMessage(
+  db: Database,
+  input: { runId: AgentRunId; threadId: ThreadId; userId: UserId },
+): Promise<MessageRecord | null> {
+  const rows = await db
+    .select(messageReturningColumns())
+    .from(messages)
+    .where(
+      and(
+        eq(messages.agentRunId, input.runId),
+        eq(messages.threadId, input.threadId),
+        eq(messages.userId, input.userId),
+        eq(messages.role, "assistant"),
+      ),
+    )
+    .orderBy(messages.agentRunSegment, messages.id);
+  const first = rows[0];
+  if (!first) {
+    return null;
+  }
+  const parts = coalesceTranscriptSegmentParts(
+    rows.map((row) => ({
+      index: row.agentRunSegment,
+      isFinal: row.agentRunSegmentFinal,
+      parts: row.parts,
+    })),
+  );
+  if (!parts) {
+    return null;
+  }
+  return {
+    ...messageFromRow(first),
+    agentRunSegment: 0,
+    agentRunSegmentFinal: true,
+    parts,
+  };
+}
+
+/** Finds the deterministic confirmation message for a previously committed proposal. */
+export async function findSkillConfirmationMessage(
+  db: Database,
+  input: { proposalId: string; threadId: ThreadId; userId: UserId },
+): Promise<MessageRecord | null> {
+  const [row] = await db
+    .select(messageReturningColumns())
+    .from(messages)
+    .where(
+      and(
+        eq(messages.threadId, input.threadId),
+        eq(messages.userId, input.userId),
+        eq(messages.role, "assistant"),
+        sql`${messages.parts} @> ${JSON.stringify([
+          { data: { proposalId: input.proposalId }, type: "data-skill-created" },
+        ])}::jsonb`,
+      ),
+    )
+    .orderBy(desc(messages.createdAt), desc(messages.id))
+    .limit(1);
+  return row ? messageFromRow(row) : null;
 }
 
 /**
@@ -56,38 +132,60 @@ export async function listRecentThreadContextMessages(
 ): Promise<ThreadContextMessageRecord[]> {
   assertThreadContextLimits(input);
   const result = await db.execute(threadContextQuery(input));
-  return contextMessagesFromRows(result.rows);
+  return coalesceContextMessages(contextMessagesFromRows(result.rows));
 }
 
 function threadContextQuery(input: ThreadContextQueryInput) {
   return sql`
-    with newest as materialized (
-      select agent_run_id, created_at, id, parts, role, thread_id,
+    with physical as materialized (
+      select agent_run_id, agent_run_segment, agent_run_segment_final,
+        created_at, id, parts, role, thread_id,
+        coalesce(agent_run_id::text, id::text) as logical_id,
         octet_length(
           jsonb_build_object(
-            'agentRunId', agent_run_id, 'createdAt', created_at, 'id', id,
-            'parts', parts, 'role', role, 'threadId', thread_id
+            'agentRunId', agent_run_id,
+            'agentRunSegment', agent_run_segment,
+            'agentRunSegmentFinal', agent_run_segment_final,
+            'createdAt', created_at, 'id', id, 'parts', parts,
+            'role', role, 'threadId', thread_id
           )::text
         )::int as serialized_bytes
       from ${messages}
       where user_id = ${input.userId}
         and thread_id = ${input.threadId}
         and role in ('user', 'assistant')
-      order by created_at desc, id desc
+        and ${completeAssistantTranscriptCondition()}
+    ), logical as materialized (
+      select logical_id,
+        max(created_at) as logical_at,
+        sum(serialized_bytes)::bigint as logical_bytes
+      from physical
+      group by logical_id
+    ), candidates as materialized (
+      select logical_id, logical_at, logical_bytes
+      from logical
+      where logical_bytes <= ${input.maxSerializedBytes}
+      order by logical_at desc, logical_id desc
       limit ${input.maxMessages}
     ), sized as (
       select
         *,
-        sum(serialized_bytes) over (
-          order by created_at desc, id desc
+        sum(logical_bytes) over (
+          order by logical_at desc, logical_id desc
           rows between unbounded preceding and current row
         ) as cumulative_bytes
-      from newest
+      from candidates
+    ), selected as materialized (
+      select logical_id
+      from sized
+      where cumulative_bytes <= ${input.maxSerializedBytes}
     )
-    select agent_run_id, created_at, id, parts, role, serialized_bytes, thread_id
-    from sized
-    where cumulative_bytes <= ${input.maxSerializedBytes}
-    order by created_at asc, id asc
+    select physical.agent_run_id, physical.agent_run_segment,
+      physical.agent_run_segment_final, physical.created_at, physical.id,
+      physical.parts, physical.role, physical.serialized_bytes, physical.thread_id
+    from physical
+    join selected using (logical_id)
+    order by physical.created_at asc, physical.agent_run_segment asc, physical.id asc
   `;
 }
 
@@ -122,6 +220,8 @@ function contextMessagesFromRows(rows: unknown[]): ThreadContextMessageRecord[] 
     }
     const parsed = UIMessageRecordSchema.parse({
       agentRunId: value["agent_run_id"],
+      agentRunSegment: value["agent_run_segment"],
+      agentRunSegmentFinal: value["agent_run_segment_final"],
       createdAt: isoTimestamp(value["created_at"]),
       id: value["id"],
       parts: value["parts"],
@@ -137,6 +237,74 @@ function contextMessagesFromRows(rows: unknown[]): ThreadContextMessageRecord[] 
   });
 }
 
+interface ContextTranscriptSegment {
+  index: number;
+  isFinal: boolean;
+  parts: ThreadContextMessageRecord["parts"];
+  record: ThreadContextMessageRecord;
+}
+
+function coalesceContextMessages(
+  records: ThreadContextMessageRecord[],
+): ThreadContextMessageRecord[] {
+  const groups = assistantContextGroups(records);
+  const emitted = new Set<string>();
+  const output: ThreadContextMessageRecord[] = [];
+  for (const record of records) {
+    if (record.role !== "assistant" || !record.agentRunId) {
+      output.push(record);
+      continue;
+    }
+    if (emitted.has(record.agentRunId)) {
+      continue;
+    }
+    emitted.add(record.agentRunId);
+    const group = groups.get(record.agentRunId) ?? [];
+    const parts = coalesceTranscriptSegmentParts(group);
+    const first = group.find((segment) => segment.index === 0);
+    if (parts && first) {
+      output.push(coalescedContextMessage(record.agentRunId, first.record, group, parts));
+    }
+  }
+  return output;
+}
+
+function assistantContextGroups(
+  records: ThreadContextMessageRecord[],
+): Map<string, ContextTranscriptSegment[]> {
+  const groups = new Map<string, ContextTranscriptSegment[]>();
+  for (const record of records) {
+    if (record.role !== "assistant" || !record.agentRunId) {
+      continue;
+    }
+    const group = groups.get(record.agentRunId) ?? [];
+    group.push({
+      index: record.agentRunSegment,
+      isFinal: record.agentRunSegmentFinal,
+      parts: record.parts,
+      record,
+    });
+    groups.set(record.agentRunId, group);
+  }
+  return groups;
+}
+
+function coalescedContextMessage(
+  agentRunId: string,
+  first: ThreadContextMessageRecord,
+  group: ContextTranscriptSegment[],
+  parts: ThreadContextMessageRecord["parts"],
+): ThreadContextMessageRecord {
+  return {
+    ...first,
+    agentRunSegment: 0,
+    agentRunSegmentFinal: true,
+    id: agentRunId,
+    parts,
+    serializedBytes: group.reduce((sum, segment) => sum + segment.record.serializedBytes, 0),
+  };
+}
+
 function isoTimestamp(value: unknown): string {
   const timestamp = value instanceof Date ? value : new Date(String(value));
   if (Number.isNaN(timestamp.getTime())) {
@@ -150,9 +318,35 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function messagePageCondition(cursor: TimestampPageCursor | undefined) {
-  return cursor
-    ? sql`(${messages.createdAt} < ${cursor.at}::timestamptz or (${messages.createdAt} = ${cursor.at}::timestamptz and ${messages.id} < ${cursor.id}::uuid))`
-    : undefined;
+  if (!cursor) {
+    return undefined;
+  }
+  if (!Number.isSafeInteger(cursor.segment) || Number(cursor.segment) < 0) {
+    throw new RangeError("Message cursor is missing its transcript segment.");
+  }
+  return sql`(
+    ${messages.createdAt} < ${cursor.at}::timestamptz
+    or (
+      ${messages.createdAt} = ${cursor.at}::timestamptz
+      and (
+        ${messages.agentRunSegment} < ${cursor.segment}
+        or (${messages.agentRunSegment} = ${cursor.segment} and ${messages.id} < ${cursor.id}::uuid)
+      )
+    )
+  )`;
+}
+
+function completeAssistantTranscriptCondition() {
+  return sql<boolean>`(
+    ${messages.role} <> 'assistant'
+    or ${messages.agentRunId} is null
+    or exists (
+      select 1 from ${messages} as final_segment
+      where final_segment.agent_run_id = ${messages.agentRunId}
+        and final_segment.role = 'assistant'
+        and final_segment.agent_run_segment_final
+    )
+  )`;
 }
 
 function boundedPageLimit(limit: number): number {
@@ -179,16 +373,28 @@ async function createThreadMessageLocked(
   if (!row) {
     return requireIdempotentAssistantMessage(db, input);
   }
-  await db
-    .update(threads)
-    .set({ updatedAt: sql`now()` })
-    .where(and(eq(threads.id, input.threadId), eq(threads.userId, input.userId)));
+  if (input.role !== "assistant" || input.agentRunSegmentFinal !== false) {
+    await db
+      .update(threads)
+      .set({
+        updatedAt:
+          input.createdAt === undefined
+            ? sql`now()`
+            : sql`greatest(${threads.updatedAt}, ${input.createdAt})`,
+      })
+      .where(and(eq(threads.id, input.threadId), eq(threads.userId, input.userId)));
+  }
   return messageFromRow(row);
 }
 
 async function insertThreadMessage(db: Database, input: CreateMessageInput) {
   const insert = db.insert(messages).values({
     ...(input.agentRunId ? { agentRunId: input.agentRunId } : {}),
+    ...(input.agentRunSegment === undefined ? {} : { agentRunSegment: input.agentRunSegment }),
+    ...(input.agentRunSegmentFinal === undefined
+      ? {}
+      : { agentRunSegmentFinal: input.agentRunSegmentFinal }),
+    ...(input.createdAt === undefined ? {} : { createdAt: input.createdAt }),
     parts: input.parts,
     role: input.role,
     threadId: input.threadId,
@@ -228,21 +434,39 @@ async function findIdempotentAssistantMessage(
   db: Database,
   input: CreateMessageInput & { agentRunId: NonNullable<CreateMessageInput["agentRunId"]> },
 ): Promise<MessageRecord | null> {
-  const identity = `cheatcode:assistant-message:${input.agentRunId}`;
+  const segment = input.agentRunSegment ?? 0;
+  const identity = `cheatcode:assistant-message:${input.agentRunId}:${segment}`;
   await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);
   const [row] = await db
     .select({
       ...messageReturningColumns(),
+      createdAtMatch:
+        input.createdAt === undefined
+          ? sql<boolean>`true`
+          : sql<boolean>`${messages.createdAt} = ${input.createdAt}`,
+      finalMatch: sql<boolean>`${messages.agentRunSegmentFinal} = ${input.agentRunSegmentFinal ?? true}`,
       partsMatch: sql<boolean>`${messages.parts} = ${JSON.stringify(input.parts)}::jsonb`,
       userId: messages.userId,
     })
     .from(messages)
-    .where(and(eq(messages.agentRunId, input.agentRunId), eq(messages.role, "assistant")))
+    .where(
+      and(
+        eq(messages.agentRunId, input.agentRunId),
+        eq(messages.agentRunSegment, segment),
+        eq(messages.role, "assistant"),
+      ),
+    )
     .limit(1);
   if (!row) {
     return null;
   }
-  if (row.threadId !== input.threadId || row.userId !== input.userId || !row.partsMatch) {
+  if (
+    row.threadId !== input.threadId ||
+    row.userId !== input.userId ||
+    !row.createdAtMatch ||
+    !row.finalMatch ||
+    !row.partsMatch
+  ) {
     throw new Error(`Assistant message conflict for agent run ${input.agentRunId}`);
   }
   return messageFromRow(row);

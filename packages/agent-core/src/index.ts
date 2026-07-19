@@ -1,3 +1,4 @@
+export type { AgentChunkType } from "@mastra/core/stream";
 export { mastra } from "./mastra";
 export type { LlmProvider, LlmTransportSelection } from "./mastra/agents";
 export {
@@ -14,11 +15,5 @@ export type {
   UserSkillDefinition,
   UserSkillLoader,
   UserSkillRuntime,
-  UserSkillStore,
 } from "./mastra/system-prompt";
-export type {
-  ApprovalBroker,
-  ApprovalRequestInput,
-  RunDecision,
-} from "./mastra/tools/approval-context";
 export { createCodeRequestContext } from "./mastra/tools/request-context";

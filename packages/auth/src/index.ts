@@ -7,8 +7,22 @@ import { TokenVerificationError } from "@clerk/backend/errors";
 import { decodeJwt, verifyJwt } from "@clerk/backend/jwt";
 import { z } from "zod";
 
-export { hmacSha256Base64, timingSafeEqual } from "./crypto";
+export { readCookieValue } from "./cookies";
 export {
+  assertDistinctHmacSecrets,
+  assertHmacSecretStrength,
+  hmacSha256Base64,
+  MINIMUM_HMAC_SECRET_UTF8_BYTES,
+  timingSafeEqual,
+} from "./crypto";
+export type {
+  InternalMaintenanceAudience,
+  InternalMaintenanceCapability,
+  InternalMaintenanceEnvelopeExpectation,
+  InternalMaintenanceIssuer,
+} from "./internal-maintenance";
+export {
+  assertInternalMaintenanceEnvelope,
   createInternalMaintenanceHeaders,
   verifyInternalMaintenanceRequest,
 } from "./internal-maintenance";
@@ -26,10 +40,22 @@ export {
   PreviewCapabilityError,
   verifyPreviewCapability,
 } from "./preview-capability";
+export type {
+  SkillRuntimeScope,
+  VerifiedSkillRuntimeCapability,
+} from "./skill-runtime-capability";
+export {
+  mintSkillRuntimeCapability,
+  SKILL_RUNTIME_CAPABILITY_MAX_TTL_MS,
+  SkillRuntimeCapabilityError,
+  SkillRuntimeScopeSchema,
+  verifySkillRuntimeCapability,
+} from "./skill-runtime-capability";
 
 const CLERK_API_URL = "https://api.clerk.com/v1";
 const CLERK_API_VERSION = "2026-05-12";
 const CLERK_REQUEST_TIMEOUT_MS = 10_000;
+const CLERK_INSTANCE_RESPONSE_MAX_BYTES = 64 * 1024;
 const CLERK_USER_RESPONSE_MAX_BYTES = 512 * 1024;
 const CLERK_JWKS_RESPONSE_MAX_BYTES = 64 * 1024;
 const CLERK_ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
@@ -47,6 +73,18 @@ export interface VerifiedClerkSession {
 export interface ClerkPrimaryEmailStatus {
   email: string | null;
   verified: boolean;
+}
+
+export interface ClerkUserSyncSnapshot {
+  avatarUrl: string | null;
+  clerkUpdatedAtMs: number;
+  displayName: string | null;
+  email: string | null;
+}
+
+export interface ClerkInstanceIdentity {
+  environmentType: "development" | "production";
+  instanceId: string;
 }
 
 function getBearerToken(request: Request): string {
@@ -131,10 +169,44 @@ const ClerkEmailResourceSchema = z
 
 const ClerkUserResourceSchema = z
   .object({
+    first_name: z.string().max(1_024).nullable().optional(),
+    image_url: z.string().max(4_096).nullable().optional(),
+    last_name: z.string().max(1_024).nullable().optional(),
     primary_email_address_id: z.string().max(500).nullable().optional(),
     email_addresses: z.array(ClerkEmailResourceSchema).max(100).optional(),
+    updated_at: z.number().int().safe().nonnegative().optional(),
+    username: z.string().max(1_024).nullable().optional(),
   })
   .strip();
+
+const ClerkUserSyncResourceSchema = ClerkUserResourceSchema.required({
+  updated_at: true,
+});
+
+const ClerkInstanceResourceSchema = z
+  .object({
+    environment_type: z.enum(["development", "production"]),
+    id: z.string().min(1).max(500),
+  })
+  .strip();
+
+/** Resolve the non-secret identity of the Clerk instance owning a Backend API key. */
+export async function fetchClerkInstanceIdentity(input: {
+  secretKey: string;
+}): Promise<ClerkInstanceIdentity> {
+  const response = await clerkApiRequest(input.secretKey, "/instance", { method: "GET" });
+  const instance = ClerkInstanceResourceSchema.parse(
+    await readBoundedResponseJson(
+      response,
+      CLERK_INSTANCE_RESPONSE_MAX_BYTES,
+      "Clerk instance API",
+    ),
+  );
+  return {
+    environmentType: instance.environment_type,
+    instanceId: instance.id,
+  };
+}
 
 function primaryEmailStatusFromClerkUserResource(user: unknown): ClerkPrimaryEmailStatus {
   const parsed = ClerkUserResourceSchema.safeParse(user);
@@ -149,11 +221,25 @@ function primaryEmailStatusFromClerkUserResource(user: unknown): ClerkPrimaryEma
   };
 }
 
-export async function fetchClerkUserPrimaryEmail(input: {
-  clerkUserId: string;
-  secretKey: string;
-}): Promise<string | null> {
-  return (await fetchClerkUserPrimaryEmailStatus(input)).email;
+function displayNameFromClerkUserResource(
+  user: z.infer<typeof ClerkUserSyncResourceSchema>,
+): string | null {
+  const fullName = [user.first_name, user.last_name]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join(" ");
+  return fullName || user.username?.trim() || null;
+}
+
+function syncSnapshotFromClerkUserResource(user: unknown): ClerkUserSyncSnapshot {
+  const parsed = ClerkUserSyncResourceSchema.parse(user);
+  const imageUrl = parsed.image_url?.trim();
+  return {
+    avatarUrl: imageUrl || null,
+    clerkUpdatedAtMs: parsed.updated_at,
+    displayName: displayNameFromClerkUserResource(parsed),
+    email: primaryEmailStatusFromClerkUserResource(parsed).email,
+  };
 }
 
 export async function fetchClerkUserPrimaryEmailStatus(input: {
@@ -169,6 +255,22 @@ export async function fetchClerkUserPrimaryEmailStatus(input: {
     "Clerk user API",
   );
   return primaryEmailStatusFromClerkUserResource(user);
+}
+
+/** Read the canonical identity fields required for a monotonic database sync. */
+export async function fetchClerkUserSyncSnapshot(input: {
+  clerkUserId: string;
+  secretKey: string;
+}): Promise<ClerkUserSyncSnapshot> {
+  const response = await clerkApiRequest(input.secretKey, clerkUserPath(input.clerkUserId), {
+    method: "GET",
+  });
+  const user = await readBoundedResponseJson(
+    response,
+    CLERK_USER_RESPONSE_MAX_BYTES,
+    "Clerk user API",
+  );
+  return syncSnapshotFromClerkUserResource(user);
 }
 
 export interface UpdateClerkUserPublicMetadataInput {

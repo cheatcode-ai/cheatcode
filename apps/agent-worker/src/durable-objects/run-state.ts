@@ -11,5 +11,5 @@ export function parseLastSeqParam(value: string | null): number | null {
 }
 
 export function hasActiveRun(status: string | undefined): boolean {
-  return status === "running" || status === "paused";
+  return status === "running";
 }

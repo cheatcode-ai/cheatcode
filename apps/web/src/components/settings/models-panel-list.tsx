@@ -1,5 +1,5 @@
+import { ChevronDown, Loader2 } from "@cheatcode/ui";
 import type { ReactNode } from "react";
-import { ChevronDown, Loader2 } from "@/components/ui/icons";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import { cn } from "@/lib/ui/cn";
 import {

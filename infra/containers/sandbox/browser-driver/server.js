@@ -2,23 +2,34 @@ import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { Stagehand } from "@browserbasehq/stagehand";
+import {
+  installBrowserConnectionGuard,
+  installOriginInterceptor,
+} from "./origin-guard.js";
 
-const DEFAULT_MODEL = "anthropic/claude-sonnet-4-6";
 const BOOTSTRAP_TIMEOUT_MS = 30_000;
 const MAX_BOOTSTRAP_BYTES = 64_000;
 const MAX_LIFETIME_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 500_000;
 const MAX_PENDING_ACTION_BATCHES = 8;
-const MAX_RESPONSE_BYTES = 10 * 1024 * 1024;
+const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024 * 1024;
+// An 8 MiB PNG expands to roughly 10.7 MiB as base64 before JSON framing.
+const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
-const REQUEST_TIMEOUT_MS = 11 * 60 * 1000;
+const REQUEST_BODY_TIMEOUT_MS = 30 * 1000;
 const bootstrap = await readBootstrapConfig();
 const PORT = bootstrap.port;
-const MODEL_NAME = bootstrap.modelName || DEFAULT_MODEL;
+const MODEL_NAME = bootstrap.modelName;
 const MODEL_API_KEY = bootstrap.modelApiKey;
 const CREDENTIAL_FINGERPRINT = bootstrap.credentialFingerprint;
 const DRIVER_TOKEN = bootstrap.driverToken;
 const RUN_ID = bootstrap.runId;
+const PROVIDER_API_HOSTNAME = providerApiHostname(MODEL_NAME);
+
+// Stagehand's current AI SDK line has no patched release for GHSA-866g-f22w-33x8.
+// Bound buffered model responses here and keep its provider fetches on the exact
+// selected API host; browser navigation uses Chromium and is unaffected.
+installBoundedProviderFetch();
 
 for (const name of [
   "ANTHROPIC_API_KEY",
@@ -35,6 +46,76 @@ for (const name of [
 let stagehandPromise;
 let actionQueue = Promise.resolve();
 let pendingActionBatches = 0;
+
+function installBoundedProviderFetch() {
+  const upstreamFetch = globalThis.fetch.bind(globalThis);
+  globalThis.fetch = async (input, init) => {
+    assertProviderRequestUrl(input);
+    const response = await upstreamFetch(input, { ...init, redirect: "manual" });
+    if (response.status >= 300 && response.status < 400) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("Browser model provider redirects are not allowed");
+    }
+    if (!response.body || isStreamingResponse(response)) {
+      return response;
+    }
+    await rejectOversizedDeclaredResponse(response);
+    return new Response(limitProviderResponseBody(response.body), response);
+  };
+}
+
+function assertProviderRequestUrl(input) {
+  const url = new URL(input instanceof Request ? input.url : input);
+  if (
+    url.protocol !== "https:" ||
+    url.hostname !== PROVIDER_API_HOSTNAME ||
+    url.port ||
+    url.username ||
+    url.password
+  ) {
+    throw new Error("Browser model request was outside its provider API boundary");
+  }
+}
+
+function providerApiHostname(modelName) {
+  const provider = modelName.split("/", 1)[0];
+  if (provider === "anthropic") return "api.anthropic.com";
+  if (provider === "google") return "generativelanguage.googleapis.com";
+  if (provider === "openai") return "api.openai.com";
+  throw new Error("Browser model provider is unsupported");
+}
+
+function isStreamingResponse(response) {
+  const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
+  return contentType === "text/event-stream" || contentType === "application/x-ndjson";
+}
+
+async function rejectOversizedDeclaredResponse(response) {
+  const rawLength = response.headers.get("content-length");
+  const length = rawLength ? Number(rawLength) : 0;
+  if (Number.isSafeInteger(length) && length > MAX_PROVIDER_RESPONSE_BYTES) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Provider response exceeded the non-streaming response safety limit");
+  }
+}
+
+function limitProviderResponseBody(body) {
+  let receivedBytes = 0;
+  return body.pipeThrough(
+    new TransformStream({
+      transform(chunk, controller) {
+        receivedBytes += chunk.byteLength;
+        if (receivedBytes > MAX_PROVIDER_RESPONSE_BYTES) {
+          controller.error(
+            new Error("Provider response exceeded the non-streaming response safety limit"),
+          );
+          return;
+        }
+        controller.enqueue(chunk);
+      },
+    }),
+  );
+}
 
 async function readBootstrapConfig() {
   const input = createInterface({ input: process.stdin, crlfDelay: Infinity });
@@ -72,8 +153,7 @@ function validateBootstrapConfig(value) {
     value.port >= 1_024 &&
     value.port <= 65_535 &&
     typeof value.modelName === "string" &&
-    value.modelName.length > 0 &&
-    value.modelName.length <= 200 &&
+    /^(?:anthropic|google|openai)\/[A-Za-z0-9][A-Za-z0-9._:/-]{0,188}$/u.test(value.modelName) &&
     typeof value.modelApiKey === "string" &&
     value.modelApiKey.length > 0 &&
     value.modelApiKey.length <= 32_000 &&
@@ -101,7 +181,7 @@ class RequestError extends Error {
 }
 
 function modelConfig() {
-  return MODEL_API_KEY ? { apiKey: MODEL_API_KEY, modelName: MODEL_NAME } : MODEL_NAME;
+  return { apiKey: MODEL_API_KEY, modelName: MODEL_NAME };
 }
 
 function createStagehand() {
@@ -131,6 +211,7 @@ async function initializeStagehand() {
   const stagehand = createStagehand();
   try {
     await stagehand.init();
+    await installBrowserConnectionGuard(stagehand.context);
     return stagehand;
   } catch (error) {
     await stagehand.close({ force: true }).catch(() => undefined);
@@ -168,12 +249,7 @@ async function runAction(stagehand, action) {
     return { type: action.type, url: page.url() };
   }
   if (action.type === "act") {
-    const result = await stagehand.act(action.instruction, {
-      page,
-      timeout: action.timeoutMs || 10000,
-    });
-    const activePage = await stagehand.context.awaitActivePage();
-    return { result, type: action.type, url: activePage.url() };
+    return runGuardedAct(stagehand, page, action);
   }
   if (action.type === "observe") {
     const result = await stagehand.observe(action.instruction, { page });
@@ -196,6 +272,64 @@ async function runAction(stagehand, action) {
     type: action.type,
     url: page.url(),
   };
+}
+
+async function runGuardedAct(stagehand, page, action) {
+  assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
+  let failure;
+  let originInterceptor;
+  let response;
+  try {
+    originInterceptor = await installOriginInterceptor(stagehand, action.allowedOrigin);
+    await originInterceptor.assertHealthy();
+    assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
+    const result = await stagehand.act(action.instruction, {
+      page,
+      timeout: action.timeoutMs || 10000,
+    });
+    await originInterceptor.assertHealthy();
+    const activePage = await stagehand.context.awaitActivePage();
+    assertAllowedBrowserOrigin(activePage.url(), action.allowedOrigin);
+    response = { result, type: action.type, url: activePage.url() };
+  } catch (error) {
+    failure = error;
+  }
+  if (originInterceptor) {
+    try {
+      await originInterceptor.close();
+    } catch (error) {
+      failure ??= error;
+    }
+  }
+  if (failure) {
+    await discardStagehand(stagehand);
+    throw failure;
+  }
+  return response;
+}
+
+async function discardStagehand(stagehand) {
+  stagehandPromise = undefined;
+  await stagehand.close({ force: true }).catch(() => undefined);
+}
+
+function assertExpectedBrowserTarget(actualUrl, expectedUrl, allowedOrigin) {
+  if (actualUrl !== expectedUrl) {
+    throw new RequestError(409, "Browser page changed before the bound action");
+  }
+  assertAllowedBrowserOrigin(actualUrl, allowedOrigin);
+}
+
+function assertAllowedBrowserOrigin(actualUrl, allowedOrigin) {
+  let actual;
+  try {
+    actual = new URL(actualUrl);
+  } catch {
+    throw new RequestError(409, "Browser page has an invalid action origin");
+  }
+  if (actual.origin !== allowedOrigin) {
+    throw new RequestError(409, "Browser action crossed its bound origin");
+  }
 }
 
 function runActionsSerialized(actions) {
@@ -273,6 +407,11 @@ function validateAction(action) {
   }
   if (action.type === "act") {
     assertInstruction(action.instruction);
+    const expectedUrl = assertHttpUrl(action.expectedUrl);
+    const allowedOrigin = assertHttpUrl(action.allowedOrigin);
+    if (allowedOrigin.href !== `${allowedOrigin.origin}/` || expectedUrl.origin !== allowedOrigin.origin) {
+      throw new RequestError(400, "Browser action origin guard is invalid");
+    }
     if (
       action.timeoutMs !== undefined &&
       (!Number.isInteger(action.timeoutMs) || action.timeoutMs < 1 || action.timeoutMs > 120_000)
@@ -307,6 +446,10 @@ function assertHttpUrl(value) {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new RequestError(400, "Browser navigation only supports HTTP and HTTPS");
   }
+  if (url.username || url.password) {
+    throw new RequestError(400, "Browser navigation URL cannot contain credentials");
+  }
+  return url;
 }
 
 function assertInstruction(value) {
@@ -346,6 +489,13 @@ const server = createServer(async (request, response) => {
       return;
     }
 
+    if (request.method === "GET" && request.url === "/state") {
+      const stagehand = await stagehandInstance();
+      const page = await stagehand.context.awaitActivePage();
+      jsonResponse(response, 200, { ok: true, url: page.url() });
+      return;
+    }
+
     if (request.method === "POST" && request.url === "/actions") {
       const rawBody = await readBody(request);
       const actions = parseActionsInput(rawBody);
@@ -365,7 +515,7 @@ const server = createServer(async (request, response) => {
 });
 
 server.listen(PORT, "0.0.0.0");
-server.requestTimeout = REQUEST_TIMEOUT_MS;
+server.requestTimeout = REQUEST_BODY_TIMEOUT_MS;
 server.headersTimeout = 10_000;
 server.keepAliveTimeout = 5_000;
 const lifetimeTimer = setTimeout(() => void shutdown(), bootstrap.expiresAtMs - Date.now());

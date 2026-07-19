@@ -2,6 +2,7 @@ export type {
   DaytonaFileInfo,
   DaytonaSandbox,
   DaytonaSessionExecResponse,
+  DaytonaVolume,
   SandboxDestroyResult,
 } from "./daytona-client";
 export { DaytonaApiError, DaytonaClient } from "./daytona-client";
@@ -23,17 +24,29 @@ export {
   WriteFileInputSchema,
   WriteFileOutputSchema,
 } from "./files";
+export type { PreparedGitCommit, PreparedGitPush } from "./git";
 export {
   executeGitClone,
-  executeGitCommit,
-  executeGitPush,
   executeGitStatus,
+  executePreparedGitCommit,
+  executePreparedGitPush,
   GitCloneInputSchema,
   GitCommitInputSchema,
   GitPushInputSchema,
   GitStatusInputSchema,
+  prepareGitCommit,
+  prepareGitPush,
 } from "./git";
-export { executeStartDevServer } from "./preview";
+export type {
+  PreparedStartDevServer,
+  StartDevServerInput,
+  StartDevServerOutput,
+} from "./preview";
+export {
+  executePreparedStartDevServer,
+  executeStartDevServer,
+  prepareStartDevServer,
+} from "./preview";
 export type { RunCodeInput, RunCodeOutput } from "./run-code";
 export { executeRunCode, RunCodeInputSchema, RunCodeOutputSchema } from "./run-code";
 export {

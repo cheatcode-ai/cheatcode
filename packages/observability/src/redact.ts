@@ -28,7 +28,7 @@ export function redactSecrets<T>(value: T): T {
   }
 
   if (value && typeof value === "object") {
-    const redacted: Record<string, unknown> = {};
+    const redacted: Record<string, unknown> = Object.create(null) as Record<string, unknown>;
     for (const [key, item] of Object.entries(value)) {
       if (/password|token|auth|secret|key|sig/i.test(key)) {
         redacted[key] = "[REDACTED]";

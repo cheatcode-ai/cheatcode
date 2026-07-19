@@ -17,9 +17,10 @@ export interface ModelMenuController {
     menuRef: RefObject<HTMLDivElement | null>;
   };
   state: {
-    activeOption: AgentModelOption;
+    displayOption: AgentModelOption;
     disabledModels: readonly string[];
     isOpen: boolean;
+    selectedOption: AgentModelOption;
     shouldRender: boolean;
   };
 }
@@ -27,9 +28,11 @@ export interface ModelMenuController {
 export function useModelMenuController({
   onOpenChange,
   open,
+  resolvedModelId,
 }: {
   onOpenChange?: ((open: boolean) => void) | undefined;
   open?: boolean | undefined;
+  resolvedModelId?: null | string | undefined;
 }): ModelMenuController {
   const agentModelId = useAppStore((state) => state.agentModelId);
   const setAgentModelId = useAppStore((state) => state.setAgentModelId);
@@ -40,6 +43,12 @@ export function useModelMenuController({
   const isOpen = open ?? internalOpen;
   const setIsOpen = onOpenChange ?? setInternalOpen;
   const shouldRender = useMenuPresence(isOpen);
+  const selectedOption = agentModelOption(agentModelId);
+  const resolvedOption = resolvedModelId ? agentModelOption(resolvedModelId) : null;
+  const displayOption =
+    agentModelId === "auto" && resolvedOption && resolvedOption.id !== "auto"
+      ? resolvedOption
+      : selectedOption;
   useDismissModelMenu({ isOpen, menuRef, setIsOpen });
   return {
     actions: {
@@ -51,7 +60,7 @@ export function useModelMenuController({
       toggle: () => setIsOpen(!isOpen),
     },
     meta: { menuId, menuRef },
-    state: { activeOption: agentModelOption(agentModelId), disabledModels, isOpen, shouldRender },
+    state: { displayOption, disabledModels, isOpen, selectedOption, shouldRender },
   };
 }
 

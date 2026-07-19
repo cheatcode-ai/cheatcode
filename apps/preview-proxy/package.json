@@ -7,7 +7,7 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "dev": "wrangler dev --var CHEATCODE_ENVIRONMENT:development",
+    "deploy": "wrangler deploy",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

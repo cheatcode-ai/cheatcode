@@ -1,16 +1,16 @@
 import type { Provider, UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
-import { and, asc, eq, gt, isNull, or, sql } from "drizzle-orm";
-import { clerkIdentityHash, lockClerkIdentity } from "./clerk-identity";
+import { and, asc, eq, gt, gte, isNull, sql } from "drizzle-orm";
+import { clerkIdentityHash } from "./clerk-identity";
 import { type Database, withUserContext } from "./client";
 import {
   agentRuns,
-  billingEvents,
-  deletedClerkIdentities,
+  artifactUploadIntents,
   entitlements,
   projects,
   providerKeys,
   threads,
+  userDeletionRefundIntents,
   userIntegrations,
   users,
 } from "./schema";
@@ -32,15 +32,27 @@ export interface UserDeletionPage {
 
 export interface ProviderKeyRevalidationTarget {
   fingerprint: string;
+  leaseToken: string;
   provider: string;
   userId: UserId;
 }
 
-export interface DisableProviderKeyInput {
+export interface CompleteCurrentProviderKeyRevalidationInput {
+  expectedFingerprint: string;
+  expectedLeaseToken: string;
+  provider: Provider;
+  userId: UserId;
+}
+
+export interface DisableCurrentProviderKeyInput {
+  expectedFingerprint: string;
+  expectedLeaseToken: string;
   provider: Provider;
   reason: string;
   userId: UserId;
 }
+
+const PROVIDER_KEY_REVALIDATION_PAGE_SIZE = 10;
 
 export async function loadUserDeletionContext(
   db: Database,
@@ -183,46 +195,35 @@ export async function hardDeleteUserV2Data(
   deletionFence: string,
   identityHash: string,
 ): Promise<boolean> {
-  if (await hasDeletedClerkIdentity(db, identityHash)) {
-    return false;
-  }
-  await requireClaimedUserDeletion(db, userId, deletionFence);
-  await purgeUserProviderKeySecrets(db, userId);
-
-  await withUserContext(db, userId, (tx) =>
-    tx.execute(sql`select public.scrub_current_user_audit()`),
-  );
-
-  await db
-    .update(billingEvents)
-    .set({
-      payload: sql`jsonb_build_object('scrubbed', true, 'scrubbed_at', now())`,
-      userId: null,
-    })
-    .where(eq(billingEvents.userId, userId));
-
-  return finalizeUserDeletion(db, userId, deletionFence, identityHash);
-}
-
-/** Atomically enter the irreversible phase for one exact soft-delete generation. */
-export async function claimUserDeletion(
-  db: Database,
-  userId: UserId,
-  deletionMarkedAt: Date,
-  deletionFence: string,
-): Promise<boolean> {
-  const rows = await db
-    .update(users)
-    .set({ deletionFence, updatedAt: sql`now()` })
-    .where(
-      and(
-        eq(users.id, userId),
-        eq(users.deletedAt, deletionMarkedAt),
-        or(isNull(users.deletionFence), eq(users.deletionFence, deletionFence)),
+  return withUserContext(db, userId, async (tx) => {
+    await requireClaimedUserDeletion(tx, userId, deletionFence);
+    const pendingUpload = await tx.query.artifactUploadIntents.findFirst({
+      columns: { id: true },
+      where: eq(artifactUploadIntents.userId, userId),
+    });
+    if (pendingUpload) {
+      throw new Error("Account deletion refused while artifact upload intents remain");
+    }
+    const unresolvedRefund = await tx.query.userDeletionRefundIntents.findFirst({
+      columns: { jobId: true },
+      where: and(
+        eq(userDeletionRefundIntents.userId, userId),
+        sql`${userDeletionRefundIntents.providerStatus} is distinct from 'succeeded'`,
       ),
-    )
-    .returning({ id: users.id });
-  return rows.length > 0;
+    });
+    if (unresolvedRefund) {
+      throw new Error("Account deletion refused while a refund intent remains unresolved");
+    }
+    await tx.execute(sql`select delete_all_provider_keys()`);
+    await tx.execute(sql`select public.scrub_current_user_audit()`);
+    const result = await tx.execute(sql`
+      select public.webhooks_finalize_current_user_deletion(
+        ${deletionFence},
+        ${identityHash}
+      ) as finalized
+    `);
+    return result.rows[0]?.["finalized"] === true;
+  });
 }
 
 async function requireClaimedUserDeletion(
@@ -239,42 +240,6 @@ async function requireClaimedUserDeletion(
   }
 }
 
-async function hasDeletedClerkIdentity(db: Database, identityHash: string): Promise<boolean> {
-  const row = await db.query.deletedClerkIdentities.findFirst({
-    columns: { clerkIdentityHash: true },
-    where: eq(deletedClerkIdentities.clerkIdentityHash, identityHash),
-  });
-  return Boolean(row);
-}
-
-async function finalizeUserDeletion(
-  db: Database,
-  userId: UserId,
-  deletionFence: string,
-  identityHash: string,
-): Promise<boolean> {
-  return db.transaction(async (transaction) => {
-    const tx = transaction as Database;
-    await lockClerkIdentity(tx, identityHash);
-    if (await hasDeletedClerkIdentity(tx, identityHash)) {
-      return false;
-    }
-    await requireClaimedUserDeletion(tx, userId, deletionFence);
-    await tx
-      .insert(deletedClerkIdentities)
-      .values({ clerkIdentityHash: identityHash })
-      .onConflictDoNothing();
-    const rows = await tx
-      .delete(users)
-      .where(and(eq(users.id, userId), eq(users.deletionFence, deletionFence)))
-      .returning({ id: users.id });
-    if (rows.length !== 1) {
-      throw new Error("Claimed user deletion did not remove exactly one user");
-    }
-    return true;
-  });
-}
-
 export async function purgeUserProviderKeySecrets(db: Database, userId: UserId): Promise<number> {
   const result = await withUserContext(db, userId, (tx) =>
     tx.execute(sql`select delete_all_provider_keys() as deleted_count`),
@@ -283,43 +248,73 @@ export async function purgeUserProviderKeySecrets(db: Database, userId: UserId):
   return Number(row?.deleted_count ?? 0);
 }
 
-export async function listProviderKeyRevalidationTargets(
+export async function claimProviderKeyRevalidationTargets(
   db: Database,
   limit: number,
 ): Promise<ProviderKeyRevalidationTarget[]> {
+  const pageSize = Math.max(1, Math.min(PROVIDER_KEY_REVALIDATION_PAGE_SIZE, Math.trunc(limit)));
   const result = await db.execute(sql`
-    select user_id, provider, fingerprint
-      from public.list_provider_key_revalidation_targets(${limit})
+    select user_id, provider, fingerprint, lease_token
+      from public.claim_provider_key_revalidation_targets(${pageSize})
   `);
-  const rows = result.rows as Array<{ fingerprint: string; provider: string; user_id: string }>;
+  const rows = result.rows as Array<{
+    fingerprint: string;
+    lease_token: string;
+    provider: string;
+    user_id: string;
+  }>;
 
   return rows.map((row) => ({
     fingerprint: row.fingerprint,
+    leaseToken: row.lease_token,
     provider: row.provider,
     userId: toUserId(row.user_id),
   }));
 }
 
-export async function disableProviderKey(
+export async function completeCurrentProviderKeyRevalidation(
   db: Database,
-  input: DisableProviderKeyInput,
+  input: CompleteCurrentProviderKeyRevalidationInput,
+): Promise<boolean> {
+  const rows = await db
+    .update(providerKeys)
+    .set({
+      lastRevalidatedAt: sql`now()`,
+      revalidationClaimedAt: null,
+      revalidationLeaseToken: null,
+    })
+    .where(currentProviderKeyLease(input))
+    .returning({ provider: providerKeys.provider });
+  return rows.length > 0;
+}
+
+export async function disableCurrentProviderKey(
+  db: Database,
+  input: DisableCurrentProviderKeyInput,
 ): Promise<boolean> {
   const rows = await db
     .update(providerKeys)
     .set({
       disabledAt: sql`now()`,
       disabledReason: input.reason,
+      lastRevalidatedAt: sql`now()`,
+      revalidationClaimedAt: null,
+      revalidationLeaseToken: null,
     })
-    .where(
-      and(
-        eq(providerKeys.userId, input.userId),
-        eq(providerKeys.provider, input.provider),
-        isNull(providerKeys.deletedAt),
-        isNull(providerKeys.disabledAt),
-      ),
-    )
-    .returning({ id: providerKeys.id });
+    .where(currentProviderKeyLease(input))
+    .returning({ provider: providerKeys.provider });
   return rows.length > 0;
+}
+
+function currentProviderKeyLease(input: CompleteCurrentProviderKeyRevalidationInput) {
+  return and(
+    eq(providerKeys.userId, input.userId),
+    eq(providerKeys.provider, input.provider),
+    eq(providerKeys.fingerprint, input.expectedFingerprint),
+    eq(providerKeys.revalidationLeaseToken, input.expectedLeaseToken),
+    gte(providerKeys.revalidationClaimedAt, sql`now() - interval '15 minutes'`),
+    isNull(providerKeys.disabledAt),
+  );
 }
 
 function unique(values: string[]): string[] {

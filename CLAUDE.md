@@ -14,12 +14,12 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 |---|---|
 | Language | **TypeScript** everywhere. No Python in backend. Python lives only inside the Daytona sandbox. |
 | Backend runtime | **Cloudflare Workers + Durable Objects + Workflows** |
-| Frontend | **Next.js 16.2.9 + React 19.2.7 + Tailwind 4.3.1 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
-| Agent framework | **Mastra 1.42.0** on top of **Vercel AI SDK v6.0.205** |
+| Frontend | **Next.js 16.2.10 + React 19.2.7 + Tailwind 4.3.2 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
+| Agent framework | **Mastra 1.51.0** on top of **Vercel AI SDK v6.0.205** |
 | Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/src/daytona-client.ts`) — one persistent sandbox per user with isolated project folders |
 | Browser automation | **Stagehand v3.7.0 LOCAL mode** inside the Daytona sandbox image |
-| Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (no `service_role` from Workers — uses `app_worker` role) |
-| Auth | **Clerk 7.5.2** (Workers JWT verify) |
+| Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (separate `app_gateway`, `app_agent`, and `app_webhooks` roles; no `service_role`) |
+| Auth | **Clerk 7.5.19** (Workers JWT verify) |
 | Billing | **Polar 0.48.1** (no fixed cost, rev-share only) |
 | OAuth tool integrations | **Composio v3.1 REST via bounded `@cheatcode/composio` client** |
 | Storage | **R2** (no Supabase Storage; zero egress) |
@@ -56,7 +56,7 @@ packages/
 
 skills/                   8 curated Anthropic SKILL.md skills
 infra/                    Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile/snapshot
-scripts/                  Operational helpers only: build skills, secrets, deploy orchestration, migrations, audit archive
+scripts/                  Operational helpers only: build skills, local startup, deploy orchestration, migrations, audit archive
 ```
 
 ## Critical conventions (non-negotiable)
@@ -72,13 +72,14 @@ These are CI-enforced. Violating them blocks merge.
 7. **Zod-validate all trust boundaries** — HTTP input, LLM output, env, webhooks, DB rows from external systems.
 8. **Files ≤800 lines, functions ≤50 lines, cognitive complexity ≤15.**
 9. **BYOK keys** are decrypted on demand via `packages/byok` Vault RPC inside `withUserContext()` and passed only as request-scoped values. **Never log them, never cache in module scope, never persist to KV/DOs/R2.**
-10. **Workers connect to Postgres as `app_worker` role**, never `service_role`. RLS is enabled only on `provider_keys` and `audit_log`.
+10. **Workers connect through separate `app_gateway`, `app_agent`, and `app_webhooks` roles**, never `service_role`. Every tenant-owned V2 table uses forced RLS and a role-specific signed transaction context.
 
 ## Common commands
 
 ```bash
 pnpm install                          # Install all workspace deps
-pnpm dev                              # Run Next dev plus the backend Workers through Wrangler
+pnpm dev                              # Compose: Postgres + migrations + Next + chained Workers
+pnpm dev:down                         # Stop the local Compose stack
 pnpm turbo skills:build               # Bundle skills/* into packages/skills/src/generated.ts
 pnpm turbo db:generate                # Generate Drizzle types from schema
 pnpm turbo lint                       # Biome check (fails on warnings in CI)
@@ -134,9 +135,9 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 
 ## Skills system
 
-8 curated skills bundled at build time into `packages/skills/src/generated.ts` (Workers have no filesystem at runtime). Anthropic SKILL.md format. V2 has no bundled skill scripts, no `evals/evals.json`, no local skill-eval runner, and no `skill_run_script` tool.
+Curated skills are bundled at build time into `packages/skills/src/generated.ts` (Workers have no filesystem at runtime). Anthropic SKILL.md format. V2 has no bundled skill scripts, no `evals/evals.json`, no local skill-eval runner, and no `skill_run_script` tool.
 
-The 8 skills: `pitch-deck`, `deep-research` (covers parallel fan-out research), `competitor-brief`, `slide-from-prd`, `csv-analyst`, `social-post-pack`, `landing-page`, `mobile-app`. External skill registry exports, skills.sh links, public publishing scripts, and launch-prep copy are outside V2 unless the user explicitly re-expands the plan.
+The source-of-truth catalog is the set of skill folders under `skills/`; do not duplicate a manually maintained name list here. External skill registry exports, skills.sh links, public publishing scripts, and launch-prep copy are outside V2 unless the user explicitly re-expands the plan.
 
 The bundler contract lives in `scripts/build-skills.ts` and `packages/skills`.
 
@@ -149,7 +150,7 @@ The bundler contract lives in `scripts/build-skills.ts` and `packages/skills`.
 - ❌ Don't add Sentry, Langfuse, or Axiom — use Workers-native observability only.
 - ❌ Don't expose Cheatcode as an MCP server or add shadcn registry MCP tooling.
 - ❌ Don't bypass `packages/byok` to access provider keys directly.
-- ❌ Don't use `service_role` from Workers — `app_worker` only.
+- ❌ Don't use `service_role`; the historical `app_worker` transition role must not exist in the production-ready target.
 - ❌ Don't use `postgres.js` — use `pg` (node-postgres) per Cloudflare's Hyperdrive + Drizzle guide.
 - ❌ Don't `drizzle-kit push` in production — always `generate` + review + `migrate`.
 - ❌ Don't add hard step, token, or cost ceilings to agent loops — semantic completion decides when work is done; cancellation and timeouts remain operational guards.

@@ -1,15 +1,14 @@
 "use client";
 
 import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types";
+import { ArrowUp, Paperclip, Square } from "@cheatcode/ui";
 import type { PromptComposerController } from "@/components/chat/prompt-composer-controller";
-import type { VoiceInputState } from "@/components/chat/use-voice-input";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/composer-frame";
 import { ComposerPopover } from "@/components/composer/composer-popover";
 import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { ArrowUp, Mic, Paperclip, Square } from "@/components/ui/icons";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";
 import { cn } from "@/lib/ui/cn";
 
@@ -59,15 +58,19 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
       <ComposerContextChips
         className="px-2 pt-3"
         onClearSkill={controller.actions.clearSkill}
+        onClearTool={controller.actions.clearTool}
         skill={controller.state.selectedSkill}
-        tool={null}
+        tool={controller.state.selectedTool}
       />
       <div className="flex items-start gap-2">
         <label className="sr-only" htmlFor="prompt">
           Message Cheatcode
         </label>
         <textarea
-          className={cn(COMPOSER_TEXTAREA_CLASS, controller.state.selectedSkill ? "pt-2" : "pt-4")}
+          className={cn(
+            COMPOSER_TEXTAREA_CLASS,
+            controller.state.selectedSkill || controller.state.selectedTool ? "pt-2" : "pt-4",
+          )}
           id="prompt"
           maxLength={USER_MESSAGE_MAX_CHARACTERS}
           onChange={controller.triggers.onTextareaChange}
@@ -75,7 +78,7 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
           onKeyDown={controller.actions.handleKeyDown}
           onKeyUp={selectionHandler}
           onSelect={selectionHandler}
-          placeholder="Reply, refine, or take the wheel"
+          placeholder="Ask anything, @ for files, / for skills"
           ref={controller.meta.textareaRef}
           rows={1}
           value={controller.state.value}
@@ -102,14 +105,9 @@ function ComposerActions({ controller }: { controller: PromptComposerController 
           compact={controller.state.computerOpen}
           onOpenChange={controller.actions.setModelMenuOpen}
           open={controller.state.openControlMenu === "model"}
+          resolvedModelId={controller.state.resolvedModelId}
           variant="thread"
         />
-        {controller.state.computerOpen ? null : (
-          <VoiceInputButton
-            isDisabled={controller.state.isRunning}
-            voiceInput={controller.voiceInput}
-          />
-        )}
         <SendActionButton
           canSubmit={controller.state.canSubmit}
           isRunning={controller.state.isRunning}
@@ -143,42 +141,6 @@ function AttachmentButton({ controller }: { controller: PromptComposerController
         </button>
       </CheatcodeTooltip>
     </>
-  );
-}
-
-function VoiceInputButton({
-  isDisabled,
-  voiceInput,
-}: {
-  isDisabled: boolean;
-  voiceInput: VoiceInputState;
-}) {
-  const disabled = !voiceInput.isSupported || isDisabled;
-  return (
-    <CheatcodeTooltip
-      disabled={!voiceInput.isSupported}
-      label={voiceInput.isListening ? "Stop voice input" : "Voice input"}
-    >
-      <button
-        aria-label={voiceInput.isListening ? "Stop voice input" : "Start voice input"}
-        className={cn(
-          "hidden h-7 w-7 items-center justify-center rounded-full transition-colors sm:flex",
-          voiceInput.isListening
-            ? "bg-red-500/10 text-red-600"
-            : "text-fg-secondary hover:bg-background hover:text-foreground",
-          disabled && "cursor-not-allowed opacity-45",
-        )}
-        disabled={disabled}
-        onClick={voiceInput.toggle}
-        type="button"
-      >
-        {voiceInput.isListening ? (
-          <Square aria-hidden="true" className="h-3.5 w-3.5 fill-current" />
-        ) : (
-          <Mic aria-hidden="true" className="h-4 w-4" />
-        )}
-      </button>
-    </CheatcodeTooltip>
   );
 }
 

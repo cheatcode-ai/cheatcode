@@ -1,6 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
+import { Check } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
@@ -12,7 +13,6 @@ import {
   SlackLogo,
   Sparkle,
 } from "@/components/onboarding/onboarding-icons";
-import { Check } from "@/components/ui/icons";
 import { connectIntegration, INTEGRATIONS_QUERY, listIntegrations } from "@/lib/api/integrations";
 import {
   OnboardingActions,
@@ -77,7 +77,7 @@ function useOnboardingTools() {
   const queryClient = useQueryClient();
   const [query, setQuery] = useState("");
   const integrationsQuery = useQuery({
-    queryFn: () => listIntegrations(getToken),
+    queryFn: ({ signal }) => listIntegrations(getToken, signal),
     queryKey: INTEGRATIONS_QUERY,
     staleTime: 30_000,
   });

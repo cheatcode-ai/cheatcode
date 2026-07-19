@@ -3,13 +3,13 @@ import { z } from "zod";
 const RateLimitConfigSchema = z
   .object({
     capacity: z.number().int().positive(),
-    refillPerSec: z.number().positive(),
+    refillPerSec: z.number().finite().positive(),
   })
   .strict();
 
 export const RateLimitConsumeBodySchema = z
   .object({
-    key: z.string().min(1),
+    key: z.string().min(1).max(256),
     cost: z.number().int().positive(),
     config: RateLimitConfigSchema,
   })

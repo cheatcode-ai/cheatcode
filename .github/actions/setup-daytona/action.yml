@@ -1,0 +1,49 @@
+name: Setup Daytona CLI
+description: Install and authenticate the checksum-pinned Daytona CLI used by production operations.
+
+inputs:
+  api-key:
+    description: Daytona API key from the protected production environment.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Install and authenticate checksum-pinned Daytona CLI
+      shell: bash
+      env:
+        DAYTONA_API_KEY: ${{ inputs.api-key }}
+      run: |
+        set +x
+        set -Eeuo pipefail
+
+        readonly DAYTONA_CLI_VERSION=0.198.0
+        readonly DAYTONA_CLI_SHA256=b5fbc05d195e016cb2db05ef009a19dc3a30b4e9f4729199d9b093acb30596a5
+        readonly INSTALL_DIR="$RUNNER_TEMP/daytona-cli/bin"
+        readonly DOWNLOAD_PATH="$RUNNER_TEMP/daytona-cli/daytona-linux-amd64"
+
+        if [ "$RUNNER_OS" != "Linux" ] || [ "$RUNNER_ARCH" != "X64" ]; then
+          echo "The pinned Daytona CLI action supports only Linux x64 runners." >&2
+          exit 1
+        fi
+        if [ -z "$DAYTONA_API_KEY" ]; then
+          echo "A protected Daytona API key is required." >&2
+          exit 1
+        fi
+
+        rm -rf "$RUNNER_TEMP/daytona-cli"
+        mkdir -p "$INSTALL_DIR"
+        curl --fail --silent --show-error --location \
+          --retry 3 --retry-all-errors --connect-timeout 10 --max-time 120 \
+          "https://github.com/daytona/clients/releases/download/v${DAYTONA_CLI_VERSION}/daytona-linux-amd64" \
+          --output "$DOWNLOAD_PATH"
+        echo "${DAYTONA_CLI_SHA256}  $DOWNLOAD_PATH" | sha256sum --check --strict
+        install -m 0755 "$DOWNLOAD_PATH" "$INSTALL_DIR/daytona"
+
+        version_output="$("$INSTALL_DIR/daytona" version)"
+        if [ "$version_output" != "Daytona CLI version v${DAYTONA_CLI_VERSION}" ]; then
+          echo "The installed Daytona CLI did not report the pinned version." >&2
+          exit 1
+        fi
+        "$INSTALL_DIR/daytona" login --api-key "$DAYTONA_API_KEY"
+        echo "$INSTALL_DIR" >> "$GITHUB_PATH"

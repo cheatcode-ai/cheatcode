@@ -2,11 +2,10 @@
 
 import type { PlanSummary } from "@cheatcode/types";
 import { PaidBillingTierSchema } from "@cheatcode/types";
-import { ModalShell } from "@cheatcode/ui";
+import { CreditCard, Loader2, ModalShell } from "@cheatcode/ui";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { CreditCard, Loader2 } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { requestCheckout } from "@/lib/api/billing";
 import { canCheckoutPlan, isBillingUpgrade } from "@/lib/billing/tiers";
@@ -49,8 +48,6 @@ function useUpgradeDialog(getToken: () => Promise<null | string>) {
   const checkout = useMutation({
     mutationFn: (tier: PlanSummary["id"]) =>
       requestCheckout(getToken, {
-        returnUrl: window.location.href,
-        successUrl: window.location.href,
         tier: PaidBillingTierSchema.parse(tier),
       }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Checkout failed"),

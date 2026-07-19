@@ -123,12 +123,10 @@ export const DataChartInputSchema = z
 
 const ChartArtifactSchema = z
   .object({
-    downloadUrl: z.string().url(),
     filename: z.string(),
     kind: z.literal("image"),
     mimeType: z.string(),
     outputId: z.string(),
-    r2Key: z.string(),
     sizeBytes: z.number().int().nonnegative(),
   })
   .strict();

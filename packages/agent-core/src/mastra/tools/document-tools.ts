@@ -12,7 +12,7 @@ import {
   GenerateXlsxOutputSchema,
 } from "@cheatcode/tools-docs";
 import { createTool } from "@mastra/core/tools";
-import { codeRuntimeFromContext } from "./tool-runtime-context";
+import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 
 export const mastraDocsGenerateSlides = createTool({
   id: "docs_generate_slides",
@@ -21,7 +21,10 @@ export const mastraDocsGenerateSlides = createTool({
   inputSchema: GenerateSlidesInputSchema,
   outputSchema: GenerateSlidesOutputSchema,
   execute: async (input, context) =>
-    executeGenerateSlides(GenerateSlidesInputSchema.parse(input), codeRuntimeFromContext(context)),
+    executeGenerateSlides(
+      GenerateSlidesInputSchema.parse(input),
+      await workspaceRuntimeFromContext(context),
+    ),
 });
 
 export const mastraDocsGenerateDocx = createTool({
@@ -31,7 +34,10 @@ export const mastraDocsGenerateDocx = createTool({
   inputSchema: GenerateDocumentInputSchema,
   outputSchema: GenerateDocxOutputSchema,
   execute: async (input, context) =>
-    executeGenerateDocx(GenerateDocumentInputSchema.parse(input), codeRuntimeFromContext(context)),
+    executeGenerateDocx(
+      GenerateDocumentInputSchema.parse(input),
+      await workspaceRuntimeFromContext(context),
+    ),
 });
 
 export const mastraDocsGenerateXlsx = createTool({
@@ -43,7 +49,7 @@ export const mastraDocsGenerateXlsx = createTool({
   execute: async (input, context) =>
     executeGenerateXlsx(
       GenerateSpreadsheetInputSchema.parse(input),
-      codeRuntimeFromContext(context),
+      await workspaceRuntimeFromContext(context),
     ),
 });
 
@@ -54,5 +60,8 @@ export const mastraDocsGeneratePdf = createTool({
   inputSchema: GenerateDocumentInputSchema,
   outputSchema: GeneratePdfOutputSchema,
   execute: async (input, context) =>
-    executeGeneratePdf(GenerateDocumentInputSchema.parse(input), codeRuntimeFromContext(context)),
+    executeGeneratePdf(
+      GenerateDocumentInputSchema.parse(input),
+      await workspaceRuntimeFromContext(context),
+    ),
 });

@@ -22,10 +22,10 @@ jobs:
           fetch-depth: 0
       - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
         with:
-          version: 10.34.5
+          version: 11.8.0
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
-          node-version: 22
+          node-version: 22.22.2
           cache: pnpm
       - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
@@ -36,6 +36,12 @@ jobs:
           cache: true
           version: v0.72.0
       - run: pnpm install --frozen-lockfile
+      - name: Lint GitHub Actions and embedded shell
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          pyflakes: false
+          shellcheck: true
+          version: 1.7.12
       - name: Audit pnpm lockfiles
         run: |
           trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 pnpm-lock.yaml
@@ -67,6 +73,7 @@ jobs:
           CLERK_SECRET_KEY: sk_test_static_checks_do_not_authenticate
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_c3RhdGljLWNoZWNrcy0wMC5jbGVyay5hY2NvdW50cy5kZXYk
           NEXT_PUBLIC_GATEWAY_URL: ${{ vars.NEXT_PUBLIC_GATEWAY_URL }}
+          NEXT_PUBLIC_PREVIEW_HOSTNAME: trycheatcode.com
           NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
           # Never expose a future remote-cache credential to pull-request code.
           TURBO_TOKEN: ${{ github.event_name == 'push' && secrets.TURBO_TOKEN || '' }}

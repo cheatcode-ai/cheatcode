@@ -1,4 +1,8 @@
 import {
+  BrowserTakeoverResumeResultSchema,
+  BrowserTakeoverResumeSchema,
+  BrowserTakeoverSessionSchema,
+  BrowserTakeoverStatusSchema,
   SandboxConsoleSnapshotSchema,
   SandboxFileListSchema,
   SandboxFilePreviewSchema,
@@ -22,6 +26,10 @@ import {
 import { zodJsonSchema } from "./openapi-zod";
 
 export const sandboxSchemas: Record<string, JsonValue> = {
+  BrowserTakeoverResume: zodJsonSchema(BrowserTakeoverResumeSchema, "input"),
+  BrowserTakeoverResumeResult: zodJsonSchema(BrowserTakeoverResumeResultSchema),
+  BrowserTakeoverSession: zodJsonSchema(BrowserTakeoverSessionSchema),
+  BrowserTakeoverStatus: zodJsonSchema(BrowserTakeoverStatusSchema),
   OpenSandboxTerminal: zodJsonSchema(SandboxTerminalCommandSchema, "input"),
   SandboxConsoleSnapshot: zodJsonSchema(SandboxConsoleSnapshotSchema),
   SandboxFile: zodJsonSchema(SandboxFileSchema),
@@ -69,6 +77,40 @@ const sandboxFileListParameters: JsonValue[] = [
 ];
 
 export const sandboxRoutes: OpenApiRoute[] = [
+  {
+    method: "get",
+    operationId: "getBrowserTakeoverStatus",
+    path: "/v1/threads/{threadId}/browser-takeover",
+    responses: {
+      "200": jsonResponse("Browser takeover status", schemaRef("BrowserTakeoverStatus")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Read the active browser takeover state",
+    tags: ["sandbox"],
+  },
+  {
+    method: "post",
+    operationId: "startBrowserTakeover",
+    path: "/v1/threads/{threadId}/browser-takeover/start",
+    responses: {
+      "200": jsonResponse("Browser takeover session", schemaRef("BrowserTakeoverSession")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Pause automation and take over its live browser",
+    tags: ["sandbox"],
+  },
+  {
+    method: "post",
+    operationId: "resumeBrowserAutomation",
+    path: "/v1/threads/{threadId}/browser-takeover/resume",
+    requestBody: jsonBody(schemaRef("BrowserTakeoverResume")),
+    responses: {
+      "200": jsonResponse("Browser automation resumed", schemaRef("BrowserTakeoverResumeResult")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Close human control and resume browser automation",
+    tags: ["sandbox"],
+  },
   {
     method: "get",
     operationId: "openComputerIde",

@@ -6,14 +6,17 @@ import type {
   BillingStateResponse,
   BillingSubscriptionActionResponse,
 } from "@cheatcode/types";
-import { ModalShell } from "@cheatcode/ui";
+import { ChevronDown, CreditCard, Loader2, ModalShell } from "@cheatcode/ui";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
-import { ChevronDown, CreditCard, Loader2 } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
-import { requestBillingCancellation, requestBillingReactivation } from "@/lib/api/billing";
+import {
+  requestBillingCancellation,
+  requestBillingPortal,
+  requestBillingReactivation,
+} from "@/lib/api/billing";
 import { BILLING_STATE_QUERY_KEY, useBillingStateQuery } from "@/lib/hooks/use-billing";
 
 const CANCELLATION_REASON_LABELS: Record<BillingCancellationReason, string> = {
@@ -73,8 +76,10 @@ function useManageSubscriptionController({
   const [reason, setReason] = useState<BillingCancellationReason | "">("");
   const [comment, setComment] = useState("");
   const cancelMutation = useCancellationMutation(getToken, queryClient, () => setStep("overview"));
+  const portalMutation = useBillingPortalMutation(getToken);
   const reactivateMutation = useReactivationMutation(getToken, queryClient, planDisplayName);
-  const isBusy = cancelMutation.isPending || reactivateMutation.isPending;
+  const isBusy =
+    cancelMutation.isPending || portalMutation.isPending || reactivateMutation.isPending;
 
   function closeDialog() {
     if (isBusy) return;
@@ -97,6 +102,7 @@ function useManageSubscriptionController({
     comment,
     confirmCancellation,
     isBusy,
+    openBillingPortal: () => portalMutation.mutate(),
     reactivate: () => reactivateMutation.mutate(),
     reason,
     setComment,
@@ -137,6 +143,15 @@ function useReactivationMutation(
       updateCachedBillingState(queryClient, result);
       toast.success(`${planDisplayName} will keep renewing`);
     },
+  });
+}
+
+function useBillingPortalMutation(getToken: () => Promise<null | string>) {
+  return useMutation({
+    mutationFn: () => requestBillingPortal(getToken),
+    onError: (error) =>
+      toast.error(error instanceof Error ? error.message : "Billing portal couldn't open"),
+    onSuccess: (url) => window.location.assign(url),
   });
 }
 
@@ -199,6 +214,7 @@ function ManageDialogBody({
       isBusy={controller.isBusy}
       onCancel={() => controller.setStep("cancel")}
       onClose={controller.closeDialog}
+      onOpenBillingPortal={controller.openBillingPortal}
       onReactivate={controller.reactivate}
       planDisplayName={planDisplayName}
       sandboxHoursTotal={sandboxHoursTotal}
@@ -230,6 +246,7 @@ function PlanOverview({
   isBusy,
   onCancel,
   onClose,
+  onOpenBillingPortal,
   onReactivate,
   planDisplayName,
   sandboxHoursTotal,
@@ -238,6 +255,7 @@ function PlanOverview({
   isBusy: boolean;
   onCancel: () => void;
   onClose: () => void;
+  onOpenBillingPortal: () => void;
   onReactivate: () => void;
   planDisplayName: string;
   sandboxHoursTotal: number;
@@ -255,6 +273,7 @@ function PlanOverview({
         isBusy={isBusy}
         onCancel={onCancel}
         onClose={onClose}
+        onOpenBillingPortal={onOpenBillingPortal}
         onReactivate={onReactivate}
         planDisplayName={planDisplayName}
         state={state}
@@ -293,6 +312,7 @@ function PlanOverviewActions({
   isBusy,
   onCancel,
   onClose,
+  onOpenBillingPortal,
   onReactivate,
   planDisplayName,
   state,
@@ -300,6 +320,7 @@ function PlanOverviewActions({
   isBusy: boolean;
   onCancel: () => void;
   onClose: () => void;
+  onOpenBillingPortal: () => void;
   onReactivate: () => void;
   planDisplayName: string;
   state: BillingStateResponse;
@@ -310,6 +331,14 @@ function PlanOverviewActions({
         {state.canCancel ? <CancelPlanButton disabled={isBusy} onClick={onCancel} /> : null}
       </div>
       <div className="ml-auto flex items-center gap-2">
+        <button
+          className="inline-flex h-10 items-center rounded-full px-4 font-medium text-[13px] text-fg-secondary transition-colors hover:bg-secondary disabled:opacity-50"
+          disabled={isBusy}
+          onClick={onOpenBillingPortal}
+          type="button"
+        >
+          Billing details
+        </button>
         <button
           className="inline-flex h-10 items-center rounded-full px-4 font-medium text-[13px] text-fg-secondary transition-colors hover:bg-secondary disabled:opacity-50"
           disabled={isBusy}

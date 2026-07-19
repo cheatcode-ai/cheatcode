@@ -1,11 +1,11 @@
 "use client";
 
+import { Plus } from "@cheatcode/ui";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { type ReactNode, Suspense, useEffect, useRef } from "react";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { SidebarContentFrame } from "@/components/shell/sidebar-content-frame";
-import { Plus } from "@/components/ui/icons";
 import { useAppStore } from "@/lib/store/app-store";
 
 const MOBILE_ROUTE_TITLES = {
@@ -15,6 +15,7 @@ const MOBILE_ROUTE_TITLES = {
   "/personalization": "Personalization",
   "/pricing": "Pricing",
   "/skills": "Skills",
+  "/usage": "Usage",
 } as const satisfies Readonly<Record<string, string>>;
 
 export function AppChrome({ children }: { children: ReactNode }) {

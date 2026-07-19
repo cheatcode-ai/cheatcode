@@ -1,5 +1,6 @@
 .DS_Store
 node_modules/
+.pnpm-store/
 .turbo/
 .wrangler/
 .next/
@@ -14,7 +15,6 @@ qa-*.png
 .env
 .env.*
 !.env.example
-!.env.migrate.example
 apps/*/.dev.vars
 apps/*/wrangler.local-dev.generated.jsonc
 apps/*/wrangler.production.*.generated.json
@@ -22,7 +22,6 @@ supabase/.temp/
 packages/skills/src/generated.ts
 
 # Local planning notes that are not part of the V2 workspace.
-/docs/
 /tasks/
 /plans/
 

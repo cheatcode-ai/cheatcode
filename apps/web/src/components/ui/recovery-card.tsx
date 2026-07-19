@@ -1,6 +1,6 @@
+import type { LucideIcon } from "@cheatcode/ui";
+import { Loader2, RefreshCw } from "@cheatcode/ui";
 import Link from "next/link";
-import type { LucideIcon } from "@/components/ui/icons";
-import { Loader2, RefreshCw } from "@/components/ui/icons";
 import { cn } from "@/lib/ui/cn";
 
 type RecoveryActionBase = {

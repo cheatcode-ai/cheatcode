@@ -1,9 +1,9 @@
 "use client";
 
+import type { LucideIcon } from "@cheatcode/ui";
+import { Monitor, Smartphone, Tablet } from "@cheatcode/ui";
 import type { RefObject } from "react";
 import { useEffect, useRef, useState } from "react";
-import type { LucideIcon } from "@/components/ui/icons";
-import { Monitor, Smartphone, Tablet } from "@/components/ui/icons";
 import type { PreviewDevice } from "@/lib/store/app-store";
 import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";

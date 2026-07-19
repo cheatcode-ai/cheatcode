@@ -1,9 +1,9 @@
 "use client";
 
 import type { UpdateUserProfile, UserProfile } from "@cheatcode/types";
+import { Loader2 } from "@cheatcode/ui";
 import { useState } from "react";
 import { toast } from "sonner";
-import { Loader2 } from "@/components/ui/icons";
 import { useUpdateProfileMutation } from "@/lib/hooks/use-profile";
 
 export interface PersonalizationFormState {

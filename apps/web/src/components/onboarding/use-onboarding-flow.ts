@@ -26,9 +26,11 @@ import { toast } from "sonner";
 import { requestCheckout } from "@/lib/api/billing";
 import { useBillingCatalogQuery } from "@/lib/hooks/use-billing";
 import { useProfileQuery, useUpdateProfileMutation } from "@/lib/hooks/use-profile";
+import { safeLocalRedirect } from "@/lib/navigation/safe-local-redirect";
 
 type OnboardingPhase = "finishing" | "loading" | "retry" | "stepping";
 export const STEP_ORDER = OnboardingStepSchema.options;
+const REDIRECT_VALIDATION_ORIGIN = "https://redirect.invalid";
 
 export function useOnboardingFlow() {
   const profileQuery = useProfileQuery();
@@ -36,11 +38,14 @@ export function useOnboardingFlow() {
   const { getToken } = useAuth();
   const { isLoaded: userLoaded, user } = useUser();
   const router = useRouter();
-  const checkoutSucceeded = useSearchParams().get("checkout") === "success";
+  const searchParams = useSearchParams();
+  const checkoutSucceeded = searchParams.get("checkout") === "success";
+  const defaultTarget = readOnboardingTarget(searchParams.get("redirect_url"));
   const checkoutMutation = useCheckoutMutation(getToken);
   const catalogQuery = useBillingCatalogQuery(getToken);
   const progress = useOnboardingProgress({
     checkoutSucceeded,
+    defaultTarget,
     getToken,
     mutation,
     profile: profileQuery.data,
@@ -60,6 +65,7 @@ export function useOnboardingFlow() {
 
 function useOnboardingProgress(input: {
   checkoutSucceeded: boolean;
+  defaultTarget: string;
   getToken: ReturnType<typeof useAuth>["getToken"];
   mutation: ReturnType<typeof useUpdateProfileMutation>;
   profile: UserProfile | undefined;
@@ -70,7 +76,7 @@ function useOnboardingProgress(input: {
   const [phase, setPhase] = useState<OnboardingPhase>("loading");
   const [stepIndex, setStepIndex] = useState(0);
   const guardedRef = useRef(false);
-  const pendingTargetRef = useRef("/");
+  const pendingTargetRef = useRef(input.defaultTarget);
   const completeOnboarding = useCompleteOnboarding({
     ...input,
     pendingTargetRef,
@@ -82,13 +88,26 @@ function useOnboardingProgress(input: {
     }
     guardedRef.current = true;
     if (input.profile.onboardingCompletedAt || input.checkoutSucceeded) {
-      void completeOnboarding("/", "done");
+      void completeOnboarding(input.defaultTarget, "done");
       return;
     }
     setStepIndex(resumeIndex(input.profile.onboardingState.steps));
     setPhase("stepping");
-  }, [completeOnboarding, input.checkoutSucceeded, input.profile, input.userLoaded]);
-  return { completeOnboarding, pendingTargetRef, phase, setStepIndex, stepIndex };
+  }, [
+    completeOnboarding,
+    input.checkoutSucceeded,
+    input.defaultTarget,
+    input.profile,
+    input.userLoaded,
+  ]);
+  return {
+    completeOnboarding,
+    defaultTarget: input.defaultTarget,
+    pendingTargetRef,
+    phase,
+    setStepIndex,
+    stepIndex,
+  };
 }
 
 function useCompleteOnboarding(input: {
@@ -143,13 +162,15 @@ function useCheckoutMutation(getToken: ReturnType<typeof useAuth>["getToken"]) {
   return useMutation({
     mutationFn: (tier: PaidBillingTier) =>
       requestCheckout(getToken, {
-        returnUrl: window.location.href,
-        successUrl: `${window.location.origin}${window.location.pathname}?checkout=success`,
         tier,
       }),
     onError: (error) => toast.error(error instanceof Error ? error.message : "Checkout failed"),
     onSuccess: (url) => window.location.assign(url),
   });
+}
+
+function readOnboardingTarget(candidate: string | null): string {
+  return candidate ? (safeLocalRedirect(candidate, REDIRECT_VALIDATION_ORIGIN) ?? "/") : "/";
 }
 
 function availablePaidTiers(plans: PlanSummary[] | undefined): ReadonlySet<PaidBillingTier> {

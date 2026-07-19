@@ -1,70 +1,9 @@
 import { z } from "zod";
 import { IntegrationNameSchema } from "./integrations";
 import { LogicalModelIdSchema } from "./models";
-import { CHEATCODE_DATA_SCHEMAS } from "./ui-message";
+import { MessagePartsSchema } from "./ui-message";
 
-const TextMessagePartSchema = z
-  .object({
-    state: z.enum(["streaming", "done"]).optional(),
-    text: z.string(),
-    type: z.literal("text"),
-  })
-  .strict();
-const StepStartMessagePartSchema = z.object({ type: z.literal("step-start") }).strict();
-const FileMessagePartSchema = z
-  .object({
-    filename: z.string().optional(),
-    mediaType: z.string().min(1),
-    type: z.literal("file"),
-    url: z.string().min(1),
-  })
-  .strict();
-const SourceUrlMessagePartSchema = z
-  .object({
-    sourceId: z.string().min(1),
-    title: z.string().optional(),
-    type: z.literal("source-url"),
-    url: z.string().url(),
-  })
-  .strict();
-const SourceDocumentMessagePartSchema = z
-  .object({
-    filename: z.string().optional(),
-    mediaType: z.string().min(1),
-    sourceId: z.string().min(1),
-    title: z.string(),
-    type: z.literal("source-document"),
-  })
-  .strict();
-
-function dataMessagePartSchema<Name extends keyof typeof CHEATCODE_DATA_SCHEMAS>(name: Name) {
-  return z
-    .object({
-      data: CHEATCODE_DATA_SCHEMAS[name],
-      id: z.string().optional(),
-      type: z.literal(`data-${name}`),
-    })
-    .strict();
-}
-
-const MessagePartSchema = z.discriminatedUnion("type", [
-  TextMessagePartSchema,
-  StepStartMessagePartSchema,
-  FileMessagePartSchema,
-  SourceUrlMessagePartSchema,
-  SourceDocumentMessagePartSchema,
-  dataMessagePartSchema("approval-decision"),
-  dataMessagePartSchema("approval-request"),
-  dataMessagePartSchema("artifact"),
-  dataMessagePartSchema("error"),
-  dataMessagePartSchema("model-fallback"),
-  dataMessagePartSchema("plan"),
-  dataMessagePartSchema("sandbox-status"),
-  dataMessagePartSchema("seq"),
-  dataMessagePartSchema("task-status"),
-  dataMessagePartSchema("thinking"),
-  dataMessagePartSchema("tool"),
-]);
+export { MessagePartSchema } from "./ui-message";
 
 /** Canonical total character budget for one submitted user message, including inline attachments. */
 export const USER_MESSAGE_MAX_CHARACTERS = 20_000;
@@ -97,13 +36,16 @@ export const GitHubRepoUrlSchema = z
 export const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
 export const ProjectModeSchema = z.enum(PROJECT_MODES);
 
+/** Explicit one-run product modes. These are UI intent, never inferred from prompt text. */
+export const RUN_INTENTS = ["skill-creator"] as const;
+export const RunIntentSchema = z.enum(RUN_INTENTS);
+
 export const CreateProjectSchema = z
   .object({
     defaultModel: LogicalModelIdSchema.optional(),
     importRepoUrl: GitHubRepoUrlSchema.optional(),
     name: z.string().trim().min(1).max(120),
     mode: ProjectModeSchema.default("general"),
-    masterInstructions: z.string().max(20_000).optional(),
   })
   .strict();
 
@@ -127,12 +69,10 @@ export const UpdateThreadSchema = z
 export const ProjectSummarySchema = z
   .object({
     archiveAfter: z.string().datetime().nullable(),
-    archivedPendingAction: z.boolean(),
     createdAt: z.string().datetime(),
     defaultModel: LogicalModelIdSchema.nullable(),
     id: z.string().uuid(),
     importRepoUrl: z.string().nullable(),
-    masterInstructions: z.string().nullable(),
     mode: ProjectModeSchema,
     name: z.string(),
     overQuota: z.boolean(),
@@ -145,7 +85,6 @@ export const UpdateProjectSchema = z
   .object({
     defaultModel: LogicalModelIdSchema.nullable().optional(),
     importRepoUrl: GitHubRepoUrlSchema.nullable().optional(),
-    masterInstructions: z.string().max(20_000).nullable().optional(),
     name: z.string().trim().min(1).max(120).optional(),
   })
   .strict()
@@ -158,6 +97,7 @@ export const ThreadSchema = z
     activeRunId: z.string().uuid().nullable(),
     createdAt: z.string().datetime(),
     id: z.string().uuid(),
+    latestModelId: LogicalModelIdSchema.nullable(),
     pendingInitialPrompt: z.string().nullable(),
     projectId: z.string().uuid().nullable(),
     title: z.string().nullable(),
@@ -168,10 +108,12 @@ export const ThreadSchema = z
 export const UIMessageRecordSchema = z
   .object({
     agentRunId: z.string().uuid().nullable(),
+    agentRunSegment: z.number().int().nonnegative(),
+    agentRunSegmentFinal: z.boolean(),
     createdAt: z.string().datetime(),
     id: z.string().uuid(),
-    parts: z.array(MessagePartSchema),
-    role: z.string(),
+    parts: MessagePartsSchema,
+    role: z.enum(["assistant", "user"]),
     threadId: z.string().uuid(),
   })
   .strict();
@@ -188,6 +130,7 @@ export const PROJECT_ARCHIVE_MAX_OUTPUT_BYTES = 640 * 1024 * 1024;
 
 export const CreateRunSchema = z
   .object({
+    intent: RunIntentSchema.optional(),
     message: z
       .object({
         id: z.string().uuid().optional(),
@@ -207,7 +150,6 @@ export const ProviderSchema = z.enum([
   "deepseek",
   "exa",
   "firecrawl",
-  "llamaparse",
 ]);
 
 export type Provider = z.infer<typeof ProviderSchema>;
@@ -217,8 +159,6 @@ export const ProviderKeySummarySchema = z
     disabledAt: z.string().datetime().nullable(),
     disabledReason: z.string().nullable(),
     provider: ProviderSchema,
-    fingerprint: z.string(),
-    lastUsedAt: z.string().datetime().nullable(),
   })
   .strict();
 
@@ -315,6 +255,8 @@ export const ToolSummarySchema = z
     description: z.string(),
     domain: ToolDomainSchema,
     name: z.string(),
+    producesArtifact: z.boolean(),
+    usesSandbox: z.boolean(),
   })
   .strict();
 
@@ -436,6 +378,29 @@ export const SandboxIdeSessionSchema = z
   })
   .strict();
 
+export const BrowserTakeoverActiveSchema = z
+  .object({
+    expiresAt: z.string().datetime(),
+    status: z.literal("active"),
+    takeoverId: z.string().uuid(),
+  })
+  .strict();
+
+export const BrowserTakeoverStatusSchema = z.discriminatedUnion("status", [
+  z.object({ status: z.literal("inactive") }).strict(),
+  BrowserTakeoverActiveSchema,
+]);
+
+export const BrowserTakeoverSessionSchema = BrowserTakeoverActiveSchema.extend({
+  url: z.string().url(),
+}).strict();
+
+export const BrowserTakeoverResumeSchema = z.object({ takeoverId: z.string().uuid() }).strict();
+
+export const BrowserTakeoverResumeResultSchema = z
+  .object({ ok: z.literal(true), status: z.literal("inactive") })
+  .strict();
+
 /**
  * Response of waking the app preview: the sandbox is (re)started and the dev server relaunched
  * if it had idle-stopped. `running` reports whether the dev-server port answered; `url` is a
@@ -455,7 +420,7 @@ export const SandboxPreviewWakeSchema = z
 /**
  * Current sandbox lifecycle state for the preview panel. Kept fresh by Daytona
  * `sandbox.state.updated` webhooks (falls back to a live read). `running` is true only in the
- * `started` state; the panel uses this to show a booting spinner or a paused/resume affordance.
+ * `started` state; the panel uses this to show a booting spinner or a resume affordance.
  */
 export const SandboxPreviewStatusSchema = z
   .object({
@@ -551,7 +516,7 @@ export const LimitsSnapshotSchema = z
 
 export const ActivityQuerySchema = z
   .object({
-    days: z.coerce.number().int().min(1).max(90).default(30),
+    days: z.coerce.number().int().min(1).max(366).default(30),
   })
   .strict();
 
@@ -669,20 +634,17 @@ export const UserSkillsResponseSchema = z
   .object({ skills: z.array(UserSkillSchema).max(MAX_USER_SKILLS) })
   .strict();
 
-/** Body of `POST /v1/skills` — create/update a custom skill (by name). */
-export const CreateUserSkillSchema = z
+export const SkillProposalConfirmResponseSchema = z
   .object({
-    body: z.string().trim().min(1).max(40_000),
-    category: z.string().trim().min(1).max(80).default("Builder & Apps"),
-    description: z.string().trim().min(1).max(400),
-    name: z.string().trim().min(1).max(80),
-    tags: z.array(z.string().trim().min(1).max(40)).max(12).default([]),
+    message: UIMessageRecordSchema,
+    skill: UserSkillSchema,
   })
   .strict();
 
 export type SandboxHourPoint = z.infer<typeof SandboxHourPointSchema>;
 export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;
+export type RunIntent = z.infer<typeof RunIntentSchema>;
 export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
@@ -710,6 +672,10 @@ export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
 export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;
 export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
+export type BrowserTakeoverStatus = z.infer<typeof BrowserTakeoverStatusSchema>;
+export type BrowserTakeoverSession = z.infer<typeof BrowserTakeoverSessionSchema>;
+export type BrowserTakeoverResume = z.infer<typeof BrowserTakeoverResumeSchema>;
+export type BrowserTakeoverResumeResult = z.infer<typeof BrowserTakeoverResumeResultSchema>;
 export type SandboxPreviewWake = z.infer<typeof SandboxPreviewWakeSchema>;
 export type SandboxPreviewStatus = z.infer<typeof SandboxPreviewStatusSchema>;
 export type SandboxTerminalContext = z.infer<typeof SandboxTerminalContextSchema>;
@@ -717,24 +683,5 @@ export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
 export type ActivityHistoryResponse = z.infer<typeof ActivityHistoryResponseSchema>;
 export type ActivityRunPoint = z.infer<typeof ActivityRunPointSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;
+export type SkillProposalConfirmResponse = z.infer<typeof SkillProposalConfirmResponseSchema>;
 export type ToolDomain = z.infer<typeof ToolDomainSchema>;
-
-// --- Account (GET/PATCH /v1/me) ---
-
-export const MeResponseSchema = z
-  .object({
-    id: z.string().uuid(),
-    email: z.string(),
-    displayName: z.string().nullable(),
-    avatarUrl: z.string().nullable(),
-  })
-  .strict();
-
-export const UpdateMeSchema = z
-  .object({
-    displayName: z.string().trim().min(1).max(120).nullable().optional(),
-  })
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "At least one account field is required.",
-  });

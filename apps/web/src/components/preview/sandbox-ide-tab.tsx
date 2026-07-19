@@ -1,25 +1,36 @@
 "use client";
 
+import { FolderOpen } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import { FolderOpen } from "@/components/ui/icons";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { openComputerIde, openSandboxIde } from "@/lib/api/sandbox";
 import { PreviewSessionRefresh, useStablePreviewSource } from "@/lib/preview/preview-session";
+import { cn } from "@/lib/ui/cn";
 
 const PREVIEW_SESSION_REFRESH_MS = 8 * 60 * 1000;
+const CODE_SERVER_HANDSHAKE_INTERVAL_MS = 750;
+const CODE_SERVER_READY_TIMEOUT_MS = 30_000;
 const CODE_SERVER_IFRAME_SANDBOX =
   "allow-downloads allow-forms allow-modals allow-pointer-lock allow-popups allow-same-origin allow-scripts";
 
-function codeServerIframeUrl(url: string, reloadToken: number, theme: "dark" | "light"): string {
+function codeServerIframeUrl(
+  url: string,
+  previewReloadToken: number,
+  frameReloadToken: number,
+  theme: "dark" | "light",
+): string {
   const parsed = new URL(url);
   parsed.searchParams.set("cc_theme", theme);
-  if (reloadToken !== 0) {
-    parsed.searchParams.set("cc_preview_reload", String(reloadToken));
+  if (previewReloadToken !== 0) {
+    parsed.searchParams.set("cc_preview_reload", String(previewReloadToken));
+  }
+  if (frameReloadToken !== 0) {
+    parsed.searchParams.set("cc_files_reload", String(frameReloadToken));
   }
   return parsed.toString();
 }
@@ -35,21 +46,27 @@ export function SandboxIdeTab({
 }) {
   const { getToken } = useAuth();
   const { resolvedTheme } = useTheme();
+  const [frameReloadToken, setFrameReloadToken] = useState(0);
   const ideQuery = useSandboxIdeQuery(active, threadId, getToken);
   const requestedIframeUrl = ideQuery.data
     ? codeServerIframeUrl(
         ideQuery.data.url,
         previewReloadToken,
+        frameReloadToken,
         resolvedTheme === "dark" ? "dark" : "light",
       )
     : null;
   const iframeUrl = useStablePreviewSource(requestedIframeUrl);
-  const bridge = useCodeServerBridge(iframeUrl, threadId);
+  const bridge = useCodeServerBridge(active, iframeUrl, threadId);
+  const refetchSession = () => void ideQuery.refetch();
+  const reloadFrame = () => setFrameReloadToken((current) => current + 1);
   return (
     <SandboxIdeContent
       bridge={bridge}
       ideQuery={ideQuery}
       iframeUrl={iframeUrl}
+      onFrameRetry={reloadFrame}
+      onSessionRetry={refetchSession}
       requestedIframeUrl={requestedIframeUrl}
     />
   );
@@ -63,8 +80,10 @@ function useSandboxIdeQuery(
   // Files resolves either the per-user computer root or the active project folder.
   return useQuery({
     enabled: active,
-    queryFn: () =>
-      threadId === null ? openComputerIde(getToken) : openSandboxIde(getToken, threadId),
+    queryFn: ({ signal }) =>
+      threadId === null
+        ? openComputerIde(getToken, signal)
+        : openSandboxIde(getToken, threadId, signal),
     queryKey: ["sandbox-ide", threadId ?? "computer"],
     refetchInterval: (query) =>
       (query?.state.fetchFailureCount ?? 0) > 0 ? 60_000 : PREVIEW_SESSION_REFRESH_MS,
@@ -79,25 +98,22 @@ function SandboxIdeContent({
   bridge,
   ideQuery,
   iframeUrl,
+  onFrameRetry,
+  onSessionRetry,
   requestedIframeUrl,
 }: {
   bridge: ReturnType<typeof useCodeServerBridge>;
   ideQuery: ReturnType<typeof useSandboxIdeQuery>;
   iframeUrl: string | null;
+  onFrameRetry: () => void;
+  onSessionRetry: () => void;
   requestedIframeUrl: string | null;
 }) {
   if (ideQuery.isPending) {
     return <IdePlaceholder label="Opening Files" />;
   }
   if (ideQuery.isError) {
-    return (
-      <IdeError
-        isRetrying={ideQuery.isFetching}
-        onRetry={() => {
-          void ideQuery.refetch();
-        }}
-      />
-    );
+    return <IdeError isRetrying={ideQuery.isFetching} onRetry={onSessionRetry} />;
   }
 
   if (!iframeUrl) {
@@ -107,6 +123,8 @@ function SandboxIdeContent({
     <SandboxIdeFrame
       bridge={bridge}
       iframeUrl={iframeUrl}
+      isRetrying={ideQuery.isFetching}
+      onRetry={onFrameRetry}
       requestedIframeUrl={requestedIframeUrl}
     />
   );
@@ -115,35 +133,54 @@ function SandboxIdeContent({
 function SandboxIdeFrame({
   bridge,
   iframeUrl,
+  isRetrying,
+  onRetry,
   requestedIframeUrl,
 }: {
   bridge: ReturnType<typeof useCodeServerBridge>;
   iframeUrl: string;
+  isRetrying: boolean;
+  onRetry: () => void;
   requestedIframeUrl: string | null;
 }) {
+  if (bridge.hasTimedOut) {
+    return <IdeError isRetrying={isRetrying} onRetry={onRetry} />;
+  }
   return (
     <div className="relative h-full w-full">
       <PreviewSessionRefresh previewUrl={requestedIframeUrl} />
-      <CheatcodeTooltip
-        className="absolute top-1 left-1.5 z-20"
-        label="Toggle file explorer"
-        side="right"
-      >
-        <button
-          aria-expanded={bridge.sidebarVisible}
-          aria-label="Toggle file explorer"
-          className="flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-full p-1.5 text-fg-secondary transition-colors duration-150 hover:bg-background hover:text-foreground"
-          onClick={bridge.toggleSidebar}
-          type="button"
+      {bridge.isReady ? (
+        <CheatcodeTooltip
+          className="absolute top-1 left-1.5 z-20"
+          label="Toggle file explorer"
+          side="right"
         >
-          <FileExplorerToggleIcon visible={bridge.sidebarVisible} />
-        </button>
-      </CheatcodeTooltip>
+          <button
+            aria-expanded={bridge.sidebarVisible}
+            aria-label="Toggle file explorer"
+            className="flex h-[26px] w-[26px] cursor-pointer items-center justify-center rounded-full p-1.5 text-fg-secondary transition-colors duration-150 hover:bg-background hover:text-foreground"
+            onClick={bridge.toggleSidebar}
+            type="button"
+          >
+            <FileExplorerToggleIcon visible={bridge.sidebarVisible} />
+          </button>
+        </CheatcodeTooltip>
+      ) : null}
       <div className="h-full w-full">
+        {!bridge.isReady ? (
+          <CheatcodeLoader
+            className="absolute inset-0 z-10 rounded-[20.5px] bg-bg-secondary"
+            label="Opening Files"
+          />
+        ) : null}
         <iframe
           allow="clipboard-read; clipboard-write; cross-origin-isolated"
-          className="h-full w-full rounded-[20.5px] border-0 opacity-100 transition-opacity duration-300 ease-out"
+          className={cn(
+            "h-full w-full rounded-[20.5px] border-0 transition-opacity duration-300 ease-out",
+            bridge.isReady ? "opacity-100" : "opacity-0",
+          )}
           key={iframeUrl}
+          onLoad={bridge.requestReadyState}
           ref={bridge.iframeRef}
           referrerPolicy="origin"
           sandbox={CODE_SERVER_IFRAME_SANDBOX}
@@ -155,22 +192,37 @@ function SandboxIdeFrame({
   );
 }
 
-function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) {
+function useCodeServerBridge(active: boolean, iframeUrl: string | null, threadId: string | null) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const [readyIframeUrl, setReadyIframeUrl] = useState<string | null>(null);
+  const [timedOutIframeUrl, setTimedOutIframeUrl] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const iframeOrigin = readUrlOrigin(iframeUrl);
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       handleCodeServerMessage(event, {
         iframeOrigin,
+        iframeUrl,
         iframeRef,
+        setReadyIframeUrl,
         setSidebarVisible,
+        setTimedOutIframeUrl,
         threadId,
       });
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [iframeOrigin, threadId]);
+  }, [iframeOrigin, iframeUrl, threadId]);
+  const isReady = iframeUrl !== null && readyIframeUrl === iframeUrl;
+  const requestReadyState = () => requestCodeServerState(iframeOrigin, iframeRef);
+  useCodeServerHandshake({
+    active,
+    iframeOrigin,
+    iframeRef,
+    iframeUrl,
+    isReady,
+    setTimedOutIframeUrl,
+  });
   const toggleSidebar = () => {
     if (!iframeOrigin) return;
     iframeRef.current?.contentWindow?.postMessage(
@@ -178,15 +230,64 @@ function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) 
       iframeOrigin,
     );
   };
-  return { iframeRef, sidebarVisible, toggleSidebar };
+  return {
+    hasTimedOut: iframeUrl !== null && timedOutIframeUrl === iframeUrl,
+    iframeRef,
+    isReady,
+    requestReadyState,
+    sidebarVisible,
+    toggleSidebar,
+  };
+}
+
+function useCodeServerHandshake(input: {
+  active: boolean;
+  iframeOrigin: string | null;
+  iframeRef: RefObject<HTMLIFrameElement | null>;
+  iframeUrl: string | null;
+  isReady: boolean;
+  setTimedOutIframeUrl: (iframeUrl: string | null) => void;
+}): void {
+  const { active, iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl } = input;
+  useEffect(() => {
+    if (!active || !iframeOrigin || !iframeUrl || isReady) return;
+    setTimedOutIframeUrl(null);
+    requestCodeServerState(iframeOrigin, iframeRef);
+    const interval = window.setInterval(
+      () => requestCodeServerState(iframeOrigin, iframeRef),
+      CODE_SERVER_HANDSHAKE_INTERVAL_MS,
+    );
+    const timeout = window.setTimeout(() => {
+      window.clearInterval(interval);
+      setTimedOutIframeUrl(iframeUrl);
+    }, CODE_SERVER_READY_TIMEOUT_MS);
+    return () => {
+      window.clearInterval(interval);
+      window.clearTimeout(timeout);
+    };
+  }, [active, iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl]);
+}
+
+function requestCodeServerState(
+  iframeOrigin: string | null,
+  iframeRef: RefObject<HTMLIFrameElement | null>,
+): void {
+  if (!iframeOrigin) return;
+  iframeRef.current?.contentWindow?.postMessage(
+    { type: "CHEATCODE_REQUEST_CODE_SERVER_STATE" },
+    iframeOrigin,
+  );
 }
 
 function handleCodeServerMessage(
   event: MessageEvent,
   input: {
     iframeOrigin: string | null;
+    iframeUrl: string | null;
     iframeRef: RefObject<HTMLIFrameElement | null>;
+    setReadyIframeUrl: (iframeUrl: string | null) => void;
     setSidebarVisible: (visible: boolean) => void;
+    setTimedOutIframeUrl: (iframeUrl: string | null) => void;
     threadId: string | null;
   },
 ): void {
@@ -195,11 +296,15 @@ function handleCodeServerMessage(
   if (event.data.type === "CHEATCODE_SIDEBAR_STATE") {
     input.setSidebarVisible(event.data.visible === true);
   }
-  if (event.data.type === "CHEATCODE_CODE_SERVER_READY" && input.threadId === null) {
-    input.iframeRef.current?.contentWindow?.postMessage(
-      { type: "CHEATCODE_RESET_WORKSPACE_VIEW" },
-      iframeOrigin,
-    );
+  if (event.data.type === "CHEATCODE_CODE_SERVER_READY") {
+    input.setReadyIframeUrl(input.iframeUrl);
+    input.setTimedOutIframeUrl(null);
+    if (input.threadId === null) {
+      input.iframeRef.current?.contentWindow?.postMessage(
+        { type: "CHEATCODE_RESET_WORKSPACE_VIEW" },
+        iframeOrigin,
+      );
+    }
   }
 }
 

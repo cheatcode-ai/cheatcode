@@ -7,6 +7,7 @@ interface ModelMenuProps {
   compact?: boolean | undefined;
   onOpenChange?: ((open: boolean) => void) | undefined;
   open?: boolean | undefined;
+  resolvedModelId?: null | string | undefined;
   variant?: "home" | "thread";
 }
 
@@ -15,9 +16,10 @@ export function ModelMenu({
   compact = false,
   onOpenChange,
   open,
+  resolvedModelId,
   variant = "thread",
 }: ModelMenuProps) {
-  const controller = useModelMenuController({ onOpenChange, open });
+  const controller = useModelMenuController({ onOpenChange, open, resolvedModelId });
   return (
     <div className="relative" ref={controller.meta.menuRef}>
       <ModelMenuTrigger compact={compact} controller={controller} variant={variant} />

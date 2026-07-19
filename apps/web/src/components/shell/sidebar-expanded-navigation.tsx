@@ -1,5 +1,6 @@
 "use client";
 
+import { ChevronDown } from "@cheatcode/ui";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import type {
@@ -19,7 +20,6 @@ import {
   WORKSPACE_SECTION_NAV,
 } from "@/components/shell/sidebar-navigation-model";
 import { ProjectList } from "@/components/shell/sidebar-project-list";
-import { ChevronDown } from "@/components/ui/icons";
 import { isNavItemActive, type NavItem } from "@/lib/navigation/nav-model";
 import { cn } from "@/lib/ui/cn";
 

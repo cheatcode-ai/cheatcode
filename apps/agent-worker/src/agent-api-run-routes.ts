@@ -11,10 +11,13 @@ import {
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   type AgentRunId,
-  ApprovalDecisionRequestSchema,
+  BrowserTakeoverResumeResultSchema,
+  BrowserTakeoverResumeSchema,
+  BrowserTakeoverStatusSchema,
   type CreateRun,
   ThreadId,
   UserId as toUserId,
+  type UIMessagePart,
   type UserId,
 } from "@cheatcode/types";
 import type { Context, Hono } from "hono";
@@ -42,11 +45,9 @@ import {
   userSandboxName,
 } from "./tenancy";
 
-const MAX_APPROVAL_BODY_BYTES = 4 * 1024;
 const MAX_CREATE_RUN_BODY_BYTES = 64 * 1024;
 const RUN_IDEMPOTENCY_KEY_HASH_HEADER = "X-Cheatcode-Idempotency-Key-Hash";
 const RUN_REQUEST_BODY_HASH_HEADER = "X-Cheatcode-Request-Body-Hash";
-const ApprovalIdParamSchema = z.string().uuid();
 const Sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 type CreateRunResult = Awaited<ReturnType<typeof createAgentRunForThread>>;
@@ -64,7 +65,9 @@ export function registerAgentRunHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): v
   app.get("/v1/threads/:threadId/runs/stream", streamActiveRun);
   app.get("/v1/threads/:threadId/runs/status", activeRunStatus);
   app.post("/v1/runs/:runId/cancel", cancelRun);
-  app.post("/v1/runs/:runId/approvals/:approvalId", decideApproval);
+  app.get("/v1/threads/:threadId/browser-takeover", browserTakeoverStatus);
+  app.post("/v1/threads/:threadId/browser-takeover/start", startBrowserTakeover);
+  app.post("/v1/threads/:threadId/browser-takeover/resume", resumeBrowserTakeover);
 }
 
 async function createRun(c: AgentContext): Promise<Response> {
@@ -111,7 +114,10 @@ async function loadRequestPersonalization(
   threadId: string,
   body: CreateRun,
 ): Promise<RunPersonalization> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, userId, async (tx) => {
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId });
@@ -135,7 +141,10 @@ async function persistRunRequest(
     userId: UserId;
   },
 ): Promise<CreateRunResult> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, input.userId, async (tx) => {
       const created = await createAgentRunForThread(tx, {
@@ -149,7 +158,7 @@ async function persistRunRequest(
       if (created.type === "created") {
         await createThreadMessage(tx, {
           agentRunId: created.run.runId,
-          parts: input.body.message.parts,
+          parts: persistedUserMessageParts(input.body),
           role: "user",
           threadId: created.run.threadId,
           userId: input.userId,
@@ -160,6 +169,19 @@ async function persistRunRequest(
   } finally {
     await close();
   }
+}
+
+function persistedUserMessageParts(body: CreateRun): UIMessagePart[] {
+  const textPart = body.message.parts[0];
+  if (!textPart) {
+    return [];
+  }
+  return body.intent === "skill-creator"
+    ? [
+        { data: { intent: "skill-creator", v: 1 }, type: "data-run-intent" },
+        { state: "done", text: textPart.text, type: "text" },
+      ]
+    : [{ state: "done", text: textPart.text, type: "text" }];
 }
 
 function rejectedRunError(result: RejectedRunResult): APIError {
@@ -210,7 +232,10 @@ async function reconcileAbsentRunRow(
   userId: UserId,
   runId: AgentRunId,
 ): Promise<"failed" | "not-found" | "terminal"> {
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     return await withUserContext(db, userId, (tx) =>
       reconcileAbsentAgentRunStart(tx, { runId, userId }),
@@ -273,19 +298,61 @@ async function cancelRun(c: AgentContext): Promise<Response> {
   });
 }
 
-async function decideApproval(c: AgentContext): Promise<Response> {
+async function browserTakeoverStatus(c: AgentContext): Promise<Response> {
   const userId = readGatewayUserId(c.req.raw.headers);
-  const runId = parseRunRouteParam(c.req.param("runId") ?? "");
-  const approvalId = parseApprovalRouteParam(c.req.param("approvalId") ?? "");
-  const body = ApprovalDecisionRequestSchema.parse(
-    await readJsonRequest(c.req.raw, MAX_APPROVAL_BODY_BYTES, "Approval decision request"),
+  const run = await activeRunForThread(c, userId);
+  if (!run) {
+    return Response.json(BrowserTakeoverStatusSchema.parse({ status: "inactive" }));
+  }
+  return fetchAgentRun(
+    agentRunForRunId(c.env, run.runId),
+    "https://agent-run.internal/browser-takeover",
+    { headers: { "X-Cheatcode-User-Id": userId } },
   );
-  const run = await runForRoute(c.env, userId, runId);
-  return fetchAgentRun(agentRunForRunId(c.env, run.runId), "https://agent-run.internal/approval", {
-    body: JSON.stringify({ ...body, approvalId, userId }),
-    headers: { "X-Cheatcode-User-Id": userId },
-    method: "POST",
-  });
+}
+
+async function startBrowserTakeover(c: AgentContext): Promise<Response> {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const run = await activeRunForThread(c, userId);
+  if (!run) {
+    throw new APIError(409, "conflict_state_invalid", "No active run can be taken over", {
+      hint: "Start a browser task first.",
+      retriable: false,
+    });
+  }
+  return fetchAgentRun(
+    agentRunForRunId(c.env, run.runId),
+    "https://agent-run.internal/browser-takeover/start",
+    { headers: { "X-Cheatcode-User-Id": userId }, method: "POST" },
+  );
+}
+
+async function resumeBrowserTakeover(c: AgentContext): Promise<Response> {
+  const userId = readGatewayUserId(c.req.raw.headers);
+  const body = BrowserTakeoverResumeSchema.parse(
+    await readJsonRequest(c.req.raw, 4 * 1024, "Browser takeover resume request"),
+  );
+  const run = await activeRunForThread(c, userId);
+  if (!run) {
+    return Response.json(BrowserTakeoverResumeResultSchema.parse({ ok: true, status: "inactive" }));
+  }
+  return fetchAgentRun(
+    agentRunForRunId(c.env, run.runId),
+    "https://agent-run.internal/browser-takeover/resume",
+    {
+      body: JSON.stringify(body),
+      headers: {
+        "Content-Type": "application/json",
+        "X-Cheatcode-User-Id": userId,
+      },
+      method: "POST",
+    },
+  );
+}
+
+async function activeRunForThread(c: AgentContext, userId: string): Promise<AgentRunHandle | null> {
+  const threadId = parseThreadRouteParam(c.req.param("threadId") ?? "");
+  return activeRunForThreadRoute(c.env, userId, threadId);
 }
 
 function readRunRequestIdentity(headers: Headers): { bodyHash: string; keyHash: string } {
@@ -297,14 +364,6 @@ function readRunRequestIdentity(headers: Headers): { bodyHash: string; keyHash: 
     throw new APIError(400, "invalid_request_body", "Missing internal run request identity", {
       retriable: false,
     });
-  }
-  return parsed.data;
-}
-
-function parseApprovalRouteParam(value: string): string {
-  const parsed = ApprovalIdParamSchema.safeParse(value);
-  if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid approval id", { retriable: false });
   }
   return parsed.data;
 }

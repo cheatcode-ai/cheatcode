@@ -43,7 +43,14 @@ export async function getRunPersonalization(
   db: Database,
   userId: UserId,
 ): Promise<RunPersonalization> {
-  const row = await getUserProfile(db, userId);
+  const row = await db.query.userProfiles.findFirst({
+    columns: {
+      agentDisplayName: true,
+      disabledModels: true,
+      globalMemory: true,
+    },
+    where: eq(userProfiles.userId, userId),
+  });
   if (!row) {
     return DEFAULT_PERSONALIZATION;
   }

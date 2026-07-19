@@ -1,5 +1,4 @@
 import { APIError } from "@cheatcode/observability";
-import { CHEATCODE_APP_ORIGIN } from "./preview-session";
 
 const NAVIGATION_DESTINATIONS = new Set(["document", "frame", "iframe"]);
 
@@ -13,17 +12,33 @@ const NAVIGATION_DESTINATIONS = new Set(["document", "frame", "iframe"]);
 export function assertPreviewRequestContext(input: {
   fromQuery: boolean;
   request: Request;
+  trustedAppOrigin: string;
+  trustedPreviewOrigin: string;
   url: URL;
 }): void {
   if (input.fromQuery) {
     return;
   }
+  const fetchSite = input.request.headers.get("Sec-Fetch-Site")?.toLowerCase();
+  // Fetch Metadata is browser-controlled. Checking it before Origin avoids false
+  // denials when a local service binding rewrites standard origin headers while
+  // preserving the browser's same-origin classification.
+  if (fetchSite === "same-origin" || fetchSite === "none") {
+    return;
+  }
   const origin = input.request.headers.get("Origin");
-  if (origin && origin !== input.url.origin) {
+  if (origin && !isTrustedPreviewOrigin(origin, input)) {
     throw crossOriginDenied();
   }
-  const referrerOrigin = readTrustedReferrerOrigin(input.request, input.url);
-  const fetchSite = input.request.headers.get("Sec-Fetch-Site")?.toLowerCase();
+  if (origin) {
+    return;
+  }
+  const referrerOrigin = readTrustedReferrerOrigin(
+    input.request,
+    input.url,
+    input.trustedAppOrigin,
+    input.trustedPreviewOrigin,
+  );
   if (!fetchSite) {
     // Older/non-browser clients do not always send Fetch Metadata. Fail closed
     // unless another browser-controlled same-origin/trusted-app signal exists.
@@ -32,37 +47,57 @@ export function assertPreviewRequestContext(input: {
     }
     throw crossOriginDenied();
   }
-  if (fetchSite === "same-origin" || fetchSite === "none" || origin) {
+  if (isTrustedNavigation(input.request, fetchSite, referrerOrigin)) {
     return;
-  }
-  const mode = input.request.headers.get("Sec-Fetch-Mode")?.toLowerCase();
-  const destination = input.request.headers.get("Sec-Fetch-Dest")?.toLowerCase() ?? "";
-  if (
-    (fetchSite === "same-site" || fetchSite === "cross-site") &&
-    mode === "navigate" &&
-    NAVIGATION_DESTINATIONS.has(destination)
-  ) {
-    if (referrerOrigin) {
-      return;
-    }
   }
   throw crossOriginDenied();
 }
 
-function readTrustedReferrerOrigin(request: Request, url: URL): string | null {
+function isTrustedNavigation(
+  request: Request,
+  fetchSite: string,
+  referrerOrigin: string | null,
+): boolean {
+  const mode = request.headers.get("Sec-Fetch-Mode")?.toLowerCase();
+  const destination = request.headers.get("Sec-Fetch-Dest")?.toLowerCase() ?? "";
+  return (
+    Boolean(referrerOrigin) &&
+    (fetchSite === "same-site" || fetchSite === "cross-site") &&
+    mode === "navigate" &&
+    NAVIGATION_DESTINATIONS.has(destination)
+  );
+}
+
+function readTrustedReferrerOrigin(
+  request: Request,
+  url: URL,
+  trustedAppOrigin: string,
+  trustedPreviewOrigin: string,
+): string | null {
   const referer = request.headers.get("Referer");
   if (!referer) {
     return null;
   }
   try {
     const referrerOrigin = new URL(referer).origin;
-    if (referrerOrigin === url.origin || referrerOrigin === CHEATCODE_APP_ORIGIN) {
+    if (
+      referrerOrigin === url.origin ||
+      referrerOrigin === trustedPreviewOrigin ||
+      referrerOrigin === trustedAppOrigin
+    ) {
       return referrerOrigin;
     }
   } catch {
     // A malformed referrer is not a trustworthy navigation signal.
   }
   throw crossOriginDenied();
+}
+
+function isTrustedPreviewOrigin(
+  origin: string,
+  input: Pick<Parameters<typeof assertPreviewRequestContext>[0], "trustedPreviewOrigin" | "url">,
+): boolean {
+  return origin === input.url.origin || origin === input.trustedPreviewOrigin;
 }
 
 function crossOriginDenied(): APIError {

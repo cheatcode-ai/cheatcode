@@ -1,8 +1,6 @@
 import {
   ActivityHistoryResponseSchema,
   LimitsSnapshotSchema,
-  MeResponseSchema,
-  UpdateMeSchema,
   UpdateUserProfileSchema,
   UserProfileSchema,
 } from "@cheatcode/types";
@@ -18,10 +16,6 @@ import { withJsonSchemaConstraints, zodJsonSchema } from "./openapi-zod";
 export const accountSchemas: Record<string, JsonValue> = {
   ActivityHistory: zodJsonSchema(ActivityHistoryResponseSchema),
   LimitsSnapshot: zodJsonSchema(LimitsSnapshotSchema),
-  MeResponse: zodJsonSchema(MeResponseSchema),
-  UpdateMe: withJsonSchemaConstraints(zodJsonSchema(UpdateMeSchema, "input"), {
-    minProperties: 1,
-  }),
   UpdateUserProfile: withJsonSchemaConstraints(zodJsonSchema(UpdateUserProfileSchema, "input"), {
     minProperties: 1,
   }),
@@ -31,29 +25,10 @@ export const accountSchemas: Record<string, JsonValue> = {
 const activityDaysParameter: JsonValue = {
   in: "query",
   name: "days",
-  schema: { default: 30, maximum: 90, minimum: 1, type: "integer" },
+  schema: { default: 30, maximum: 366, minimum: 1, type: "integer" },
 };
 
 export const accountRoutes: OpenApiRoute[] = [
-  {
-    method: "get",
-    operationId: "getMe",
-    path: "/v1/me",
-    responses: { "200": jsonResponse("Current user", schemaRef("MeResponse")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Get current user",
-    tags: ["account"],
-  },
-  {
-    method: "patch",
-    operationId: "updateMe",
-    path: "/v1/me",
-    requestBody: jsonBody(schemaRef("UpdateMe")),
-    responses: { "200": jsonResponse("Updated user", schemaRef("MeResponse")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Update the current user",
-    tags: ["account"],
-  },
   {
     method: "get",
     operationId: "getMyProfile",

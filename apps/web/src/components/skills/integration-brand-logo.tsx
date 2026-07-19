@@ -12,7 +12,7 @@ export function IntegrationBrandLogo({
   slug,
 }: {
   displayName: string;
-  size?: "card" | "drawer";
+  size?: "card" | "drawer" | "menu";
   slug: string;
 }) {
   const [hasFailed, setHasFailed] = useState(false);
@@ -20,7 +20,7 @@ export function IntegrationBrandLogo({
     <span
       className={cn(
         "flex shrink-0 items-center justify-center overflow-hidden rounded-xl",
-        size === "drawer" ? "size-8" : "size-6",
+        size === "drawer" ? "size-8" : size === "menu" ? "size-4" : "size-6",
       )}
     >
       {hasFailed ? (
@@ -29,13 +29,16 @@ export function IntegrationBrandLogo({
         <Image
           alt=""
           aria-hidden="true"
-          className={cn("size-5 object-contain", DARK_INVERT_LOGOS.has(slug) && "dark:invert")}
-          height={20}
+          className={cn(
+            size === "menu" ? "size-4 object-contain" : "size-5 object-contain",
+            DARK_INVERT_LOGOS.has(slug) && "dark:invert",
+          )}
+          height={size === "menu" ? 16 : 20}
           loading="eager"
           onError={() => setHasFailed(true)}
           src={`https://logos.composio.dev/api/${slug}`}
           unoptimized
-          width={20}
+          width={size === "menu" ? 16 : 20}
         />
       )}
     </span>

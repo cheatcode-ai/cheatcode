@@ -3,6 +3,7 @@ import { readdir, readFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { z } from "zod";
 import {
   type DrizzleMigrationClient,
   runDrizzleMigrations,
@@ -23,30 +24,30 @@ import {
   verifyDrizzleMigrationIntegrity,
 } from "./migration-drizzle";
 import { loadMigrationEnvFromFiles } from "./migration-env";
+import { assertProtectedReleaseRuntime } from "./release-operation-budget";
 
 interface PgModule {
   Client: new (config: { connectionString: string }) => DrizzleMigrationClient;
 }
-
 type Mode = "apply" | "dry-run";
-type MigrationPhase = "all" | "post-deploy" | "pre-deploy";
-
+type ApplyMigrationPhase = "post-deploy" | "pre-deploy" | "release-finalization";
+type MigrationPhase = "all" | ApplyMigrationPhase;
 interface MigrationOptions {
   mode: Mode;
   phase: MigrationPhase;
 }
-
 interface MigrationFiles {
   contractions: string[];
   drizzle: DrizzleMigration[];
   expansions: string[];
+  finalizations: string[];
   foundations: string[];
   post: string[];
   retired: Map<string, string>;
 }
-
 type RawMigrationLedger = Map<string, string>;
-type RawMigrationPhaseMap = Map<string, Exclude<MigrationPhase, "all">>;
+type RawMigrationPhaseMap = Map<string, ApplyMigrationPhase>;
+type RawMigrationAttestations = ReadonlyMap<string, string>;
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const PRE_DIR = join(ROOT, "infra/supabase/migrations/pre");
@@ -57,15 +58,21 @@ const FIRST_PHASE_ENFORCED_RAW_INDEX = 28;
 const RAW_MIGRATION_PATH_PATTERN =
   /^infra\/supabase\/migrations\/(?:pre|post)\/\d{4}_[a-z0-9_]+\.sql$/;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
+const MIGRATION_ATTESTATION_SETTING = "cheatcode.migration_attestation";
+const MIGRATION_SHA256_SETTING = "cheatcode.migration_sha256";
+const V1_REMOVAL_MIGRATION = "infra/supabase/migrations/post/0046_remove_v1_database_surface.sql";
+const MigrationAttestationEnvelopeSchema = z
+  .object({
+    "v1-external-cleanup": z.record(z.string(), z.unknown()).optional(),
+  })
+  .strict();
 
-function writeLine(line = ""): void {
-  process.stdout.write(`${line}\n`);
-}
+const writeLine = (line = ""): void => void process.stdout.write(`${line}\n`);
 
 function parseOptions(argv: string[]): MigrationOptions {
   if (argv.includes("--help")) {
     writeLine(
-      "Usage: pnpm tsx scripts/migrate.ts [--dry-run|--apply] [--phase=all|pre-deploy|post-deploy]",
+      "Usage: pnpm tsx scripts/migrate.ts [--dry-run|--apply] [--phase=all|pre-deploy|post-deploy|release-finalization]",
     );
     process.exit(0);
   }
@@ -91,7 +98,12 @@ function parseOptions(argv: string[]): MigrationOptions {
   }
   const phaseArgument = phaseArguments[0];
   const phaseValue = phaseArgument?.slice("--phase=".length) ?? "all";
-  if (phaseValue !== "all" && phaseValue !== "pre-deploy" && phaseValue !== "post-deploy") {
+  if (
+    phaseValue !== "all" &&
+    phaseValue !== "pre-deploy" &&
+    phaseValue !== "post-deploy" &&
+    phaseValue !== "release-finalization"
+  ) {
     throw new Error(`Invalid migration phase: ${phaseValue}`);
   }
   return {
@@ -150,7 +162,7 @@ async function rawMigrationPhases(postFiles: string[]): Promise<RawMigrationPhas
   }
   const phases: RawMigrationPhaseMap = new Map();
   for (const [filename, phase] of configured) {
-    if (phase !== "pre-deploy" && phase !== "post-deploy") {
+    if (phase !== "pre-deploy" && phase !== "post-deploy" && phase !== "release-finalization") {
       throw new Error(`Raw migration has an invalid phase: ${filename}`);
     }
     phases.set(filename, phase);
@@ -194,6 +206,19 @@ async function assertExpandOnlyRawMigrations(files: readonly string[]): Promise<
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseRawMigrationAttestations(raw: string | undefined): RawMigrationAttestations {
+  if (!raw) return new Map();
+  let decoded: unknown;
+  try {
+    decoded = JSON.parse(raw);
+  } catch {
+    throw new Error("CHEATCODE_MIGRATION_ATTESTATIONS must contain valid JSON.");
+  }
+  const envelope = MigrationAttestationEnvelopeSchema.parse(decoded);
+  const cleanup = envelope["v1-external-cleanup"];
+  return cleanup ? new Map([[V1_REMOVAL_MIGRATION, JSON.stringify(cleanup)]]) : new Map();
 }
 
 function createClient(databaseUrl: string): DrizzleMigrationClient {
@@ -284,12 +309,24 @@ async function fileChecksum(file: string): Promise<string> {
     .digest("hex");
 }
 
-async function applyRawFile(client: PgClient, file: string): Promise<void> {
+async function applyRawFile(
+  client: PgClient,
+  file: string,
+  attestations: RawMigrationAttestations,
+): Promise<void> {
   const filename = relative(ROOT, file);
   const sql = await readFile(file, "utf8");
   const sha256 = await fileChecksum(file);
   await client.query("begin");
   try {
+    const attestation = attestations.get(filename);
+    if (attestation) {
+      await client.query("select set_config($1, $2, true)", [
+        MIGRATION_ATTESTATION_SETTING,
+        attestation,
+      ]);
+      await client.query("select set_config($1, $2, true)", [MIGRATION_SHA256_SETTING, sha256]);
+    }
     await client.query(sql);
     await client.query("insert into public._raw_migrations (filename, sha256) values ($1, $2)", [
       filename,
@@ -302,7 +339,12 @@ async function applyRawFile(client: PgClient, file: string): Promise<void> {
   }
 }
 
-async function applyRawPhase(client: PgClient, title: string, files: string[]): Promise<void> {
+async function applyRawPhase(
+  client: PgClient,
+  title: string,
+  files: string[],
+  attestations: RawMigrationAttestations,
+): Promise<void> {
   const applied = await appliedRawMigrations(client);
   for (const file of files) {
     const filename = relative(ROOT, file);
@@ -311,7 +353,7 @@ async function applyRawPhase(client: PgClient, title: string, files: string[]): 
       continue;
     }
     writeLine(`apply ${title}: ${filename}`);
-    await applyRawFile(client, file);
+    await applyRawFile(client, file, attestations);
   }
 }
 
@@ -339,13 +381,14 @@ async function printPlan(
   foundations: string[],
   expansions: string[],
   contractions: string[],
+  finalizations: string[],
   phase: MigrationPhase,
   drizzle: readonly DrizzleMigration[],
   appliedDrizzle: ReadonlySet<string>,
 ): Promise<void> {
   const applied = await appliedRawMigrations(client);
   writeLine("Migration plan:");
-  if (phase !== "post-deploy") {
+  if (phase === "all" || phase === "pre-deploy") {
     printRawPlan("Phase 1 raw foundations", foundations, applied);
     writeLine("Phase 2 Drizzle expansions");
     for (const migration of drizzle) {
@@ -354,8 +397,11 @@ async function printPlan(
     }
     printRawPlan("Phase 3 raw expansions and security overlays", expansions, applied);
   }
-  if (phase !== "pre-deploy") {
+  if (phase === "all" || phase === "post-deploy") {
     printRawPlan("Phase 4 post-deploy contractions", contractions, applied);
+  }
+  if (phase === "all" || phase === "release-finalization") {
+    printRawPlan("Phase 5 release finalization", finalizations, applied);
   }
 }
 
@@ -373,8 +419,10 @@ async function assertRawApplyOrder(
   groups: ReadonlyArray<readonly string[]>,
 ): Promise<void> {
   const applied = await appliedRawMigrations(client);
-  let firstPending: string | undefined;
   for (const files of groups) {
+    // Expansion and contraction indexes interleave across release waves; only
+    // each phase stream is append-only.
+    let firstPending: string | undefined;
     for (const file of files) {
       const filename = relative(ROOT, file);
       if (!applied.has(filename)) {
@@ -404,6 +452,20 @@ async function assertPreDeployComplete(
     throw new Error(
       `Post-deploy contractions require a complete pre-deploy phase: missing ${[...missingRaw, ...missingDrizzle].join(", ")}.`,
     );
+  }
+}
+
+async function assertRawPhaseComplete(
+  client: PgClient,
+  files: readonly string[],
+  requiredPhase: string,
+): Promise<void> {
+  const applied = await appliedRawMigrations(client);
+  const missing = files
+    .map((file) => relative(ROOT, file))
+    .filter((filename) => !applied.has(filename));
+  if (missing.length > 0) {
+    throw new Error(`${requiredPhase} is incomplete: missing ${missing.join(", ")}.`);
   }
 }
 
@@ -521,11 +583,44 @@ async function loadMigrationFiles(): Promise<MigrationFiles> {
   const phases = await rawMigrationPhases(post);
   const expansions = post.filter((file) => phases.get(relative(ROOT, file)) === "pre-deploy");
   const contractions = post.filter((file) => phases.get(relative(ROOT, file)) === "post-deploy");
+  const finalizations = post.filter(
+    (file) => phases.get(relative(ROOT, file)) === "release-finalization",
+  );
+  assertReleaseFinalizationContract(finalizations);
   const retired = await retiredRawMigrations();
   assertUniqueRawMigrationIndexes([...foundations, ...post], retired);
   await assertExpandOnlyRawMigrations([...foundations, ...expansions]);
   const drizzle = await loadDrizzleMigrations();
-  return { contractions, drizzle, expansions, foundations, post, retired };
+  return { contractions, drizzle, expansions, finalizations, foundations, post, retired };
+}
+
+function assertReleaseFinalizationContract(files: readonly string[]): void {
+  const filenames = files.map((file) => relative(ROOT, file));
+  if (filenames.length !== 1 || filenames[0] !== V1_REMOVAL_MIGRATION) {
+    throw new Error(
+      `Release finalization must contain only the protected V1 removal migration ${V1_REMOVAL_MIGRATION}.`,
+    );
+  }
+}
+
+async function assertNoLeasedDestructiveJobs(client: PgClient): Promise<void> {
+  const tables = ["v2_resource_deletion_jobs", "v2_user_deletion_jobs"] as const;
+  for (const table of tables) {
+    const relation = await client.query(
+      `select to_regclass('public.${table}') is not null as table_exists`,
+    );
+    if (relation.rows[0]?.["table_exists"] !== true) {
+      continue;
+    }
+    const leased = await client.query(
+      `select exists (select 1 from public.${table} where status = 'leased') as has_leased_job`,
+    );
+    if (leased.rows[0]?.["has_leased_job"] === true) {
+      throw new Error(
+        `Schema migration cannot run while ${table} has a leased job; finish or release every active lease first.`,
+      );
+    }
+  }
 }
 
 async function runMigration(
@@ -533,6 +628,7 @@ async function runMigration(
   identity: DatabaseIdentityExpectation,
   options: MigrationOptions,
   files: MigrationFiles,
+  rawAttestations: string | undefined,
 ): Promise<void> {
   const client = createClient(databaseUrl);
   await client.connect();
@@ -546,7 +642,8 @@ async function runMigration(
     await assertPinnedDatabaseIdentity(client, identity, options.mode);
     await acquireDatabaseMaintenanceLock(client, "schema migration");
     hasMaintenanceLock = true;
-    await executeMigration(client, options, files);
+    await assertNoLeasedDestructiveJobs(client);
+    await executeMigration(client, options, files, rawAttestations);
   } catch (error) {
     operationFailed = true;
     throw error;
@@ -559,15 +656,21 @@ async function executeMigration(
   client: DrizzleMigrationClient,
   options: MigrationOptions,
   files: MigrationFiles,
+  rawAttestations: string | undefined,
 ): Promise<void> {
-  const { contractions, drizzle, expansions, foundations, post, retired } = files;
+  const { contractions, drizzle, expansions, finalizations, foundations, post, retired } = files;
   await assertSupabaseTarget(client, "pre-migration");
   if (options.mode === "apply") {
     await ensureRawLedger(client);
   }
   await assertRawLedgerShape(client, options.mode === "dry-run");
   await verifyRawMigrationIntegrity(client, [...foundations, ...post], retired);
-  await assertRawApplyOrder(client, [foundations, expansions, contractions]);
+  await assertRawApplyOrder(client, [foundations, expansions, contractions, finalizations]);
+  if (options.mode === "dry-run" && options.phase === "release-finalization") {
+    await assertPreDeployComplete(client, foundations, expansions, drizzle);
+    await assertRawPhaseComplete(client, contractions, "Post-deploy contraction phase");
+  }
+  const attestations = parseRawMigrationAttestations(rawAttestations);
   const appliedDrizzle = await verifyDrizzleMigrationIntegrity(client, drizzle, writeLine);
   if (options.mode === "dry-run") {
     await printPlan(
@@ -575,55 +678,87 @@ async function executeMigration(
       foundations,
       expansions,
       contractions,
+      finalizations,
       options.phase,
       drizzle,
       appliedDrizzle,
     );
     return;
   }
-  await applySelectedPhases(client, options.phase, files);
+  await applySelectedPhases(client, options.phase, files, attestations);
   await verifyRawMigrationIntegrity(client, [...foundations, ...post], retired);
-  await assertRawApplyOrder(client, [foundations, expansions, contractions]);
+  await assertRawApplyOrder(client, [foundations, expansions, contractions, finalizations]);
 }
 
 async function applySelectedPhases(
   client: DrizzleMigrationClient,
   phase: MigrationPhase,
   files: MigrationFiles,
+  attestations: RawMigrationAttestations,
 ): Promise<void> {
-  if (phase !== "post-deploy") {
-    await applyRawPhase(client, "raw foundations", files.foundations);
+  if (phase === "pre-deploy") {
+    await applyRawPhase(client, "raw foundations", files.foundations, attestations);
     await runDrizzleMigrate(client, files.drizzle);
     const applied = await verifyDrizzleMigrationIntegrity(client, files.drizzle, writeLine);
     if (applied.size !== files.drizzle.length) {
       throw new Error("Drizzle returned without applying the complete migration journal.");
     }
-    await applyRawPhase(client, "raw expansions", files.expansions);
-  }
-  if (phase !== "pre-deploy") {
+    await applyRawPhase(client, "raw expansions", files.expansions, attestations);
     await assertPreDeployComplete(client, files.foundations, files.expansions, files.drizzle);
-    await applyRawPhase(client, "post-deploy contractions", files.contractions);
-    await assertSupabaseTarget(client, "prod-ready");
+    return;
   }
+  if (phase === "post-deploy") {
+    await assertPreDeployComplete(client, files.foundations, files.expansions, files.drizzle);
+    await applyRawPhase(client, "post-deploy contractions", files.contractions, attestations);
+    await assertRawPhaseComplete(client, files.contractions, "Post-deploy contraction phase");
+    await assertSupabaseTarget(client, "pre-migration");
+    return;
+  }
+  if (phase === "release-finalization") {
+    await assertPreDeployComplete(client, files.foundations, files.expansions, files.drizzle);
+    await assertRawPhaseComplete(client, files.contractions, "Post-deploy contraction phase");
+    await applyRawPhase(client, "release finalization", files.finalizations, attestations);
+    await assertRawPhaseComplete(client, files.finalizations, "Release finalization phase");
+    await assertSupabaseTarget(client, "prod-ready");
+    return;
+  }
+  throw new Error("The all-phases migration plan is read-only.");
 }
 
 async function main(): Promise<void> {
   const options = parseOptions(process.argv.slice(2));
   if (options.mode === "apply" && options.phase === "all") {
     throw new Error(
-      "Refusing --apply --phase=all. Apply pre-deploy and post-deploy in separate release gates.",
+      "Refusing --apply --phase=all. Apply pre-deploy, post-deploy, and release-finalization in separate release gates.",
     );
   }
-  const { databaseUrl, expectedDatabase, expectedHost, expectedRole, expectedSystemIdentifier } =
-    loadMigrationEnvFromFiles(ROOT);
+  const {
+    databaseUrl,
+    expectedDatabase,
+    expectedHost,
+    expectedRole,
+    expectedSystemIdentifier,
+    isLocalDatabase,
+    migrationAttestations,
+  } = loadMigrationEnvFromFiles(ROOT);
+  if (options.mode === "apply" && !isLocalDatabase) {
+    assertProtectedReleaseRuntime();
+  }
   const identity: DatabaseIdentityExpectation = {
+    isLocalDatabase,
     ...(expectedDatabase ? { expectedDatabase } : {}),
     ...(expectedHost ? { expectedHost } : {}),
     ...(expectedRole ? { expectedRole } : {}),
     ...(expectedSystemIdentifier ? { expectedSystemIdentifier } : {}),
   };
   assertAdministrativeConnectionTarget(databaseUrl, identity, options.mode);
-  await runMigration(databaseUrl, identity, options, await loadMigrationFiles());
+  await runMigration(
+    databaseUrl,
+    identity,
+    options,
+    await loadMigrationFiles(),
+    migrationAttestations,
+  );
 }
 
 main().catch((error: unknown) => {

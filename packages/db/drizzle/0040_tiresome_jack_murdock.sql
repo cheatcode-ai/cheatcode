@@ -1,0 +1,1 @@
+CREATE INDEX "v2_users_deletion_due_idx" ON "v2_users" USING btree ("deleted_at","id") WHERE "v2_users"."deleted_at" is not null;

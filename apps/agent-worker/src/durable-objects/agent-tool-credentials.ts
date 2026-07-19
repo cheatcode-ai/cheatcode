@@ -3,10 +3,14 @@ import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 import type { ComposioRuntimeCredentials } from "./composio-provider";
 import { resolveComposioRuntimeCredentials } from "./composio-provider";
+import type { MediaCredentials } from "./media-provider";
+import { resolveMediaCredentials } from "./media-provider";
 import type { ResearchCredentials } from "./research-provider";
 import { resolveResearchCredentials } from "./research-provider";
 
-export type AgentToolCredentials = ComposioRuntimeCredentials & ResearchCredentials;
+export type AgentToolCredentials = ComposioRuntimeCredentials &
+  MediaCredentials &
+  ResearchCredentials;
 
 export async function resolveAgentToolCredentials(input: {
   env: AgentRunEnv;
@@ -22,8 +26,11 @@ export async function resolveAgentToolCredentials(input: {
     input.run,
     input.logger,
   );
+  input.setRunStage("Resolving media providers.");
+  const mediaCredentials = await resolveMediaCredentials(input.env, input.run, input.logger);
   return {
     ...composioCredentials,
+    ...mediaCredentials,
     ...researchCredentials,
   };
 }

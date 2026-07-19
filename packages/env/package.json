@@ -16,6 +16,11 @@
       "import": "./dist/web.js",
       "default": "./dist/web.js"
     },
+    "./web-config": {
+      "types": "./dist/web-config.d.ts",
+      "import": "./dist/web-config.js",
+      "default": "./dist/web-config.js"
+    },
     "./worker": {
       "types": "./dist/worker.d.ts",
       "import": "./dist/worker.js",

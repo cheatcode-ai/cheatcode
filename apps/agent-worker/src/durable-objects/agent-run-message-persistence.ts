@@ -1,15 +1,25 @@
 import { createDb, createThreadMessage, withUserContext } from "@cheatcode/db";
 import { createLogger, type Logger } from "@cheatcode/observability";
-import type { UIMessagePart } from "@cheatcode/types";
-import { AgentRunId, ThreadId, UserId } from "@cheatcode/types";
-import type { UIMessageChunk } from "ai";
 import {
-  isMessagePartRow,
-  type MessagePartRow,
-  parseSequencedChunk,
-} from "../streaming/ui-message-stream";
+  AgentRunId,
+  fragmentMessagePart,
+  serializedMessagePartsBytes,
+  ThreadId,
+  TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES,
+  type UIMessagePart,
+  UserId,
+} from "@cheatcode/types";
+import type { UIMessageChunk } from "ai";
+import { type MessagePartRow, parseSequencedChunk } from "../streaming/ui-message-stream";
 import type { AgentRunEnv } from "./agent-run-env";
-import { deleteRunStateValues, getRunStateValue, setRunStateValue } from "./agent-run-storage";
+import {
+  deleteRunStateValues,
+  getRunStateTimestamp,
+  getRunStateValue,
+  readAgentRunMessagePartPage,
+  setRunStateValue,
+} from "./agent-run-storage";
+import { transcriptPartFromChunk } from "./agent-run-transcript-chunks";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -26,13 +36,7 @@ const PENDING_MESSAGE_ATTEMPT_KEY = "pending_assistant_message_attempt";
 const PENDING_MESSAGE_RETRY_AT_KEY = "pending_assistant_message_retry_at";
 const MIN_MESSAGE_RETRY_MS = 5_000;
 const MAX_MESSAGE_RETRY_MS = 5 * 60 * 1_000;
-const MESSAGE_PERSISTENCE_PAGE_SIZE = 100;
-
-interface TextPartDraft {
-  chunks: string[];
-  index: number;
-  isClosed: boolean;
-}
+const TEXT_PERSISTENCE_SLICE_CHARACTERS = 16 * 1024;
 
 export async function persistOrQueueAssistantMessage(
   input: PersistAssistantMessageInput,
@@ -84,21 +88,27 @@ async function persistAssistantMessage({
   if (!UUID_PATTERN.test(runId) || !UUID_PATTERN.test(threadId)) {
     return true;
   }
-  const parts = assistantPartsFromPages((lastSeq) => readRowsPage(ctx, lastSeq));
-  if (parts.length === 0) {
-    return true;
-  }
-  const { db, close } = createDb(env.HYPERDRIVE);
+  const createdAt = transcriptCreatedAt(ctx);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
-    await withUserContext(db, UserId(userId), (tx) =>
-      createThreadMessage(tx, {
-        agentRunId: AgentRunId(runId),
-        parts,
-        role: "assistant",
-        threadId: ThreadId(threadId),
-        userId: UserId(userId),
-      }),
-    );
+    const writer = new AssistantTranscriptWriter(async (parts, segment, isFinal) => {
+      await withUserContext(db, UserId(userId), (tx) =>
+        createThreadMessage(tx, {
+          agentRunId: AgentRunId(runId),
+          agentRunSegment: segment,
+          agentRunSegmentFinal: isFinal,
+          createdAt,
+          parts,
+          role: "assistant",
+          threadId: ThreadId(threadId),
+          userId: UserId(userId),
+        }),
+      );
+    });
+    await writeAssistantTranscript(writer, (lastSeq) => readRowsPage(ctx, lastSeq));
     return true;
   } catch (error) {
     logger.error("assistant_message_persist_failed", {
@@ -116,15 +126,17 @@ async function persistAssistantMessage({
 }
 
 function readRowsPage(ctx: DurableObjectState, lastSeq: number): MessagePartRow[] {
-  const rows: unknown[] = ctx.storage.sql
-    .exec(
-      `SELECT seq, payload_json FROM message_part
-       WHERE seq > ? ORDER BY seq LIMIT ?`,
-      lastSeq,
-      MESSAGE_PERSISTENCE_PAGE_SIZE,
-    )
-    .toArray();
-  return rows.filter(isMessagePartRow);
+  return readAgentRunMessagePartPage(ctx, lastSeq);
+}
+
+function transcriptCreatedAt(ctx: DurableObjectState): Date {
+  const stored = getRunStateTimestamp(ctx, "completed_at");
+  if (stored !== null) {
+    return new Date(stored);
+  }
+  const fallback = Date.now();
+  setRunStateValue(ctx, "completed_at", String(fallback));
+  return new Date(fallback);
 }
 
 function storedRunIdentity(
@@ -158,11 +170,11 @@ function messageRetryDelay(attempt: number): number {
   return Math.min(MAX_MESSAGE_RETRY_MS, MIN_MESSAGE_RETRY_MS * 2 ** Math.min(attempt, 6));
 }
 
-function assistantPartsFromPages(
+async function writeAssistantTranscript(
+  writer: AssistantTranscriptWriter,
   readRowsPage: (lastSeq: number) => MessagePartRow[],
-): UIMessagePart[] {
-  const output: UIMessagePart[] = [];
-  const textParts = new Map<string, TextPartDraft>();
+): Promise<void> {
+  const assembler = new AssistantPartAssembler(writer);
   let cursor = 0;
   for (;;) {
     const rows = readRowsPage(cursor);
@@ -172,126 +184,155 @@ function assistantPartsFromPages(
     for (const row of rows) {
       const sequenced = parseSequencedChunk(row);
       cursor = sequenced.seq;
-      appendChunkPart(sequenced.chunk, output, textParts);
+      await assembler.append(sequenced.seq, sequenced.chunk);
     }
   }
-  finalizeTextParts(output, textParts);
-  return output.filter((part) => part.type !== "text" || textPartHasContent(part));
+  await assembler.finish();
+  await writer.finish();
 }
 
-function appendChunkPart(
-  chunk: UIMessageChunk,
-  output: UIMessagePart[],
-  textParts: Map<string, TextPartDraft>,
-): void {
-  if (chunk.type === "text-start") {
-    ensureTextPart(chunk.id, output, textParts);
-    return;
-  }
-  if (chunk.type === "text-delta") {
-    const draft = ensureTextPart(chunk.id, output, textParts);
-    draft.chunks.push(chunk.delta);
-    draft.isClosed = false;
-    return;
-  }
-  if (chunk.type === "text-end") {
-    const draft = ensureTextPart(chunk.id, output, textParts);
-    closeTextPart(output, draft);
-    return;
-  }
-  if (chunk.type === "start-step") {
-    output.push({ type: "step-start" });
-    return;
-  }
-  if (isPersistableDataChunk(chunk) || isPersistableDisplayChunk(chunk)) {
-    output.push(uiMessagePartFromChunk(chunk));
-  }
-}
+type PersistSegment = (parts: UIMessagePart[], segment: number, isFinal: boolean) => Promise<void>;
 
-function ensureTextPart(
-  id: string,
-  output: UIMessagePart[],
-  textParts: Map<string, TextPartDraft>,
-): TextPartDraft {
-  const existing = textParts.get(id);
-  if (existing) {
-    return existing;
-  }
-  const draft = { chunks: [], index: output.length, isClosed: false };
-  textParts.set(id, draft);
-  output.push({ type: "text", text: "", state: "streaming" });
-  return draft;
-}
+class AssistantTranscriptWriter {
+  private currentBytes = 2;
+  private currentParts: UIMessagePart[] = [];
+  private nextSegment = 0;
+  private pendingParts: UIMessagePart[] | null = null;
 
-function closeTextPart(output: UIMessagePart[], draft: TextPartDraft): void {
-  const text = draft.chunks.join("");
-  output[draft.index] = { type: "text", text, state: "done" };
-  draft.chunks = [text];
-  draft.isClosed = true;
-}
+  public constructor(private readonly persist: PersistSegment) {}
 
-function finalizeTextParts(output: UIMessagePart[], textParts: Map<string, TextPartDraft>): void {
-  for (const draft of textParts.values()) {
-    if (!draft.isClosed) {
-      closeTextPart(output, draft);
+  public async append(part: UIMessagePart, partId: string): Promise<void> {
+    const candidates =
+      serializedPartBytes(part) + 2 > TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES
+        ? fragmentMessagePart(part, partId)
+        : [part];
+    for (const candidate of candidates) {
+      await this.appendBounded(candidate);
     }
   }
-}
 
-function isPersistableDataChunk(
-  chunk: UIMessageChunk,
-): chunk is UIMessageChunk & { type: `data-${string}` } {
-  const value = chunkRecord(chunk);
-  return (
-    typeof value["type"] === "string" &&
-    value["type"].startsWith("data-") &&
-    value["type"] !== "data-seq" &&
-    value["transient"] !== true
-  );
-}
-
-function isPersistableDisplayChunk(chunk: UIMessageChunk): boolean {
-  return chunk.type === "file" || chunk.type === "source-url" || chunk.type === "source-document";
-}
-
-function uiMessagePartFromChunk(chunk: UIMessageChunk): UIMessagePart {
-  const value = chunkRecord(chunk);
-  if (chunk.type === "file") {
-    return {
-      type: chunk.type,
-      mediaType: value["mediaType"],
-      url: value["url"],
-      ...(typeof value["filename"] === "string" ? { filename: value["filename"] } : {}),
-    };
+  public async finish(): Promise<void> {
+    await this.stageCurrent();
+    if (this.pendingParts) {
+      await this.persist(this.pendingParts, this.nextSegment, true);
+      this.pendingParts = null;
+    }
   }
-  if (chunk.type === "source-url") {
-    return {
-      type: chunk.type,
-      sourceId: value["sourceId"],
-      url: value["url"],
-      ...(typeof value["title"] === "string" ? { title: value["title"] } : {}),
-    };
+
+  private async appendBounded(part: UIMessagePart): Promise<void> {
+    const partBytes = serializedPartBytes(part);
+    const separatorBytes = this.currentParts.length === 0 ? 0 : 1;
+    if (this.currentBytes + separatorBytes + partBytes > TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES) {
+      await this.stageCurrent();
+    }
+    if (partBytes + 2 > TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES) {
+      throw new RangeError("Transcript fragment exceeds the segment byte bound.");
+    }
+    this.currentBytes += (this.currentParts.length === 0 ? 0 : 1) + partBytes;
+    this.currentParts.push(part);
   }
-  if (chunk.type === "source-document") {
-    return {
-      type: chunk.type,
-      mediaType: value["mediaType"],
-      sourceId: value["sourceId"],
-      title: value["title"],
-      ...(typeof value["filename"] === "string" ? { filename: value["filename"] } : {}),
-    };
+
+  private async stageCurrent(): Promise<void> {
+    if (this.currentParts.length === 0) {
+      return;
+    }
+    if (this.pendingParts) {
+      await this.persist(this.pendingParts, this.nextSegment, false);
+      this.nextSegment += 1;
+    }
+    this.pendingParts = this.currentParts;
+    this.currentParts = [];
+    this.currentBytes = 2;
   }
-  return {
-    type: chunk.type,
-    data: value["data"],
-    ...(typeof value["id"] === "string" ? { id: value["id"] } : {}),
-  };
 }
 
-function chunkRecord(chunk: UIMessageChunk): Record<string, unknown> {
-  return Object(chunk) as Record<string, unknown>;
+class AssistantPartAssembler {
+  private bufferedTextCharacters = 0;
+  private readonly bufferedTextChunks: string[] = [];
+  private openTextId: string | null = null;
+  private textPartSeq = 0;
+
+  public constructor(private readonly writer: AssistantTranscriptWriter) {}
+
+  public async append(seq: number, chunk: UIMessageChunk): Promise<void> {
+    if (chunk.type === "text-start") {
+      await this.switchTextPart(chunk.id, seq);
+      return;
+    }
+    if (chunk.type === "text-delta") {
+      await this.switchTextPart(chunk.id, seq);
+      await this.appendText(chunk.delta);
+      return;
+    }
+    if (chunk.type === "text-end") {
+      await this.flushText();
+      this.openTextId = null;
+      return;
+    }
+    await this.flushText();
+    const part = partFromChunk(chunk);
+    if (part) {
+      await this.writer.append(part, String(seq));
+    }
+  }
+
+  public async finish(): Promise<void> {
+    await this.flushText();
+  }
+
+  private async switchTextPart(id: string, seq: number): Promise<void> {
+    if (this.openTextId === id) {
+      return;
+    }
+    await this.flushText();
+    this.openTextId = id;
+    this.textPartSeq = seq;
+  }
+
+  private async appendText(value: string): Promise<void> {
+    let offset = 0;
+    while (offset < value.length) {
+      const end = safeTextSliceEnd(value, offset);
+      const chunk = value.slice(offset, end);
+      if (
+        this.bufferedTextCharacters > 0 &&
+        this.bufferedTextCharacters + chunk.length > TEXT_PERSISTENCE_SLICE_CHARACTERS
+      ) {
+        await this.flushText();
+      }
+      this.bufferedTextChunks.push(chunk);
+      this.bufferedTextCharacters += chunk.length;
+      offset = end;
+    }
+  }
+
+  private async flushText(): Promise<void> {
+    if (this.bufferedTextCharacters === 0) {
+      return;
+    }
+    const text = this.bufferedTextChunks.join("");
+    this.bufferedTextChunks.length = 0;
+    this.bufferedTextCharacters = 0;
+    await this.writer.append({ state: "done", text, type: "text" }, `text-${this.textPartSeq}`);
+  }
 }
 
-function textPartHasContent(part: UIMessagePart): boolean {
-  return typeof part["text"] === "string" && part["text"].trim().length > 0;
+function partFromChunk(chunk: UIMessageChunk): UIMessagePart | null {
+  return transcriptPartFromChunk(chunk);
+}
+
+function serializedPartBytes(part: UIMessagePart): number {
+  return serializedMessagePartsBytes([part]) - 2;
+}
+
+function safeTextSliceEnd(value: string, offset: number): number {
+  const candidate = Math.min(value.length, offset + TEXT_PERSISTENCE_SLICE_CHARACTERS);
+  if (candidate === value.length) {
+    return candidate;
+  }
+  const previous = value.charCodeAt(candidate - 1);
+  const next = value.charCodeAt(candidate);
+  return previous >= 0xd800 && previous <= 0xdbff && next >= 0xdc00 && next <= 0xdfff
+    ? candidate - 1
+    : candidate;
 }

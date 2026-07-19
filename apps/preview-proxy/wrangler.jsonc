@@ -4,7 +4,7 @@
   "workers_dev": false,
   "preview_urls": false,
   "main": "src/index.ts",
-  "compatibility_date": "2026-05-20",
+  "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
   "version_metadata": { "binding": "CF_VERSION_METADATA" },
   "routes": [
@@ -14,6 +14,7 @@
     }
   ],
   "vars": {
+    "CHEATCODE_APP_ORIGIN": "https://trycheatcode.com",
     "CHEATCODE_ENVIRONMENT": "production",
     "DAYTONA_API_URL": "https://app.daytona.io/api",
     "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",

@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { PreviewHostnameSchema, resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import { PreviewHostnameSchema, resolveWorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
 import {
   DaytonaApiError,
@@ -9,6 +9,22 @@ import {
 } from "@cheatcode/tools-code";
 import { z } from "zod";
 import { type SandboxExecAuditEntry, writeExecAudit } from "./project-sandbox-audit";
+import { ProjectSandboxIdentityState } from "./project-sandbox-identity-state";
+import {
+  ACCOUNT_DELETION_TOMBSTONE_KEY,
+  accountSandboxDeletedError,
+  DAYTONA_ID_KEY,
+  DEFAULT_IDLE_STOP_MIN,
+  KEEPALIVE_ALARM_MS,
+  type ProjectSandboxEnv,
+  parseSandboxJson,
+  RUN_LEASES_KEY,
+  RunLeasesSchema,
+  STALE_RUN_LEASE_MS,
+  STARTED_REVERIFY_MS,
+  sandboxReleaseGateError,
+  uniqueSandboxes,
+} from "./project-sandbox-lifecycle-support";
 import {
   beginSandboxUsageBestEffort,
   clearSandboxMeterState,
@@ -17,45 +33,20 @@ import {
   type SandboxMeteringContext,
   setSandboxQuotaPeriod,
 } from "./project-sandbox-metering";
+import { assertProjectSandboxOwnerActive } from "./project-sandbox-owner-admission";
+import { ProjectSandboxProvisioning } from "./project-sandbox-provisioning";
+import type {
+  ParsedProjectCleanupWorkspaceInput,
+  ProjectSandboxRuntimeState,
+} from "./project-sandbox-runtime";
+import { clearWorkspaceCommand } from "./project-sandbox-snapshot-scripts";
 import {
-  isDestroyed,
-  isFailedState,
-  scrubPersistedProcessEnvironments,
-  sleep,
-} from "./project-sandbox-process-support";
-import type { ProjectSandboxRuntimeState } from "./project-sandbox-runtime";
+  initializeProjectSandboxStorage,
+  openProjectSandboxWorkspaceState,
+  ProjectSandboxWorkspaceState,
+} from "./project-sandbox-workspace-state";
 
-export interface ProjectSandboxEnv {
-  DAYTONA_API_KEY: WorkerSecret;
-  DAYTONA_API_URL: string;
-  DAYTONA_TARGET: string;
-  DAYTONA_SANDBOX_SNAPSHOT: string;
-  DAYTONA_ORG_ID?: string;
-  DAYTONA_PREVIEW_HOST_SUFFIXES?: string;
-  PREVIEW_TOKEN_SECRET: WorkerSecret;
-  PREVIEW_HOSTNAME: string;
-  QUOTA_TRACKER: DurableObjectNamespace;
-  R2_AUDIT: R2Bucket;
-}
-
-const SANDBOX_OWNER_USER_ID_KEY = "sandbox_owner_user_id";
-const ACCOUNT_DELETION_TOMBSTONE_KEY = "account_deletion_tombstone";
-const DAYTONA_ID_KEY = "daytona_sandbox_id";
-const RUN_LEASES_KEY = "run_leases";
-const SANDBOX_NAME_KEY = "sandbox_name";
-const DEFAULT_IDLE_STOP_MIN = 30;
-const AUTO_ARCHIVE_MIN = 1_440;
-const NEVER_AUTO_DELETE = -1;
-const KEEPALIVE_ALARM_MS = 4 * 60 * 1_000;
-const STALE_RUN_LEASE_MS = 20 * 60 * 1_000;
-const STARTED_REVERIFY_MS = 30_000;
-const ENSURE_STARTED_ATTEMPTS = 30;
-const ENSURE_STARTED_DELAY_MS = 2_000;
-const DURABLE_DELETE_BATCH_SIZE = 128;
-const OwnerUserIdSchema = z.string().uuid();
-const RunLeasesSchema = z
-  .array(z.object({ runId: z.string(), startedMs: z.number() }).strict())
-  .default([]);
+const ClearWorkspaceEvidenceSchema = z.object({ cleared: z.literal(true) }).strict();
 
 export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandboxEnv> {
   private accountDeletionCompleted = false;
@@ -63,41 +54,34 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private accountDeletionPromise: Promise<void> | undefined;
   private activeOperationCount = 0;
   private readonly activeOperationDrainWaiters = new Set<() => void>();
+  private activeWorkspaceTransitionId: string | null = null;
   private daytonaClient: DaytonaClient | undefined;
   private daytonaId: string | undefined;
   private sandboxMutationTail: Promise<void> = Promise.resolve();
   private startedVerifiedAtMs = 0;
-  private cachedSandboxName: string | undefined;
-  private snapshotDriftLoggedFor: string | undefined;
+  private readonly identityState: ProjectSandboxIdentityState;
+  private readonly provisioning: ProjectSandboxProvisioning;
+  private workspaceStateValue: ProjectSandboxWorkspaceState | undefined;
 
   constructor(ctx: DurableObjectState, env: ProjectSandboxEnv) {
     super(ctx, env);
-    void ctx.blockConcurrencyWhile(async () => {
-      const fromId = ctx.id.name;
-      if ((await ctx.storage.get(ACCOUNT_DELETION_TOMBSTONE_KEY)) === true) {
-        this.accountDeletionInProgress = true;
-        this.cachedSandboxName = fromId;
-        return;
-      }
-      const stored = await ctx.storage.get<string>(SANDBOX_NAME_KEY);
-      if (fromId) {
-        this.cachedSandboxName = fromId;
-        if (stored !== fromId) {
-          await ctx.storage.put(SANDBOX_NAME_KEY, fromId);
-        }
-      } else if (typeof stored === "string") {
-        this.cachedSandboxName = stored;
-      }
-      await scrubPersistedProcessEnvironments(ctx.storage);
+    this.identityState = new ProjectSandboxIdentityState(ctx);
+    this.provisioning = new ProjectSandboxProvisioning({
+      cachedSandboxId: async () => this.daytonaId ?? this.storedDaytonaId(),
+      env,
+      sandboxName: () => this.sandboxName(),
+      toUpstreamError: (error, fallback) => this.toUpstreamError(error, fallback),
     });
+    if (env.CHEATCODE_RELEASE_GATE !== "closed") {
+      this.workspaceStateValue = openProjectSandboxWorkspaceState(ctx);
+      void ctx.blockConcurrencyWhile(() => this.initializeIdentityState());
+    }
   }
 
-  /**
-   * Atomically fences the user-scoped sandbox before draining in-flight RPCs and
-   * deleting its external and durable state. The tombstone is intentionally kept
-   * after cleanup so an evicted object can never recreate the account sandbox.
-   */
   public deleteAccountState(): Promise<void> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
     if (this.accountDeletionCompleted) {
       return Promise.resolve();
     }
@@ -105,8 +89,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       return this.accountDeletionPromise;
     }
 
-    // This assignment must remain before the first await: ordinary Durable Object
-    // RPC work can interleave whenever an operation yields.
+    this.workspaceStateValue?.assertAccountDeletionAllowed();
     this.accountDeletionInProgress = true;
     const deletion = this.performAccountDeletion();
     const tracked = deletion.finally(() => {
@@ -118,11 +101,145 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     return tracked;
   }
 
-  /** Guard used by the exported ProjectSandbox RPC facade. */
   protected withActiveSandboxOperation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    return this.withActiveOperation(null, operation, false, true);
+  }
+  protected withActiveOwnerRegistration<T>(
+    userId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    if (this.identityState.hasRegisteredOwner()) {
+      return this.withActiveOperation(null, operation);
+    }
     let release: (() => void) | undefined;
     try {
-      release = this.acquireActiveSandboxOperation();
+      release = this.acquireActiveSandboxOperation(undefined, true);
+      return assertProjectSandboxOwnerActive(this.env, userId)
+        .then(() => {
+          if (this.accountDeletionInProgress) {
+            throw accountSandboxDeletedError();
+          }
+          return operation().then((result) => {
+            if (this.accountDeletionInProgress) {
+              throw accountSandboxDeletedError();
+            }
+            this.ensureWorkspaceState();
+            return result;
+          });
+        })
+        .finally(release);
+    } catch (error) {
+      release?.();
+      return Promise.reject(error);
+    }
+  }
+  protected withActiveSharedWorkspaceMutation<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    return this.withActiveOperation(
+      null,
+      async () => {
+        await this.workspaceState.waitForWorkspaceDrain();
+        return operation();
+      },
+      true,
+    );
+  }
+  protected withActiveWorkspaceTransition<T>(
+    transitionId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE !== "closed") {
+      return Promise.reject(
+        new APIError(
+          409,
+          "conflict_state_invalid",
+          "Workspace transitions require the closed release gate",
+          { retriable: false },
+        ),
+      );
+    }
+    return this.initializeIdentityState().then(() =>
+      this.runActiveWorkspaceTransition(transitionId, operation),
+    );
+  }
+  private runActiveWorkspaceTransition<T>(
+    transitionId: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    let releaseSandbox: (() => void) | undefined;
+    let releaseWorkspace: (() => void) | undefined;
+    try {
+      const workspaceState = this.openWorkspaceState();
+      releaseWorkspace = workspaceState
+        ? workspaceState.acquireTransitionMutation(transitionId)
+        : this.acquireTransientWorkspaceTransition(transitionId);
+      return Promise.all([
+        this.waitForActiveSandboxOperations(),
+        workspaceState?.waitForWorkspaceDrain() ?? Promise.resolve(),
+      ])
+        .then(() => {
+          releaseSandbox = this.acquireActiveSandboxOperation(transitionId, true);
+          return operation();
+        })
+        .finally(() => {
+          releaseSandbox?.();
+          releaseWorkspace?.();
+        });
+    } catch (error) {
+      releaseWorkspace?.();
+      releaseSandbox?.();
+      return Promise.reject(error);
+    }
+  }
+
+  private acquireTransientWorkspaceTransition(transitionId: string): () => void {
+    if (this.activeWorkspaceTransitionId !== null) {
+      throw new APIError(409, "conflict_state_invalid", "Workspace maintenance is in progress", {
+        retriable: true,
+      });
+    }
+    this.activeWorkspaceTransitionId = transitionId;
+    let isReleased = false;
+    return () => {
+      if (isReleased) {
+        return;
+      }
+      isReleased = true;
+      if (this.activeWorkspaceTransitionId === transitionId) {
+        this.activeWorkspaceTransitionId = null;
+      }
+    };
+  }
+  protected withActiveProjectWorkspaceOperation<T>(
+    workspaceScope: string | readonly string[] | null,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    return this.withActiveOperation(workspaceScope, operation, false, true);
+  }
+  private withActiveOperation<T>(
+    workspaceScope: string | readonly string[] | null,
+    operation: () => Promise<T>,
+    isSharedMutation = false,
+    shouldLeaseUnknownWorkspace = false,
+  ): Promise<T> {
+    let release: (() => void) | undefined;
+    try {
+      release = this.acquireActiveOperation(
+        workspaceScope,
+        isSharedMutation,
+        shouldLeaseUnknownWorkspace,
+      );
       return operation().finally(release);
     } catch (error) {
       release?.();
@@ -130,13 +247,22 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     }
   }
 
-  /** Keep a response-producing RPC active until its stream cleanup releases it. */
-  protected withActiveSandboxStreamingOperation(
+  protected withActiveProjectWorkspaceStreamingOperation(
+    workspaceScope: string | readonly string[] | null,
+    operation: (release: () => void) => Promise<Response>,
+  ): Promise<Response> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    return this.withActiveStreamingOperation(workspaceScope, operation);
+  }
+  private withActiveStreamingOperation(
+    workspaceScope: string | readonly string[] | null,
     operation: (release: () => void) => Promise<Response>,
   ): Promise<Response> {
     let release: (() => void) | undefined;
     try {
-      release = this.acquireActiveSandboxOperation();
+      release = this.acquireActiveOperation(workspaceScope, false, true);
       return operation(release).catch((error: unknown) => {
         release?.();
         throw error;
@@ -147,26 +273,65 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     }
   }
 
-  /** Lease signals and alarms are obsolete once account deletion starts. */
   protected withActiveSandboxCleanupSignal(operation: () => Promise<void>): Promise<void> {
-    return this.accountDeletionInProgress
+    return this.env.CHEATCODE_RELEASE_GATE === "closed" ||
+      this.accountDeletionInProgress ||
+      !this.identityState.hasRegisteredOwner()
       ? Promise.resolve()
       : this.withActiveSandboxOperation(operation);
   }
 
+  private async initializeIdentityState(): Promise<void> {
+    const isAccountDeleted = (await this.ctx.storage.get(ACCOUNT_DELETION_TOMBSTONE_KEY)) === true;
+    if (isAccountDeleted) {
+      this.accountDeletionInProgress = true;
+    }
+    await this.identityState.initialize();
+  }
+
+  private get workspaceState(): ProjectSandboxWorkspaceState {
+    return this.ensureWorkspaceState();
+  }
+
+  private ensureWorkspaceState(): ProjectSandboxWorkspaceState {
+    if (!this.workspaceStateValue) {
+      initializeProjectSandboxStorage(this.ctx);
+      this.workspaceStateValue = new ProjectSandboxWorkspaceState(this.ctx);
+    }
+    return this.workspaceStateValue;
+  }
+
+  private openWorkspaceState(): ProjectSandboxWorkspaceState | undefined {
+    this.workspaceStateValue ??= openProjectSandboxWorkspaceState(this.ctx);
+    return this.workspaceStateValue;
+  }
+
+  protected deleteProjectWorkspace(
+    input: ParsedProjectCleanupWorkspaceInput,
+    cleanup: () => Promise<void>,
+  ): Promise<void> {
+    return this.workspaceState.deleteWorkspace(input, cleanup);
+  }
+
+  protected withActiveProjectWorkspaceCleanup<T>(operation: () => Promise<T>): Promise<T> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      return Promise.reject(sandboxReleaseGateError());
+    }
+    let release: (() => void) | undefined;
+    try {
+      // Cleanup itself must not take a workspace lease: its durable tombstone
+      // blocks new work, then it drains every existing lease before killing
+      // sandbox-wide processes.
+      release = this.acquireActiveSandboxOperation(undefined, false, true);
+      return operation().finally(release);
+    } catch (error) {
+      release?.();
+      return Promise.reject(error);
+    }
+  }
+
   public async registerOwner(userId: string, sandboxName?: string): Promise<void> {
-    if (sandboxName && this.cachedSandboxName !== sandboxName) {
-      this.cachedSandboxName = sandboxName;
-      await this.ctx.storage.put(SANDBOX_NAME_KEY, sandboxName);
-    }
-    const parsedUserId = OwnerUserIdSchema.parse(userId);
-    const existingUserId = await this.ownerUserId();
-    if (existingUserId && existingUserId !== parsedUserId) {
-      throw new APIError(403, "permission_denied", "Sandbox ownership mismatch", {
-        retriable: false,
-      });
-    }
-    await this.ctx.storage.put(SANDBOX_OWNER_USER_ID_KEY, parsedUserId);
+    await this.identityState.registerOwner(userId, sandboxName);
   }
 
   public async setQuotaPeriod(periodEndIso: string): Promise<void> {
@@ -290,8 +455,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   private async performAccountDeletion(): Promise<void> {
-    // Persist the fence before any external call. If the object is evicted during
-    // Daytona cleanup, its next incarnation still rejects operational RPCs.
     await this.ctx.storage.put(ACCOUNT_DELETION_TOMBSTONE_KEY, true);
     await this.waitForActiveSandboxOperations();
     await this.withSandboxMutation(async () => {
@@ -305,8 +468,33 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private async destroySandboxExclusive(): Promise<SandboxDestroyResult> {
     const client = await this.ensureClient();
     try {
-      const sandbox = await this.findExistingSandbox(client);
-      if (sandbox) {
+      const canonical = await this.provisioning.findExisting(client);
+      const owned = await this.provisioning.findOwned(client);
+      const sandboxes = uniqueSandboxes(canonical ? [canonical, ...owned] : owned);
+      const volumeSandbox = sandboxes.find(
+        (sandbox) => sandbox.labels["workspaceVolumeName"] === this.env.DAYTONA_WORKSPACE_VOLUME,
+      );
+      if (volumeSandbox) {
+        if (!(await this.provisioning.ensureStarted(client, volumeSandbox))) {
+          throw new APIError(502, "upstream_sandbox_failed", "Daytona workspace disappeared", {
+            retriable: true,
+          });
+        }
+        const cleared = await client.execute(volumeSandbox.id, {
+          command: clearWorkspaceCommand(),
+          timeout: 480,
+        });
+        if (
+          cleared.exitCode !== 0 ||
+          !ClearWorkspaceEvidenceSchema.safeParse(parseSandboxJson(cleared.result)).success
+        ) {
+          throw new APIError(502, "upstream_sandbox_failed", "Daytona workspace deletion failed", {
+            details: { sandboxId: this.sandboxName() },
+            retriable: true,
+          });
+        }
+      }
+      for (const sandbox of sandboxes) {
         await client.deleteSandbox(sandbox.id);
       }
     } catch (error) {
@@ -323,16 +511,9 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   private async clearDurableStateForDeletedAccount(): Promise<void> {
-    for (;;) {
-      const keys = [
-        ...(await this.ctx.storage.list({ limit: DURABLE_DELETE_BATCH_SIZE })).keys(),
-      ].filter((key) => key !== ACCOUNT_DELETION_TOMBSTONE_KEY);
-      if (keys.length === 0) {
-        break;
-      }
-      await this.ctx.storage.delete(keys);
-    }
-    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.workspaceStateValue = undefined;
+    this.identityState.clearRegisteredOwner();
     this.clearCachedSandbox();
   }
 
@@ -356,10 +537,22 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     this.activeOperationDrainWaiters.clear();
   }
 
-  private acquireActiveSandboxOperation(): () => void {
+  private acquireActiveSandboxOperation(
+    transitionId?: string,
+    allowUnregisteredOwner = false,
+    allowWorkspaceCleanup = false,
+  ): () => void {
     if (this.accountDeletionInProgress) {
       throw accountSandboxDeletedError();
     }
+    if (!allowUnregisteredOwner && !this.identityState.hasRegisteredOwner()) {
+      throw accountSandboxDeletedError();
+    }
+    const workspaceState =
+      allowUnregisteredOwner && !this.identityState.hasRegisteredOwner()
+        ? this.workspaceStateValue
+        : this.ensureWorkspaceState();
+    workspaceState?.assertOperationAllowed(transitionId, allowWorkspaceCleanup);
     this.activeOperationCount += 1;
     let isReleased = false;
     return () => {
@@ -368,6 +561,33 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       }
       isReleased = true;
       this.finishActiveSandboxOperation();
+    };
+  }
+
+  private acquireActiveOperation(
+    workspaceScope: string | readonly string[] | null,
+    isSharedMutation = false,
+    shouldLeaseUnknownWorkspace = false,
+  ): () => void {
+    const releaseSandbox = this.acquireActiveSandboxOperation();
+    let releaseWorkspace: (() => void) | undefined;
+    try {
+      const workspaceSlugs =
+        typeof workspaceScope === "string" ? [workspaceScope] : (workspaceScope ?? []);
+      releaseWorkspace = isSharedMutation
+        ? this.workspaceState.acquireSharedMutation()
+        : workspaceSlugs.length > 0
+          ? this.workspaceState.acquire(workspaceSlugs)
+          : shouldLeaseUnknownWorkspace
+            ? this.workspaceState.acquireUnscoped()
+            : undefined;
+    } catch (error) {
+      releaseSandbox();
+      throw error;
+    }
+    return () => {
+      releaseWorkspace?.();
+      releaseSandbox();
     };
   }
 
@@ -400,12 +620,43 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     return this.daytonaClient;
   }
 
+  protected sandboxProvisioning(): ProjectSandboxProvisioning {
+    return this.provisioning;
+  }
+
+  protected adoptDaytonaId(sandboxId: string): void {
+    this.daytonaId = sandboxId;
+    this.startedVerifiedAtMs = Date.now();
+  }
+
   protected async ensureSandbox(): Promise<string> {
     return this.withSandboxMutation(async () => {
       if (this.daytonaId && Date.now() - this.startedVerifiedAtMs < STARTED_REVERIFY_MS) {
         return this.daytonaId;
       }
       return this.resolveStartedSandbox();
+    });
+  }
+
+  protected async ensureExistingSandboxStarted(): Promise<string | null> {
+    return this.withSandboxMutation(async () => {
+      const client = await this.ensureClient();
+      let existing: DaytonaSandbox | null;
+      try {
+        existing = await this.provisioning.findExisting(client);
+        if (!existing) {
+          return null;
+        }
+        if (!(await this.provisioning.ensureStarted(client, existing))) {
+          return null;
+        }
+      } catch (error) {
+        throw this.toUpstreamError(error, "Daytona sandbox cleanup startup failed.");
+      }
+      this.daytonaId = existing.id;
+      await this.ctx.storage.put(DAYTONA_ID_KEY, existing.id);
+      this.startedVerifiedAtMs = Date.now();
+      return existing.id;
     });
   }
 
@@ -428,13 +679,17 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     const client = await this.ensureClient();
     let resolved: DaytonaSandbox;
     try {
-      resolved = await this.resolveSandbox(client);
+      resolved = await this.provisioning.resolve(client);
     } catch (error) {
       throw this.toUpstreamError(error, "Daytona sandbox lookup failed.");
     }
     this.daytonaId = resolved.id;
     await this.ctx.storage.put(DAYTONA_ID_KEY, resolved.id);
-    await this.ensureStarted(client, resolved);
+    if (!(await this.provisioning.ensureStarted(client, resolved))) {
+      throw new APIError(502, "upstream_sandbox_failed", "Daytona sandbox disappeared", {
+        retriable: true,
+      });
+    }
     this.startedVerifiedAtMs = Date.now();
     return resolved.id;
   }
@@ -442,7 +697,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   protected async existingSandboxId(): Promise<string | null> {
     const client = await this.ensureClient();
     try {
-      const existing = await this.findExistingSandbox(client);
+      const existing = await this.provisioning.findExisting(client);
       if (existing) {
         this.daytonaId = existing.id;
         return existing.id;
@@ -456,7 +711,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   protected async meteringContext(): Promise<SandboxMeteringContext> {
     return {
       env: this.env,
-      ownerUserId: await this.ownerUserId(),
+      ownerUserId: this.identityState.ownerUserId(),
       sandboxId: this.sandboxName(),
       storage: this.ctx.storage,
     };
@@ -477,11 +732,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   protected sandboxName(): string {
-    const name = this.cachedSandboxName ?? this.ctx.id.name;
-    if (!name) {
-      throw new Error("ProjectSandbox must be addressed with idFromName().");
-    }
-    return name;
+    return this.identityState.sandboxName();
   }
 
   protected writeExecAudit(entry: SandboxExecAuditEntry): Promise<void> {
@@ -502,168 +753,8 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     });
   }
 
-  private async resolveSandbox(client: DaytonaClient): Promise<DaytonaSandbox> {
-    const name = this.sandboxName();
-    return (await this.findExistingSandbox(client)) ?? this.createSandbox(client, name);
-  }
-
-  private async createSandbox(client: DaytonaClient, name: string): Promise<DaytonaSandbox> {
-    try {
-      const created = await client.createSandbox({
-        name,
-        snapshot: this.env.DAYTONA_SANDBOX_SNAPSHOT,
-        target: this.env.DAYTONA_TARGET,
-        user: "node",
-        labels: {
-          app: "cheatcode",
-          sandboxId: name,
-          snapshot: this.env.DAYTONA_SANDBOX_SNAPSHOT,
-        },
-        autoStopInterval: DEFAULT_IDLE_STOP_MIN,
-        autoArchiveInterval: AUTO_ARCHIVE_MIN,
-        autoDeleteInterval: NEVER_AUTO_DELETE,
-      });
-      this.assertSandboxIdentity(created);
-      this.observeSnapshotDrift(created);
-      return created;
-    } catch (error) {
-      if (isDaytonaNameConflictError(error)) {
-        const existing = await this.findExistingSandboxAfterCreateConflict(client, name);
-        if (existing) {
-          return existing;
-        }
-      }
-      throw this.toUpstreamError(error, "Daytona sandbox failed to start.");
-    }
-  }
-
-  private async findExistingSandboxAfterCreateConflict(
-    client: DaytonaClient,
-    name: string,
-  ): Promise<DaytonaSandbox | null> {
-    const byLabel = await this.findSandboxByLabels(client);
-    if (byLabel) {
-      return byLabel;
-    }
-    const byName = await client.getSandbox(name);
-    if (byName && !isDestroyed(byName)) {
-      this.assertSandboxIdentity(byName);
-      this.observeSnapshotDrift(byName);
-      return byName;
-    }
-    return null;
-  }
-
-  private async findExistingSandbox(client: DaytonaClient): Promise<DaytonaSandbox | null> {
-    const cachedId = this.daytonaId ?? (await this.storedDaytonaId());
-    if (cachedId) {
-      const existing = await client.getSandbox(cachedId);
-      if (existing && !isDestroyed(existing)) {
-        this.assertSandboxIdentity(existing);
-        this.observeSnapshotDrift(existing);
-        return existing;
-      }
-    }
-    return this.findSandboxByLabels(client);
-  }
-
-  private async findSandboxByLabels(client: DaytonaClient): Promise<DaytonaSandbox | null> {
-    const byLabel = await client.listSandboxesByLabels({
-      app: "cheatcode",
-      sandboxId: this.sandboxName(),
-    });
-    const live = byLabel.filter((sandbox) => !isDestroyed(sandbox));
-    if (live.length > 1) {
-      throw new APIError(409, "conflict_state_invalid", "Multiple active sandboxes found", {
-        details: { daytonaIds: live.map((sandbox) => sandbox.id), sandboxId: this.sandboxName() },
-        hint: "Resolve the duplicate Daytona sandboxes explicitly before retrying.",
-        retriable: false,
-      });
-    }
-    const sandbox = live[0] ?? null;
-    if (sandbox) {
-      this.assertSandboxIdentity(sandbox);
-      this.observeSnapshotDrift(sandbox);
-    }
-    return sandbox;
-  }
-
-  private assertSandboxIdentity(sandbox: DaytonaSandbox): void {
-    const name = this.sandboxName();
-    if (
-      sandbox.name === name &&
-      sandbox.labels["app"] === "cheatcode" &&
-      sandbox.labels["sandboxId"] === name
-    ) {
-      return;
-    }
-    throw new APIError(409, "conflict_state_invalid", "Daytona sandbox identity mismatch", {
-      details: { actualName: sandbox.name, daytonaId: sandbox.id, expectedName: name },
-      hint: "Inspect the sandbox labels and durable object binding before retrying.",
-      retriable: false,
-    });
-  }
-
-  private observeSnapshotDrift(sandbox: DaytonaSandbox): void {
-    const expected = this.env.DAYTONA_SANDBOX_SNAPSHOT;
-    if (sandbox.snapshot === expected) {
-      return;
-    }
-    const signature = `${sandbox.id}:${sandbox.snapshot}:${expected}`;
-    if (this.snapshotDriftLoggedFor === signature) {
-      return;
-    }
-    this.snapshotDriftLoggedFor = signature;
-    createLogger().warn("sandbox_snapshot_drift", {
-      actualSnapshot: sandbox.snapshot,
-      daytonaId: sandbox.id,
-      expectedSnapshot: expected,
-      sandboxId: this.sandboxName(),
-      state: sandbox.state,
-    });
-  }
-
-  private async ensureStarted(client: DaytonaClient, sandbox: DaytonaSandbox): Promise<void> {
-    if (sandbox.state === "started") {
-      return;
-    }
-    if (sandbox.state === "stopped" || sandbox.state === "archived") {
-      await client.startSandbox(sandbox.id).catch((error: unknown) => {
-        throw this.toUpstreamError(error, "Daytona sandbox failed to start.");
-      });
-    }
-    for (let attempt = 0; attempt < ENSURE_STARTED_ATTEMPTS; attempt += 1) {
-      const current = await client.getSandbox(sandbox.id);
-      if (current?.state === "started") {
-        return;
-      }
-      if (current && isFailedState(current.state)) {
-        throw new APIError(
-          502,
-          "upstream_sandbox_failed",
-          `Daytona sandbox in state ${current.state}`,
-          { details: { sandboxId: this.sandboxName(), state: current.state }, retriable: true },
-        );
-      }
-      await sleep(ENSURE_STARTED_DELAY_MS);
-    }
-    throw new APIError(
-      504,
-      "upstream_sandbox_failed",
-      "Daytona sandbox did not reach started state",
-      {
-        retriable: true,
-      },
-    );
-  }
-
   private async storedDaytonaId(): Promise<string | null> {
     const value = await this.ctx.storage.get(DAYTONA_ID_KEY);
-    return typeof value === "string" ? value : null;
-  }
-
-  private async ownerUserId(): Promise<string | null> {
-    const value = await this.ctx.storage.get(SANDBOX_OWNER_USER_ID_KEY);
     return typeof value === "string" ? value : null;
   }
 
@@ -691,24 +782,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private clearCachedSandbox(): void {
     this.daytonaClient = undefined;
     this.daytonaId = undefined;
-    this.snapshotDriftLoggedFor = undefined;
     this.startedVerifiedAtMs = 0;
   }
-}
-
-function isDaytonaNameConflictError(error: unknown): boolean {
-  if (!(error instanceof DaytonaApiError) || error.status !== 409) {
-    return false;
-  }
-  const message = error.message.toLowerCase();
-  return message.includes("already exists") || message.includes("conflict");
-}
-
-function accountSandboxDeletedError(): APIError {
-  return new APIError(
-    410,
-    "conflict_state_invalid",
-    "Sandbox account state is unavailable after deletion started",
-    { retriable: false },
-  );
 }

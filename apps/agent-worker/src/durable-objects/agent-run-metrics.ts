@@ -25,7 +25,7 @@ export function emitStoredAgentRunMetric(
   env: AgentRunEnv,
   input: AgentRunMetricInput,
 ): void {
-  if (input.status === "running" || input.status === "paused") {
+  if (input.status === "running") {
     return;
   }
   const now = Date.now();

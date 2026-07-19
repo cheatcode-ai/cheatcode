@@ -7,8 +7,8 @@ import { entitlementCacheFromValues, quotaPeriodEndFor } from "@cheatcode/billin
 import {
   createDb,
   type DatabaseHandle,
-  findEntitlementByUserId,
-  listUserIntegrations,
+  findAgentEntitlementByUserId,
+  listAgentIntegrations,
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
@@ -26,6 +26,7 @@ import { closeDatabaseBestEffort } from "./db-close";
 
 interface ComposioProviderEnv {
   COMPOSIO_API_KEY?: WorkerSecret;
+  DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   QUOTA_TRACKER: DurableObjectNamespace;
 }
@@ -53,14 +54,17 @@ export async function resolveComposioRuntimeCredentials(
   logger: ReturnType<typeof createLogger>,
 ): Promise<ComposioRuntimeCredentials> {
   const apiKey = await readOptionalComposioApiKey(env, logger);
-  const dbHandle = createDb(env.HYPERDRIVE);
+  const dbHandle = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
   try {
     const userId = UserId(input.userId);
     const state = await withUserContext(dbHandle.db, userId, async (db) => {
       // A user-context transaction owns one pg client. Keep its queries sequential instead of
       // pretending to parallelize them through the same connection.
-      const integrations = await listUserIntegrations(db, userId);
-      const entitlement = await findEntitlementByUserId(db, userId);
+      const integrations = await listAgentIntegrations(db, userId);
+      const entitlement = await findAgentEntitlementByUserId(db, userId);
       const resolvedEntitlement = entitlementCacheFromValues(entitlement ?? { tier: "free" });
       return {
         connectedAccounts: connectedAccountsFromRows(integrations),
@@ -88,7 +92,7 @@ export async function resolveComposioRuntimeCredentials(
 }
 
 function connectedAccountsFromRows(
-  rows: Awaited<ReturnType<typeof listUserIntegrations>>,
+  rows: Awaited<ReturnType<typeof listAgentIntegrations>>,
 ): ComposioConnectedAccounts {
   const connectedAccounts: ComposioConnectedAccounts = {};
   for (const row of rows) {

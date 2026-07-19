@@ -1,22 +1,30 @@
 import { APIError } from "@cheatcode/observability";
+import {
+  type OutputDownloadUrlResponse,
+  OutputDownloadUrlResponseSchema,
+  UserId,
+  type UserId as UserIdType,
+} from "@cheatcode/types";
 import { z } from "zod";
 
 const DEFAULT_OUTPUT_DOWNLOAD_BASE_URL = "https://gateway.trycheatcode.com";
 const OUTPUT_DOWNLOAD_TTL_SECONDS = 60 * 60;
-
-export const OutputIdSchema = z.string().uuid();
+const MINIMUM_SIGNING_SECRET_BYTES = 32;
+const MAXIMUM_SIGNING_SECRET_BYTES = 1_024;
 
 export const OutputDownloadQuerySchema = z
   .object({
     expires: z.coerce.number().int().positive(),
     sig: z.string().min(32).max(256),
+    userId: z.string().uuid().transform(UserId),
   })
   .strict();
 
-export interface CreateSignedOutputDownloadUrlInput {
+export interface CreateOutputDownloadCapabilityInput {
   baseUrl?: string | undefined;
   outputId: string;
   secret: string | undefined;
+  userId: UserIdType;
 }
 
 export interface VerifySignedOutputDownloadInput {
@@ -25,16 +33,18 @@ export interface VerifySignedOutputDownloadInput {
   outputId: string;
   secret: string | undefined;
   signature: string;
+  userId: UserIdType;
 }
 
-export async function createSignedOutputDownloadUrl(
-  input: CreateSignedOutputDownloadUrlInput,
-): Promise<string> {
+export async function createOutputDownloadCapability(
+  input: CreateOutputDownloadCapabilityInput,
+): Promise<OutputDownloadUrlResponse> {
   const expires = Math.floor(Date.now() / 1000) + OUTPUT_DOWNLOAD_TTL_SECONDS;
   const signature = await signOutputDownload({
     expires,
     outputId: input.outputId,
     secret: requiredSigningSecret(input.secret),
+    userId: input.userId,
   });
   const url = new URL(
     `/v1/outputs/${input.outputId}/download`,
@@ -42,7 +52,11 @@ export async function createSignedOutputDownloadUrl(
   );
   url.searchParams.set("expires", String(expires));
   url.searchParams.set("sig", signature);
-  return url.toString();
+  url.searchParams.set("userId", input.userId);
+  return OutputDownloadUrlResponseSchema.parse({
+    downloadUrl: url.toString(),
+    expiresAt: new Date(expires * 1_000).toISOString(),
+  });
 }
 
 export async function verifySignedOutputDownload(
@@ -56,6 +70,7 @@ export async function verifySignedOutputDownload(
     expires: input.expires,
     outputId: input.outputId,
     secret: requiredSigningSecret(input.secret),
+    userId: input.userId,
   });
   return constantTimeEqual(expected, input.signature);
 }
@@ -92,9 +107,10 @@ function invalidDownloadBaseUrl(): APIError {
 
 function requiredSigningSecret(value: string | undefined): string {
   const trimmed = value?.trim();
-  if (!trimmed) {
+  const size = trimmed ? new TextEncoder().encode(trimmed).byteLength : 0;
+  if (!trimmed || size < MINIMUM_SIGNING_SECRET_BYTES || size > MAXIMUM_SIGNING_SECRET_BYTES) {
     throw new APIError(500, "internal_error", "Artifact download signing is not configured", {
-      hint: "Set OUTPUT_DOWNLOAD_SIGNING_SECRET on cheatcode-agent.",
+      hint: "Set OUTPUT_DOWNLOAD_SIGNING_SECRET to a distinct 32-byte-or-longer secret.",
       retriable: false,
     });
   }
@@ -105,6 +121,7 @@ async function signOutputDownload(input: {
   expires: number;
   outputId: string;
   secret: string;
+  userId: UserIdType;
 }): Promise<string> {
   const key = await crypto.subtle.importKey(
     "raw",
@@ -113,7 +130,12 @@ async function signOutputDownload(input: {
     false,
     ["sign"],
   );
-  const payload = `${input.outputId}.${input.expires}`;
+  const payload = [
+    "cheatcode-output-download-v2",
+    input.userId,
+    input.outputId,
+    String(input.expires),
+  ].join("\n");
   const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
   return base64Url(new Uint8Array(signature));
 }

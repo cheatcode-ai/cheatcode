@@ -16,7 +16,10 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
   app.get("/v1/integrations", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/integrations");
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       const integrations = await listIntegrationSummaries(db, c.env, userId);
       return c.json(integrations);
@@ -27,7 +30,10 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
   app.get("/v1/integrations/catalog", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/integrations/catalog");
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       const catalog = await getIntegrationCatalog(db, c.env, userId);
       return c.json(catalog);
@@ -44,7 +50,10 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "POST /v1/integrations/:name/connect");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       return await connectIntegration({ db, env: c.env, integration, request: c.req.raw, userId });
     } finally {
@@ -59,7 +68,10 @@ function registerIntegrationAccountRoutes(app: GatewayApp): void {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "POST /v1/integrations/:name/accounts/:connectionId/default");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       await makeIntegrationAccountDefault({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),
@@ -76,7 +88,10 @@ function registerIntegrationAccountRoutes(app: GatewayApp): void {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "DELETE /v1/integrations/:name/accounts/:connectionId");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE);
+    const { db, close } = createDb(c.env.HYPERDRIVE, {
+      audience: "app_gateway",
+      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    });
     try {
       await deleteIntegrationAccount({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),

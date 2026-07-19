@@ -11,13 +11,36 @@ export function billingTierRank(tier: string | undefined): number {
   return tier === undefined ? -1 : (BILLING_TIERS as readonly string[]).indexOf(tier);
 }
 
+const BillingReturnPathSchema = z
+  .string()
+  .min(1)
+  .max(2_000)
+  .refine(isSafeAppPath, "Billing return path must be a local application path.");
+
 export const BillingCheckoutSchema = z
   .object({
-    returnUrl: z.string().url().max(2_000).optional(),
-    successUrl: z.string().url().max(2_000).optional(),
+    returnPath: BillingReturnPathSchema.optional(),
     tier: PaidBillingTierSchema,
   })
   .strict();
+
+function isSafeAppPath(value: string): boolean {
+  if (!value.startsWith("/") || value.startsWith("//") || value.includes("\\")) {
+    return false;
+  }
+  for (const character of value) {
+    const codePoint = character.codePointAt(0);
+    if (codePoint !== undefined && (codePoint < 32 || codePoint === 127)) {
+      return false;
+    }
+  }
+  const base = "https://app.invalid";
+  try {
+    return new URL(value, base).origin === base;
+  } catch {
+    return false;
+  }
+}
 
 const BillingCancellationReasonSchema = z.enum([
   "too_expensive",

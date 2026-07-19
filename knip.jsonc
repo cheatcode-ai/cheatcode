@@ -1,16 +1,30 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  "ignoreDependencies": ["cloudflare", "supabase", "wrangler"],
-  "ignoreFiles": ["infra/containers/sandbox/browser-driver/server.js"],
+  // CLI launched by operational TypeScript through `pnpm exec wrangler`; Knip
+  // cannot infer child-process binary dependencies from argument arrays.
+  "ignoreDependencies": ["cloudflare", "wrangler"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/migrate.ts"]
+      // Skill TypeScript files are executable snapshot entrypoints discovered by
+      // `cheatcode-skills`; they are intentionally outside the pnpm workspace graph.
+      "entry": ["skills/**/*.ts"]
     },
     "packages/db": {
       "drizzle": {
         "config": []
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
+    },
+    "infra/containers/sandbox/browser-driver": {
+      // Docker invokes the Playwright CLI to install Chromium, while both packages
+      // satisfy Stagehand runtime peers rather than being imported by server.js.
+      "ignoreDependencies": ["playwright-core", "zod"]
+    },
+    "infra/containers/sandbox/skill-runtime": {
+      // The launchers resolve both binaries by their installed filesystem names/paths.
+      "entry": ["bin/*.mjs"],
+      "ignoreBinaries": ["agent-browser"],
+      "ignoreDependencies": ["agent-browser", "tsx"]
     }
   }
 }

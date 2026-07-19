@@ -1,7 +1,27 @@
 import { DurableObject } from "cloudflare:workers";
+import {
+  assertStorageReconciliationRequest,
+  reconcileExactSqliteStorage,
+  storageSchemaEvidence,
+} from "@cheatcode/durable-storage";
 import { APIError, readBoundedResponseJson, readJsonRequest } from "@cheatcode/observability";
+import type {
+  InternalDurableObjectStorageRequest,
+  InternalDurableObjectStorageResponse,
+} from "@cheatcode/types";
 import { z } from "zod";
-import { initializeWebhookIdempotencyStorage } from "./webhook-idempotency-storage";
+import {
+  assertReleaseOpen,
+  type ReleaseGateBindings,
+  rearmClosedWebhookAlarm,
+  releaseGateError,
+} from "./release-gate";
+import {
+  assertWebhookIdempotencyStorage,
+  hasWebhookIdempotencyStorage,
+  initializeWebhookIdempotencyStorage,
+  reconcileWebhookIdempotencyStorage,
+} from "./webhook-idempotency-storage";
 
 const WEBHOOK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WEBHOOK_FAILURE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
@@ -132,7 +152,7 @@ interface WebhookEventRow {
   workflow_id: string | null;
 }
 
-export interface WebhookIdempotencyBindings {
+export interface WebhookIdempotencyBindings extends ReleaseGateBindings {
   WEBHOOK_IDEMPOTENCY: DurableObjectNamespace<WebhookIdempotencyStore>;
   SANDBOX_STATE?: KVNamespace;
 }
@@ -167,19 +187,40 @@ interface WebhookReleaseInput {
   provider: WebhookProvider;
 }
 
-interface WebhookIdempotencyEnv {
+interface WebhookIdempotencyEnv extends ReleaseGateBindings {
   SANDBOX_STATE?: KVNamespace;
 }
 
 export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv> {
-  public constructor(ctx: DurableObjectState, env: WebhookIdempotencyEnv) {
-    super(ctx, env);
-    this.ctx.blockConcurrencyWhile(async () => {
-      initializeWebhookIdempotencyStorage(this.ctx);
-    });
+  private isStorageInitialized = false;
+
+  public reconcileStorageSchema(
+    value: InternalDurableObjectStorageRequest,
+  ): InternalDurableObjectStorageResponse {
+    const input = assertStorageReconciliationRequest(
+      this.ctx,
+      this.env,
+      value,
+      "WebhookIdempotencyStore",
+    );
+    reconcileExactSqliteStorage(
+      input.mode,
+      () => assertWebhookIdempotencyStorage(this.ctx),
+      () => reconcileWebhookIdempotencyStorage(this.ctx),
+    );
+    this.isStorageInitialized = true;
+    return storageSchemaEvidence(input);
   }
 
   public override async fetch(request: Request): Promise<Response> {
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      const response = releaseGateError("closed").toResponse(
+        `req_${crypto.randomUUID().replaceAll("-", "")}`,
+      );
+      response.headers.set("Cache-Control", "no-store");
+      response.headers.set("Retry-After", "5");
+      return response;
+    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -188,22 +229,22 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       return Response.json(await this.begin(await readIdempotencyRequest(request)));
     }
     if (url.pathname === "/complete") {
-      this.complete(await readIdempotencyRequest(request));
+      await this.complete(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
     if (url.pathname === "/start") {
-      this.start(await readIdempotencyRequest(request));
+      await this.start(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
     if (url.pathname === "/fail") {
-      this.fail(await readIdempotencyRequest(request));
+      await this.fail(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
     if (url.pathname === "/status") {
-      return Response.json(this.status(await readIdempotencyRequest(request)));
+      return Response.json(await this.status(await readIdempotencyRequest(request)));
     }
     if (url.pathname === "/release") {
-      this.release(await readIdempotencyRequest(request));
+      await this.release(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
     if (url.pathname === "/daytona-state") {
@@ -217,22 +258,35 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       });
     }
     if (url.pathname === "/release-command") {
-      this.releaseInternalCommand(await readIdempotencyRequest(request));
+      await this.releaseInternalCommand(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
     return new Response("Not found", { status: 404 });
   }
 
   public override async alarm(): Promise<void> {
+    if (!hasWebhookIdempotencyStorage(this.ctx)) {
+      await this.ctx.storage.deleteAlarm();
+      return;
+    }
+    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
+      await rearmClosedWebhookAlarm(this.ctx);
+      return;
+    }
+    this.isStorageInitialized = true;
     this.deleteExpired(Date.now());
     const nextExpiry = this.nextExpiry();
     if (nextExpiry !== null) {
       await this.ctx.storage.setAlarm(nextExpiry);
+      return;
     }
+    await this.ctx.storage.deleteAll();
+    this.isStorageInitialized = false;
   }
 
   private async begin(value: unknown): Promise<BeginWebhookResult> {
     const input = BeginWebhookSchema.parse(value);
+    this.ensureStorage();
     this.deleteExpired(input.now);
     const eventKey = webhookEventKey(input.provider, input.eventId);
     const row = this.readRow(eventKey);
@@ -250,6 +304,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       await this.ensureAlarm(input.now + input.ttlMs);
       return BeginWebhookResultSchema.parse({ action: "proceed", acceptedAt: input.now });
     }
+    await this.ensureAlarm(row.expires_at);
     if (row.body_hash !== input.bodyHash) {
       return BeginWebhookResultSchema.parse({ action: "reused" });
     }
@@ -281,8 +336,9 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     });
   }
 
-  private complete(value: unknown): void {
+  private async complete(value: unknown): Promise<void> {
     const input = CompleteWebhookSchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
        SET state = 'processed',
@@ -297,10 +353,12 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       webhookEventKey(input.provider, input.eventId),
       input.bodyHash,
     );
+    await this.cleanupIfEmpty();
   }
 
-  private start(value: unknown): void {
+  private async start(value: unknown): Promise<void> {
     const input = StartWebhookSchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
        SET state = 'running', workflow_id = ?, updated_at = ?
@@ -310,10 +368,12 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       webhookEventKey(input.provider, input.eventId),
       input.bodyHash,
     );
+    await this.cleanupIfEmpty();
   }
 
-  private fail(value: unknown): void {
+  private async fail(value: unknown): Promise<void> {
     const input = FailWebhookSchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
        SET state = 'failed',
@@ -329,12 +389,15 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       webhookEventKey(input.provider, input.eventId),
       input.bodyHash,
     );
+    await this.cleanupIfEmpty();
   }
 
-  private status(value: unknown): z.infer<typeof WebhookStatusSchema> {
+  private async status(value: unknown): Promise<z.infer<typeof WebhookStatusSchema>> {
     const input = WebhookStatusInputSchema.parse(value);
+    this.ensureStorage();
+    this.deleteExpired(Date.now());
     const row = this.readRow(webhookEventKey(input.provider, input.eventId));
-    return WebhookStatusSchema.parse(
+    const result = WebhookStatusSchema.parse(
       row
         ? {
             attempts: row.attempts,
@@ -347,25 +410,31 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
           }
         : null,
     );
+    await this.cleanupIfEmpty();
+    return result;
   }
 
-  private release(value: unknown): void {
+  private async release(value: unknown): Promise<void> {
     const input = ReleaseWebhookSchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       `DELETE FROM webhook_event
        WHERE event_key = ? AND body_hash = ? AND state = 'accepted'`,
       webhookEventKey(input.provider, input.eventId),
       input.bodyHash,
     );
+    await this.cleanupIfEmpty();
   }
 
   private async claimInternalCommand(value: unknown): Promise<boolean> {
     const input = InternalCommandSchema.parse(value);
+    this.ensureStorage();
     this.deleteExpired(input.now);
     const [existing] = this.ctx.storage.sql
       .exec("SELECT command_id FROM internal_command WHERE command_id = ?", input.commandId)
       .toArray();
     if (existing) {
+      await this.cleanupIfEmpty();
       return false;
     }
     this.ctx.storage.sql.exec(
@@ -377,20 +446,24 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     return true;
   }
 
-  private releaseInternalCommand(value: unknown): void {
+  private async releaseInternalCommand(value: unknown): Promise<void> {
     const input = InternalCommandIdSchema.parse(value);
+    this.ensureStorage();
     this.ctx.storage.sql.exec("DELETE FROM internal_command WHERE command_id = ?", input.commandId);
+    await this.cleanupIfEmpty();
   }
 
   private async updateDaytonaState(
     value: unknown,
   ): Promise<z.infer<typeof DaytonaStateUpdateResultSchema>> {
     const input = DaytonaStateUpdateSchema.parse(value);
+    this.ensureStorage();
     this.deleteExpired(input.receivedAt);
     const [existing] = this.ctx.storage.sql
       .exec("SELECT updated_at FROM daytona_sandbox_state WHERE sandbox_id = ?", input.sandboxId)
       .toArray();
     if (typeof existing?.["updated_at"] === "number" && existing["updated_at"] >= input.updatedAt) {
+      await this.cleanupIfEmpty();
       return { updated: false };
     }
     await this.writeSandboxStateCache(input);
@@ -461,12 +534,35 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       await this.ctx.storage.setAlarm(timestamp);
     }
   }
+
+  private ensureStorage(): void {
+    if (this.isStorageInitialized) {
+      return;
+    }
+    if (hasWebhookIdempotencyStorage(this.ctx)) {
+      assertWebhookIdempotencyStorage(this.ctx);
+    } else {
+      initializeWebhookIdempotencyStorage(this.ctx);
+    }
+    this.isStorageInitialized = true;
+  }
+
+  private async cleanupIfEmpty(): Promise<void> {
+    const nextExpiry = this.nextExpiry();
+    if (nextExpiry !== null) {
+      await this.ensureAlarm(nextExpiry);
+      return;
+    }
+    await this.ctx.storage.deleteAll();
+    this.isStorageInitialized = false;
+  }
 }
 
 export async function acceptWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookIdempotencyInput,
 ): Promise<AcceptedWebhookEvent> {
+  assertReleaseOpen(env);
   const bodyHash = await sha256Hex(`${input.provider}\n${input.eventId}\n${input.rawBody}`);
   const response = await idempotencyStub(env, input).fetch("https://webhook-idempotency/begin", {
     body: JSON.stringify({
