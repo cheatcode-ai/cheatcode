@@ -26,7 +26,7 @@ source tree on July 13, 2026; the repository now contains V2 code only.
 | Observability | Workers Logs + Workers Tracing + Workers Analytics Engine (no third-party APM in the initial release) |
 | Lint/format | Biome 2.5.2 (single config, no ESLint+Prettier except next plugin) |
 | QA | Direct `agent-browser --auto-connect --session cheatcode-debug` UI operation + console/network/log review; no scripted test harnesses |
-| Monorepo | pnpm 11.8.0 + Turborepo 2.10.5 |
+| Monorepo | pnpm 11.15.0 + Turborepo 2.10.5 |
 
 ## Repo layout
 
@@ -57,7 +57,7 @@ scripts/                 Operational helpers only: build skills, local startup, 
 ## Build
 
 ```bash
-pnpm install                            # Install workspace deps (use pnpm@11.8.0, not npm/yarn)
+pnpm install                            # Install workspace deps (use pnpm@11.15.0, not npm/yarn)
 pnpm turbo skills:build                 # Bundle skills/ into packages/skills/src/generated.ts (REQUIRED before build)
 pnpm turbo db:generate                  # Generate Drizzle types from schema
 pnpm turbo build                        # Production build

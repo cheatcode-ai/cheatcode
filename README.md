@@ -18,7 +18,7 @@ pnpm dev
 ```
 
 `pnpm dev` is the complete local entrypoint. Docker Compose builds the pinned
-Node 22.22.2/pnpm 11.8.0 development image, starts the Vault-capable Postgres
+Node 22.22.2/pnpm 11.15.0 development image, starts the Vault-capable Postgres
 database, provisions isolated `app_gateway`, `app_agent`, and `app_webhooks`
 roles, applies all three local migration phases, and then starts Next.js plus the
 chained Workers. Source changes sync into

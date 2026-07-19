@@ -2,7 +2,7 @@ FROM node:22.22.2-bookworm-slim@sha256:9f6d5975c7dca860947d3915877f85607946403fc
 
 ARG CODE_SERVER_VERSION=4.128.0
 ARG CODE_SERVER_SHA256=79ba26bf186e5268a22b7c17b30a5f288a16c37791f0b86c27859e8fef103188
-ARG DEBIAN_SNAPSHOT=20260713T000000Z
+ARG DEBIAN_SNAPSHOT=20260718T000000Z
 
 # Daytona injects its own daemon (host-mounted, PID 1) and overrides ENTRYPOINT,
 # so we do NOT bake a sandbox daemon. Headed Chromium uses Xvfb, which the
@@ -20,6 +20,7 @@ RUN set -eux; \
   sed -i 's|URIs: http://snapshot.debian.org|URIs: https://snapshot.debian.org|g' /etc/apt/sources.list.d/debian.sources; \
   rm -rf /var/lib/apt/lists/*; \
   apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::Check-Valid-Until=false -o Acquire::https::No-Cache=true update; \
+  apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::http::Pipeline-Depth=0 upgrade -y --no-install-recommends; \
   apt-get -o Acquire::ForceIPv4=true -o Acquire::Retries=5 -o Acquire::http::Pipeline-Depth=0 install -y --no-install-recommends \
   file python3 python3-pip python3-venv git curl wget gnupg netcat-openbsd sudo \
   procps xvfb x11vnc novnc websockify \
