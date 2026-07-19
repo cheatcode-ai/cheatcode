@@ -4,7 +4,7 @@ import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
 import { SANDBOX_WORKSPACE_ROOT } from "./sandbox-route-helpers";
 
-export const USER_SKILLS_DIRECTORY = `${SANDBOX_WORKSPACE_ROOT}/.cheatcode/skills`;
+const USER_SKILLS_DIRECTORY = `${SANDBOX_WORKSPACE_ROOT}/.cheatcode/skills`;
 
 const RevisionSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const MirroredSkillSchema = z
@@ -29,7 +29,7 @@ const PortableSkillSchema = z
   })
   .strict();
 
-export type MirroredUserSkill = z.infer<typeof MirroredSkillSchema>;
+type MirroredUserSkill = z.infer<typeof MirroredSkillSchema>;
 
 export type UserSkillMirrorResolution =
   | { kind: "registry" }
@@ -108,7 +108,7 @@ export async function resolveUserSkillMirror(
   return { kind: "conflict", reason: "concurrent_edit" };
 }
 
-export function parseUserSkillMarkdown(
+function parseUserSkillMarkdown(
   markdown: string,
 ): ReturnType<typeof MirroredSkillSchema.safeParse> {
   const normalized = markdown.replaceAll("\r\n", "\n").trim();

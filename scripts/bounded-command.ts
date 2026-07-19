@@ -3,7 +3,7 @@ import { StringDecoder } from "node:string_decoder";
 
 const FORCE_KILL_GRACE_MS = 10_000;
 
-export interface BoundedCommandOptions {
+interface BoundedCommandOptions {
   cwd: string;
   env?: NodeJS.ProcessEnv;
   timeoutMs: number;
@@ -43,52 +43,6 @@ function spawnCapturedChild(
     detached: process.platform !== "win32",
     env: options.env ?? process.env,
     stdio: ["ignore", "pipe", "pipe"],
-  });
-}
-
-/** Runs one inherited-stdio command with a hard process-group deadline. */
-export function runBoundedCommand(
-  command: string,
-  args: readonly string[],
-  options: BoundedCommandOptions,
-): Promise<void> {
-  return new Promise((resolvePromise, reject) => {
-    let didTimeOut = false;
-    let isSettled = false;
-    let forceKillTimer: NodeJS.Timeout | undefined;
-    const child = spawn(command, args, {
-      cwd: options.cwd,
-      detached: process.platform !== "win32",
-      env: options.env ?? process.env,
-      stdio: "inherit",
-    });
-    const timeout = setTimeout(() => {
-      didTimeOut = true;
-      terminateChild(child, "SIGTERM");
-      forceKillTimer = setTimeout(() => terminateChild(child, "SIGKILL"), FORCE_KILL_GRACE_MS);
-    }, options.timeoutMs);
-    const settle = (callback: () => void): void => {
-      if (isSettled) return;
-      isSettled = true;
-      clearTimeout(timeout);
-      if (forceKillTimer) clearTimeout(forceKillTimer);
-      callback();
-    };
-    child.once("error", (error) => settle(() => reject(error)));
-    child.once("close", (code) => {
-      // A package-manager leader can exit before an inherited grandchild. Kill
-      // the process group before clearing the grace timer or declaring success.
-      terminateChild(child, "SIGKILL");
-      if (didTimeOut) {
-        settle(() => reject(new Error(`${command} exceeded its ${options.timeoutMs}ms deadline.`)));
-        return;
-      }
-      if (code === 0) {
-        settle(resolvePromise);
-        return;
-      }
-      settle(() => reject(new Error(`${command} exited with code ${code ?? "unknown"}.`)));
-    });
   });
 }
 

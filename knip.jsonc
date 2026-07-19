@@ -5,7 +5,9 @@
   "ignoreDependencies": ["cloudflare", "wrangler"],
   "workspaces": {
     ".": {
-      "entry": ["scripts/migrate.ts"]
+      // Skill TypeScript files are executable snapshot entrypoints discovered by
+      // `cheatcode-skills`; they are intentionally outside the pnpm workspace graph.
+      "entry": ["skills/**/*.ts"]
     },
     "packages/db": {
       "drizzle": {
@@ -13,6 +15,11 @@
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
-    "infra/containers/sandbox/browser-driver": {}
+    "infra/containers/sandbox/browser-driver": {},
+    "infra/containers/sandbox/skill-runtime": {
+      // The launcher resolves the pinned tsx binary by its installed filesystem path.
+      "entry": ["bin/*.mjs"],
+      "ignoreDependencies": ["tsx"]
+    }
   }
 }

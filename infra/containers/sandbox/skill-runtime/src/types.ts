@@ -1,4 +1,4 @@
-export type MaybePromise<T> = T | Promise<T>;
+type MaybePromise<T> = T | Promise<T>;
 
 export type SkillRuntimeConfig = {
   backendBaseUrl: string;
@@ -23,7 +23,7 @@ export type SkillLogger = {
   error: (...values: unknown[]) => void;
 };
 
-export type BaseOptionDefinition = {
+type BaseOptionDefinition = {
   description: string;
   short?: string;
   required?: boolean;
@@ -53,7 +53,7 @@ export type SkillOptionDefinition =
 
 export type SkillOptionsShape = Record<string, SkillOptionDefinition>;
 
-export type OptionValue<TOption extends SkillOptionDefinition> =
+type OptionValue<TOption extends SkillOptionDefinition> =
   TOption extends StringOptionDefinition
     ? TOption["defaultValue"] extends string
       ? string
@@ -73,7 +73,7 @@ export type InferOptions<TOptions extends SkillOptionsShape | undefined> =
       }
     : Record<string, never>;
 
-export type SkillActionContext<TOptions extends SkillOptionsShape | undefined> = {
+type SkillActionContext<TOptions extends SkillOptionsShape | undefined> = {
   options: InferOptions<TOptions>;
   positionals: string[];
   logger: SkillLogger;

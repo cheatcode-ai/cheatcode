@@ -98,10 +98,7 @@ export async function resolveEntitlement(
 }
 
 /** DB-only authoritative entitlement read for mutation transactions. */
-export async function resolveDatabaseEntitlement(
-  db: Database,
-  userId: UserId,
-): Promise<EntitlementCache> {
+async function resolveDatabaseEntitlement(db: Database, userId: UserId): Promise<EntitlementCache> {
   const row = await findEntitlementByUserId(db, userId);
   return entitlementCacheFromValues(row ?? { tier: "free" });
 }

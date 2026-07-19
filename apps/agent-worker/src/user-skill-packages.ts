@@ -26,7 +26,7 @@ export const UserSkillPackageFileSchema = z
   })
   .strict();
 
-export const UserSkillPackageSchema = z
+const UserSkillPackageSchema = z
   .object({
     files: z.array(UserSkillPackageFileSchema).min(1).max(MAX_PACKAGE_FILES),
     revision: z.string().regex(/^[a-f0-9]{64}$/u),
@@ -58,7 +58,7 @@ export const UserSkillPackageSchema = z
 export type UserSkillPackage = z.infer<typeof UserSkillPackageSchema>;
 export type UserSkillPackageFile = z.infer<typeof UserSkillPackageFileSchema>;
 
-export async function createUserSkillPackage(
+async function createUserSkillPackage(
   skillId: string,
   files: UserSkillPackageFile[],
 ): Promise<UserSkillPackage> {

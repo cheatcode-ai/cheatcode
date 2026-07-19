@@ -48,11 +48,6 @@ export function emitComposerEvent(
   void postUserEvent(getToken, eventName).catch(swallow);
 }
 
-/** Unguarded fire-and-forget — every `Use` click on the skills catalog counts. */
-export function emitSkillUseClicked(getToken: () => Promise<null | string>): void {
-  void postUserEvent(getToken, "skill_use_clicked").catch(swallow);
-}
-
 async function postUserEvent(
   getToken: () => Promise<null | string>,
   eventName: string,

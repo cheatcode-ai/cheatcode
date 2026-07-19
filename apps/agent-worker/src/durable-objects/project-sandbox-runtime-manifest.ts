@@ -7,7 +7,7 @@ import {
 } from "./project-sandbox-process-support";
 
 const RUNTIME_DIRECTORY = "/workspace/.cheatcode";
-export const SANDBOX_RUNTIME_MANIFEST_PATH = `${RUNTIME_DIRECTORY}/runtime.json`;
+const SANDBOX_RUNTIME_MANIFEST_PATH = `${RUNTIME_DIRECTORY}/runtime.json`;
 
 const RuntimeProjectSchema = z
   .object({
