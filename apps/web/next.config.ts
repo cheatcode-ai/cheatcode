@@ -19,6 +19,14 @@ for (const key of Object.keys(loadedRootEnvironment.parsedEnv ?? {})) {
   }
 }
 
+const vercelGitCommitSha = process.env["VERCEL_GIT_COMMIT_SHA"];
+if (
+  process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"] === undefined &&
+  vercelGitCommitSha !== undefined
+) {
+  process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"] = vercelGitCommitSha;
+}
+
 const WEB_BUILD_ENVIRONMENT = parseWebBuildEnvironment({
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"],
   NEXT_PUBLIC_GATEWAY_URL: process.env["NEXT_PUBLIC_GATEWAY_URL"],
