@@ -19,7 +19,7 @@
     "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",
     "audit:archive": "tsx scripts/archive-audit-log.ts",
     "build": "turbo build",
-    "cloudflare:deploy": "pnpm --filter @cheatcode/agent-worker deploy && pnpm --filter @cheatcode/webhooks-worker deploy && pnpm --filter @cheatcode/preview-proxy deploy && pnpm --filter @cheatcode/gateway-worker deploy",
+    "cloudflare:deploy": "pnpm --filter @cheatcode/agent-worker run deploy && pnpm --filter @cheatcode/webhooks-worker run deploy && pnpm --filter @cheatcode/preview-proxy run deploy && pnpm --filter @cheatcode/gateway-worker run deploy",
     "cloudflare:set-hyperdrive": "tsx scripts/set-hyperdrive-id.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "turbo db:generate",
