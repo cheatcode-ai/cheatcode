@@ -151,7 +151,6 @@ async function lockRefundIntent(
     .select(intentSelection())
     .from(userDeletionRefundIntents)
     .where(eq(userDeletionRefundIntents.jobId, jobId))
-    .for("update")
     .limit(1);
   return intent ? { ...intent, userId: toUserId(intent.userId) } : null;
 }
