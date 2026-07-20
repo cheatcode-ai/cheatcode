@@ -1,6 +1,5 @@
 import {
   ActivityHistoryResponseSchema,
-  LimitsSnapshotSchema,
   UpdateUserProfileSchema,
   UserProfileSchema,
 } from "@cheatcode/types";
@@ -15,7 +14,6 @@ import { withJsonSchemaConstraints, zodJsonSchema } from "./openapi-zod";
 
 export const accountSchemas: Record<string, JsonValue> = {
   ActivityHistory: zodJsonSchema(ActivityHistoryResponseSchema),
-  LimitsSnapshot: zodJsonSchema(LimitsSnapshotSchema),
   UpdateUserProfile: withJsonSchemaConstraints(zodJsonSchema(UpdateUserProfileSchema, "input"), {
     minProperties: 1,
   }),
@@ -49,15 +47,6 @@ export const accountRoutes: OpenApiRoute[] = [
     },
     security: [{ bearerAuth: [] }],
     summary: "Update current user profile",
-    tags: ["account"],
-  },
-  {
-    method: "get",
-    operationId: "getLimits",
-    path: "/v1/limits",
-    responses: { "200": jsonResponse("Quota snapshot", schemaRef("LimitsSnapshot")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Get current plan quotas",
     tags: ["account"],
   },
   {

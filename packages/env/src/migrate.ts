@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { dirname, parse, resolve } from "node:path";
 import { z } from "zod";
 
-const DEFAULT_ENV_FILES = [".env.local"] as const;
+const DEFAULT_ENV_FILES = [".env.migrate"] as const;
 const OptionalMigrationAttestationsSchema = z.preprocess(
   (value) => (typeof value === "string" && !value.trim() ? undefined : value),
   z.string().trim().min(2).max(65_536).optional(),
@@ -10,7 +10,6 @@ const OptionalMigrationAttestationsSchema = z.preprocess(
 
 const MigrationEnvSchema = z
   .object({
-    CHEATCODE_LOCAL_DATABASE: z.enum(["true", "false"]).default("false"),
     CHEATCODE_MIGRATION_ATTESTATIONS: OptionalMigrationAttestationsSchema,
     SUPABASE_MIGRATION_EXPECTED_DATABASE: z.string().trim().min(1).optional(),
     SUPABASE_MIGRATION_EXPECTED_HOST: z.string().trim().min(1).optional(),
@@ -26,7 +25,6 @@ export interface MigrationEnv {
   expectedHost?: string;
   expectedRole?: string;
   expectedSystemIdentifier?: string;
-  isLocalDatabase: boolean;
   migrationAttestations?: string;
 }
 
@@ -34,7 +32,6 @@ function parseMigrationEnv(env: unknown): MigrationEnv {
   const parsed = MigrationEnvSchema.parse(env);
   return {
     databaseUrl: parsed.SUPABASE_MIGRATION_URL,
-    isLocalDatabase: parsed.CHEATCODE_LOCAL_DATABASE === "true",
     ...(parsed.CHEATCODE_MIGRATION_ATTESTATIONS
       ? { migrationAttestations: parsed.CHEATCODE_MIGRATION_ATTESTATIONS }
       : {}),

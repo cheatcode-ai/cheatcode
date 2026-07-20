@@ -499,21 +499,6 @@ export const Paginated = <T extends z.ZodTypeAny>(item: T) =>
     })
     .strict();
 
-export const LimitsSnapshotSchema = z
-  .object({
-    quotas: z.record(
-      z.string(),
-      z
-        .object({
-          limit: z.number(),
-          used: z.number(),
-          period_end: z.string(),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
-
 export const ActivityQuerySchema = z
   .object({
     days: z.coerce.number().int().min(1).max(366).default(30),
@@ -650,7 +635,6 @@ export type ToolkitAction = z.infer<typeof ToolkitActionSchema>;
 export type ToolkitActionsResponse = z.infer<typeof ToolkitActionsResponseSchema>;
 export type ToolkitCatalogEntry = z.infer<typeof ToolkitCatalogEntrySchema>;
 export type ToolkitCategory = z.infer<typeof ToolkitCategorySchema>;
-export type LimitsSnapshot = z.infer<typeof LimitsSnapshotSchema>;
 export type ProjectMode = z.infer<typeof ProjectModeSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ProviderKeySummary = z.infer<typeof ProviderKeySummarySchema>;

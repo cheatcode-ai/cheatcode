@@ -10,10 +10,7 @@ from regressing a newer email, display name, or avatar.
 
 Provider key writes validate each supported BYOK provider through
 `packages/byok` before calling the Vault-backed RPC. Invalid keys are rejected
-before plaintext is sent to storage, and new providers are blocked when the
-current entitlement tier has reached its BYOK slot limit. Deleting a key reranks
-the remaining provider catalog in the same transaction so a freed tier slot is
-available immediately. Project and thread deletes enqueue an exact-generation
+before plaintext is sent to storage. Project and thread deletes enqueue an exact-generation
 resource-deletion job through the webhooks Service Binding. That call uses the
 isolated `ccm2` resource-deletion capability and binds gateway issuer, webhooks
 audience, method, path, timestamp, nonce, and exact body hash. The webhooks
@@ -29,12 +26,10 @@ authoritative entitlement row under the same per-user advisory-lock order as
 entitlement reconciliation.
 
 `QuotaTracker` supports hard `try-consume` gates for connected-tool calls and
-soft `record` metering for sandbox-hours that can exceed the plan limit while
-still surfacing real usage in `/v1/limits`. Limit synchronization carries the
+soft `record` metering for sandbox-hours. Limit synchronization carries the
 entitlement row's `updatedAt` version, and the Durable Object ignores older
-writes so a stale KV or Worker request cannot overwrite a newer plan. That
-endpoint reports only measured quotas; request rate-limit headers remain the
-canonical live rate-limit state.
+writes so a stale KV or Worker request cannot overwrite a newer plan. Request
+rate-limit headers remain the canonical live rate-limit state.
 
 Billing routes create Polar checkout/portal sessions and manage end-of-period
 cancellation/reactivation through `/v1/billing/state`, `/v1/billing/cancel`,

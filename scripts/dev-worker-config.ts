@@ -15,15 +15,26 @@ const WORKER_CONFIGS = [
 
 type WorkerConfig = (typeof WORKER_CONFIGS)[number];
 
-const LOCAL_DATABASE_URL_BINDINGS: Partial<Record<WorkerConfig, { envKey: string; role: string }>> =
-  {
-    "wrangler.jsonc": { envKey: "LOCAL_GATEWAY_DATABASE_URL", role: "app_gateway" },
-    "../agent-worker/wrangler.jsonc": { envKey: "LOCAL_AGENT_DATABASE_URL", role: "app_agent" },
-    "../webhooks-worker/wrangler.jsonc": {
-      envKey: "LOCAL_WEBHOOKS_DATABASE_URL",
-      role: "app_webhooks",
-    },
-  };
+const PRODUCTION_DATABASE_URL_BINDINGS: Partial<
+  Record<WorkerConfig, { envKey: string; role: string }>
+> = {
+  "wrangler.jsonc": { envKey: "SUPABASE_GATEWAY_DATABASE_URL", role: "app_gateway" },
+  "../agent-worker/wrangler.jsonc": {
+    envKey: "SUPABASE_AGENT_DATABASE_URL",
+    role: "app_agent",
+  },
+  "../webhooks-worker/wrangler.jsonc": {
+    envKey: "SUPABASE_WEBHOOKS_DATABASE_URL",
+    role: "app_webhooks",
+  },
+};
+
+const PRODUCTION_SUPABASE_TARGET = {
+  database: "postgres",
+  hostname: "aws-0-ap-south-1.pooler.supabase.com",
+  port: "5432",
+  projectRef: "snqtclnmhcaupqynjyux",
+} as const;
 
 const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
   "wrangler.jsonc": [
@@ -212,7 +223,7 @@ function localHyperdriveBindings(
   values: Record<string, string>,
 ): ConfigRecord[] | undefined {
   const bindings = config["hyperdrive"];
-  const expected = LOCAL_DATABASE_URL_BINDINGS[configPath];
+  const expected = PRODUCTION_DATABASE_URL_BINDINGS[configPath];
   if (!expected) {
     if (bindings !== undefined) {
       throw new Error(`${configPath} unexpectedly declares a HYPERDRIVE binding.`);
@@ -222,7 +233,7 @@ function localHyperdriveBindings(
   if (!Array.isArray(bindings)) {
     throw new Error(`${configPath} is missing its HYPERDRIVE binding.`);
   }
-  const connectionString = localDatabaseConnectionString(values, expected);
+  const connectionString = productionDatabaseConnectionString(values, expected);
   let matches = 0;
   const localBindings = bindings.map((binding, index) => {
     if (!isRecord(binding)) {
@@ -240,7 +251,7 @@ function localHyperdriveBindings(
   return localBindings;
 }
 
-function localDatabaseConnectionString(
+function productionDatabaseConnectionString(
   values: Record<string, string>,
   expected: { envKey: string; role: string },
 ): string {
@@ -254,18 +265,25 @@ function localDatabaseConnectionString(
   } catch {
     throw new Error(`${expected.envKey} must be a PostgreSQL connection URL.`);
   }
+  const expectedUsername = `${expected.role}.${PRODUCTION_SUPABASE_TARGET.projectRef}`;
+  const hasExpectedTarget =
+    url.hostname === PRODUCTION_SUPABASE_TARGET.hostname &&
+    url.port === PRODUCTION_SUPABASE_TARGET.port &&
+    url.pathname === `/${PRODUCTION_SUPABASE_TARGET.database}`;
+  const hasRequiredTls =
+    url.searchParams.size === 2 &&
+    url.searchParams.get("sslmode") === "require" &&
+    url.searchParams.get("uselibpqcompat") === "true";
   if (
     (url.protocol !== "postgres:" && url.protocol !== "postgresql:") ||
-    decodeURIComponent(url.username) !== expected.role ||
+    decodeURIComponent(url.username) !== expectedUsername ||
     !url.password ||
-    url.hostname !== "database" ||
-    url.port !== "5432" ||
-    url.pathname !== "/postgres" ||
-    url.search ||
+    !hasExpectedTarget ||
+    !hasRequiredTls ||
     url.hash
   ) {
     throw new Error(
-      `${expected.envKey} must target ${expected.role}@database:5432/postgres with a password.`,
+      `${expected.envKey} must use ${expectedUsername} on the production Supabase session pooler with sslmode=require and uselibpqcompat=true.`,
     );
   }
   return raw;

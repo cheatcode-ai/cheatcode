@@ -58,20 +58,11 @@ no second env file under `apps/web` is used.
 The production CSP admits the exact validated `NEXT_PUBLIC_GATEWAY_URL`; a real Vercel
 Production build pins that value to `https://gateway.trycheatcode.com`, while optimized
 local QA can use its loopback Wrangler origin.
-Production additionally admits only Vercel's exact immutable deployment origin so the
-guarded release workflow can verify `/api/health` before promoting the deployment.
+Production additionally admits only Vercel's exact immutable deployment origin.
 
 ## Deploy
 
-`apps/web/vercel.json` disables automatic Git deployments for every branch. The
-guarded `Production Release` workflow builds, stages, and verifies one immutable
-exact-SHA Vercel production deployment without assigning production domains. It
-applies expand-only migrations before closing and draining every database-writing
-Worker. A successful stage persists the exact deployment ID, immutable URL, SHA,
-control ref, and stage run identity as a GitHub artifact; OPEN accepts the stage
-run ID, not an operator-copied URL. The separate reconciliation phase stays closed.
-OPEN validates that handoff and reconciliation evidence, applies contractions,
-promotes the exact deployment ID, proves `trycheatcode.com` resolves to it, and
-then invokes backend OPEN. Backend OPEN redeploys all writers CLOSED on their
-dedicated database roles, proves signed three-role readiness, and reopens agent and
-webhooks before opening gateway last, with one final canonical alias/SHA check.
+Vercel's Git integration deploys `apps/web` from the repository using the
+checked-in build command. Production public environment values select the live
+Clerk instance, canonical gateway, and preview hostname. Verify `/api/health`
+and the deployed revision after Vercel finishes.

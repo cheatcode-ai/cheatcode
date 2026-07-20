@@ -12,7 +12,7 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, createLogger, readBoundedResponseJson } from "@cheatcode/observability";
-import { type LimitsSnapshot, LimitsSnapshotSchema, type UserId } from "@cheatcode/types";
+import type { UserId } from "@cheatcode/types";
 import {
   QUOTA_FEATURES,
   QUOTA_TRACKER_MAX_RESPONSE_BYTES,
@@ -21,7 +21,6 @@ import {
   QuotaSetLimitResponseSchema,
 } from "@cheatcode/types/quota";
 import type { QuotaTracker } from "./durable-objects/quota-tracker";
-import { QuotaSnapshotResultSchema } from "./durable-objects/quota-tracker-contract";
 
 export interface LimitBindings {
   ENTITLEMENTS_CACHE: KVNamespace;
@@ -29,39 +28,6 @@ export interface LimitBindings {
 }
 
 const ENTITLEMENT_CACHE_TTL_SECONDS = 300;
-const MAX_QUOTA_SNAPSHOT_RESPONSE_BYTES = 128 * 1024;
-
-export async function buildLimitsSnapshot(
-  env: LimitBindings,
-  db: Database,
-  userId: UserId,
-): Promise<LimitsSnapshot> {
-  const entitlement = await resolveEntitlement(env, db, userId);
-  const projectCount = await withUserContext(db, userId, (tx) => countActiveProjects(tx, userId));
-  const periodEnd = entitlement.currentPeriodEnd ?? defaultPeriodEnd();
-  await syncQuotaLimits(env, userId, entitlement);
-  const quotaSnapshot = await readQuotaSnapshot(env, userId, periodEnd);
-  return LimitsSnapshotSchema.parse({
-    quotas: {
-      active_projects: {
-        limit: entitlement.maxProjects,
-        period_end: periodEnd,
-        used: projectCount,
-      },
-      composio_calls: quotaResponse(
-        quotaSnapshot[QUOTA_FEATURES.composioCalls],
-        entitlement.quotaComposioCalls,
-        periodEnd,
-      ),
-      sandbox_hours: quotaResponse(
-        quotaSnapshot[QUOTA_FEATURES.sandboxHours],
-        entitlement.quotaSandboxHours,
-        periodEnd,
-      ),
-    },
-  });
-}
-
 export async function enforceActiveProjectLimit(db: Database, userId: UserId): Promise<void> {
   await lockUserEntitlementMutations(db, userId);
   await lockUserProjectMutations(db, userId);
@@ -113,18 +79,6 @@ async function writeEntitlementCache(
   });
 }
 
-function quotaResponse(
-  quota: { limit: number; used: number } | undefined,
-  fallbackLimit: number,
-  periodEnd: string,
-) {
-  return {
-    limit: quota?.limit ?? fallbackLimit,
-    period_end: periodEnd,
-    used: quota?.used ?? 0,
-  };
-}
-
 export async function syncQuotaLimits(
   env: LimitBindings,
   userId: UserId,
@@ -171,27 +125,6 @@ async function setQuotaLimit(
   );
 }
 
-async function readQuotaSnapshot(
-  env: LimitBindings,
-  userId: UserId,
-  periodEnd: string,
-): Promise<Record<string, { limit: number; used: number }>> {
-  const response = await quotaStub(env, userId).fetch("https://quota.internal/snapshot", {
-    body: JSON.stringify({ periodEnd }),
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
-      hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
-      retriable: true,
-    });
-  }
-  return QuotaSnapshotResultSchema.parse(
-    await readBoundedResponseJson(response, MAX_QUOTA_SNAPSHOT_RESPONSE_BYTES, "Quota snapshot"),
-  );
-}
-
 async function readCachedEntitlement(
   cache: KVNamespace,
   userId: UserId,
@@ -221,9 +154,4 @@ function quotaStub(env: LimitBindings, userId: UserId): DurableObjectStub<QuotaT
 
 function entitlementCacheKey(userId: UserId): string {
   return `entitlement:${userId}`;
-}
-
-function defaultPeriodEnd(): string {
-  const now = new Date();
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString();
 }

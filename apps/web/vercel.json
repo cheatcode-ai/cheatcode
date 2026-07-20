@@ -1,8 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
-  "buildCommand": "pnpm exec turbo run build --filter=@cheatcode/web",
-  "git": {
-    "deploymentEnabled": false
-  }
+  "buildCommand": "pnpm exec turbo run build --filter=@cheatcode/web"
 }

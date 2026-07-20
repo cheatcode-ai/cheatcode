@@ -587,7 +587,7 @@ async function validateRoleMemberships(client: TargetQueryClient): Promise<strin
        from pg_auth_members membership
        join pg_roles granted on granted.oid = membership.roleid
        join pg_roles member on member.oid = membership.member
-      where granted.rolname = any($1::text[]) or member.rolname = any($1::text[])
+      where member.rolname = any($1::text[])
       order by granted.rolname, member.rolname`,
     [[...RUNTIME_DATABASE_ROLES]],
   );

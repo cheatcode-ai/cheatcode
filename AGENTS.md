@@ -117,22 +117,18 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 ## Run locally
 
 ```bash
-pnpm dev                                # Compose: Postgres + migrations + Next + chained Workers
+pnpm dev                                # Compose: Next + chained Workers against production Supabase
 pnpm dev:down                           # Stop the local Compose stack
 ```
 
 Required local env vars in `.env.local` (template in `.env.example`):
 
 ```
-# Local Postgres + per-Worker roles (distinct URL-safe passwords)
-LOCAL_POSTGRES_PASSWORD=
-LOCAL_APP_GATEWAY_PASSWORD=
-LOCAL_APP_AGENT_PASSWORD=
-LOCAL_APP_WEBHOOKS_PASSWORD=
-SUPABASE_MIGRATION_URL=postgresql://postgres:<local-password>@database:5432/postgres
-LOCAL_GATEWAY_DATABASE_URL=postgresql://app_gateway:<gateway-password>@database:5432/postgres
-LOCAL_AGENT_DATABASE_URL=postgresql://app_agent:<agent-password>@database:5432/postgres
-LOCAL_WEBHOOKS_DATABASE_URL=postgresql://app_webhooks:<webhooks-password>@database:5432/postgres
+# Production Supabase session-pooler URLs for the three isolated Worker roles.
+# Administrative migration credentials never belong in .env.local.
+SUPABASE_GATEWAY_DATABASE_URL=
+SUPABASE_AGENT_DATABASE_URL=
+SUPABASE_WEBHOOKS_DATABASE_URL=
 
 # Per-Worker signed tenant context (three distinct secrets, each at least 32 bytes)
 DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY=
@@ -173,9 +169,11 @@ RELEASE_DATABASE_READINESS_SECRET=
 NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787
 ```
 
-Never commit `.env.local`. It is the sole laptop credential file and accepts only
-Clerk test keys plus sandbox/local credentials. Vercel and Cloudflare receive
-production credentials directly through their protected production environments.
+Never commit `.env.local`. It is the sole laptop application credential file;
+its database URLs contain only the three least-privilege production runtime
+roles. Vercel and Cloudflare receive production credentials directly through
+their protected production environments. Administrative migration credentials
+live only in git-ignored `.env.migrate` on authorized operator workstations.
 
 ## Code conventions (CI-enforced)
 
