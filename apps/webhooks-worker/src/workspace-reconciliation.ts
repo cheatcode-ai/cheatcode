@@ -12,6 +12,7 @@ import type { WorkerSecret } from "@cheatcode/env";
 import { createLogger } from "@cheatcode/observability";
 import { UserId } from "@cheatcode/types";
 import { z } from "zod";
+import { requireAgentLifecycleSecret } from "./internal-maintenance";
 import { type AgentStateDeletionEnv, reconcileUserAgentWorkspaces } from "./lifecycle-adapters";
 
 const OWNER_PAGE_SIZE = 50;
@@ -138,13 +139,15 @@ export async function reconcileCanonicalWorkspaces(
 ): Promise<WorkspaceReconciliationChunk> {
   const payload = WorkspaceReconciliationPayloadSchema.parse(payloadInput);
   assertReleaseIdentity(env, payload.releaseSha);
-  return reconcileWorkspaceGeneration(env, payload, step);
+  const agentLifecycleSecret = await requireAgentLifecycleSecret(env);
+  return reconcileWorkspaceGeneration(env, payload, step, agentLifecycleSecret);
 }
 
 async function reconcileWorkspaceGeneration(
   env: WorkspaceReconciliationEnv,
   payload: WorkspaceReconciliationPayload,
   step: WorkflowStep,
+  agentLifecycleSecret: string,
 ): Promise<WorkspaceReconciliationChunk> {
   const evidence = payload.evidence
     ? WorkspaceReconciliationEvidenceSchema.parse({ ...payload.evidence })
@@ -166,6 +169,7 @@ async function reconcileWorkspaceGeneration(
         ownerId,
         label,
         pendingOwner,
+        agentLifecycleSecret,
       );
       if (!owner.snapshot.complete) {
         return continuationChunk(
@@ -222,10 +226,18 @@ async function reconcileWorkspaceOwner(
   ownerId: string,
   label: string,
   pendingOwner: PendingOwnerEvidence | null,
+  agentLifecycleSecret: string,
 ) {
   const userId = UserId(ownerId);
   if (pendingOwner) {
-    const finalized = await finalizeWorkspaceOwner(env, releaseSha, step, userId, label);
+    const finalized = await finalizeWorkspaceOwner(
+      env,
+      releaseSha,
+      step,
+      userId,
+      label,
+      agentLifecycleSecret,
+    );
     return { ...pendingOwner, snapshot: finalized.snapshot };
   }
   const prepared = await step.do(
@@ -233,11 +245,16 @@ async function reconcileWorkspaceOwner(
     AGENT_STEP_OPTIONS,
     async () => {
       const owner = await requireWorkspaceOwner(env, userId);
-      return reconcileUserAgentWorkspaces(env, userId, {
-        phase: "prepare",
-        projects: owner.projects,
-        releaseSha,
-      });
+      return reconcileUserAgentWorkspaces(
+        env,
+        userId,
+        {
+          phase: "prepare",
+          projects: owner.projects,
+          releaseSha,
+        },
+        agentLifecycleSecret,
+      );
     },
   );
   const update = await step.do(`commit workspace owner ${label}`, DB_STEP_OPTIONS, async () => {
@@ -246,7 +263,14 @@ async function reconcileWorkspaceOwner(
       applyCanonicalWorkspaceTransition(db, { projects: owner.projects, userId }),
     );
   });
-  const finalized = await finalizeWorkspaceOwner(env, releaseSha, step, userId, label);
+  const finalized = await finalizeWorkspaceOwner(
+    env,
+    releaseSha,
+    step,
+    userId,
+    label,
+    agentLifecycleSecret,
+  );
   return {
     ...prepared,
     canonicalWorkspaces: prepared.canonicalWorkspaceCount,
@@ -261,14 +285,20 @@ function finalizeWorkspaceOwner(
   step: WorkflowStep,
   userId: UserId,
   label: string,
+  agentLifecycleSecret: string,
 ) {
   return step.do(`finalize workspace owner ${label}`, AGENT_STEP_OPTIONS, async () => {
     const owner = await requireWorkspaceOwner(env, userId);
-    return reconcileUserAgentWorkspaces(env, userId, {
-      phase: "finalize",
-      projects: owner.projects,
-      releaseSha,
-    });
+    return reconcileUserAgentWorkspaces(
+      env,
+      userId,
+      {
+        phase: "finalize",
+        projects: owner.projects,
+        releaseSha,
+      },
+      agentLifecycleSecret,
+    );
   });
 }
 

@@ -99,11 +99,12 @@ export async function reconcileUserAgentWorkspaces(
   env: AgentStateDeletionEnv,
   userId: UserId,
   payload: InternalWorkspaceReconciliationBody,
+  agentLifecycleSecret: string,
 ): Promise<InternalWorkspaceReconciliationResponse> {
   const parsed = InternalWorkspaceReconciliationBodySchema.parse(payload);
   const body = JSON.stringify(parsed);
   const pathname = internalUserWorkspaceReconciliationPath(userId);
-  const headers = await internalMaintenanceHeaders(env, pathname, body);
+  const headers = await agentLifecycleHeaders(agentLifecycleSecret, pathname, body);
   const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
     body,
     headers,
@@ -244,6 +245,14 @@ async function internalMaintenanceHeaders(
   rawBody: string,
 ): Promise<Headers> {
   const secret = await requireAgentLifecycleSecret(env);
+  return agentLifecycleHeaders(secret, pathname, rawBody);
+}
+
+async function agentLifecycleHeaders(
+  secret: string,
+  pathname: string,
+  rawBody: string,
+): Promise<Headers> {
   const headers = await createInternalMaintenanceHeaders({
     audience: "agent",
     capability: "agent-lifecycle",
