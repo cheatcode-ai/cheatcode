@@ -1,5 +1,4 @@
 import {
-  assertDistinctHmacSecrets,
   assertInternalMaintenanceEnvelope,
   verifyInternalMaintenanceRequest,
 } from "@cheatcode/auth";
@@ -70,7 +69,11 @@ async function verifyAgentRequest(
   input: AgentMaintenanceRequestInput,
   capability: "agent-lifecycle" | "database-readiness" | "durable-object-schema",
 ): Promise<void> {
-  const secrets = await requireAgentMaintenanceSecrets(input.secrets);
+  const secret = await requireAgentMaintenanceSecret(
+    capability === "agent-lifecycle"
+      ? input.secrets.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET
+      : input.secrets.RELEASE_DATABASE_READINESS_SECRET,
+  );
   await verifyInternalMaintenanceRequest({
     expectedAudience: "agent",
     expectedCapability: capability,
@@ -79,7 +82,7 @@ async function verifyAgentRequest(
     expectedPathname: input.expectedPathname,
     rawBody: input.rawBody,
     request: input.request,
-    secret: capability === "agent-lifecycle" ? secrets.agentLifecycle : secrets.databaseReadiness,
+    secret,
   });
 }
 
@@ -93,17 +96,9 @@ export function parseInternalMaintenanceJson(rawBody: string): unknown {
   }
 }
 
-async function requireAgentMaintenanceSecrets(env: AgentMaintenanceSecretBindings): Promise<{
-  agentLifecycle: string;
-  databaseReadiness: string;
-}> {
+async function requireAgentMaintenanceSecret(binding: WorkerSecret): Promise<string> {
   try {
-    const [agentLifecycle, databaseReadiness] = await Promise.all([
-      resolveRequiredSecret(env.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET),
-      resolveRequiredSecret(env.RELEASE_DATABASE_READINESS_SECRET),
-    ]);
-    assertDistinctHmacSecrets([agentLifecycle, databaseReadiness]);
-    return { agentLifecycle, databaseReadiness };
+    return await resolveRequiredSecret(binding);
   } catch {
     throw new APIError(
       503,

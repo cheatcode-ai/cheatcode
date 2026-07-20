@@ -1,4 +1,3 @@
-import { assertDistinctHmacSecrets } from "@cheatcode/auth";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 
@@ -10,26 +9,18 @@ export interface GatewayMaintenanceSecretBindings {
 export async function requireResourceDeletionSecret(
   env: GatewayMaintenanceSecretBindings,
 ): Promise<string> {
-  return (await requireGatewayMaintenanceSecrets(env)).resourceDeletion;
+  return requireGatewayMaintenanceSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET);
 }
 
 export function requireDatabaseReadinessSecret(
   env: GatewayMaintenanceSecretBindings,
 ): Promise<string> {
-  return requireGatewayMaintenanceSecrets(env).then((secrets) => secrets.databaseReadiness);
+  return requireGatewayMaintenanceSecret(env.RELEASE_DATABASE_READINESS_SECRET);
 }
 
-async function requireGatewayMaintenanceSecrets(env: GatewayMaintenanceSecretBindings): Promise<{
-  databaseReadiness: string;
-  resourceDeletion: string;
-}> {
+async function requireGatewayMaintenanceSecret(binding: WorkerSecret): Promise<string> {
   try {
-    const [databaseReadiness, resourceDeletion] = await Promise.all([
-      resolveRequiredSecret(env.RELEASE_DATABASE_READINESS_SECRET),
-      resolveRequiredSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET),
-    ]);
-    assertDistinctHmacSecrets([databaseReadiness, resourceDeletion]);
-    return { databaseReadiness, resourceDeletion };
+    return await resolveRequiredSecret(binding);
   } catch {
     // Secret-store failures share one bounded internal-maintenance error contract.
   }

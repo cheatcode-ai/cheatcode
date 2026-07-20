@@ -1,4 +1,3 @@
-import { assertDistinctHmacSecrets } from "@cheatcode/auth";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 
@@ -32,42 +31,30 @@ export interface WebhooksMaintenanceSecretBindings {
 export function requireWebhookReplaySecret(
   env: WebhooksMaintenanceSecretBindings,
 ): Promise<string> {
-  return requireWebhooksMaintenanceSecrets(env).then((secrets) => secrets.webhookReplay);
+  return requireWebhooksMaintenanceSecret(env.INTERNAL_WEBHOOK_REPLAY_SECRET);
 }
 
 export function requireResourceDeletionSecret(
   env: WebhooksMaintenanceSecretBindings,
 ): Promise<string> {
-  return requireWebhooksMaintenanceSecrets(env).then((secrets) => secrets.resourceDeletion);
+  return requireWebhooksMaintenanceSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET);
 }
 
 export function requireDatabaseReadinessSecret(
   env: WebhooksMaintenanceSecretBindings,
 ): Promise<string> {
-  return requireWebhooksMaintenanceSecrets(env).then((secrets) => secrets.databaseReadiness);
+  return requireWebhooksMaintenanceSecret(env.RELEASE_DATABASE_READINESS_SECRET);
 }
 
 export function requireAgentLifecycleSecret(
   env: WebhooksMaintenanceSecretBindings,
 ): Promise<string> {
-  return requireWebhooksMaintenanceSecrets(env).then((secrets) => secrets.agentLifecycle);
+  return requireWebhooksMaintenanceSecret(env.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET);
 }
 
-async function requireWebhooksMaintenanceSecrets(env: WebhooksMaintenanceSecretBindings): Promise<{
-  agentLifecycle: string;
-  databaseReadiness: string;
-  resourceDeletion: string;
-  webhookReplay: string;
-}> {
+async function requireWebhooksMaintenanceSecret(binding: WorkerSecret): Promise<string> {
   try {
-    const [agentLifecycle, databaseReadiness, resourceDeletion, webhookReplay] = await Promise.all([
-      resolveRequiredSecret(env.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET),
-      resolveRequiredSecret(env.RELEASE_DATABASE_READINESS_SECRET),
-      resolveRequiredSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET),
-      resolveRequiredSecret(env.INTERNAL_WEBHOOK_REPLAY_SECRET),
-    ]);
-    assertDistinctHmacSecrets([agentLifecycle, databaseReadiness, resourceDeletion, webhookReplay]);
-    return { agentLifecycle, databaseReadiness, resourceDeletion, webhookReplay };
+    return await resolveRequiredSecret(binding);
   } catch {
     // Secret-store failures share one bounded internal-maintenance error contract.
   }
