@@ -72,9 +72,10 @@ export abstract class ProjectSandboxWorkspaceTransition extends ProjectSandboxPr
     const identity = await transitionIdentity(parsed);
     const existing = await this.loadWorkspaceTransitionState();
     if (existing) {
-      this.assertWorkspaceTransitionState(existing, parsed, identity);
+      this.assertWorkspaceTransitionIdentity(existing, identity);
       await this.verifyPreparedWorkspaceTransition(parsed.projects, existing.presentSlugs);
       await this.verifyStoredWorkspaceState(parsed.projects);
+      await this.adoptWorkspaceTransitionRelease(existing, parsed.releaseSha);
       return transitionResult(
         parsed,
         identity,
@@ -158,6 +159,28 @@ export abstract class ProjectSandboxWorkspaceTransition extends ProjectSandboxPr
     await this.ctx.storage.delete(WORKSPACE_TRANSITION_STATE_KEY);
     if ((await this.ctx.storage.get(WORKSPACE_TRANSITION_STATE_KEY)) !== undefined) {
       throw transitionError("Completed workspace transition state could not be removed.");
+    }
+  }
+
+  private async adoptWorkspaceTransitionRelease(
+    state: WorkspaceTransitionState,
+    releaseSha: string,
+  ): Promise<void> {
+    if (state.releaseSha === releaseSha) {
+      return;
+    }
+    await this.ctx.storage.put(
+      WORKSPACE_TRANSITION_STATE_KEY,
+      WorkspaceTransitionStateSchema.parse({ ...state, releaseSha }),
+    );
+  }
+
+  private assertWorkspaceTransitionIdentity(
+    state: WorkspaceTransitionState,
+    identity: WorkspaceTransitionIdentity,
+  ): void {
+    if (state.canonicalDigest !== identity.canonicalDigest) {
+      throw transitionError("Pending workspace transition belongs to another workspace contract.");
     }
   }
 
