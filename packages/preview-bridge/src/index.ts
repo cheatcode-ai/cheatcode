@@ -120,7 +120,7 @@ style.textContent=[
 ".cheatcode-directory-action-primary{background:var(--vscode-button-background,#191919);color:var(--vscode-button-foreground,#fff)}",
 ".cheatcode-directory-action-secondary{background:var(--vscode-button-secondaryBackground,#e7e7e7);color:var(--vscode-button-secondaryForeground,#333)}",
 ".cheatcode-computer-empty{position:absolute;inset:0;z-index:5;display:flex;align-items:center;justify-content:center;background:var(--vscode-editor-background,#fff);overflow:hidden}",
-".cheatcode-computer-mark{position:fixed;left:50vw;top:50vh;width:72px;height:72px;transform:translate(-50%,-50%);color:var(--vscode-disabledForeground,#f0f0f0)}",
+".cheatcode-computer-mark{position:absolute;left:50%;top:50%;width:72px;height:72px;transform:translate(-50%,-50%);color:var(--vscode-disabledForeground,#f0f0f0)}",
 ".cheatcode-computer-mark-main,.cheatcode-computer-mark-small{position:absolute;display:block;line-height:1;font-family:Georgia,serif}",
 ".cheatcode-computer-mark-main{inset:0;font-size:72px}",
 ".cheatcode-computer-mark-small{right:-2px;bottom:2px;font-size:28px}"
