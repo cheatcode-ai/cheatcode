@@ -1,6 +1,30 @@
 -- Run only after the hard-delete BYOK release is live. Historical tombstones
--- are database-only state; the guarded trigger removes any payload that still
--- exists and accepts a missing payload only for these old soft-deletes.
+-- are database-only state; install the managed-Vault-compatible hard-delete
+-- trigger before removing those rows so their encrypted payloads cannot remain.
+create or replace function public.v2_delete_provider_vault_secret() returns trigger
+language plpgsql
+security definer
+set search_path = ''
+as $function$
+declare
+  secret_name text;
+  secret_description text;
+begin
+  delete from vault.secrets
+   where id = old.vault_secret_id
+  returning name, description into secret_name, secret_description;
+
+  if not found then
+    raise exception 'refusing to delete a provider key with a missing Vault secret';
+  end if;
+  if secret_name not like old.user_id::text || ':' || old.provider || ':%'
+     or secret_description is distinct from 'Cheatcode V2 BYOK provider key' then
+    raise exception 'refusing to delete a provider key with mismatched Vault ownership metadata';
+  end if;
+  return old;
+end
+$function$;
+
 delete from public.v2_provider_keys where deleted_at is not null;
 
 do $vault_contract$
@@ -194,37 +218,6 @@ as $function$
 $function$;
 
 drop function public.list_provider_key_revalidation_targets(integer);
-
-create or replace function public.v2_delete_provider_vault_secret() returns trigger
-language plpgsql
-security definer
-set search_path = ''
-as $function$
-declare
-  secret_name text;
-  secret_description text;
-begin
-  select secret.name, secret.description
-    into secret_name, secret_description
-    from vault.secrets secret
-   where secret.id = old.vault_secret_id
-   for update;
-
-  if not found then
-    raise exception 'refusing to delete a provider key with a missing Vault secret';
-  end if;
-  if secret_name not like old.user_id::text || ':' || old.provider || ':%'
-     or secret_description is distinct from 'Cheatcode V2 BYOK provider key' then
-    raise exception 'refusing to delete a provider key with mismatched Vault ownership metadata';
-  end if;
-
-  delete from vault.secrets where id = old.vault_secret_id;
-  if not found then
-    raise exception 'provider Vault secret disappeared while it was locked for deletion';
-  end if;
-  return old;
-end
-$function$;
 
 create or replace function public.v2_audit_provider_key_change() returns trigger
 language plpgsql
