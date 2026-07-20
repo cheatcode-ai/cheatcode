@@ -100,12 +100,6 @@ export const UserSkillPackageFileSchema = z
   .strict()
   .superRefine(validatePackageFile);
 
-const LegacyUserSkillPackageFileSchema = z
-  .object({
-    content: z.string().max(MAX_USER_SKILL_FILE_BYTES),
-    path: PackageFilePathSchema,
-  })
-  .strict();
 const RevisionSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const UserSkillPackageSchema = z
   .object({
@@ -116,14 +110,6 @@ const UserSkillPackageSchema = z
   })
   .strict()
   .superRefine(validatePackage);
-const LegacyUserSkillPackageSchema = z
-  .object({
-    files: z.array(LegacyUserSkillPackageFileSchema).min(1).max(20),
-    revision: RevisionSchema,
-    skillId: z.string().uuid(),
-    v: z.literal(1),
-  })
-  .strict();
 const MirrorManifestSchema = z
   .object({
     files: z.array(PackageFilePathSchema).max(MAX_USER_SKILL_PACKAGE_FILES),
@@ -168,9 +154,7 @@ export async function readUserSkillPackage(
   const value: unknown = await object.json();
   const current = UserSkillPackageSchema.safeParse(value);
   if (current.success && current.data.skillId === skillId) return current.data;
-  const legacy = LegacyUserSkillPackageSchema.safeParse(value);
-  if (!legacy.success || legacy.data.skillId !== skillId) return null;
-  return migrateLegacyPackage(legacy.data);
+  return null;
 }
 
 export async function deleteUserSkillPackage(
@@ -315,17 +299,6 @@ function normalizePackageFile(file: UserSkillPackageFile): UserSkillPackageFile 
 
 function comparePackageFiles(left: UserSkillPackageFile, right: UserSkillPackageFile): number {
   return left.path.localeCompare(right.path);
-}
-
-function migrateLegacyPackage(
-  value: z.infer<typeof LegacyUserSkillPackageSchema>,
-): UserSkillPackage {
-  return UserSkillPackageSchema.parse({
-    files: value.files.map((file) => ({ ...file, encoding: "utf8" as const })),
-    revision: value.revision,
-    skillId: value.skillId,
-    v: 2,
-  });
 }
 
 function packageCandidates(

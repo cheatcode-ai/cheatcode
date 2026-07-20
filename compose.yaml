@@ -7,75 +7,7 @@ x-app-build: &app-build
 x-app-image: &app-image
   image: cheatcode-local-dev
 
-x-database-build: &database-build
-  context: .
-  dockerfile: infra/containers/dev/database.Dockerfile
-
-x-database-image: &database-image
-  image: cheatcode-local-database
-
-x-app-environment: &app-environment
-  CHEATCODE_LOCAL_DATABASE: "true"
-  SUPABASE_MIGRATION_EXPECTED_DATABASE: postgres
-  SUPABASE_MIGRATION_EXPECTED_HOST: database
-  SUPABASE_MIGRATION_EXPECTED_ROLE: postgres
-  SUPABASE_MIGRATION_URL: ${SUPABASE_MIGRATION_URL:?Set SUPABASE_MIGRATION_URL in .env.local}
-
 services:
-  database:
-    <<: *database-image
-    build: *database-build
-    environment:
-      POSTGRES_DB: postgres
-      POSTGRES_PASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD in .env.local}
-      POSTGRES_USER: postgres
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
-      interval: 2s
-      timeout: 5s
-      retries: 30
-      start_period: 10s
-    ports:
-      - "127.0.0.1:${LOCAL_DATABASE_PORT:-54322}:5432"
-    restart: unless-stopped
-    stop_grace_period: 30s
-    volumes:
-      # Supabase Vault ciphertext is bound to pgsodium's root key in this directory.
-      - database-config:/etc/postgresql-custom
-      - database-data:/var/lib/postgresql/data
-
-  database-bootstrap:
-    <<: *database-image
-    command:
-      - bash
-      - -euc
-      - >-
-        psql
-        --set=app_gateway_password="$$APP_GATEWAY_PASSWORD"
-        --set=app_agent_password="$$APP_AGENT_PASSWORD"
-        --set=app_webhooks_password="$$APP_WEBHOOKS_PASSWORD"
-        --set=database_context_signing_secret_agent="$$DATABASE_CONTEXT_SIGNING_SECRET_AGENT"
-        --set=database_context_signing_secret_gateway="$$DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY"
-        --set=database_context_signing_secret_webhooks="$$DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS"
-        --file=/bootstrap/bootstrap-database.sql
-    depends_on:
-      database:
-        condition: service_healthy
-    environment:
-      APP_AGENT_PASSWORD: ${LOCAL_APP_AGENT_PASSWORD:?Set LOCAL_APP_AGENT_PASSWORD in .env.local}
-      APP_GATEWAY_PASSWORD: ${LOCAL_APP_GATEWAY_PASSWORD:?Set LOCAL_APP_GATEWAY_PASSWORD in .env.local}
-      APP_WEBHOOKS_PASSWORD: ${LOCAL_APP_WEBHOOKS_PASSWORD:?Set LOCAL_APP_WEBHOOKS_PASSWORD in .env.local}
-      DATABASE_CONTEXT_SIGNING_SECRET_AGENT: ${DATABASE_CONTEXT_SIGNING_SECRET_AGENT:?Set DATABASE_CONTEXT_SIGNING_SECRET_AGENT in .env.local}
-      DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: ${DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY:?Set DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY in .env.local}
-      DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: ${DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS:?Set DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS in .env.local}
-      PGDATABASE: postgres
-      PGHOST: database
-      PGPASSWORD: ${LOCAL_POSTGRES_PASSWORD:?Set LOCAL_POSTGRES_PASSWORD in .env.local}
-      PGUSER: postgres
-    restart: "no"
-    volumes:
-      - ./infra/containers/dev/bootstrap-database.sql:/bootstrap/bootstrap-database.sql:ro
-
   app:
     <<: *app-image
     build: *app-build
@@ -84,14 +16,7 @@ services:
       - -euc
       - |
         pnpm turbo build --filter=./packages/*
-        pnpm tsx scripts/migrate.ts --apply --phase=pre-deploy
-        pnpm tsx scripts/migrate.ts --apply --phase=post-deploy
-        pnpm tsx scripts/migrate.ts --apply --phase=release-finalization
         exec pnpm dev:services -- --bind 0.0.0.0 --skip-initial-build
-    depends_on:
-      database-bootstrap:
-        condition: service_completed_successfully
-    environment: *app-environment
     develop:
       watch:
         - action: sync
@@ -152,5 +77,3 @@ services:
 volumes:
   app-next:
   app-wrangler:
-  database-config:
-  database-data:

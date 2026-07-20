@@ -178,23 +178,19 @@ pnpm --filter @cheatcode/db typecheck
 
 ```bash
 pnpm --filter @cheatcode/db db:generate
-pnpm tsx scripts/migrate.ts --dry-run
-# Compose-local applies only:
+pnpm tsx scripts/migrate.ts --dry-run --phase=all
 pnpm tsx scripts/migrate.ts --apply --phase=pre-deploy
 pnpm tsx scripts/migrate.ts --apply --phase=post-deploy
 pnpm tsx scripts/migrate.ts --apply --phase=release-finalization
 ```
 
-Non-local applies are rejected outside the protected `Production Release`
-workflow. Production releases prepare the immutable Vercel artifact, run
-`--phase=pre-deploy`, close and reconcile the exact-SHA Cloudflare backend, then
-run `--phase=post-deploy` behind that barrier. OPEN promotes the verified Vercel
-artifact, deploys the three dedicated-role Workers CLOSED, proves all three
-role-specific signed database paths, applies the isolated
-`--phase=release-finalization`, proves the exact final database target and all
-three paths again, and only then opens writers. The default `all` phase is for
-read-only planning; mutating multiple phases in one invocation is intentionally
-refused. The migration runner pins the database host/database/role/system ID,
+Production applies require the reviewed administrative connection URL and the
+pinned database host/database/role/system identity values in the operator
+environment. The default `all` phase is for read-only planning; mutating
+multiple phases in one invocation is intentionally refused. Apply pre-deploy
+expansions before dependent Workers, and apply post-deploy contractions and
+release finalization only after every deployed writer is compatible with the
+contracted schema. The migration runner pins the database host/database/role/system ID,
 holds the shared database-maintenance advisory lock, verifies raw and Drizzle
 history identities, executes the Drizzle journal through that same pinned
 session, and refuses contractions until the complete pre-deploy phase is
@@ -413,9 +409,8 @@ deleted.
 Production archive planning and apply run only through the protected manual
 `Audit Archive` workflow. Select `dry-run` with `PLAN_AUDIT_ARCHIVE`, or `apply`
 with `APPLY_AUDIT_ARCHIVE`. Purge additionally requires
-`DROP_VERIFIED_AUDIT_PARTITIONS`. A local Compose database may run the command in
-dry-run mode only; laptop apply and all non-workflow production access are
-rejected.
+`DROP_VERIFIED_AUDIT_PARTITIONS`. Laptop and all non-workflow archive operations
+are rejected.
 
 `packages/db/src/schema/drizzle.ts` is the Drizzle migration-generation barrel.
 It intentionally omits `auditLog`, because `v2_audit_log` is partitioned and owned
@@ -428,9 +423,9 @@ by `infra/supabase/migrations/pre/0003_audit_log_partitioned.sql`.
   `DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY`,
   `DATABASE_CONTEXT_SIGNING_SECRET_AGENT`, or
   `DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS` binding to `createDb`.
-- Migration scripts read `SUPABASE_MIGRATION_URL` from root `.env.local` in
-  Compose or protected process environment variables in production. Wrangler's
-  generated local configs do not bind it into a Worker.
+- Migration scripts read `SUPABASE_MIGRATION_URL` from root `.env.migrate` on an
+  authorized operator workstation or protected process environment variables in
+  automation. The app, Compose, Next.js, and Wrangler never load this file.
 - Audit archive production operations receive `CLOUDFLARE_ACCOUNT_ID` and the
   protected `AUDIT_ARCHIVE_CLOUDFLARE_API_TOKEN`. Scope that token only to
   `Workers R2 Storage Bucket Item Write` on the `cheatcode-audit` bucket; it is

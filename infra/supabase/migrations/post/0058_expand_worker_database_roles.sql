@@ -31,6 +31,26 @@ alter role app_gateway set search_path = public, pg_catalog;
 alter role app_agent set search_path = public, pg_catalog;
 alter role app_webhooks set search_path = public, pg_catalog;
 
+-- A runtime role must not inherit or assume any second identity. Supabase's
+-- migration administrator may retain ADMIN OPTION on these managed roles; that
+-- inverse edge grants the administrator access to the runtime role and does not
+-- expand a Worker's privileges.
+do $memberships$
+declare
+  membership record;
+begin
+  for membership in
+    select granted.rolname as granted_role, member.rolname as member_role
+      from pg_auth_members relation
+      join pg_roles granted on granted.oid = relation.roleid
+      join pg_roles member on member.oid = relation.member
+     where member.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
+  loop
+    execute format('revoke %I from %I', membership.granted_role, membership.member_role);
+  end loop;
+end
+$memberships$;
+
 -- The final target verifier runs after post-deploy contractions. Assert the
 -- minimum-positive staged contract here so a typo cannot switch the closed
 -- release to an unusable Hyperdrive identity.
@@ -65,8 +85,7 @@ begin
       from pg_auth_members membership
       join pg_roles granted on granted.oid = membership.roleid
       join pg_roles member on member.oid = membership.member
-     where granted.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
-        or member.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
+     where member.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
   ) then
     raise exception 'worker role expansion left a runtime role membership';
   end if;

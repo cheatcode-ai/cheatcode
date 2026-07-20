@@ -15,6 +15,7 @@ qa-*.png
 .env
 .env.*
 !.env.example
+!.env.migrate.example
 apps/*/.dev.vars
 apps/*/wrangler.local-dev.generated.jsonc
 apps/*/wrangler.production.*.generated.json

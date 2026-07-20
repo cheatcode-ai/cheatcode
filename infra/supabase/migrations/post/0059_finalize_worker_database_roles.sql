@@ -66,10 +66,12 @@ alter role app_agent set search_path = public, pg_catalog;
 alter role app_webhooks set search_path = public, pg_catalog;
 alter role app_worker reset search_path;
 
--- Recheck active-role membership at the irreversible boundary in case an
--- operator granted a role during the staged release window. Keep the migration
--- administrator's ADMIN OPTION on app_worker until DROP ROLE; PostgreSQL removes
--- memberships involving the dropped role atomically.
+-- Recheck outbound active-role membership at the irreversible boundary in case
+-- an operator granted a second identity during the staged release window.
+-- Supabase's inverse administrator memberships are required to manage these
+-- roles and do not expand Worker privileges. Keep the migration administrator's
+-- ADMIN OPTION on app_worker until DROP ROLE; PostgreSQL removes memberships
+-- involving the dropped role atomically.
 do $memberships$
 declare
   membership record;
@@ -79,8 +81,7 @@ begin
       from pg_auth_members relation
       join pg_roles granted on granted.oid = relation.roleid
       join pg_roles member on member.oid = relation.member
-     where granted.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
-        or member.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
+     where member.rolname in ('app_gateway', 'app_agent', 'app_webhooks')
   loop
     execute format('revoke %I from %I', membership.granted_role, membership.member_role);
   end loop;

@@ -24,7 +24,6 @@ import {
   verifyDrizzleMigrationIntegrity,
 } from "./migration-drizzle";
 import { loadMigrationEnvFromFiles } from "./migration-env";
-import { assertProtectedReleaseRuntime } from "./release-operation-budget";
 
 interface PgModule {
   Client: new (config: { connectionString: string }) => DrizzleMigrationClient;
@@ -738,14 +737,9 @@ async function main(): Promise<void> {
     expectedHost,
     expectedRole,
     expectedSystemIdentifier,
-    isLocalDatabase,
     migrationAttestations,
   } = loadMigrationEnvFromFiles(ROOT);
-  if (options.mode === "apply" && !isLocalDatabase) {
-    assertProtectedReleaseRuntime();
-  }
   const identity: DatabaseIdentityExpectation = {
-    isLocalDatabase,
     ...(expectedDatabase ? { expectedDatabase } : {}),
     ...(expectedHost ? { expectedHost } : {}),
     ...(expectedRole ? { expectedRole } : {}),

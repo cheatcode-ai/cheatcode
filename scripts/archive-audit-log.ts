@@ -12,6 +12,7 @@ import {
   uploadAndVerifyArchive,
   verifyRemoteArchive,
 } from "./audit-archive-storage";
+import { createAuditArchiveOperationDeadline } from "./audit-operation-budget";
 import {
   acquireDatabaseMaintenanceLock,
   assertAdministrativeConnectionTarget,
@@ -22,7 +23,6 @@ import {
 } from "./database-operation-safety";
 import { closePgClientWithGrace, createDeadlineAwarePgClient } from "./deadline-aware-pg-client";
 import { loadMigrationEnvFromFiles } from "./migration-env";
-import { createAuditArchiveOperationDeadline } from "./release-operation-budget";
 
 interface AuditPartition {
   monthStart: Date;
@@ -58,7 +58,6 @@ interface CatalogPartition extends AuditPartition {
 }
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const LOCAL_DRY_RUN_TIMEOUT_MS = 30 * 60 * 1_000;
 const ARCHIVE_QUERY_TIMEOUT_MS = 30 * 60 * 1_000;
 const PAGE_SIZE = 5_000;
 
@@ -642,17 +641,10 @@ async function closeArchiveClient(
 }
 
 function loadArchiveRuntimeConfig() {
-  const {
-    databaseUrl,
-    expectedDatabase,
-    expectedHost,
-    expectedRole,
-    expectedSystemIdentifier,
-    isLocalDatabase,
-  } = loadMigrationEnvFromFiles(ROOT);
+  const { databaseUrl, expectedDatabase, expectedHost, expectedRole, expectedSystemIdentifier } =
+    loadMigrationEnvFromFiles(ROOT);
   const cloudflareAccountId = process.env["CLOUDFLARE_ACCOUNT_ID"]?.trim();
   const identity: DatabaseIdentityExpectation = {
-    isLocalDatabase,
     ...(expectedDatabase ? { expectedDatabase } : {}),
     ...(expectedHost ? { expectedHost } : {}),
     ...(expectedRole ? { expectedRole } : {}),
@@ -663,7 +655,7 @@ function loadArchiveRuntimeConfig() {
 
 async function runArchive(options: ArchiveOptions): Promise<void> {
   const { cloudflareAccountId, databaseUrl, identity } = loadArchiveRuntimeConfig();
-  const deadline = archiveOperationDeadline(options, identity);
+  const deadline = createAuditArchiveOperationDeadline();
   assertAdministrativeConnectionTarget(databaseUrl, identity, options.mode);
   if (
     options.mode === "apply" &&
@@ -712,17 +704,6 @@ async function runArchive(options: ArchiveOptions): Promise<void> {
       }
     }
   }
-}
-
-function archiveOperationDeadline(
-  options: ArchiveOptions,
-  identity: DatabaseIdentityExpectation,
-): number {
-  if (!identity.isLocalDatabase) return createAuditArchiveOperationDeadline();
-  if (options.mode === "apply") {
-    throw new Error("Audit archive apply is a protected production maintenance operation.");
-  }
-  return Date.now() + LOCAL_DRY_RUN_TIMEOUT_MS;
 }
 
 function requiredString(row: Record<string, unknown>, key: string): string {

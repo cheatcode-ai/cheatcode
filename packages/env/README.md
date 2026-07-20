@@ -20,9 +20,11 @@ pnpm --filter @cheatcode/env typecheck
 
 ## Env
 
-See root `.env.example` for the single local `.env.local` contract, including
-the local admin migration connection. Production migration/archive values come
-from protected process environment variables and are never copied into a Worker.
+See root `.env.example` for the local application contract. Its database URLs
+use the production Supabase session pooler with the three least-privilege runtime
+roles. Administrative migration values live separately in git-ignored
+`.env.migrate` (template: `.env.migrate.example`) or protected automation
+environment variables and are never loaded by the app or copied into a Worker.
 `CHEATCODE_MIGRATION_ATTESTATIONS` is an optional protected JSON envelope consumed
 only while a specifically attested contraction is pending; an unset or empty value
 is valid after that migration is recorded.

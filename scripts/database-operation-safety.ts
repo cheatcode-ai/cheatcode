@@ -7,7 +7,6 @@ export interface DatabaseIdentityExpectation {
   expectedHost?: string;
   expectedRole?: string;
   expectedSystemIdentifier?: string;
-  isLocalDatabase?: boolean;
 }
 
 interface SessionOptions {
@@ -26,9 +25,6 @@ export function assertAdministrativeConnectionTarget(
   const target = new URL(databaseUrl);
   if (RUNTIME_DATABASE_ROLES.has(decodeURIComponent(target.username))) {
     throw new Error("Administrative database operations must never use a runtime Worker role.");
-  }
-  if (expectation.isLocalDatabase) {
-    assertLocalDatabaseTarget(target);
   }
   if (mode === "apply" && !expectation.expectedHost) {
     throw new Error("Set SUPABASE_MIGRATION_EXPECTED_HOST before mutating the database.");
@@ -77,20 +73,8 @@ function requiredIdentityVariables(expectation: DatabaseIdentityExpectation): st
   return [
     expectation.expectedDatabase ? null : "SUPABASE_MIGRATION_EXPECTED_DATABASE",
     expectation.expectedRole ? null : "SUPABASE_MIGRATION_EXPECTED_ROLE",
-    expectation.expectedSystemIdentifier || expectation.isLocalDatabase
-      ? null
-      : "SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER",
+    expectation.expectedSystemIdentifier ? null : "SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER",
   ].filter((value): value is string => value !== null);
-}
-
-function assertLocalDatabaseTarget(target: URL): void {
-  const allowedHosts = new Set(["database", "localhost", "127.0.0.1", "[::1]"]);
-  if (!allowedHosts.has(target.hostname.toLowerCase())) {
-    throw new Error("Local database operations require the Compose database or a loopback host.");
-  }
-  if (target.username !== "postgres" || target.pathname !== "/postgres") {
-    throw new Error("Local database operations require the postgres administrator and database.");
-  }
 }
 
 function assertExpectedIdentity(

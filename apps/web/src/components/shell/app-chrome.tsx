@@ -10,7 +10,6 @@ import { useAppStore } from "@/lib/store/app-store";
 
 const MOBILE_ROUTE_TITLES = {
   "/101": "Cheatcode 101",
-  "/billing": "Usage",
   "/models": "Models",
   "/personalization": "Personalization",
   "/pricing": "Pricing",

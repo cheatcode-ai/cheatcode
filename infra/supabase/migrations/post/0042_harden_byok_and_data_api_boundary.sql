@@ -49,12 +49,27 @@ $preflight$;
 
 -- The user/provider-prefixed name is the ownership proof. Normalize only those
 -- verified references so the deletion trigger can require one exact marker.
-update vault.secrets secret
-   set description = 'Cheatcode V2 BYOK provider key'
-  from public.v2_provider_keys key
- where key.vault_secret_id = secret.id
-   and secret.name like key.user_id::text || ':' || key.provider || ':%'
-   and secret.description is distinct from 'Cheatcode V2 BYOK provider key';
+-- Supabase Vault intentionally withholds direct UPDATE access from its
+-- migration role. Use the extension's SECURITY DEFINER API so this remains
+-- compatible with managed Vault while preserving the ownership preflight.
+do $normalize_vault_descriptions$
+declare
+  provider_secret_id uuid;
+begin
+  for provider_secret_id in
+    select secret.id
+      from public.v2_provider_keys key
+      join vault.secrets secret on secret.id = key.vault_secret_id
+     where secret.name like key.user_id::text || ':' || key.provider || ':%'
+       and secret.description is distinct from 'Cheatcode V2 BYOK provider key'
+  loop
+    perform vault.update_secret(
+      provider_secret_id,
+      new_description => 'Cheatcode V2 BYOK provider key'
+    );
+  end loop;
+end
+$normalize_vault_descriptions$;
 
 create unique index v2_provider_keys_vault_secret_uidx
   on public.v2_provider_keys (vault_secret_id);
