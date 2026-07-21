@@ -39,6 +39,9 @@ export const messages = pgTable(
       table.agentRunSegment,
       table.id,
     ),
+    // FK enforcement cannot rely on the assistant-only partial indexes because
+    // the run's initiating user message also carries the agent-run identity.
+    index("v2_messages_agent_run_scope_idx").on(table.agentRunId, table.userId, table.threadId),
     uniqueIndex("v2_messages_agent_run_segment_assistant_uidx")
       .on(table.agentRunId, table.agentRunSegment)
       .where(sql`${table.agentRunId} is not null and ${table.role} = 'assistant'`),
