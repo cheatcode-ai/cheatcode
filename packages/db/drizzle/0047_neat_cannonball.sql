@@ -1,0 +1,2 @@
+CREATE INDEX "v2_messages_agent_run_scope_idx" ON "v2_messages" USING btree ("agent_run_id","user_id","thread_id");--> statement-breakpoint
+CREATE INDEX "v2_projects_user_delete_idx" ON "v2_projects" USING btree ("user_id","id");

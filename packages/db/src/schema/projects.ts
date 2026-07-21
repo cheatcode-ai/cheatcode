@@ -83,6 +83,9 @@ export const projects = pgTable(
     index("v2_projects_user_page_idx")
       .on(table.userId, table.updatedAt.desc(), table.id.desc())
       .where(sql`deleted_at is null`),
+    // The live-page index is partial, so PostgreSQL cannot use it while
+    // cascading a physical user deletion across already archived projects.
+    index("v2_projects_user_delete_idx").on(table.userId, table.id),
     index("v2_projects_deletion_queue_idx")
       .on(table.deletedAt, table.id)
       .where(sql`deleted_at is not null`),

@@ -502,6 +502,7 @@ function validateRequiredIndexShapes(rows: readonly Record<string, unknown>[]): 
   return [
     ...validateMessageTranscriptIndexShapes(rows),
     ...validateActivationIndexShapes(rows),
+    ...validateForeignKeySupportIndexShapes(rows),
     ...validateLifecycleIndexShapes(rows),
     ...validateNamedIndexShape(rows, "v2_generated_outputs_agent_run_idx", "agent_run_id", ""),
     ...validateArtifactIntentIndexShapes(rows),
@@ -628,6 +629,22 @@ function validateLifecycleIndexShapes(rows: readonly Record<string, unknown>[]):
       "provider_statusisdistinctfrom'succeeded'::text",
       { tableName: "v2_user_deletion_refund_intents", unique: false },
     ),
+  ];
+}
+
+function validateForeignKeySupportIndexShapes(rows: readonly Record<string, unknown>[]): string[] {
+  return [
+    ...validateNamedIndexShape(
+      rows,
+      "v2_messages_agent_run_scope_idx",
+      "agent_run_id,user_id,thread_id",
+      "",
+      { tableName: "v2_messages", unique: false },
+    ),
+    ...validateNamedIndexShape(rows, "v2_projects_user_delete_idx", "user_id,id", "", {
+      tableName: "v2_projects",
+      unique: false,
+    }),
   ];
 }
 
