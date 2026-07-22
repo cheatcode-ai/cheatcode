@@ -6,7 +6,7 @@
     "node": "22.22.2"
   },
   "dependencies": {
-    "thrift": "0.23.0",
+    "thrift": "0.24.0",
     "ws": "5.2.5"
   }
 }
