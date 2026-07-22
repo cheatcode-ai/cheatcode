@@ -94,7 +94,7 @@ catalog:
   '@google/genai': 2.12.0
   '@mastra/core': 1.51.0
   '@next/env': 16.2.10
-  '@openrouter/ai-sdk-provider': 2.9.1
+  '@openrouter/ai-sdk-provider': 3.0.0
   '@polar-sh/sdk': 0.48.1
   '@streamdown/code': 1.1.1
   '@streamdown/math': 1.0.2
