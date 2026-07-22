@@ -8,10 +8,25 @@ type NextPublicEnv = {
   NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA?: string;
 };
 
-const deployment = parseWebDeployment({
-  VERCEL_ENV: process.env["VERCEL_ENV"],
-  VERCEL_TARGET_ENV: process.env["VERCEL_TARGET_ENV"],
-});
+const runtimeEnv = {
+  NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: (process.env as NextPublicEnv)
+    .NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
+  NEXT_PUBLIC_GATEWAY_URL: (process.env as NextPublicEnv).NEXT_PUBLIC_GATEWAY_URL,
+  NEXT_PUBLIC_PREVIEW_HOSTNAME: (process.env as NextPublicEnv).NEXT_PUBLIC_PREVIEW_HOSTNAME,
+  NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: (process.env as NextPublicEnv)
+    .NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
+};
+const deployment = parseWebDeployment(
+  !("window" in globalThis)
+    ? {
+        VERCEL_ENV: process.env["VERCEL_ENV"],
+        VERCEL_TARGET_ENV: process.env["VERCEL_TARGET_ENV"],
+      }
+    : {
+        VERCEL_ENV: browserDeploymentEnvironment(runtimeEnv.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA),
+        VERCEL_TARGET_ENV: undefined,
+      },
+);
 const schemas = createWebEnvironmentSchemas(deployment);
 
 export const env = createEnv({
@@ -27,12 +42,9 @@ export const env = createEnv({
     NEXT_PUBLIC_PREVIEW_HOSTNAME: schemas.previewHostname,
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: schemas.releaseSha,
   },
-  experimental__runtimeEnv: {
-    NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: (process.env as NextPublicEnv)
-      .NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY,
-    NEXT_PUBLIC_GATEWAY_URL: (process.env as NextPublicEnv).NEXT_PUBLIC_GATEWAY_URL,
-    NEXT_PUBLIC_PREVIEW_HOSTNAME: (process.env as NextPublicEnv).NEXT_PUBLIC_PREVIEW_HOSTNAME,
-    NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: (process.env as NextPublicEnv)
-      .NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
-  },
+  experimental__runtimeEnv: runtimeEnv,
 });
+
+function browserDeploymentEnvironment(releaseSha: string | undefined): "production" | undefined {
+  return releaseSha !== undefined && releaseSha !== "development" ? "production" : undefined;
+}
