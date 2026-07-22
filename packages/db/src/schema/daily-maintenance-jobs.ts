@@ -2,20 +2,20 @@ import { sql } from "drizzle-orm";
 import { check, date, index, integer, pgTable, text, timestamp, uuid } from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 
-export type RetentionJobPhase = "activation" | "cleanup";
-export type RetentionJobStatus = "complete" | "leased" | "queued";
+export type DailyMaintenanceJobPhase = "activation" | "orphan-upload-cleanup";
+export type DailyMaintenanceJobStatus = "complete" | "leased" | "queued";
 
-/** Durable, globally scoped progress for one UTC day's activation and output-retention chain. */
-export const retentionJobs = pgTable(
-  v2TableName("retention_jobs"),
+/** Durable progress for one UTC day's activation metrics and abandoned-upload cleanup. */
+export const dailyMaintenanceJobs = pgTable(
+  v2TableName("daily_maintenance_jobs"),
   {
     day: date("day", { mode: "string" }).primaryKey(),
     scheduledAt: timestamp("scheduled_at", { precision: 3, withTimezone: true }).notNull(),
-    phase: text("phase").$type<RetentionJobPhase>().notNull().default("activation"),
+    phase: text("phase").$type<DailyMaintenanceJobPhase>().notNull().default("activation"),
     activationCursorEvent: text("activation_cursor_event"),
     activationCursorUserId: uuid("activation_cursor_user_id"),
     continuation: integer("continuation").notNull().default(0),
-    status: text("status").$type<RetentionJobStatus>().notNull().default("queued"),
+    status: text("status").$type<DailyMaintenanceJobStatus>().notNull().default("queued"),
     releaseVersionId: uuid("release_version_id"),
     leaseToken: uuid("lease_token"),
     leaseExpiresAt: timestamp("lease_expires_at", { precision: 3, withTimezone: true }),
@@ -27,34 +27,37 @@ export const retentionJobs = pgTable(
     completedAt: timestamp("completed_at", { precision: 3, withTimezone: true }),
   },
   (table) => [
-    index("v2_retention_jobs_ready_idx")
+    index("v2_daily_maintenance_jobs_ready_idx")
       .on(table.nextAttemptAt, table.day)
       .where(sql`${table.status} = 'queued'`),
-    index("v2_retention_jobs_lease_idx")
+    index("v2_daily_maintenance_jobs_lease_idx")
       .on(table.leaseExpiresAt, table.day)
       .where(sql`${table.status} = 'leased'`),
-    index("v2_retention_jobs_completed_idx")
+    index("v2_daily_maintenance_jobs_completed_idx")
       .on(table.completedAt, table.day)
       .where(sql`${table.status} = 'complete'`),
     check(
-      "v2_retention_jobs_day_check",
+      "v2_daily_maintenance_jobs_day_check",
       sql`${table.day} = ((${table.scheduledAt} at time zone 'UTC')::date - 1)`,
     ),
-    check("v2_retention_jobs_phase_check", sql`${table.phase} in ('activation', 'cleanup')`),
     check(
-      "v2_retention_jobs_status_check",
+      "v2_daily_maintenance_jobs_phase_check",
+      sql`${table.phase} in ('activation', 'orphan-upload-cleanup')`,
+    ),
+    check(
+      "v2_daily_maintenance_jobs_status_check",
       sql`${table.status} in ('queued', 'leased', 'complete')`,
     ),
     check(
-      "v2_retention_jobs_counter_check",
+      "v2_daily_maintenance_jobs_counter_check",
       sql`${table.continuation} >= 0 and ${table.failureCount} >= 0`,
     ),
     check(
-      "v2_retention_jobs_error_code_check",
+      "v2_daily_maintenance_jobs_error_code_check",
       sql`${table.lastErrorCode} is null or octet_length(${table.lastErrorCode}) <= 128`,
     ),
     check(
-      "v2_retention_jobs_activation_cursor_check",
+      "v2_daily_maintenance_jobs_activation_cursor_check",
       sql`(
         (${table.activationCursorEvent} is null and ${table.activationCursorUserId} is null)
         or
@@ -66,15 +69,15 @@ export const retentionJobs = pgTable(
       )`,
     ),
     check(
-      "v2_retention_jobs_phase_cursor_check",
+      "v2_daily_maintenance_jobs_phase_cursor_check",
       sql`(
         (${table.phase} = 'activation')
         or
-        (${table.phase} = 'cleanup' and ${table.activationCursorEvent} is null and ${table.activationCursorUserId} is null)
+        (${table.phase} = 'orphan-upload-cleanup' and ${table.activationCursorEvent} is null and ${table.activationCursorUserId} is null)
       )`,
     ),
     check(
-      "v2_retention_jobs_lease_check",
+      "v2_daily_maintenance_jobs_lease_check",
       sql`(
         (
           ${table.status} = 'leased'
@@ -102,8 +105,8 @@ export const retentionJobs = pgTable(
       )`,
     ),
     check(
-      "v2_retention_jobs_terminal_phase_check",
-      sql`${table.status} <> 'complete' or ${table.phase} = 'cleanup'`,
+      "v2_daily_maintenance_jobs_terminal_phase_check",
+      sql`${table.status} <> 'complete' or ${table.phase} = 'orphan-upload-cleanup'`,
     ),
   ],
 );

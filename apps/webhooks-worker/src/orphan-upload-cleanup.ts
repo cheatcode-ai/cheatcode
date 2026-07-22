@@ -1,15 +1,15 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import {
   createDb,
+  type DailyMaintenanceJobLease,
+  type DailyMaintenanceJobProgress,
+  type DailyMaintenanceJobRecord,
   type Database,
-  deleteQuiescedArtifactIntentsAndAdvanceRetentionJob,
-  guardRetentionJobProgress,
+  deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob,
+  guardDailyMaintenanceJobProgress,
   type HyperdriveConnection,
   listQuiescedArtifactUploadIntents,
   type QuiescedArtifactUploadIntentRecord,
-  type RetentionJobLease,
-  type RetentionJobProgress,
-  type RetentionJobRecord,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { z } from "zod";
@@ -40,24 +40,24 @@ const ArtifactIntentPageSchema = z
 
 type ArtifactIntentWireRecord = z.infer<typeof ArtifactIntentPageSchema>[number];
 
-export interface RetentionArtifactIntentEnv {
+export interface OrphanUploadCleanupEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   HYPERDRIVE: HyperdriveConnection;
   R2_OUTPUTS: R2Bucket;
 }
 
-export type RetentionArtifactIntentGenerationOutcome =
-  | { job: RetentionJobRecord; state: "continue" }
+export type OrphanUploadCleanupGenerationOutcome =
+  | { job: DailyMaintenanceJobRecord; state: "continue" }
   | { state: "done" }
   | { state: "ready" };
 
-export async function processArtifactIntentCleanupGeneration(
-  env: RetentionArtifactIntentEnv,
+export async function processOrphanUploadCleanupGeneration(
+  env: OrphanUploadCleanupEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
-): Promise<RetentionArtifactIntentGenerationOutcome> {
-  if (job.phase !== "cleanup") {
-    throw new Error("Artifact-intent cleanup requires the cleanup phase");
+  job: DailyMaintenanceJobRecord,
+): Promise<OrphanUploadCleanupGenerationOutcome> {
+  if (job.phase !== "orphan-upload-cleanup") {
+    throw new Error("Abandoned-upload cleanup requires the orphan-upload-cleanup phase");
   }
   for (let action = 1; action <= ARTIFACT_INTENT_PAGES_PER_GENERATION; action += 1) {
     const page = await listIntentPage(env, step, job, action);
@@ -75,9 +75,9 @@ export async function processArtifactIntentCleanupGeneration(
 }
 
 async function listIntentPage(
-  env: RetentionArtifactIntentEnv,
+  env: OrphanUploadCleanupEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
   action: number,
 ): Promise<ArtifactIntentWireRecord[]> {
   const value = await step.do(`list quiesced artifact intents ${action}`, DB_STEP_OPTIONS, () =>
@@ -95,9 +95,9 @@ async function listIntentPage(
 }
 
 async function deleteIntentObjects(
-  env: RetentionArtifactIntentEnv,
+  env: OrphanUploadCleanupEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
   page: ArtifactIntentWireRecord[],
   action: number,
 ): Promise<boolean> {
@@ -106,7 +106,7 @@ async function deleteIntentObjects(
     R2_STEP_OPTIONS,
     async () => {
       const current = await withDatabase(env, (db) =>
-        guardRetentionJobProgress(db, {
+        guardDailyMaintenanceJobProgress(db, {
           ...jobLease(job),
           expected: jobProgress(job),
         }),
@@ -121,15 +121,15 @@ async function deleteIntentObjects(
 }
 
 async function deleteIntentRows(
-  env: RetentionArtifactIntentEnv,
+  env: OrphanUploadCleanupEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
   page: ArtifactIntentWireRecord[],
   action: number,
 ): Promise<boolean> {
   const value = await step.do(`delete quiesced artifact intents ${action}`, DB_STEP_OPTIONS, () =>
     withDatabase(env, (db) =>
-      deleteQuiescedArtifactIntentsAndAdvanceRetentionJob(db, {
+      deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob(db, {
         ...jobLease(job),
         before: job.scheduledAt,
         expected: jobProgress(job),
@@ -181,7 +181,7 @@ function compareIntents(left: ArtifactIntentWireRecord, right: ArtifactIntentWir
   return quiescenceOrder === 0 ? left.id.localeCompare(right.id) : quiescenceOrder;
 }
 
-function jobLease(job: RetentionJobRecord): RetentionJobLease {
+function jobLease(job: DailyMaintenanceJobRecord): DailyMaintenanceJobLease {
   return {
     continuation: job.continuation,
     day: job.day,
@@ -190,7 +190,7 @@ function jobLease(job: RetentionJobRecord): RetentionJobLease {
   };
 }
 
-function jobProgress(job: RetentionJobRecord): RetentionJobProgress {
+function jobProgress(job: DailyMaintenanceJobRecord): DailyMaintenanceJobProgress {
   return {
     activationCursor: job.activationCursor,
     phase: job.phase,
@@ -198,7 +198,7 @@ function jobProgress(job: RetentionJobRecord): RetentionJobProgress {
 }
 
 async function withDatabase<T>(
-  env: RetentionArtifactIntentEnv,
+  env: OrphanUploadCleanupEnv,
   operation: (db: Database) => Promise<T>,
 ): Promise<T> {
   const { db, close } = createDb(env.HYPERDRIVE, {

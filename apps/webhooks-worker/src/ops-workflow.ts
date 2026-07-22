@@ -6,9 +6,12 @@ import type { AnalyticsBindings } from "@cheatcode/observability";
 import { z } from "zod";
 import { runAnalyticsWatchdog } from "./analytics-watchdog";
 import { processByokRevalidation } from "./byok-revalidation";
+import {
+  DailyMaintenancePayloadSchema,
+  processDailyMaintenance,
+} from "./daily-maintenance-workflow";
 import type { LifecycleEnv } from "./lifecycle-adapters";
 import { assertReleaseCanDrain, assertReleaseOpen, type ReleaseGateBindings } from "./release-gate";
-import { processDailyRetention, RetentionMaintenancePayloadSchema } from "./retention-maintenance";
 import {
   isUserDeletionWorkflowIdentity,
   UserDeletionPayloadSchema,
@@ -35,7 +38,7 @@ const OpsMaintenancePayloadSchema = z.union([
     kind: z.literal("byok-revalidation"),
     scheduledTime: z.number().int().nonnegative(),
   }),
-  RetentionMaintenancePayloadSchema,
+  DailyMaintenancePayloadSchema,
   UserDeletionPayloadSchema,
   WorkspaceReconciliationPayloadSchema,
 ]);
@@ -102,8 +105,8 @@ export class OpsMaintenanceWorkflow extends WorkflowEntrypoint<
       await processUserDeletionChunk(this.env, payload, step);
       return { kind: payload.kind, ok: true };
     }
-    if (payload.kind === "retention-metrics") {
-      await processDailyRetention(this.env, event.instanceId, payload, step);
+    if (payload.kind === "daily-maintenance") {
+      await processDailyMaintenance(this.env, event.instanceId, payload, step);
       return { kind: payload.kind, ok: true };
     }
     if (payload.kind === "byok-revalidation") {

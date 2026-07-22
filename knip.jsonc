@@ -16,16 +16,16 @@
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
     "infra/containers/sandbox/browser-driver": {
-      // Docker invokes Playwright's CLI to install Chromium. Both dependencies
-      // also satisfy Stagehand runtime peers, so neither is imported by server.js.
+      // Stagehand resolves these peer packages dynamically for its local
+      // Playwright backend, so no source-level import is visible to Knip.
       "ignoreDependencies": ["playwright-core", "zod"]
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve these executables by their installed binary
-      // names or absolute paths; Knip cannot infer those child-process calls.
-      "ignoreBinaries": ["agent-browser"],
-      "ignoreDependencies": ["agent-browser", "tsx"]
+      // Snapshot launchers resolve these executables by installed binary name;
+      // Knip cannot infer dependencies or binaries passed to child_process.
+      "ignoreDependencies": ["agent-browser", "tsx"],
+      "ignoreBinaries": ["agent-browser"]
     }
   }
 }

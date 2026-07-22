@@ -1,39 +1,40 @@
 import {
-  claimReadyRetentionJobs,
+  claimReadyDailyMaintenanceJobs,
   createDb,
+  type DailyMaintenanceJobLease,
   type Database,
-  deferRetentionJob,
-  listLiveRetentionJobLeases,
-  purgeCompletedRetentionJobs,
-  type RetentionJobLease,
-  registerDailyRetentionJob,
+  deferDailyMaintenanceJob,
+  listLiveDailyMaintenanceJobLeases,
+  purgeCompletedDailyMaintenanceJobs,
+  registerDailyMaintenanceJob,
 } from "@cheatcode/db";
 import { createLogger, emitErrorEvent, safeErrorTelemetry } from "@cheatcode/observability";
 import { z } from "zod";
-import { assertReleaseOpen } from "./release-gate";
 import {
-  activeRetentionReleaseVersion,
-  createRetentionInstance,
+  activeDailyMaintenanceReleaseVersion,
+  createDailyMaintenanceInstance,
+  type DailyMaintenanceEnv,
   previousUtcDay,
-  type RetentionMaintenanceEnv,
-} from "./retention-maintenance";
+} from "./daily-maintenance-workflow";
+import { assertReleaseOpen } from "./release-gate";
 import type { DeterministicWorkflowResult } from "./workflow-instance";
 
-const RETENTION_RECONCILIATION_LIMIT = 25;
-const RETENTION_CREATION_CONCURRENCY = 5;
-const RETENTION_TOMBSTONE_MS = 32 * 24 * 60 * 60 * 1000;
-const CREATION_ERROR_CODE = "retention_instance_creation_failed";
-const ORPHANED_COMPLETION_ERROR_CODE = "retention_instance_completed_without_job_completion";
+const MAINTENANCE_RECONCILIATION_LIMIT = 25;
+const MAINTENANCE_CREATION_CONCURRENCY = 5;
+const MAINTENANCE_TOMBSTONE_MS = 32 * 24 * 60 * 60 * 1000;
+const CREATION_ERROR_CODE = "daily_maintenance_instance_creation_failed";
+const ORPHANED_COMPLETION_ERROR_CODE =
+  "daily_maintenance_instance_completed_without_job_completion";
 const ScheduledTimeSchema = z.number().int().nonnegative().max(8_640_000_000_000_000);
 
 type ReconciliationSource = "claimed" | "live";
 
 interface ReconciliationCandidate {
-  lease: RetentionJobLease;
+  lease: DailyMaintenanceJobLease;
   source: ReconciliationSource;
 }
 
-export interface RetentionReconciliationSummary {
+export interface DailyMaintenanceReconciliationSummary {
   claimed: number;
   created: number;
   deferred: number;
@@ -44,24 +45,24 @@ export interface RetentionReconciliationSummary {
 }
 
 /** Register a daily job, then use the same recovery path as the five-minute reconciler. */
-export async function enqueueDailyRetentionMetrics(
-  env: RetentionMaintenanceEnv,
+export async function enqueueDailyMaintenance(
+  env: DailyMaintenanceEnv,
   scheduledTimeInput: number,
-): Promise<RetentionReconciliationSummary> {
+): Promise<DailyMaintenanceReconciliationSummary> {
   assertReleaseOpen(env);
   const scheduledAt = new Date(ScheduledTimeSchema.parse(scheduledTimeInput));
   await withDatabase(env, (db) =>
-    registerDailyRetentionJob(db, { day: previousUtcDay(scheduledAt), scheduledAt }),
+    registerDailyMaintenanceJob(db, { day: previousUtcDay(scheduledAt), scheduledAt }),
   );
-  return reconcileDailyRetentionWorkflows(env);
+  return reconcileDailyMaintenanceWorkflows(env);
 }
 
 /** Recreate live reserved generations and lease every due/expired day in bounded batches. */
-export async function reconcileDailyRetentionWorkflows(
-  env: RetentionMaintenanceEnv,
-): Promise<RetentionReconciliationSummary> {
+export async function reconcileDailyMaintenanceWorkflows(
+  env: DailyMaintenanceEnv,
+): Promise<DailyMaintenanceReconciliationSummary> {
   assertReleaseOpen(env);
-  const releaseVersionId = activeRetentionReleaseVersion(env);
+  const releaseVersionId = activeDailyMaintenanceReleaseVersion(env);
   const now = new Date();
   const state = await loadReconciliationState(env, now, releaseVersionId);
   const eligibleLive = state.live.filter((lease) => lease.releaseVersionId === releaseVersionId);
@@ -79,22 +80,26 @@ export async function reconcileDailyRetentionWorkflows(
 }
 
 async function loadReconciliationState(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   now: Date,
   releaseVersionId: string,
-): Promise<{ claimed: RetentionJobLease[]; live: RetentionJobLease[]; purged: number }> {
+): Promise<{
+  claimed: DailyMaintenanceJobLease[];
+  live: DailyMaintenanceJobLease[];
+  purged: number;
+}> {
   return withDatabase(env, async (db) => {
-    const purged = await purgeCompletedRetentionJobs(
+    const purged = await purgeCompletedDailyMaintenanceJobs(
       db,
-      new Date(now.getTime() - RETENTION_TOMBSTONE_MS),
+      new Date(now.getTime() - MAINTENANCE_TOMBSTONE_MS),
     );
-    const live = await listLiveRetentionJobLeases(db, {
-      limit: RETENTION_RECONCILIATION_LIMIT,
+    const live = await listLiveDailyMaintenanceJobLeases(db, {
+      limit: MAINTENANCE_RECONCILIATION_LIMIT,
       now,
     });
-    const claimed = await claimReadyRetentionJobs(db, {
+    const claimed = await claimReadyDailyMaintenanceJobs(db, {
       leaseToken: crypto.randomUUID(),
-      limit: RETENTION_RECONCILIATION_LIMIT,
+      limit: MAINTENANCE_RECONCILIATION_LIMIT,
       now,
       releaseVersionId,
     });
@@ -103,14 +108,14 @@ async function loadReconciliationState(
 }
 
 async function createReconciledInstances(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   candidates: ReconciliationCandidate[],
-): Promise<Omit<RetentionReconciliationSummary, "claimed" | "purged" | "staleRelease">> {
+): Promise<Omit<DailyMaintenanceReconciliationSummary, "claimed" | "purged" | "staleRelease">> {
   const summary = { created: 0, deferred: 0, restarted: 0, reused: 0 };
-  for (let offset = 0; offset < candidates.length; offset += RETENTION_CREATION_CONCURRENCY) {
-    const batch = candidates.slice(offset, offset + RETENTION_CREATION_CONCURRENCY);
+  for (let offset = 0; offset < candidates.length; offset += MAINTENANCE_CREATION_CONCURRENCY) {
+    const batch = candidates.slice(offset, offset + MAINTENANCE_CREATION_CONCURRENCY);
     const settled = await Promise.allSettled(
-      batch.map(({ lease }) => createRetentionInstance(env, lease)),
+      batch.map(({ lease }) => createDailyMaintenanceInstance(env, lease)),
     );
     await accountForReconciliationBatch(env, batch, settled, summary);
   }
@@ -118,7 +123,7 @@ async function createReconciledInstances(
 }
 
 async function accountForReconciliationBatch(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   candidates: ReconciliationCandidate[],
   settled: PromiseSettledResult<DeterministicWorkflowResult>[],
   summary: { created: number; deferred: number; restarted: number; reused: number },
@@ -126,7 +131,7 @@ async function accountForReconciliationBatch(
   for (const [index, result] of settled.entries()) {
     const candidate = candidates[index];
     if (!candidate) {
-      throw new Error("Retention reconciliation lost a lease identity");
+      throw new Error("Daily maintenance reconciliation lost a lease identity");
     }
     if (result.status === "rejected") {
       await accountForCreationFailure(env, candidate, result.reason, summary);
@@ -137,7 +142,7 @@ async function accountForReconciliationBatch(
 }
 
 async function accountForCreationFailure(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   candidate: ReconciliationCandidate,
   error: unknown,
   summary: { deferred: number },
@@ -146,7 +151,7 @@ async function accountForCreationFailure(
     const deferred = await tryDeferLease(env, candidate.lease, CREATION_ERROR_CODE);
     summary.deferred += deferred ? 1 : 0;
   }
-  createLogger().error("retention_instance_reconciliation_failed", {
+  createLogger().error("daily_maintenance_instance_reconciliation_failed", {
     continuation: candidate.lease.continuation,
     day: candidate.lease.day,
     source: candidate.source,
@@ -155,13 +160,13 @@ async function accountForCreationFailure(
   emitErrorEvent(env, {
     errorCategory: "workflow",
     errorCode: CREATION_ERROR_CODE,
-    route: "retention-admission",
+    route: "daily-maintenance-admission",
     workerName: "webhooks",
   });
 }
 
 async function accountForCreationResult(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   candidate: ReconciliationCandidate,
   result: DeterministicWorkflowResult,
   summary: { created: number; deferred: number; restarted: number; reused: number },
@@ -176,17 +181,17 @@ async function accountForCreationResult(
 }
 
 async function tryDeferLease(
-  env: RetentionMaintenanceEnv,
-  lease: RetentionJobLease,
+  env: DailyMaintenanceEnv,
+  lease: DailyMaintenanceJobLease,
   errorCode: string,
 ): Promise<boolean> {
   try {
     const deferred = await withDatabase(env, (db) =>
-      deferRetentionJob(db, { ...lease, errorCode }),
+      deferDailyMaintenanceJob(db, { ...lease, errorCode }),
     );
     return deferred !== null;
   } catch (error) {
-    createLogger().error("retention_reconciliation_defer_failed", {
+    createLogger().error("daily_maintenance_reconciliation_defer_failed", {
       continuation: lease.continuation,
       day: lease.day,
       errorCode,
@@ -197,7 +202,7 @@ async function tryDeferLease(
 }
 
 async function withDatabase<T>(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   operation: (db: Database) => Promise<T>,
 ): Promise<T> {
   const { db, close } = createDb(env.HYPERDRIVE, {

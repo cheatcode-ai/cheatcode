@@ -45,6 +45,26 @@ export {
 } from "./billing";
 export type { Database, DatabaseHandle, HyperdriveConnection } from "./client";
 export { createDb, withUserContext } from "./client";
+export type {
+  ClaimedDailyMaintenanceJob,
+  DailyMaintenanceJobLease,
+  DailyMaintenanceJobProgress,
+  DailyMaintenanceJobRecord,
+  OrphanUploadCleanupAdvanceResult,
+} from "./daily-maintenance-jobs";
+export {
+  advanceDailyMaintenanceJob,
+  claimReadyDailyMaintenanceJobs,
+  completeDailyMaintenanceJob,
+  deferDailyMaintenanceJob,
+  deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob,
+  guardDailyMaintenanceJobProgress,
+  listLiveDailyMaintenanceJobLeases,
+  purgeCompletedDailyMaintenanceJobs,
+  registerDailyMaintenanceJob,
+  renewAndLoadDailyMaintenanceJob,
+  reserveDailyMaintenanceContinuation,
+} from "./daily-maintenance-jobs";
 export type { DatabaseContextConfig, DatabaseRuntimeAudience } from "./database-context";
 export type {
   AgentIntegrationRecord,
@@ -160,26 +180,6 @@ export {
   lockUserProviderKeyMutations,
 } from "./resource-limits";
 export type {
-  ClaimedRetentionJob,
-  RetentionCleanupAdvanceResult,
-  RetentionJobLease,
-  RetentionJobProgress,
-  RetentionJobRecord,
-} from "./retention-jobs";
-export {
-  advanceRetentionJob,
-  claimReadyRetentionJobs,
-  completeRetentionJob,
-  deferRetentionJob,
-  deleteQuiescedArtifactIntentsAndAdvanceRetentionJob,
-  guardRetentionJobProgress,
-  listLiveRetentionJobLeases,
-  purgeCompletedRetentionJobs,
-  registerDailyRetentionJob,
-  renewAndLoadRetentionJob,
-  reserveRetentionContinuation,
-} from "./retention-jobs";
-export type {
   AgentRunHandle,
   AgentRunStatus,
   CreateAgentRunInput,
@@ -199,13 +199,13 @@ export {
 } from "./runs";
 export { assertDatabaseRuntimeReadiness } from "./runtime-readiness";
 export type {
+  DailyMaintenanceJobPhase,
+  DailyMaintenanceJobStatus,
   OnboardingStateValue,
   ProjectSettings,
   ResourceDeletionKind,
   ResourceDeletionPhase,
   ResourceDeletionStatus,
-  RetentionJobPhase,
-  RetentionJobStatus,
   UserDeletionPhase,
   UserDeletionRefundProviderStatus,
   UserDeletionStatus,

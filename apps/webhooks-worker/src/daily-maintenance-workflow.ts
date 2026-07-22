@@ -2,18 +2,18 @@ import type { WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
   type ActivationEventCursor,
-  advanceRetentionJob,
-  completeRetentionJob,
+  advanceDailyMaintenanceJob,
+  completeDailyMaintenanceJob,
   createDb,
+  type DailyMaintenanceJobLease,
+  type DailyMaintenanceJobProgress,
+  type DailyMaintenanceJobRecord,
   type Database,
-  deferRetentionJob,
+  deferDailyMaintenanceJob,
   type HyperdriveConnection,
   listDailyActivationEventPage,
-  type RetentionJobLease,
-  type RetentionJobProgress,
-  type RetentionJobRecord,
-  renewAndLoadRetentionJob,
-  reserveRetentionContinuation,
+  renewAndLoadDailyMaintenanceJob,
+  reserveDailyMaintenanceContinuation,
 } from "@cheatcode/db";
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import {
@@ -24,8 +24,8 @@ import {
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import { z } from "zod";
+import { processOrphanUploadCleanupGeneration } from "./orphan-upload-cleanup";
 import { assertReleaseCanDrain, type ReleaseGateBindings } from "./release-gate";
-import { processArtifactIntentCleanupGeneration } from "./retention-artifact-intents";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
 const ACTIVATION_EVENT_PAGE_SIZE = 200;
@@ -41,38 +41,38 @@ const CREATE_STEP_OPTIONS = {
   timeout: "2 minutes",
 } as const;
 
-const RetentionDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
-const RetentionPayloadBase = {
-  day: RetentionDaySchema,
-  kind: z.literal("retention-metrics"),
+const DailyMaintenanceDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
+const DailyMaintenancePayloadBase = {
+  day: DailyMaintenanceDaySchema,
+  kind: z.literal("daily-maintenance"),
   leaseToken: z.string().uuid(),
   releaseVersionId: z.string().uuid(),
 } as const;
 
-export const RetentionMaintenancePayloadSchema = z.discriminatedUnion("mode", [
+export const DailyMaintenancePayloadSchema = z.discriminatedUnion("mode", [
   z
     .object({
-      ...RetentionPayloadBase,
+      ...DailyMaintenancePayloadBase,
       continuation: z.literal(0),
       mode: z.literal("initial"),
     })
     .strict(),
   z
     .object({
-      ...RetentionPayloadBase,
+      ...DailyMaintenancePayloadBase,
       continuation: z.number().int().positive().max(2_147_483_647),
       mode: z.literal("continuation"),
     })
     .strict(),
 ]);
 
-export type RetentionMaintenancePayload = z.infer<typeof RetentionMaintenancePayloadSchema>;
+export type DailyMaintenancePayload = z.infer<typeof DailyMaintenancePayloadSchema>;
 
-interface RetentionWorkflowBindings extends ReleaseGateBindings {
-  OPS_WORKFLOW: Workflow<RetentionMaintenancePayload>;
+interface DailyMaintenanceWorkflowBindings extends ReleaseGateBindings {
+  OPS_WORKFLOW: Workflow<DailyMaintenancePayload>;
 }
 
-export interface RetentionMaintenanceEnv extends AnalyticsBindings, RetentionWorkflowBindings {
+export interface DailyMaintenanceEnv extends AnalyticsBindings, DailyMaintenanceWorkflowBindings {
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
@@ -104,93 +104,99 @@ const ActivationPageResultSchema = z
     nextCursor: ActivationEventCursorSchema.nullable(),
   })
   .strict();
-const ActiveRetentionJobSchema = z
+const ActiveDailyMaintenanceJobSchema = z
   .object({
     activationCursor: ActivationEventCursorSchema.nullable(),
     continuation: z.number().int().nonnegative(),
-    day: RetentionDaySchema,
+    day: DailyMaintenanceDaySchema,
     leaseToken: z.string().uuid(),
-    phase: z.enum(["activation", "cleanup"]),
+    phase: z.enum(["activation", "orphan-upload-cleanup"]),
     releaseVersionId: z.string().uuid(),
     scheduledAt: z.string().datetime({ offset: true }),
   })
   .strict();
-const ClaimedRetentionJobSchema = z.discriminatedUnion("state", [
+const ClaimedDailyMaintenanceJobSchema = z.discriminatedUnion("state", [
   z.object({ state: z.literal("lost") }).strict(),
-  z.object({ job: ActiveRetentionJobSchema, state: z.literal("active") }).strict(),
+  z.object({ job: ActiveDailyMaintenanceJobSchema, state: z.literal("active") }).strict(),
 ]);
 type ActivationEventPageItem = z.infer<typeof ActivationEventPageItemsSchema>[number];
-type GenerationOutcome = { job: RetentionJobRecord; state: "continue" } | { state: "done" };
-export async function processDailyRetention(
-  env: RetentionMaintenanceEnv,
+type GenerationOutcome = { job: DailyMaintenanceJobRecord; state: "continue" } | { state: "done" };
+export async function processDailyMaintenance(
+  env: DailyMaintenanceEnv,
   instanceId: string,
-  payloadInput: RetentionMaintenancePayload,
+  payloadInput: DailyMaintenancePayload,
   step: WorkflowStep,
 ): Promise<void> {
-  const payload = RetentionMaintenancePayloadSchema.parse(payloadInput);
-  assertRetentionWorkflowIdentity(instanceId, payload);
-  assertRetentionRelease(env, payload);
+  const payload = DailyMaintenancePayloadSchema.parse(payloadInput);
+  assertDailyMaintenanceWorkflowIdentity(instanceId, payload);
+  assertDailyMaintenanceRelease(env, payload);
   const lease = payloadLease(payload);
   try {
     const job = await loadCurrentJob(env, step, lease);
     if (!job) {
       return;
     }
-    const outcome = await processRetentionGeneration(env, step, job);
+    const outcome = await processDailyMaintenanceGeneration(env, step, job);
     if (outcome.state === "continue") {
-      await continueRetention(env, step, outcome.job);
+      await continueDailyMaintenance(env, step, outcome.job);
     }
   } catch (error) {
     await deferWorkflowFailure(env, step, lease, error, "execution");
   }
 }
 
-async function processRetentionGeneration(
-  env: RetentionMaintenanceEnv,
+async function processDailyMaintenanceGeneration(
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
 ): Promise<GenerationOutcome> {
   if (job.phase === "activation") {
     return processActivationGeneration(env, step, job);
   }
-  const intents = await processArtifactIntentCleanupGeneration(env, step, job);
+  const intents = await processOrphanUploadCleanupGeneration(env, step, job);
   if (intents.state !== "ready") {
     return intents;
   }
-  await completeCleanup(env, step, job, 1);
+  await completeMaintenance(env, step, job, 1);
   return { state: "done" };
 }
 
 async function loadCurrentJob(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  lease: RetentionJobLease,
-): Promise<RetentionJobRecord | null> {
-  const value = await step.do("load retention generation lease", DB_STEP_OPTIONS, async () => {
-    const claimed = await withDatabase(env, (db) => renewAndLoadRetentionJob(db, lease));
-    return claimed.state === "active"
-      ? { job: jobToWire(claimed.job), state: "active" as const }
-      : { state: "lost" as const };
-  });
-  const claimed = ClaimedRetentionJobSchema.parse(value);
+  lease: DailyMaintenanceJobLease,
+): Promise<DailyMaintenanceJobRecord | null> {
+  const value = await step.do(
+    "load daily maintenance generation lease",
+    DB_STEP_OPTIONS,
+    async () => {
+      const claimed = await withDatabase(env, (db) => renewAndLoadDailyMaintenanceJob(db, lease));
+      return claimed.state === "active"
+        ? { job: jobToWire(claimed.job), state: "active" as const }
+        : { state: "lost" as const };
+    },
+  );
+  const claimed = ClaimedDailyMaintenanceJobSchema.parse(value);
   return claimed.state === "active" ? jobFromWire(claimed.job) : null;
 }
 
 async function processActivationGeneration(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  initialJob: RetentionJobRecord,
+  initialJob: DailyMaintenanceJobRecord,
 ): Promise<GenerationOutcome> {
   let job = initialJob;
   for (let action = 1; action <= ACTIVATION_PAGES_PER_GENERATION; action += 1) {
     const page = await emitActivationPage(env, step, job, action);
-    const next = page.nextCursor ? activationProgress(page.nextCursor) : cleanupProgress();
+    const next = page.nextCursor
+      ? activationProgress(page.nextCursor)
+      : orphanUploadCleanupProgress();
     const advanced = await persistProgress(env, step, job, next, action);
     if (!advanced) {
       return { state: "done" };
     }
     job = jobWithProgress(job, next);
-    if (next.phase === "cleanup") {
+    if (next.phase === "orphan-upload-cleanup") {
       return { job, state: "continue" };
     }
   }
@@ -198,9 +204,9 @@ async function processActivationGeneration(
 }
 
 async function emitActivationPage(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
   action: number,
 ): Promise<z.infer<typeof ActivationPageResultSchema>> {
   const value = await step.do(`emit activation page ${action}`, DB_STEP_OPTIONS, async () => {
@@ -226,15 +232,15 @@ async function emitActivationPage(
 }
 
 async function persistProgress(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
-  next: RetentionJobProgress,
+  job: DailyMaintenanceJobRecord,
+  next: DailyMaintenanceJobProgress,
   action: number,
 ): Promise<boolean> {
-  return step.do(`persist retention progress ${action}`, DB_STEP_OPTIONS, () =>
+  return step.do(`persist daily maintenance progress ${action}`, DB_STEP_OPTIONS, () =>
     withDatabase(env, (db) =>
-      advanceRetentionJob(db, {
+      advanceDailyMaintenanceJob(db, {
         ...jobLease(job),
         expected: jobProgress(job),
         next,
@@ -243,35 +249,35 @@ async function persistProgress(
   );
 }
 
-async function completeCleanup(
-  env: RetentionMaintenanceEnv,
+async function completeMaintenance(
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
   action: number,
 ): Promise<void> {
-  const completed = await step.do(`complete retention cleanup ${action}`, DB_STEP_OPTIONS, () =>
+  const completed = await step.do(`complete daily maintenance ${action}`, DB_STEP_OPTIONS, () =>
     withDatabase(env, (db) =>
-      completeRetentionJob(db, { ...jobLease(job), expected: jobProgress(job) }),
+      completeDailyMaintenanceJob(db, { ...jobLease(job), expected: jobProgress(job) }),
     ),
   );
   if (completed) {
-    createLogger().info("daily_retention_completed", {
+    createLogger().info("daily_maintenance_completed", {
       continuation: job.continuation,
       day: job.day,
     });
   }
 }
 
-async function continueRetention(
-  env: RetentionMaintenanceEnv,
+async function continueDailyMaintenance(
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  job: RetentionJobRecord,
+  job: DailyMaintenanceJobRecord,
 ): Promise<void> {
   assertReleaseCanDrain(env);
   const nextLeaseToken = await continuationLeaseToken(jobLease(job));
-  const next = await step.do("reserve retention continuation", DB_STEP_OPTIONS, () =>
+  const next = await step.do("reserve daily maintenance continuation", DB_STEP_OPTIONS, () =>
     withDatabase(env, (db) =>
-      reserveRetentionContinuation(db, {
+      reserveDailyMaintenanceContinuation(db, {
         ...jobLease(job),
         expected: jobProgress(job),
         nextLeaseToken,
@@ -282,8 +288,8 @@ async function continueRetention(
     return;
   }
   try {
-    await step.do("create retention continuation", CREATE_STEP_OPTIONS, () =>
-      createRetentionInstance(env, next),
+    await step.do("create daily maintenance continuation", CREATE_STEP_OPTIONS, () =>
+      createDailyMaintenanceInstance(env, next),
     );
   } catch (error) {
     await deferWorkflowFailure(env, step, next, error, "continuation");
@@ -291,17 +297,17 @@ async function continueRetention(
 }
 
 async function deferWorkflowFailure(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   step: WorkflowStep,
-  lease: RetentionJobLease,
+  lease: DailyMaintenanceJobLease,
   error: unknown,
   label: string,
 ): Promise<void> {
-  const errorCode = retentionErrorCode(error);
-  const deferred = await step.do(`${label} defer retention job`, DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) => deferRetentionJob(db, { ...lease, errorCode })),
+  const errorCode = dailyMaintenanceErrorCode(error);
+  const deferred = await step.do(`${label} defer daily maintenance job`, DB_STEP_OPTIONS, () =>
+    withDatabase(env, (db) => deferDailyMaintenanceJob(db, { ...lease, errorCode })),
   );
-  createLogger().warn("daily_retention_deferred", {
+  createLogger().warn("daily_maintenance_deferred", {
     continuation: lease.continuation,
     day: lease.day,
     errorCode,
@@ -311,33 +317,33 @@ async function deferWorkflowFailure(
   });
   emitErrorEvent(env, {
     errorCategory: "workflow",
-    errorCode: "daily_retention_deferred",
-    route: "retention-maintenance",
+    errorCode: "daily_maintenance_deferred",
+    route: "daily-maintenance",
     workerName: "webhooks",
   });
 }
 
-export function createRetentionInstance(
-  env: RetentionMaintenanceEnv,
-  lease: RetentionJobLease,
+export function createDailyMaintenanceInstance(
+  env: DailyMaintenanceEnv,
+  lease: DailyMaintenanceJobLease,
 ): Promise<DeterministicWorkflowResult> {
-  const payload = retentionPayload(lease);
+  const payload = dailyMaintenancePayload(lease);
   return createDeterministicWorkflow(env.OPS_WORKFLOW, {
-    id: retentionWorkflowIdentity(payload),
+    id: dailyMaintenanceWorkflowIdentity(payload),
     params: payload,
     retention: { errorRetention: "30 days", successRetention: "7 days" },
   });
 }
 
-function retentionPayload(lease: RetentionJobLease): RetentionMaintenancePayload {
-  return RetentionMaintenancePayloadSchema.parse({
+function dailyMaintenancePayload(lease: DailyMaintenanceJobLease): DailyMaintenancePayload {
+  return DailyMaintenancePayloadSchema.parse({
     ...lease,
-    kind: "retention-metrics",
+    kind: "daily-maintenance",
     mode: lease.continuation === 0 ? "initial" : "continuation",
   });
 }
 
-function payloadLease(payload: RetentionMaintenancePayload): RetentionJobLease {
+function payloadLease(payload: DailyMaintenancePayload): DailyMaintenanceJobLease {
   return {
     continuation: payload.continuation,
     day: payload.day,
@@ -346,7 +352,7 @@ function payloadLease(payload: RetentionMaintenancePayload): RetentionJobLease {
   };
 }
 
-function jobLease(job: RetentionJobRecord): RetentionJobLease {
+function jobLease(job: DailyMaintenanceJobRecord): DailyMaintenanceJobLease {
   return {
     continuation: job.continuation,
     day: job.day,
@@ -355,97 +361,103 @@ function jobLease(job: RetentionJobRecord): RetentionJobLease {
   };
 }
 
-function jobProgress(job: RetentionJobRecord): RetentionJobProgress {
+function jobProgress(job: DailyMaintenanceJobRecord): DailyMaintenanceJobProgress {
   return {
     activationCursor: job.activationCursor,
     phase: job.phase,
   };
 }
 
-function activationProgress(cursor: ActivationEventCursor): RetentionJobProgress {
+function activationProgress(cursor: ActivationEventCursor): DailyMaintenanceJobProgress {
   return { activationCursor: cursor, phase: "activation" };
 }
 
-function cleanupProgress(): RetentionJobProgress {
-  return { activationCursor: null, phase: "cleanup" };
+function orphanUploadCleanupProgress(): DailyMaintenanceJobProgress {
+  return { activationCursor: null, phase: "orphan-upload-cleanup" };
 }
 
 function jobWithProgress(
-  job: RetentionJobRecord,
-  progress: RetentionJobProgress,
-): RetentionJobRecord {
+  job: DailyMaintenanceJobRecord,
+  progress: DailyMaintenanceJobProgress,
+): DailyMaintenanceJobRecord {
   return { ...job, ...progress };
 }
 
-function jobToWire(job: RetentionJobRecord): z.infer<typeof ActiveRetentionJobSchema> {
+function jobToWire(
+  job: DailyMaintenanceJobRecord,
+): z.infer<typeof ActiveDailyMaintenanceJobSchema> {
   return {
     ...job,
     scheduledAt: job.scheduledAt.toISOString(),
   };
 }
 
-function jobFromWire(job: z.infer<typeof ActiveRetentionJobSchema>): RetentionJobRecord {
+function jobFromWire(
+  job: z.infer<typeof ActiveDailyMaintenanceJobSchema>,
+): DailyMaintenanceJobRecord {
   return {
     ...job,
     scheduledAt: new Date(job.scheduledAt),
   };
 }
 
-function retentionWorkflowIdentity(payloadInput: RetentionMaintenancePayload): string {
-  const payload = RetentionMaintenancePayloadSchema.parse(payloadInput);
+function dailyMaintenanceWorkflowIdentity(payloadInput: DailyMaintenancePayload): string {
+  const payload = DailyMaintenancePayloadSchema.parse(payloadInput);
   const id = [
-    "rt",
+    "dm",
     payload.day,
     payload.continuation,
     payload.releaseVersionId.replaceAll("-", ""),
     payload.leaseToken.replaceAll("-", ""),
   ].join("-");
   if (id.length > 100) {
-    throw new Error("Retention Workflow identity exceeded Cloudflare's 100-character limit");
+    throw new Error(
+      "Daily maintenance Workflow identity exceeded Cloudflare's 100-character limit",
+    );
   }
   return id;
 }
 
-function assertRetentionWorkflowIdentity(
+function assertDailyMaintenanceWorkflowIdentity(
   instanceId: string,
-  payload: RetentionMaintenancePayload,
+  payload: DailyMaintenancePayload,
 ): void {
-  if (instanceId !== retentionWorkflowIdentity(payload)) {
+  if (instanceId !== dailyMaintenanceWorkflowIdentity(payload)) {
     throw new NonRetryableError(
-      "Retention Workflow identity does not match its immutable lease payload",
-      "RetentionWorkflowIdentityInvalid",
+      "Daily maintenance Workflow identity does not match its immutable lease payload",
+      "DailyMaintenanceWorkflowIdentityInvalid",
     );
   }
 }
 
-function assertRetentionRelease(
-  env: RetentionMaintenanceEnv,
-  payload: RetentionMaintenancePayload,
+function assertDailyMaintenanceRelease(
+  env: DailyMaintenanceEnv,
+  payload: DailyMaintenancePayload,
 ): void {
-  if (payload.releaseVersionId !== activeRetentionReleaseVersion(env)) {
+  if (payload.releaseVersionId !== activeDailyMaintenanceReleaseVersion(env)) {
     throw new NonRetryableError(
-      "Retention Workflow lease belongs to a different Worker release",
-      "RetentionWorkflowReleaseInvalid",
+      "Daily maintenance Workflow lease belongs to a different Worker release",
+      "DailyMaintenanceWorkflowReleaseInvalid",
     );
   }
 }
 
-export function activeRetentionReleaseVersion(env: RetentionMaintenanceEnv): string {
+export function activeDailyMaintenanceReleaseVersion(env: DailyMaintenanceEnv): string {
   if (env.CHEATCODE_ENVIRONMENT !== "production") {
     return DEVELOPMENT_RELEASE_VERSION_ID;
   }
   return z.string().uuid().parse(env.CF_VERSION_METADATA?.id);
 }
 
-async function continuationLeaseToken(lease: RetentionJobLease): Promise<string> {
+async function continuationLeaseToken(lease: DailyMaintenanceJobLease): Promise<string> {
   const input = new TextEncoder().encode(
-    `retention:${lease.day}:${lease.continuation + 1}:${lease.releaseVersionId}`,
+    `daily-maintenance:${lease.day}:${lease.continuation + 1}:${lease.releaseVersionId}`,
   );
   const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", input)).slice(0, 16);
   const versionByte = bytes[6];
   const variantByte = bytes[8];
   if (versionByte === undefined || variantByte === undefined) {
-    throw new Error("Retention continuation digest was incomplete");
+    throw new Error("Daily maintenance continuation digest was incomplete");
   }
   bytes[6] = (versionByte & 0x0f) | 0x80;
   bytes[8] = (variantByte & 0x3f) | 0x80;
@@ -464,10 +476,12 @@ function assertActivationPageConsistent(
   }
   const last = items.at(-1);
   if (!last || last.eventName !== next.eventName || last.userId !== next.userId) {
-    throw retentionInvariant("Activation continuation cursor does not identify the page tail");
+    throw dailyMaintenanceInvariant(
+      "Activation continuation cursor does not identify the page tail",
+    );
   }
   if (items.length !== ACTIVATION_EVENT_PAGE_SIZE) {
-    throw retentionInvariant("A continuing activation page must be full");
+    throw dailyMaintenanceInvariant("A continuing activation page must be full");
   }
 }
 
@@ -484,7 +498,7 @@ function assertActivationCursorAdvanced(
     nextOrder < previousOrder ||
     (nextOrder === previousOrder && next.userId <= previous.userId)
   ) {
-    throw retentionInvariant("Activation cursor did not advance in database key order");
+    throw dailyMaintenanceInvariant("Activation cursor did not advance in database key order");
   }
 }
 
@@ -515,17 +529,17 @@ function emitActivationEvents(
   }
 }
 
-function retentionErrorCode(error: unknown): string {
+function dailyMaintenanceErrorCode(error: unknown): string {
   const name = error instanceof Error ? error.name : "UnknownError";
   return /^[A-Za-z][A-Za-z0-9_.:$-]{0,127}$/u.test(name) ? name : "UnknownError";
 }
 
-function retentionInvariant(message: string): NonRetryableError {
-  return new NonRetryableError(message, "RetentionInvariantViolation");
+function dailyMaintenanceInvariant(message: string): NonRetryableError {
+  return new NonRetryableError(message, "DailyMaintenanceInvariantViolation");
 }
 
 async function withDatabase<T>(
-  env: RetentionMaintenanceEnv,
+  env: DailyMaintenanceEnv,
   operation: (db: Database) => Promise<T>,
 ): Promise<T> {
   const { db, close } = createDb(env.HYPERDRIVE, {

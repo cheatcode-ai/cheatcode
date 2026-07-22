@@ -31,6 +31,10 @@ import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks"
 import { Hono } from "hono";
 import { z } from "zod";
 import { verifyComposioWebhook } from "./composio";
+import {
+  enqueueDailyMaintenance,
+  reconcileDailyMaintenanceWorkflows,
+} from "./daily-maintenance-admission";
 import { registerWebhooksDatabaseReadinessRoute } from "./database-readiness";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
 import { registerWebhooksDurableObjectStorageRoute } from "./durable-object-storage";
@@ -54,10 +58,6 @@ import {
   type ResourceDeletionWorkflowBindings,
   reconcileResourceDeletionWorkflows,
 } from "./resource-deletion-workflow";
-import {
-  enqueueDailyRetentionMetrics,
-  reconcileDailyRetentionWorkflows,
-} from "./retention-admission";
 import { admitDueUserDeletionWorkflows } from "./user-deletion-admission";
 import {
   acceptWebhookEvent,
@@ -670,8 +670,8 @@ const webhooksHandler = {
     if (env.CHEATCODE_RELEASE_GATE !== "open") {
       return;
     }
-    if (controller.cron === DAILY_RETENTION_METRICS_CRON) {
-      ctx.waitUntil(enqueueDailyRetentionMetrics(env, controller.scheduledTime));
+    if (controller.cron === DAILY_MAINTENANCE_CRON) {
+      ctx.waitUntil(enqueueDailyMaintenance(env, controller.scheduledTime));
       return;
     }
     if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
@@ -703,7 +703,7 @@ const webhooksHandler = {
         }),
       );
       ctx.waitUntil(
-        reconcileDailyRetentionWorkflows(env).then((result) => {
+        reconcileDailyMaintenanceWorkflows(env).then((result) => {
           if (
             result.claimed > 0 ||
             result.created > 0 ||
@@ -712,7 +712,7 @@ const webhooksHandler = {
             result.restarted > 0 ||
             result.staleRelease > 0
           ) {
-            createLogger().info("retention_workflows_reconciled", { ...result });
+            createLogger().info("daily_maintenance_workflows_reconciled", { ...result });
           }
         }),
       );
@@ -760,7 +760,7 @@ function webhooksReleaseGateResponse(
 }
 
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
-const DAILY_RETENTION_METRICS_CRON = "20 0 * * *";
+const DAILY_MAINTENANCE_CRON = "20 0 * * *";
 
 export default withErrorHandler(webhooksHandler, {
   errorCategory: "webhook",

@@ -22,8 +22,8 @@ fields, and verifies only exact `v1,<base64>` signature tokens (including provid
 sets). Legacy payload versions and field aliases are rejected at ingress.
 Signed `/internal/webhooks/replay` commands also claim a durable envelope identity before changing
 Workflow state, so the same authenticated maintenance request cannot restart or resume twice.
-`OpsMaintenanceWorkflow` runs analytics watchdogs, daily
-retention metrics, generated-output retention, BYOK maintenance inventory,
+`OpsMaintenanceWorkflow` runs analytics watchdogs, daily activation metrics,
+abandoned-upload cleanup, BYOK maintenance inventory,
 and Clerk-driven GDPR deletion lifecycle jobs from Worker cron/webhook triggers. Account deletion
 jobs call the agent Worker through a Service Binding and clear quota state through a direct
 cross-Worker Durable Object binding before removing R2 and Postgres rows. These destructive
@@ -73,8 +73,8 @@ Analytics Engine SQL reads are timeout- and byte-bounded before schema narrowing
 Polar cleanup calls have a 30-second request deadline, a 1 MiB response-stream
 ceiling, and one 100-order page per durable account-deletion action.
 
-Daily activation and generated-output cleanup are one restart-safe state machine in
-`v2_retention_jobs`. The daily trigger registers one UTC-day row; the five-minute reconciler leases
+Daily activation and orphan-upload cleanup are one restart-safe state machine in
+`v2_daily_maintenance_jobs`. The daily trigger registers one UTC-day row; the five-minute reconciler leases
 queued or expired rows and recreates every live reserved continuation for the active Worker release.
 An errored or terminated deterministic instance is restarted, a failed initial creation returns to
 database backoff, and a continuation reserved before its parent exits remains discoverable even if
@@ -88,8 +88,8 @@ and compare-and-swaps the exact lease, phase, and both persisted cursors. A gene
 four pages. Initial and continuation payloads are distinct and bind the UTC day, continuation,
 release UUID, and lease UUID into a deterministic identity below Cloudflare's 100-character limit.
 The chain therefore has no total activation-row cap, while conservative step retries keep each
-generation comfortably inside its two-hour database lease. Cleanup cannot begin until the terminal
-activation page atomically changes the durable phase. Since Analytics Engine is append-only and a
+generation comfortably inside its two-hour database lease. Orphan-upload cleanup cannot begin until
+the terminal activation page atomically changes the durable phase. Since Analytics Engine is append-only and a
 Workflow step may replay, cohort SQL must use `count(DISTINCT blob6)` for those event identities.
 BYOK maintenance dispatches
 every five minutes and claims only ten fingerprints per database step under
@@ -109,28 +109,15 @@ project run tombstones use 25-run pages, and thread jobs complete each run's Dur
 prefix before advancing. The Worker keeps Cloudflare's explicit 10,000-subrequest ceiling;
 continuation boundaries, rather than a total-row cap, bound each execution.
 
-Expired generated outputs are scanned through the expiry/id index in 500-row keyset pages.
-Before the first output cursor advances, cleanup drains only upload intents whose terminal run,
-explicit awaited-artifact quiescence timestamp, and `cleanup_not_before` remote-side-effect grace
-deadline are all at or before the day's fixed cutoff. Each intent page revalidates the exact
-retention lease, deletes its deterministic R2 keys, and removes the matching intent identities
-transactionally while retaining the existing `cleanup` phase. Unquiesced or grace-fenced intents
-remain indexed for recovery. Generated outputs use the same terminal-run requirement in both page
-selection and exact row deletion, so an active run can renew an idempotently replayed output before
-issuing a download capability without racing retention. A database trigger makes terminal run state
-immutable, preserving that maintenance proof across the object-first deletion gap.
-Each page deletes its objects from the `R2_OUTPUTS` binding before conditionally deleting
-the exact matching Postgres rows and advancing the cursor in one database transaction. The R2
-attempt first compare-and-swaps the exact current phase and cursor; the transactional row deletion
-repeats that exact guard, so an earlier cached step cannot regress or destroy work after progress
-moves. R2 deletion is idempotent, so a failed database step safely retries the same page. A
-generation handles at most two pages and hands the fenced lease to another continuation. There is
-no total cleanup-row cap, and the day is terminal only after an empty cleanup page is observed.
-The `cheatcode-outputs` bucket also has a 60-day `expired-output-failsafe` lifecycle rule. It is
-deliberately longer than the application-owned 30-day expiry: the Workflow remains responsible for
-coordinated R2/Postgres deletion, while the native rule bounds storage leakage during a prolonged
-maintenance outage. Every protected backend release verifies the complete lifecycle rule set against
-`infra/cloudflare/production-r2-contract.json` before writers close and again before the gateway opens.
+Orphan-upload cleanup scans only upload intents whose terminal run, explicit awaited-artifact
+quiescence timestamp, and `cleanup_not_before` remote-side-effect grace deadline are all at or before
+the day's fixed cutoff. Each intent page revalidates the exact daily-maintenance lease, deletes its
+deterministic R2 keys, and removes the matching intent identities transactionally while retaining
+the `orphan-upload-cleanup` phase. Unquiesced or grace-fenced intents remain indexed for recovery.
+The external object deletion is idempotent, and the exact row identities are deleted in the same
+transaction that completes the maintenance job only after an empty page is observed. Committed
+generated outputs are outside this state machine and persist until project or account deletion;
+only their signed download capabilities are short lived.
 
 Clerk deletion is a durable Postgres soft-delete, not a sleeping Workflow. After the
 30-day grace deadline, the five-minute reconciler discovers at most 25 new generations
