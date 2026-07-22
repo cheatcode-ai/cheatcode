@@ -15,12 +15,17 @@
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
-    "infra/containers/sandbox/browser-driver": {},
+    "infra/containers/sandbox/browser-driver": {
+      // Stagehand resolves these peer packages dynamically for its local
+      // Playwright backend, so no source-level import is visible to Knip.
+      "ignoreDependencies": ["playwright-core", "zod"]
+    },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve tsx by its installed binary name; Knip cannot
-      // infer that child-process call.
-      "ignoreDependencies": ["tsx"]
+      // Snapshot launchers resolve these executables by installed binary name;
+      // Knip cannot infer dependencies or binaries passed to child_process.
+      "ignoreDependencies": ["agent-browser", "tsx"],
+      "ignoreBinaries": ["agent-browser"]
     }
   }
 }
