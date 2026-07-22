@@ -45,6 +45,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
     "typescript": "catalog:"
   }
 }

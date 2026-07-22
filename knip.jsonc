@@ -1,8 +1,9 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  // CLI launched by operational TypeScript through `pnpm exec wrangler`; Knip
-  // cannot infer child-process binary dependencies from argument arrays.
-  "ignoreDependencies": ["cloudflare", "wrangler"],
+  // The shared compiler config is declared for the workspace graph but loaded
+  // through tsconfig `extends` paths. Cloudflare CLIs are launched by operational
+  // TypeScript. Knip cannot infer either dependency shape.
+  "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare", "wrangler"],
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
@@ -16,14 +17,16 @@
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
     "infra/containers/sandbox/browser-driver": {
-      // Stagehand resolves these peer packages dynamically for its local
-      // Playwright backend, so no source-level import is visible to Knip.
+      // The snapshot launches this service from start-browser-driver.sh.
+      "entry": ["server.js"],
+      // Stagehand resolves these peer packages dynamically inside the snapshot,
+      // so a clean root-only CI install exposes no source-level import to Knip.
       "ignoreDependencies": ["playwright-core", "zod"]
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
       // Snapshot launchers resolve these executables by installed binary name;
-      // Knip cannot infer dependencies or binaries passed to child_process.
+      // a root-only install cannot expose those child-process edges to Knip.
       "ignoreDependencies": ["agent-browser", "tsx"],
       "ignoreBinaries": ["agent-browser"]
     }

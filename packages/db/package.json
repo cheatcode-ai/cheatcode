@@ -29,6 +29,7 @@
     "pg": "catalog:"
   },
   "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
     "@types/node": "catalog:",
     "@types/pg": "catalog:",
     "drizzle-kit": "catalog:",

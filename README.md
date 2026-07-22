@@ -91,18 +91,28 @@ pnpm cloudflare:set-hyperdrive -- \
 
 ## Production deployment
 
-The GitHub static-check workflow runs lint, typecheck, and build gates on pull
-requests and `main`. Vercel's Git integration deploys `apps/web` from the
-repository. Deploy the Cloudflare backend Workers from a reviewed checkout with:
+The required `static-checks` workflow classifies each change before allocating
+the heavier runners. It runs dependency-aware lint, typecheck, build,
+architecture, dead-code, workflow, and lockfile checks only for affected
+surfaces and their workspace dependents. Root build configuration changes still
+run the complete gate.
+
+Vercel's Git integration deploys `apps/web` from the repository. Its native
+monorepo dependency graph skips builds when neither the web app nor one of its
+declared workspace dependencies changed. Deploy the Cloudflare backend Workers
+from a clean reviewed checkout with:
 
 ```bash
 pnpm cloudflare:deploy
 ```
 
-The deploy command refuses a dirty tree, a non-`main` branch, or a checkout that
-does not exactly match `origin/main`. It injects that immutable commit SHA into
-every Worker and deploys the gateway last, after its agent and webhooks service
-dependencies share the same release identity.
+The deploy command refuses a dirty tree, reads the release SHA currently bound
+to each Worker, and uses the same workspace graph to deploy only affected
+Workers. The agent, webhooks, and gateway Workers remain an atomic release set
+because gateway readiness requires one shared release identity; the gateway is
+deployed last. The independent preview proxy deploys only when its dependency
+closure changed. If Cloudflare release metadata is unavailable or inconsistent,
+the command safely redeploys the relevant set instead of guessing.
 
 There is no second release orchestrator, compatibility deploy command, or hidden
 workspace-reconciliation command. Schema migrations, Worker deployment, and

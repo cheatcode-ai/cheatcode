@@ -308,6 +308,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -354,6 +357,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -385,6 +391,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -476,6 +485,9 @@ importers:
         specifier: 'catalog:'
         version: 5.0.14(@types/react@19.2.17)(react@19.2.7)(use-sync-external-store@1.6.0(react@19.2.7))
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
       '@tailwindcss/postcss':
         specifier: 'catalog:'
         version: 4.3.2
@@ -540,6 +552,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -610,6 +625,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -626,6 +644,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -645,6 +666,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -667,6 +691,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -680,6 +707,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -702,6 +732,9 @@ importers:
         specifier: 'catalog:'
         version: 8.22.0
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -721,6 +754,9 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -737,6 +773,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       '@cloudflare/workers-types':
         specifier: 'catalog:'
         version: 5.20260716.1
@@ -753,12 +792,18 @@ importers:
         specifier: workspace:*
         version: link:../types
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
 
   packages/preview-bridge:
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -775,12 +820,18 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
 
   packages/skills:
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
@@ -803,6 +854,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -822,6 +876,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -841,6 +898,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -857,6 +917,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -876,6 +939,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -889,6 +955,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -908,6 +977,9 @@ importers:
         specifier: 'catalog:'
         version: 4.4.3
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -930,6 +1002,9 @@ importers:
         specifier: 'catalog:'
         version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
     devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       '@types/react':
         specifier: 'catalog:'
         version: 19.2.17
