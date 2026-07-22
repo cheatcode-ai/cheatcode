@@ -77,7 +77,7 @@ peerDependencyRules:
 
 catalog:
   '@ai-sdk/anthropic': 3.0.84
-  '@ai-sdk/deepseek': 2.0.39
+  '@ai-sdk/deepseek': 3.0.13
   '@ai-sdk/google': 3.0.82
   '@ai-sdk/openai': 3.0.71
   '@ai-sdk/react': 3.0.207
