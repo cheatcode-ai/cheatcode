@@ -39,6 +39,10 @@ minimumReleaseAgeExclude:
   - 'vercel@56.2.1'
 
 overrides:
+  # Security floors enforced by the production lockfile audit. These transitive
+  # packages do not yet have upstream parents whose declared ranges include the
+  # patched releases.
+  '@hono/node-server@<2.0.10': 2.0.10
   '@clerk/localizations': 4.13.3
   '@clerk/shared': 4.25.4
   '@esbuild-kit/core-utils>esbuild': 0.25.12
@@ -46,12 +50,14 @@ overrides:
   '@vercel/node@5.8.25>undici': 6.27.0
   'ajv@>=8.0.0 <8.18.0': 8.20.0
   'dompurify@<=3.4.10': 3.4.11
+  'fast-uri@<3.1.4': 3.1.4
   'js-yaml@<3.15.0': 3.15.0
   'js-yaml@>=4.0.0 <4.3.0': 4.3.0
   'minimatch@>=10.0.0 <10.2.3': 10.2.5
   'path-to-regexp@>=6.0.0 <6.3.0': 6.3.0
   'path-to-regexp@>=8.0.0 <8.4.0': 8.4.2
   'postcss@<8.5.10': 8.5.10
+  'sharp@<0.35.0': 0.35.0
   'smol-toml@<1.6.1': 1.6.1
   'tar@>=7.0.0 <7.5.11': 7.5.20
   'tsx@4.21.0': 4.22.4

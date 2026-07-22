@@ -6,3 +6,4 @@ allowBuilds:
 
 overrides:
   'postcss@<8.5.10': 8.5.15
+  'sharp@<0.35.0': 0.35.0
