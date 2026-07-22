@@ -78,7 +78,7 @@ peerDependencyRules:
 catalog:
   '@ai-sdk/anthropic': 3.0.84
   '@ai-sdk/deepseek': 2.0.39
-  '@ai-sdk/google': 3.0.82
+  '@ai-sdk/google': 4.0.21
   '@ai-sdk/openai': 3.0.71
   '@ai-sdk/react': 3.0.207
   # 2.5.3-2.5.4 panic in the type-aware module resolver (biomejs/biome#10885).
