@@ -65,5 +65,6 @@
   "infra/supabase/migrations/post/0076_remove_skill_proposals.sql": "pre-deploy",
   "infra/supabase/migrations/post/0077_restore_thread_model_runtime_grants.sql": "pre-deploy",
   "infra/supabase/migrations/post/0078_remove_v1_vector_search_functions.sql": "post-deploy",
-  "infra/supabase/migrations/post/0079_remove_extensions_vector_v1_functions.sql": "post-deploy"
+  "infra/supabase/migrations/post/0079_remove_extensions_vector_v1_functions.sql": "post-deploy",
+  "infra/supabase/migrations/post/0080_rename_daily_maintenance_jobs.sql": "post-deploy"
 }

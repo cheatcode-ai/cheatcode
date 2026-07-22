@@ -5,51 +5,53 @@ import {
   type QuiescedArtifactUploadIntentRecord,
 } from "./artifact-upload-intents";
 import type { Database } from "./client";
-import { type RetentionJobPhase, retentionJobs } from "./schema";
+import { type DailyMaintenanceJobPhase, dailyMaintenanceJobs } from "./schema";
 
 const LEASE_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_RECONCILIATION_CLAIMS = 25;
 const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
-type JobRow = typeof retentionJobs.$inferSelect;
+type JobRow = typeof dailyMaintenanceJobs.$inferSelect;
 
-export interface RetentionJobLease {
+export interface DailyMaintenanceJobLease {
   continuation: number;
   day: string;
   leaseToken: string;
   releaseVersionId: string;
 }
 
-export interface RetentionJobRecord extends RetentionJobLease {
+export interface DailyMaintenanceJobRecord extends DailyMaintenanceJobLease {
   activationCursor: ActivationEventCursor | null;
-  phase: RetentionJobPhase;
+  phase: DailyMaintenanceJobPhase;
   scheduledAt: Date;
 }
 
-export type ClaimedRetentionJob = { job: RetentionJobRecord; state: "active" } | { state: "lost" };
+export type ClaimedDailyMaintenanceJob =
+  | { job: DailyMaintenanceJobRecord; state: "active" }
+  | { state: "lost" };
 
-export interface RetentionJobProgress {
+export interface DailyMaintenanceJobProgress {
   activationCursor: ActivationEventCursor | null;
-  phase: RetentionJobPhase;
+  phase: DailyMaintenanceJobPhase;
 }
 
-export type RetentionCleanupAdvanceResult =
+export type OrphanUploadCleanupAdvanceResult =
   | { deletedRows: number; state: "advanced" }
   | { state: "lost" };
 
 /** Register one idempotent UTC-day job; a retained completion row prevents duplicate daily work. */
-export async function registerDailyRetentionJob(
+export async function registerDailyMaintenanceJob(
   db: Database,
   input: { day: string; scheduledAt: Date },
 ): Promise<void> {
   await db
-    .insert(retentionJobs)
-    .values({ day: retentionDay(input.day), scheduledAt: input.scheduledAt })
-    .onConflictDoNothing({ target: retentionJobs.day });
+    .insert(dailyMaintenanceJobs)
+    .values({ day: maintenanceDay(input.day), scheduledAt: input.scheduledAt })
+    .onConflictDoNothing({ target: dailyMaintenanceJobs.day });
 }
 
 /** Claim queued jobs and expired leases while fencing every reclaimed Workflow generation. */
-export async function claimReadyRetentionJobs(
+export async function claimReadyDailyMaintenanceJobs(
   db: Database,
   input: {
     leaseToken: string;
@@ -57,19 +59,19 @@ export async function claimReadyRetentionJobs(
     now?: Date;
     releaseVersionId: string;
   },
-): Promise<RetentionJobLease[]> {
+): Promise<DailyMaintenanceJobLease[]> {
   const now = input.now ?? new Date();
   const result = await db.execute(sql`
     with candidates as (
       select job.day
-        from public.v2_retention_jobs job
+        from public.v2_daily_maintenance_jobs job
        where (job.status = 'queued' and job.next_attempt_at <= ${now})
           or (job.status = 'leased' and job.lease_expires_at <= ${now})
        order by coalesce(job.lease_expires_at, job.next_attempt_at), job.day
        limit ${boundedLimit(input.limit)}
        for update skip locked
     )
-    update public.v2_retention_jobs job
+    update public.v2_daily_maintenance_jobs job
        set continuation = case
              when job.status = 'leased' then job.continuation + 1
              else job.continuation
@@ -79,7 +81,7 @@ export async function claimReadyRetentionJobs(
              else job.failure_count
            end,
            last_error_code = case
-             when job.status = 'leased' then 'retention_lease_expired'
+             when job.status = 'leased' then 'daily_maintenance_lease_expired'
              else job.last_error_code
            end,
            status = 'leased',
@@ -95,35 +97,35 @@ export async function claimReadyRetentionJobs(
 }
 
 /** List live leases so cron reconciliation can restart errored deterministic instances immediately. */
-export async function listLiveRetentionJobLeases(
+export async function listLiveDailyMaintenanceJobLeases(
   db: Database,
   input: { limit?: number; now?: Date } = {},
-): Promise<RetentionJobLease[]> {
+): Promise<DailyMaintenanceJobLease[]> {
   const rows = await db
     .select({
-      continuation: retentionJobs.continuation,
-      day: retentionJobs.day,
-      leaseToken: retentionJobs.leaseToken,
-      releaseVersionId: retentionJobs.releaseVersionId,
+      continuation: dailyMaintenanceJobs.continuation,
+      day: dailyMaintenanceJobs.day,
+      leaseToken: dailyMaintenanceJobs.leaseToken,
+      releaseVersionId: dailyMaintenanceJobs.releaseVersionId,
     })
-    .from(retentionJobs)
+    .from(dailyMaintenanceJobs)
     .where(
       and(
-        eq(retentionJobs.status, "leased"),
-        gt(retentionJobs.leaseExpiresAt, input.now ?? new Date()),
+        eq(dailyMaintenanceJobs.status, "leased"),
+        gt(dailyMaintenanceJobs.leaseExpiresAt, input.now ?? new Date()),
       ),
     )
-    .orderBy(asc(retentionJobs.leaseExpiresAt), asc(retentionJobs.day))
+    .orderBy(asc(dailyMaintenanceJobs.leaseExpiresAt), asc(dailyMaintenanceJobs.day))
     .limit(boundedLimit(input.limit));
   return rows.map(leaseFromRow);
 }
 
-export async function renewAndLoadRetentionJob(
+export async function renewAndLoadDailyMaintenanceJob(
   db: Database,
-  lease: RetentionJobLease,
-): Promise<ClaimedRetentionJob> {
+  lease: DailyMaintenanceJobLease,
+): Promise<ClaimedDailyMaintenanceJob> {
   const [row] = await db
-    .update(retentionJobs)
+    .update(dailyMaintenanceJobs)
     .set({ leaseExpiresAt: leaseExpiry(new Date()) })
     .where(claimIdentity(lease))
     .returning();
@@ -131,47 +133,47 @@ export async function renewAndLoadRetentionJob(
 }
 
 /** Fence an external side effect against the lease's exact durable position. */
-export async function guardRetentionJobProgress(
+export async function guardDailyMaintenanceJobProgress(
   db: Database,
-  input: RetentionJobLease & { expected: RetentionJobProgress },
+  input: DailyMaintenanceJobLease & { expected: DailyMaintenanceJobProgress },
 ): Promise<boolean> {
   const rows = await db
-    .update(retentionJobs)
+    .update(dailyMaintenanceJobs)
     .set({ leaseExpiresAt: leaseExpiry(new Date()) })
     .where(and(claimIdentity(input), progressIdentity(input.expected)))
-    .returning({ day: retentionJobs.day });
+    .returning({ day: dailyMaintenanceJobs.day });
   return rows.length === 1;
 }
 
 /** Compare-and-swap one page's phase and keyset cursor without allowing regression. */
-export async function advanceRetentionJob(
+export async function advanceDailyMaintenanceJob(
   db: Database,
-  input: RetentionJobLease & {
-    expected: RetentionJobProgress;
-    next: RetentionJobProgress;
+  input: DailyMaintenanceJobLease & {
+    expected: DailyMaintenanceJobProgress;
+    next: DailyMaintenanceJobProgress;
   },
 ): Promise<boolean> {
   const rows = await db
-    .update(retentionJobs)
+    .update(dailyMaintenanceJobs)
     .set(progressUpdate(input.next))
     .where(and(claimIdentity(input), progressIdentity(input.expected)))
-    .returning({ day: retentionJobs.day });
+    .returning({ day: dailyMaintenanceJobs.day });
   return rows.length === 1;
 }
 
 /** Remove quiesced intent rows after R2 deletion and renew the same phase atomically. */
-export async function deleteQuiescedArtifactIntentsAndAdvanceRetentionJob(
+export async function deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob(
   db: Database,
-  input: RetentionJobLease & {
+  input: DailyMaintenanceJobLease & {
     before: Date;
-    expected: RetentionJobProgress;
+    expected: DailyMaintenanceJobProgress;
     intents: QuiescedArtifactUploadIntentRecord[];
-    next: RetentionJobProgress;
+    next: DailyMaintenanceJobProgress;
   },
-): Promise<RetentionCleanupAdvanceResult> {
+): Promise<OrphanUploadCleanupAdvanceResult> {
   return db.transaction(async (transaction) => {
     const tx = transaction as Database;
-    const advanced = await advanceRetentionJob(tx, input);
+    const advanced = await advanceDailyMaintenanceJob(tx, input);
     if (!advanced) {
       return { state: "lost" };
     }
@@ -184,23 +186,26 @@ export async function deleteQuiescedArtifactIntentsAndAdvanceRetentionJob(
 }
 
 /** Atomically rotate the fenced lease before creating the deterministic continuation instance. */
-export async function reserveRetentionContinuation(
+export async function reserveDailyMaintenanceContinuation(
   db: Database,
-  input: RetentionJobLease & {
-    expected: RetentionJobProgress;
+  input: DailyMaintenanceJobLease & {
+    expected: DailyMaintenanceJobProgress;
     nextLeaseToken: string;
   },
-): Promise<RetentionJobLease | null> {
+): Promise<DailyMaintenanceJobLease | null> {
   return db.transaction(async (tx) => {
     const [row] = await tx
-      .update(retentionJobs)
+      .update(dailyMaintenanceJobs)
       .set({
-        continuation: sql`${retentionJobs.continuation} + 1`,
+        continuation: sql`${dailyMaintenanceJobs.continuation} + 1`,
         leaseExpiresAt: leaseExpiry(new Date()),
         leaseToken: input.nextLeaseToken,
       })
       .where(and(claimIdentity(input), progressIdentity(input.expected)))
-      .returning({ continuation: retentionJobs.continuation, day: retentionJobs.day });
+      .returning({
+        continuation: dailyMaintenanceJobs.continuation,
+        day: dailyMaintenanceJobs.day,
+      });
     if (row) {
       return {
         ...row,
@@ -214,34 +219,34 @@ export async function reserveRetentionContinuation(
 
 async function loadReservedContinuation(
   db: Database,
-  input: RetentionJobLease & { nextLeaseToken: string },
-): Promise<RetentionJobLease | null> {
-  const reserved = await db.query.retentionJobs.findFirst({
+  input: DailyMaintenanceJobLease & { nextLeaseToken: string },
+): Promise<DailyMaintenanceJobLease | null> {
+  const reserved = await db.query.dailyMaintenanceJobs.findFirst({
     columns: { continuation: true, day: true, leaseToken: true, releaseVersionId: true },
     where: and(
-      eq(retentionJobs.day, input.day),
-      eq(retentionJobs.continuation, input.continuation + 1),
-      eq(retentionJobs.status, "leased"),
-      eq(retentionJobs.leaseToken, input.nextLeaseToken),
-      eq(retentionJobs.releaseVersionId, input.releaseVersionId),
+      eq(dailyMaintenanceJobs.day, input.day),
+      eq(dailyMaintenanceJobs.continuation, input.continuation + 1),
+      eq(dailyMaintenanceJobs.status, "leased"),
+      eq(dailyMaintenanceJobs.leaseToken, input.nextLeaseToken),
+      eq(dailyMaintenanceJobs.releaseVersionId, input.releaseVersionId),
     ),
   });
   return reserved ? leaseFromRow(reserved) : null;
 }
 
 /** Return a failed lease to cron admission with unbounded, operationally capped backoff. */
-export async function deferRetentionJob(
+export async function deferDailyMaintenanceJob(
   db: Database,
-  input: RetentionJobLease & { errorCode: string },
+  input: DailyMaintenanceJobLease & { errorCode: string },
 ): Promise<{ continuation: number; failureCount: number } | null> {
   return db.transaction(async (tx) => {
-    const row = await tx.query.retentionJobs.findFirst({ where: claimIdentity(input) });
+    const row = await tx.query.dailyMaintenanceJobs.findFirst({ where: claimIdentity(input) });
     if (!row) {
       return null;
     }
     const failureCount = row.failureCount + 1;
     const [updated] = await tx
-      .update(retentionJobs)
+      .update(dailyMaintenanceJobs)
       .set({
         continuation: row.continuation + 1,
         failureCount,
@@ -253,18 +258,18 @@ export async function deferRetentionJob(
         status: "queued",
       })
       .where(claimIdentity(input))
-      .returning({ continuation: retentionJobs.continuation });
+      .returning({ continuation: dailyMaintenanceJobs.continuation });
     return updated ? { continuation: updated.continuation, failureCount } : null;
   });
 }
 
 /** Terminalize exactly one fenced chain while retaining a short idempotency tombstone. */
-export async function completeRetentionJob(
+export async function completeDailyMaintenanceJob(
   db: Database,
-  input: RetentionJobLease & { expected: RetentionJobProgress },
+  input: DailyMaintenanceJobLease & { expected: DailyMaintenanceJobProgress },
 ): Promise<boolean> {
   const rows = await db
-    .update(retentionJobs)
+    .update(dailyMaintenanceJobs)
     .set({
       activationCursorEvent: null,
       activationCursorUserId: null,
@@ -277,11 +282,11 @@ export async function completeRetentionJob(
       status: "complete",
     })
     .where(and(claimIdentity(input), progressIdentity(input.expected)))
-    .returning({ day: retentionJobs.day });
+    .returning({ day: dailyMaintenanceJobs.day });
   return rows.length === 1;
 }
 
-function progressUpdate(progress: RetentionJobProgress) {
+function progressUpdate(progress: DailyMaintenanceJobProgress) {
   return {
     activationCursorEvent: progress.activationCursor?.eventName ?? null,
     activationCursorUserId: progress.activationCursor?.userId ?? null,
@@ -292,11 +297,17 @@ function progressUpdate(progress: RetentionJobProgress) {
   };
 }
 
-function progressIdentity(progress: RetentionJobProgress) {
+function progressIdentity(progress: DailyMaintenanceJobProgress) {
   return and(
-    eq(retentionJobs.phase, progress.phase),
-    nullableTextIdentity(retentionJobs.activationCursorEvent, progress.activationCursor?.eventName),
-    nullableTextIdentity(retentionJobs.activationCursorUserId, progress.activationCursor?.userId),
+    eq(dailyMaintenanceJobs.phase, progress.phase),
+    nullableTextIdentity(
+      dailyMaintenanceJobs.activationCursorEvent,
+      progress.activationCursor?.eventName,
+    ),
+    nullableTextIdentity(
+      dailyMaintenanceJobs.activationCursorUserId,
+      progress.activationCursor?.userId,
+    ),
   );
 }
 
@@ -306,25 +317,33 @@ function nullableTextIdentity<TColumn>(column: TColumn, value: string | undefine
 }
 
 /** Bound completion tombstones without allowing a same-day delivery to recreate finished work. */
-export async function purgeCompletedRetentionJobs(db: Database, before: Date): Promise<number> {
+export async function purgeCompletedDailyMaintenanceJobs(
+  db: Database,
+  before: Date,
+): Promise<number> {
   const rows = await db
-    .delete(retentionJobs)
-    .where(and(eq(retentionJobs.status, "complete"), lt(retentionJobs.completedAt, before)))
-    .returning({ day: retentionJobs.day });
+    .delete(dailyMaintenanceJobs)
+    .where(
+      and(
+        eq(dailyMaintenanceJobs.status, "complete"),
+        lt(dailyMaintenanceJobs.completedAt, before),
+      ),
+    )
+    .returning({ day: dailyMaintenanceJobs.day });
   return rows.length;
 }
 
-function claimIdentity(lease: RetentionJobLease) {
+function claimIdentity(lease: DailyMaintenanceJobLease) {
   return and(
-    eq(retentionJobs.day, lease.day),
-    eq(retentionJobs.continuation, lease.continuation),
-    eq(retentionJobs.status, "leased"),
-    eq(retentionJobs.leaseToken, lease.leaseToken),
-    eq(retentionJobs.releaseVersionId, lease.releaseVersionId),
+    eq(dailyMaintenanceJobs.day, lease.day),
+    eq(dailyMaintenanceJobs.continuation, lease.continuation),
+    eq(dailyMaintenanceJobs.status, "leased"),
+    eq(dailyMaintenanceJobs.leaseToken, lease.leaseToken),
+    eq(dailyMaintenanceJobs.releaseVersionId, lease.releaseVersionId),
   );
 }
 
-function jobRecord(row: JobRow): RetentionJobRecord {
+function jobRecord(row: JobRow): DailyMaintenanceJobRecord {
   const lease = leaseFromRow(row);
   return {
     ...lease,
@@ -340,10 +359,10 @@ function jobRecord(row: JobRow): RetentionJobRecord {
   };
 }
 
-function leaseFromRow(row: Record<string, unknown>): RetentionJobLease {
+function leaseFromRow(row: Record<string, unknown>): DailyMaintenanceJobLease {
   return {
     continuation: integerField(row, "continuation"),
-    day: retentionDay(stringField(row, "day")),
+    day: maintenanceDay(stringField(row, "day")),
     leaseToken: uuidField(row, "lease_token", "leaseToken"),
     releaseVersionId: uuidField(row, "release_version_id", "releaseVersionId"),
   };
@@ -353,7 +372,7 @@ function activationEventName(value: string): ActivationEventCursor["eventName"] 
   if (value === "retention_d7" || value === "retention_d28" || value === "first_week_mau") {
     return value;
   }
-  throw new Error("Retention activation cursor event is invalid");
+  throw new Error("Daily maintenance activation cursor event is invalid");
 }
 
 function boundedLimit(limit: number | undefined): number {
@@ -368,9 +387,9 @@ function retryDelayMs(failureCount: number): number {
   return Math.min(MAX_RETRY_DELAY_MS, 30_000 * 2 ** Math.min(failureCount - 1, 10));
 }
 
-function retentionDay(value: string): string {
+function maintenanceDay(value: string): string {
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(value)) {
-    throw new Error("Retention job day must be YYYY-MM-DD");
+    throw new Error("Daily maintenance job day must be YYYY-MM-DD");
   }
   return value;
 }
@@ -378,7 +397,7 @@ function retentionDay(value: string): string {
 function stringField(row: Record<string, unknown>, snake: string): string {
   const value = row[snake];
   if (typeof value !== "string") {
-    throw new Error(`Retention job field ${snake} is missing`);
+    throw new Error(`Daily maintenance job field ${snake} is missing`);
   }
   return value;
 }
@@ -386,7 +405,7 @@ function stringField(row: Record<string, unknown>, snake: string): string {
 function integerField(row: Record<string, unknown>, key: string): number {
   const value = row[key];
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value < 0) {
-    throw new Error(`Retention job field ${key} is invalid`);
+    throw new Error(`Daily maintenance job field ${key} is invalid`);
   }
   return value;
 }
@@ -397,7 +416,7 @@ function uuidField(row: Record<string, unknown>, snake: string, camel: string): 
     typeof value !== "string" ||
     !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/iu.test(value)
   ) {
-    throw new Error(`Retention job field ${snake} is not a UUID`);
+    throw new Error(`Daily maintenance job field ${snake} is not a UUID`);
   }
   return value.toLowerCase();
 }

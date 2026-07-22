@@ -18,8 +18,7 @@ Drizzle schema, queries, and Hyperdrive-aware Postgres client for Cheatcode V2.
   `first_week_mau` activation cohorts
 - lifecycle helpers for RLS-safe BYOK revalidation, invalid-key disablement,
   tier-slot reconciliation, and Clerk deletion workflows
-- bounded keyset helpers for object-first generated-output retention cleanup
-  including soft-deleted rows
+- bounded keyset helpers for object-first abandoned-upload cleanup
 - leased project/thread deletion jobs with bounded continuation, migration fencing, backoff, and
   quarantine
 - `schema/*`
@@ -59,25 +58,25 @@ Workflow writes can be deduplicated with `count(DISTINCT blob6)` downstream. The
 candidate scan uses `v2_users_activation_created_idx`; per-user activity probes use
 `v2_agent_runs_user_started_idx`, alongside the separate run-deletion paging index.
 
-`v2_retention_jobs` is the globally scoped orchestration aggregate for one UTC day's activation
-and output-cleanup chain. Its release/lease/continuation identity fences every Workflow generation;
-phase and both keyset cursors are compared exactly on every progress mutation. Output-row deletion
-and cleanup-cursor advancement share one transaction, and external R2 deletion must first renew the
-same exact position. The `app_webhooks` role has global maintenance policies but can insert only
-`day`/`scheduled_at` and update only the orchestration columns; forced RLS and the production target
-contract reject broader access.
+`v2_daily_maintenance_jobs` is the globally scoped orchestration aggregate for one UTC day's
+activation metrics and orphan-upload cleanup chain. Its release/lease/continuation identity fences
+every Workflow generation, and its phase and activation cursor are compared exactly on every
+progress mutation. Abandoned-intent deletion and maintenance progress advancement share one
+transaction, while external R2 deletion must first renew the same exact position. The
+`app_webhooks` role has global maintenance policies but can insert only `day`/`scheduled_at` and
+update only the orchestration columns; forced RLS and the production target contract reject broader
+access.
 
 `v2_artifact_upload_intents` is the durable half of the Postgres/R2 commit protocol. An AgentRun
 reserves a deterministic output/key identity before R2 is touched, then atomically replaces that
 intent with `v2_generated_outputs` only after the create-only object write is verified. Terminal
 run persistence marks any remaining intents quiesced only after the active execution and artifact
 promises have settled. Reservation and the final pre-write guard extend `cleanup_not_before` by two
-hours. Daily retention can therefore remove only intents whose immutable terminal run, explicit
-quiescence proof, and remote-side-effect grace deadline all precede the day's fixed cutoff. Active
-run outputs are excluded from generated-output retention, and an idempotent committed replay for
-an active run atomically renews `expires_at` before a fresh download capability can expose it.
-An already-terminal replay may acknowledge only the same unexpired committed output and never
-renews it, closing the post-commit response-loss window without reviving terminal work.
+hours. Daily maintenance can therefore remove only intents whose immutable terminal run, explicit
+quiescence proof, and remote-side-effect grace deadline all precede the day's fixed cutoff.
+Committed generated outputs do not expire: they persist until their project or account is deleted.
+An idempotent committed replay may acknowledge only the same committed output, closing the
+post-commit response-loss window without reviving terminal work.
 Postgres makes a terminal run's status and `finished_at` immutable, so maintenance cannot lose its
 terminal proof between page selection and exact row deletion.
 Composite NO ACTION foreign keys keep a pending intent discoverable and make project, run, or account
@@ -355,10 +354,9 @@ validates historical rows and protects new writes before deployment; post-deploy
 migration `0035_finalize_security_integrity.sql` makes `sha256` physically non-null,
 forces security-sensitive RLS, and removes direct audit-log mutation only after the
 matching Workers are live.
-Drizzle migration `0025_generated_output_expiry_index.sql` adds the partial expiry/id index used by
-the daily generated-output cleanup Workflow; it must land before that Workflow is deployed.
 Drizzle migration `0026_first_artifact_milestone.sql` adds and backfills the durable
-first-artifact timestamp so retention cleanup cannot cause the activation event to fire again.
+first-artifact timestamp so later project or account cleanup cannot cause the activation event to
+fire again.
 Drizzle migration `0040_tiresome_jack_murdock.sql` adds the bounded account-deletion
 due index. Drizzle migration `0041_great_adam_warlock.sql` adds the durable deletion-job
 aggregate. Pre-deploy overlay `0062_user_deletion_jobs.sql` installs its least-privilege

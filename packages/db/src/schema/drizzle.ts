@@ -1,6 +1,7 @@
 export { artifactUploadIntents } from "./artifact-upload-intents";
 export { entitlements } from "./billing";
 export { deletedClerkIdentities } from "./clerk-deletions";
+export { dailyMaintenanceJobs } from "./daily-maintenance-jobs";
 export { providerKeys, userIntegrations } from "./keys";
 export { agentRuns, messages } from "./messages";
 export { generatedOutputs } from "./outputs";
@@ -8,7 +9,6 @@ export { userProfiles } from "./profiles";
 export type { ProjectSettings } from "./projects";
 export { projects, threads } from "./projects";
 export { resourceDeletionJobs } from "./resource-deletions";
-export { retentionJobs } from "./retention-jobs";
 export { userSkills } from "./skills";
 export { userDeletionRefundIntents } from "./user-deletion-refund-intents";
 export { userDeletionJobs } from "./user-deletions";

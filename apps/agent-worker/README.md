@@ -153,7 +153,8 @@ admission events carry the planned logical model, while stream-attempt/completio
 the resolved logical model. A failure before any stream attempt keeps planned attribution instead;
 provider-local transport IDs remain structured-log context. R2-backed artifact
 persistence also atomically claims the user's durable first-artifact timestamp before emitting the
-`first_generated_artifact` activation signal, so output retention cannot make it fire twice.
+`first_generated_artifact` activation signal, so later project or account cleanup cannot make it
+fire twice.
 Terminal database status updates are persisted or durably queued in AgentRun's
 SQLite storage; alarms retry transient database failures with bounded exponential delay
 until the database accepts the update. A terminal Postgres status is deliberately held
