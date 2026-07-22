@@ -42,6 +42,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
     "@cloudflare/workers-types": "catalog:",
     "@types/node": "catalog:",
     "typescript": "catalog:"

@@ -20,6 +20,7 @@
     "@cheatcode/types": "workspace:*"
   },
   "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
     "@cloudflare/workers-types": "catalog:",
     "typescript": "catalog:"
   }

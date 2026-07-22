@@ -40,6 +40,7 @@
     "streamdown": "catalog:"
   },
   "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
     "@types/react": "catalog:",
     "react": "catalog:",
     "typescript": "catalog:"

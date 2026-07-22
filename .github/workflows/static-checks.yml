@@ -13,66 +13,438 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  static-checks:
+  changes:
+    name: Detect affected surfaces
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 5
+    outputs:
+      audit: ${{ steps.scope.outputs.audit }}
+      audit_app_generators: ${{ steps.scope.outputs.audit_app_generators }}
+      audit_browser_driver: ${{ steps.scope.outputs.audit_browser_driver }}
+      audit_doc_runtime: ${{ steps.scope.outputs.audit_doc_runtime }}
+      audit_expo: ${{ steps.scope.outputs.audit_expo }}
+      audit_next: ${{ steps.scope.outputs.audit_next }}
+      audit_package_manager: ${{ steps.scope.outputs.audit_package_manager }}
+      audit_parquet_viewer: ${{ steps.scope.outputs.audit_parquet_viewer }}
+      audit_python: ${{ steps.scope.outputs.audit_python }}
+      audit_root: ${{ steps.scope.outputs.audit_root }}
+      audit_skill_runtime: ${{ steps.scope.outputs.audit_skill_runtime }}
+      base_sha: ${{ steps.scope.outputs.base_sha }}
+      code: ${{ steps.scope.outputs.code }}
+      global_code: ${{ steps.scope.outputs.global_code }}
+      head_sha: ${{ steps.scope.outputs.head_sha }}
+      knip_browser_driver: ${{ steps.scope.outputs.knip_browser_driver }}
+      knip_skill_runtime: ${{ steps.scope.outputs.knip_skill_runtime }}
+      nonworkspace_code: ${{ steps.scope.outputs.nonworkspace_code }}
+      root_code: ${{ steps.scope.outputs.root_code }}
+      skills: ${{ steps.scope.outputs.skills }}
+      workflow: ${{ steps.scope.outputs.workflow }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           fetch-depth: 0
-      - uses: pnpm/action-setup@0ebf47130e4866e96fce0953f49152a61190b271 # v6.0.9
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version: 22.22.2
-          cache: pnpm
-      - uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          enable-cache: false
-          version: 0.11.28
-      - uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
-        with:
-          cache: true
-          version: v0.72.0
-      - run: pnpm install --frozen-lockfile
+          ref: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+      - name: Validate pull request title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          python3 - <<'PY'
+          import os
+          import re
+          import sys
+
+          title = os.environ["PR_TITLE"]
+          pattern = re.compile(
+              r"(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)"
+              r"(?:\([a-z0-9][a-z0-9._/-]*\))?!?: \S.*"
+          )
+          if len(title) > 72 or pattern.fullmatch(title) is None:
+              print(
+                  "Pull request titles must use Conventional Commits and be at most 72 characters.",
+                  file=sys.stderr,
+              )
+              raise SystemExit(1)
+          PY
+      - name: Classify changed files
+        id: scope
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_BEFORE_SHA: ${{ github.event.before }}
+          EVENT_HEAD_SHA: ${{ github.sha }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -Eeuo pipefail
+
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            base_sha="$PR_BASE_SHA"
+            head_sha="$PR_HEAD_SHA"
+          else
+            base_sha="$EVENT_BEFORE_SHA"
+            head_sha="$EVENT_HEAD_SHA"
+          fi
+
+          force_global=false
+          if [[ ! "$base_sha" =~ ^[0-9a-f]{40}$ ]] ||
+             [ "$base_sha" = "0000000000000000000000000000000000000000" ]; then
+            if parent_sha="$(git rev-parse "$head_sha^" 2>/dev/null)"; then
+              base_sha="$parent_sha"
+            else
+              base_sha="$head_sha"
+              force_global=true
+            fi
+          fi
+
+          code="$force_global"
+          global_code="$force_global"
+          nonworkspace_code="$force_global"
+          root_code="$force_global"
+          skills=false
+          workflow=false
+          audit_root=false
+          audit_expo=false
+          audit_next=false
+          audit_python=false
+          audit_app_generators=false
+          audit_browser_driver=false
+          audit_doc_runtime=false
+          audit_package_manager=false
+          audit_parquet_viewer=false
+          audit_skill_runtime=false
+          knip_browser_driver=false
+          knip_skill_runtime=false
+
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              .github/actions/* | .github/workflows/*)
+                workflow=true
+                ;;
+            esac
+
+            case "$file" in
+              apps/* | packages/*)
+                if [[ "$file" != *.md ]]; then code=true; fi
+                ;;
+              skills/*)
+                code=true
+                nonworkspace_code=true
+                skills=true
+                ;;
+              scripts/*.ts)
+                code=true
+                nonworkspace_code=true
+                root_code=true
+                ;;
+              .dependency-cruiser.cjs | .npmrc | .nvmrc | biome.jsonc | knip.jsonc | package.json | pnpm-lock.yaml | pnpm-workspace.yaml | tsconfig.base.json | turbo.json)
+                code=true
+                global_code=true
+                nonworkspace_code=true
+                root_code=true
+                ;;
+              commitlint.config.js | lefthook.yml | tsconfig.scripts.json)
+                code=true
+                nonworkspace_code=true
+                root_code=true
+                ;;
+              infra/containers/sandbox/*.js | infra/containers/sandbox/*.json | infra/containers/sandbox/*.jsonc | infra/containers/sandbox/*.mjs | infra/containers/sandbox/*.ts | infra/containers/sandbox/*.tsx)
+                code=true
+                nonworkspace_code=true
+                ;;
+            esac
+
+            case "$file" in
+              pnpm-lock.yaml)
+                audit_root=true
+                ;;
+              infra/containers/sandbox/app-templates/expo/package.json | infra/containers/sandbox/app-templates/expo/pnpm-lock.yaml)
+                audit_expo=true
+                ;;
+              infra/containers/sandbox/app-templates/next/package.json | infra/containers/sandbox/app-templates/next/pnpm-lock.yaml)
+                audit_next=true
+                ;;
+              infra/containers/sandbox/requirements.txt)
+                audit_python=true
+                ;;
+              infra/containers/sandbox/app-generators/package.json | infra/containers/sandbox/app-generators/package-lock.json)
+                audit_app_generators=true
+                ;;
+              infra/containers/sandbox/browser-driver/*)
+                knip_browser_driver=true
+                case "$file" in
+                  */package.json | */package-lock.json) audit_browser_driver=true ;;
+                esac
+                ;;
+              infra/containers/sandbox/doc-runtime/package.json | infra/containers/sandbox/doc-runtime/package-lock.json)
+                audit_doc_runtime=true
+                ;;
+              infra/containers/sandbox/package-manager/package.json | infra/containers/sandbox/package-manager/package-lock.json)
+                audit_package_manager=true
+                ;;
+              infra/containers/sandbox/extension-overrides/parquet-viewer/package.json | infra/containers/sandbox/extension-overrides/parquet-viewer/package-lock.json)
+                audit_parquet_viewer=true
+                ;;
+              infra/containers/sandbox/skill-runtime/*)
+                knip_skill_runtime=true
+                case "$file" in
+                  */package.json | */package-lock.json) audit_skill_runtime=true ;;
+                esac
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=ACMR -z "$base_sha" "$head_sha")
+
+          audit=false
+          for value in \
+            "$audit_root" \
+            "$audit_expo" \
+            "$audit_next" \
+            "$audit_python" \
+            "$audit_app_generators" \
+            "$audit_browser_driver" \
+            "$audit_doc_runtime" \
+            "$audit_package_manager" \
+            "$audit_parquet_viewer" \
+            "$audit_skill_runtime"; do
+            if [ "$value" = true ]; then audit=true; break; fi
+          done
+
+          {
+            echo "audit=$audit"
+            echo "audit_app_generators=$audit_app_generators"
+            echo "audit_browser_driver=$audit_browser_driver"
+            echo "audit_doc_runtime=$audit_doc_runtime"
+            echo "audit_expo=$audit_expo"
+            echo "audit_next=$audit_next"
+            echo "audit_package_manager=$audit_package_manager"
+            echo "audit_parquet_viewer=$audit_parquet_viewer"
+            echo "audit_python=$audit_python"
+            echo "audit_root=$audit_root"
+            echo "audit_skill_runtime=$audit_skill_runtime"
+            echo "base_sha=$base_sha"
+            echo "code=$code"
+            echo "global_code=$global_code"
+            echo "head_sha=$head_sha"
+            echo "knip_browser_driver=$knip_browser_driver"
+            echo "knip_skill_runtime=$knip_skill_runtime"
+            echo "nonworkspace_code=$nonworkspace_code"
+            echo "root_code=$root_code"
+            echo "skills=$skills"
+            echo "workflow=$workflow"
+          } >> "$GITHUB_OUTPUT"
+
+  workflow-lint:
+    name: Workflow lint
+    needs: changes
+    if: needs.changes.outputs.workflow == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
       - name: Lint GitHub Actions and embedded shell
         uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
         with:
           pyflakes: false
           shellcheck: true
           version: 1.7.12
-      - name: Audit pnpm lockfiles
-        run: |
-          trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 pnpm-lock.yaml
-          trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 infra/containers/sandbox/app-templates/expo
-          trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 infra/containers/sandbox/app-templates/next
+
+  dependency-audit:
+    name: Dependency audit
+    needs: changes
+    if: needs.changes.outputs.audit == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+      - name: Set up Node for npm lockfile audits
+        if: >-
+          needs.changes.outputs.audit_app_generators == 'true' ||
+          needs.changes.outputs.audit_browser_driver == 'true' ||
+          needs.changes.outputs.audit_doc_runtime == 'true' ||
+          needs.changes.outputs.audit_package_manager == 'true' ||
+          needs.changes.outputs.audit_parquet_viewer == 'true' ||
+          needs.changes.outputs.audit_skill_runtime == 'true'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: 22.22.2
+      - name: Set up uv for Python lockfile audit
+        if: needs.changes.outputs.audit_python == 'true'
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          enable-cache: false
+          version: 0.11.28
+      - name: Set up Trivy for pnpm lockfile audits
+        if: >-
+          needs.changes.outputs.audit_root == 'true' ||
+          needs.changes.outputs.audit_expo == 'true' ||
+          needs.changes.outputs.audit_next == 'true'
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          cache: true
+          version: v0.72.0
+      - name: Audit root pnpm lockfile
+        if: needs.changes.outputs.audit_root == 'true'
+        run: trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 pnpm-lock.yaml
+      - name: Audit Expo template lockfile
+        if: needs.changes.outputs.audit_expo == 'true'
+        run: trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 infra/containers/sandbox/app-templates/expo
+      - name: Audit Next.js template lockfile
+        if: needs.changes.outputs.audit_next == 'true'
+        run: trivy fs --scanners vuln --include-dev-deps --severity MEDIUM,HIGH,CRITICAL --exit-code 1 infra/containers/sandbox/app-templates/next
       - name: Audit sandbox Python lockfile
+        if: needs.changes.outputs.audit_python == 'true'
         run: uvx --from pip-audit==2.10.1 pip-audit --disable-pip -r infra/containers/sandbox/requirements.txt
-      - name: Audit sandbox npm lockfiles
+      - name: Audit app generator lockfile
+        if: needs.changes.outputs.audit_app_generators == 'true'
+        run: npm --prefix infra/containers/sandbox/app-generators audit --audit-level=moderate
+      - name: Audit browser driver lockfile
+        if: needs.changes.outputs.audit_browser_driver == 'true'
+        run: npm --prefix infra/containers/sandbox/browser-driver audit --audit-level=moderate
+      - name: Audit document runtime lockfile
+        if: needs.changes.outputs.audit_doc_runtime == 'true'
+        run: npm --prefix infra/containers/sandbox/doc-runtime audit --audit-level=moderate
+      - name: Audit package manager lockfile
+        if: needs.changes.outputs.audit_package_manager == 'true'
+        run: npm --prefix infra/containers/sandbox/package-manager audit --audit-level=moderate
+      - name: Audit Parquet viewer overlay lockfile
+        if: needs.changes.outputs.audit_parquet_viewer == 'true'
+        run: npm --prefix infra/containers/sandbox/extension-overrides/parquet-viewer audit --audit-level=moderate
+      - name: Audit skill runtime lockfile
+        if: needs.changes.outputs.audit_skill_runtime == 'true'
+        run: npm --prefix infra/containers/sandbox/skill-runtime audit --audit-level=moderate
+
+  code-checks:
+    name: Affected code checks
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      BASE_SHA: ${{ needs.changes.outputs.base_sha }}
+      GLOBAL_CODE: ${{ needs.changes.outputs.global_code }}
+      HEAD_SHA: ${{ needs.changes.outputs.head_sha }}
+      SKILLS_CHANGED: ${{ needs.changes.outputs.skills }}
+    steps:
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.changes.outputs.head_sha }}
+      - uses: ./.github/actions/setup-repository
+      - name: Resolve dependency-aware workspace scope
+        id: workspace-scope
         run: |
-          npm --prefix infra/containers/sandbox/app-generators audit --audit-level=moderate
-          npm --prefix infra/containers/sandbox/browser-driver audit --audit-level=moderate
-          npm --prefix infra/containers/sandbox/doc-runtime audit --audit-level=moderate
-          npm --prefix infra/containers/sandbox/extension-overrides/parquet-viewer audit --audit-level=moderate
-          npm --prefix infra/containers/sandbox/package-manager audit --audit-level=moderate
-      - name: Validate pull request title
-        if: github.event_name == 'pull_request'
+          set -Eeuo pipefail
+          filters=()
+          if [ "$GLOBAL_CODE" != true ]; then
+            filters+=("--filter=...[$BASE_SHA...$HEAD_SHA]")
+            if [ "$SKILLS_CHANGED" = true ]; then
+              filters+=("--filter=...@cheatcode/skills")
+            fi
+          fi
+          scope="$(pnpm exec turbo run build "${filters[@]}" --dry-run=json)"
+          echo "packages=$(jq --compact-output '[.packages[] | select(. != "//")] | unique' <<< "$scope")" >> "$GITHUB_OUTPUT"
+          echo "directories=$(jq --compact-output '[.tasks[].directory] | unique' <<< "$scope")" >> "$GITHUB_OUTPUT"
+      - name: Lint all files under a changed global configuration
+        if: needs.changes.outputs.global_code == 'true'
+        run: pnpm lint
+      - name: Lint changed non-workspace files
+        if: needs.changes.outputs.global_code != 'true' && needs.changes.outputs.nonworkspace_code == 'true'
+        run: |
+          set -Eeuo pipefail
+          lintable=()
+          while IFS= read -r -d '' file; do
+            case "$file" in
+              *.css | *.js | *.json | *.jsonc | *.jsx | *.mjs | *.ts | *.tsx)
+                lintable+=("$file")
+                ;;
+            esac
+          done < <(git diff --name-only --diff-filter=ACMR -z "$BASE_SHA" "$HEAD_SHA")
+          if [ "${#lintable[@]}" -gt 0 ]; then
+            pnpm exec biome check --error-on-warnings --no-errors-on-unmatched "${lintable[@]}"
+          fi
+      - name: Lint, typecheck, and build affected workspaces
+        if: steps.workspace-scope.outputs.packages != '[]'
         env:
-          PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$PR_TITLE" | pnpm exec commitlint
-      - run: pnpm lint
-      - run: pnpm architecture:check
-      - run: pnpm deadcode
-      - run: pnpm typecheck
-      - run: pnpm build
-        env:
-          # Static compilation must never expose a real Clerk Backend API credential
-          # to pull-request code. These syntactically valid, non-deployed values
-          # exercise the development-key branch without authenticating anywhere.
           CLERK_SECRET_KEY: sk_test_static_checks_do_not_authenticate
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_c3RhdGljLWNoZWNrcy0wMC5jbGVyay5hY2NvdW50cy5kZXYk
           NEXT_PUBLIC_GATEWAY_URL: ${{ vars.NEXT_PUBLIC_GATEWAY_URL }}
           NEXT_PUBLIC_PREVIEW_HOSTNAME: trycheatcode.com
           NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
-          # Never expose a future remote-cache credential to pull-request code.
-          TURBO_TOKEN: ${{ github.event_name == 'push' && secrets.TURBO_TOKEN || '' }}
           TURBO_TEAM: cheatcode
+          TURBO_TOKEN: ${{ github.event_name == 'push' && secrets.TURBO_TOKEN || '' }}
+        run: |
+          set -Eeuo pipefail
+          filters=()
+          if [ "$GLOBAL_CODE" != true ]; then
+            filters+=("--filter=...[$BASE_SHA...$HEAD_SHA]")
+            if [ "$SKILLS_CHANGED" = true ]; then
+              filters+=("--filter=...@cheatcode/skills")
+            fi
+          fi
+          pnpm exec turbo run lint typecheck build "${filters[@]}"
+      - name: Typecheck operational scripts
+        if: needs.changes.outputs.root_code == 'true'
+        run: pnpm typecheck:scripts
+      - name: Check affected architecture boundaries
+        if: steps.workspace-scope.outputs.directories != '[]'
+        env:
+          DIRECTORIES: ${{ steps.workspace-scope.outputs.directories }}
+        run: |
+          set -Eeuo pipefail
+          mapfile -t directories < <(jq --raw-output '.[]' <<< "$DIRECTORIES")
+          pnpm exec dependency-cruise \
+            --config .dependency-cruiser.cjs \
+            --ts-config tsconfig.base.json \
+            --exclude '(^|/)(dist|\.next|\.turbo|node_modules)/' \
+            "${directories[@]}"
+      - name: Check dead code
+        env:
+          KNIP_BROWSER_DRIVER: ${{ needs.changes.outputs.knip_browser_driver }}
+          KNIP_SKILL_RUNTIME: ${{ needs.changes.outputs.knip_skill_runtime }}
+          PACKAGES: ${{ steps.workspace-scope.outputs.packages }}
+          ROOT_CODE: ${{ needs.changes.outputs.root_code }}
+        run: |
+          set -Eeuo pipefail
+          if [ "$GLOBAL_CODE" = true ] || [ "$ROOT_CODE" = true ]; then
+            pnpm deadcode
+            exit 0
+          fi
+
+          workspaces=()
+          while IFS= read -r package; do
+            workspaces+=(--workspace "$package")
+          done < <(jq --raw-output '.[]' <<< "$PACKAGES")
+          if [ "$KNIP_BROWSER_DRIVER" = true ]; then
+            workspaces+=(--workspace @cheatcode/sandbox-browser-driver)
+          fi
+          if [ "$KNIP_SKILL_RUNTIME" = true ]; then
+            workspaces+=(--workspace @cheatcode/sandbox-skills-runtime)
+          fi
+          if [ "${#workspaces[@]}" -gt 0 ]; then
+            pnpm exec knip --cache "${workspaces[@]}"
+          fi
+
+  static-checks:
+    name: static-checks
+    needs: [changes, workflow-lint, dependency-audit, code-checks]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every applicable check to pass
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          CODE_RESULT: ${{ needs.code-checks.result }}
+          DEPENDENCY_AUDIT_RESULT: ${{ needs.dependency-audit.result }}
+          WORKFLOW_LINT_RESULT: ${{ needs.workflow-lint.result }}
+        run: |
+          set -Eeuo pipefail
+          for result in \
+            "$CHANGES_RESULT" \
+            "$CODE_RESULT" \
+            "$DEPENDENCY_AUDIT_RESULT" \
+            "$WORKFLOW_LINT_RESULT"; do
+            case "$result" in
+              success | skipped) ;;
+              *) exit 1 ;;
+            esac
+          done
