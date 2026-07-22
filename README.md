@@ -99,6 +99,11 @@ repository. Deploy the Cloudflare backend Workers from a reviewed checkout with:
 pnpm cloudflare:deploy
 ```
 
+The deploy command refuses a dirty tree, a non-`main` branch, or a checkout that
+does not exactly match `origin/main`. It injects that immutable commit SHA into
+every Worker and deploys the gateway last, after its agent and webhooks service
+dependencies share the same release identity.
+
 There is no second release orchestrator, compatibility deploy command, or hidden
 workspace-reconciliation command. Schema migrations, Worker deployment, and
 Vercel deployment are explicit operations; operators must sequence them using
