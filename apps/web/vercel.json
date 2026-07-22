@@ -1,6 +1,12 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
+  "git": {
+    "deploymentEnabled": {
+      "*": false,
+      "main": true
+    }
+  },
   "buildCommand": "pnpm exec turbo run build --filter=@cheatcode/web",
   "ignoreCommand": "B=${VERCEL_GIT_PREVIOUS_SHA:-HEAD^};git -C ../.. diff --quiet $B HEAD -- . ':(exclude).github/**' ':(exclude)docs/**' ':(exclude)**/*.md'||npx -y turbo@2.10.5 query affected --cwd ../.. --packages @cheatcode/web --base $B --head HEAD --exit-code"
 }
