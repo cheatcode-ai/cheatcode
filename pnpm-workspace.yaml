@@ -107,7 +107,7 @@ catalog:
   '@types/pg': 8.20.0
   '@types/react': 19.2.17
   '@types/react-dom': 19.2.3
-  ai: 6.0.205
+  ai: 7.0.34
   arquero: 8.0.3
   cmdk: 1.1.1
   dependency-cruiser: 18.1.0

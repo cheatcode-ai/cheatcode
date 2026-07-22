@@ -94,8 +94,8 @@ catalogs:
       specifier: 19.2.3
       version: 19.2.3
     ai:
-      specifier: 6.0.205
-      version: 6.0.205
+      specifier: 7.0.34
+      version: 7.0.34
     arquero:
       specifier: 8.0.3
       version: 8.0.3
@@ -300,7 +300,7 @@ importers:
         version: link:../../packages/types
       ai:
         specifier: 'catalog:'
-        version: 6.0.205(zod@4.4.3)
+        version: 7.0.34(zod@4.4.3)
       hono:
         specifier: 'catalog:'
         version: 4.12.30
@@ -441,7 +441,7 @@ importers:
         version: 3.14.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
       ai:
         specifier: 'catalog:'
-        version: 6.0.205(zod@4.4.3)
+        version: 7.0.34(zod@4.4.3)
       cmdk:
         specifier: 'catalog:'
         version: 1.1.1(@types/react-dom@19.2.3(@types/react@19.2.17))(@types/react@19.2.17)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -614,13 +614,13 @@ importers:
         version: link:../types
       '@mastra/core':
         specifier: 'catalog:'
-        version: 1.51.0(ai@6.0.205(zod@4.4.3))(bufferutil@4.1.0)(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)(utf-8-validate@5.0.10)(zod@4.4.3)
+        version: 1.51.0(ai@7.0.34(zod@4.4.3))(bufferutil@4.1.0)(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)(utf-8-validate@5.0.10)(zod@4.4.3)
       '@openrouter/ai-sdk-provider':
         specifier: 'catalog:'
-        version: 2.9.1(ai@6.0.205(zod@4.4.3))(zod@4.4.3)
+        version: 2.9.1(ai@7.0.34(zod@4.4.3))(zod@4.4.3)
       ai:
         specifier: 'catalog:'
-        version: 6.0.205(zod@4.4.3)
+        version: 7.0.34(zod@4.4.3)
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -972,7 +972,7 @@ importers:
     dependencies:
       ai:
         specifier: 'catalog:'
-        version: 6.0.205(zod@4.4.3)
+        version: 7.0.34(zod@4.4.3)
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -1050,6 +1050,12 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
+  '@ai-sdk/gateway@4.0.26':
+    resolution: {integrity: sha512-b/nc3COKtk8IxzgcCi418IoZFky/Bw+Jg8+J0/SBBnu/mOXA4bkIKCu81coEtJAWuH2g5Fvvsa0ar7EpmzNWTw==}
+    engines: {node: '>=22'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
   '@ai-sdk/google@3.0.82':
     resolution: {integrity: sha512-md+M92ZJuPIMU2p4v1rGLpJJWTmTh/vpJPkMnQbEdcLaPTZxRaroIKSnmL/9UGJV0BORJlHNDJegkcnhVpTmDA==}
     engines: {node: '>=18'}
@@ -1089,6 +1095,12 @@ packages:
   '@ai-sdk/provider-utils@4.0.38':
     resolution: {integrity: sha512-/HHGmtKllqjg1OLc023v9w9kK3laW7Z6TzfZukYQWCsGBbzB9p60zTvvpXFVcs44NZBVXL3viOa1HRKUbeee8g==}
     engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  '@ai-sdk/provider-utils@5.0.12':
+    resolution: {integrity: sha512-bbhlOgHeYwrIGheLkM6fhS8hVger8uFPmcOLg+kxc9EFh7y30XYorWhthlYAgpadO3SJhFZrIcEknN7qEqEVvA==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -3710,6 +3722,12 @@ packages:
   ai@6.0.205:
     resolution: {integrity: sha512-F4akEGF41UdgJO3L4v+D5noVD1/czhJy6x0k9R/i1EXfxqrkBh/PdYSgRSLPiGFvrw76dzI8h4w3NYmLrTb8dw==}
     engines: {node: '>=18'}
+    peerDependencies:
+      zod: ^3.25.76 || ^4.1.8
+
+  ai@7.0.34:
+    resolution: {integrity: sha512-jDqclWYqPGFKcUG4CQiKcBiwi5XqVMqvYy6eJdujVpvE1SDoB6j7RtjrGYz3Bn5B1dzTj1StAlrOebY//WK9/Q==}
+    engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
@@ -6759,6 +6777,13 @@ snapshots:
       '@vercel/oidc': 3.2.0
       zod: 4.4.3
 
+  '@ai-sdk/gateway@4.0.26(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      '@vercel/oidc': 3.2.0
+      zod: 4.4.3
+
   '@ai-sdk/google@3.0.82(zod@4.4.3)':
     dependencies:
       '@ai-sdk/provider': 3.0.10
@@ -6803,6 +6828,14 @@ snapshots:
     dependencies:
       '@ai-sdk/provider': 3.0.14
       '@standard-schema/spec': 1.1.0
+      eventsource-parser: 3.1.0
+      zod: 4.4.3
+
+  '@ai-sdk/provider-utils@5.0.12(zod@4.4.3)':
+    dependencies:
+      '@ai-sdk/provider': 4.0.3
+      '@standard-schema/spec': 1.1.0
+      '@workflow/serde': 4.1.0
       eventsource-parser: 3.1.0
       zod: 4.4.3
 
@@ -7698,7 +7731,7 @@ snapshots:
     dependencies:
       '@lukeed/csprng': 1.1.0
 
-  '@mastra/core@1.51.0(ai@6.0.205(zod@4.4.3))(bufferutil@4.1.0)(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)(utf-8-validate@5.0.10)(zod@4.4.3)':
+  '@mastra/core@1.51.0(ai@7.0.34(zod@4.4.3))(bufferutil@4.1.0)(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)(utf-8-validate@5.0.10)(zod@4.4.3)':
     dependencies:
       '@a2a-js/sdk': 0.3.14(express@5.2.1(supports-color@10.2.2))
       '@ai-sdk/provider-utils-v5': '@ai-sdk/provider-utils@3.0.28(zod@4.4.3)'
@@ -7715,7 +7748,7 @@ snapshots:
       '@sindresorhus/slugify': 2.2.1
       '@standard-schema/spec': 1.1.0
       ajv: 8.20.0
-      chat: 4.30.0(ai@6.0.205(zod@4.4.3))(supports-color@10.2.2)(zod@4.4.3)
+      chat: 4.30.0(ai@7.0.34(zod@4.4.3))(supports-color@10.2.2)(zod@4.4.3)
       croner: 10.0.1
       dotenv: 17.4.2
       execa: 9.6.1
@@ -7824,9 +7857,9 @@ snapshots:
 
   '@noble/hashes@1.8.0': {}
 
-  '@openrouter/ai-sdk-provider@2.9.1(ai@6.0.205(zod@4.4.3))(zod@4.4.3)':
+  '@openrouter/ai-sdk-provider@2.9.1(ai@7.0.34(zod@4.4.3))(zod@4.4.3)':
     dependencies:
-      ai: 6.0.205(zod@4.4.3)
+      ai: 7.0.34(zod@4.4.3)
       zod: 4.4.3
 
   '@opentelemetry/api@1.9.1': {}
@@ -9387,6 +9420,13 @@ snapshots:
       '@opentelemetry/api': 1.9.1
       zod: 4.4.3
 
+  ai@7.0.34(zod@4.4.3):
+    dependencies:
+      '@ai-sdk/gateway': 4.0.26(zod@4.4.3)
+      '@ai-sdk/provider': 4.0.3
+      '@ai-sdk/provider-utils': 5.0.12(zod@4.4.3)
+      zod: 4.4.3
+
   ajv-formats@3.0.1(ajv@8.20.0):
     optionalDependencies:
       ajv: 8.20.0
@@ -9554,7 +9594,7 @@ snapshots:
 
   character-reference-invalid@2.0.1: {}
 
-  chat@4.30.0(ai@6.0.205(zod@4.4.3))(supports-color@10.2.2)(zod@4.4.3):
+  chat@4.30.0(ai@7.0.34(zod@4.4.3))(supports-color@10.2.2)(zod@4.4.3):
     dependencies:
       '@workflow/serde': 4.1.0-beta.2
       mdast-util-to-string: 4.0.0
@@ -9564,7 +9604,7 @@ snapshots:
       remend: 1.3.0
       unified: 11.0.5
     optionalDependencies:
-      ai: 6.0.205(zod@4.4.3)
+      ai: 7.0.34(zod@4.4.3)
       zod: 4.4.3
     transitivePeerDependencies:
       - supports-color
