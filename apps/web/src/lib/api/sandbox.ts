@@ -9,8 +9,6 @@ import {
   BrowserTakeoverStatusSchema,
   type SandboxConsoleSnapshot,
   SandboxConsoleSnapshotSchema,
-  type SandboxFileEntry,
-  SandboxFileListSchema,
   type SandboxIdeSession,
   SandboxIdeSessionSchema,
   SandboxTerminalCommandSchema,
@@ -47,23 +45,6 @@ export async function readSandboxConsole(
   );
   return SandboxConsoleSnapshotSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.console),
-  );
-}
-
-export async function listSandboxFiles(
-  getToken: () => Promise<null | string>,
-  threadId: string,
-  path: string,
-  recursive = false,
-  signal?: AbortSignal,
-) {
-  const response = await authorizedFetch(
-    getToken,
-    sandboxFilesPath(threadId, path, recursive),
-    signal ? { signal } : {},
-  );
-  return SandboxFileListSchema.parse(
-    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.files),
   );
 }
 
@@ -216,21 +197,6 @@ export async function runComputerTerminal(
   return SandboxTerminalResultSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.terminal),
   );
-}
-
-export function compareFileEntries(left: SandboxFileEntry, right: SandboxFileEntry): number {
-  if (left.type === "directory" && right.type !== "directory") {
-    return -1;
-  }
-  if (left.type !== "directory" && right.type === "directory") {
-    return 1;
-  }
-  return left.relativePath.localeCompare(right.relativePath);
-}
-
-function sandboxFilesPath(threadId: string, path: string, recursive: boolean): string {
-  const query = new URLSearchParams({ path, recursive: String(recursive) });
-  return `/v1/threads/${encodeURIComponent(threadId)}/sandbox/files?${query.toString()}`;
 }
 
 function browserTakeoverPath(threadId: string): string {

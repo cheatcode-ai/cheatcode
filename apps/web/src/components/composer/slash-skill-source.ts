@@ -4,9 +4,9 @@ import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 const MAX_SLASH_ITEMS = 200;
 
 /**
- * Builds the Bud-style `/` catalog: user-created skills first, followed by the
- * integration catalog. Selection metadata lets each composer preserve its existing
- * skill/tool submission contract while presenting one unified menu.
+ * Builds the skill catalog used by the `@` composer trigger. The optional toolkit
+ * input remains available to non-composer callers, while chat intentionally passes
+ * skills only so `@` has one predictable meaning.
  */
 export function slashSkillItems(
   query: string,

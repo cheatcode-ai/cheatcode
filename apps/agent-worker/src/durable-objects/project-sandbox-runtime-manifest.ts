@@ -35,7 +35,7 @@ export async function writeSandboxRuntimeManifest(
 ): Promise<void> {
   const manifest = buildSandboxRuntimeManifest(records);
   const temporaryPath = `${SANDBOX_RUNTIME_MANIFEST_PATH}.tmp-${crypto.randomUUID()}`;
-  await client.createFolder(sandboxId, RUNTIME_DIRECTORY, "0700");
+  await client.createFolder(sandboxId, RUNTIME_DIRECTORY, "700");
   await client.uploadFile(
     sandboxId,
     temporaryPath,

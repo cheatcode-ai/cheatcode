@@ -24,9 +24,9 @@ capability discovery contracts, error codes, and UI message types.
 - `ui-message.ts`: the exact AI SDK UI message data-part contract persisted in
   Postgres and replayed to the web client
 
-`api.ts` also exports the canonical user-message character budget (including inlined
-attachment text) and finalized project-archive byte limit so browser and Worker
-boundaries cannot drift.
+`api.ts` also exports the canonical user-message character budget, project-file
+upload/batch/namespace limits and schemas, and finalized project-archive byte
+limit so browser and Worker boundaries cannot drift.
 
 ## Code Checks
 

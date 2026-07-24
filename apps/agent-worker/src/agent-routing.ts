@@ -9,6 +9,7 @@ import {
   findActiveAgentRunForThread,
   findAgentEntitlementByUserId,
   findAgentRunForUser,
+  getProject,
   getProjectWriteState,
   getThread,
   type RunPersonalization,
@@ -20,7 +21,14 @@ import {
   emitUserEvent,
   readBoundedResponseJson,
 } from "@cheatcode/observability";
-import { AgentRunId, type CreateRun, ThreadId, UserId } from "@cheatcode/types";
+import {
+  AgentRunId,
+  type CreateRun,
+  ProjectId,
+  type ProjectSummary,
+  ThreadId,
+  UserId,
+} from "@cheatcode/types";
 import {
   QUOTA_FEATURES,
   QUOTA_TRACKER_MAX_RESPONSE_BYTES,
@@ -114,6 +122,53 @@ export async function requireWritableThreadProject(
           },
         );
       }
+    });
+  } finally {
+    await close();
+  }
+}
+
+export async function requireProjectAccess(
+  env: AgentEnv,
+  userId: string,
+  projectId: string,
+  writable: boolean,
+): Promise<ProjectSummary & { workspaceSlug: string }> {
+  const parsedUserId = UserId(userId);
+  const { db, close } = createDb(env.HYPERDRIVE, {
+    audience: "app_agent",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  });
+  try {
+    return await withUserContext(db, parsedUserId, async (tx) => {
+      const project = await getProject(tx, {
+        projectId: ProjectId(projectId),
+        userId: parsedUserId,
+      });
+      if (!project) {
+        throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+      }
+      if (writable && project.readOnly) {
+        throw new APIError(
+          403,
+          "permission_plan_required",
+          "Project is read-only after downgrade",
+          {
+            details: {
+              archiveAfter: project.archiveAfter?.toISOString() ?? null,
+              overQuota: project.overQuota,
+            },
+            hint: "Delete or archive over-limit projects, or upgrade your plan to continue editing this project.",
+            retriable: false,
+          },
+        );
+      }
+      return {
+        ...project,
+        archiveAfter: project.archiveAfter?.toISOString() ?? null,
+        createdAt: project.createdAt.toISOString(),
+        updatedAt: project.updatedAt.toISOString(),
+      };
     });
   } finally {
     await close();

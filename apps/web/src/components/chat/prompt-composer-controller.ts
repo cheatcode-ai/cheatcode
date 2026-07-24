@@ -9,26 +9,23 @@ import {
   type RefObject,
   useCallback,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import type { RunStatus } from "@/components/chat/status-pill";
 import {
-  type ComposerStatusTone,
   type PromptAttachments,
   usePromptAttachments,
 } from "@/components/chat/use-prompt-attachments";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
-import { useMentionFileItems } from "@/components/composer/mention-file-source";
+import { useProjectFileItems } from "@/components/composer/project-file-source";
 import { slashSkillItems } from "@/components/composer/slash-skill-source";
 import {
   type ComposerTriggers,
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
-import { fetchIntegrationCatalog, INTEGRATION_CATALOG_QUERY } from "@/lib/api/integrations";
 import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import { useAppStore } from "@/lib/store/app-store";
@@ -51,8 +48,6 @@ export interface PromptComposerProps {
 
 interface PromptComposerState {
   canSubmit: boolean;
-  composerStatus: string | null;
-  composerStatusTone: ComposerStatusTone;
   computerOpen: boolean;
   isMenuOpen: boolean;
   isRunning: boolean;
@@ -84,22 +79,26 @@ export interface PromptComposerController {
 }
 
 export function usePromptComposerController(props: PromptComposerProps): PromptComposerController {
+  const { getToken } = useAuth();
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const publisher = usePublishedValue(props.value, props.onChange);
   const isRunning = props.status === "streaming" || props.status === "submitted";
-  const sandboxReady = useAppStore((state) => state.sandboxStatus === "ready");
   const computerOpen = useAppStore((state) => state.previewPanelOpen);
+  const projectSelection = useProjectSelection(props.project);
   const menu = usePromptComposerMenu({
+    getToken,
     onChange: publisher.publishValue,
-    sandboxReady,
+    projectId: projectSelection.selectedProject?.id ?? null,
     textareaRef,
-    threadId: props.threadId,
     value: props.value,
   });
-  const projectSelection = useProjectSelection(props.project);
   const attachments = usePromptAttachments({
+    getToken,
     latestValueRef: publisher.latestValueRef,
     onChange: publisher.publishValue,
+    onProjectCreated: projectSelection.selectProject,
+    project: projectSelection.selectedProject,
+    value: props.value,
   });
   return usePromptComposerAssembly({
     attachments,
@@ -128,60 +127,49 @@ function usePublishedValue(value: string, onChange: (value: string) => void) {
 }
 
 function usePromptComposerMenu({
+  getToken,
   onChange,
-  sandboxReady,
+  projectId,
   textareaRef,
-  threadId,
   value,
 }: {
+  getToken: () => Promise<null | string>;
   onChange: (value: string) => void;
-  sandboxReady: boolean;
+  projectId: string | null;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
-  threadId: string;
   value: string;
 }) {
-  const { getToken } = useAuth();
   const { data: userSkills } = useQuery({
     queryFn: ({ signal }) => listUserSkills(getToken, signal),
     queryKey: USER_SKILLS_QUERY,
     staleTime: 60_000,
   });
-  const integrationQuery = useQuery({
-    queryFn: ({ signal }) => fetchIntegrationCatalog(getToken, signal),
-    queryKey: INTEGRATION_CATALOG_QUERY,
-    staleTime: 60_000,
-  });
   const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
   const [selectedTool, setSelectedTool] = useState<IntegrationName | null>(null);
-  const sources = useMemo(
-    () => (sandboxReady ? [SLASH_DETECTOR, MENTION_DETECTOR] : [SLASH_DETECTOR]),
-    [sandboxReady],
-  );
   const triggers = useComposerTriggers({
     onChange,
     onInsert: (kind, item) => {
-      if (kind === "slash") selectSlashItem(item, setSelectedSkill, setSelectedTool);
+      if (kind === "mention") selectSkillItem(item, setSelectedSkill, setSelectedTool);
       emitComposerEvent(
         getToken,
         kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
       );
     },
-    sources,
+    sources: [SLASH_DETECTOR, MENTION_DETECTOR],
     textareaRef,
     value,
   });
-  const mentionItems = useMentionFileItems({
-    enabled: sandboxReady && triggers.kind === "mention",
+  const fileItems = useProjectFileItems({
+    enabled: triggers.kind === "slash",
+    projectId,
     query: triggers.query,
-    threadId,
   });
   const menuItems =
-    triggers.kind === "mention"
-      ? mentionItems
-      : slashMenuItems({
-          isPending: integrationQuery.isPending,
+    triggers.kind === "slash"
+      ? fileItems
+      : skillMenuItems({
+          isPending: userSkills === undefined,
           query: triggers.query,
-          toolkits: integrationQuery.data?.toolkits ?? [],
           userSkills: userSkills ?? [],
         });
   return {
@@ -194,7 +182,7 @@ function usePromptComposerMenu({
   };
 }
 
-function selectSlashItem(
+function selectSkillItem(
   item: ComposerMenuItem,
   setSelectedSkill: (skill: string | null) => void,
   setSelectedTool: (tool: IntegrationName | null) => void,
@@ -208,18 +196,16 @@ function selectSlashItem(
   }
 }
 
-function slashMenuItems({
+function skillMenuItems({
   isPending,
   query,
-  toolkits,
   userSkills,
 }: {
   isPending: boolean;
   query: string;
-  toolkits: Parameters<typeof slashSkillItems>[2];
   userSkills: Parameters<typeof slashSkillItems>[1];
 }): ComposerMenuItem[] {
-  const items = slashSkillItems(query, userSkills, toolkits);
+  const items = slashSkillItems(query, userSkills);
   if (items.length > 0) return items;
   const label = isPending ? "Loading skills…" : "No matching skills";
   return [{ disabled: true, id: `status:${label}`, insert: "", label, visual: "status" }];
@@ -250,7 +236,8 @@ type PromptComposerAssemblyOptions = {
 
 function usePromptComposerAssembly(options: PromptComposerAssemblyOptions) {
   const [openControlMenu, setOpenControlMenu] = useState<ComposerControlMenu | null>(null);
-  const canSubmit = options.props.value.trim().length > 0 && !options.isRunning;
+  const canSubmit =
+    options.props.value.trim().length > 0 && !options.isRunning && !options.attachments.isUploading;
   const submission = createComposerSubmission({
     canSubmit,
     isRunning: options.isRunning,
@@ -283,12 +270,10 @@ function createPromptComposerState(
 ): PromptComposerState {
   return {
     canSubmit,
-    composerStatus: options.attachments.status?.text ?? null,
-    composerStatusTone: options.attachments.status?.tone ?? "ok",
     computerOpen: options.computerOpen,
     isMenuOpen: options.menu.triggers.isActive && options.menu.menuItems.length > 0,
     isRunning: options.isRunning,
-    menuAriaLabel: options.menu.triggers.kind === "mention" ? "File mentions" : "Skills",
+    menuAriaLabel: options.menu.triggers.kind === "slash" ? "Project files" : "Skills",
     menuItems: options.menu.menuItems,
     openControlMenu,
     resolvedModelId: options.props.resolvedModelId,

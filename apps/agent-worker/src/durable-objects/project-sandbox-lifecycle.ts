@@ -638,6 +638,19 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     });
   }
 
+  protected async restartSandboxForWorkspaceRecovery(sandboxId: string): Promise<void> {
+    await this.withSandboxMutation(async () => {
+      const client = await this.ensureClient();
+      try {
+        await this.provisioning.restart(client, sandboxId);
+      } catch (error) {
+        throw this.toUpstreamError(error, "Daytona workspace recovery failed.");
+      }
+      this.daytonaId = sandboxId;
+      this.startedVerifiedAtMs = Date.now();
+    });
+  }
+
   protected async ensureExistingSandboxStarted(): Promise<string | null> {
     return this.withSandboxMutation(async () => {
       const client = await this.ensureClient();
@@ -733,6 +746,16 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
 
   protected sandboxName(): string {
     return this.identityState.sandboxName();
+  }
+
+  protected ownerUserId(): string {
+    const userId = this.identityState.ownerUserId();
+    if (!userId) {
+      throw new APIError(500, "internal_error", "ProjectSandbox owner is not registered", {
+        retriable: false,
+      });
+    }
+    return userId;
   }
 
   protected writeExecAudit(entry: SandboxExecAuditEntry): Promise<void> {

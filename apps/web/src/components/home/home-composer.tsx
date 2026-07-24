@@ -10,6 +10,10 @@ import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AuthModal } from "@/components/auth/auth-modal";
 import { AddMenu } from "@/components/composer/add-menu";
+import {
+  ComposerAttachmentStatus,
+  type ComposerAttachmentStatusState,
+} from "@/components/composer/composer-attachment-status";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/composer-frame";
 import { ComposerPopover } from "@/components/composer/composer-popover";
@@ -28,7 +32,6 @@ import {
   type HomeComposerProps,
   useHomeComposerController,
 } from "@/components/home/use-home-composer-controller";
-import type { AttachmentStatus } from "@/components/home/use-home-prompt-state";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";
 import { cn } from "@/lib/ui/cn";
@@ -45,7 +48,6 @@ export function HomeComposer(props: HomeComposerProps) {
         slot={props.quickActionsSlot}
       />
       <HomeComposerForm controller={controller} />
-      <AttachmentStatusMessage status={controller.state.attachmentStatus} />
       <ComposerSignUpModal
         onClose={controller.actions.closeAuthModal}
         redirectTo={controller.state.authRedirectTo}
@@ -85,6 +87,7 @@ function HomeSlashPopover({ controller }: { controller: HomeComposerController }
 }
 
 interface HomeComposerEditorProps {
+  attachmentStatus: ComposerAttachmentStatusState | null;
   onClearSkill: () => void;
   onClearTool: () => void;
   onExitSkillCreator: () => void;
@@ -100,6 +103,7 @@ interface HomeComposerEditorProps {
 
 function homeEditorProps(controller: HomeComposerController): HomeComposerEditorProps {
   return {
+    attachmentStatus: controller.state.attachmentStatus,
     onClearSkill: controller.actions.clearSkillSelection,
     onClearTool: controller.actions.clearTool,
     onExitSkillCreator: controller.actions.exitSkillCreator,
@@ -125,13 +129,16 @@ function HomeComposerEditor(props: HomeComposerEditorProps) {
         skill={props.skillChip}
         tool={props.toolChip}
       />
+      <ComposerAttachmentStatus className="px-2 pt-3" status={props.attachmentStatus} />
       <label className="sr-only" htmlFor="home-prompt">
         Message Cheatcode
       </label>
       <textarea
         className={cn(
           COMPOSER_TEXTAREA_CLASS,
-          props.skillChip || props.toolChip || props.skillCreatorMode ? "pt-2" : "pt-4",
+          props.skillChip || props.toolChip || props.skillCreatorMode || props.attachmentStatus
+            ? "pt-2"
+            : "pt-4",
         )}
         id="home-prompt"
         maxLength={USER_MESSAGE_MAX_CHARACTERS}
@@ -155,6 +162,7 @@ interface HomeComposerToolbarProps {
   intent: ComposerIntent | null;
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onClearIntent: () => void;
+  onOpenFilePicker: () => void;
   onProjectSelect: (project: ProjectSummary | null) => void;
   onRemoveRepo: () => void;
   onRepoAttach: (url: string) => void;
@@ -170,6 +178,7 @@ function homeToolbarProps(controller: HomeComposerController): HomeComposerToolb
     intent: controller.state.intent,
     onAttachmentChange: controller.actions.handleAttachmentChange,
     onClearIntent: controller.actions.clearIntent,
+    onOpenFilePicker: controller.actions.openFilePicker,
     onProjectSelect: controller.actions.handleSelectProject,
     onRemoveRepo: controller.actions.clearRepo,
     onRepoAttach: controller.actions.handleRepoAttach,
@@ -192,7 +201,7 @@ function HomeComposerContextControls(props: HomeComposerToolbarProps) {
   return (
     <div className="flex min-w-0 items-center gap-0.5 sm:flex-wrap sm:gap-2">
       <input
-        aria-label="Upload files"
+        aria-label="Upload files to project"
         accept={PROMPT_ATTACHMENT_ACCEPT}
         className="sr-only"
         multiple
@@ -204,7 +213,7 @@ function HomeComposerContextControls(props: HomeComposerToolbarProps) {
       <AddMenu
         allowRepoImport={props.selectedProject === null}
         onRepoAttach={props.onRepoAttach}
-        onUploadClick={() => props.attachmentInputRef.current?.click()}
+        onUploadClick={props.onOpenFilePicker}
       />
       <HomeProjectPicker
         onSelect={props.onProjectSelect}
@@ -339,23 +348,6 @@ function HomeRepoChip({ onClear, repoUrl }: { onClear: () => void; repoUrl: stri
     return null;
   }
   return <RemovableChip label={repoLabel(repoUrl)} onClear={onClear} title={repoUrl} />;
-}
-
-function AttachmentStatusMessage({ status }: { status: AttachmentStatus | null }) {
-  if (!status) {
-    return null;
-  }
-  return (
-    <p
-      aria-live="polite"
-      className={cn(
-        "mx-auto mt-3 max-w-[448px] text-center text-[12px]",
-        status.tone === "error" ? "text-red-600" : "text-fg-secondary",
-      )}
-    >
-      {status.text}
-    </p>
-  );
 }
 
 function ComposerSignUpModal({

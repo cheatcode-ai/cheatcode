@@ -1,6 +1,8 @@
 import {
   CreateProjectSchema,
   CreateThreadSchema,
+  ProjectFileListSchema,
+  ProjectFileUploadResponseSchema,
   ProjectSummarySchema,
   ThreadSchema,
   UIMessageRecordSchema,
@@ -23,6 +25,8 @@ export const projectSchemas: Record<string, JsonValue> = {
   CreateProject: zodJsonSchema(CreateProjectSchema, "input"),
   CreateThread: zodJsonSchema(CreateThreadSchema, "input"),
   Project: zodJsonSchema(ProjectSummarySchema),
+  ProjectFileList: zodJsonSchema(ProjectFileListSchema),
+  ProjectFileUploadResponse: zodJsonSchema(ProjectFileUploadResponseSchema),
   Thread: zodJsonSchema(ThreadSchema),
   UIMessage: zodJsonSchema(UIMessageRecordSchema),
   UpdateProject: withJsonSchemaConstraints(zodJsonSchema(UpdateProjectSchema, "input"), {
@@ -52,6 +56,49 @@ export const projectRoutes: OpenApiRoute[] = [
     responses: { "201": jsonResponse("Created project", schemaRef("Project")) },
     security: [{ bearerAuth: [] }],
     summary: "Create a project",
+    tags: ["projects"],
+  },
+  {
+    method: "get",
+    operationId: "listProjectFiles",
+    path: "/v1/projects/{projectId}/files",
+    responses: {
+      "200": jsonResponse("Project files", schemaRef("ProjectFileList")),
+      "404": jsonResponse("Not found", schemaRef("Error")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "List persistent uploaded project files",
+    tags: ["projects"],
+  },
+  {
+    method: "post",
+    operationId: "uploadProjectFile",
+    parameters: [
+      {
+        in: "query",
+        name: "filename",
+        required: true,
+        schema: { maxLength: 255, minLength: 1, type: "string" },
+      },
+    ],
+    path: "/v1/projects/{projectId}/files",
+    requestBody: {
+      content: {
+        "application/octet-stream": {
+          schema: { format: "binary", type: "string" },
+        },
+      },
+      required: true,
+    },
+    responses: {
+      "201": jsonResponse("Stored project file", schemaRef("ProjectFileUploadResponse")),
+      "403": jsonResponse("Project is read-only", schemaRef("Error")),
+      "404": jsonResponse("Not found", schemaRef("Error")),
+      "413": jsonResponse("File is too large", schemaRef("Error")),
+      "422": jsonResponse("Unsupported or invalid file", schemaRef("Error")),
+    },
+    security: [{ bearerAuth: [] }],
+    summary: "Upload and version a persistent project file",
     tags: ["projects"],
   },
   {

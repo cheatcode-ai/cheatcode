@@ -19,6 +19,7 @@ export interface ProjectSandboxEnv {
   PREVIEW_HOSTNAME: string;
   QUOTA_TRACKER: DurableObjectNamespace;
   R2_AUDIT: R2Bucket;
+  R2_OUTPUTS: R2Bucket;
 }
 
 export const ACCOUNT_DELETION_TOMBSTONE_KEY = "account_deletion_tombstone";

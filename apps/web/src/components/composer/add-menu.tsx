@@ -7,8 +7,8 @@ import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
 
 /**
- * The composer "+" menu: local file upload (delegates to the existing hidden file
- * input via `onUploadClick`) and one-shot public GitHub import. The repo URL is
+ * The composer "+" menu: persistent project-file upload (delegates to the hidden
+ * file input via `onUploadClick`) and one-shot public GitHub import. The repo URL is
  * validated client-side with the shared `GitHubRepoUrlSchema`; the gateway and DO
  * re-validate at their own trust boundaries.
  */
@@ -83,7 +83,7 @@ function AddMenuPopup({
         type="button"
       >
         <Paperclip aria-hidden="true" className="h-3.5 w-3.5" />
-        Upload file
+        Upload to project
       </button>
       <RepoImportControl allowed={allowRepoImport} onAttach={onRepoAttach} />
     </div>

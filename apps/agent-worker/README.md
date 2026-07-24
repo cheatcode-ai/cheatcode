@@ -32,6 +32,18 @@ existence before minting a one-hour HMAC capability; the public signed download 
 streaming second hop. Expiring capabilities and internal R2 keys are never stored in transcripts or
 returned by artifact tools.
 
+User uploads are durable project files rather than prompt text. The authenticated project-file
+route accepts one bounded raw file at a time, validates its filename, extension, UTF-8 or binary
+signature, and tenant/project write state, then derives deterministic file and version UUIDs from
+the project path and content digest. R2 stores immutable bytes under the existing
+`user/project/` lifecycle prefix with create-only checksum verification. ProjectSandbox stores the
+small current/version namespace records and mirrors the current version to
+`/workspace/<workspaceSlug>/uploads/` on the user's persistent Daytona volume before exposing it.
+An exact replay is idempotent; uploading new bytes at the same path creates a retained version and
+updates the working copy. Project deletion removes the namespace during fenced workspace cleanup
+and the existing resource-deletion prefix sweep removes every immutable object. Account deletion
+clears both through the existing account state and R2 lifecycle phases.
+
 Run creation validates the gateway payload with the shared `CreateRunSchema` from
 `packages/types` before selecting the run-scoped `AgentRun` Durable Object. The
 database binds a gateway-hashed idempotency key to the exact body and thread. After the

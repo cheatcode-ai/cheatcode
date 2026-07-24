@@ -165,7 +165,7 @@ export function clerkAuthorizedParties(
       ? configured
       : env.CHEATCODE_ENVIRONMENT === "production"
         ? ["https://trycheatcode.com"]
-        : ["http://localhost:3000", "http://127.0.0.1:3000"];
+        : ["http://localhost:3001"];
   if (parties.length > 16 || parties.some((value) => !isExactHttpOrigin(value))) {
     throw new APIError(503, "unavailable_maintenance", "Clerk authorized parties are invalid", {
       hint: "Configure CLERK_AUTHORIZED_PARTIES as comma-separated exact HTTP(S) origins.",
