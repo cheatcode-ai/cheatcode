@@ -17,18 +17,13 @@
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
     "infra/containers/sandbox/browser-driver": {
-      // The snapshot launches this service from start-browser-driver.sh.
-      "entry": ["server.js"],
-      // Stagehand resolves these peer packages dynamically inside the snapshot,
-      // so a clean root-only CI install exposes no source-level import to Knip.
-      "ignoreDependencies": ["playwright-core", "zod"]
+      // The snapshot launches this non-workspace service directly.
+      "entry": ["server.js"]
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve these executables by installed binary name;
-      // a root-only install cannot expose those child-process edges to Knip.
-      "ignoreDependencies": ["agent-browser", "tsx"],
-      "ignoreBinaries": ["agent-browser"]
+      // The runtime resolves this executable from an absolute installed path.
+      "ignoreDependencies": ["tsx"]
     }
   }
 }
