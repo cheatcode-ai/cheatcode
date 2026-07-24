@@ -44,10 +44,23 @@ export function SandboxIdeTab({
   previewReloadToken: number;
   threadId: string | null;
 }) {
+  if (!active) {
+    return null;
+  }
+  return <ActiveSandboxIdeTab previewReloadToken={previewReloadToken} threadId={threadId} />;
+}
+
+function ActiveSandboxIdeTab({
+  previewReloadToken,
+  threadId,
+}: {
+  previewReloadToken: number;
+  threadId: string | null;
+}) {
   const { getToken } = useAuth();
   const { resolvedTheme } = useTheme();
   const [frameReloadToken, setFrameReloadToken] = useState(0);
-  const ideQuery = useSandboxIdeQuery(active, threadId, getToken);
+  const ideQuery = useSandboxIdeQuery(threadId, getToken);
   const requestedIframeUrl = ideQuery.data
     ? codeServerIframeUrl(
         ideQuery.data.url,
@@ -57,7 +70,7 @@ export function SandboxIdeTab({
       )
     : null;
   const iframeUrl = useStablePreviewSource(requestedIframeUrl);
-  const bridge = useCodeServerBridge(active, iframeUrl, threadId);
+  const bridge = useCodeServerBridge(iframeUrl, threadId);
   const refetchSession = () => void ideQuery.refetch();
   const reloadFrame = () => setFrameReloadToken((current) => current + 1);
   return (
@@ -72,14 +85,10 @@ export function SandboxIdeTab({
   );
 }
 
-function useSandboxIdeQuery(
-  active: boolean,
-  threadId: string | null,
-  getToken: () => Promise<null | string>,
-) {
+function useSandboxIdeQuery(threadId: string | null, getToken: () => Promise<null | string>) {
   // Files resolves either the per-user computer root or the active project folder.
   return useQuery({
-    enabled: active,
+    gcTime: 0,
     queryFn: ({ signal }) =>
       threadId === null
         ? openComputerIde(getToken, signal)
@@ -90,7 +99,7 @@ function useSandboxIdeQuery(
     refetchIntervalInBackground: false,
     refetchOnWindowFocus: false,
     retry: 1,
-    staleTime: 40 * 60 * 1000,
+    staleTime: 0,
   });
 }
 
@@ -192,7 +201,7 @@ function SandboxIdeFrame({
   );
 }
 
-function useCodeServerBridge(active: boolean, iframeUrl: string | null, threadId: string | null) {
+function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [readyIframeUrl, setReadyIframeUrl] = useState<string | null>(null);
   const [timedOutIframeUrl, setTimedOutIframeUrl] = useState<string | null>(null);
@@ -216,7 +225,6 @@ function useCodeServerBridge(active: boolean, iframeUrl: string | null, threadId
   const isReady = iframeUrl !== null && readyIframeUrl === iframeUrl;
   const requestReadyState = () => requestCodeServerState(iframeOrigin, iframeRef);
   useCodeServerHandshake({
-    active,
     iframeOrigin,
     iframeRef,
     iframeUrl,
@@ -241,16 +249,15 @@ function useCodeServerBridge(active: boolean, iframeUrl: string | null, threadId
 }
 
 function useCodeServerHandshake(input: {
-  active: boolean;
   iframeOrigin: string | null;
   iframeRef: RefObject<HTMLIFrameElement | null>;
   iframeUrl: string | null;
   isReady: boolean;
   setTimedOutIframeUrl: (iframeUrl: string | null) => void;
 }): void {
-  const { active, iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl } = input;
+  const { iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl } = input;
   useEffect(() => {
-    if (!active || !iframeOrigin || !iframeUrl || isReady) return;
+    if (!iframeOrigin || !iframeUrl || isReady) return;
     setTimedOutIframeUrl(null);
     requestCodeServerState(iframeOrigin, iframeRef);
     const interval = window.setInterval(
@@ -265,7 +272,7 @@ function useCodeServerHandshake(input: {
       window.clearInterval(interval);
       window.clearTimeout(timeout);
     };
-  }, [active, iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl]);
+  }, [iframeOrigin, iframeRef, iframeUrl, isReady, setTimedOutIframeUrl]);
 }
 
 function requestCodeServerState(

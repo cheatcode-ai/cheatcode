@@ -54,17 +54,24 @@ function HomeComputerAside({
       className={homeComputerClass(computerOpen)}
       inert={computerOpen ? undefined : true}
     >
-      <HomeComputerBody activeTab={activeTab} onClose={onClose} setActiveTab={setActiveTab} />
+      <HomeComputerBody
+        activeTab={activeTab}
+        computerOpen={computerOpen}
+        onClose={onClose}
+        setActiveTab={setActiveTab}
+      />
     </aside>
   );
 }
 
 function HomeComputerBody({
   activeTab,
+  computerOpen,
   onClose,
   setActiveTab,
 }: {
   activeTab: PreviewTab;
+  computerOpen: boolean;
   onClose: () => void;
   setActiveTab: (tab: PreviewTab) => void;
 }) {
@@ -85,17 +92,27 @@ function HomeComputerBody({
           activeTab === "files" ? <ConsoleStrip sandboxAvailable threadId={null} /> : null
         }
       >
-        <HomeComputerTabContent activeTab={activeTab} />
+        <HomeComputerTabContent activeTab={activeTab} computerOpen={computerOpen} />
       </ComputerSurfaceFrame>
     </div>
   );
 }
 
-function HomeComputerTabContent({ activeTab }: { activeTab: PreviewTab }) {
+function HomeComputerTabContent({
+  activeTab,
+  computerOpen,
+}: {
+  activeTab: PreviewTab;
+  computerOpen: boolean;
+}) {
   return (
     <div className="h-full min-h-0">
       <Activity mode={activeTab === "files" ? "visible" : "hidden"}>
-        <SandboxIdeTab active previewReloadToken={0} threadId={null} />
+        <SandboxIdeTab
+          active={computerOpen && activeTab === "files"}
+          previewReloadToken={0}
+          threadId={null}
+        />
       </Activity>
       <Activity mode={activeTab === "app" ? "visible" : "hidden"}>
         <HomeBrowserEmpty />
