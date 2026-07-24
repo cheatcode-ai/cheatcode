@@ -1,6 +1,6 @@
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
 import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/tools-code";
-import { ProjectId } from "@cheatcode/types";
+import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema, ProjectId } from "@cheatcode/types";
 import { z } from "zod";
 
 const CommandArgvSchema = z.array(z.string().min(1).max(8_192)).min(1).max(128);
@@ -80,6 +80,32 @@ export const ProjectWriteFileInputSchema = z
     path: WorkspaceFilePathSchema,
     content: z.string().max(2_000_000),
     encoding: z.enum(["utf8", "base64"]).default("utf8"),
+  })
+  .strict();
+
+export const ProjectUploadFileInputSchema = z
+  .object({
+    bytes: z
+      .instanceof(Uint8Array)
+      .refine(
+        (value) => value.byteLength > 0 && value.byteLength <= PROJECT_FILE_MAX_BYTES,
+        `Project files must be between 1 byte and ${PROJECT_FILE_MAX_BYTES} bytes.`,
+      ),
+    contentType: z.string().trim().min(1).max(200),
+    name: z.string().trim().min(1).max(200),
+    path: ProjectFileRelativePathSchema,
+    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
+  })
+  .strict()
+  .refine(
+    (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
+    "Workspace slug does not belong to the requested project.",
+  );
+
+export const ProjectListUploadedFilesInputSchema = z
+  .object({
+    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
   })
   .strict();
 
@@ -226,6 +252,8 @@ export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSc
 export type ProjectPreviewFileInput = z.input<typeof ProjectPreviewFileInputSchema>;
 export type ProjectReadFileInput = z.input<typeof ProjectReadFileInputSchema>;
 export type ProjectWriteFileInput = z.input<typeof ProjectWriteFileInputSchema>;
+export type ProjectUploadFileInput = z.input<typeof ProjectUploadFileInputSchema>;
+export type ProjectListUploadedFilesInput = z.input<typeof ProjectListUploadedFilesInputSchema>;
 export type ProjectListFilesInput = z.input<typeof ProjectListFilesInputSchema>;
 export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSchema>;
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;

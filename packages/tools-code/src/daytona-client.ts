@@ -474,10 +474,11 @@ export class DaytonaClient {
   }
 
   async createFolder(id: string, path: string, mode = "0755"): Promise<void> {
+    const normalizedMode = mode.length === 3 ? `0${mode}` : mode;
     await this.toolbox(
       "POST",
       id,
-      `/files/folder?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(mode)}`,
+      `/files/folder?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(normalizedMode)}`,
       { allowConflict: true },
     );
   }
@@ -515,7 +516,10 @@ export class DaytonaClient {
     path: string,
     options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean; timeoutMs?: number },
   ): Promise<unknown> {
-    return this.request(method, `${this.toolboxUrl}/${encodeURIComponent(id)}${path}`, options);
+    return this.request(method, `${this.toolboxUrl}/${encodeURIComponent(id)}${path}`, {
+      ...options,
+      operation: `${method} ${path.split("?")[0]}`,
+    });
   }
 
   private async toolboxText(id: string, path: string): Promise<string> {
@@ -536,7 +540,7 @@ export class DaytonaClient {
     }
     const res = await this.fetchWithDeadline(url, init, options?.timeoutMs);
     if (!res.ok) {
-      throw await toApiError(res);
+      throw await toApiError(res, `${method} ${path.split("?")[0]}`);
     }
     return res;
   }
@@ -544,7 +548,13 @@ export class DaytonaClient {
   private async request(
     method: string,
     url: string,
-    options?: { body?: unknown; allow404?: boolean; allowConflict?: boolean; timeoutMs?: number },
+    options?: {
+      body?: unknown;
+      allow404?: boolean;
+      allowConflict?: boolean;
+      operation?: string;
+      timeoutMs?: number;
+    },
   ): Promise<unknown> {
     const init: RequestInit = { method, headers: this.headers() };
     if (options?.body !== undefined) {
@@ -561,7 +571,7 @@ export class DaytonaClient {
       return null;
     }
     if (!res.ok) {
-      throw await toApiError(res);
+      throw await toApiError(res, options?.operation);
     }
     if (res.status === 204) {
       await res.body?.cancel().catch(() => undefined);
@@ -606,21 +616,16 @@ export class DaytonaClient {
   }
 }
 
-async function toApiError(res: Response): Promise<DaytonaApiError> {
+async function toApiError(res: Response, operation?: string): Promise<DaytonaApiError> {
   let details: unknown;
-  let message = `Daytona request failed (HTTP ${res.status})`;
+  let message = `Daytona request failed (HTTP ${res.status}${operation ? `; ${operation}` : ""})`;
   try {
     const text = await readBoundedResponseText(res, DAYTONA_ERROR_RESPONSE_MAX_BYTES);
     if (text.length > 0) {
       try {
         const parsed: unknown = JSON.parse(text);
         details = parsed;
-        if (typeof parsed === "object" && parsed !== null && "message" in parsed) {
-          const candidate = (parsed as { message?: unknown }).message;
-          if (typeof candidate === "string") {
-            message = candidate.slice(0, 1_000);
-          }
-        }
+        message = providerErrorMessage(parsed) ?? message;
       } catch {
         details = text.slice(0, 500);
       }
@@ -629,6 +634,17 @@ async function toApiError(res: Response): Promise<DaytonaApiError> {
     // ignore body read failures
   }
   return new DaytonaApiError(res.status, message, { details });
+}
+
+function providerErrorMessage(value: unknown): string | undefined {
+  if (typeof value !== "object" || value === null) return undefined;
+  for (const key of ["message", "error", "detail"] as const) {
+    const candidate = Reflect.get(value, key);
+    if (typeof candidate === "string" && candidate.length > 0) {
+      return candidate.slice(0, 1_000);
+    }
+  }
+  return undefined;
 }
 
 function stripTrailingSlash(value: string): string {

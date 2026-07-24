@@ -175,7 +175,7 @@ async function deleteInternalUserState(c: AgentContext): Promise<Response> {
     await sandbox.deleteAccountState();
     return deletedStateResponse(c);
   }
-  const sandbox = await sandboxForUser(c.env, userId);
+  const sandbox = await sandboxStubForUser(c.env, userId);
   await sandbox.cleanupProjectWorkspace({
     projectId: body.projectId,
     workspaceSlug: body.workspaceSlug,

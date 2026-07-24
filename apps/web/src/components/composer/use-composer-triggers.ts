@@ -60,8 +60,8 @@ function detectActive(
  * Owns caret tracking, active-trigger detection (pure, derived in render),
  * keyboard navigation, and token replacement for both composer menus. Items are
  * supplied by the caller at event time (`handleMenuKeyDown`/`commitIndex` take the
- * current items array), which keeps the async `@` file source decoupled from this
- * hook with no shared mutable state.
+ * current items array), which keeps the async project-file source decoupled from
+ * this hook with no shared mutable state.
  */
 export function useComposerTriggers({
   onChange,

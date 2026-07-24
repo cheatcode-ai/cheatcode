@@ -121,6 +121,44 @@ export class ProjectSandboxProvisioning {
     );
   }
 
+  public async restart(client: DaytonaClient, sandboxId: string): Promise<void> {
+    await client.stopSandbox(sandboxId).catch((error: unknown) => {
+      throw this.input.toUpstreamError(error, "Daytona sandbox failed to stop for recovery.");
+    });
+    for (let attempt = 0; attempt < ENSURE_STARTED_ATTEMPTS; attempt += 1) {
+      const current = await client.getSandbox(sandboxId);
+      if (!current) {
+        throw new APIError(502, "upstream_sandbox_failed", "Daytona sandbox disappeared", {
+          retriable: true,
+        });
+      }
+      if (isStartableState(current.state)) {
+        if (await this.ensureStarted(client, current)) {
+          return;
+        }
+        break;
+      }
+      if (isFailedState(current.state)) {
+        throw new APIError(
+          502,
+          "upstream_sandbox_failed",
+          `Daytona sandbox in state ${current.state}`,
+          {
+            details: { sandboxId: this.input.sandboxName(), state: current.state },
+            retriable: true,
+          },
+        );
+      }
+      await sleep(ENSURE_STARTED_DELAY_MS);
+    }
+    throw new APIError(
+      504,
+      "upstream_sandbox_failed",
+      "Daytona sandbox did not stop for recovery",
+      { retriable: true },
+    );
+  }
+
   public async ensureWorkspaceVolume(client: DaytonaClient): Promise<DaytonaVolume> {
     const name = this.input.env.DAYTONA_WORKSPACE_VOLUME;
     let volume = await client.getVolumeByName(name);

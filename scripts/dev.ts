@@ -145,7 +145,7 @@ function defaultOptions(): DevOptions {
   return {
     bindAddress: "127.0.0.1",
     dryRun: false,
-    port: "3000",
+    port: "3001",
     skipInitialBuild: false,
     webOnly: false,
     workersOnly: false,

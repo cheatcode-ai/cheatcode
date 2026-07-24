@@ -106,7 +106,12 @@ function ComposerPopoverRow({
       type="button"
     >
       <ComposerMenuIcon item={item} />
-      <span className="truncate font-medium text-foreground text-xs">{item.label}</span>
+      <span className="min-w-0 flex-1 truncate font-medium text-foreground text-xs">
+        {item.label}
+      </span>
+      {item.hint ? (
+        <span className="max-w-28 shrink-0 truncate text-[11px] text-placeholder">{item.hint}</span>
+      ) : null}
     </button>
   );
 }

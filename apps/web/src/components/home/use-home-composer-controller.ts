@@ -1,6 +1,6 @@
 "use client";
 
-import type { IntegrationName, ToolkitCatalogEntry, UserSkill } from "@cheatcode/types";
+import type { IntegrationName, UserSkill } from "@cheatcode/types";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
@@ -14,19 +14,18 @@ import {
   useState,
 } from "react";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
-import { useMentionFileItems } from "@/components/composer/mention-file-source";
+import { useProjectFileItems } from "@/components/composer/project-file-source";
 import { slashSkillItems } from "@/components/composer/slash-skill-source";
 import {
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
+import { useProjectFileUploads } from "@/components/composer/use-project-file-uploads";
 import { resolveComposerAuthToken } from "@/components/home/home-composer-auth";
 import { useHomeComposerSelection } from "@/components/home/use-home-composer-selection";
 import { useHomeComposerSubmission } from "@/components/home/use-home-composer-submission";
 import { useHomePromptState } from "@/components/home/use-home-prompt-state";
 import { resolveInitialSkill } from "@/components/home/use-initial-skill";
-import { fetchIntegrationCatalog, INTEGRATION_CATALOG_QUERY } from "@/lib/api/integrations";
-import { listProjectThreadsPage, listRecentThreads } from "@/lib/api/project-thread";
 import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
@@ -59,13 +58,20 @@ export function useHomeComposerController(input: HomeComposerProps) {
     },
     textarea.focus,
   );
+  const uploads = useProjectFileUploads({
+    getToken: identity.getToken,
+    latestValueRef: prompt.refs.latestValueRef,
+    onChange: prompt.actions.publishValue,
+    onProjectCreated: selection.actions.handleSelectProject,
+    project: selection.state.selectedProject,
+    value: prompt.state.value,
+  });
   const [authRedirectTo, setAuthRedirectTo] = useState<string | null>(null);
   const composerMenu = useHomeComposerMenu({
     getToken: identity.getToken,
     projectId: selection.state.selectedProject?.id ?? null,
     publishValue: prompt.actions.publishValue,
     selectSkill: selection.actions.selectSkill,
-    selectTool: selection.actions.selectTool,
     textareaRef: textarea.ref,
     value: prompt.state.value,
   });
@@ -76,10 +82,11 @@ export function useHomeComposerController(input: HomeComposerProps) {
     setAuthRedirectTo,
     state: submissionState,
   });
-  const submit = useHomeSubmit(submission.submit);
-  const handleKeyDown = useComposerKeyDown(composerMenu, submission.canSubmit, submit);
+  const canSubmit = submission.canSubmit && !uploads.isUploading;
+  const submit = useHomeSubmit(submission.submit, canSubmit);
+  const handleKeyDown = useComposerKeyDown(composerMenu, canSubmit, submit);
   const placeholder =
-    selection.state.intent?.placeholder ?? "Ask anything, @ for files, / for skills";
+    selection.state.intent?.placeholder ?? "Ask anything, @ for skills, / for files";
   return homeComposerControllerValue({
     authRedirectTo,
     getToken: identity.getToken,
@@ -92,6 +99,7 @@ export function useHomeComposerController(input: HomeComposerProps) {
     submission,
     submit,
     textareaRef: textarea.ref,
+    uploads,
   });
 }
 
@@ -156,13 +164,13 @@ function useHomeSubmissionState(
   );
 }
 
-function useHomeSubmit(submit: () => void) {
+function useHomeSubmit(submit: () => void, canSubmit: boolean) {
   return useCallback(
     (event?: FormEvent<HTMLFormElement>) => {
       event?.preventDefault();
-      submit();
+      if (canSubmit) submit();
     },
-    [submit],
+    [canSubmit, submit],
   );
 }
 
@@ -178,6 +186,7 @@ interface HomeControllerParts {
   submission: ReturnType<typeof useHomeComposerSubmission>;
   submit: (event?: FormEvent<HTMLFormElement>) => void;
   textareaRef: { current: HTMLTextAreaElement | null };
+  uploads: ReturnType<typeof useProjectFileUploads>;
 }
 
 function homeComposerControllerValue(parts: HomeControllerParts) {
@@ -185,7 +194,8 @@ function homeComposerControllerValue(parts: HomeControllerParts) {
     actions: {
       ...parts.selection.actions,
       closeAuthModal: () => parts.setAuthRedirectTo(null),
-      handleAttachmentChange: parts.prompt.actions.handleAttachmentChange,
+      handleAttachmentChange: parts.uploads.onFileChange,
+      openFilePicker: parts.uploads.openPicker,
       handleKeyDown: parts.handleKeyDown,
       publishValue: parts.prompt.actions.publishValue,
       submit: parts.submit,
@@ -193,14 +203,14 @@ function homeComposerControllerValue(parts: HomeControllerParts) {
     menu: parts.composerMenu,
     meta: { getToken: parts.getToken },
     refs: {
-      attachmentInputRef: parts.prompt.refs.attachmentInputRef,
+      attachmentInputRef: parts.uploads.inputRef,
       textareaRef: parts.textareaRef,
     },
     state: {
       ...parts.selection.state,
-      attachmentStatus: parts.prompt.state.attachmentStatus,
+      attachmentStatus: parts.uploads.status,
       authRedirectTo: parts.authRedirectTo,
-      canSubmit: parts.submission.canSubmit,
+      canSubmit: parts.submission.canSubmit && !parts.uploads.isUploading,
       placeholder: parts.placeholder,
       value: parts.prompt.state.value,
     },
@@ -212,7 +222,6 @@ function useHomeComposerMenu(input: {
   projectId: null | string;
   publishValue: (value: string) => void;
   selectSkill: (skill: string) => void;
-  selectTool: (tool: IntegrationName) => void;
   textareaRef: { current: HTMLTextAreaElement | null };
   value: string;
 }) {
@@ -221,15 +230,10 @@ function useHomeComposerMenu(input: {
     queryKey: USER_SKILLS_QUERY,
     staleTime: 60_000,
   });
-  const integrationQuery = useQuery({
-    queryFn: ({ signal }) => fetchIntegrationCatalog(input.getToken, signal),
-    queryKey: INTEGRATION_CATALOG_QUERY,
-    staleTime: 60_000,
-  });
   const triggers = useComposerTriggers({
     onChange: input.publishValue,
     onInsert: (kind, item) => {
-      if (kind === "slash") selectSlashItem(item, input.selectSkill, input.selectTool);
+      if (kind === "mention") selectSkillItem(item, input.selectSkill);
       emitComposerEvent(
         input.getToken,
         kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
@@ -239,94 +243,41 @@ function useHomeComposerMenu(input: {
     textareaRef: input.textareaRef,
     value: input.value,
   });
-  const target = useHomeMentionTarget({
-    enabled: triggers.kind === "mention",
-    getToken: input.getToken,
+  const fileItems = useProjectFileItems({
+    enabled: triggers.kind === "slash",
     projectId: input.projectId,
-  });
-  const mentionItems = useMentionFileItems({
-    enabled: triggers.kind === "mention" && target.threadId !== null,
     query: triggers.query,
-    threadId: target.threadId ?? "",
   });
   const items = resolveHomeMenuItems({
-    integrationPending: integrationQuery.isPending,
-    mentionItems,
-    targetPending: target.isPending,
-    threadId: target.threadId,
-    toolkits: integrationQuery.data?.toolkits ?? [],
+    fileItems,
     triggers,
     userSkills: userSkills ?? [],
   });
   return {
-    ariaLabel: triggers.kind === "mention" ? "File mentions" : "Skills",
+    ariaLabel: triggers.kind === "slash" ? "Project files" : "Skills",
     isOpen: triggers.isActive && items.length > 0,
     items,
     triggers,
   };
 }
 
-function useHomeMentionTarget({
-  enabled,
-  getToken,
-  projectId,
-}: {
-  enabled: boolean;
-  getToken: () => Promise<null | string>;
-  projectId: null | string;
-}) {
-  const projectThreads = useQuery({
-    enabled: enabled && projectId !== null,
-    queryFn: ({ signal }) => listProjectThreadsPage(getToken, projectId ?? "", null, 1, signal),
-    queryKey: ["home-mention-project-thread", projectId],
-    retry: false,
-    staleTime: 30_000,
-  });
-  const recentThreads = useQuery({
-    enabled: enabled && projectId === null,
-    queryFn: ({ signal }) => listRecentThreads(getToken, 1, signal),
-    queryKey: ["home-mention-recent-thread"],
-    retry: false,
-    staleTime: 30_000,
-  });
-  const threadId = projectId
-    ? (projectThreads.data?.data[0]?.id ?? null)
-    : (recentThreads.data?.[0]?.id ?? null);
-  return {
-    isPending: projectId ? projectThreads.isPending : recentThreads.isPending,
-    threadId,
-  };
-}
-
 function resolveHomeMenuItems(input: {
-  integrationPending: boolean;
-  mentionItems: ComposerMenuItem[];
-  targetPending: boolean;
-  threadId: null | string;
-  toolkits: readonly ToolkitCatalogEntry[];
+  fileItems: ComposerMenuItem[];
   triggers: ReturnType<typeof useComposerTriggers>;
   userSkills: UserSkill[];
 }): ComposerMenuItem[] {
-  if (input.triggers.kind === "mention") {
-    if (input.threadId) return input.mentionItems;
-    return [statusMenuItem(input.targetPending ? "Searching files…" : "No workspace files yet")];
-  }
-  const items = slashSkillItems(input.triggers.query, input.userSkills, input.toolkits);
+  if (input.triggers.kind === "slash") return input.fileItems;
+  const items = slashSkillItems(input.triggers.query, input.userSkills);
   if (items.length > 0) return items;
-  return [statusMenuItem(input.integrationPending ? "Loading skills…" : "No matching skills")];
+  return [statusMenuItem("No matching skills")];
 }
 
 function statusMenuItem(label: string): ComposerMenuItem {
   return { disabled: true, id: `status:${label}`, insert: "", label, visual: "status" };
 }
 
-function selectSlashItem(
-  item: ComposerMenuItem,
-  selectSkill: (skill: string) => void,
-  selectTool: (tool: IntegrationName) => void,
-) {
-  if (item.integrationName) selectTool(item.integrationName);
-  else if (item.skillName) selectSkill(item.skillName);
+function selectSkillItem(item: ComposerMenuItem, selectSkill: (skill: string) => void) {
+  if (item.skillName) selectSkill(item.skillName);
 }
 
 function useComposerKeyDown(

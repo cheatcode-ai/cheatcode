@@ -13,6 +13,15 @@ Deliverable parts contain durable output identity and presentation metadata, nev
 URL. A download click calls the authenticated gateway mint endpoint, validates its bounded response,
 and follows the resulting short-lived capability directly to the streaming response.
 
+Composer uploads always land in a writable project. If none is selected, choosing the first
+valid file creates and selects a general project named from that file. Files upload sequentially
+as raw bounded requests, show per-batch progress and actionable failures, and become durable
+`uploads/` files in that project instead of being pasted into message text. The composer inserts
+a compact `/uploads/...` reference after each successful save. `/` is exclusively the
+persistent project-file browser;
+`@` is exclusively the user-skill picker. The file browser reads durable project-file metadata and
+does not create or wake Daytona merely because the user opens it.
+
 ## Public exports
 
 Framework app only.

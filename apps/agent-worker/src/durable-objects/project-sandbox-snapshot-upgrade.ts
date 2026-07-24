@@ -306,7 +306,7 @@ export class ProjectSandboxSnapshotUpgrade {
       throw error;
     }
     const digest = await sha256Hex(bytes);
-    await this.input.client.createFolder(candidate.id, transferChunksPath(state.upgradeId), "0700");
+    await this.input.client.createFolder(candidate.id, transferChunksPath(state.upgradeId), "700");
     await this.input.client.uploadFile(candidate.id, sourcePath, bytes);
     await this.verifyTransferredChunk(candidate.id, sourcePath, bytes.byteLength, digest);
     const next = SnapshotUpgradeStateSchema.parse({ ...state, nextChunk: state.nextChunk + 1 });

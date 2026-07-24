@@ -7,13 +7,22 @@ interface BoundedBodySource {
   readonly headers: Headers;
 }
 
+/** Read a binary request body without allowing an unbounded allocation. */
+export async function readBoundedRequestBytes(
+  request: Request,
+  maxBytes: number,
+  label = "Request",
+): Promise<Uint8Array<ArrayBuffer>> {
+  return readBoundedBodyBytes(request, maxBytes, () => bodyTooLarge(label));
+}
+
 /** Read a request body without allowing an unbounded allocation. */
 export async function readBoundedRequestText(
   request: Request,
   maxBytes: number,
   label = "Request",
 ): Promise<string> {
-  return readBoundedBodyText(request, maxBytes, () => bodyTooLarge(label));
+  return new TextDecoder().decode(await readBoundedRequestBytes(request, maxBytes, label));
 }
 
 /** Parses bounded JSON without turning malformed client input into a 500. */
@@ -103,13 +112,21 @@ async function readBoundedBodyText(
   maxBytes: number,
   tooLarge: () => APIError,
 ): Promise<string> {
+  return new TextDecoder().decode(await readBoundedBodyBytes(source, maxBytes, tooLarge));
+}
+
+async function readBoundedBodyBytes(
+  source: BoundedBodySource,
+  maxBytes: number,
+  tooLarge: () => APIError,
+): Promise<Uint8Array<ArrayBuffer>> {
   validateMaxBytes(maxBytes);
   if (declaredBodyIsTooLarge(source, maxBytes)) {
     await source.body?.cancel().catch(() => undefined);
     throw tooLarge();
   }
   if (!source.body) {
-    return "";
+    return new Uint8Array();
   }
 
   const reader = source.body.getReader();
@@ -138,7 +155,7 @@ async function readBoundedBodyText(
     body.set(chunk, offset);
     offset += chunk.byteLength;
   }
-  return new TextDecoder().decode(body);
+  return body;
 }
 
 function declaredBodyIsTooLarge(source: BoundedBodySource, maxBytes: number): boolean {

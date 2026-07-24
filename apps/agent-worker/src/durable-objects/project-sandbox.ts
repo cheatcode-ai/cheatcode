@@ -172,6 +172,20 @@ export class ProjectSandbox extends ProjectSandboxContent {
     );
   }
 
+  public override listUploadedFiles(
+    ...args: Parameters<ProjectSandboxContent["listUploadedFiles"]>
+  ): ReturnType<ProjectSandboxContent["listUploadedFiles"]> {
+    return this.withActiveSandboxOperation(() => super.listUploadedFiles(...args));
+  }
+
+  public override uploadProjectFile(
+    ...args: Parameters<ProjectSandboxContent["uploadProjectFile"]>
+  ): ReturnType<ProjectSandboxContent["uploadProjectFile"]> {
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].workspaceSlug), () =>
+      super.uploadProjectFile(...args),
+    );
+  }
+
   public override previewFile(
     ...args: Parameters<ProjectSandboxContent["previewFile"]>
   ): ReturnType<ProjectSandboxContent["previewFile"]> {

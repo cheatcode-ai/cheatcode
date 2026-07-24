@@ -49,6 +49,7 @@ import {
   shellQuote,
   timeoutSeconds,
 } from "./project-sandbox-process-support";
+import { ProjectSandboxProjectFiles } from "./project-sandbox-project-files";
 import {
   type ProjectArchiveInput,
   ProjectArchiveInputSchema,
@@ -81,7 +82,6 @@ import {
   type ProjectWriteFileInput,
   ProjectWriteFileInputSchema,
 } from "./project-sandbox-runtime";
-import { ProjectSandboxWorkspaceTransition } from "./project-sandbox-workspace-transition";
 
 const PREVIEW_STATUS_PROBE_TIMEOUT_MS = 3_000;
 const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
@@ -91,7 +91,7 @@ const BROWSER_TAKEOVER_PORT_MIN = 60_000;
 const BROWSER_TAKEOVER_PORT_MAX = 60_999;
 const BROWSER_TAKEOVER_SCRIPT = "/opt/cheatcode/start-browser-takeover.sh";
 
-export abstract class ProjectSandboxContent extends ProjectSandboxWorkspaceTransition {
+export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
   public downloadProjectArchive(input: ProjectArchiveInput): Promise<Response> {
     return this.downloadProjectArchiveForRpc(input, () => undefined);
   }
@@ -194,9 +194,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxWorkspaceTrans
   public async writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
     const parsed = ProjectWriteFileInputSchema.parse(input);
     const id = await this.ensureSandbox();
-    await this.client()
-      .createFolder(id, dirname(parsed.path))
-      .catch(() => undefined);
+    await this.client().createFolder(id, dirname(parsed.path));
     const bytes =
       parsed.encoding === "base64"
         ? decodeBase64(parsed.content)
@@ -393,11 +391,14 @@ export abstract class ProjectSandboxContent extends ProjectSandboxWorkspaceTrans
   public cleanupProjectWorkspace(input: ProjectCleanupWorkspaceInput): Promise<void> {
     const parsed = ProjectCleanupWorkspaceInputSchema.parse(input);
     return this.deleteProjectWorkspace(parsed, () =>
-      this.performProjectWorkspaceCleanup(parsed.workspaceSlug),
+      this.performProjectWorkspaceCleanup(parsed.projectId, parsed.workspaceSlug),
     );
   }
 
-  private async performProjectWorkspaceCleanup(workspaceSlug: string): Promise<void> {
+  private async performProjectWorkspaceCleanup(
+    projectId: string,
+    workspaceSlug: string,
+  ): Promise<void> {
     const id = await this.ensureExistingSandboxStarted();
     await super.killAllProcesses();
     if (id) {
@@ -405,6 +406,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxWorkspaceTrans
       await this.removeWorkspaceFolder(id, workspaceSlug);
     }
     await this.freeProjectPort(workspaceSlug);
+    await this.deleteUploadedFileMetadata(projectId);
   }
 
   private async mobileExpoProxy(

@@ -50,7 +50,7 @@ const POLAR_PRODUCT_ID_ENV = {
 
 const BILLING_REQUEST_MAX_BYTES = 8 * 1024;
 const PRODUCTION_WEB_ORIGIN = "https://trycheatcode.com";
-const LOCAL_WEB_ORIGIN = "http://localhost:3000";
+const LOCAL_WEB_ORIGIN = "http://localhost:3001";
 
 type BillingContext = Context<{ Bindings: GatewayEnv }>;
 

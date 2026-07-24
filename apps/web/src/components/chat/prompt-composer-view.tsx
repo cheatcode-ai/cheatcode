@@ -3,6 +3,7 @@
 import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types";
 import { ArrowUp, Paperclip, Square } from "@cheatcode/ui";
 import type { PromptComposerController } from "@/components/chat/prompt-composer-controller";
+import { ComposerAttachmentStatus } from "@/components/composer/composer-attachment-status";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
 import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/composer-frame";
 import { ComposerPopover } from "@/components/composer/composer-popover";
@@ -26,10 +27,6 @@ export function PromptComposerView({ controller }: { controller: PromptComposerC
         <ComposerFrame fillClassName="min-h-[124px]" isWorking={controller.state.isRunning}>
           <ComposerInput controller={controller} />
           <ComposerActions controller={controller} />
-          <ComposerStatusLine
-            status={controller.state.composerStatus}
-            tone={controller.state.composerStatusTone}
-          />
         </ComposerFrame>
       </div>
     </form>
@@ -62,6 +59,7 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
         skill={controller.state.selectedSkill}
         tool={controller.state.selectedTool}
       />
+      <ComposerAttachmentStatus className="px-2 pt-3" status={controller.attachments.status} />
       <div className="flex items-start gap-2">
         <label className="sr-only" htmlFor="prompt">
           Message Cheatcode
@@ -69,7 +67,11 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
         <textarea
           className={cn(
             COMPOSER_TEXTAREA_CLASS,
-            controller.state.selectedSkill || controller.state.selectedTool ? "pt-2" : "pt-4",
+            controller.state.selectedSkill ||
+              controller.state.selectedTool ||
+              controller.attachments.status
+              ? "pt-2"
+              : "pt-4",
           )}
           id="prompt"
           maxLength={USER_MESSAGE_MAX_CHARACTERS}
@@ -78,7 +80,7 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
           onKeyDown={controller.actions.handleKeyDown}
           onKeyUp={selectionHandler}
           onSelect={selectionHandler}
-          placeholder="Ask anything, @ for files, / for skills"
+          placeholder="Ask anything, @ for skills, / for files"
           ref={controller.meta.textareaRef}
           rows={1}
           value={controller.state.value}
@@ -121,7 +123,7 @@ function AttachmentButton({ controller }: { controller: PromptComposerController
   return (
     <>
       <input
-        aria-label="Upload files"
+        aria-label="Upload files to project"
         accept={PROMPT_ATTACHMENT_ACCEPT}
         className="sr-only"
         multiple
@@ -130,11 +132,11 @@ function AttachmentButton({ controller }: { controller: PromptComposerController
         tabIndex={-1}
         type="file"
       />
-      <CheatcodeTooltip label="Upload file">
+      <CheatcodeTooltip label="Upload to project">
         <button
-          aria-label="Upload file"
+          aria-label="Upload files to project"
           className="flex h-7 w-7 items-center justify-center rounded-full text-fg-secondary transition-colors hover:bg-background hover:text-foreground"
-          onClick={() => controller.attachments.inputRef.current?.click()}
+          onClick={controller.attachments.openPicker}
           type="button"
         >
           <Paperclip aria-hidden="true" className="h-4 w-4" />
@@ -163,23 +165,6 @@ function SendActionButton({ canSubmit, isRunning }: { canSubmit: boolean; isRunn
         )}
       </button>
     </CheatcodeTooltip>
-  );
-}
-
-function ComposerStatusLine({ status, tone }: { status: null | string; tone: "error" | "ok" }) {
-  if (!status) {
-    return null;
-  }
-  return (
-    <p
-      aria-live="polite"
-      className={cn(
-        "px-2 pt-1 text-right text-[12px]",
-        tone === "error" ? "text-red-600" : "text-fg-secondary",
-      )}
-    >
-      {status}
-    </p>
   );
 }
 

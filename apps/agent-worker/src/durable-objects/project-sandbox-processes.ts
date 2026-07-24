@@ -634,7 +634,7 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
     const body = Object.entries(env)
       .map(([key, value]) => `export ${key}=${shellQuote(value)}`)
       .join("\n");
-    await this.client().createFolder(id, ENV_FILE_DIR, "0700");
+    await this.client().createFolder(id, ENV_FILE_DIR, "700");
     await this.client().uploadFile(id, envPath, new TextEncoder().encode(`${body}\n`));
     const permissions = await this.client().execute(id, {
       command: `chmod 600 ${shellQuote(envPath)}`,

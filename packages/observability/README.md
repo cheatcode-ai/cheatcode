@@ -33,8 +33,8 @@ positions.
   `constraint`, `status`, and `retriable`) without messages, stacks, SQL, or
   query parameters
 - `withErrorHandler`
-- bounded request/response readers: `readJsonRequest`, `readBoundedRequestText`,
-  `readBoundedResponseText`, and `readBoundedResponseJson`
+- bounded request/response readers: `readJsonRequest`, `readBoundedRequestBytes`,
+  `readBoundedRequestText`, `readBoundedResponseText`, and `readBoundedResponseJson`
 - `withBoundedResponseBody` for enforcing response limits before an SDK parser
   consumes the stream
 - `emitAgentMetric`, `emitUserEvent`, `emitErrorEvent`, `emitPerformanceMetric`

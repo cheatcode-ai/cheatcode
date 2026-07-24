@@ -128,6 +128,51 @@ export const PaginationQuerySchema = z
 /** Exact maximum size of a finalized project-download ZIP across server and web clients. */
 export const PROJECT_ARCHIVE_MAX_OUTPUT_BYTES = 640 * 1024 * 1024;
 
+/** One project-file upload is bounded to keep Worker memory below its platform ceiling. */
+export const PROJECT_FILE_MAX_BYTES = 20 * 1024 * 1024;
+/** Browser clients upload sequentially and may select at most this many files per batch. */
+export const PROJECT_FILE_MAX_BATCH = 10;
+/** Operational namespace ceiling for current files in one project. */
+export const PROJECT_FILE_MAX_CURRENT_FILES = 1_000;
+
+export const ProjectFileRelativePathSchema = z
+  .string()
+  .min(9)
+  .max(240)
+  .regex(
+    /^uploads\/(?!\.{1,2}(?:\/|$))[^/\0]+$/u,
+    "Project uploads must be a single canonical file under uploads/.",
+  );
+
+export const ProjectFileSchema = z
+  .object({
+    contentType: z.string().min(1).max(200),
+    createdAt: z.string().datetime(),
+    fileId: z.string().uuid(),
+    name: z.string().min(1).max(200),
+    path: ProjectFileRelativePathSchema,
+    projectId: z.string().uuid(),
+    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+    sizeBytes: z.number().int().positive().max(PROJECT_FILE_MAX_BYTES),
+    updatedAt: z.string().datetime(),
+    versionCount: z.number().int().positive(),
+    versionId: z.string().uuid(),
+  })
+  .strict();
+
+export const ProjectFileListSchema = z
+  .object({
+    files: z.array(ProjectFileSchema).max(PROJECT_FILE_MAX_CURRENT_FILES),
+  })
+  .strict();
+
+export const ProjectFileUploadResponseSchema = z
+  .object({
+    file: ProjectFileSchema,
+    status: z.enum(["created", "unchanged", "updated"]),
+  })
+  .strict();
+
 export const CreateRunSchema = z
   .object({
     intent: RunIntentSchema.optional(),
@@ -636,6 +681,9 @@ export type ToolkitActionsResponse = z.infer<typeof ToolkitActionsResponseSchema
 export type ToolkitCatalogEntry = z.infer<typeof ToolkitCatalogEntrySchema>;
 export type ToolkitCategory = z.infer<typeof ToolkitCategorySchema>;
 export type ProjectMode = z.infer<typeof ProjectModeSchema>;
+export type ProjectFile = z.infer<typeof ProjectFileSchema>;
+export type ProjectFileList = z.infer<typeof ProjectFileListSchema>;
+export type ProjectFileUploadResponse = z.infer<typeof ProjectFileUploadResponseSchema>;
 export type ProjectSummary = z.infer<typeof ProjectSummarySchema>;
 export type ProviderKeySummary = z.infer<typeof ProviderKeySummarySchema>;
 export type Thread = z.infer<typeof ThreadSchema>;

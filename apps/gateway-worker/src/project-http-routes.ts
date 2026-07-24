@@ -73,6 +73,12 @@ function registerProjectItemRoutes(app: GatewayApp): void {
 }
 
 function registerProjectRelatedRoutes(app: GatewayApp): void {
+  app.get("/v1/projects/:projectId/files", (c) =>
+    forwardAgentRequest(c, "GET /v1/projects/:projectId/files"),
+  );
+  app.post("/v1/projects/:projectId/files", (c) =>
+    forwardAgentRequest(c, "POST /v1/projects/:projectId/files"),
+  );
   app.post("/v1/projects/:projectId/download", (c) =>
     forwardAgentRequest(c, "POST /v1/projects/:projectId/download"),
   );

@@ -124,6 +124,19 @@ export async function listProjectsPage(
   );
 }
 
+export async function createProject(
+  getToken: () => Promise<null | string>,
+  input: { name: string },
+): Promise<ProjectSummary> {
+  const response = await authorizedFetch(getToken, "/v1/projects", {
+    body: JSON.stringify({ mode: "general", name: input.name }),
+    method: "POST",
+  });
+  return ProjectSummarySchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
+}
+
 export async function listProjectThreadsPage(
   getToken: () => Promise<null | string>,
   projectId: string,

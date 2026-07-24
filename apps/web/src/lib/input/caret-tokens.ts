@@ -1,9 +1,8 @@
 /**
  * Pure caret-token parsing for the composer trigger menus. No DOM, no React —
- * just string math over the textarea value and caret position. `detectSlashToken`
- * only fires for a leading `/` prefix (matching the established "slash means
- * something only as a prompt prefix" convention); `detectMentionToken` fires for
- * an inline `@` that begins a word.
+ * just string math over the textarea value and caret position. `/` browses durable
+ * project files and `@` browses skills; both triggers begin a whitespace-delimited
+ * token and may appear anywhere in the prompt.
  */
 export interface CaretToken {
   /** Caret position (exclusive end of the matched query text). */
@@ -17,26 +16,11 @@ export interface CaretToken {
 const WHITESPACE = /\s/;
 
 /**
- * Active iff `/` is the first non-whitespace character of the whole value and the
- * caret sits inside that first whitespace-delimited token.
+ * Active iff scanning back from the caret reaches a word-start `/` without
+ * crossing whitespace. Additional slashes are allowed for project paths.
  */
 export function detectSlashToken(value: string, caret: number): CaretToken | null {
-  const firstNonWhitespace = value.search(/\S/);
-  if (firstNonWhitespace === -1 || value[firstNonWhitespace] !== "/") {
-    return null;
-  }
-  let tokenEnd = firstNonWhitespace + 1;
-  while (tokenEnd < value.length && !WHITESPACE.test(value[tokenEnd] ?? "")) {
-    tokenEnd += 1;
-  }
-  if (caret <= firstNonWhitespace || caret > tokenEnd) {
-    return null;
-  }
-  return {
-    end: caret,
-    query: value.slice(firstNonWhitespace + 1, caret),
-    start: firstNonWhitespace,
-  };
+  return detectWordStartToken(value, caret, "/");
 }
 
 /**
@@ -45,12 +29,16 @@ export function detectSlashToken(value: string, caret: number): CaretToken | nul
  * path segments can be typed for file descent.
  */
 export function detectMentionToken(value: string, caret: number): CaretToken | null {
+  return detectWordStartToken(value, caret, "@");
+}
+
+function detectWordStartToken(value: string, caret: number, trigger: "/" | "@"): CaretToken | null {
   for (let index = caret - 1; index >= 0; index -= 1) {
     const char = value[index];
     if (char === undefined || WHITESPACE.test(char)) {
       return null;
     }
-    if (char === "@") {
+    if (char === trigger) {
       const previous = index > 0 ? value[index - 1] : undefined;
       const isWordStart = index === 0 || (previous !== undefined && WHITESPACE.test(previous));
       if (!isWordStart) {
