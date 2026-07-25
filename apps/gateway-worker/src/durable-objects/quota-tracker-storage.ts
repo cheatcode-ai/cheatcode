@@ -2,6 +2,7 @@ import {
   assertExactSqliteSchema,
   assertSqliteRowCountPreserved,
   type ExpectedSqliteObject,
+  reconcileExactSqliteStorage,
   setCurrentSqliteStorageVersion,
 } from "@cheatcode/durable-storage";
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
@@ -75,7 +76,27 @@ const QUOTA_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
   },
 ];
 
-/** Force-normalizes all quota tables after the release barrier has drained every caller. */
+/**
+ * Opens quota storage and transactionally upgrades an older supported schema.
+ *
+ * Durable Object input gates serialize this synchronous admission path. The
+ * guarded maintenance route still calls the same reconciler for planned bulk
+ * verification, but ordinary forward-compatible releases cannot strand a
+ * dormant user object on its previous schema.
+ */
+export function ensureQuotaTrackerStorage(ctx: DurableObjectState): void {
+  if (!hasQuotaTrackerStorage(ctx)) {
+    initializeQuotaTrackerStorage(ctx);
+    return;
+  }
+  reconcileExactSqliteStorage(
+    "reconcile",
+    () => assertQuotaTrackerStorage(ctx),
+    () => reconcileQuotaTrackerStorage(ctx),
+  );
+}
+
+/** Force-normalizes all quota tables while preserving every valid source row. */
 export function reconcileQuotaTrackerStorage(ctx: DurableObjectState): void {
   ensureSourceTables(ctx);
   const limitColumns = ctx.storage.sql.exec("PRAGMA table_info(limit_override)").toArray();
@@ -94,7 +115,7 @@ export function assertQuotaTrackerStorage(ctx: DurableObjectState): void {
   assertExactSqliteSchema(ctx, QUOTA_STORAGE_SCHEMA);
 }
 
-export function initializeQuotaTrackerStorage(ctx: DurableObjectState): void {
+function initializeQuotaTrackerStorage(ctx: DurableObjectState): void {
   ensureSourceTables(ctx);
   ctx.storage.sql.exec(USAGE_EVENT_INDEX_SQL.replace("CREATE INDEX", "CREATE INDEX IF NOT EXISTS"));
   ctx.storage.sql.exec(

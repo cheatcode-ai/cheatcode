@@ -2,6 +2,7 @@ import {
   assertExactSqliteSchema,
   assertSqliteRowCountPreserved,
   type ExpectedSqliteObject,
+  reconcileExactSqliteStorage,
   setCurrentSqliteStorageVersion,
 } from "@cheatcode/durable-storage";
 
@@ -46,17 +47,29 @@ const IDEMPOTENCY_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
   },
 ];
 
-/** Reconciles every dormant object to the one current persisted schema. */
-export function initializeIdempotencyStorage(ctx: DurableObjectState): void {
+function initializeIdempotencyStorage(ctx: DurableObjectState): void {
   normalizeIdempotencyStorage(ctx, false);
   assertIdempotencyStorage(ctx);
+}
+
+/** Opens an existing object on the exact schema before serving its next request. */
+export function ensureIdempotencyStorage(ctx: DurableObjectState): void {
+  if (!hasIdempotencyStorage(ctx)) {
+    initializeIdempotencyStorage(ctx);
+    return;
+  }
+  reconcileExactSqliteStorage(
+    "reconcile",
+    () => assertIdempotencyStorage(ctx),
+    () => reconcileIdempotencyStorage(ctx),
+  );
 }
 
 export function hasIdempotencyStorage(ctx: DurableObjectState): boolean {
   return tableColumns(ctx, "idempotency_entry").length > 0;
 }
 
-/** One-shot cutover normalizer; a later release removes this force-rebuild entrypoint. */
+/** Rebuilds a supported predecessor schema while preserving every stored row. */
 export function reconcileIdempotencyStorage(ctx: DurableObjectState): void {
   normalizeIdempotencyStorage(ctx, true);
   assertExactSqliteSchema(ctx, IDEMPOTENCY_STORAGE_SCHEMA);

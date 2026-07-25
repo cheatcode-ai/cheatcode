@@ -18,8 +18,8 @@ import {
 } from "./idempotency-contract";
 import {
   assertIdempotencyStorage,
+  ensureIdempotencyStorage,
   hasIdempotencyStorage,
-  initializeIdempotencyStorage,
   reconcileIdempotencyStorage,
 } from "./idempotency-storage";
 import {
@@ -92,7 +92,7 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
       await rearmClosedGatewayDurableObjectAlarm(this.ctx);
       return;
     }
-    this.isStorageInitialized = true;
+    this.ensureStorage();
     this.deleteExpired(Date.now());
     await this.scheduleNextAlarm();
   }
@@ -186,11 +186,7 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
     if (this.isStorageInitialized) {
       return;
     }
-    if (hasIdempotencyStorage(this.ctx)) {
-      assertIdempotencyStorage(this.ctx);
-    } else {
-      initializeIdempotencyStorage(this.ctx);
-    }
+    ensureIdempotencyStorage(this.ctx);
     this.isStorageInitialized = true;
   }
 }

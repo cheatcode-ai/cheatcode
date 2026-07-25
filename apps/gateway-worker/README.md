@@ -88,34 +88,18 @@ request is made while either RLS transaction is open.
 Gateway emits `first_byok_key_added` after the first successful provider-key save
 and accepts authenticated `/v1/user-events` activation pings from the real web UI.
 
-Production releases use `CHEATCODE_RELEASE_GATE` as a fail-closed deployment
-barrier. The deploy operation first publishes the final gateway bundle with the
-gate set to `closed`; every public route, including `/health`, returns a
-non-cacheable `503`. Agent and webhooks are then deployed with their own gates
-set to `draining`; the gateway health body proves both service-bound downstream
-SHAs and gates. The release drains AgentRun and every webhook, ops, and
-resource-deletion Workflow before redeploying both services `closed` and allowing
-DDL. In steady state, the public 200 `/health` response also fails closed unless
-both downstream services report `open` at the gateway's exact release SHA. After closed reconciliation,
-contractions, and Vercel promotion, agent and webhooks reopen first and gateway
-opens last. Internal lifecycle work reaches quota state through the webhooks
-Worker's direct cross-Worker Durable Object binding, so gateway has no maintenance
-bypass route during the closed window.
+Production deploys bind an immutable `CHEATCODE_RELEASE_SHA` into every affected
+Worker. Forward-compatible Durable Object storage changes reconcile transactionally
+when an existing object is first admitted, before the operation reaches an await.
+This keeps dormant objects deployable without a fleet-wide maintenance pass while
+preserving every validated source row. The signed internal storage route and
+`CHEATCODE_RELEASE_GATE=closed` remain available for explicit bulk verification
+and schema contractions that require a coordinated maintenance window.
 
-If a barrier step fails, the deploy operation re-deploys and verifies all three
-writer gates closed before stopping. If recovery cannot be verified, writer state
-is reported as unconfirmed and requires immediate inspection. Once closed,
-recover by rerunning the complete deployment from the same immutable commit. If
-that release cannot continue, keep the gateway closed and dispatch a reviewed,
-forward-compatible `stage-closed` release that explicitly names the superseded
-closed SHA. Never recover a schema contraction by deploying older code or bypass
-convergence by flipping the gate in the dashboard.
-
-The HTTP barrier stops new public work, and the draining agent/webhook gates fence
-new admissions while pinned Workflow and Durable Object continuations finish. The
-coordinated release drains relational AgentRun state and every retained writer
-Workflow before moving those services to `closed` and running DDL. Durable Object schema changes use
-explicit in-place reconciliation; the gate alone is not an atomic migration.
+`CHEATCODE_RELEASE_GATE=open` is the steady state. A closed gateway rejects public
+work, and agent/webhook draining or closed gates fence new writer admissions.
+The gate is an operational barrier; SQLite reconciliation itself is performed by
+the object's synchronous transaction and verified against the exact schema.
 
 `IdempotencyStore` owns one exact SQLite table shape in its stable namespace and
 reconciles dormant objects to that shape when they are next activated. Run

@@ -16,8 +16,8 @@ import {
 } from "./rate-limit-contract";
 import {
   assertRateLimiterStorage,
+  ensureRateLimiterStorage,
   hasRateLimiterStorage,
-  initializeRateLimiterStorage,
   reconcileRateLimiterStorage,
 } from "./rate-limiter-storage";
 import {
@@ -126,7 +126,7 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
       await rearmClosedGatewayDurableObjectAlarm(this.ctx);
       return;
     }
-    this.isStorageInitialized = true;
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       "DELETE FROM bucket WHERE last_refill_ms < ?",
       Date.now() - RATE_LIMITER_RETENTION_MS,
@@ -143,11 +143,7 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
     if (this.isStorageInitialized) {
       return;
     }
-    if (hasRateLimiterStorage(this.ctx)) {
-      assertRateLimiterStorage(this.ctx);
-    } else {
-      initializeRateLimiterStorage(this.ctx);
-    }
+    ensureRateLimiterStorage(this.ctx);
     this.isStorageInitialized = true;
   }
 
