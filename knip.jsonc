@@ -16,11 +16,19 @@
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
-    "infra/containers/sandbox/browser-driver": {},
+    "infra/containers/sandbox/browser-driver": {
+      // The snapshot launches this service from the immutable browser-driver
+      // launcher. Playwright and Zod are Stagehand peers, and the Docker build
+      // invokes Playwright's CLI to install the matching Chromium artifact.
+      "entry": ["server.js"],
+      "ignoreDependencies": ["playwright-core", "zod"]
+    },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // The snapshot launcher resolves this executable by installed binary name.
-      "ignoreDependencies": ["tsx"]
+      // Snapshot launchers resolve these executables by installed binary name;
+      // neither child-process execution nor Docker symlinks are visible to Knip.
+      "ignoreDependencies": ["agent-browser", "tsx"],
+      "ignoreBinaries": ["agent-browser"]
     }
   }
 }
