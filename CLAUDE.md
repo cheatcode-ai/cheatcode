@@ -14,7 +14,7 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 |---|---|
 | Language | **TypeScript** everywhere. No Python in backend. Python lives only inside the Daytona sandbox. |
 | Backend runtime | **Cloudflare Workers + Durable Objects + Workflows** |
-| Frontend | **Next.js 16.2.10 + React 19.2.7 + Tailwind 4.3.2 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
+| Frontend | **Next.js 16.2.11 + React 19.2.7 + Tailwind 4.3.2 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
 | Agent framework | **Mastra 1.51.0** on top of **Vercel AI SDK v6.0.205** |
 | Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/src/daytona-client.ts`) — one persistent sandbox per user with isolated project folders |
 | Browser automation | **Stagehand v3.7.0 LOCAL mode** inside the Daytona sandbox image |
