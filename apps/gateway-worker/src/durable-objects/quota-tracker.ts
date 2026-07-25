@@ -33,8 +33,8 @@ import {
 } from "./quota-tracker-contract";
 import {
   assertQuotaTrackerStorage,
+  ensureQuotaTrackerStorage,
   hasQuotaTrackerStorage,
-  initializeQuotaTrackerStorage,
   reconcileQuotaTrackerStorage,
 } from "./quota-tracker-storage";
 import {
@@ -326,7 +326,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
       await rearmClosedGatewayDurableObjectAlarm(this.ctx);
       return;
     }
-    this.isStorageInitialized = true;
+    this.ensureStorage();
     this.ctx.storage.sql.exec(
       "DELETE FROM counter WHERE updated_at < ?",
       Date.now() - QUOTA_TRACKER_RETENTION_MS,
@@ -347,11 +347,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     if (this.isStorageInitialized) {
       return;
     }
-    if (hasQuotaTrackerStorage(this.ctx)) {
-      assertQuotaTrackerStorage(this.ctx);
-    } else {
-      initializeQuotaTrackerStorage(this.ctx);
-    }
+    ensureQuotaTrackerStorage(this.ctx);
     this.isStorageInitialized = true;
   }
 

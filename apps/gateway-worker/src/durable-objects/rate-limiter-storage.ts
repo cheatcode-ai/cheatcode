@@ -2,6 +2,7 @@ import {
   assertExactSqliteSchema,
   assertSqliteRowCountPreserved,
   type ExpectedSqliteObject,
+  reconcileExactSqliteStorage,
   setCurrentSqliteStorageVersion,
 } from "@cheatcode/durable-storage";
 
@@ -19,10 +20,23 @@ const RATE_LIMITER_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
   { name: "bucket", sql: BUCKET_TABLE_SQL, tableName: "bucket", type: "table" },
 ];
 
-export function initializeRateLimiterStorage(ctx: DurableObjectState): void {
+function initializeRateLimiterStorage(ctx: DurableObjectState): void {
   ensureRateLimiterTable(ctx);
   setCurrentSqliteStorageVersion(ctx);
   assertRateLimiterStorage(ctx);
+}
+
+/** Opens an existing object on the exact schema before serving its next request. */
+export function ensureRateLimiterStorage(ctx: DurableObjectState): void {
+  if (!hasRateLimiterStorage(ctx)) {
+    initializeRateLimiterStorage(ctx);
+    return;
+  }
+  reconcileExactSqliteStorage(
+    "reconcile",
+    () => assertRateLimiterStorage(ctx),
+    () => reconcileRateLimiterStorage(ctx),
+  );
 }
 
 export function hasRateLimiterStorage(ctx: DurableObjectState): boolean {
