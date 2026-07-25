@@ -41,14 +41,6 @@ export function assertAgentDatabaseReadinessCapability(request: Request): void {
   });
 }
 
-export function assertAgentDurableObjectStorageCapability(request: Request): void {
-  assertInternalMaintenanceEnvelope(request, {
-    audience: "agent",
-    capability: "durable-object-schema",
-    issuer: "gateway",
-  });
-}
-
 export function verifyAgentLifecycleRequest(input: AgentMaintenanceRequestInput): Promise<void> {
   return verifyAgentRequest(input, "agent-lifecycle");
 }
@@ -59,15 +51,9 @@ export function verifyAgentDatabaseReadinessRequest(
   return verifyAgentRequest(input, "database-readiness");
 }
 
-export function verifyAgentDurableObjectStorageRequest(
-  input: AgentMaintenanceRequestInput,
-): Promise<void> {
-  return verifyAgentRequest(input, "durable-object-schema");
-}
-
 async function verifyAgentRequest(
   input: AgentMaintenanceRequestInput,
-  capability: "agent-lifecycle" | "database-readiness" | "durable-object-schema",
+  capability: "agent-lifecycle" | "database-readiness",
 ): Promise<void> {
   const secret = await requireAgentMaintenanceSecret(
     capability === "agent-lifecycle"

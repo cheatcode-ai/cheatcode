@@ -1,9 +1,3 @@
-import type {
-  InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageResponse,
-} from "@cheatcode/types";
-import { InternalWorkspaceReconciliationBodySchema } from "@cheatcode/types";
-import { reconcileProjectSandboxStorageRequest } from "./durable-storage-reconciliation";
 import { ProjectSandboxContent } from "./project-sandbox-content";
 import { APP_PREVIEW_SLOT_PREFIX } from "./project-sandbox-process-support";
 import { ProjectWorkspaceSlugSchema, workspaceSlugFromPath } from "./project-sandbox-runtime";
@@ -14,12 +8,6 @@ import { ProjectWorkspaceSlugSchema, workspaceSlugFromPath } from "./project-san
  * work without holding blockConcurrencyWhile across Daytona requests.
  */
 export class ProjectSandbox extends ProjectSandboxContent {
-  public reconcileStorageSchema(
-    value: InternalDurableObjectStorageRequest,
-  ): InternalDurableObjectStorageResponse {
-    return reconcileProjectSandboxStorageRequest(this.ctx, this.env, value);
-  }
-
   public override registerOwner(
     ...args: Parameters<ProjectSandboxContent["registerOwner"]>
   ): ReturnType<ProjectSandboxContent["registerOwner"]> {
@@ -41,8 +29,8 @@ export class ProjectSandbox extends ProjectSandboxContent {
   public override renewRun(
     ...args: Parameters<ProjectSandboxContent["renewRun"]>
   ): ReturnType<ProjectSandboxContent["renewRun"]> {
-    // Late cleanup is absorbed by account deletion; workspace transitions reject it
-    // because end/alarm can change Daytona activity or auto-stop during a rename.
+    // Cleanup signals remain admissible while account deletion drains work so
+    // late lease renewal and alarm delivery cannot strand Daytona activity.
     return this.withActiveSandboxCleanupSignal(() => super.renewRun(...args));
   }
 
@@ -274,27 +262,6 @@ export class ProjectSandbox extends ProjectSandboxContent {
   ): ReturnType<ProjectSandboxContent["cleanupProjectWorkspace"]> {
     return this.withActiveProjectWorkspaceCleanup(() => super.cleanupProjectWorkspace(...args));
   }
-
-  public override prepareWorkspaceTransition(
-    ...args: Parameters<ProjectSandboxContent["prepareWorkspaceTransition"]>
-  ): ReturnType<ProjectSandboxContent["prepareWorkspaceTransition"]> {
-    return this.withActiveWorkspaceTransition(transitionId(args[0]), () =>
-      super.prepareWorkspaceTransition(...args),
-    );
-  }
-
-  public override finalizeWorkspaceTransition(
-    ...args: Parameters<ProjectSandboxContent["finalizeWorkspaceTransition"]>
-  ): ReturnType<ProjectSandboxContent["finalizeWorkspaceTransition"]> {
-    return this.withActiveWorkspaceTransition(transitionId(args[0]), () =>
-      super.finalizeWorkspaceTransition(...args),
-    );
-  }
-}
-
-function transitionId(input: unknown): string {
-  const parsed = InternalWorkspaceReconciliationBodySchema.parse(input);
-  return `workspace-sandbox-release:${parsed.releaseSha}`;
 }
 
 function workspaceSlug(value: string | undefined): string | null {

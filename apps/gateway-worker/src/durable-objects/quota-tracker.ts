@@ -1,13 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  assertStorageReconciliationRequest,
-  storageSchemaEvidence,
-} from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
-import type {
-  InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageResponse,
-} from "@cheatcode/types";
 import {
   QUOTA_TRACKER_MAX_REQUEST_BYTES,
   type QuotaFeature,
@@ -30,11 +22,7 @@ import {
   type QuotaSnapshotResult,
   QuotaSnapshotResultSchema,
 } from "./quota-tracker-contract";
-import {
-  assertQuotaTrackerStorage,
-  ensureQuotaTrackerStorage,
-  hasQuotaTrackerStorage,
-} from "./quota-tracker-storage";
+import { ensureQuotaTrackerStorage, hasQuotaTrackerStorage } from "./quota-tracker-storage";
 import {
   assertGatewayDurableObjectOpen,
   gatewayDurableObjectClosedResponse,
@@ -124,15 +112,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   private isStorageInitialized = false;
-
-  public reconcileStorageSchema(
-    value: InternalDurableObjectStorageRequest,
-  ): InternalDurableObjectStorageResponse {
-    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "QuotaTracker");
-    assertQuotaTrackerStorage(this.ctx);
-    this.isStorageInitialized = true;
-    return storageSchemaEvidence(input);
-  }
 
   public async tryConsume(
     feature: QuotaFeature,

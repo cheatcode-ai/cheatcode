@@ -22,7 +22,6 @@ import {
 } from "@cheatcode/observability";
 import {
   INTERNAL_DATABASE_READINESS_PATH,
-  INTERNAL_DURABLE_OBJECT_STORAGE_PATH,
   INTERNAL_RESOURCE_DELETION_PATH,
   InternalResourceDeletionRequestSchema,
 } from "@cheatcode/types";
@@ -37,7 +36,6 @@ import {
 } from "./daily-maintenance-admission";
 import { registerWebhooksDatabaseReadinessRoute } from "./database-readiness";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
-import { registerWebhooksDurableObjectStorageRoute } from "./durable-object-storage";
 import { internalAlertEventId, verifyInternalAlert } from "./internal-alert";
 import {
   assertWebhookReplayHostname,
@@ -275,7 +273,6 @@ webhooksApp.get("/health", (c) =>
 );
 
 registerWebhooksDatabaseReadinessRoute(webhooksApp);
-registerWebhooksDurableObjectStorageRoute(webhooksApp);
 webhooksApp.post("/clerk", async (c) => {
   const signingSecret = await clerkWebhookSigningSecret(c.env);
   const rawBody = await readBoundedRequestText(
@@ -733,8 +730,7 @@ function webhooksReleaseGateResponse(
   if (
     env.CHEATCODE_RELEASE_GATE === "closed" &&
     request.method === "POST" &&
-    (url.pathname === INTERNAL_DATABASE_READINESS_PATH ||
-      url.pathname === INTERNAL_DURABLE_OBJECT_STORAGE_PATH)
+    url.pathname === INTERNAL_DATABASE_READINESS_PATH
   ) {
     return undefined;
   }

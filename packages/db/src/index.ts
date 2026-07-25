@@ -276,13 +276,3 @@ export {
   syncClerkUser,
   UserDeletionBlockedError,
 } from "./users";
-export type {
-  WorkspaceTransitionOwner,
-  WorkspaceTransitionOwnerIdPage,
-} from "./workspace-transitions";
-export {
-  applyCanonicalWorkspaceTransition,
-  listWorkspaceTransitionOwnerIdPage,
-  loadWorkspaceTransitionOwner,
-  WorkspaceTransitionInvariantError,
-} from "./workspace-transitions";

@@ -10,12 +10,6 @@ interface DrizzleJournalEntry {
   when: number;
 }
 
-interface DrizzleLedgerException {
-  databaseSha256: string;
-  reason: string;
-  sourceSha256: string;
-}
-
 export interface DrizzleMigration {
   checksum: string;
   file: string;
@@ -25,17 +19,7 @@ export interface DrizzleMigration {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const DRIZZLE_DIR = join(ROOT, "packages/db/drizzle");
 const DRIZZLE_JOURNAL_PATH = join(DRIZZLE_DIR, "meta/_journal.json");
-const DRIZZLE_LEDGER_EXCEPTIONS_PATH = join(
-  ROOT,
-  "infra/supabase/migrations/drizzle-ledger-exceptions.json",
-);
-const FIRST_EXPAND_ONLY_DRIZZLE_INDEX = 18;
 const SHA256_PATTERN = /^[0-9a-f]{64}$/;
-const DESTRUCTIVE_SQL_PATTERN =
-  /\b(?:delete\s+from|detach\s+partition|drop\s+(?:column|constraint|extension|function|index|materialized\s+view|policy|procedure|schema|sequence|table|trigger|type|view)|rename\s+(?:column|constraint|to)|revoke\b|truncate\b|alter\s+column\s+[^;]+\s+(?:drop\s+default|set\s+not\s+null|type\b))/i;
-const USER_DELETION_GENERATION_PRECISION_WIDENING =
-  'ALTER TABLE "v2_user_deletion_jobs" ALTER COLUMN "generation" SET DATA TYPE timestamp with time zone;';
-const USER_DELETION_GENERATION_PRECISION_MIGRATION = "packages/db/drizzle/0043_third_sleeper.sql";
 
 export async function loadDrizzleMigrations(): Promise<DrizzleMigration[]> {
   const parsed: unknown = JSON.parse(await readFile(DRIZZLE_JOURNAL_PATH, "utf8"));
@@ -46,6 +30,7 @@ export async function loadDrizzleMigrations(): Promise<DrizzleMigration[]> {
   ) {
     throw new Error("Drizzle migration journal is invalid.");
   }
+
   const entries = parsed["entries"].map(parseDrizzleJournalEntry);
   assertDrizzleJournalSequence(entries);
   const files = await sqlFiles(DRIZZLE_DIR);
@@ -57,6 +42,7 @@ export async function loadDrizzleMigrations(): Promise<DrizzleMigration[]> {
       `Drizzle journal/source mismatch: missing=${paths(missing)}; unexpected=${paths(unexpected)}.`,
     );
   }
+
   return Promise.all(
     entries.map(async (entry) => ({
       checksum: await fileChecksum(join(DRIZZLE_DIR, `${entry.tag}.sql`)),
@@ -66,8 +52,47 @@ export async function loadDrizzleMigrations(): Promise<DrizzleMigration[]> {
   );
 }
 
-function paths(files: readonly string[]): string {
-  return files.map((file) => relative(ROOT, file)).join(", ") || "none";
+export async function verifyDrizzleMigrationIntegrity(
+  client: PgClient,
+  migrations: readonly DrizzleMigration[],
+): Promise<Set<string>> {
+  const applied = await loadAppliedDrizzleMigrations(client);
+  if (applied.length > migrations.length) {
+    throw new Error("Database contains more migrations than the source journal.");
+  }
+
+  const appliedFiles = new Set<string>();
+  for (const [position, row] of applied.entries()) {
+    const migration = migrations[position];
+    if (!migration || row.createdAt !== migration.when || row.hash !== migration.checksum) {
+      throw new Error(`Migration ledger diverges from source at position ${position}.`);
+    }
+    appliedFiles.add(migration.file);
+  }
+  return appliedFiles;
+}
+
+async function loadAppliedDrizzleMigrations(
+  client: PgClient,
+): Promise<Array<{ createdAt: string; hash: string }>> {
+  try {
+    const result = await client.query(
+      "select hash, created_at::text from drizzle.__drizzle_migrations order by created_at",
+    );
+    return result.rows.map((row, position) => {
+      const hash = row["hash"];
+      const createdAt = row["created_at"];
+      if (typeof hash !== "string" || !SHA256_PATTERN.test(hash) || typeof createdAt !== "string") {
+        throw new Error(`Migration ledger row ${position} is invalid.`);
+      }
+      return { createdAt, hash };
+    });
+  } catch (error) {
+    if (pgErrorCode(error) === "42P01" || pgErrorCode(error) === "3F000") {
+      return [];
+    }
+    throw error;
+  }
 }
 
 function parseDrizzleJournalEntry(value: unknown, position: number): DrizzleJournalEntry {
@@ -100,144 +125,6 @@ function assertDrizzleJournalSequence(entries: readonly DrizzleJournalEntry[]): 
   }
 }
 
-export async function verifyDrizzleMigrationIntegrity(
-  client: PgClient,
-  migrations: readonly DrizzleMigration[],
-  report: (message: string) => void,
-): Promise<Set<string>> {
-  const exceptions = await loadDrizzleLedgerExceptions();
-  assertDrizzleExceptionSources(migrations, exceptions);
-  const result = await loadAppliedDrizzleMigrations(client);
-  if (result.length > migrations.length) {
-    throw new Error("Database contains more Drizzle migrations than the source journal.");
-  }
-  const appliedFiles = new Set<string>();
-  for (const [position, row] of result.entries()) {
-    const migration = migrations[position];
-    if (!migration || row.createdAt !== migration.when) {
-      throw new Error(`Drizzle ledger is not a contiguous source prefix at ${row.createdAt}.`);
-    }
-    assertDrizzleChecksum(migration, row.hash, exceptions.get(migration.file), report);
-    appliedFiles.add(migration.file);
-  }
-  return appliedFiles;
-}
-
-async function loadDrizzleLedgerExceptions(): Promise<Map<string, DrizzleLedgerException>> {
-  const parsed: unknown = JSON.parse(await readFile(DRIZZLE_LEDGER_EXCEPTIONS_PATH, "utf8"));
-  if (!isRecord(parsed)) {
-    throw new Error("Drizzle ledger exception manifest must be an object.");
-  }
-  const exceptions = new Map<string, DrizzleLedgerException>();
-  for (const [filename, value] of Object.entries(parsed)) {
-    if (!/^packages\/db\/drizzle\/\d{4}_[a-z0-9_]+\.sql$/.test(filename)) {
-      throw new Error(`Invalid Drizzle ledger exception path: ${filename}`);
-    }
-    exceptions.set(filename, parseDrizzleLedgerException(filename, value));
-  }
-  return exceptions;
-}
-
-function parseDrizzleLedgerException(filename: string, value: unknown): DrizzleLedgerException {
-  if (!isRecord(value)) {
-    throw new Error(`Invalid Drizzle ledger exception: ${filename}`);
-  }
-  const databaseSha256 = value["databaseSha256"];
-  const sourceSha256 = value["sourceSha256"];
-  const reason = value["reason"];
-  if (
-    typeof databaseSha256 !== "string" ||
-    !SHA256_PATTERN.test(databaseSha256) ||
-    typeof sourceSha256 !== "string" ||
-    !SHA256_PATTERN.test(sourceSha256) ||
-    typeof reason !== "string" ||
-    reason.trim().length < 20
-  ) {
-    throw new Error(`Invalid Drizzle ledger exception details: ${filename}`);
-  }
-  return { databaseSha256, reason, sourceSha256 };
-}
-
-function assertDrizzleExceptionSources(
-  migrations: readonly DrizzleMigration[],
-  exceptions: ReadonlyMap<string, DrizzleLedgerException>,
-): void {
-  const sources = new Map(migrations.map((migration) => [migration.file, migration.checksum]));
-  for (const [filename, exception] of exceptions) {
-    if (sources.get(filename) !== exception.sourceSha256) {
-      throw new Error(`Drizzle ledger exception source identity mismatch: ${filename}`);
-    }
-  }
-}
-
-async function loadAppliedDrizzleMigrations(
-  client: PgClient,
-): Promise<Array<{ createdAt: string; hash: string }>> {
-  try {
-    const result = await client.query(
-      "select hash, created_at::text from drizzle.__drizzle_migrations order by created_at",
-    );
-    return result.rows.map((row, position) => {
-      const hash = row["hash"];
-      const createdAt = row["created_at"];
-      if (typeof hash !== "string" || !SHA256_PATTERN.test(hash) || typeof createdAt !== "string") {
-        throw new Error(`Drizzle ledger row ${position} is invalid.`);
-      }
-      return { createdAt, hash };
-    });
-  } catch (error) {
-    if (pgErrorCode(error) === "42P01" || pgErrorCode(error) === "3F000") {
-      return [];
-    }
-    throw error;
-  }
-}
-
-function assertDrizzleChecksum(
-  migration: DrizzleMigration,
-  databaseChecksum: string,
-  exception: DrizzleLedgerException | undefined,
-  report: (message: string) => void,
-): void {
-  if (databaseChecksum === migration.checksum) {
-    return;
-  }
-  if (
-    exception &&
-    databaseChecksum === exception.databaseSha256 &&
-    migration.checksum === exception.sourceSha256
-  ) {
-    report(`attested Drizzle ledger divergence: ${migration.file}`);
-    return;
-  }
-  throw new Error(`Applied Drizzle migration identity mismatch: ${migration.file}`);
-}
-
-export async function assertExpandOnlyDrizzleMigrations(): Promise<void> {
-  const files = await sqlFiles(DRIZZLE_DIR);
-  for (const file of files) {
-    const index = Number.parseInt(file.split("/").at(-1)?.slice(0, 4) ?? "", 10);
-    if (!Number.isInteger(index) || index < FIRST_EXPAND_ONLY_DRIZZLE_INDEX) {
-      continue;
-    }
-    const source = stripSqlComments(await readFile(file, "utf8"));
-    const sql = removeApprovedPrecisionWidening(relative(ROOT, file), source);
-    if (DESTRUCTIVE_SQL_PATTERN.test(sql)) {
-      throw new Error(
-        `Drizzle migration must be expand-only: ${relative(ROOT, file)}. Put contractions in an explicitly post-deploy raw migration.`,
-      );
-    }
-  }
-}
-
-function removeApprovedPrecisionWidening(filename: string, sql: string): string {
-  if (filename !== USER_DELETION_GENERATION_PRECISION_MIGRATION) {
-    return sql;
-  }
-  const parts = sql.split(USER_DELETION_GENERATION_PRECISION_WIDENING);
-  return parts.length === 2 ? parts.join("") : sql;
-}
-
 async function sqlFiles(dir: string): Promise<string[]> {
   const entries = await readdir(dir, { withFileTypes: true });
   return entries
@@ -252,8 +139,8 @@ async function fileChecksum(file: string): Promise<string> {
     .digest("hex");
 }
 
-function stripSqlComments(sql: string): string {
-  return sql.replace(/\/\*[\s\S]*?\*\//g, " ").replace(/--[^\n]*/g, " ");
+function paths(files: readonly string[]): string {
+  return files.map((file) => relative(ROOT, file)).join(", ") || "none";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

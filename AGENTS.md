@@ -234,7 +234,7 @@ The deleted `plan.md` is not authoritative and must not be restored. Base change
 
 Specifically check before changing:
 - `pnpm-workspace.yaml` and the lockfile for exact dependency versions
-- `packages/db/src/schema`, `packages/db/drizzle`, and `infra/supabase/migrations` for Postgres behavior
+- `packages/db/src/schema` and `packages/db/drizzle` for Postgres behavior
 - Worker `wrangler.jsonc`, `apps/web/vercel.json`, and `.github/workflows` for deployment topology
 - `biome.jsonc` and TypeScript configs for code-quality rules
 

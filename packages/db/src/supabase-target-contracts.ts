@@ -64,14 +64,6 @@ export const TABLE_CONTRACTS: readonly TableContract[] = [
     ],
   },
   {
-    tableName: "_raw_migrations",
-    columns: [
-      column("filename", "text"),
-      column("sha256", "text"),
-      column("applied_at", "timestamp with time zone", false, 6),
-    ],
-  },
-  {
     tableName: "v2_users",
     columns: [
       column("id", "uuid"),
@@ -467,19 +459,6 @@ export const REQUIRED_INTEGRITY_INDEXES = [
   "v2_daily_maintenance_jobs_ready_idx",
   "v2_daily_maintenance_jobs_lease_idx",
   "v2_daily_maintenance_jobs_completed_idx",
-] as const;
-
-export const FORBIDDEN_SUPERSEDED_INDEXES = [
-  "v2_messages_thread_created_idx",
-  "v2_messages_user_created_idx",
-  "v2_projects_user_created_idx",
-  "v2_threads_project_created_idx",
-  "v2_threads_user_project_created_idx",
-  "v2_threads_user_recent_idx",
-  "v2_user_skills_user_idx",
-  "v2_messages_agent_run_assistant_uidx",
-  "v2_provider_keys_revalidation_idx",
-  "v2_projects_user_workspace_slug_uidx",
 ] as const;
 
 export interface ExactIntegrityConstraint {

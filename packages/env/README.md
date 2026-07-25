@@ -9,8 +9,8 @@ read raw `process.env` values only to pass them into the pure `./web-config` val
 - `./web-config`: pure Vercel target and public web build validators used by both
   `next.config.ts` and `./web`
 - `./worker`: Cloudflare Worker binding schemas and Secrets Store resolution helpers
-- `./migrate`: admin database identity pins, optional one-time migration
-  attestations, plus the Cloudflare account pin used by the audit archive operation
+- `./migrate`: administrative database identity pins plus the Cloudflare account
+  pin used by the audit archive operation
 
 ## Code Checks
 
@@ -25,9 +25,6 @@ use the production Supabase session pooler with the three least-privilege runtim
 roles. Administrative migration values live separately in git-ignored
 `.env.migrate` (template: `.env.migrate.example`) or protected automation
 environment variables and are never loaded by the app or copied into a Worker.
-`CHEATCODE_MIGRATION_ATTESTATIONS` is an optional protected JSON envelope consumed
-only while a specifically attested contraction is pending; an unset or empty value
-is valid after that migration is recorded.
 
 Gateway, preview-hostname, release-SHA, deployment-target, and Clerk publishable-key
 validation has one canonical implementation in `./web-config`. The framework config

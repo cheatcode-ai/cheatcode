@@ -679,7 +679,7 @@ async function runArchive(options: ArchiveOptions): Promise<void> {
     await acquireDatabaseMaintenanceLock(client, "audit archive");
     hasMaintenanceLock = true;
     await ensureFuturePartitions(client, options);
-    await assertSupabaseTarget(client, "prod-ready");
+    await assertSupabaseTarget(client);
     validateManifestCatalog(await loadArchiveManifest(client), await loadCatalogPartitions(client));
     if (options.mode === "dry-run") {
       await printArchivePlan(client, options);

@@ -1,6 +1,5 @@
 import {
   assertExactSqliteSchema,
-  assertSqliteRowCountPreserved,
   type ExpectedSqliteObject,
   setCurrentSqliteStorageVersion,
 } from "@cheatcode/durable-storage";
@@ -21,33 +20,8 @@ const OWNER_USER_ID_KEY = "owner_user_id";
 const RESOLVED_LOGICAL_MODEL_ID_KEY = "resolved_logical_model_id";
 const RUN_STATUS_VALUES_SQL = "'pending','running','completed','failed','canceled'";
 
-interface ExpectedColumn {
-  defaultValue: string | null;
-  isNotNull: boolean;
-  isPrimaryKey: boolean;
-  name: string;
-  type: string;
-}
-
-const RUN_COLUMNS = [
-  column("id", "TEXT", true, true),
-  column("status", "TEXT", true),
-  column("model_id", "TEXT", true),
-  column("created_at", "INTEGER", true),
-  column("started_at", "INTEGER"),
-  column("completed_at", "INTEGER"),
-] as const;
-const MESSAGE_PART_COLUMNS = [
-  column("seq", "INTEGER", false, true),
-  column("part_type", "TEXT", true),
-  column("payload_json", "TEXT", true),
-] as const;
 const MESSAGE_PART_PAGE_MAX_BYTES = 256 * 1024;
 const MESSAGE_PART_PAGE_MAX_ROWS = 32;
-const RUN_STATE_COLUMNS = [
-  column("key", "TEXT", true, true),
-  column("value", "TEXT", true),
-] as const;
 const RUN_TABLE_SQL = `CREATE TABLE run (
   id TEXT PRIMARY KEY CHECK (length(id) = 36),
   status TEXT NOT NULL CHECK (status IN (${RUN_STATUS_VALUES_SQL})),
@@ -88,11 +62,12 @@ export interface StoredRunSnapshot {
 }
 
 export function initializeAgentRunStorage(ctx: DurableObjectState): void {
-  reconcileRunTable(ctx);
-  reconcileMessagePartTable(ctx);
-  reconcileRunStateTable(ctx);
-  normalizeRunStateStatus(ctx);
-  setCurrentSqliteStorageVersion(ctx);
+  ctx.storage.transactionSync(() => {
+    ctx.storage.sql.exec(RUN_TABLE_SQL);
+    ctx.storage.sql.exec(MESSAGE_PART_TABLE_SQL);
+    ctx.storage.sql.exec(RUN_STATE_TABLE_SQL);
+    setCurrentSqliteStorageVersion(ctx);
+  });
   assertAgentRunStorage(ctx);
 }
 
@@ -105,44 +80,6 @@ export function hasAgentRunStorage(ctx: DurableObjectState): boolean {
       )
       .toArray().length > 0
   );
-}
-
-/** Force-normalizes dormant run objects while the production release gate is closed. */
-export function reconcileAgentRunStorage(ctx: DurableObjectState): void {
-  prepareAgentRunRebuild(ctx);
-  ctx.storage.transactionSync(() => {
-    rebuildAgentRunTables(ctx);
-    normalizeRunStateStatus(ctx);
-    removePersistedArtifactCapabilities(ctx);
-  });
-  setCurrentSqliteStorageVersion(ctx);
-  assertAgentRunStorage(ctx);
-}
-
-function prepareAgentRunRebuild(ctx: DurableObjectState): void {
-  const sources = [
-    { columns: RUN_COLUMNS, create: () => createRunTable(ctx, "run"), table: "run" },
-    {
-      columns: MESSAGE_PART_COLUMNS,
-      create: () => createMessagePartTable(ctx, "message_part"),
-      table: "message_part",
-    },
-    {
-      columns: RUN_STATE_COLUMNS,
-      create: () => createRunStateTable(ctx, "run_state"),
-      table: "run_state",
-    },
-  ] as const;
-  for (const source of sources) {
-    const columns = tableColumns(ctx, source.table);
-    if (columns.length === 0) {
-      source.create();
-      continue;
-    }
-    if (!source.columns.every(({ name }) => hasColumn(columns, name))) {
-      throw new Error(`Unsupported AgentRun ${source.table} schema; refusing lossy evolution.`);
-    }
-  }
 }
 
 export function assertAgentRunStorage(ctx: DurableObjectState): void {
@@ -196,34 +133,6 @@ export function isAgentRunDeleted(ctx: DurableObjectState): boolean {
 export function deleteRunStateValues(ctx: DurableObjectState, keys: string[]): void {
   for (const key of keys) {
     ctx.storage.sql.exec("DELETE FROM run_state WHERE key = ?", key);
-  }
-}
-
-function removePersistedArtifactCapabilities(ctx: DurableObjectState): void {
-  const rows = ctx.storage.sql
-    .exec("SELECT seq, payload_json FROM message_part WHERE part_type = 'data-artifact'")
-    .toArray();
-  for (const row of rows) {
-    if (
-      !isRecord(row) ||
-      typeof row["seq"] !== "number" ||
-      typeof row["payload_json"] !== "string"
-    ) {
-      throw new Error("Invalid stored artifact transcript row; refusing lossy reconciliation.");
-    }
-    const parsed = JSON.parse(row["payload_json"]) as unknown;
-    if (!isRecord(parsed) || parsed["type"] !== "data-artifact" || !isRecord(parsed["data"])) {
-      throw new Error("Invalid stored artifact payload; refusing lossy reconciliation.");
-    }
-    if (!("downloadUrl" in parsed["data"])) {
-      continue;
-    }
-    const data = { ...parsed["data"], downloadUrl: undefined };
-    ctx.storage.sql.exec(
-      "UPDATE message_part SET payload_json = ? WHERE seq = ?",
-      JSON.stringify({ ...parsed, data }),
-      row["seq"],
-    );
   }
 }
 
@@ -386,158 +295,6 @@ export function readStoredRunSnapshot(ctx: DurableObjectState): StoredRunSnapsho
   };
 }
 
-function reconcileRunTable(ctx: DurableObjectState): void {
-  const columns = tableColumns(ctx, "run");
-  if (columns.length === 0) {
-    createRunTable(ctx, "run");
-    return;
-  }
-  if (hasExactColumns(columns, RUN_COLUMNS) && hasCurrentRunTableSql(ctx)) {
-    return;
-  }
-  if (!RUN_COLUMNS.every(({ name }) => hasColumn(columns, name))) {
-    throw new Error("Unsupported AgentRun run schema; refusing lossy evolution.");
-  }
-  ctx.storage.transactionSync(() => {
-    ctx.storage.sql.exec("DROP TABLE IF EXISTS run_next");
-    createRunTable(ctx, "run_next");
-    copyRunRows(ctx, "run", "run_next");
-    assertSqliteRowCountPreserved(ctx, "run", "run_next");
-    ctx.storage.sql.exec("DROP TABLE run");
-    ctx.storage.sql.exec("ALTER TABLE run_next RENAME TO run");
-  });
-}
-
-function createRunTable(ctx: DurableObjectState, table: "run" | "run_next"): void {
-  ctx.storage.sql.exec(RUN_TABLE_SQL.replace("CREATE TABLE run", `CREATE TABLE ${table}`));
-}
-
-function reconcileMessagePartTable(ctx: DurableObjectState): void {
-  const columns = tableColumns(ctx, "message_part");
-  if (columns.length === 0) {
-    createMessagePartTable(ctx, "message_part");
-    return;
-  }
-  if (hasExactColumns(columns, MESSAGE_PART_COLUMNS)) {
-    return;
-  }
-  if (!MESSAGE_PART_COLUMNS.every(({ name }) => hasColumn(columns, name))) {
-    throw new Error("Unsupported AgentRun message schema; refusing lossy evolution.");
-  }
-  ctx.storage.transactionSync(() => {
-    ctx.storage.sql.exec("DROP TABLE IF EXISTS message_part_next");
-    createMessagePartTable(ctx, "message_part_next");
-    const names = MESSAGE_PART_COLUMNS.map(({ name }) => name).join(", ");
-    ctx.storage.sql.exec(
-      `INSERT INTO message_part_next (${names}) SELECT ${names} FROM message_part`,
-    );
-    assertSqliteRowCountPreserved(ctx, "message_part", "message_part_next");
-    ctx.storage.sql.exec("DROP TABLE message_part");
-    ctx.storage.sql.exec("ALTER TABLE message_part_next RENAME TO message_part");
-  });
-}
-
-function createMessagePartTable(
-  ctx: DurableObjectState,
-  table: "message_part" | "message_part_next",
-): void {
-  ctx.storage.sql.exec(
-    MESSAGE_PART_TABLE_SQL.replace("CREATE TABLE message_part", `CREATE TABLE ${table}`),
-  );
-}
-
-function reconcileRunStateTable(ctx: DurableObjectState): void {
-  const columns = tableColumns(ctx, "run_state");
-  if (columns.length === 0) {
-    createRunStateTable(ctx, "run_state");
-    return;
-  }
-  if (hasExactColumns(columns, RUN_STATE_COLUMNS)) {
-    return;
-  }
-  if (!RUN_STATE_COLUMNS.every(({ name }) => hasColumn(columns, name))) {
-    throw new Error("Unsupported AgentRun state schema; refusing lossy evolution.");
-  }
-  ctx.storage.transactionSync(() => {
-    ctx.storage.sql.exec("DROP TABLE IF EXISTS run_state_next");
-    createRunStateTable(ctx, "run_state_next");
-    ctx.storage.sql.exec(
-      "INSERT INTO run_state_next (key, value) SELECT key, value FROM run_state",
-    );
-    assertSqliteRowCountPreserved(ctx, "run_state", "run_state_next");
-    ctx.storage.sql.exec("DROP TABLE run_state");
-    ctx.storage.sql.exec("ALTER TABLE run_state_next RENAME TO run_state");
-  });
-}
-
-function createRunStateTable(ctx: DurableObjectState, table: "run_state" | "run_state_next"): void {
-  ctx.storage.sql.exec(
-    RUN_STATE_TABLE_SQL.replace("CREATE TABLE run_state", `CREATE TABLE ${table}`),
-  );
-}
-
-function rebuildAgentRunTables(ctx: DurableObjectState): void {
-  for (const table of ["run", "message_part", "run_state"] as const) {
-    ctx.storage.sql.exec(`DROP TABLE IF EXISTS ${table}_reconcile_source`);
-    ctx.storage.sql.exec(`ALTER TABLE ${table} RENAME TO ${table}_reconcile_source`);
-  }
-  ctx.storage.sql.exec(RUN_TABLE_SQL);
-  ctx.storage.sql.exec(MESSAGE_PART_TABLE_SQL);
-  ctx.storage.sql.exec(RUN_STATE_TABLE_SQL);
-  copyRunRows(ctx, "run_reconcile_source", "run");
-  ctx.storage.sql.exec(
-    `INSERT INTO message_part (seq, part_type, payload_json)
-     SELECT seq, part_type, payload_json FROM message_part_reconcile_source`,
-  );
-  ctx.storage.sql.exec(
-    "INSERT INTO run_state (key, value) SELECT key, value FROM run_state_reconcile_source",
-  );
-  for (const table of ["run", "message_part", "run_state"] as const) {
-    assertSqliteRowCountPreserved(ctx, `${table}_reconcile_source`, table);
-    ctx.storage.sql.exec(`DROP TABLE ${table}_reconcile_source`);
-  }
-}
-
-function tableColumns(ctx: DurableObjectState, table: "message_part" | "run" | "run_state") {
-  return ctx.storage.sql.exec(`PRAGMA table_info(${table})`).toArray();
-}
-
-function hasExactColumns(rows: unknown[], expected: readonly ExpectedColumn[]): boolean {
-  return (
-    rows.length === expected.length &&
-    expected.every((value, index) => {
-      const row = rows[index];
-      return (
-        isRecord(row) &&
-        row["cid"] === index &&
-        row["name"] === value.name &&
-        row["type"] === value.type &&
-        row["notnull"] === Number(value.isNotNull) &&
-        row["pk"] === Number(value.isPrimaryKey) &&
-        row["dflt_value"] === value.defaultValue
-      );
-    })
-  );
-}
-
-function hasColumn(rows: unknown[], name: string): boolean {
-  return rows.some((row) => isRecord(row) && row["name"] === name);
-}
-
-function column(
-  name: string,
-  type: string,
-  isNotNull = false,
-  isPrimaryKey = false,
-  defaultValue: string | null = null,
-): ExpectedColumn {
-  return { defaultValue, isNotNull, isPrimaryKey, name, type };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
-}
-
 function readMessageStats(ctx: DurableObjectState): { lastSeq: number; messageCount: number } {
   const rows = ctx.storage.sql
     .exec("SELECT COUNT(*) AS message_count, COALESCE(MAX(seq), 0) AS last_seq FROM message_part")
@@ -585,51 +342,6 @@ function runStatusColumn(
     return value;
   }
   return null;
-}
-
-function hasCurrentRunTableSql(ctx: DurableObjectState): boolean {
-  const row = firstRecord(
-    ctx.storage.sql
-      .exec("SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'run'")
-      .toArray(),
-  );
-  const sql = row?.["sql"];
-  return typeof sql === "string" && compactSql(sql) === compactSql(RUN_TABLE_SQL);
-}
-
-function compactSql(sql: string): string {
-  return sql.replace(/\s+/g, " ").trim().toLowerCase();
-}
-
-function copyRunRows(
-  ctx: DurableObjectState,
-  source: "run" | "run_reconcile_source",
-  target: "run" | "run_next",
-): void {
-  ctx.storage.sql.exec(
-    `INSERT INTO ${target} (id, status, model_id, created_at, started_at, completed_at)
-     SELECT id,
-            CASE WHEN status IN (${RUN_STATUS_VALUES_SQL}) THEN status ELSE 'canceled' END,
-            model_id,
-            created_at,
-            started_at,
-            CASE
-              WHEN status IN (${RUN_STATUS_VALUES_SQL}) THEN completed_at
-              ELSE COALESCE(completed_at, started_at, created_at)
-            END
-       FROM ${source}`,
-  );
-}
-
-function normalizeRunStateStatus(ctx: DurableObjectState): void {
-  const status = getRunStateValue(ctx, "status");
-  if (!status || ["running", "completed", "failed", "canceled"].includes(status)) {
-    return;
-  }
-  setRunStateValue(ctx, "status", "canceled");
-  if (!getRunStateValue(ctx, "completed_at")) {
-    setRunStateValue(ctx, "completed_at", String(Date.now()));
-  }
 }
 
 function parseLogicalModelId(value: string | null | undefined): LogicalModelId | undefined {

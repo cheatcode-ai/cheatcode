@@ -3,13 +3,12 @@ import {
   CANONICAL_PROVIDER_KEY_CONSTRAINT,
   EXACT_INTEGRITY_CONSTRAINTS,
   type ExpectedColumn,
-  FORBIDDEN_SUPERSEDED_INDEXES,
   REQUIRED_INTEGRITY_CONSTRAINTS,
   REQUIRED_INTEGRITY_INDEXES,
   TABLE_CONTRACTS,
   type TableContract,
 } from "./supabase-target-contracts";
-import { validateAuditArchiveManifest, validateMigrationLedger } from "./supabase-target-ledger";
+import { validateAuditArchiveManifest } from "./supabase-target-ledger";
 import { validateProductionSecurityTarget } from "./supabase-target-security";
 
 interface QueryResult {
@@ -20,124 +19,44 @@ export interface PgClient {
   end(): Promise<void>;
   query(text: string, values?: unknown[]): Promise<QueryResult>;
 }
-export type SupabaseTargetMode = "pre-migration" | "prod-ready";
 interface ColumnInfo {
   dataType: string;
   datetimePrecision?: number;
   nullable: boolean;
 }
-// These tables are created together by the first Drizzle migration and remain
-// permanent schema anchors. Later migrations may add tables, so folding those
-// additions into this atomic set would make every older valid deployment fail
-// preflight before it can migrate forward.
-const V2_FOUNDATION_DRIZZLE_TABLES = [
-  "v2_users",
-  "v2_projects",
-  "v2_threads",
-  "v2_messages",
-  "v2_agent_runs",
-  "v2_provider_keys",
-  "v2_user_integrations",
-  "v2_generated_outputs",
-  "v2_entitlements",
-] as const;
-const FORBIDDEN_TOKEN_ACCOUNTING_TABLES = ["v2_usage_daily_totals", "v2_usage_events"] as const;
-const FORBIDDEN_TOKEN_ACCOUNTING_COLUMNS = [
-  {
-    columns: ["cost_usd", "tokens_cached", "tokens_in", "tokens_out"],
-    tableName: "v2_agent_runs",
-  },
-  {
-    columns: ["free_deepseek_tokens_used"],
-    tableName: "v2_entitlements",
-  },
-] as const;
-const FORBIDDEN_ENTITLEMENT_SCAFFOLDING_COLUMNS = [
-  "flag_private_projects",
-  "flag_sso",
-  "max_concurrent_sandboxes",
-  "max_seats",
-  "quota_deployments",
-] as const;
-const FORBIDDEN_PROJECT_BACKUP_COLUMNS = ["container_backup"] as const;
-const FORBIDDEN_OBSOLETE_TABLES = [
-  "v2_automation_run_requests",
-  "v2_automation_runs",
-  "v2_automations",
-  "v2_replay_shares",
-  "v2_retired_automation_run_requests_20260715",
-  "v2_retired_automation_runs_20260715",
-  "v2_retired_automations_20260715",
-] as const;
 class SupabaseTargetError extends Error {
   public readonly issues: readonly string[];
 
-  public constructor(mode: SupabaseTargetMode, issues: readonly string[]) {
-    super(
-      `Supabase target validation failed (${mode}):\n${issues.map((issue) => `- ${issue}`).join("\n")}`,
-    );
+  public constructor(issues: readonly string[]) {
+    super(`Supabase target validation failed:\n${issues.map((issue) => `- ${issue}`).join("\n")}`);
     this.name = "SupabaseTargetError";
     this.issues = issues;
   }
 }
-export async function assertSupabaseTarget(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<void> {
-  const issues = await validateSupabaseTarget(client, mode);
+export async function assertSupabaseTarget(client: PgClient): Promise<void> {
+  const issues = await validateSupabaseTarget(client);
   if (issues.length > 0) {
-    throw new SupabaseTargetError(mode, issues);
+    throw new SupabaseTargetError(issues);
   }
 }
-async function validateSupabaseTarget(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
+async function validateSupabaseTarget(client: PgClient): Promise<string[]> {
   const tables = await loadPublicColumns(client);
   const publicTableNames = await loadPublicTableNames(client);
   return [
-    ...validateMigrationPresence(mode, publicTableNames),
-    ...validateColumns(mode, tables),
-    ...validateRemovedTokenAccounting(mode, publicTableNames, tables),
-    ...validateRemovedObsoleteTables(mode, publicTableNames),
-    ...validateRemovedEntitlementScaffolding(mode, tables),
-    ...validateRemovedProjectBackup(mode, tables),
-    ...(mode === "prod-ready" ? await validateProductionSecurityTarget(client) : []),
-    ...(await validateIntegrityConstraints(client, mode)),
-    ...(await validateCanonicalProjectWorkspaces(client, mode)),
-    ...(await validateIntegrityIndexes(client, mode)),
-    ...(await validateMigrationLedger(client, mode)),
-    ...(await validateAuditArchiveManifest(client, mode)),
-    ...(await validateFirstArtifactMilestone(client, mode)),
+    ...validateColumns(tables),
+    ...validateTableSet(publicTableNames),
+    ...(await validateProductionSecurityTarget(client)),
+    ...(await validateIntegrityConstraints(client)),
+    ...(await validateCanonicalProjectWorkspaces(client)),
+    ...(await validateIntegrityIndexes(client)),
+    ...(await validateAuditArchiveManifest(client)),
+    ...(await validateFirstArtifactMilestone(client)),
   ];
 }
 
-function validateRemovedObsoleteTables(
-  mode: SupabaseTargetMode,
-  publicTableNames: Set<string>,
-): string[] {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  return FORBIDDEN_OBSOLETE_TABLES.filter((tableName) => publicTableNames.has(tableName)).map(
-    (tableName) => `Obsolete table public.${tableName} must be removed.`,
-  );
-}
-
-async function validateFirstArtifactMilestone(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
+async function validateFirstArtifactMilestone(client: PgClient): Promise<string[]> {
   const result = await client.query(
     `select
-       exists (
-         select 1 from pg_trigger
-          where tgname = 'v2_capture_first_artifact_trigger'
-            and not tgisinternal
-       ) as bridge_exists,
        count(*)::text as invalid_count
      from public.v2_users users
      join (
@@ -149,63 +68,19 @@ async function validateFirstArtifactMilestone(
        or users.first_artifact_at > first_output.created_at`,
   );
   const row = result.rows[0];
-  const issues: string[] = [];
-  if (row?.["bridge_exists"] === true) {
-    issues.push("The temporary first-artifact insertion bridge must be removed.");
-  }
-  if (row?.["invalid_count"] !== "0") {
-    issues.push("Every user with generated outputs must retain the true first-artifact milestone.");
-  }
-  return issues;
+  return row?.["invalid_count"] === "0"
+    ? []
+    : ["Every user with generated outputs must retain the true first-artifact milestone."];
 }
 
-function validateRemovedProjectBackup(
-  mode: SupabaseTargetMode,
-  tables: Map<string, Map<string, ColumnInfo>>,
-): string[] {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const columns = tables.get("v2_projects");
-  return FORBIDDEN_PROJECT_BACKUP_COLUMNS.filter((column) => columns?.has(column)).map(
-    (column) => `Obsolete project-backup column public.v2_projects.${column} must be removed.`,
-  );
-}
-
-function validateRemovedEntitlementScaffolding(
-  mode: SupabaseTargetMode,
-  tables: Map<string, Map<string, ColumnInfo>>,
-): string[] {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const columns = tables.get("v2_entitlements");
-  return FORBIDDEN_ENTITLEMENT_SCAFFOLDING_COLUMNS.filter((column) => columns?.has(column)).map(
-    (column) => `Obsolete entitlement column public.v2_entitlements.${column} must be removed.`,
-  );
-}
-
-function validateRemovedTokenAccounting(
-  mode: SupabaseTargetMode,
-  publicTableNames: Set<string>,
-  tables: Map<string, Map<string, ColumnInfo>>,
-): string[] {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const tableIssues = FORBIDDEN_TOKEN_ACCOUNTING_TABLES.filter((tableName) =>
-    publicTableNames.has(tableName),
-  ).map((tableName) => `Obsolete token-accounting table public.${tableName} must be removed.`);
-  const columnIssues = FORBIDDEN_TOKEN_ACCOUNTING_COLUMNS.flatMap(({ columns, tableName }) => {
-    const actualColumns = tables.get(tableName);
-    return columns
-      .filter((columnName) => actualColumns?.has(columnName))
-      .map(
-        (columnName) =>
-          `Obsolete token-accounting column public.${tableName}.${columnName} must be removed.`,
-      );
-  });
-  return [...tableIssues, ...columnIssues];
+function validateTableSet(publicTableNames: ReadonlySet<string>): string[] {
+  const expected = new Set(TABLE_CONTRACTS.map(({ tableName }) => tableName));
+  return [...publicTableNames]
+    .filter(
+      (tableName) =>
+        !expected.has(tableName) && !/^v2_audit_log_\d{4}_(0[1-9]|1[0-2])$/u.test(tableName),
+    )
+    .map((tableName) => `Unexpected table public.${tableName} must be removed.`);
 }
 
 async function loadPublicTableNames(client: PgClient): Promise<Set<string>> {
@@ -263,62 +138,31 @@ function numberField(row: Record<string, unknown>, key: string): number | undefi
   return typeof value === "number" && Number.isInteger(value) ? value : undefined;
 }
 
-function validateColumns(
-  mode: SupabaseTargetMode,
-  tables: Map<string, Map<string, ColumnInfo>>,
-): string[] {
+function validateColumns(tables: Map<string, Map<string, ColumnInfo>>): string[] {
   return TABLE_CONTRACTS.flatMap((contract) => {
     const columns = tables.get(contract.tableName);
     if (!columns) {
-      return mode === "prod-ready" ? [`public.${contract.tableName} is missing.`] : [];
+      return [`public.${contract.tableName} is missing.`];
     }
     const expectedNames = new Set(contract.columns.map(({ name }) => name));
-    const unexpected =
-      mode === "prod-ready"
-        ? [...columns.keys()]
-            .filter((name) => !expectedNames.has(name))
-            .map(
-              (name) => `Unexpected column public.${contract.tableName}.${name} must be removed.`,
-            )
-        : [];
+    const unexpected = [...columns.keys()]
+      .filter((name) => !expectedNames.has(name))
+      .map((name) => `Unexpected column public.${contract.tableName}.${name} must be removed.`);
     return [
-      ...contract.columns.flatMap((expected) => validateColumn(mode, contract, expected, columns)),
+      ...contract.columns.flatMap((expected) => validateColumn(contract, expected, columns)),
       ...unexpected,
     ];
   });
 }
 
-function validateMigrationPresence(
-  mode: SupabaseTargetMode,
-  publicTableNames: Set<string>,
-): string[] {
-  if (mode !== "pre-migration") {
-    return [];
-  }
-
-  const expectedTableNames = V2_FOUNDATION_DRIZZLE_TABLES;
-  const existing = expectedTableNames.filter((tableName) => publicTableNames.has(tableName));
-  if (existing.length === 0 || existing.length === expectedTableNames.length) {
-    return [];
-  }
-
-  const missing = expectedTableNames.filter((tableName) => !publicTableNames.has(tableName));
-  return [
-    `Pre-migration target has partial V2 Cheatcode tables (${existing.map((tableName) => `public.${tableName}`).join(", ")}) but is missing ${missing.map((tableName) => `public.${tableName}`).join(", ")}. Finish or roll back the V2 migration before retrying.`,
-  ];
-}
-
 function validateColumn(
-  mode: SupabaseTargetMode,
   contract: TableContract,
   expected: ExpectedColumn,
   columns: Map<string, ColumnInfo>,
 ): string[] {
   const actual = columns.get(expected.name);
   if (!actual) {
-    return mode === "prod-ready"
-      ? [`public.${contract.tableName}.${expected.name} is missing.`]
-      : [];
+    return [`public.${contract.tableName}.${expected.name} is missing.`];
   }
   if (expected.dataType && actual.dataType !== expected.dataType) {
     return [
@@ -326,7 +170,6 @@ function validateColumn(
     ];
   }
   if (
-    mode === "prod-ready" &&
     expected.datetimePrecision !== undefined &&
     actual.datetimePrecision !== expected.datetimePrecision
   ) {
@@ -334,7 +177,7 @@ function validateColumn(
       `public.${contract.tableName}.${expected.name} must use timestamp precision ${expected.datetimePrecision}.`,
     ];
   }
-  if (mode === "prod-ready" && actual.nullable !== expected.nullable) {
+  if (actual.nullable !== expected.nullable) {
     return [
       `public.${contract.tableName}.${expected.name} must be ${expected.nullable ? "nullable" : "NOT NULL"}.`,
     ];
@@ -342,13 +185,7 @@ function validateColumn(
   return [];
 }
 
-async function validateIntegrityConstraints(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
+async function validateIntegrityConstraints(client: PgClient): Promise<string[]> {
   const result = await client.query(
     `select
        relation.relname as table_name,
@@ -431,13 +268,7 @@ function normalizedSqlDefinition(value: unknown): string {
   return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim() : "";
 }
 
-async function validateCanonicalProjectWorkspaces(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
+async function validateCanonicalProjectWorkspaces(client: PgClient): Promise<string[]> {
   const result = await client.query(
     `select count(*)::text as invalid_count
        from public.v2_projects
@@ -453,14 +284,7 @@ async function validateCanonicalProjectWorkspaces(
     : ["Every project workspace slug must be a safe bounded base owned by its UUID suffix."];
 }
 
-async function validateIntegrityIndexes(
-  client: PgClient,
-  mode: SupabaseTargetMode,
-): Promise<string[]> {
-  if (mode !== "prod-ready") {
-    return [];
-  }
-  const names = [...REQUIRED_INTEGRITY_INDEXES, ...FORBIDDEN_SUPERSEDED_INDEXES];
+async function validateIntegrityIndexes(client: PgClient): Promise<string[]> {
   const result = await client.query(
     `select
        index_relation.relname as index_name,
@@ -476,12 +300,7 @@ async function validateIntegrityIndexes(
        join pg_namespace namespace on namespace.oid = index_relation.relnamespace
       where namespace.nspname = 'public'
         and index_relation.relname = any($1::text[])`,
-    [names],
-  );
-  const present = new Set(
-    result.rows
-      .map((row) => stringField(row, "index_name"))
-      .filter((name): name is string => name !== undefined),
+    [REQUIRED_INTEGRITY_INDEXES],
   );
   const valid = new Set(
     result.rows
@@ -492,10 +311,7 @@ async function validateIntegrityIndexes(
   const missing = REQUIRED_INTEGRITY_INDEXES.filter((name) => !valid.has(name)).map(
     (name) => `Required production index public.${name} is missing, invalid, or not ready.`,
   );
-  const superseded = FORBIDDEN_SUPERSEDED_INDEXES.filter((name) => present.has(name)).map(
-    (name) => `Superseded production index public.${name} must be removed.`,
-  );
-  return [...missing, ...superseded, ...validateRequiredIndexShapes(result.rows)];
+  return [...missing, ...validateRequiredIndexShapes(result.rows)];
 }
 
 function validateRequiredIndexShapes(rows: readonly Record<string, unknown>[]): string[] {

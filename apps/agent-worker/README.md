@@ -196,14 +196,15 @@ failed cleanup instead of silently leaking storage. Filesystem operations with a
 path remain concurrent across unrelated projects, but arbitrary code, shell execution, and process
 launch always take a non-exclusive global lease because path parsing cannot prove their runtime
 filesystem scope. Project cleanup fences and drains that lease, terminates every managed and
-same-user untracked sandbox process, and only then removes the folder. Account deletion destroys shared
-sandbox state once and removes run Durable Objects in bounded pages. The account cleanup
-RPC synchronously fences new sandbox work, drains operations that already started, records
-final sandbox usage, clears the user's Daytona volume subpath, and deletes every validated
-sandbox. A temporary durable tombstone makes an interrupted cleanup resume behind the same
-fence. Once external cleanup succeeds, the configured 2026-07-15 Workers compatibility contract
-lets one atomic `deleteAll()` remove that tombstone, owner keys, workspace SQLite schema, and
-alarm so the object ceases to occupy storage.
+same-user untracked sandbox process, and only then removes the folder. Account
+deletion destroys shared sandbox state once and removes run Durable Objects in
+bounded pages. The account cleanup RPC synchronously fences new sandbox work,
+drains operations that already started, records final sandbox usage, clears the
+user's Daytona volume subpath, and deletes every validated sandbox. A temporary
+durable tombstone makes an interrupted cleanup resume behind the same fence.
+Once external cleanup succeeds, one atomic `deleteAll()` removes the tombstone,
+owner keys, workspace SQLite schema, and alarm so the object ceases to occupy
+storage.
 
 Constructors inspect existing identity and SQLite metadata without materializing an empty store.
 An object with no registered owner absorbs late lease/alarm cleanup and rejects every other
@@ -221,38 +222,20 @@ project/thread soft-delete generation and verifies that every requested run belo
 scope. The 30-second signature window is therefore safe to retry and cannot authorize stale or
 cross-tenant destruction; no shared key or legacy signature fallback exists.
 
-Workspace and sandbox releases use a separate signed internal RPC. For one exact
-release SHA, the closed release gate and an in-memory mutation lease reject concurrent
-workspace operations. Preparation stops affected processes, collision-checks and renames
-Daytona folders, reconciles process and port state, and records only temporary KV evidence for
-the canonical folders that existed. Finalization reloads the already-canonical Postgres
-inventory and requires the same physical evidence before snapshot work begins. The release
-workflow drains all AgentRuns before this phase, so no stale run can recreate a replaced path.
-Generic Durable Object reconciliation deliberately runs first: it contracts the permanent
-SQLite schema to the project tombstone table and removes the one-time transition and retired-slug
-tables; prepare and finalize do not depend on either table. An owner with no materialized sandbox
-state uses only the in-memory maintenance lease plus the temporary evidence key, so successful
-reconciliation does not leave an empty SQLite store behind.
-
-Finalization also reconciles the user's existing Daytona sandbox to the exact configured
-snapshot. Volume-backed replacements mount the same isolated subpath and compare complete tree
-digests. The one-time adoption of a local-disk sandbox creates a deterministic archive and copies
-it through durable 8 MiB chunks; there is no total workspace-size cap. A candidate never carries
-the canonical label while the source does. After digest verification the source is retired, the
-candidate receives the full canonical label set, the Durable Object atomically adopts its exact
-ID, and only then is the old sandbox deleted. Every boundary is retryable by the temporary
-upgrade phase and deterministic candidate identity. Once final verification succeeds, both the
-workspace-transition evidence and snapshot-upgrade state are deleted; an ambiguous response can
-therefore retry against the canonical physical state without leaving cutover residue. Account
-deletion clears the user's shared-volume subpath before deleting all exact owned sandboxes, so
-persistent volume data does not outlive the account.
+Every ProjectSandbox uses the one configured immutable Daytona snapshot and the
+one configured shared workspace volume. Existing sandbox identity is accepted
+only when its owner, canonical labels, snapshot, volume, and mount contract all
+match. Mismatches fail closed instead of running a hidden migration. New
+sandboxes mount the user's isolated volume subpath directly at `/workspace`.
+Account deletion clears that subpath before deleting all exactly owned
+sandboxes, so persistent volume data does not outlive the account.
 
 Production binds `CHEATCODE_RELEASE_GATE` explicitly. `draining` rejects public
 run, sandbox, preview, download, and deletion admission while allowing already
 admitted AgentRun Workflow/DO callbacks, sandbox operations, and persistence to
 finish. `closed` additionally fences those continuation paths and serves only
-`/health` plus the exact signed canonical-workspace reconciliation RPC. Stable
-drain proofs run at both gates before DDL.
+`/health` plus the signed database-readiness RPC. Stable drain proofs run at
+both gates before DDL.
 
 Project ZIP generation and streaming share the exact
 `PROJECT_ARCHIVE_MAX_OUTPUT_BYTES` contract from `@cheatcode/types` (640 MiB). The
@@ -276,7 +259,7 @@ pnpm --filter @cheatcode/agent-worker typecheck
 
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
-- `CHEATCODE_RELEASE_GATE` (`open` in source; coordinated releases inject `draining` and then `closed` until migration/reconciliation complete)
+- `CHEATCODE_RELEASE_GATE` (`open` in source; coordinated releases inject `draining` and then `closed` until migration and database-readiness checks complete)
 - `CF_VERSION_METADATA`
 - `AGENT_RUN`
 - `AGENT_RUN_WORKFLOW`

@@ -3,7 +3,6 @@ import type { UserId } from "@cheatcode/types";
 import { agentServiceRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
 import { registerGatewayDatabaseReadinessRoute } from "./database-readiness";
-import { registerGatewayDurableObjectStorageRoute } from "./durable-object-storage";
 import type { GatewayApp, GatewayEnv } from "./gateway-env";
 import { OPENAPI_DOCUMENT, openApiDocsHtml } from "./openapi";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
@@ -14,7 +13,6 @@ import type { WaitUntilContext } from "./wait-until-context";
 
 export function registerCoreHttpRoutes(app: GatewayApp): void {
   registerGatewayDatabaseReadinessRoute(app);
-  registerGatewayDurableObjectStorageRoute(app);
   registerHealthRoute(app);
   registerDiscoveryRoutes(app);
   registerTelemetryRoutes(app);

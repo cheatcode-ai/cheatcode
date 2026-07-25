@@ -1,14 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  assertStorageReconciliationRequest,
-  reconcileExactSqliteStorage,
-  storageSchemaEvidence,
-} from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
-import type {
-  InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageResponse,
-} from "@cheatcode/types";
 import { z } from "zod";
 import {
   IdempotencyBeginBodySchema,
@@ -16,12 +7,7 @@ import {
   IdempotencyBeginResultSchema,
   IdempotencyCompleteBodySchema,
 } from "./idempotency-contract";
-import {
-  assertIdempotencyStorage,
-  ensureIdempotencyStorage,
-  hasIdempotencyStorage,
-  reconcileIdempotencyStorage,
-} from "./idempotency-storage";
+import { ensureIdempotencyStorage, hasIdempotencyStorage } from "./idempotency-storage";
 import {
   gatewayDurableObjectClosedResponse,
   rearmClosedGatewayDurableObjectAlarm,
@@ -45,19 +31,6 @@ const MAX_IDEMPOTENCY_REQUEST_BYTES = 1024 * 1024;
 
 export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
   private isStorageInitialized = false;
-
-  public reconcileStorageSchema(
-    value: InternalDurableObjectStorageRequest,
-  ): InternalDurableObjectStorageResponse {
-    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "IdempotencyStore");
-    reconcileExactSqliteStorage(
-      input.mode,
-      () => assertIdempotencyStorage(this.ctx),
-      () => reconcileIdempotencyStorage(this.ctx),
-    );
-    this.isStorageInitialized = true;
-    return storageSchemaEvidence(input);
-  }
 
   public override async fetch(request: Request): Promise<Response> {
     if (this.env.CHEATCODE_RELEASE_GATE === "closed") {

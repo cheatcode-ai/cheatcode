@@ -82,7 +82,7 @@ export function ensureQuotaTrackerStorage(ctx: DurableObjectState): void {
   assertQuotaTrackerStorage(ctx);
 }
 
-export function assertQuotaTrackerStorage(ctx: DurableObjectState): void {
+function assertQuotaTrackerStorage(ctx: DurableObjectState): void {
   assertExactSqliteSchema(ctx, QUOTA_STORAGE_SCHEMA);
 }
 

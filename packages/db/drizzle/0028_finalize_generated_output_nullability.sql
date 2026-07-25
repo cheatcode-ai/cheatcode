@@ -1,3 +1,0 @@
--- Snapshot marker only. The pre-deploy integrity overlay rejects null output
--- identities, and post-deploy migration 0035 makes both columns physically
--- NOT NULL after matching Workers are live.
