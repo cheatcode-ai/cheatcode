@@ -20,7 +20,7 @@ export async function applyEntitlementResourceLimits(
   });
 }
 
-/** Uses the Vault RPC lock identity to serialize provider writes, slot reconciliation, and revalidation. */
+/** Uses the Vault RPC lock identity to serialize provider-key writes and revalidation. */
 export async function lockUserProviderKeyMutations(db: Database, userId: UserId): Promise<void> {
   const identity = `cheatcode:provider-keys:${userId}`;
   await db.execute(sql`select pg_advisory_xact_lock(hashtextextended(${identity}, 0))`);

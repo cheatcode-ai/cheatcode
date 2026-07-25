@@ -202,23 +202,21 @@ pnpm deadcode
 
 ## Database migrations
 
-`scripts/migrate.ts` owns migration planning and execution. Every mutation
-requires `--apply` and an explicit phase; `--phase=all` is read-only.
+`scripts/migrate.ts` owns migration planning and execution. The repository keeps
+one current-schema baseline plus future forward migrations in the Drizzle
+journal; it does not retain the pre-launch migration archive.
 
 ```bash
-pnpm db:migrate -- --dry-run --phase=all
-pnpm db:migrate -- --apply --phase=pre-deploy
-pnpm db:migrate -- --apply --phase=post-deploy
-pnpm db:migrate -- --apply --phase=release-finalization
+pnpm db:migrate -- --dry-run
+pnpm db:migrate -- --apply
 ```
 
 The migration command loads `.env.migrate` on an authorized operator
 workstation, validates the administrative connection target and pinned database
 identity before applying changes, and accepts protected process environment
 values in automation. Migration credentials are never loaded by the app or
-bound to a Worker. Apply expand
-migrations before code that depends on them, and apply contractions only after
-all deployed code is compatible with the contracted schema.
+bound to a Worker. The runner verifies the exact source journal and final
+production contract through the same pinned administrative session.
 
 Configure the three Worker Hyperdrive bindings with the existing guarded helper:
 
@@ -260,11 +258,9 @@ deployed last. The independent preview proxy deploys only when its dependency
 closure changed. If Cloudflare release metadata is unavailable or inconsistent,
 the command safely redeploys the relevant set instead of guessing.
 
-There is no second release orchestrator, compatibility deploy command, or hidden
-workspace-reconciliation command. Schema migrations, Worker deployment, and
-Vercel deployment are explicit operations; operators must sequence them using
-the expand/contract rule above and verify Worker health and the production web
-revision before applying destructive migrations.
+Schema migrations, Worker deployment, and Vercel deployment are explicit
+operations. Verify Worker health and the production web revision whenever a
+release moves more than one surface.
 
 Publish a new immutable Daytona snapshot after changing
 `infra/containers/sandbox/` by dispatching the protected workflow from `main`:

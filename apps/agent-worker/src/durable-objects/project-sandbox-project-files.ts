@@ -11,13 +11,13 @@ import {
   ProjectFileUploadResponseSchema,
 } from "@cheatcode/types";
 import { z } from "zod";
+import { ProjectSandboxProcesses } from "./project-sandbox-processes";
 import {
   type ProjectListUploadedFilesInput,
   ProjectListUploadedFilesInputSchema,
   type ProjectUploadFileInput,
   ProjectUploadFileInputSchema,
 } from "./project-sandbox-runtime";
-import { ProjectSandboxWorkspaceTransition } from "./project-sandbox-workspace-transition";
 
 const FILE_DIGEST_DOMAIN = "cheatcode:project-file:v2";
 const VERSION_DIGEST_DOMAIN = "cheatcode:project-file-version:v2";
@@ -49,7 +49,7 @@ interface PreparedProjectFile {
   versionId: string;
 }
 
-export abstract class ProjectSandboxProjectFiles extends ProjectSandboxWorkspaceTransition {
+export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses {
   private projectFileMutationTail: Promise<void> = Promise.resolve();
 
   public listUploadedFiles(

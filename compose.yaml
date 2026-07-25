@@ -30,7 +30,6 @@ services:
             - .turbo/
             - .vercel/
             - .wrangler/
-            - infra/supabase/migrations/
             - package.json
             - packages/db/drizzle/
             - pnpm-lock.yaml
@@ -41,9 +40,6 @@ services:
             - "**/dist/"
             - "**/node_modules/"
             - node_modules/
-        - action: sync+restart
-          path: infra/supabase/migrations
-          target: /workspace/infra/supabase/migrations
         - action: sync+restart
           path: packages/db/drizzle
           target: /workspace/packages/db/drizzle

@@ -1,3 +1,0 @@
--- Snapshot marker only. Raw post-deploy migration 0074 owns the output-retention,
--- project-instruction, retention-cursor, and BYOK policy contractions after the
--- matching Workers are live.

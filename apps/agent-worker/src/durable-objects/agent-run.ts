@@ -6,14 +6,7 @@ import type {
   CodeRuntimeContext,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import {
-  AgentRunId,
-  type InternalDurableObjectStorageRequest,
-  ProjectId,
-  RunStatusSnapshotSchema,
-  ThreadId,
-  UserId,
-} from "@cheatcode/types";
+import { AgentRunId, ProjectId, RunStatusSnapshotSchema, ThreadId, UserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { createAgentStreamResponse } from "../streaming/ui-message-stream";
 import { armAgentRunAlarm, armClosedAgentRunAlarm } from "./agent-run-alarm";
@@ -51,6 +44,7 @@ import {
   retryPendingAgentRunStatus,
 } from "./agent-run-status-persistence";
 import {
+  assertAgentRunStorage,
   claimAgentRunDeletion,
   getRunStateTimestamp,
   getRunStateValue,
@@ -64,7 +58,6 @@ import {
 import type { StreamDriverDeps } from "./agent-run-stream-driver";
 import { AgentRunWorkflowController } from "./agent-run-workflow-controller";
 import { createRunWorkspaceResolver } from "./agent-run-workspace";
-import { reconcileAgentRunStorageRequest } from "./durable-storage-reconciliation";
 import { mastraChunkError, normalizeMastraStreamError } from "./mastra-stream-chunks";
 import { hasActiveRun } from "./run-state";
 import { type AgentRunSnapshotStatus, snapshotAgentRunStatus } from "./run-summary";
@@ -119,6 +112,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       await this.ctx.storage.deleteAlarm();
       return;
     }
+    assertAgentRunStorage(this.ctx);
     if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
       await armClosedAgentRunAlarm(this.ctx, this.getStatus());
       return;
@@ -134,9 +128,6 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     }
   }
 
-  public reconcileStorageSchema(value: InternalDurableObjectStorageRequest) {
-    return reconcileAgentRunStorageRequest(this.ctx, this.env, value);
-  }
   private async handleAlarm(): Promise<void> {
     if (isAgentRunDeleted(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
@@ -189,6 +180,9 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     // FIFO admission makes /start settle before a later presence probe observes the object.
     const response = this.requestAdmissionTail.then(() => {
       const hasStorage = hasAgentRunStorage(this.ctx);
+      if (hasStorage) {
+        assertAgentRunStorage(this.ctx);
+      }
       return handleAgentRunRequest(request, {
         browserTakeoverResume: (userId, takeoverId) =>
           hasStorage ? this.browserTakeover.resume(userId, takeoverId) : absentAgentRunOkResponse(),

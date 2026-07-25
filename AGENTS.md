@@ -14,7 +14,7 @@ source tree on July 13, 2026; the repository now contains V2 code only.
 | Layer | Choice |
 |---|---|
 | Backend | Cloudflare Workers + Durable Objects + Workflows |
-| Frontend | Next.js 16.2.10 + React 19.2.7 + Tailwind 4.3.2 + shadcn 4.6.0 + AI Elements + Streamdown on Vercel |
+| Frontend | Next.js 16.2.11 + React 19.2.7 + Tailwind 4.3.2 + shadcn 4.6.0 + AI Elements + Streamdown on Vercel |
 | Agent framework | Mastra 1.51.0 on Vercel AI SDK v6.0.205 |
 | Sandbox | Daytona per-user sandboxes via REST-over-fetch |
 | Browser | Stagehand v3.7.0 LOCAL inside the Daytona sandbox snapshot |
@@ -234,7 +234,7 @@ The deleted `plan.md` is not authoritative and must not be restored. Base change
 
 Specifically check before changing:
 - `pnpm-workspace.yaml` and the lockfile for exact dependency versions
-- `packages/db/src/schema`, `packages/db/drizzle`, and `infra/supabase/migrations` for Postgres behavior
+- `packages/db/src/schema` and `packages/db/drizzle` for Postgres behavior
 - Worker `wrangler.jsonc`, `apps/web/vercel.json`, and `.github/workflows` for deployment topology
 - `biome.jsonc` and TypeScript configs for code-quality rules
 

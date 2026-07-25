@@ -1,14 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  assertStorageReconciliationRequest,
-  reconcileExactSqliteStorage,
-  storageSchemaEvidence,
-} from "@cheatcode/durable-storage";
 import { APIError, readBoundedResponseJson, readJsonRequest } from "@cheatcode/observability";
-import type {
-  InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageResponse,
-} from "@cheatcode/types";
 import { z } from "zod";
 import {
   assertReleaseOpen,
@@ -20,7 +11,6 @@ import {
   assertWebhookIdempotencyStorage,
   hasWebhookIdempotencyStorage,
   initializeWebhookIdempotencyStorage,
-  reconcileWebhookIdempotencyStorage,
 } from "./webhook-idempotency-storage";
 
 const WEBHOOK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
@@ -193,24 +183,6 @@ interface WebhookIdempotencyEnv extends ReleaseGateBindings {
 
 export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv> {
   private isStorageInitialized = false;
-
-  public reconcileStorageSchema(
-    value: InternalDurableObjectStorageRequest,
-  ): InternalDurableObjectStorageResponse {
-    const input = assertStorageReconciliationRequest(
-      this.ctx,
-      this.env,
-      value,
-      "WebhookIdempotencyStore",
-    );
-    reconcileExactSqliteStorage(
-      input.mode,
-      () => assertWebhookIdempotencyStorage(this.ctx),
-      () => reconcileWebhookIdempotencyStorage(this.ctx),
-    );
-    this.isStorageInitialized = true;
-    return storageSchemaEvidence(input);
-  }
 
   public override async fetch(request: Request): Promise<Response> {
     if (this.env.CHEATCODE_RELEASE_GATE === "closed") {

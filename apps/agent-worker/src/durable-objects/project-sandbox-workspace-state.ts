@@ -1,6 +1,5 @@
 import {
   assertExactSqliteSchema,
-  assertSqliteRowCountPreserved,
   type ExpectedSqliteObject,
   setCurrentSqliteStorageVersion,
 } from "@cheatcode/durable-storage";
@@ -45,20 +44,12 @@ const PROJECT_SANDBOX_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
 ];
 
 export function initializeProjectSandboxStorage(ctx: DurableObjectState): void {
-  createWorkspaceStateTables(ctx);
+  ctx.storage.sql.exec(CREATE_WORKSPACE_TOMBSTONE_TABLE);
   setCurrentSqliteStorageVersion(ctx);
   assertProjectSandboxStorage(ctx);
 }
 
-/** Rebuilds workspace fences exactly while every public sandbox operation is closed. */
-export function reconcileProjectSandboxStorage(ctx: DurableObjectState): void {
-  createWorkspaceStateTables(ctx);
-  ctx.storage.transactionSync(() => rebuildWorkspaceStateTables(ctx));
-  setCurrentSqliteStorageVersion(ctx);
-  assertProjectSandboxStorage(ctx);
-}
-
-export function assertProjectSandboxStorage(ctx: DurableObjectState): void {
+function assertProjectSandboxStorage(ctx: DurableObjectState): void {
   assertExactSqliteSchema(ctx, PROJECT_SANDBOX_STORAGE_SCHEMA);
 }
 
@@ -85,7 +76,6 @@ export function openProjectSandboxWorkspaceState(
  * Project tombstones intentionally outlive cleanup while the owning account is active.
  */
 export class ProjectSandboxWorkspaceState {
-  private activeTransitionLeaseId: string | null = null;
   private readonly activeCounts = new Map<string, number>();
   private activeSharedMutationCount = 0;
   private activeUnscopedOperationCount = 0;
@@ -116,8 +106,7 @@ export class ProjectSandboxWorkspaceState {
     if (
       this.cleanupInProgressCount > 0 ||
       this.pendingDeletionCount > 0 ||
-      this.activeSharedMutationCount > 0 ||
-      this.activeTransitionLeaseId
+      this.activeSharedMutationCount > 0
     ) {
       throw cleanupInProgressError();
     }
@@ -144,8 +133,7 @@ export class ProjectSandboxWorkspaceState {
     if (
       this.cleanupInProgressCount > 0 ||
       this.pendingDeletionCount > 0 ||
-      this.activeSharedMutationCount > 0 ||
-      this.activeTransitionLeaseId
+      this.activeSharedMutationCount > 0
     ) {
       throw cleanupInProgressError();
     }
@@ -156,8 +144,7 @@ export class ProjectSandboxWorkspaceState {
     if (
       this.cleanupInProgressCount > 0 ||
       this.pendingDeletionCount > 0 ||
-      this.activeSharedMutationCount > 0 ||
-      this.activeTransitionLeaseId
+      this.activeSharedMutationCount > 0
     ) {
       throw cleanupInProgressError();
     }
@@ -178,45 +165,12 @@ export class ProjectSandboxWorkspaceState {
     };
   }
 
-  public acquireTransitionMutation(transitionId: string): () => void {
-    if (
-      this.cleanupInProgressCount > 0 ||
-      this.pendingDeletionCount > 0 ||
-      this.activeSharedMutationCount > 0 ||
-      this.activeTransitionLeaseId !== null
-    ) {
-      throw cleanupInProgressError();
-    }
-    this.activeTransitionLeaseId = transitionId;
-    const releaseMutation = this.acquireSharedMutationLease();
-    let isReleased = false;
-    return () => {
-      if (isReleased) {
-        return;
-      }
-      isReleased = true;
-      releaseMutation();
-      if (this.activeTransitionLeaseId === transitionId) {
-        this.activeTransitionLeaseId = null;
-      }
-    };
-  }
-
-  public assertOperationAllowed(transitionId?: string, allowWorkspaceCleanup = false): void {
-    if (this.activeTransitionLeaseId !== null && this.activeTransitionLeaseId !== transitionId) {
-      throw sharedMutationInProgressError();
-    }
+  public assertOperationAllowed(allowWorkspaceCleanup = false): void {
     if (
       !allowWorkspaceCleanup &&
       (this.cleanupInProgressCount > 0 || this.pendingDeletionCount > 0)
     ) {
       throw cleanupInProgressError();
-    }
-  }
-
-  public assertAccountDeletionAllowed(): void {
-    if (this.activeTransitionLeaseId) {
-      throw sharedMutationInProgressError();
     }
   }
 
@@ -242,9 +196,6 @@ export class ProjectSandboxWorkspaceState {
     input: ParsedProjectCleanupWorkspaceInput,
     cleanup: () => Promise<void>,
   ): Promise<void> {
-    if (this.activeTransitionLeaseId) {
-      throw sharedMutationInProgressError();
-    }
     if (this.claimDeletion(input)) {
       return Promise.resolve();
     }
@@ -399,43 +350,6 @@ export class ProjectSandboxWorkspaceState {
   }
 }
 
-function createWorkspaceStateTables(ctx: DurableObjectState): void {
-  ctx.storage.sql.exec(CREATE_WORKSPACE_TOMBSTONE_TABLE);
-}
-
-function rebuildWorkspaceStateTables(ctx: DurableObjectState): void {
-  ctx.storage.sql.exec("DROP TABLE IF EXISTS project_workspace_tombstone_reconcile_source");
-  ctx.storage.sql.exec(
-    "ALTER TABLE project_workspace_tombstone RENAME TO project_workspace_tombstone_reconcile_source",
-  );
-  ctx.storage.sql.exec(canonicalCreateSql(CREATE_WORKSPACE_TOMBSTONE_TABLE));
-  copyWorkspaceStateRows(ctx);
-  ctx.storage.sql.exec("DROP TABLE project_workspace_tombstone_reconcile_source");
-  // These are release-control evidence only; project deletion fences live in the tombstone table.
-  ctx.storage.sql.exec("DROP TABLE IF EXISTS project_workspace_transition");
-  ctx.storage.sql.exec("DROP TABLE IF EXISTS project_workspace_retired_slug");
-  ctx.storage.sql.exec("DROP TABLE IF EXISTS project_workspace_transition_reconcile_source");
-  ctx.storage.sql.exec("DROP TABLE IF EXISTS project_workspace_retired_slug_reconcile_source");
-}
-
-function copyWorkspaceStateRows(ctx: DurableObjectState): void {
-  ctx.storage.sql.exec(
-    `INSERT INTO project_workspace_tombstone
-      (workspace_slug, project_id, deleted_at, completed_at)
-     SELECT workspace_slug, project_id, deleted_at, completed_at
-     FROM project_workspace_tombstone_reconcile_source`,
-  );
-  assertSqliteRowCountPreserved(
-    ctx,
-    "project_workspace_tombstone_reconcile_source",
-    "project_workspace_tombstone",
-  );
-}
-
-function canonicalCreateSql(sql: string): string {
-  return sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE");
-}
-
 function parseExistingClaim(
   rows: Record<string, SqlStorageValue>[],
   input: ParsedProjectCleanupWorkspaceInput,
@@ -456,12 +370,6 @@ function deletedWorkspaceError(workspaceSlug: string): APIError {
 
 function cleanupInProgressError(): APIError {
   return new APIError(409, "conflict_state_invalid", "Project workspace cleanup is in progress", {
-    retriable: true,
-  });
-}
-
-function sharedMutationInProgressError(): APIError {
-  return new APIError(409, "conflict_state_invalid", "Workspace maintenance is in progress", {
     retriable: true,
   });
 }

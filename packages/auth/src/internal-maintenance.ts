@@ -13,7 +13,6 @@ const MAX_INTERNAL_MAINTENANCE_PATHNAME_CHARACTERS = 2_048;
 const INTERNAL_MAINTENANCE_CAPABILITIES = [
   "agent-lifecycle",
   "database-readiness",
-  "durable-object-schema",
   "resource-deletion",
   "webhook-replay",
 ] as const;

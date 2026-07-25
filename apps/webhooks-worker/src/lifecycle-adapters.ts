@@ -3,16 +3,10 @@ import { ComposioClient, isComposioNotFoundError } from "@cheatcode/composio";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 import {
-  canonicalWorkspaceDigest,
   type InternalAgentStateDeleteBody,
   InternalAgentStateDeleteBodySchema,
   InternalStateDeleteResponseSchema,
-  type InternalWorkspaceReconciliationBody,
-  InternalWorkspaceReconciliationBodySchema,
-  type InternalWorkspaceReconciliationResponse,
-  InternalWorkspaceReconciliationResponseSchema,
   internalUserStateDeletePath,
-  internalUserWorkspaceReconciliationPath,
   type UserId,
 } from "@cheatcode/types";
 import {
@@ -93,51 +87,6 @@ export async function deleteProjectAgentWorkspace(
     scope: "project",
     workspaceSlug: input.workspaceSlug,
   });
-}
-
-export async function reconcileUserAgentWorkspaces(
-  env: AgentStateDeletionEnv,
-  userId: UserId,
-  payload: InternalWorkspaceReconciliationBody,
-  agentLifecycleSecret: string,
-): Promise<InternalWorkspaceReconciliationResponse> {
-  const parsed = InternalWorkspaceReconciliationBodySchema.parse(payload);
-  const body = JSON.stringify(parsed);
-  const pathname = internalUserWorkspaceReconciliationPath(userId);
-  const headers = await agentLifecycleHeaders(agentLifecycleSecret, pathname, body);
-  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
-    body,
-    headers,
-    method: "POST",
-  });
-  if (!response.ok) {
-    const status = response.status;
-    await response.body?.cancel().catch(() => undefined);
-    throw new APIError(503, "unavailable_maintenance", "Workspace reconciliation failed", {
-      details: { status },
-      retriable: isRetriableUpstreamStatus(status),
-    });
-  }
-  const result = InternalWorkspaceReconciliationResponseSchema.parse(
-    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Agent Worker"),
-  );
-  const expectedDigest = await canonicalWorkspaceDigest(
-    parsed.projects.map((project) => project.canonicalWorkspaceSlug),
-  );
-  const isExpectedPhase =
-    result.transitionPhase === "completed" ||
-    (parsed.phase === "prepare" && result.transitionPhase === "prepared");
-  if (
-    result.canonicalDigest !== expectedDigest ||
-    result.canonicalWorkspaceCount !== parsed.projects.length ||
-    result.releaseSha !== parsed.releaseSha ||
-    !isExpectedPhase
-  ) {
-    throw new APIError(409, "conflict_state_invalid", "Workspace evidence does not match request", {
-      retriable: false,
-    });
-  }
-  return result;
 }
 
 async function deleteAgentState(

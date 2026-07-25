@@ -8,10 +8,7 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
-import {
-  INTERNAL_DATABASE_READINESS_PATH,
-  INTERNAL_DURABLE_OBJECT_STORAGE_PATH,
-} from "@cheatcode/types";
+import { INTERNAL_DATABASE_READINESS_PATH } from "@cheatcode/types";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { routePath } from "hono/route";
@@ -239,11 +236,7 @@ async function releaseGateResponse(
     return undefined;
   }
   const url = new URL(request.url);
-  if (
-    request.method === "POST" &&
-    (url.pathname === INTERNAL_DATABASE_READINESS_PATH ||
-      url.pathname === INTERNAL_DURABLE_OBJECT_STORAGE_PATH)
-  ) {
+  if (request.method === "POST" && url.pathname === INTERNAL_DATABASE_READINESS_PATH) {
     return undefined;
   }
   const details: Record<string, unknown> = {

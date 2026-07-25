@@ -5,5 +5,5 @@ allowBuilds:
   sharp: false
 
 overrides:
-  'postcss@<8.5.10': 8.5.15
+  'postcss@<8.5.18': 8.5.18
   'sharp@<0.35.0': 0.35.0

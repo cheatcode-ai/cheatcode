@@ -89,26 +89,17 @@ Gateway emits `first_byok_key_added` after the first successful provider-key sav
 and accepts authenticated `/v1/user-events` activation pings from the real web UI.
 
 Production deploys bind an immutable `CHEATCODE_RELEASE_SHA` into every affected
-Worker. Forward-compatible Durable Object storage changes reconcile transactionally
-when an existing object is first admitted, before the operation reaches an await.
-This keeps dormant objects deployable without a fleet-wide maintenance pass while
-preserving every validated source row. The signed internal storage route and
-`CHEATCODE_RELEASE_GATE=closed` remain available for explicit bulk verification
-and schema contractions that require a coordinated maintenance window.
+Worker. Each Durable Object initializes one current SQLite contract and validates
+that exact contract before using existing storage.
 
 `CHEATCODE_RELEASE_GATE=open` is the steady state. A closed gateway rejects public
 work, and agent/webhook draining or closed gates fence new writer admissions.
-The gate is an operational barrier; SQLite reconciliation itself is performed by
-the object's synchronous transaction and verified against the exact schema.
+The gate is an operational barrier; SQLite schema validation is synchronous.
 
-`IdempotencyStore` owns one exact SQLite table shape in its stable namespace and
-reconciles dormant objects to that shape when they are next activated. Run
-creation is also durably idempotent in Postgres, so request-cache evolution
-cannot create a duplicate run.
-
-`QuotaTracker` has no compatibility migration path. New objects initialize
-directly into the current exact schema, while existing objects must already
-match that schema before any quota operation is admitted.
+`IdempotencyStore`, `RateLimiter`, and `QuotaTracker` each own one exact SQLite
+schema. New objects initialize that schema directly; existing objects must
+already match it before an operation is admitted. Run creation is also durably
+idempotent in Postgres, so request-cache state cannot create a duplicate run.
 
 `/v1/tools` and `/v1/agents` read the shared framework-free capability catalog
 from `@cheatcode/types`. The Mastra registries are statically constrained to the

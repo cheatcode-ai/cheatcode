@@ -383,13 +383,7 @@ async function loadProviderIndexes(client: TargetQueryClient): Promise<Map<strin
       and index_relation.relname = any($1::text[])
     group by index_relation.relname, index_record.indisunique, index_record.indisvalid,
              index_record.indisready, index_record.indpred, index_record.indrelid`,
-    [
-      [
-        "v2_provider_keys_vault_secret_uidx",
-        "v2_provider_keys_revalidation_lease_idx",
-        "v2_provider_keys_revalidation_idx",
-      ],
-    ],
+    [["v2_provider_keys_vault_secret_uidx", "v2_provider_keys_revalidation_lease_idx"]],
   );
   return new Map(
     result.rows.map((row) => [stringField(row, "relname") ?? "", row as IndexRow] as const),
@@ -422,9 +416,6 @@ function validateProviderIndexes(indexes: ReadonlyMap<string, IndexRow>): string
     issues.push(
       "Provider revalidation requires a valid lease-aware due-order index for enabled keys.",
     );
-  }
-  if (indexes.has("v2_provider_keys_revalidation_idx")) {
-    issues.push("The superseded provider-key revalidation index must be removed.");
   }
   return issues;
 }

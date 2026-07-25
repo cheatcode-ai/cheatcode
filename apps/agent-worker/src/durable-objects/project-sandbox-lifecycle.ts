@@ -9,6 +9,7 @@ import {
 } from "@cheatcode/tools-code";
 import { z } from "zod";
 import { type SandboxExecAuditEntry, writeExecAudit } from "./project-sandbox-audit";
+import { clearWorkspaceCommand } from "./project-sandbox-cleanup-script";
 import { ProjectSandboxIdentityState } from "./project-sandbox-identity-state";
 import {
   ACCOUNT_DELETION_TOMBSTONE_KEY,
@@ -39,7 +40,6 @@ import type {
   ParsedProjectCleanupWorkspaceInput,
   ProjectSandboxRuntimeState,
 } from "./project-sandbox-runtime";
-import { clearWorkspaceCommand } from "./project-sandbox-snapshot-scripts";
 import {
   initializeProjectSandboxStorage,
   openProjectSandboxWorkspaceState,
@@ -54,7 +54,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private accountDeletionPromise: Promise<void> | undefined;
   private activeOperationCount = 0;
   private readonly activeOperationDrainWaiters = new Set<() => void>();
-  private activeWorkspaceTransitionId: string | null = null;
   private daytonaClient: DaytonaClient | undefined;
   private daytonaId: string | undefined;
   private sandboxMutationTail: Promise<void> = Promise.resolve();
@@ -89,7 +88,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       return this.accountDeletionPromise;
     }
 
-    this.workspaceStateValue?.assertAccountDeletionAllowed();
     this.accountDeletionInProgress = true;
     const deletion = this.performAccountDeletion();
     const tracked = deletion.finally(() => {
@@ -119,7 +117,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     }
     let release: (() => void) | undefined;
     try {
-      release = this.acquireActiveSandboxOperation(undefined, true);
+      release = this.acquireActiveSandboxOperation(true);
       return assertProjectSandboxOwnerActive(this.env, userId)
         .then(() => {
           if (this.accountDeletionInProgress) {
@@ -151,72 +149,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       },
       true,
     );
-  }
-  protected withActiveWorkspaceTransition<T>(
-    transitionId: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE !== "closed") {
-      return Promise.reject(
-        new APIError(
-          409,
-          "conflict_state_invalid",
-          "Workspace transitions require the closed release gate",
-          { retriable: false },
-        ),
-      );
-    }
-    return this.initializeIdentityState().then(() =>
-      this.runActiveWorkspaceTransition(transitionId, operation),
-    );
-  }
-  private runActiveWorkspaceTransition<T>(
-    transitionId: string,
-    operation: () => Promise<T>,
-  ): Promise<T> {
-    let releaseSandbox: (() => void) | undefined;
-    let releaseWorkspace: (() => void) | undefined;
-    try {
-      const workspaceState = this.openWorkspaceState();
-      releaseWorkspace = workspaceState
-        ? workspaceState.acquireTransitionMutation(transitionId)
-        : this.acquireTransientWorkspaceTransition(transitionId);
-      return Promise.all([
-        this.waitForActiveSandboxOperations(),
-        workspaceState?.waitForWorkspaceDrain() ?? Promise.resolve(),
-      ])
-        .then(() => {
-          releaseSandbox = this.acquireActiveSandboxOperation(transitionId, true);
-          return operation();
-        })
-        .finally(() => {
-          releaseSandbox?.();
-          releaseWorkspace?.();
-        });
-    } catch (error) {
-      releaseWorkspace?.();
-      releaseSandbox?.();
-      return Promise.reject(error);
-    }
-  }
-
-  private acquireTransientWorkspaceTransition(transitionId: string): () => void {
-    if (this.activeWorkspaceTransitionId !== null) {
-      throw new APIError(409, "conflict_state_invalid", "Workspace maintenance is in progress", {
-        retriable: true,
-      });
-    }
-    this.activeWorkspaceTransitionId = transitionId;
-    let isReleased = false;
-    return () => {
-      if (isReleased) {
-        return;
-      }
-      isReleased = true;
-      if (this.activeWorkspaceTransitionId === transitionId) {
-        this.activeWorkspaceTransitionId = null;
-      }
-    };
   }
   protected withActiveProjectWorkspaceOperation<T>(
     workspaceScope: string | readonly string[] | null,
@@ -301,11 +233,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     return this.workspaceStateValue;
   }
 
-  private openWorkspaceState(): ProjectSandboxWorkspaceState | undefined {
-    this.workspaceStateValue ??= openProjectSandboxWorkspaceState(this.ctx);
-    return this.workspaceStateValue;
-  }
-
   protected deleteProjectWorkspace(
     input: ParsedProjectCleanupWorkspaceInput,
     cleanup: () => Promise<void>,
@@ -322,7 +249,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       // Cleanup itself must not take a workspace lease: its durable tombstone
       // blocks new work, then it drains every existing lease before killing
       // sandbox-wide processes.
-      release = this.acquireActiveSandboxOperation(undefined, false, true);
+      release = this.acquireActiveSandboxOperation(false, true);
       return operation().finally(release);
     } catch (error) {
       release?.();
@@ -538,7 +465,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   private acquireActiveSandboxOperation(
-    transitionId?: string,
     allowUnregisteredOwner = false,
     allowWorkspaceCleanup = false,
   ): () => void {
@@ -552,7 +478,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       allowUnregisteredOwner && !this.identityState.hasRegisteredOwner()
         ? this.workspaceStateValue
         : this.ensureWorkspaceState();
-    workspaceState?.assertOperationAllowed(transitionId, allowWorkspaceCleanup);
+    workspaceState?.assertOperationAllowed(allowWorkspaceCleanup);
     this.activeOperationCount += 1;
     let isReleased = false;
     return () => {

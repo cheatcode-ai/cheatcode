@@ -1,14 +1,12 @@
 # @cheatcode/durable-storage
 
-Exact SQLite schema attestation shared by the Cloudflare Durable Objects. It
-canonicalizes `sqlite_schema`, binds a reconciliation request to the closed
-release and concrete object identity, and emits validated evidence only after
-the owning object has reconciled or verified its current schema.
+Exact SQLite schema validation shared by the Cloudflare Durable Objects. It
+canonicalizes `sqlite_schema` and rejects any object whose persisted schema
+differs from the current application contract.
 
-The package does not own an application's tables or data migrations. Each
-Durable Object declares and rebuilds its own exact current schema so dormant
-objects cannot retain stale tables, indexes, views, triggers, columns, or
-constraints. Attestation inspects every non-internal `sqlite_schema` object.
+The package does not own application tables or data migrations. Each Durable
+Object initializes its exact current schema once and validates existing storage
+before use. Validation inspects every non-internal `sqlite_schema` object.
 Its SQL tokenizer ignores comments and whitespace, folds unquoted ASCII
 identifier/keyword case, and ignores `IF NOT EXISTS` on `CREATE` statements.
 String literals and quoted identifiers remain byte-for-byte significant so
@@ -23,11 +21,7 @@ support `PRAGMA user_version`. Attestation excludes only Workerd's exact
 ## Public exports
 
 - `assertExactSqliteSchema`
-- `assertSqliteRowCountPreserved`
-- `reconcileExactSqliteStorage`
 - `setCurrentSqliteStorageVersion`
-- `assertStorageReconciliationRequest`
-- `storageSchemaEvidence`
 - `ExpectedSqliteObject`
 - `SqliteSchemaMismatchError`
 - `SqliteSchemaObjectType`
@@ -42,4 +36,4 @@ pnpm --filter @cheatcode/durable-storage build
 
 ## Env
 
-None. Callers supply their release gate and release SHA bindings.
+None.

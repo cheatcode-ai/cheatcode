@@ -1,12 +1,3 @@
-import {
-  DURABLE_OBJECT_STORAGE_SCHEMA_VERSIONS,
-  type DurableObjectStorageClass,
-  type InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageRequestSchema,
-  type InternalDurableObjectStorageResponse,
-  InternalDurableObjectStorageResponseSchema,
-} from "@cheatcode/types";
-
 export const CURRENT_SQLITE_STORAGE_VERSION = 1;
 
 const STORAGE_METADATA_TABLE = "__cheatcode_storage_metadata";
@@ -48,41 +39,6 @@ interface CanonicalSqliteObject {
   type: SqliteSchemaObjectType;
 }
 
-interface ReleaseBoundDurableObjectEnv {
-  CHEATCODE_RELEASE_GATE: "closed" | "draining" | "open";
-  CHEATCODE_RELEASE_SHA?: string;
-}
-
-export function assertStorageReconciliationRequest(
-  ctx: DurableObjectState,
-  env: ReleaseBoundDurableObjectEnv,
-  value: InternalDurableObjectStorageRequest,
-  className: DurableObjectStorageClass,
-): InternalDurableObjectStorageRequest {
-  const input = InternalDurableObjectStorageRequestSchema.parse(value);
-  if (
-    env.CHEATCODE_RELEASE_GATE !== "closed" ||
-    env.CHEATCODE_RELEASE_SHA !== input.releaseSha ||
-    input.className !== className ||
-    input.objectId !== ctx.id.toString()
-  ) {
-    throw new Error(`${className} storage reconciliation authority mismatch.`);
-  }
-  return input;
-}
-
-export function storageSchemaEvidence(
-  input: InternalDurableObjectStorageRequest,
-): InternalDurableObjectStorageResponse {
-  return InternalDurableObjectStorageResponseSchema.parse({
-    className: input.className,
-    objectId: input.objectId,
-    releaseSha: input.releaseSha,
-    schemaVersion: DURABLE_OBJECT_STORAGE_SCHEMA_VERSIONS[input.className],
-    verified: true,
-  });
-}
-
 export function setCurrentSqliteStorageVersion(ctx: DurableObjectState): void {
   // Durable Object SQL does not support PRAGMA user_version, so the marker is application-owned.
   ctx.storage.sql.exec(`DROP TABLE IF EXISTS ${STORAGE_METADATA_TABLE}`);
@@ -91,49 +47,6 @@ export function setCurrentSqliteStorageVersion(ctx: DurableObjectState): void {
     `INSERT INTO ${STORAGE_METADATA_TABLE} (singleton, schema_version) VALUES (1, ?)`,
     CURRENT_SQLITE_STORAGE_VERSION,
   );
-}
-
-/** Rebuild once, then make retries and signed-request replays verification-only. */
-export function reconcileExactSqliteStorage(
-  mode: InternalDurableObjectStorageRequest["mode"],
-  assertCurrent: () => void,
-  reconcile: () => void,
-): void {
-  if (mode === "verify") {
-    assertCurrent();
-    return;
-  }
-  try {
-    assertCurrent();
-  } catch (error) {
-    if (!(error instanceof SqliteSchemaMismatchError)) throw error;
-    reconcile();
-  }
-}
-
-/** Proves a copy step did not filter or replace rows before the source table is dropped. */
-export function assertSqliteRowCountPreserved(
-  ctx: DurableObjectState,
-  sourceTable: string,
-  targetTable: string,
-): void {
-  if (!isSafeSqlIdentifier(sourceTable) || !isSafeSqlIdentifier(targetTable)) {
-    throw new TypeError("SQLite preservation evidence requires safe table identifiers.");
-  }
-  const [row] = ctx.storage.sql
-    .exec(
-      `SELECT (SELECT count(*) FROM ${sourceTable}) AS source_count,
-              (SELECT count(*) FROM ${targetTable}) AS target_count`,
-    )
-    .toArray();
-  if (
-    !isRecord(row) ||
-    typeof row["source_count"] !== "number" ||
-    typeof row["target_count"] !== "number" ||
-    row["source_count"] !== row["target_count"]
-  ) {
-    throw new Error("Durable Object reconciliation did not preserve every source row.");
-  }
 }
 
 export function assertExactSqliteSchema(
@@ -377,10 +290,6 @@ function readWhile(sql: string, start: number, predicate: (value: string) => boo
 
 function isSqlWhitespace(value: string): boolean {
   return value === " " || value === "\t" || value === "\n" || value === "\r" || value === "\f";
-}
-
-function isSafeSqlIdentifier(value: string): boolean {
-  return /^[a-z][a-z0-9_]*$/u.test(value);
 }
 
 function isSqlWordStart(value: string): boolean {

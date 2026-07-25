@@ -46,7 +46,7 @@ export class ProjectSandboxProvisioning {
     throw new APIError(
       503,
       "unavailable_maintenance",
-      "Sandbox requires release-scoped snapshot reconciliation",
+      "Sandbox does not match the configured runtime",
       {
         details: {
           actualSnapshot: resolved.snapshot,

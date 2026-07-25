@@ -3,7 +3,6 @@ import {
   findGeneratedOutput,
   getProject,
   isAgentStateDeletionAuthorized,
-  loadWorkspaceTransitionOwner,
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
@@ -11,10 +10,7 @@ import { APIError, readBoundedRequestText } from "@cheatcode/observability";
 import {
   InternalAgentStateDeleteBodySchema,
   InternalStateDeleteResponseSchema,
-  InternalWorkspaceReconciliationBodySchema,
-  InternalWorkspaceReconciliationResponseSchema,
   internalUserStateDeletePath,
-  internalUserWorkspaceReconciliationPath,
   OutputIdSchema,
   ProjectId,
   UserId,
@@ -47,106 +43,9 @@ type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerAgentSystemHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
   app.post("/internal/users/:userId/delete-state", deleteInternalUserState);
-  app.post("/internal/users/:userId/reconcile-workspaces", reconcileInternalUserWorkspaces);
   app.post("/v1/outputs/:outputId/download-url", mintOutputDownloadUrl);
   app.get("/v1/outputs/:outputId/download", downloadOutput);
   app.post("/v1/projects/:projectId/download", downloadProjectArchive);
-}
-
-async function reconcileInternalUserWorkspaces(c: AgentContext): Promise<Response> {
-  if (c.env.CHEATCODE_RELEASE_GATE !== "closed") {
-    throw new APIError(
-      409,
-      "conflict_state_invalid",
-      "Workspace reconciliation requires the closed release gate",
-      { retriable: false },
-    );
-  }
-  assertAgentInternalHostname(c.req.raw);
-  assertAgentLifecycleCapability(c.req.raw);
-  const userId = UserId(GatewayUserIdSchema.parse(c.req.param("userId")));
-  const rawBody = await readBoundedRequestText(
-    c.req.raw,
-    MAX_INTERNAL_MAINTENANCE_BODY_BYTES,
-    "Internal workspace reconciliation",
-  );
-  await verifyAgentLifecycleRequest({
-    expectedPathname: internalUserWorkspaceReconciliationPath(userId),
-    rawBody,
-    request: c.req.raw,
-    secrets: c.env,
-  });
-  const body = InternalWorkspaceReconciliationBodySchema.parse(
-    parseInternalMaintenanceJson(rawBody),
-  );
-  if (c.env.CHEATCODE_RELEASE_SHA !== body.releaseSha) {
-    throw new APIError(409, "conflict_state_invalid", "Agent release does not match transition", {
-      details: { actualReleaseSha: c.env.CHEATCODE_RELEASE_SHA ?? null },
-      retriable: false,
-    });
-  }
-  await assertWorkspaceTransitionInventory(c.env, userId, body);
-  const sandbox = await sandboxStubForUser(c.env, userId);
-  const result =
-    body.phase === "prepare"
-      ? await sandbox.prepareWorkspaceTransition(body)
-      : await sandbox.finalizeWorkspaceTransition(body);
-  return c.json(InternalWorkspaceReconciliationResponseSchema.parse(result));
-}
-
-async function assertWorkspaceTransitionInventory(
-  env: AgentEnv,
-  userId: UserId,
-  body: z.infer<typeof InternalWorkspaceReconciliationBodySchema>,
-): Promise<void> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const owner = await withUserContext(db, userId, (transaction) =>
-      loadWorkspaceTransitionOwner(transaction, userId),
-    );
-    if (!owner || !workspaceInventoryMatches(owner.projects, body.projects, body.phase)) {
-      throw new APIError(
-        409,
-        "conflict_state_invalid",
-        "Postgres workspace inventory does not match transition",
-        { retriable: false },
-      );
-    }
-  } finally {
-    await close();
-  }
-}
-
-function workspaceInventoryMatches(
-  actual: Array<{
-    canonicalWorkspaceSlug: string;
-    currentWorkspaceSlug: string;
-    projectId: string;
-  }>,
-  requested: Array<{
-    canonicalWorkspaceSlug: string;
-    currentWorkspaceSlug: string;
-    projectId: string;
-  }>,
-  phase: "finalize" | "prepare",
-): boolean {
-  if (actual.length !== requested.length) {
-    return false;
-  }
-  const requestedById = new Map(requested.map((project) => [project.projectId, project]));
-  return actual.every((project) => {
-    const request = requestedById.get(project.projectId);
-    return (
-      request?.canonicalWorkspaceSlug === project.canonicalWorkspaceSlug &&
-      (phase === "finalize"
-        ? project.currentWorkspaceSlug === request.canonicalWorkspaceSlug
-        : project.currentWorkspaceSlug === request.currentWorkspaceSlug ||
-          project.currentWorkspaceSlug === request.canonicalWorkspaceSlug)
-    );
-  });
 }
 
 async function deleteInternalUserState(c: AgentContext): Promise<Response> {

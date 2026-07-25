@@ -18,15 +18,6 @@ import {
 } from "./user-deletion-admission";
 import { processUserDeletionChunk } from "./user-deletion-workflow";
 import { createDeterministicWorkflow } from "./workflow-instance";
-import {
-  reconcileCanonicalWorkspaces,
-  type WorkspaceReconciliationChunk,
-  type WorkspaceReconciliationPayload,
-  WorkspaceReconciliationPayloadSchema,
-  type WorkspaceReconciliationWorkflowResult,
-  WorkspaceReconciliationWorkflowResultSchema,
-  workspaceReconciliationInstanceId,
-} from "./workspace-reconciliation";
 
 const OpsMaintenancePayloadSchema = z.union([
   z.object({
@@ -40,7 +31,6 @@ const OpsMaintenancePayloadSchema = z.union([
   }),
   DailyMaintenancePayloadSchema,
   UserDeletionPayloadSchema,
-  WorkspaceReconciliationPayloadSchema,
 ]);
 
 export type OpsMaintenancePayload = z.infer<typeof OpsMaintenancePayloadSchema>;
@@ -68,27 +58,8 @@ export class OpsMaintenanceWorkflow extends WorkflowEntrypoint<
   public override async run(
     event: Readonly<WorkflowEvent<OpsMaintenancePayload>>,
     step: WorkflowStep,
-  ): Promise<
-    | WorkspaceReconciliationWorkflowResult
-    | { kind: Exclude<OpsMaintenancePayload["kind"], "workspace-reconciliation">; ok: true }
-  > {
+  ): Promise<{ kind: OpsMaintenancePayload["kind"]; ok: true }> {
     const payload = OpsMaintenancePayloadSchema.parse(event.payload);
-    if (payload.kind === "workspace-reconciliation") {
-      if (this.env.CHEATCODE_RELEASE_GATE !== "closed") {
-        throw new NonRetryableError(
-          "Workspace reconciliation requires the closed release gate",
-          "WorkspaceReconciliationGateOpen",
-        );
-      }
-      if (event.instanceId !== workspaceReconciliationInstanceId(payload)) {
-        throw new NonRetryableError(
-          "Workspace reconciliation instance identity is invalid",
-          "WorkspaceReconciliationIdentityInvalid",
-        );
-      }
-      const chunk = await reconcileCanonicalWorkspaces(this.env, payload, step);
-      return completeOrContinueWorkspaceReconciliation(this.env, payload, chunk, step);
-    }
     if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
       throw new NonRetryableError(
         "Ops maintenance is fenced by a closed release",
@@ -129,55 +100,6 @@ export class OpsMaintenanceWorkflow extends WorkflowEntrypoint<
     );
     return { kind: payload.kind, ok: true };
   }
-}
-
-async function completeOrContinueWorkspaceReconciliation(
-  env: OpsWorkflowEnv,
-  payload: WorkspaceReconciliationPayload,
-  chunk: WorkspaceReconciliationChunk,
-  step: WorkflowStep,
-): Promise<WorkspaceReconciliationWorkflowResult> {
-  if (chunk.evidence) {
-    return WorkspaceReconciliationWorkflowResultSchema.parse({
-      continuationInstanceId: null,
-      evidence: chunk.evidence,
-      kind: "workspace-reconciliation",
-      ok: true,
-    });
-  }
-  if (!chunk.continuation) {
-    throw new Error("Workspace reconciliation returned no evidence or continuation.");
-  }
-  const continuation = WorkspaceReconciliationPayloadSchema.parse(chunk.continuation);
-  if (
-    continuation.releaseSha !== payload.releaseSha ||
-    continuation.generation !== payload.generation + 1
-  ) {
-    throw new Error("Workspace reconciliation continuation did not advance exactly once.");
-  }
-  const expectedId = workspaceReconciliationInstanceId(continuation);
-  const created = await step.do(
-    "enqueue workspace reconciliation continuation",
-    {
-      retries: { limit: 5, delay: "30 seconds", backoff: "exponential" },
-      timeout: "2 minutes",
-    },
-    () =>
-      createDeterministicWorkflow(env.OPS_WORKFLOW, {
-        id: expectedId,
-        params: continuation,
-        retention: { errorRetention: "30 days", successRetention: "30 days" },
-      }),
-  );
-  if (created.id !== expectedId) {
-    throw new Error("Workspace reconciliation continuation identity changed during creation.");
-  }
-  return WorkspaceReconciliationWorkflowResultSchema.parse({
-    continuationInstanceId: created.id,
-    evidence: null,
-    kind: "workspace-reconciliation",
-    ok: true,
-  });
 }
 
 export async function enqueueAnalyticsWatchdog(

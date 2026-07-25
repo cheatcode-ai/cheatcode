@@ -8,18 +8,13 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
-import {
-  INTERNAL_DATABASE_READINESS_PATH,
-  INTERNAL_DURABLE_OBJECT_STORAGE_PATH,
-  normalizeTelemetryPath,
-} from "@cheatcode/types";
+import { INTERNAL_DATABASE_READINESS_PATH, normalizeTelemetryPath } from "@cheatcode/types";
 import { type Context, Hono } from "hono";
 import { routePath } from "hono/route";
 import { registerAgentRunHttpRoutes } from "./agent-api-run-routes";
 import { registerAgentSystemHttpRoutes } from "./agent-api-system-routes";
 import type { AgentEnv } from "./agent-env";
 import { registerAgentDatabaseReadinessRoute } from "./database-readiness";
-import { registerAgentDurableObjectStorageRoute } from "./durable-object-storage";
 import { AgentRun } from "./durable-objects/agent-run";
 import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
@@ -76,7 +71,6 @@ agentApp.get("/health", (c) =>
 );
 
 registerAgentDatabaseReadinessRoute(agentApp);
-registerAgentDurableObjectStorageRoute(agentApp);
 registerAgentSystemHttpRoutes(agentApp);
 registerAgentRunHttpRoutes(agentApp);
 registerSandboxHttpRoutes(agentApp);
@@ -114,8 +108,6 @@ const agentHandler = {
   },
 };
 
-const WORKSPACE_RECONCILIATION_PATH =
-  /^\/internal\/users\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/reconcile-workspaces$/u;
 const USER_STATE_DELETION_PATH =
   /^\/internal\/users\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/delete-state$/u;
 
@@ -131,15 +123,14 @@ function agentReleaseGateResponse(
   if (
     env.CHEATCODE_RELEASE_GATE === "closed" &&
     request.method === "POST" &&
-    (pathname === INTERNAL_DATABASE_READINESS_PATH ||
-      pathname === INTERNAL_DURABLE_OBJECT_STORAGE_PATH)
+    pathname === INTERNAL_DATABASE_READINESS_PATH
   ) {
     return undefined;
   }
   if (
     request.method === "POST" &&
-    ((env.CHEATCODE_RELEASE_GATE === "draining" && USER_STATE_DELETION_PATH.test(pathname)) ||
-      (env.CHEATCODE_RELEASE_GATE === "closed" && WORKSPACE_RECONCILIATION_PATH.test(pathname)))
+    env.CHEATCODE_RELEASE_GATE === "draining" &&
+    USER_STATE_DELETION_PATH.test(pathname)
   ) {
     return undefined;
   }

@@ -1,25 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import {
-  assertStorageReconciliationRequest,
-  reconcileExactSqliteStorage,
-  storageSchemaEvidence,
-} from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
-import type {
-  InternalDurableObjectStorageRequest,
-  InternalDurableObjectStorageResponse,
-} from "@cheatcode/types";
 import {
   type RateLimitConfig,
   RateLimitConsumeBodySchema,
   type RateLimitResult,
 } from "./rate-limit-contract";
-import {
-  assertRateLimiterStorage,
-  ensureRateLimiterStorage,
-  hasRateLimiterStorage,
-  reconcileRateLimiterStorage,
-} from "./rate-limiter-storage";
+import { ensureRateLimiterStorage, hasRateLimiterStorage } from "./rate-limiter-storage";
 import {
   assertGatewayDurableObjectOpen,
   gatewayDurableObjectClosedResponse,
@@ -48,19 +34,6 @@ function isBucketRow(value: unknown): value is BucketRow {
 
 export class RateLimiter extends DurableObject<RateLimiterEnv> {
   private isStorageInitialized = false;
-
-  public reconcileStorageSchema(
-    value: InternalDurableObjectStorageRequest,
-  ): InternalDurableObjectStorageResponse {
-    const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "RateLimiter");
-    reconcileExactSqliteStorage(
-      input.mode,
-      () => assertRateLimiterStorage(this.ctx),
-      () => reconcileRateLimiterStorage(this.ctx),
-    );
-    this.isStorageInitialized = true;
-    return storageSchemaEvidence(input);
-  }
 
   public async consume(
     key: string,
