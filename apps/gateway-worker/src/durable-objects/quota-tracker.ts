@@ -1,7 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import {
   assertStorageReconciliationRequest,
-  reconcileExactSqliteStorage,
   storageSchemaEvidence,
 } from "@cheatcode/durable-storage";
 import { readJsonRequest } from "@cheatcode/observability";
@@ -35,7 +34,6 @@ import {
   assertQuotaTrackerStorage,
   ensureQuotaTrackerStorage,
   hasQuotaTrackerStorage,
-  reconcileQuotaTrackerStorage,
 } from "./quota-tracker-storage";
 import {
   assertGatewayDurableObjectOpen,
@@ -131,11 +129,7 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
     value: InternalDurableObjectStorageRequest,
   ): InternalDurableObjectStorageResponse {
     const input = assertStorageReconciliationRequest(this.ctx, this.env, value, "QuotaTracker");
-    reconcileExactSqliteStorage(
-      input.mode,
-      () => assertQuotaTrackerStorage(this.ctx),
-      () => reconcileQuotaTrackerStorage(this.ctx),
-    );
+    assertQuotaTrackerStorage(this.ctx);
     this.isStorageInitialized = true;
     return storageSchemaEvidence(input);
   }

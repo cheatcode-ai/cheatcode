@@ -106,6 +106,10 @@ reconciles dormant objects to that shape when they are next activated. Run
 creation is also durably idempotent in Postgres, so request-cache evolution
 cannot create a duplicate run.
 
+`QuotaTracker` has no compatibility migration path. New objects initialize
+directly into the current exact schema, while existing objects must already
+match that schema before any quota operation is admitted.
+
 `/v1/tools` and `/v1/agents` read the shared framework-free capability catalog
 from `@cheatcode/types`. The Mastra registries are statically constrained to the
 same exact names; workflows are exposed through tools and are not reported as
