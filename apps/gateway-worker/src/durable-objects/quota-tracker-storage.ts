@@ -46,6 +46,8 @@ const USAGE_EVENT_INDEX_SQL =
   "CREATE INDEX usage_event_feature_time_idx ON usage_event(feature, recorded_at)";
 const QUOTA_OPERATION_INDEX_SQL =
   "CREATE INDEX quota_operation_feature_time_idx ON quota_operation(feature, recorded_at)";
+const QUOTA_TABLES = ["counter", "limit_override", "usage_event", "quota_operation"] as const;
+const CURRENT_QUOTA_FEATURES = [QUOTA_FEATURES.composioCalls, QUOTA_FEATURES.sandboxHours] as const;
 
 const QUOTA_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
   { name: "counter", sql: COUNTER_SQL, tableName: "counter", type: "table" },
@@ -96,19 +98,29 @@ export function ensureQuotaTrackerStorage(ctx: DurableObjectState): void {
   );
 }
 
-/** Force-normalizes all quota tables while preserving every valid source row. */
+/**
+ * Force-normalizes quota storage while preserving every current product row.
+ *
+ * Quotas removed from the product are intentionally discarded before the
+ * exact-schema rebuild. Feature values must still be valid text so corrupt
+ * rows cannot be mistaken for safely retired data.
+ */
 export function reconcileQuotaTrackerStorage(ctx: DurableObjectState): void {
-  ensureSourceTables(ctx);
-  const limitColumns = ctx.storage.sql.exec("PRAGMA table_info(limit_override)").toArray();
-  if (!hasColumn(limitColumns, "feature") || !hasColumn(limitColumns, "limit_val")) {
-    throw new Error("Unsupported quota limit schema; refusing lossy evolution.");
-  }
-  const hasEntitlementVersion = hasColumn(limitColumns, "entitlement_version");
-  assertQuotaSourceRows(ctx, hasEntitlementVersion);
-  const entitlementVersion = hasEntitlementVersion ? "entitlement_version" : "0";
-  ctx.storage.transactionSync(() => rebuildQuotaTables(ctx, entitlementVersion));
-  setCurrentSqliteStorageVersion(ctx);
-  assertQuotaTrackerStorage(ctx);
+  ctx.storage.transactionSync(() => {
+    ensureSourceTables(ctx);
+    const limitColumns = ctx.storage.sql.exec("PRAGMA table_info(limit_override)").toArray();
+    if (!hasColumn(limitColumns, "feature") || !hasColumn(limitColumns, "limit_val")) {
+      throw new Error("Unsupported quota limit schema; refusing lossy evolution.");
+    }
+    const hasEntitlementVersion = hasColumn(limitColumns, "entitlement_version");
+    assertQuotaFeatureTypes(ctx);
+    deleteRetiredQuotaRows(ctx);
+    assertQuotaSourceRows(ctx, hasEntitlementVersion);
+    const entitlementVersion = hasEntitlementVersion ? "entitlement_version" : "0";
+    rebuildQuotaTables(ctx, entitlementVersion);
+    setCurrentSqliteStorageVersion(ctx);
+    assertQuotaTrackerStorage(ctx);
+  });
 }
 
 export function assertQuotaTrackerStorage(ctx: DurableObjectState): void {
@@ -144,14 +156,14 @@ function ensureSourceTables(ctx: DurableObjectState): void {
 function rebuildQuotaTables(ctx: DurableObjectState, entitlementVersion: string): void {
   ctx.storage.sql.exec("DROP INDEX IF EXISTS usage_event_feature_time_idx");
   ctx.storage.sql.exec("DROP INDEX IF EXISTS quota_operation_feature_time_idx");
-  for (const table of ["counter", "limit_override", "usage_event", "quota_operation"] as const) {
+  for (const table of QUOTA_TABLES) {
     ctx.storage.sql.exec(`ALTER TABLE ${table} RENAME TO ${table}_reconcile_source`);
   }
   for (const sql of [COUNTER_SQL, LIMIT_OVERRIDE_SQL, USAGE_EVENT_SQL, QUOTA_OPERATION_SQL]) {
     ctx.storage.sql.exec(sql);
   }
   copyQuotaRows(ctx, entitlementVersion);
-  for (const table of ["counter", "limit_override", "usage_event", "quota_operation"] as const) {
+  for (const table of QUOTA_TABLES) {
     assertSqliteRowCountPreserved(ctx, `${table}_reconcile_source`, table);
     ctx.storage.sql.exec(`DROP TABLE ${table}_reconcile_source`);
   }
@@ -182,40 +194,61 @@ function copyQuotaRows(ctx: DurableObjectState, entitlementVersion: string): voi
   );
 }
 
+function assertQuotaFeatureTypes(ctx: DurableObjectState): void {
+  for (const table of QUOTA_TABLES) {
+    if (
+      ctx.storage.sql
+        .exec(`SELECT 1 FROM ${table} WHERE typeof(feature) <> 'text' LIMIT 1`)
+        .toArray().length > 0
+    ) {
+      throw new Error(`Quota ${table} contains a malformed feature; refusing lossy evolution.`);
+    }
+  }
+}
+
+function deleteRetiredQuotaRows(ctx: DurableObjectState): void {
+  for (const table of QUOTA_TABLES) {
+    ctx.storage.sql.exec(
+      `DELETE FROM ${table} WHERE feature NOT IN (?, ?)`,
+      ...CURRENT_QUOTA_FEATURES,
+    );
+  }
+}
+
 function assertQuotaSourceRows(ctx: DurableObjectState, hasEntitlementVersion: boolean): void {
-  const features = [QUOTA_FEATURES.composioCalls, QUOTA_FEATURES.sandboxHours] as const;
   assertNoInvalidRows(
     ctx,
+    "counter",
     `SELECT 1 FROM counter WHERE
        typeof(feature) <> 'text' OR feature NOT IN (?, ?) OR
        typeof(period_key) <> 'text' OR length(period_key) <> 7 OR
        period_key NOT GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]' OR
        typeof(used) NOT IN ('integer', 'real') OR used < 0 OR abs(used) > ${MAX_FINITE_REAL} OR
        typeof(updated_at) <> 'integer' OR updated_at < 0 LIMIT 1`,
-    features,
   );
   const entitlementPredicate = hasEntitlementVersion
     ? " OR typeof(entitlement_version) <> 'integer' OR entitlement_version < 0"
     : "";
   assertNoInvalidRows(
     ctx,
+    "limit_override",
     `SELECT 1 FROM limit_override WHERE
        typeof(feature) <> 'text' OR feature NOT IN (?, ?) OR
        typeof(limit_val) NOT IN ('integer', 'real') OR limit_val < 0 OR
        abs(limit_val) > ${MAX_FINITE_REAL}${entitlementPredicate} LIMIT 1`,
-    features,
   );
   assertNoInvalidRows(
     ctx,
+    "usage_event",
     `SELECT 1 FROM usage_event WHERE
        typeof(id) <> 'integer' OR typeof(feature) <> 'text' OR feature NOT IN (?, ?) OR
        typeof(amount) NOT IN ('integer', 'real') OR amount <= 0 OR
        abs(amount) > ${MAX_FINITE_REAL} OR typeof(recorded_at) <> 'integer' OR
        recorded_at < 0 LIMIT 1`,
-    features,
   );
   assertNoInvalidRows(
     ctx,
+    "quota_operation",
     `SELECT 1 FROM quota_operation WHERE
        typeof(event_id) <> 'text' OR length(event_id) NOT BETWEEN 1 AND 200 OR
        typeof(operation) <> 'text' OR operation NOT IN ('record', 'try-consume') OR
@@ -230,17 +263,16 @@ function assertQuotaSourceRows(ctx: DurableObjectState, hasEntitlementVersion: b
        abs(remaining) > ${MAX_FINITE_REAL} OR typeof(used) NOT IN ('integer', 'real') OR
        used < 0 OR abs(used) > ${MAX_FINITE_REAL} OR
        typeof(recorded_at) <> 'integer' OR recorded_at < 0 LIMIT 1`,
-    features,
   );
 }
 
 function assertNoInvalidRows(
   ctx: DurableObjectState,
+  table: (typeof QUOTA_TABLES)[number],
   sql: string,
-  features: readonly [string, string],
 ): void {
-  if (ctx.storage.sql.exec(sql, ...features).toArray().length > 0) {
-    throw new Error("Quota storage contains invalid or retired data; refusing lossy evolution.");
+  if (ctx.storage.sql.exec(sql, ...CURRENT_QUOTA_FEATURES).toArray().length > 0) {
+    throw new Error(`Quota ${table} contains invalid current data; refusing lossy evolution.`);
   }
 }
 
