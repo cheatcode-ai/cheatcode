@@ -18,6 +18,8 @@ jobs:
     steps:
       - name: Checkout reviewed release
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Set up pnpm
         uses: pnpm/action-setup@v4
