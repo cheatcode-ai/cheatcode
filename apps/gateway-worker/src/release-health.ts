@@ -6,7 +6,6 @@ const MAX_RELEASE_HEALTH_RESPONSE_BYTES = 16 * 1024;
 const DownstreamReleaseHealthSchema = z
   .object({
     ok: z.literal(true),
-    releaseGate: z.enum(["closed", "draining", "open"]),
     releaseSha: z.string().min(1),
     versionId: z.string().min(1).nullable(),
     worker: z.enum(["agent", "webhooks"]),

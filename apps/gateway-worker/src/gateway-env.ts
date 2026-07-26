@@ -10,7 +10,6 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   AGENT: Fetcher;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
-  CHEATCODE_RELEASE_GATE: "open" | "closed";
   CHEATCODE_RELEASE_SHA?: string;
   CLERK_AUTHORIZED_PARTIES?: string;
   CLERK_JWT_KEY?: WorkerSecret;
@@ -31,7 +30,6 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   PREVIEW_PROXY?: Fetcher;
   QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   WEBHOOKS: Fetcher;
 }
 

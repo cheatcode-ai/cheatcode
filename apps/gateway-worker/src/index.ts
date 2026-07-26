@@ -8,7 +8,6 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
-import { INTERNAL_DATABASE_READINESS_PATH } from "@cheatcode/types";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { routePath } from "hono/route";
@@ -34,7 +33,6 @@ import {
 import { registerProjectHttpRoutes } from "./project-http-routes";
 import { registerProviderHttpRoutes } from "./provider-http-routes";
 import { withRateLimitErrorHeaders } from "./rate-limit";
-import { type DownstreamWorker, readDownstreamReleaseHealth } from "./release-health";
 
 export { IdempotencyStore, QuotaTracker, RateLimiter };
 
@@ -166,11 +164,10 @@ function statusClass(status: number): string {
 const gatewayHandler = {
   async fetch(request: Request, env: GatewayEnv, ctx: ExecutionContext): Promise<Response> {
     const id = requestId();
-    const startedAt = performance.now();
     const logger = createLogger({ requestId: id });
     try {
       GatewayWorkerEnvSchema.parse(env);
-      return await routeGatewayRequest(request, env, ctx, id, startedAt);
+      return await routeGatewayRequest(request, env, ctx, id);
     } catch (error) {
       const apiError = toAPIError(error);
       emitErrorEvent(env, {
@@ -195,18 +192,7 @@ async function routeGatewayRequest(
   env: GatewayEnv,
   ctx: ExecutionContext,
   id: string,
-  startedAt: number,
 ): Promise<Response> {
-  const releaseGate = await releaseGateResponse(request, env, id);
-  if (releaseGate) {
-    emitPerformanceMetric(env, {
-      route: routeName(request),
-      statusClass: "5xx",
-      totalMs: performance.now() - startedAt,
-      workerName: "gateway",
-    });
-    return releaseGate;
-  }
   const requestWithId = isWebSocketUpgrade(request) ? request : new Request(request);
   if (!isWebSocketUpgrade(requestWithId)) {
     requestWithId.headers.set("X-Request-Id", id);
@@ -225,73 +211,6 @@ async function routeGatewayRequest(
     return withRequestId(await env.PREVIEW_PROXY.fetch(localPreview.request), id);
   }
   return withRequestId(await gatewayApp.fetch(requestWithId, env, ctx), id);
-}
-
-async function releaseGateResponse(
-  request: Request,
-  env: GatewayEnv,
-  requestIdValue: string,
-): Promise<Response | undefined> {
-  if (env.CHEATCODE_RELEASE_GATE !== "closed") {
-    return undefined;
-  }
-  const url = new URL(request.url);
-  if (request.method === "POST" && url.pathname === INTERNAL_DATABASE_READINESS_PATH) {
-    return undefined;
-  }
-  const details: Record<string, unknown> = {
-    releaseGate: "closed",
-    releaseSha: env.CHEATCODE_RELEASE_SHA ?? null,
-    versionId: env.CF_VERSION_METADATA?.id ?? null,
-    worker: "gateway",
-  };
-  if (request.method === "GET" && url.pathname === "/health") {
-    const [agent, webhooks] = await Promise.all([
-      readReleaseGateDownstreamHealth(env, "agent"),
-      readReleaseGateDownstreamHealth(env, "webhooks"),
-    ]);
-    details["agent"] = agent;
-    details["webhooks"] = webhooks;
-  }
-  const response = new APIError(503, "unavailable_maintenance", "Release is in progress", {
-    details,
-    retriable: true,
-  }).toResponse(requestIdValue);
-  applyReleaseGateHeaders(request, response, env.CHEATCODE_ENVIRONMENT);
-  return response;
-}
-
-async function readReleaseGateDownstreamHealth(
-  env: GatewayEnv,
-  worker: DownstreamWorker,
-): Promise<Record<string, unknown>> {
-  try {
-    const { health, status } = await readDownstreamReleaseHealth(env, worker);
-    return { ...health, status };
-  } catch {
-    return unavailableDownstreamHealth(worker);
-  }
-}
-
-function unavailableDownstreamHealth(worker: DownstreamWorker): Record<string, unknown> {
-  return { ok: false, releaseSha: null, status: null, versionId: null, worker };
-}
-
-function applyReleaseGateHeaders(
-  request: Request,
-  response: Response,
-  environment: GatewayEnv["CHEATCODE_ENVIRONMENT"],
-): void {
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("Retry-After", "5");
-  response.headers.set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload");
-  response.headers.set("X-Content-Type-Options", "nosniff");
-  response.headers.set("X-Frame-Options", "DENY");
-  const origin = resolveCorsOrigin(request.headers.get("Origin") ?? undefined, environment);
-  if (origin) {
-    response.headers.set("Access-Control-Allow-Origin", origin);
-    response.headers.append("Vary", "Origin");
-  }
 }
 
 function isWebSocketUpgrade(request: Request): boolean {

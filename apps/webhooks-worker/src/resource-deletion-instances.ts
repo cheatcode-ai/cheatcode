@@ -1,8 +1,7 @@
 import type { ResourceDeletionJobLease } from "@cheatcode/db";
 import type { ResourceDeletionWorkflowPayload } from "@cheatcode/types";
-import { assertReleaseCanDrain, assertReleaseOpen, type ReleaseGateBindings } from "./release-gate";
 
-export interface ResourceDeletionWorkflowBindings extends ReleaseGateBindings {
+export interface ResourceDeletionWorkflowBindings {
   RESOURCE_DELETION_WORKFLOW: Workflow<ResourceDeletionWorkflowPayload>;
 }
 
@@ -20,13 +19,7 @@ class ResourceDeletionInstanceInvariantError extends Error {
 export async function createResourceDeletionInstances(
   env: ResourceDeletionWorkflowBindings,
   leases: ResourceDeletionJobLease[],
-  options: { continuation?: boolean } = {},
 ): Promise<number> {
-  if (options.continuation) {
-    assertReleaseCanDrain(env);
-  } else {
-    assertReleaseOpen(env);
-  }
   const instances = await env.RESOURCE_DELETION_WORKFLOW.createBatch(
     leases.map((lease) => ({
       id: resourceDeletionInstanceId(lease),

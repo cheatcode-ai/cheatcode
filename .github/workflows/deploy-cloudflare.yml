@@ -12,28 +12,21 @@ permissions:
 
 jobs:
   deploy:
-    name: Deploy affected Workers
-    runs-on: ubuntu-latest
+    name: Deploy Workers
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout reviewed release
-        uses: actions/checkout@v4
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          fetch-depth: 0
+          ref: ${{ github.sha }}
 
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
+      - uses: ./.github/actions/setup-repository
         with:
-          version: 11.15.0
+          release-sha: ${{ github.sha }}
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version-file: .nvmrc
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+      - name: Require main
+        run: test "$GITHUB_REF" = "refs/heads/main"
 
       - name: Build Worker release
         run: >-
@@ -43,8 +36,20 @@ jobs:
           --filter=@cheatcode/gateway-worker
           --filter=@cheatcode/preview-proxy
 
-      - name: Deploy affected Workers
-        run: pnpm cloudflare:deploy
+      - name: Deploy Workers
+        run: |
+          set -Eeuo pipefail
+          configs=(
+            apps/agent-worker/wrangler.jsonc
+            apps/webhooks-worker/wrangler.jsonc
+            apps/preview-proxy/wrangler.jsonc
+            apps/gateway-worker/wrangler.jsonc
+          )
+          for config in "${configs[@]}"; do
+            pnpm exec wrangler deploy \
+              --config "$config" \
+              --var "CHEATCODE_RELEASE_SHA:$GITHUB_SHA"
+          done
         env:
           CLOUDFLARE_ACCOUNT_ID: ${{ vars.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

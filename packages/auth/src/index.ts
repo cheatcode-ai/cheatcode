@@ -55,7 +55,6 @@ export {
 const CLERK_API_URL = "https://api.clerk.com/v1";
 const CLERK_API_VERSION = "2026-05-12";
 const CLERK_REQUEST_TIMEOUT_MS = 10_000;
-const CLERK_INSTANCE_RESPONSE_MAX_BYTES = 64 * 1024;
 const CLERK_USER_RESPONSE_MAX_BYTES = 512 * 1024;
 const CLERK_JWKS_RESPONSE_MAX_BYTES = 64 * 1024;
 const CLERK_ERROR_RESPONSE_MAX_BYTES = 64 * 1024;
@@ -80,11 +79,6 @@ export interface ClerkUserSyncSnapshot {
   clerkUpdatedAtMs: number;
   displayName: string | null;
   email: string | null;
-}
-
-export interface ClerkInstanceIdentity {
-  environmentType: "development" | "production";
-  instanceId: string;
 }
 
 function getBearerToken(request: Request): string {
@@ -182,31 +176,6 @@ const ClerkUserResourceSchema = z
 const ClerkUserSyncResourceSchema = ClerkUserResourceSchema.required({
   updated_at: true,
 });
-
-const ClerkInstanceResourceSchema = z
-  .object({
-    environment_type: z.enum(["development", "production"]),
-    id: z.string().min(1).max(500),
-  })
-  .strip();
-
-/** Resolve the non-secret identity of the Clerk instance owning a Backend API key. */
-export async function fetchClerkInstanceIdentity(input: {
-  secretKey: string;
-}): Promise<ClerkInstanceIdentity> {
-  const response = await clerkApiRequest(input.secretKey, "/instance", { method: "GET" });
-  const instance = ClerkInstanceResourceSchema.parse(
-    await readBoundedResponseJson(
-      response,
-      CLERK_INSTANCE_RESPONSE_MAX_BYTES,
-      "Clerk instance API",
-    ),
-  );
-  return {
-    environmentType: instance.environment_type,
-    instanceId: instance.id,
-  };
-}
 
 function primaryEmailStatusFromClerkUserResource(user: unknown): ClerkPrimaryEmailStatus {
   const parsed = ClerkUserResourceSchema.safeParse(user);

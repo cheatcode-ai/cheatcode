@@ -49,7 +49,6 @@ import {
   deleteR2ObjectPrefixBatch,
   deleteUserAgentRunStatePage,
 } from "./lifecycle-adapters";
-import { assertReleaseOpen } from "./release-gate";
 import {
   dbStep,
   deletionInvariant,
@@ -115,12 +114,6 @@ export class ResourceDeletionWorkflow extends WorkflowEntrypoint<
     event: Readonly<WorkflowEvent<ResourceDeletionWorkflowPayload>>,
     step: WorkflowStep,
   ): Promise<{ outcome: WorkflowOutcome }> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      throw new NonRetryableError(
-        "Resource deletion is fenced by a closed release",
-        "ResourceDeletionReleaseGateClosed",
-      );
-    }
     const parsed = ResourceDeletionWorkflowPayloadSchema.safeParse(event.payload);
     if (!parsed.success) {
       throw new NonRetryableError(
@@ -140,7 +133,6 @@ export async function enqueueResourceDeletionWorkflow(
   env: ResourceDeletionWorkflowEnv,
   request: InternalResourceDeletionRequest,
 ): Promise<string | null> {
-  assertReleaseOpen(env);
   const { db, close } = createDb(env.HYPERDRIVE, {
     audience: "app_webhooks",
     signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
@@ -180,7 +172,6 @@ export async function reconcileResourceDeletionWorkflows(
   quarantined: number;
   threads: number;
 }> {
-  assertReleaseOpen(env);
   const { db, close } = createDb(env.HYPERDRIVE, {
     audience: "app_webhooks",
     signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
@@ -503,7 +494,7 @@ async function continueDeletion(
   await step.sleep("reserve workflow creation headroom", "1 second");
   try {
     await step.do("create deletion continuation", CREATE_STEP_OPTIONS, async () => {
-      await createResourceDeletionInstances(env, [next], { continuation: true });
+      await createResourceDeletionInstances(env, [next]);
       return { ok: true };
     });
     return { outcome: "continued" };

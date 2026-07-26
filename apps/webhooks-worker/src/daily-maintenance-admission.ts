@@ -16,7 +16,6 @@ import {
   type DailyMaintenanceEnv,
   previousUtcDay,
 } from "./daily-maintenance-workflow";
-import { assertReleaseOpen } from "./release-gate";
 import type { DeterministicWorkflowResult } from "./workflow-instance";
 
 const MAINTENANCE_RECONCILIATION_LIMIT = 25;
@@ -49,7 +48,6 @@ export async function enqueueDailyMaintenance(
   env: DailyMaintenanceEnv,
   scheduledTimeInput: number,
 ): Promise<DailyMaintenanceReconciliationSummary> {
-  assertReleaseOpen(env);
   const scheduledAt = new Date(ScheduledTimeSchema.parse(scheduledTimeInput));
   await withDatabase(env, (db) =>
     registerDailyMaintenanceJob(db, { day: previousUtcDay(scheduledAt), scheduledAt }),
@@ -61,7 +59,6 @@ export async function enqueueDailyMaintenance(
 export async function reconcileDailyMaintenanceWorkflows(
   env: DailyMaintenanceEnv,
 ): Promise<DailyMaintenanceReconciliationSummary> {
-  assertReleaseOpen(env);
   const releaseVersionId = activeDailyMaintenanceReleaseVersion(env);
   const now = new Date();
   const state = await loadReconciliationState(env, now, releaseVersionId);

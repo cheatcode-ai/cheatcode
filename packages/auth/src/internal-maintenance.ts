@@ -12,13 +12,12 @@ const MAX_INTERNAL_MAINTENANCE_PATHNAME_CHARACTERS = 2_048;
 
 const INTERNAL_MAINTENANCE_CAPABILITIES = [
   "agent-lifecycle",
-  "database-readiness",
   "resource-deletion",
   "webhook-replay",
 ] as const;
 
 export type InternalMaintenanceCapability = (typeof INTERNAL_MAINTENANCE_CAPABILITIES)[number];
-export type InternalMaintenanceIssuer = "gateway" | "operator" | "release-control" | "webhooks";
+export type InternalMaintenanceIssuer = "gateway" | "operator" | "webhooks";
 export type InternalMaintenanceAudience = "agent" | "gateway" | "webhooks";
 
 export interface InternalMaintenanceEnvelopeExpectation {
@@ -178,12 +177,7 @@ function canonicalAudience(value: unknown): InternalMaintenanceAudience {
 }
 
 function canonicalIssuer(value: unknown): InternalMaintenanceIssuer {
-  if (
-    value !== "gateway" &&
-    value !== "operator" &&
-    value !== "release-control" &&
-    value !== "webhooks"
-  ) {
+  if (value !== "gateway" && value !== "operator" && value !== "webhooks") {
     throw invalidMaintenanceSignature("Invalid internal maintenance issuer");
   }
   return value;

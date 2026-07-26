@@ -82,8 +82,8 @@ part of the V2 command surface, and source-level `*.test.ts` files are
 intentionally absent. Do not generate temporary validation scripts either;
 operate the UI directly and check logs, and remove any throwaway product QA
 script that appears in the V2 tree. Operational scripts may exist only for
-build, migration, secret sync, Docker cleanup, and guarded deploy orchestration;
-they are not product tests and must not simulate UI/user flows. Do not create temporary
+build, migration, audit retention, and local-stack configuration; they are not
+product tests and must not simulate UI/user flows. Do not create temporary
 testing scripts in `scripts/`, package folders, `/tmp`, or any out-of-tree
 location.
 
@@ -159,11 +159,10 @@ COMPOSIO_WEBHOOK_SECRET=
 # Internal ops alerts
 INTERNAL_ALERT_WEBHOOK_SECRET=
 
-# Capability-scoped ccm2 contracts (four distinct secrets, each at least 32 bytes)
+# Capability-scoped ccm2 contracts (three distinct secrets, each at least 32 bytes)
 GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET=
 WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET=
 INTERNAL_WEBHOOK_REPLAY_SECRET=
-RELEASE_DATABASE_READINESS_SECRET=
 
 # Gateway
 NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787

@@ -9,8 +9,6 @@ import {
 } from "./agent-run-workflow-protocol";
 import { hasActiveRun } from "./run-state";
 
-const CLOSED_GATE_ALARM_RECHECK_MS = 60_000;
-
 /** Re-arms the Durable Object alarm to the earliest outstanding run obligation. */
 export async function armAgentRunAlarm(ctx: DurableObjectState): Promise<void> {
   if (!getRunStateValue(ctx, "run_id")) {
@@ -40,17 +38,4 @@ export async function armAgentRunAlarm(ctx: DurableObjectState): Promise<void> {
       nextAgentRunAlarm(Date.now()),
     ),
   );
-}
-
-/** Preserve admitted recovery work without executing it while a release is closed. */
-export async function armClosedAgentRunAlarm(
-  ctx: DurableObjectState,
-  status: string | undefined,
-): Promise<void> {
-  const hasDeferredDatabaseWrite =
-    pendingAssistantMessageRetryAt(ctx) !== Number.POSITIVE_INFINITY ||
-    pendingStatusRetryAt(ctx) !== Number.POSITIVE_INFINITY;
-  if (hasActiveRun(status) || hasDeferredDatabaseWrite) {
-    await ctx.storage.setAlarm(Date.now() + CLOSED_GATE_ALARM_RECHECK_MS);
-  }
 }

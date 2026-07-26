@@ -7,6 +7,7 @@ import {
   runDrizzleMigrations,
 } from "../packages/db/src/drizzle-migrations";
 import { assertSupabaseTarget, type PgClient } from "../packages/db/src/supabase-target";
+import { loadMigrationEnvFromFiles } from "../packages/env/src/migrate";
 import {
   acquireDatabaseMaintenanceLock,
   assertAdministrativeConnectionTarget,
@@ -20,7 +21,6 @@ import {
   loadDrizzleMigrations,
   verifyDrizzleMigrationIntegrity,
 } from "./migration-drizzle";
-import { loadMigrationEnvFromFiles } from "./migration-env";
 
 interface PgModule {
   Client: new (config: { connectionString: string }) => DrizzleMigrationClient;

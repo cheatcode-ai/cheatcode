@@ -11,7 +11,6 @@ import {
   processDailyMaintenance,
 } from "./daily-maintenance-workflow";
 import type { LifecycleEnv } from "./lifecycle-adapters";
-import { assertReleaseCanDrain, assertReleaseOpen, type ReleaseGateBindings } from "./release-gate";
 import {
   isUserDeletionWorkflowIdentity,
   UserDeletionPayloadSchema,
@@ -35,7 +34,7 @@ const OpsMaintenancePayloadSchema = z.union([
 
 export type OpsMaintenancePayload = z.infer<typeof OpsMaintenancePayloadSchema>;
 
-export interface OpsWorkflowBindings extends ReleaseGateBindings {
+export interface OpsWorkflowBindings {
   OPS_WORKFLOW: Workflow<OpsMaintenancePayload>;
 }
 
@@ -60,12 +59,6 @@ export class OpsMaintenanceWorkflow extends WorkflowEntrypoint<
     step: WorkflowStep,
   ): Promise<{ kind: OpsMaintenancePayload["kind"]; ok: true }> {
     const payload = OpsMaintenancePayloadSchema.parse(event.payload);
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      throw new NonRetryableError(
-        "Ops maintenance is fenced by a closed release",
-        "OpsMaintenanceReleaseGateClosed",
-      );
-    }
     if (payload.kind === "user-deletion") {
       if (!isUserDeletionWorkflowIdentity(event.instanceId, payload)) {
         throw new NonRetryableError(
@@ -106,7 +99,6 @@ export async function enqueueAnalyticsWatchdog(
   env: OpsWorkflowBindings,
   scheduledTime: number,
 ): Promise<string> {
-  assertReleaseOpen(env);
   const instance = await createDeterministicWorkflow(env.OPS_WORKFLOW, {
     id: `analytics-watchdog-${scheduledTime}`,
     params: { kind: "analytics-watchdog", scheduledTime },
@@ -122,7 +114,6 @@ export async function enqueueByokRevalidation(
   env: OpsWorkflowBindings,
   scheduledTime: number,
 ): Promise<string> {
-  assertReleaseOpen(env);
   const instance = await createDeterministicWorkflow(env.OPS_WORKFLOW, {
     id: `byok-revalidation-${scheduledTime}-0`,
     params: { continuation: 0, kind: "byok-revalidation", scheduledTime },
@@ -139,7 +130,6 @@ async function enqueueByokContinuation(
   payload: Extract<OpsMaintenancePayload, { kind: "byok-revalidation" }>,
   step: WorkflowStep,
 ): Promise<void> {
-  assertReleaseCanDrain(env);
   const continuation = payload.continuation + 1;
   await step.do(
     "enqueue BYOK revalidation continuation",

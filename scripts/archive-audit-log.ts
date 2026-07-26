@@ -5,6 +5,7 @@ import { pipeline } from "node:stream/promises";
 import { fileURLToPath } from "node:url";
 import { createGzip } from "node:zlib";
 import { assertSupabaseTarget, type PgClient } from "../packages/db/src/supabase-target";
+import { loadMigrationEnvFromFiles } from "../packages/env/src/migrate";
 import { type ArchiveOptions, parseArchiveArgs } from "./audit-archive-options";
 import {
   type ArchiveObjectIdentity,
@@ -22,7 +23,6 @@ import {
   releaseDatabaseMaintenanceLock,
 } from "./database-operation-safety";
 import { closePgClientWithGrace, createDeadlineAwarePgClient } from "./deadline-aware-pg-client";
-import { loadMigrationEnvFromFiles } from "./migration-env";
 
 interface AuditPartition {
   monthStart: Date;

@@ -1,5 +1,4 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
-import { NonRetryableError } from "cloudflare:workflows";
 import { updateCustomerProfile } from "@cheatcode/billing";
 import {
   createDb,
@@ -31,7 +30,6 @@ import { DaytonaWebhookSchema } from "./daytona";
 import { refreshEntitlementCache } from "./entitlement-cache";
 import { recordInternalAlert, VerifiedInternalAlertSchema } from "./internal-alert";
 import { handlePolarWebhookEvent } from "./polar";
-import { assertReleaseOpen, type ReleaseGateBindings } from "./release-gate";
 import {
   completeWebhookEvent,
   failWebhookEvent,
@@ -53,7 +51,7 @@ const WebhookWorkflowPayloadSchema = z.object({
 
 export type WebhookWorkflowPayload = z.infer<typeof WebhookWorkflowPayloadSchema>;
 
-export interface WebhookWorkflowBindings extends ReleaseGateBindings {
+export interface WebhookWorkflowBindings {
   WEBHOOK_WORKFLOW: Workflow<WebhookWorkflowPayload>;
 }
 
@@ -105,12 +103,6 @@ export class WebhookWorkflow extends WorkflowEntrypoint<
     event: Readonly<WorkflowEvent<WebhookWorkflowPayload>>,
     step: WorkflowStep,
   ): Promise<WebhookProcessResult> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      throw new NonRetryableError(
-        "Webhook processing is fenced by a closed release",
-        "WebhookReleaseGateClosed",
-      );
-    }
     const payload = WebhookWorkflowPayloadSchema.parse(event.payload);
     try {
       await step.do("mark webhook running", async () => {
@@ -141,7 +133,6 @@ export async function enqueueVerifiedWebhook(
   env: WebhookWorkflowBindings,
   payload: WebhookWorkflowPayload,
 ): Promise<DeterministicWorkflowResult> {
-  assertReleaseOpen(env);
   const parsed = WebhookWorkflowPayloadSchema.parse(payload);
   return createDeterministicWorkflow(env.WEBHOOK_WORKFLOW, {
     id: webhookWorkflowId(parsed),

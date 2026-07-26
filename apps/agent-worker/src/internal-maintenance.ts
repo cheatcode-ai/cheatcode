@@ -13,7 +13,6 @@ interface AgentMaintenanceRequestInput {
 }
 
 interface AgentMaintenanceSecretBindings {
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecret;
 }
 
@@ -33,37 +32,18 @@ export function assertAgentLifecycleCapability(request: Request): void {
   });
 }
 
-export function assertAgentDatabaseReadinessCapability(request: Request): void {
-  assertInternalMaintenanceEnvelope(request, {
-    audience: "agent",
-    capability: "database-readiness",
-    issuer: "gateway",
-  });
-}
-
 export function verifyAgentLifecycleRequest(input: AgentMaintenanceRequestInput): Promise<void> {
-  return verifyAgentRequest(input, "agent-lifecycle");
+  return verifyAgentRequest(input);
 }
 
-export function verifyAgentDatabaseReadinessRequest(
-  input: AgentMaintenanceRequestInput,
-): Promise<void> {
-  return verifyAgentRequest(input, "database-readiness");
-}
-
-async function verifyAgentRequest(
-  input: AgentMaintenanceRequestInput,
-  capability: "agent-lifecycle" | "database-readiness",
-): Promise<void> {
+async function verifyAgentRequest(input: AgentMaintenanceRequestInput): Promise<void> {
   const secret = await requireAgentMaintenanceSecret(
-    capability === "agent-lifecycle"
-      ? input.secrets.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET
-      : input.secrets.RELEASE_DATABASE_READINESS_SECRET,
+    input.secrets.WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET,
   );
   await verifyInternalMaintenanceRequest({
     expectedAudience: "agent",
-    expectedCapability: capability,
-    expectedIssuer: capability === "agent-lifecycle" ? "webhooks" : "gateway",
+    expectedCapability: "agent-lifecycle",
+    expectedIssuer: "webhooks",
     expectedMethod: "POST",
     expectedPathname: input.expectedPathname,
     rawBody: input.rawBody,

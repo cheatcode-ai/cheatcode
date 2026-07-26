@@ -3,19 +3,12 @@ import { APIError } from "@cheatcode/observability";
 
 export interface GatewayMaintenanceSecretBindings {
   GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecret;
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
 }
 
 export async function requireResourceDeletionSecret(
   env: GatewayMaintenanceSecretBindings,
 ): Promise<string> {
   return requireGatewayMaintenanceSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET);
-}
-
-export function requireDatabaseReadinessSecret(
-  env: GatewayMaintenanceSecretBindings,
-): Promise<string> {
-  return requireGatewayMaintenanceSecret(env.RELEASE_DATABASE_READINESS_SECRET);
 }
 
 async function requireGatewayMaintenanceSecret(binding: WorkerSecret): Promise<string> {

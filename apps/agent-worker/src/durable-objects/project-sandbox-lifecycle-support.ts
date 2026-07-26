@@ -4,7 +4,6 @@ import { DaytonaApiError, type DaytonaSandbox } from "@cheatcode/tools-code";
 import { z } from "zod";
 
 export interface ProjectSandboxEnv {
-  CHEATCODE_RELEASE_GATE: "closed" | "draining" | "open";
   CHEATCODE_RELEASE_SHA?: string;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   DAYTONA_API_KEY: WorkerSecret;
@@ -68,11 +67,4 @@ export function parseSandboxJson(value: string | null | undefined): unknown {
   } catch {
     return null;
   }
-}
-
-export function sandboxReleaseGateError(): APIError {
-  return new APIError(503, "unavailable_maintenance", "Release is in progress", {
-    details: { releaseGate: "closed", worker: "agent" },
-    retriable: true,
-  });
 }

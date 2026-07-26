@@ -23,11 +23,6 @@ import {
   QuotaSnapshotResultSchema,
 } from "./quota-tracker-contract";
 import { ensureQuotaTrackerStorage, hasQuotaTrackerStorage } from "./quota-tracker-storage";
-import {
-  assertGatewayDurableObjectOpen,
-  gatewayDurableObjectClosedResponse,
-  rearmClosedGatewayDurableObjectAlarm,
-} from "./release-gate";
 import { nextGatewayDurableObjectAlarm, QUOTA_TRACKER_RETENTION_MS } from "./retention";
 
 interface CounterRow {
@@ -62,11 +57,6 @@ interface QuotaOperationInput {
   feature: QuotaFeature;
   operation: "record" | "try-consume";
   periodKey: string;
-}
-
-interface QuotaTrackerEnv {
-  CHEATCODE_RELEASE_GATE: "closed" | "open";
-  CHEATCODE_RELEASE_SHA?: string;
 }
 
 function isCounterRow(value: unknown): value is CounterRow {
@@ -110,7 +100,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
+export class QuotaTracker extends DurableObject {
   private isStorageInitialized = false;
 
   public async tryConsume(
@@ -204,7 +194,6 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public async deleteAllState(): Promise<void> {
-    assertGatewayDurableObjectOpen(this.env);
     await this.ctx.storage.deleteAll();
     this.isStorageInitialized = false;
   }
@@ -232,9 +221,6 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   public override async fetch(request: Request): Promise<Response> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return gatewayDurableObjectClosedResponse();
-    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -295,10 +281,6 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
       await this.ctx.storage.deleteAlarm();
       return;
     }
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
-      return;
-    }
     this.ensureStorage();
     this.ctx.storage.sql.exec(
       "DELETE FROM counter WHERE updated_at < ?",
@@ -316,7 +298,6 @@ export class QuotaTracker extends DurableObject<QuotaTrackerEnv> {
   }
 
   private ensureStorage(): void {
-    assertGatewayDurableObjectOpen(this.env);
     if (this.isStorageInitialized) {
       return;
     }

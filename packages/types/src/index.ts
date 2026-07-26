@@ -162,37 +162,21 @@ export {
   IntegrationNameSchema,
 } from "./integrations";
 export type {
-  ClerkInstanceIdentity,
-  DaytonaVolumeIdentity,
-  GatewayDatabaseReadinessAggregateResponse,
   InternalAgentStateDeleteBody,
-  InternalDatabaseReadinessRequest,
-  InternalDatabaseReadinessResponse,
   InternalResourceDeletionRequest,
   InternalStateDeleteResponse,
-  ProductionClerkInstanceIdentity,
   ResourceDeletionWorkflowPayload,
 } from "./internal-maintenance";
 export {
-  AgentDatabaseReadinessResponseSchema,
   CanonicalProjectWorkspaceSlugSchema,
-  ClerkInstanceIdentitySchema,
-  DaytonaVolumeIdentitySchema,
-  GatewayDatabaseReadinessAggregateResponseSchema,
-  GatewayDatabaseReadinessResponseSchema,
-  INTERNAL_DATABASE_READINESS_PATH,
   INTERNAL_RESOURCE_DELETION_PATH,
   InternalAgentStateDeleteBodySchema,
-  InternalDatabaseReadinessRequestSchema,
-  InternalDatabaseReadinessResponseSchema,
   InternalProjectDeletionRequestSchema,
   InternalResourceDeletionRequestSchema,
   InternalStateDeleteResponseSchema,
   InternalThreadDeletionRequestSchema,
   internalUserStateDeletePath,
-  ProductionClerkInstanceIdentitySchema,
   ResourceDeletionWorkflowPayloadSchema,
-  WebhooksDatabaseReadinessResponseSchema,
 } from "./internal-maintenance";
 export type { CatalogModelId, LogicalModelId } from "./models";
 export {

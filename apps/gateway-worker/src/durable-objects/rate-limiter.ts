@@ -6,11 +6,6 @@ import {
   type RateLimitResult,
 } from "./rate-limit-contract";
 import { ensureRateLimiterStorage, hasRateLimiterStorage } from "./rate-limiter-storage";
-import {
-  assertGatewayDurableObjectOpen,
-  gatewayDurableObjectClosedResponse,
-  rearmClosedGatewayDurableObjectAlarm,
-} from "./release-gate";
 import { nextGatewayDurableObjectAlarm, RATE_LIMITER_RETENTION_MS } from "./retention";
 
 interface BucketRow {
@@ -18,10 +13,6 @@ interface BucketRow {
   last_refill_ms: number;
 }
 
-interface RateLimiterEnv {
-  CHEATCODE_RELEASE_GATE: "closed" | "open";
-  CHEATCODE_RELEASE_SHA?: string;
-}
 const MAX_RATE_LIMIT_REQUEST_BYTES = 16 * 1024;
 
 function isBucketRow(value: unknown): value is BucketRow {
@@ -32,7 +23,7 @@ function isBucketRow(value: unknown): value is BucketRow {
   return typeof row["tokens"] === "number" && typeof row["last_refill_ms"] === "number";
 }
 
-export class RateLimiter extends DurableObject<RateLimiterEnv> {
+export class RateLimiter extends DurableObject {
   private isStorageInitialized = false;
 
   public async consume(
@@ -40,7 +31,6 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
     cost: number,
     config: RateLimitConfig,
   ): Promise<RateLimitResult> {
-    assertGatewayDurableObjectOpen(this.env);
     this.ensureStorage();
     const now = Date.now();
     const [rawRow] = this.ctx.storage.sql
@@ -78,9 +68,6 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
   }
 
   public override async fetch(request: Request): Promise<Response> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return gatewayDurableObjectClosedResponse();
-    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -93,10 +80,6 @@ export class RateLimiter extends DurableObject<RateLimiterEnv> {
   public override async alarm(): Promise<void> {
     if (!hasRateLimiterStorage(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
-      return;
-    }
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
       return;
     }
     this.ensureStorage();

@@ -176,7 +176,7 @@ released together.
 | --------------------- | --------------- | --------------------------------------- |
 | `CHEATCODE_APP_ORIGIN` | var            | exact trusted Vercel/local app origin   |
 | `CHEATCODE_ENVIRONMENT` | var           | `wrangler.jsonc` (`production`)         |
-| `CHEATCODE_RELEASE_SHA` | release var   | guarded deploy command                  |
+| `CHEATCODE_RELEASE_SHA` | release var   | Cloudflare deployment workflow          |
 | `CF_VERSION_METADATA` | version metadata | Cloudflare runtime                    |
 | `DAYTONA_API_URL`     | var             | `wrangler.jsonc` (`https://app.daytona.io/api`) |
 | `DAYTONA_PREVIEW_HOST_SUFFIXES` | var | allowlisted Daytona preview apexes |

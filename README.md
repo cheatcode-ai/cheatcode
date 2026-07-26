@@ -218,20 +218,9 @@ values in automation. Migration credentials are never loaded by the app or
 bound to a Worker. The runner verifies the exact source journal and final
 production contract through the same pinned administrative session.
 
-Configure the three Worker Hyperdrive bindings with the existing guarded helper:
-
-```bash
-pnpm cloudflare:set-hyperdrive -- \
-  --gateway-id <GATEWAY_HYPERDRIVE_ID> \
-  --agent-id <AGENT_HYPERDRIVE_ID> \
-  --webhooks-id <WEBHOOKS_HYPERDRIVE_ID>
-
-pnpm cloudflare:set-hyperdrive -- \
-  --gateway-id <GATEWAY_HYPERDRIVE_ID> \
-  --agent-id <AGENT_HYPERDRIVE_ID> \
-  --webhooks-id <WEBHOOKS_HYPERDRIVE_ID> \
-  --apply
-```
+The three production Worker configs commit their dedicated Hyperdrive binding
+IDs. Infrastructure changes update those reviewed configs directly; there is no
+runtime or local helper that mutates production bindings.
 
 ## Production deployment
 
@@ -239,24 +228,23 @@ The required `static-checks` workflow classifies each change before allocating
 the heavier runners. It runs dependency-aware lint, typecheck, build,
 architecture, dead-code, workflow, and lockfile checks only for affected
 surfaces and their workspace dependents. Root build configuration changes still
-run the complete gate.
+run the complete suite.
 
 Vercel's Git integration deploys `apps/web` from the repository. Its native
 monorepo dependency graph skips builds when neither the web app nor one of its
-declared workspace dependencies changed. Deploy the Cloudflare backend Workers
-from a clean reviewed checkout with:
+declared workspace dependencies changed. Dispatch `Deploy Cloudflare` from
+`main` when a reviewed backend release should move to production:
 
 ```bash
-pnpm cloudflare:deploy
+gh workflow run deploy-cloudflare.yml --ref main
 ```
 
-The deploy command refuses a dirty tree, reads the release SHA currently bound
-to each Worker, and uses the same workspace graph to deploy only affected
-Workers. The agent, webhooks, and gateway Workers remain an atomic release set
-because gateway readiness requires one shared release identity; the gateway is
-deployed last. The independent preview proxy deploys only when its dependency
-closure changed. If Cloudflare release metadata is unavailable or inconsistent,
-the command safely redeploys the relevant set instead of guessing.
+The workflow builds the four Workers once, binds the reviewed commit SHA into
+each deployment, and publishes agent, webhooks, preview proxy, then gateway.
+Gateway goes last so public traffic sees the new backend only after its service
+dependencies are available. The explicit workflow avoids a second, fallible
+change-detection layer at deploy time; ordinary CI and Vercel remain
+dependency-aware.
 
 Schema migrations, Worker deployment, and Vercel deployment are explicit
 operations. Verify Worker health and the production web revision whenever a

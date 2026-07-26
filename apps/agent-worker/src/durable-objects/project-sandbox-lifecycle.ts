@@ -23,7 +23,6 @@ import {
   RunLeasesSchema,
   STALE_RUN_LEASE_MS,
   STARTED_REVERIFY_MS,
-  sandboxReleaseGateError,
   uniqueSandboxes,
 } from "./project-sandbox-lifecycle-support";
 import {
@@ -71,16 +70,11 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       sandboxName: () => this.sandboxName(),
       toUpstreamError: (error, fallback) => this.toUpstreamError(error, fallback),
     });
-    if (env.CHEATCODE_RELEASE_GATE !== "closed") {
-      this.workspaceStateValue = openProjectSandboxWorkspaceState(ctx);
-      void ctx.blockConcurrencyWhile(() => this.initializeIdentityState());
-    }
+    this.workspaceStateValue = openProjectSandboxWorkspaceState(ctx);
+    void ctx.blockConcurrencyWhile(() => this.initializeIdentityState());
   }
 
   public deleteAccountState(): Promise<void> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     if (this.accountDeletionCompleted) {
       return Promise.resolve();
     }
@@ -100,18 +94,12 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   protected withActiveSandboxOperation<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     return this.withActiveOperation(null, operation, false, true);
   }
   protected withActiveOwnerRegistration<T>(
     userId: string,
     operation: () => Promise<T>,
   ): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     if (this.identityState.hasRegisteredOwner()) {
       return this.withActiveOperation(null, operation);
     }
@@ -138,9 +126,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     }
   }
   protected withActiveSharedWorkspaceMutation<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     return this.withActiveOperation(
       null,
       async () => {
@@ -154,9 +139,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     workspaceScope: string | readonly string[] | null,
     operation: () => Promise<T>,
   ): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     return this.withActiveOperation(workspaceScope, operation, false, true);
   }
   private withActiveOperation<T>(
@@ -183,9 +165,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     workspaceScope: string | readonly string[] | null,
     operation: (release: () => void) => Promise<Response>,
   ): Promise<Response> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     return this.withActiveStreamingOperation(workspaceScope, operation);
   }
   private withActiveStreamingOperation(
@@ -206,9 +185,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   protected withActiveSandboxCleanupSignal(operation: () => Promise<void>): Promise<void> {
-    return this.env.CHEATCODE_RELEASE_GATE === "closed" ||
-      this.accountDeletionInProgress ||
-      !this.identityState.hasRegisteredOwner()
+    return this.accountDeletionInProgress || !this.identityState.hasRegisteredOwner()
       ? Promise.resolve()
       : this.withActiveSandboxOperation(operation);
   }
@@ -241,9 +218,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   protected withActiveProjectWorkspaceCleanup<T>(operation: () => Promise<T>): Promise<T> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return Promise.reject(sandboxReleaseGateError());
-    }
     let release: (() => void) | undefined;
     try {
       // Cleanup itself must not take a workspace lease: its durable tombstone

@@ -52,7 +52,6 @@ interface AgentRunWorkflowEnv extends AgentRunWorkflowBindings {
 
 export interface AgentRunWorkflowBindings {
   AGENT_RUN_WORKFLOW: Workflow<AgentRunWorkflowPayload>;
-  CHEATCODE_RELEASE_GATE: "closed" | "draining" | "open";
 }
 
 /** Durable owner for one semantic AgentRun; execution is renewed in bounded, retry-safe epochs. */
@@ -64,12 +63,6 @@ export class AgentRunWorkflow extends WorkflowEntrypoint<
     event: Readonly<WorkflowEvent<AgentRunWorkflowPayload>>,
     step: WorkflowStep,
   ): Promise<AgentRunWorkflowEpochResult> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      throw new NonRetryableError(
-        "AgentRun Workflow is fenced by a closed release",
-        "AgentRunReleaseGateClosed",
-      );
-    }
     const payload = await parseWorkflowPayload(event.payload);
     try {
       for (let epoch = 0; epoch < AGENT_RUN_WORKFLOW_ROLLOVER_EPOCHS; epoch += 1) {
@@ -94,9 +87,6 @@ export async function admitAgentRunWorkflow(
   env: AgentRunWorkflowBindings,
   payload: AgentRunWorkflowPayload,
 ): Promise<string> {
-  if (env.CHEATCODE_RELEASE_GATE === "closed") {
-    throw new Error("AgentRun Workflow admission is fenced by a closed release.");
-  }
   const id = agentRunWorkflowInstanceId(payload.input.runId, payload.generation);
   try {
     const instance = await env.AGENT_RUN_WORKFLOW.create({

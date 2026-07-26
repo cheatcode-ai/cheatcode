@@ -230,12 +230,10 @@ sandboxes mount the user's isolated volume subpath directly at `/workspace`.
 Account deletion clears that subpath before deleting all exactly owned
 sandboxes, so persistent volume data does not outlive the account.
 
-Production binds `CHEATCODE_RELEASE_GATE` explicitly. `draining` rejects public
-run, sandbox, preview, download, and deletion admission while allowing already
-admitted AgentRun Workflow/DO callbacks, sandbox operations, and persistence to
-finish. `closed` additionally fences those continuation paths and serves only
-`/health` plus the signed database-readiness RPC. Stable drain proofs run at
-both gates before DDL.
+Production deploys bind one immutable `CHEATCODE_RELEASE_SHA`. Health responses
+expose that identity so the deployment workflow can verify that service
+bindings converge on the same reviewed revision. Database migrations retain
+their independent target, role, lock, and schema validation.
 
 Project ZIP generation and streaming share the exact
 `PROJECT_ARCHIVE_MAX_OUTPUT_BYTES` contract from `@cheatcode/types` (640 MiB). The
@@ -259,7 +257,6 @@ pnpm --filter @cheatcode/agent-worker typecheck
 
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
-- `CHEATCODE_RELEASE_GATE` (`open` in source; coordinated releases inject `draining` and then `closed` until migration and database-readiness checks complete)
 - `CF_VERSION_METADATA`
 - `AGENT_RUN`
 - `AGENT_RUN_WORKFLOW`
@@ -279,7 +276,6 @@ pnpm --filter @cheatcode/agent-worker typecheck
 - `OUTPUT_DOWNLOAD_BASE_URL`
 - `WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET` (ccm2 `agent-lifecycle` capability shared
   only with the webhooks caller)
-- `RELEASE_DATABASE_READINESS_SECRET` (ccm2 `database-readiness` verifier only)
 - `PREVIEW_HOSTNAME`
 - `QUOTA_TRACKER`
 - `R2_AUDIT`

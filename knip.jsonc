@@ -1,9 +1,9 @@
 {
   "$schema": "./node_modules/knip/schema.json",
-  // The shared compiler config is declared for the workspace graph but loaded
-  // through tsconfig `extends` paths. Cloudflare CLIs are launched by operational
-  // TypeScript. Knip cannot infer either dependency shape.
-  "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare", "wrangler"],
+  // The shared compiler config is loaded through tsconfig `extends` paths.
+  // `cloudflare:workers` and `cloudflare:workflows` are platform modules, not
+  // installable package dependencies. Knip cannot infer either edge.
+  "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare"],
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
@@ -16,17 +16,11 @@
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
-    "infra/containers/sandbox/browser-driver": {
-      // The snapshot installs these as Stagehand runtime peers. Knip cannot see
-      // that dependency edge because it is resolved inside the Docker image.
-      "ignoreDependencies": ["playwright-core", "zod"]
-    },
+    "infra/containers/sandbox/browser-driver": {},
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve these executables by installed binary name;
-      // Knip cannot infer that Docker runtime edge.
-      "ignoreDependencies": ["agent-browser", "tsx"],
-      "ignoreBinaries": ["agent-browser"]
+      // Skill entrypoints load tsx at runtime rather than importing it.
+      "ignoreDependencies": ["tsx"]
     }
   }
 }

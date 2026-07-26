@@ -17,7 +17,6 @@ import {
 } from "@cheatcode/observability";
 import { z } from "zod";
 import type { OpsWorkflowBindings } from "./ops-workflow";
-import { assertReleaseCanDrain, assertReleaseOpen } from "./release-gate";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
 const ProductionReleaseShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
@@ -71,7 +70,6 @@ export async function admitDueUserDeletionWorkflows(
   env: UserDeletionAdmissionEnv,
   scheduledTime: number,
 ): Promise<UserDeletionAdmissionSummary> {
-  assertReleaseOpen(env);
   const release = activeUserDeletionRelease(env);
   const reconciliation = await reconcileDeletionJobs(env, scheduledTime);
   const creation = await createClaimedInstances(
@@ -208,7 +206,6 @@ export async function createUserDeletionContinuation(
   lease: UserDeletionJobLease,
   releaseVersionId: UserDeletionPayload["releaseVersionId"],
 ): Promise<DeterministicWorkflowResult> {
-  assertReleaseCanDrain(env);
   return createUserDeletionInstance(env, lease, releaseVersionId);
 }
 

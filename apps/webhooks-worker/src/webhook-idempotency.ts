@@ -2,12 +2,6 @@ import { DurableObject } from "cloudflare:workers";
 import { APIError, readBoundedResponseJson, readJsonRequest } from "@cheatcode/observability";
 import { z } from "zod";
 import {
-  assertReleaseOpen,
-  type ReleaseGateBindings,
-  rearmClosedWebhookAlarm,
-  releaseGateError,
-} from "./release-gate";
-import {
   assertWebhookIdempotencyStorage,
   hasWebhookIdempotencyStorage,
   initializeWebhookIdempotencyStorage,
@@ -142,7 +136,7 @@ interface WebhookEventRow {
   workflow_id: string | null;
 }
 
-export interface WebhookIdempotencyBindings extends ReleaseGateBindings {
+export interface WebhookIdempotencyBindings {
   WEBHOOK_IDEMPOTENCY: DurableObjectNamespace<WebhookIdempotencyStore>;
   SANDBOX_STATE?: KVNamespace;
 }
@@ -177,7 +171,7 @@ interface WebhookReleaseInput {
   provider: WebhookProvider;
 }
 
-interface WebhookIdempotencyEnv extends ReleaseGateBindings {
+interface WebhookIdempotencyEnv {
   SANDBOX_STATE?: KVNamespace;
 }
 
@@ -185,14 +179,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
   private isStorageInitialized = false;
 
   public override async fetch(request: Request): Promise<Response> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      const response = releaseGateError("closed").toResponse(
-        `req_${crypto.randomUUID().replaceAll("-", "")}`,
-      );
-      response.headers.set("Cache-Control", "no-store");
-      response.headers.set("Retry-After", "5");
-      return response;
-    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -239,10 +225,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
   public override async alarm(): Promise<void> {
     if (!hasWebhookIdempotencyStorage(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
-      return;
-    }
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      await rearmClosedWebhookAlarm(this.ctx);
       return;
     }
     this.isStorageInitialized = true;
@@ -534,7 +516,6 @@ export async function acceptWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookIdempotencyInput,
 ): Promise<AcceptedWebhookEvent> {
-  assertReleaseOpen(env);
   const bodyHash = await sha256Hex(`${input.provider}\n${input.eventId}\n${input.rawBody}`);
   const response = await idempotencyStub(env, input).fetch("https://webhook-idempotency/begin", {
     body: JSON.stringify({

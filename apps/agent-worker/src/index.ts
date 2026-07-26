@@ -1,6 +1,5 @@
 import { AgentWorkerEnvSchema } from "@cheatcode/env";
 import {
-  APIError,
   createLogger,
   emitErrorEvent,
   emitPerformanceMetric,
@@ -8,13 +7,12 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
-import { INTERNAL_DATABASE_READINESS_PATH, normalizeTelemetryPath } from "@cheatcode/types";
+import { normalizeTelemetryPath } from "@cheatcode/types";
 import { type Context, Hono } from "hono";
 import { routePath } from "hono/route";
 import { registerAgentRunHttpRoutes } from "./agent-api-run-routes";
 import { registerAgentSystemHttpRoutes } from "./agent-api-system-routes";
 import type { AgentEnv } from "./agent-env";
-import { registerAgentDatabaseReadinessRoute } from "./database-readiness";
 import { AgentRun } from "./durable-objects/agent-run";
 import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
@@ -63,14 +61,12 @@ agentApp.use("*", async (c, next) => {
 agentApp.get("/health", (c) =>
   c.json({
     ok: true,
-    releaseGate: c.env.CHEATCODE_RELEASE_GATE,
     releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
     versionId: c.env.CF_VERSION_METADATA?.id ?? null,
     worker: "agent",
   }),
 );
 
-registerAgentDatabaseReadinessRoute(agentApp);
 registerAgentSystemHttpRoutes(agentApp);
 registerAgentRunHttpRoutes(agentApp);
 registerSandboxHttpRoutes(agentApp);
@@ -83,10 +79,6 @@ const agentHandler = {
     AgentWorkerEnvSchema.parse(env);
     const id = request.headers.get("X-Request-Id") ?? requestId();
     try {
-      const releaseGate = agentReleaseGateResponse(request, env, id);
-      if (releaseGate) {
-        return releaseGate;
-      }
       const requestWithId = isWebSocketUpgrade(request) ? request : new Request(request);
       if (!isWebSocketUpgrade(requestWithId)) {
         requestWithId.headers.set("X-Request-Id", id);
@@ -107,61 +99,6 @@ const agentHandler = {
     }
   },
 };
-
-const USER_STATE_DELETION_PATH =
-  /^\/internal\/users\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/delete-state$/u;
-
-function agentReleaseGateResponse(
-  request: Request,
-  env: AgentEnv,
-  id: string,
-): Response | undefined {
-  if (env.CHEATCODE_RELEASE_GATE === "open") {
-    return undefined;
-  }
-  const pathname = new URL(request.url).pathname;
-  if (
-    env.CHEATCODE_RELEASE_GATE === "closed" &&
-    request.method === "POST" &&
-    pathname === INTERNAL_DATABASE_READINESS_PATH
-  ) {
-    return undefined;
-  }
-  if (
-    request.method === "POST" &&
-    env.CHEATCODE_RELEASE_GATE === "draining" &&
-    USER_STATE_DELETION_PATH.test(pathname)
-  ) {
-    return undefined;
-  }
-  if (request.method === "GET" && pathname === "/health") {
-    return withRequestId(
-      Response.json(
-        {
-          ok: true,
-          releaseGate: env.CHEATCODE_RELEASE_GATE,
-          releaseSha: env.CHEATCODE_RELEASE_SHA ?? "development",
-          versionId: env.CF_VERSION_METADATA?.id ?? null,
-          worker: "agent",
-        },
-        { headers: { "Cache-Control": "no-store" } },
-      ),
-      id,
-    );
-  }
-  const response = new APIError(503, "unavailable_maintenance", "Release is in progress", {
-    details: {
-      releaseGate: env.CHEATCODE_RELEASE_GATE,
-      releaseSha: env.CHEATCODE_RELEASE_SHA ?? null,
-      versionId: env.CF_VERSION_METADATA?.id ?? null,
-      worker: "agent",
-    },
-    retriable: true,
-  }).toResponse(id);
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("Retry-After", "5");
-  return response;
-}
 
 function logAgentRequestError(error: unknown, requestIdValue: string, route: string): void {
   const apiError = toAPIError(error);
