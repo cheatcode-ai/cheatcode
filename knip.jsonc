@@ -16,11 +16,17 @@
       },
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
-    "infra/containers/sandbox/browser-driver": {},
+    "infra/containers/sandbox/browser-driver": {
+      // Stagehand resolves these declared peers only inside the separately
+      // installed sandbox image, so there is no source import for Knip to trace.
+      "ignoreDependencies": ["playwright-core", "zod"]
+    },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Skill entrypoints load tsx at runtime rather than importing it.
-      "ignoreDependencies": ["tsx"]
+      // Snapshot launchers resolve these executables by installed binary name;
+      // Knip cannot infer that runtime edge from spawnSync or the shebang.
+      "ignoreDependencies": ["agent-browser", "tsx"],
+      "ignoreBinaries": ["agent-browser"]
     }
   }
 }
