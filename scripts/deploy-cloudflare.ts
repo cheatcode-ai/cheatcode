@@ -4,7 +4,7 @@ import { z } from "zod";
 import { runCapturedBoundedCommand } from "./bounded-command";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const COMMAND_TIMEOUT_MS = 5 * 60 * 1_000;
+const COMMAND_TIMEOUT_MS = 15 * 60 * 1_000;
 const MAX_OUTPUT_BYTES = 2 * 1_024 * 1_024;
 const RELEASE_SHA_PATTERN = /^[0-9a-f]{40}$/u;
 const PNPM = process.platform === "win32" ? "pnpm.cmd" : "pnpm";
