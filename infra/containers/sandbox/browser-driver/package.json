@@ -3,6 +3,7 @@
   "private": true,
   "version": "0.0.0",
   "type": "module",
+  "main": "./server.js",
   "engines": {
     "node": "22.22.2"
   },

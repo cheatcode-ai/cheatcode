@@ -11,7 +11,6 @@
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
-    "CHEATCODE_RELEASE_GATE": "open",
     "DAYTONA_API_URL": "https://app.daytona.io/api",
     "DAYTONA_ORG_ID": "300a0c8b-dc3b-4c5f-b31c-0f9e0344d00d",
     "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",
@@ -47,11 +46,6 @@
       "binding": "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "webhooks-to-agent-lifecycle-secret"
-    },
-    {
-      "binding": "RELEASE_DATABASE_READINESS_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "release-database-readiness-secret"
     },
     {
       "binding": "DEEPSEEK_PLATFORM_API_KEY",

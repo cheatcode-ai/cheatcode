@@ -9,7 +9,6 @@ export interface AgentEnv extends AnalyticsBindings {
   AGENT_RUN_WORKFLOW: Workflow<AgentRunWorkflowPayload>;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
-  CHEATCODE_RELEASE_GATE: "closed" | "draining" | "open";
   CHEATCODE_RELEASE_SHA?: string;
   COMPOSIO_API_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
@@ -28,7 +27,6 @@ export interface AgentEnv extends AnalyticsBindings {
   QUOTA_TRACKER: DurableObjectNamespace;
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   SANDBOX_STATE?: KVNamespace;
   SKILL_RUNTIME_BASE_URL: string;
   SKILL_RUNTIME_TOKEN_SECRET: WorkerSecret;

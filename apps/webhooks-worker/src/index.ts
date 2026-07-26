@@ -21,7 +21,6 @@ import {
   withErrorHandler,
 } from "@cheatcode/observability";
 import {
-  INTERNAL_DATABASE_READINESS_PATH,
   INTERNAL_RESOURCE_DELETION_PATH,
   InternalResourceDeletionRequestSchema,
 } from "@cheatcode/types";
@@ -34,7 +33,6 @@ import {
   enqueueDailyMaintenance,
   reconcileDailyMaintenanceWorkflows,
 } from "./daily-maintenance-admission";
-import { registerWebhooksDatabaseReadinessRoute } from "./database-readiness";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
 import { internalAlertEventId, verifyInternalAlert } from "./internal-alert";
 import {
@@ -49,7 +47,6 @@ import {
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
-import { type ReleaseGateBindings, releaseGateError } from "./release-gate";
 import {
   enqueueResourceDeletionWorkflow,
   ResourceDeletionWorkflow,
@@ -87,7 +84,6 @@ const MAX_INTERNAL_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 export interface WebhooksEnv
   extends AnalyticsBindings,
-    ReleaseGateBindings,
     WebhookIdempotencyBindings,
     OpsWorkflowBindings,
     ResourceDeletionWorkflowBindings,
@@ -118,7 +114,6 @@ export interface WebhooksEnv
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
   QUOTA_TRACKER: DurableObjectNamespace;
   R2_OUTPUTS: R2Bucket;
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
   SANDBOX_STATE?: KVNamespace;
@@ -265,14 +260,12 @@ webhooksApp.use("*", async (c, next) => {
 webhooksApp.get("/health", (c) =>
   c.json({
     ok: true,
-    releaseGate: c.env.CHEATCODE_RELEASE_GATE,
     releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
     versionId: c.env.CF_VERSION_METADATA?.id ?? null,
     worker: "webhooks",
   }),
 );
 
-registerWebhooksDatabaseReadinessRoute(webhooksApp);
 webhooksApp.post("/clerk", async (c) => {
   const signingSecret = await clerkWebhookSigningSecret(c.env);
   const rawBody = await readBoundedRequestText(
@@ -633,10 +626,6 @@ const webhooksHandler = {
     const id = requestId();
     const logger = createLogger({ requestId: id });
     try {
-      const releaseGate = webhooksReleaseGateResponse(request, env, id);
-      if (releaseGate) {
-        return releaseGate;
-      }
       const requestWithId = new Request(request);
       requestWithId.headers.set("X-Request-Id", id);
       const response = await webhooksApp.fetch(requestWithId, env, ctx);
@@ -664,9 +653,6 @@ const webhooksHandler = {
     ctx: ExecutionContext,
   ): Promise<void> {
     WebhooksWorkerEnvSchema.parse(env);
-    if (env.CHEATCODE_RELEASE_GATE !== "open") {
-      return;
-    }
     if (controller.cron === DAILY_MAINTENANCE_CRON) {
       ctx.waitUntil(enqueueDailyMaintenance(env, controller.scheduledTime));
       return;
@@ -717,43 +703,6 @@ const webhooksHandler = {
     }
   },
 };
-
-function webhooksReleaseGateResponse(
-  request: Request,
-  env: WebhooksEnv,
-  id: string,
-): Response | undefined {
-  if (env.CHEATCODE_RELEASE_GATE === "open") {
-    return undefined;
-  }
-  const url = new URL(request.url);
-  if (
-    env.CHEATCODE_RELEASE_GATE === "closed" &&
-    request.method === "POST" &&
-    url.pathname === INTERNAL_DATABASE_READINESS_PATH
-  ) {
-    return undefined;
-  }
-  if (request.method === "GET" && url.pathname === "/health") {
-    return withRequestId(
-      Response.json(
-        {
-          ok: true,
-          releaseGate: env.CHEATCODE_RELEASE_GATE,
-          releaseSha: env.CHEATCODE_RELEASE_SHA ?? "development",
-          versionId: env.CF_VERSION_METADATA?.id ?? null,
-          worker: "webhooks",
-        },
-        { headers: { "Cache-Control": "no-store" } },
-      ),
-      id,
-    );
-  }
-  const response = releaseGateError(env.CHEATCODE_RELEASE_GATE).toResponse(id);
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("Retry-After", "5");
-  return response;
-}
 
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
 const DAILY_MAINTENANCE_CRON = "20 0 * * *";

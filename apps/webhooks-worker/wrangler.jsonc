@@ -20,7 +20,6 @@
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
-    "CHEATCODE_RELEASE_GATE": "open",
     "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
     "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
@@ -81,11 +80,6 @@
       "binding": "INTERNAL_WEBHOOK_REPLAY_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "internal-webhook-replay-secret"
-    },
-    {
-      "binding": "RELEASE_DATABASE_READINESS_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "release-database-readiness-secret"
     },
     {
       "binding": "POLAR_ACCESS_TOKEN",

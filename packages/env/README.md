@@ -60,10 +60,8 @@ Database-backed Workers require exactly one role-specific tenant-context binding
 entry and matching Supabase Vault secret. The three values are distinct and at least
 32 bytes; there is no shared or compatibility binding.
 
-Internal ccm2 calls use four non-interchangeable capability secrets rather than
+Internal ccm2 calls use three non-interchangeable capability secrets rather than
 a shared maintenance key: gateway-to-webhooks resource deletion,
-webhooks-to-agent lifecycle deletion/reconciliation, operator webhook replay,
-and release database readiness. Each Worker schema requires only the keys for
-capabilities it calls or verifies. GitHub receives only
-`RELEASE_DATABASE_READINESS_SECRET`; destructive capability keys remain in the
-two endpoint Workers' Secrets Store bindings.
+webhooks-to-agent lifecycle deletion/reconciliation, and operator webhook replay.
+Each Worker schema requires only the keys for capabilities it calls or verifies;
+the capability keys remain in the two endpoint Workers' Secrets Store bindings.

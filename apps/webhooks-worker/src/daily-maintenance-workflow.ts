@@ -25,7 +25,6 @@ import {
 } from "@cheatcode/observability";
 import { z } from "zod";
 import { processOrphanUploadCleanupGeneration } from "./orphan-upload-cleanup";
-import { assertReleaseCanDrain, type ReleaseGateBindings } from "./release-gate";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
 const ACTIVATION_EVENT_PAGE_SIZE = 200;
@@ -68,7 +67,7 @@ export const DailyMaintenancePayloadSchema = z.discriminatedUnion("mode", [
 
 export type DailyMaintenancePayload = z.infer<typeof DailyMaintenancePayloadSchema>;
 
-interface DailyMaintenanceWorkflowBindings extends ReleaseGateBindings {
+interface DailyMaintenanceWorkflowBindings {
   OPS_WORKFLOW: Workflow<DailyMaintenancePayload>;
 }
 
@@ -273,7 +272,6 @@ async function continueDailyMaintenance(
   step: WorkflowStep,
   job: DailyMaintenanceJobRecord,
 ): Promise<void> {
-  assertReleaseCanDrain(env);
   const nextLeaseToken = await continuationLeaseToken(jobLease(job));
   const next = await step.do("reserve daily maintenance continuation", DB_STEP_OPTIONS, () =>
     withDatabase(env, (db) =>

@@ -5,7 +5,6 @@ import type { ProjectSandbox } from "./project-sandbox";
 
 export interface AgentRunEnv extends AnalyticsBindings {
   AGENT_RUN_WORKFLOW: Workflow<AgentRunWorkflowPayload>;
-  CHEATCODE_RELEASE_GATE: "closed" | "draining" | "open";
   CHEATCODE_RELEASE_SHA?: string;
   COMPOSIO_API_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;

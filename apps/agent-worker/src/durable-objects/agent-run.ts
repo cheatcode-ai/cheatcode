@@ -9,7 +9,7 @@ import type {
 import { AgentRunId, ProjectId, RunStatusSnapshotSchema, ThreadId, UserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { createAgentStreamResponse } from "../streaming/ui-message-stream";
-import { armAgentRunAlarm, armClosedAgentRunAlarm } from "./agent-run-alarm";
+import { armAgentRunAlarm } from "./agent-run-alarm";
 import { storeAgentArtifact } from "./agent-run-artifacts";
 import { AgentRunBrowserTakeover } from "./agent-run-browser-takeover";
 import { emitMastraChunkTelemetry } from "./agent-run-chunk-telemetry";
@@ -27,11 +27,9 @@ import { executeAgentRunPath } from "./agent-run-path";
 import {
   absentAgentRunOkResponse,
   absentAgentRunWorkflowResponse,
-  agentRunReleaseGateResponse,
   agentRunStreamCapacityResponse,
   agentRunWorkflowResponse,
   deletedAgentRunResponse,
-  isAgentRunDrainContinuation,
 } from "./agent-run-responses";
 import { resolveAgentRunRetentionAction } from "./agent-run-retention";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -113,10 +111,6 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       return;
     }
     assertAgentRunStorage(this.ctx);
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      await armClosedAgentRunAlarm(this.ctx, this.getStatus());
-      return;
-    }
     const execution = this.handleAlarm();
     this.alarmExecutionPromise = execution;
     try {
@@ -170,13 +164,6 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   }
 
   public override fetch(request: Request): Promise<Response> {
-    const releaseGate = this.env.CHEATCODE_RELEASE_GATE;
-    if (
-      releaseGate === "closed" ||
-      (releaseGate === "draining" && !isAgentRunDrainContinuation(request))
-    ) {
-      return Promise.resolve(agentRunReleaseGateResponse(releaseGate));
-    }
     // FIFO admission makes /start settle before a later presence probe observes the object.
     const response = this.requestAdmissionTail.then(() => {
       const hasStorage = hasAgentRunStorage(this.ctx);

@@ -167,12 +167,10 @@ The handler therefore resolves that Composio-project-global ID through the datab
 primary key; ownership and toolkit assignment are immutable after insertion,
 and terminal status changes atomically reconcile the user's active default.
 
-Production binds `CHEATCODE_RELEASE_GATE` explicitly. `draining` rejects HTTP,
-cron admission, and fresh idempotency writes while already-admitted Webhook,
-ResourceDeletion, ordinary Ops, and deletion-continuation work may finish. `closed`
-also fences those continuation paths. Only the exact release-scoped
-workspace/sandbox Ops Workflow may run closed, and it reaches the agent through
-the signed maintenance contract. `/health` always reports the exact gate and SHA.
+Production binds one immutable `CHEATCODE_RELEASE_SHA`, exposed by `/health`.
+HTTP, cron, idempotency, deletion, and workflow continuation paths use their
+normal durable ownership and idempotency contracts; database migrations retain
+their separate target, role, lock, and schema validation.
 
 ## Code Checks
 
@@ -184,7 +182,6 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
-- `CHEATCODE_RELEASE_GATE` (`open` in source; coordinated releases inject `draining` and then `closed` before database migration/reconciliation)
 - `CF_VERSION_METADATA`
 - `CLERK_WEBHOOK_SIGNING_SECRET`
 - `DAYTONA_WEBHOOK_SIGNING_SECRET` (required; the endpoint's Svix signing secret from Daytona)
@@ -198,7 +195,6 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET` (ccm2 resource-deletion verifier)
 - `WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET` (ccm2 agent-lifecycle caller)
 - `INTERNAL_WEBHOOK_REPLAY_SECRET` (ccm2 operator replay verifier only)
-- `RELEASE_DATABASE_READINESS_SECRET` (ccm2 database-readiness verifier only)
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_SERVER` (`production` by default; set `sandbox` only with a sandbox token)
 - `POLAR_WEBHOOK_SECRET`

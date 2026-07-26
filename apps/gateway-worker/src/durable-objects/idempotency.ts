@@ -8,10 +8,6 @@ import {
   IdempotencyCompleteBodySchema,
 } from "./idempotency-contract";
 import { ensureIdempotencyStorage, hasIdempotencyStorage } from "./idempotency-storage";
-import {
-  gatewayDurableObjectClosedResponse,
-  rearmClosedGatewayDurableObjectAlarm,
-} from "./release-gate";
 
 interface IdempotencyRow {
   body_hash: string;
@@ -23,19 +19,12 @@ interface IdempotencyRow {
   state: "completed" | "in_flight";
 }
 
-interface IdempotencyEnv {
-  CHEATCODE_RELEASE_GATE: "closed" | "open";
-  CHEATCODE_RELEASE_SHA?: string;
-}
 const MAX_IDEMPOTENCY_REQUEST_BYTES = 1024 * 1024;
 
-export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
+export class IdempotencyStore extends DurableObject {
   private isStorageInitialized = false;
 
   public override async fetch(request: Request): Promise<Response> {
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      return gatewayDurableObjectClosedResponse();
-    }
     if (request.method !== "POST") {
       return new Response("Method not allowed", { status: 405 });
     }
@@ -59,10 +48,6 @@ export class IdempotencyStore extends DurableObject<IdempotencyEnv> {
   public override async alarm(): Promise<void> {
     if (!hasIdempotencyStorage(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
-      return;
-    }
-    if (this.env.CHEATCODE_RELEASE_GATE === "closed") {
-      await rearmClosedGatewayDurableObjectAlarm(this.ctx);
       return;
     }
     this.ensureStorage();

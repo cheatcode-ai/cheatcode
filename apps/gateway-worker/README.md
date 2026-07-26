@@ -92,9 +92,10 @@ Production deploys bind an immutable `CHEATCODE_RELEASE_SHA` into every affected
 Worker. Each Durable Object initializes one current SQLite contract and validates
 that exact contract before using existing storage.
 
-`CHEATCODE_RELEASE_GATE=open` is the steady state. A closed gateway rejects public
-work, and agent/webhook draining or closed gates fence new writer admissions.
-The gate is an operational barrier; SQLite schema validation is synchronous.
+The gateway health response exposes its own release SHA and the release SHAs
+reported by its agent and webhook service bindings. Deployments publish the
+gateway last so public traffic observes only a backend set built from the same
+reviewed revision. SQLite schema validation remains synchronous.
 
 `IdempotencyStore`, `RateLimiter`, and `QuotaTracker` each own one exact SQLite
 schema. New objects initialize that schema directly; existing objects must
@@ -126,7 +127,6 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 ## Env
 
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
-- `CHEATCODE_RELEASE_GATE` (`open` normally; coordinated production releases close gateway first while agent/webhooks drain, then close all writers)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
 - `CF_VERSION_METADATA`
 - `AGENT`
@@ -149,6 +149,4 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `COMPOSIO_AUTH_CONFIGS`
 - `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET` (ccm2 `resource-deletion`
   capability shared only with the webhooks verifier)
-- `RELEASE_DATABASE_READINESS_SECRET` (ccm2 `database-readiness` capability;
-  the release environment receives no destructive capability key)
 - `USER_EVENTS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`

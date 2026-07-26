@@ -1,29 +1,5 @@
 import { APIError } from "@cheatcode/observability";
 
-/** Requests that are required to finish or erase work admitted before draining. */
-export function isAgentRunDrainContinuation(request: Request): boolean {
-  if (request.method !== "POST") {
-    return false;
-  }
-  const pathname = new URL(request.url).pathname;
-  return (
-    pathname === "/workflow/execute" ||
-    pathname === "/workflow/failed" ||
-    pathname === "/workflow/rollover" ||
-    pathname === "/delete-all"
-  );
-}
-
-export function agentRunReleaseGateResponse(releaseGate: "closed" | "draining"): Response {
-  const response = new APIError(503, "unavailable_maintenance", "Release is in progress", {
-    details: { releaseGate, worker: "agent" },
-    retriable: true,
-  }).toResponse(requestId());
-  response.headers.set("Cache-Control", "no-store");
-  response.headers.set("Retry-After", "5");
-  return response;
-}
-
 export function deletedAgentRunResponse(): Response {
   return new APIError(410, "not_found_run", "Run state was permanently deleted", {
     retriable: false,

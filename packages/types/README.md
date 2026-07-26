@@ -16,8 +16,8 @@ capability discovery contracts, error codes, and UI message types.
   response URL validation without loading the general API contract barrel
 - `errors.ts`: locked error code catalog
 - `@cheatcode/types/integrations`: canonical open Composio toolkit-slug schema and constraints
-- `internal-maintenance.ts`: strict deletion, workspace/sandbox-transition evidence, and
-  closed-release database-readiness request/response contracts
+- `internal-maintenance.ts`: strict deletion and workspace/sandbox-transition
+  evidence contracts
 - `models.ts`: catalog IDs plus the open provider-prefixed logical-model schema
 - `@cheatcode/types/quota`: strict cross-Worker QuotaTracker request/response
   contracts and canonical quota feature identifiers

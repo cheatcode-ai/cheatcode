@@ -24,7 +24,6 @@ export function assertWebhookReplayHostname(
 export interface WebhooksMaintenanceSecretBindings {
   GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecret;
   INTERNAL_WEBHOOK_REPLAY_SECRET: WorkerSecret;
-  RELEASE_DATABASE_READINESS_SECRET: WorkerSecret;
   WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecret;
 }
 
@@ -38,12 +37,6 @@ export function requireResourceDeletionSecret(
   env: WebhooksMaintenanceSecretBindings,
 ): Promise<string> {
   return requireWebhooksMaintenanceSecret(env.GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET);
-}
-
-export function requireDatabaseReadinessSecret(
-  env: WebhooksMaintenanceSecretBindings,
-): Promise<string> {
-  return requireWebhooksMaintenanceSecret(env.RELEASE_DATABASE_READINESS_SECRET);
 }
 
 export function requireAgentLifecycleSecret(

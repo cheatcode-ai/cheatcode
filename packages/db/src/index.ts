@@ -197,7 +197,6 @@ export {
   updateAgentRunLogicalModelId,
   updateAgentRunStatus,
 } from "./runs";
-export { assertDatabaseRuntimeReadiness } from "./runtime-readiness";
 export type {
   DailyMaintenanceJobPhase,
   DailyMaintenanceJobStatus,

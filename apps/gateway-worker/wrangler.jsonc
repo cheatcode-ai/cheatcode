@@ -11,7 +11,6 @@
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
-    "CHEATCODE_RELEASE_GATE": "open",
     "CLERK_AUTHORIZED_PARTIES": "https://trycheatcode.com",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
     "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
@@ -62,11 +61,6 @@
       "binding": "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "gateway-to-webhooks-resource-deletion-secret"
-    },
-    {
-      "binding": "RELEASE_DATABASE_READINESS_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "release-database-readiness-secret"
     }
   ],
   "durable_objects": {

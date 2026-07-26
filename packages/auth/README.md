@@ -63,7 +63,7 @@ pnpm --filter @cheatcode/auth lint
 ## Env
 
 Callers pass `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, `PREVIEW_TOKEN_SECRET`, or one
-of the four isolated `ccm2` capability keys from their validated Worker env:
+of the three isolated `ccm2` capability keys from their validated Worker env:
 `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET`,
-`WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET`, `INTERNAL_WEBHOOK_REPLAY_SECRET`, and
-`RELEASE_DATABASE_READINESS_SECRET`. No shared or legacy fallback exists.
+`WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET`, and `INTERNAL_WEBHOOK_REPLAY_SECRET`.
+No shared or legacy fallback exists.

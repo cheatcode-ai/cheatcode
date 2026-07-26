@@ -144,7 +144,6 @@ export const WorkerReleaseBindingsSchema = {
 
 interface WorkerReleaseIdentity {
   CHEATCODE_ENVIRONMENT: "development" | "production";
-  CHEATCODE_RELEASE_GATE?: "closed" | "draining" | "open" | undefined;
   CHEATCODE_RELEASE_SHA?: string | undefined;
 }
 
@@ -157,19 +156,6 @@ function requireProductionReleaseSha(
       code: "custom",
       message: "Production Workers require an immutable release SHA.",
       path: ["CHEATCODE_RELEASE_SHA"],
-    });
-  }
-}
-
-function requireProductionReleaseGate(
-  bindings: WorkerReleaseIdentity,
-  context: z.RefinementCtx,
-): void {
-  if (bindings.CHEATCODE_ENVIRONMENT === "production" && !bindings.CHEATCODE_RELEASE_GATE) {
-    context.addIssue({
-      code: "custom",
-      message: "Production database-writing Workers require an explicit release gate.",
-      path: ["CHEATCODE_RELEASE_GATE"],
     });
   }
 }
@@ -192,7 +178,6 @@ export const GatewayWorkerEnvSchema = z
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT: FetcherBindingSchema,
-    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     CLERK_AUTHORIZED_PARTIES: z.string().trim().min(1).max(2_048).optional(),
     CLERK_JWT_KEY: OptionalWorkerSecretSchema,
     CLERK_SECRET_KEY: OptionalWorkerSecretSchema,
@@ -214,12 +199,10 @@ export const GatewayWorkerEnvSchema = z
     PREVIEW_PROXY: FetcherBindingSchema.optional(),
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     RATE_LIMITER: DurableObjectNamespaceBindingSchema,
-    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
     WEBHOOKS: FetcherBindingSchema,
   })
   .strict()
-  .superRefine(requireProductionReleaseSha)
-  .superRefine(requireProductionReleaseGate);
+  .superRefine(requireProductionReleaseSha);
 
 export const AgentWorkerEnvSchema = z
   .object({
@@ -227,7 +210,6 @@ export const AgentWorkerEnvSchema = z
     ...WorkerReleaseBindingsSchema,
     AGENT_RUN: DurableObjectNamespaceBindingSchema,
     AGENT_RUN_WORKFLOW: WorkflowBindingSchema,
-    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     // Secret-store-bound and resolved request-scoped in the ProjectSandbox DO.
     DAYTONA_API_KEY: WorkerSecretSchema,
     DAYTONA_API_URL: z.string().url(),
@@ -251,7 +233,6 @@ export const AgentWorkerEnvSchema = z
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     R2_AUDIT: R2BucketBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
-    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
     SKILL_RUNTIME_BASE_URL: z.string().url(),
     SKILL_RUNTIME_TOKEN_SECRET: WorkerSecretSchema,
@@ -259,7 +240,6 @@ export const AgentWorkerEnvSchema = z
   })
   .strict()
   .superRefine(requireProductionReleaseSha)
-  .superRefine(requireProductionReleaseGate)
   .superRefine(requireProductionDaytonaOrg)
   .superRefine(requireProductionPreviewHostname);
 
@@ -268,7 +248,6 @@ export const WebhooksWorkerEnvSchema = z
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT: FetcherBindingSchema,
-    CHEATCODE_RELEASE_GATE: z.enum(["open", "draining", "closed"]).optional(),
     CLERK_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_ANALYTICS_API_TOKEN: OptionalWorkerSecretSchema,
@@ -292,7 +271,6 @@ export const WebhooksWorkerEnvSchema = z
     POLAR_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
-    RELEASE_DATABASE_READINESS_SECRET: WorkerSecretSchema,
     RESOURCE_DELETION_WORKFLOW: WorkflowBindingSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
     WEBHOOK_IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
@@ -300,8 +278,7 @@ export const WebhooksWorkerEnvSchema = z
     WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecretSchema,
   })
   .strict()
-  .superRefine(requireProductionReleaseSha)
-  .superRefine(requireProductionReleaseGate);
+  .superRefine(requireProductionReleaseSha);
 
 export async function resolveWorkerSecret(
   secret: WorkerSecret | undefined,

@@ -19,8 +19,6 @@
     "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",
     "audit:archive": "tsx scripts/archive-audit-log.ts",
     "build": "turbo build",
-    "cloudflare:deploy": "tsx scripts/deploy-cloudflare.ts",
-    "cloudflare:set-hyperdrive": "tsx scripts/set-hyperdrive-id.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "turbo db:generate",
     "deadcode": "turbo build --filter=@cheatcode/env --filter=@cheatcode/skills && knip",
@@ -44,7 +42,6 @@
     "tsx": "catalog:",
     "turbo": "catalog:",
     "typescript": "catalog:",
-    "wrangler": "catalog:",
-    "zod": "catalog:"
+    "wrangler": "catalog:"
   }
 }
