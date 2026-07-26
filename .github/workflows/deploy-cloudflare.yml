@@ -35,6 +35,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Build Worker release
+        run: >-
+          pnpm exec turbo run build
+          --filter=@cheatcode/agent-worker
+          --filter=@cheatcode/webhooks-worker
+          --filter=@cheatcode/gateway-worker
+          --filter=@cheatcode/preview-proxy
+
       - name: Deploy affected Workers
         run: pnpm cloudflare:deploy
         env:
