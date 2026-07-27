@@ -1,12 +1,12 @@
 # @cheatcode/webhooks-worker
 
-Webhook ingress for Clerk, Polar, Composio, Daytona, and signed internal ops alerts.
+Webhook ingress for Clerk, Polar, Composio, Daytona, and Worker-owned ops alerts.
 Every handler verifies the raw signature, dedupes the authenticated event identity through
 `WebhookIdempotencyStore`, and enqueues `WebhookWorkflow` for durable database, cache, and
 observability mutations. Daytona lifecycle deliveries retain their signed Svix message id, and
 cache writes are serialized per sandbox by event time so an older concurrent delivery cannot
 overwrite a newer state. Internal alert delivery ids are deterministic for exact-body retries.
-The store owns exact event, Daytona-state, and maintenance-command tables in its Durable Object
+The store owns exact event and Daytona-state tables in its Durable Object
 namespace and transactionally reconciles dormant objects when they are next activated. Provider
 processing remains independently idempotent through deterministic Workflow
 instance IDs, so event-cache expiry cannot repeat a provider mutation.
@@ -20,18 +20,17 @@ Composio ingress is V3-only: it accepts the current `composio.trigger.message` a
 `composio.connected_account.expired` envelopes, requires the documented event-specific identity
 fields, and verifies only exact `v1,<base64>` signature tokens (including provider key-rotation
 sets). Legacy payload versions and field aliases are rejected at ingress.
-Signed `/internal/webhooks/replay` commands also claim a durable envelope identity before changing
-Workflow state, so the same authenticated maintenance request cannot restart or resume twice.
 `OpsMaintenanceWorkflow` runs analytics watchdogs, daily activation metrics,
 abandoned-upload cleanup, BYOK maintenance inventory,
 and Clerk-driven GDPR deletion lifecycle jobs from Worker cron/webhook triggers. Account deletion
 jobs call the agent Worker through a Service Binding and clear quota state through a direct
 cross-Worker Durable Object binding before removing R2 and Postgres rows. These destructive
-agent calls use the isolated `ccm2` agent-lifecycle capability, binding the
-webhooks issuer, agent audience, method, pathname, millisecond timestamp, UUID
-nonce, and exact body hash. The Agent receiver pins the `agent.internal` Service
-Binding host and revalidates the authoritative database deletion generation before
-changing state. `/internal/alert` records Cloudflare-native alert events.
+agent calls use the named `AgentLifecycleEntrypoint` Service Binding. The
+binding itself grants the capability, while Cloudflare-authenticated properties
+pin the `webhooks` caller and `agent-lifecycle` permission. The Agent Worker
+revalidates the authoritative database deletion generation before changing
+state. Analytics watchdog alerts enter the same durable idempotency and Workflow
+path directly, without a public callback or an additional signing secret.
 
 The release-only workspace and Daytona snapshot operation is also owned by
 `OpsMaintenanceWorkflow`. Every nondeleted user is paged, including users with zero active
@@ -49,8 +48,9 @@ idempotently. Final evidence includes absent/current/upgraded sandbox counts, th
 and chained canonical-workspace and sandbox digests. Schema contraction and release opening remain
 blocked until the verifier follows the exact generation chain for the closed release SHA.
 
-Signed `/internal/resource-deletions` requests register project and thread deletion jobs in
-`v2_resource_deletion_jobs`. `ResourceDeletionWorkflow` is separate from ops maintenance: each
+The gateway-only `ResourceDeletionEntrypoint` registers project and thread
+deletion jobs in `v2_resource_deletion_jobs`; the default HTTP handler exposes no
+equivalent destructive route. `ResourceDeletionWorkflow` is separate from ops maintenance: each
 instance leases one exact soft-delete generation, performs at most eight bounded actions, persists
 its phase/cursor, and hands the lease to a deterministic continuation. It tombstones affected run
 Durable Objects, removes the project sandbox workspace when applicable, deletes indexed output
@@ -68,7 +68,7 @@ to native logs/Analytics Engine, and terminated with `NonRetryableError` instead
 Ambiguous or partial Workflow batch creation advances the fenced continuation before retry, and
 repeated expired leases use the same quarantine threshold instead of cycling forever.
 Provider request bodies are stream-bounded to 1 MiB before signature verification;
-Daytona and signed internal endpoints use a 64 KiB ceiling.
+Daytona webhook bodies use a 64 KiB ceiling.
 Analytics Engine SQL reads are timeout- and byte-bounded before schema narrowing.
 Polar cleanup calls have a 30-second request deadline, a 1 MiB response-stream
 ceiling, and one 100-order page per durable account-deletion action.
@@ -183,6 +183,8 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `CHEATCODE_ENVIRONMENT` (`production` in committed Wrangler config; local generated config overrides it)
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
 - `CF_VERSION_METADATA`
+- `AGENT_LIFECYCLE` (named `AgentLifecycleEntrypoint` Service Binding;
+  granted only to webhooks with authenticated caller/capability properties)
 - `CLERK_WEBHOOK_SIGNING_SECRET`
 - `DAYTONA_WEBHOOK_SIGNING_SECRET` (required; the endpoint's Svix signing secret from Daytona)
 - `COMPOSIO_API_KEY`
@@ -192,9 +194,6 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `HYPERDRIVE` (dedicated config whose database login is exactly `app_webhooks`)
 - `DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS` (role-specific Secrets Store binding;
   must match the `app_webhooks` Supabase Vault HMAC secret)
-- `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET` (ccm2 resource-deletion verifier)
-- `WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET` (ccm2 agent-lifecycle caller)
-- `INTERNAL_WEBHOOK_REPLAY_SECRET` (ccm2 operator replay verifier only)
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_SERVER` (`production` by default; set `sandbox` only with a sandbox token)
 - `POLAR_WEBHOOK_SECRET`
@@ -203,11 +202,17 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `COMPOSIO_WEBHOOK_SECRET`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `CLOUDFLARE_ANALYTICS_API_TOKEN`
-- `INTERNAL_ALERT_WEBHOOK_SECRET`
-- `INTERNAL_ALERT_WEBHOOK_URL`
 - `OPS_WORKFLOW`
 - `RESOURCE_DELETION_WORKFLOW`
 - `R2_OUTPUTS`
 - `WEBHOOK_IDEMPOTENCY`
 - `WEBHOOK_WORKFLOW`
 - `USER_EVENTS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`
+
+## Public exports
+
+- `ResourceDeletionEntrypoint`
+- `ResourceDeletionWorkflow`
+- `OpsMaintenanceWorkflow`
+- `WebhookIdempotencyStore`
+- `WebhookWorkflow`

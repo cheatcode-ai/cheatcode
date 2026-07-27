@@ -51,7 +51,7 @@ packages/                Shared libraries
 
 skills/                  8 curated Anthropic SKILL.md skills
 infra/                   Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile
-scripts/                 Operational helpers only: build skills, local startup, deploy orchestration, migrations, audit archive
+scripts/                 Operational helpers only: build skills, local startup, deploy orchestration, migrations
 ```
 
 ## Build
@@ -82,7 +82,7 @@ part of the V2 command surface, and source-level `*.test.ts` files are
 intentionally absent. Do not generate temporary validation scripts either;
 operate the UI directly and check logs, and remove any throwaway product QA
 script that appears in the V2 tree. Operational scripts may exist only for
-build, migration, audit retention, and local-stack configuration; they are not
+build, migration, and local-stack configuration; they are not
 product tests and must not simulate UI/user flows. Do not create temporary
 testing scripts in `scripts/`, package folders, `/tmp`, or any out-of-tree
 location.
@@ -156,15 +156,10 @@ COMPOSIO_API_KEY=
 COMPOSIO_AUTH_CONFIGS={"github":"ac_...","gmail":"ac_...","slack":"ac_...","notion":"ac_...","linear":"ac_..."}
 COMPOSIO_WEBHOOK_SECRET=
 
-# Internal ops alerts
-INTERNAL_ALERT_WEBHOOK_SECRET=
+# Signed output capability
+OUTPUT_DOWNLOAD_SIGNING_SECRET=
 
-# Capability-scoped ccm2 contracts (three distinct secrets, each at least 32 bytes)
-GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET=
-WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET=
-INTERNAL_WEBHOOK_REPLAY_SECRET=
-
-# Gateway
+# Browser-visible local routing configuration (not secrets)
 NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787
 ```
 

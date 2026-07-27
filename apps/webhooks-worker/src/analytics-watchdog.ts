@@ -1,23 +1,20 @@
-import { hmacSha256Base64 } from "@cheatcode/auth";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
 import type { InternalAlertPayload } from "./internal-alert";
+import { enqueueInternalAlert, type WebhookIngressBindings } from "./webhook-ingress";
 
 const ANALYTICS_SQL_URL_PREFIX = "https://api.cloudflare.com/client/v4/accounts";
 const ANALYTICS_REQUEST_TIMEOUT_MS = 10_000;
 const ANALYTICS_RESPONSE_MAX_BYTES = 128 * 1024;
-const INTERNAL_ALERT_TIMEOUT_MS = 10_000;
 
 interface AnalyticsSqlResponse {
   data: Record<string, unknown>[];
   rows?: number;
 }
 
-interface AnalyticsWatchdogEnv {
+interface AnalyticsWatchdogEnv extends WebhookIngressBindings {
   CLOUDFLARE_ACCOUNT_ID?: string;
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
-  INTERNAL_ALERT_WEBHOOK_SECRET?: WorkerSecret;
-  INTERNAL_ALERT_WEBHOOK_URL?: string;
 }
 
 interface WatchdogCheck {
@@ -165,50 +162,13 @@ async function queryAnalyticsEngine(input: {
   ).data;
 }
 
-async function postInternalAlert(
-  env: AnalyticsWatchdogEnv,
-  alert: InternalAlertPayload,
-): Promise<void> {
-  const secret = await internalAlertSecret(env);
-  const rawBody = JSON.stringify(alert);
-  const timestamp = String(Math.floor(Date.now() / 1000));
-  const signature = await hmacSha256Base64(`${timestamp}.${rawBody}`, secret);
-  const response = await fetch(
-    env.INTERNAL_ALERT_WEBHOOK_URL ?? "https://webhooks.trycheatcode.com/internal/alert",
-    {
-      body: rawBody,
-      headers: {
-        "content-type": "application/json",
-        "x-cheatcode-alert-signature": `v1,${signature}`,
-        "x-cheatcode-alert-timestamp": timestamp,
-      },
-      method: "POST",
-      signal: AbortSignal.timeout(INTERNAL_ALERT_TIMEOUT_MS),
-    },
-  );
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new APIError(
-      503,
-      "upstream_provider_outage",
-      "Internal alert webhook rejected watchdog",
-      {
-        details: { status: response.status },
-        hint: "Verify INTERNAL_ALERT_WEBHOOK_SECRET and INTERNAL_ALERT_WEBHOOK_URL.",
-        retriable: true,
-      },
-    );
-  }
-  await response.body?.cancel().catch(() => undefined);
-}
-
 async function postWatchdogAlert(
   env: AnalyticsWatchdogEnv,
   metric: string,
   alert: PendingInternalAlert,
   scheduledTime: number,
 ): Promise<void> {
-  await postInternalAlert(env, {
+  await enqueueInternalAlert(env, {
     ...alert,
     id: `watchdog_${metric}_${scheduledTime}`,
     metric,
@@ -301,20 +261,6 @@ async function analyticsApiToken(env: AnalyticsWatchdogEnv): Promise<string> {
     });
   }
   return token;
-}
-
-async function internalAlertSecret(env: AnalyticsWatchdogEnv): Promise<string> {
-  const secret = await readOptionalSecret(
-    env.INTERNAL_ALERT_WEBHOOK_SECRET,
-    "INTERNAL_ALERT_WEBHOOK_SECRET",
-  );
-  if (!secret) {
-    throw new APIError(503, "unavailable_maintenance", "Internal alert secret is not configured", {
-      hint: "Set INTERNAL_ALERT_WEBHOOK_SECRET on the webhooks Worker.",
-      retriable: false,
-    });
-  }
-  return secret;
 }
 
 async function readOptionalSecret(

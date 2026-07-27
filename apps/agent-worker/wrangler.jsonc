@@ -18,8 +18,7 @@
     "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-6e926e583e76-29695426038",
     "DAYTONA_WORKSPACE_VOLUME": "cheatcode-workspaces-production",
     "OUTPUT_DOWNLOAD_BASE_URL": "https://gateway.trycheatcode.com",
-    "PREVIEW_HOSTNAME": "trycheatcode.com",
-    "SKILL_RUNTIME_BASE_URL": "https://gateway.trycheatcode.com/skill-runtime"
+    "PREVIEW_HOSTNAME": "trycheatcode.com"
   },
   "secrets_store_secrets": [
     {
@@ -43,11 +42,6 @@
       "secret_name": "composio-api-key"
     },
     {
-      "binding": "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "webhooks-to-agent-lifecycle-secret"
-    },
-    {
       "binding": "DEEPSEEK_PLATFORM_API_KEY",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "deepseek-platform-api-key"
@@ -56,11 +50,6 @@
       "binding": "OUTPUT_DOWNLOAD_SIGNING_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "output-download-signing-secret"
-    },
-    {
-      "binding": "SKILL_RUNTIME_TOKEN_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "skill-runtime-token-secret"
     }
   ],
   "durable_objects": {

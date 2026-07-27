@@ -167,8 +167,8 @@ non-namespaced browser cookie before the upstream request, removes upstream
 `Domain` attributes, uses a host-only partitioned session cookie, rejects sibling
 preview origins, and sends `Origin-Agent-Cluster: ?1`. The gateway authenticates
 API calls with bearer tokens rather than ambient cookies. DNS, the wildcard
-Worker route, `PREVIEW_HOSTNAME`, and `NEXT_PUBLIC_PREVIEW_HOSTNAME` must still be
-released together.
+Worker route, and Worker-side `PREVIEW_HOSTNAME` must still be released together;
+the web app derives the owned production apex from its deployment identity.
 
 ## Env / secrets
 

@@ -19,9 +19,14 @@ export function ComposerAttachmentStatus({
   if (!status) {
     return null;
   }
+  const accessibleLabel =
+    status.text ||
+    (status.names.length === 1
+      ? `${status.names[0]} uploaded`
+      : `${status.names.length} files uploaded`);
   return (
     <div
-      aria-label={status.text}
+      aria-label={accessibleLabel}
       aria-live="polite"
       className={cn("flex flex-wrap items-center gap-1.5", className)}
       role="status"
@@ -46,18 +51,20 @@ export function ComposerAttachmentStatus({
           </span>
         </span>
       ) : null}
-      <span
-        className={cn(
-          "text-[12px]",
-          status.tone === "error"
-            ? "text-red-600 dark:text-red-400"
-            : status.tone === "warning"
-              ? "text-amber-700 dark:text-amber-400"
-              : "text-fg-secondary",
-        )}
-      >
-        {status.text}
-      </span>
+      {status.text ? (
+        <span
+          className={cn(
+            "text-[12px]",
+            status.tone === "error"
+              ? "text-red-600 dark:text-red-400"
+              : status.tone === "warning"
+                ? "text-amber-700 dark:text-amber-400"
+                : "text-fg-secondary",
+          )}
+        >
+          {status.text}
+        </span>
+      ) : null}
     </div>
   );
 }

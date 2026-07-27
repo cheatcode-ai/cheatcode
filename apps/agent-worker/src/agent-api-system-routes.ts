@@ -6,11 +6,12 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError, readBoundedRequestText } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import {
   InternalAgentStateDeleteBodySchema,
+  type InternalAgentStateDeleteRequest,
+  type InternalStateDeleteResponse,
   InternalStateDeleteResponseSchema,
-  internalUserStateDeletePath,
   OutputIdSchema,
   ProjectId,
   UserId,
@@ -25,61 +26,42 @@ import {
   sandboxStubForUser,
 } from "./agent-routing";
 import {
-  assertAgentInternalHostname,
-  assertAgentLifecycleCapability,
-  parseInternalMaintenanceJson,
-  verifyAgentLifecycleRequest,
-} from "./internal-maintenance";
-import {
   createOutputDownloadCapability,
   OutputDownloadQuerySchema,
   verifySignedOutputDownload,
 } from "./output-download";
-import { GatewayUserIdSchema, readGatewayUserId } from "./tenancy";
+import { readGatewayUserId } from "./tenancy";
 
-const MAX_INTERNAL_MAINTENANCE_BODY_BYTES = 1024 * 1024;
 const RUN_STATE_DELETE_CONCURRENCY = 16;
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerAgentSystemHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.post("/internal/users/:userId/delete-state", deleteInternalUserState);
   app.post("/v1/outputs/:outputId/download-url", mintOutputDownloadUrl);
   app.get("/v1/outputs/:outputId/download", downloadOutput);
   app.post("/v1/projects/:projectId/download", downloadProjectArchive);
 }
 
-async function deleteInternalUserState(c: AgentContext): Promise<Response> {
-  assertAgentInternalHostname(c.req.raw);
-  assertAgentLifecycleCapability(c.req.raw);
-  const userId = UserId(GatewayUserIdSchema.parse(c.req.param("userId")));
-  const rawBody = await readBoundedRequestText(
-    c.req.raw,
-    MAX_INTERNAL_MAINTENANCE_BODY_BYTES,
-    "Internal maintenance request",
-  );
-  await verifyAgentLifecycleRequest({
-    expectedPathname: internalUserStateDeletePath(userId),
-    rawBody,
-    request: c.req.raw,
-    secrets: c.env,
-  });
-  const body = InternalAgentStateDeleteBodySchema.parse(parseInternalMaintenanceJson(rawBody));
-  await assertAgentStateDeletionAuthority(c.env, userId, body);
+export async function deleteAgentUserState(
+  env: AgentEnv,
+  request: InternalAgentStateDeleteRequest,
+): Promise<InternalStateDeleteResponse> {
+  const body = InternalAgentStateDeleteBodySchema.parse(request.body);
+  await assertAgentStateDeletionAuthority(env, request.userId, body);
   if (body.scope === "runs") {
-    await deleteRunStates(c.env, userId, body.runIds);
-    return deletedStateResponse(c);
+    await deleteRunStates(env, request.userId, body.runIds);
+    return deletedStateResult();
   }
   if (body.scope === "account") {
-    const sandbox = await sandboxStubForUser(c.env, userId);
+    const sandbox = await sandboxStubForUser(env, request.userId);
     await sandbox.deleteAccountState();
-    return deletedStateResponse(c);
+    return deletedStateResult();
   }
-  const sandbox = await sandboxStubForUser(c.env, userId);
+  const sandbox = await sandboxStubForUser(env, request.userId);
   await sandbox.cleanupProjectWorkspace({
     projectId: body.projectId,
     workspaceSlug: body.workspaceSlug,
   });
-  return deletedStateResponse(c);
+  return deletedStateResult();
 }
 
 async function assertAgentStateDeletionAuthority(
@@ -138,8 +120,8 @@ async function deleteRunStates(env: AgentEnv, userId: string, runIds: string[]):
   );
 }
 
-function deletedStateResponse(c: AgentContext): Response {
-  return c.json(InternalStateDeleteResponseSchema.parse({ ok: true }));
+function deletedStateResult(): InternalStateDeleteResponse {
+  return InternalStateDeleteResponseSchema.parse({ ok: true });
 }
 
 async function mintOutputDownloadUrl(c: AgentContext): Promise<Response> {

@@ -29,6 +29,15 @@
     {
       "binding": "WEBHOOKS",
       "service": "cheatcode-webhooks"
+    },
+    {
+      "binding": "RESOURCE_DELETION",
+      "service": "cheatcode-webhooks",
+      "entrypoint": "ResourceDeletionEntrypoint",
+      "props": {
+        "caller": "gateway",
+        "capability": "resource-deletion"
+      }
     }
   ],
   "secrets_store_secrets": [
@@ -56,11 +65,6 @@
       "binding": "COMPOSIO_AUTH_CONFIGS",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "composio-auth-configs"
-    },
-    {
-      "binding": "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "gateway-to-webhooks-resource-deletion-secret"
     }
   ],
   "durable_objects": {

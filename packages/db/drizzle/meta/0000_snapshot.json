@@ -1,5 +1,5 @@
 {
-  "id": "a2d73405-d481-4898-b7e4-82e6074913cd",
+  "id": "e0cec303-33cb-42be-a776-0f0666fe0d14",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -50,6 +50,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "skill_runtime_capabilities": {
+          "name": "skill_runtime_capabilities",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'[]'::jsonb"
         },
         "started_at": {
           "name": "started_at",
@@ -214,6 +221,14 @@
         "v2_agent_runs_request_body_hash_check": {
           "name": "v2_agent_runs_request_body_hash_check",
           "value": "\"v2_agent_runs\".\"request_body_hash\" is null or \"v2_agent_runs\".\"request_body_hash\" ~ '^[0-9a-f]{64}$'"
+        },
+        "v2_agent_runs_skill_runtime_capabilities_array_check": {
+          "name": "v2_agent_runs_skill_runtime_capabilities_array_check",
+          "value": "jsonb_typeof(\"v2_agent_runs\".\"skill_runtime_capabilities\") = 'array'"
+        },
+        "v2_agent_runs_skill_runtime_capabilities_size_check": {
+          "name": "v2_agent_runs_skill_runtime_capabilities_size_check",
+          "value": "octet_length(\"v2_agent_runs\".\"skill_runtime_capabilities\"::text) <= 16384"
         },
         "v2_agent_runs_model_id_canonical_check": {
           "name": "v2_agent_runs_model_id_canonical_check",
@@ -435,6 +450,122 @@
           "value": "\"v2_artifact_upload_intents\".\"r2_key\" like \"v2_artifact_upload_intents\".\"user_id\"::text || '/' || \"v2_artifact_upload_intents\".\"project_id\"::text || '/' || \"v2_artifact_upload_intents\".\"agent_run_id\"::text || '/' || \"v2_artifact_upload_intents\".\"id\"::text || '-%'\n        and strpos(substr(\"v2_artifact_upload_intents\".\"r2_key\", length(\"v2_artifact_upload_intents\".\"user_id\"::text || '/' || \"v2_artifact_upload_intents\".\"project_id\"::text || '/' || \"v2_artifact_upload_intents\".\"agent_run_id\"::text || '/' || \"v2_artifact_upload_intents\".\"id\"::text || '-') + 1), '/') = 0\n        and octet_length(\"v2_artifact_upload_intents\".\"r2_key\") <= 512"
         }
       },
+      "isRLSEnabled": false
+    },
+    "public.v2_audit_log": {
+      "name": "v2_audit_log",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "public.uuidv7()"
+        },
+        "user_id": {
+          "name": "user_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "action": {
+          "name": "action",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "resource_type": {
+          "name": "resource_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "resource_id": {
+          "name": "resource_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "metadata": {
+          "name": "metadata",
+          "type": "jsonb",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'{}'::jsonb"
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "v2_audit_log_action_created_idx": {
+          "name": "v2_audit_log_action_created_idx",
+          "columns": [
+            {
+              "expression": "action",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "v2_audit_log_created_brin_idx": {
+          "name": "v2_audit_log_created_brin_idx",
+          "columns": [
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "brin",
+          "with": {}
+        },
+        "v2_audit_log_user_created_idx": {
+          "name": "v2_audit_log_user_created_idx",
+          "columns": [
+            {
+              "expression": "user_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": false,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
       "isRLSEnabled": false
     },
     "public.v2_daily_maintenance_jobs": {

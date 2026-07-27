@@ -21,16 +21,6 @@ export const FUNCTION_CONTRACTS: readonly FunctionContract[] = [
   },
   {
     arguments: "",
-    executeRoles: [],
-    language: "plpgsql",
-    name: "ensure_v2_audit_partitions",
-    requiresLockedSearchPath: true,
-    result: "integer",
-    securityDefiner: false,
-    sourceHash: "df5c340f63b3e33a3b4ef911d923e4e3666f9c6cde67c3783c8140e8fdc18652",
-  },
-  {
-    arguments: "",
     executeRoles: ["app_gateway", "app_agent", "app_webhooks"],
     language: "plpgsql",
     name: "current_app_user",

@@ -472,6 +472,7 @@ async function cancelSupersededRun(db: Database, runId: string): Promise<void> {
     .update(agentRuns)
     .set({
       finishedAt: sql`now()`,
+      skillRuntimeCapabilities: [],
       status: "canceled",
     })
     .where(eq(agentRuns.id, runId));
@@ -592,6 +593,7 @@ export async function updateAgentRunStatus(
       .update(agentRuns)
       .set({
         ...(isTerminalRunStatus(input.status) ? { finishedAt: sql`now()` } : {}),
+        ...(isTerminalRunStatus(input.status) ? { skillRuntimeCapabilities: [] } : {}),
         status: input.status,
       })
       .where(
@@ -712,6 +714,7 @@ export async function reconcileAbsentAgentRunStart(
         .update(agentRuns)
         .set({
           finishedAt: sql`now()`,
+          skillRuntimeCapabilities: [],
           status: "failed",
         })
         .where(and(eq(agentRuns.id, input.runId), eq(agentRuns.userId, input.userId)));

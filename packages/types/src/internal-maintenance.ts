@@ -67,6 +67,15 @@ export const InternalAgentStateDeleteBodySchema = z.discriminatedUnion("scope", 
 
 export type InternalAgentStateDeleteBody = z.infer<typeof InternalAgentStateDeleteBodySchema>;
 
+export const InternalAgentStateDeleteRequestSchema = z
+  .object({
+    body: InternalAgentStateDeleteBodySchema,
+    userId: z.string().uuid().transform(UserId),
+  })
+  .strict();
+
+export type InternalAgentStateDeleteRequest = z.infer<typeof InternalAgentStateDeleteRequestSchema>;
+
 export const InternalProjectDeletionRequestSchema = z
   .object({
     deletedAt: z.string().datetime({ offset: true }),
@@ -105,12 +114,43 @@ export const ResourceDeletionWorkflowPayloadSchema = z
 
 export type ResourceDeletionWorkflowPayload = z.infer<typeof ResourceDeletionWorkflowPayloadSchema>;
 
-export const INTERNAL_RESOURCE_DELETION_PATH = "/internal/resource-deletions";
-
 export const InternalStateDeleteResponseSchema = z.object({ ok: z.literal(true) }).strict();
 
 export type InternalStateDeleteResponse = z.infer<typeof InternalStateDeleteResponseSchema>;
 
-export function internalUserStateDeletePath(userId: UserId): string {
-  return `/internal/users/${encodeURIComponent(userId)}/delete-state`;
+const InternalServiceFailureSchema = z
+  .object({
+    ok: z.literal(false),
+    retriable: z.boolean(),
+    status: z.number().int().min(400).max(599),
+  })
+  .strict();
+
+export const AgentLifecycleServiceResultSchema = z.discriminatedUnion("ok", [
+  InternalStateDeleteResponseSchema,
+  InternalServiceFailureSchema,
+]);
+
+export type AgentLifecycleServiceResult = z.infer<typeof AgentLifecycleServiceResultSchema>;
+
+export const ResourceDeletionServiceResultSchema = z.discriminatedUnion("ok", [
+  z
+    .object({
+      jobId: z.string().uuid().nullable(),
+      ok: z.literal(true),
+    })
+    .strict(),
+  InternalServiceFailureSchema,
+]);
+
+export type ResourceDeletionServiceResult = z.infer<typeof ResourceDeletionServiceResultSchema>;
+
+export interface AgentLifecycleServiceBinding {
+  deleteUserState(input: InternalAgentStateDeleteRequest): Promise<AgentLifecycleServiceResult>;
+}
+
+export interface ResourceDeletionServiceBinding {
+  enqueueResourceDeletion(
+    input: InternalResourceDeletionRequest,
+  ): Promise<ResourceDeletionServiceResult>;
 }

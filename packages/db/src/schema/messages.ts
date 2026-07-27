@@ -16,6 +16,15 @@ import {
 import { v2TableName } from "./names";
 import { users } from "./users";
 
+export interface StoredSkillRuntimeCapability {
+  digest: string;
+  expiresAt: number;
+  issuedAt: number;
+  projectId: string | null;
+  scope: "events:write" | "integrations:execute" | "skills:read" | "skills:write";
+  tokenId: string;
+}
+
 export const messages = pgTable(
   v2TableName("messages"),
   {
@@ -73,6 +82,10 @@ export const agentRuns = pgTable(
     modelId: text("model_id").notNull(),
     idempotencyKeyHash: text("idempotency_key_hash"),
     requestBodyHash: text("request_body_hash"),
+    skillRuntimeCapabilities: jsonb("skill_runtime_capabilities")
+      .$type<StoredSkillRuntimeCapability[]>()
+      .notNull()
+      .default(sql`'[]'::jsonb`),
     startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
     finishedAt: timestamp("finished_at", { withTimezone: true }),
   },
@@ -95,6 +108,14 @@ export const agentRuns = pgTable(
     check(
       "v2_agent_runs_request_body_hash_check",
       sql`${table.requestBodyHash} is null or ${table.requestBodyHash} ~ '^[0-9a-f]{64}$'`,
+    ),
+    check(
+      "v2_agent_runs_skill_runtime_capabilities_array_check",
+      sql`jsonb_typeof(${table.skillRuntimeCapabilities}) = 'array'`,
+    ),
+    check(
+      "v2_agent_runs_skill_runtime_capabilities_size_check",
+      sql`octet_length(${table.skillRuntimeCapabilities}::text) <= 16384`,
     ),
     check(
       "v2_agent_runs_model_id_canonical_check",

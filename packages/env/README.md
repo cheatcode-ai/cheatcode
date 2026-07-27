@@ -9,8 +9,7 @@ read raw `process.env` values only to pass them into the pure `./web-config` val
 - `./web-config`: pure Vercel target and public web build validators used by both
   `next.config.ts` and `./web`
 - `./worker`: Cloudflare Worker binding schemas and Secrets Store resolution helpers
-- `./migrate`: administrative database identity pins plus the Cloudflare account
-  pin used by the audit archive operation
+- `./migrate`: administrative database identity pins
 
 ## Code Checks
 
@@ -26,10 +25,12 @@ roles. Administrative migration values live separately in git-ignored
 `.env.migrate` (template: `.env.migrate.example`) or protected automation
 environment variables and are never loaded by the app or copied into a Worker.
 
-Gateway, preview-hostname, release-SHA, deployment-target, and Clerk publishable-key
-validation has one canonical implementation in `./web-config`. The framework config
+Gateway, release-SHA, deployment-target, and Clerk publishable-key validation
+has one canonical implementation in `./web-config`. The framework config
 reads the raw build environment and delegates every parse and invariant to that module;
 missing public build values fail instead of receiving compatibility defaults.
+The preview apex is not an environment variable: it is `localhost` for local
+builds and the owned `trycheatcode.com` apex for Vercel builds.
 Because Next runs from `apps/web`, its config uses Next's official `@next/env`
 loader to read the repository-root `.env.local`, then immediately removes every
 loaded value outside the explicit web allowlist. Local builds therefore keep one
@@ -45,7 +46,8 @@ only when the actual `VERCEL_ENV` is `production` or `preview` at runtime.
 `PREVIEW_HOSTNAME` is required by both preview-producing Workers, normalized to a
 multi-label DNS hostname (or `localhost:8787` in development), and production rejects a
 port-bearing value. Moving previews to a different registrable site requires an atomic
-DNS/Worker/Vercel env change; there is no legacy hostname fallback.
+DNS/Worker/web-release change; there is no browser environment override or legacy
+hostname fallback.
 
 Worker schemas structurally validate Cloudflare service, KV, Durable Object, R2,
 Analytics Engine, Workflow, and Secrets Store bindings before request handling starts.
@@ -60,8 +62,7 @@ Database-backed Workers require exactly one role-specific tenant-context binding
 entry and matching Supabase Vault secret. The three values are distinct and at least
 32 bytes; there is no shared or compatibility binding.
 
-Internal ccm2 calls use three non-interchangeable capability secrets rather than
-a shared maintenance key: gateway-to-webhooks resource deletion,
-webhooks-to-agent lifecycle deletion/reconciliation, and operator webhook replay.
-Each Worker schema requires only the keys for capabilities it calls or verifies;
-the capability keys remain in the two endpoint Workers' Secrets Store bindings.
+Destructive Worker-to-Worker calls use named Cloudflare RPC entrypoints with
+static authenticated caller/capability properties. The gateway receives only
+the resource-deletion entrypoint and webhooks receives only the agent-lifecycle
+entrypoint, so these boundaries require no application-managed secret.

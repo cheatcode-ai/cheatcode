@@ -35,8 +35,9 @@ export function ProjectPickerTrigger({
   selectedProject: ProjectSummary | null;
   variant: ProjectPickerVariant;
 }) {
+  const tooltipLabel = selectedProject?.name ?? "Choose project";
   return (
-    <CheatcodeTooltip canShrink className="max-w-full" label="Choose project">
+    <CheatcodeTooltip canShrink className="max-w-full" label={tooltipLabel}>
       <button
         aria-controls={controller.meta.dialogId}
         aria-expanded={controller.state.isOpen}
@@ -54,10 +55,7 @@ export function ProjectPickerTrigger({
         type="button"
       >
         <ProjectFolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span
-          className="min-w-0 max-w-full truncate font-medium text-xs"
-          title={selectedProject?.name}
-        >
+        <span className="min-w-0 max-w-full truncate font-medium text-xs">
           {selectedProject?.name ?? "Choose project"}
         </span>
       </button>

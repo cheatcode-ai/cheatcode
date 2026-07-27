@@ -15,12 +15,10 @@ export interface TargetQueryClient {
   query(text: string, values?: unknown[]): Promise<QueryResult>;
 }
 
-const AUDIT_PARTITION_PATTERN = /^v2_audit_log_[0-9]{4}_(0[1-9]|1[0-2])$/;
 const DATA_API_ROLES = ["anon", "authenticated", "service_role"] as const;
 const CLOSED_DEFAULT_ACL_ROLES = [...DATA_API_ROLES, ...RUNTIME_DATABASE_ROLES] as const;
 const PROVIDER_KEY_DESCRIPTION = "Cheatcode V2 BYOK provider key";
 const EXTENSION_SCHEMAS = new Map([
-  ["pg_cron", "pg_catalog"],
   ["pg_stat_statements", "extensions"],
   ["pgcrypto", "extensions"],
   ["plpgsql", "pg_catalog"],
@@ -41,7 +39,6 @@ export async function validateProductionSecurityTarget(
     await validatePostgresDefaultPrivileges(client),
     await validateProviderKeyIdentity(client),
     await validateProviderVaultReferences(client),
-    await validateAuditPartitionMaintenance(client),
     await validateAuditAccess(client),
     await validateTriggerSurface(client),
   ];
@@ -53,17 +50,7 @@ async function validatePublicRelations(client: TargetQueryClient): Promise<strin
     `select
        relation.relname,
        relation.relkind,
-       owner.rolname as owner_name,
-       exists (
-         select 1 from pg_inherits inheritance
-          where inheritance.inhrelid = relation.oid
-            and inheritance.inhparent = 'public.v2_audit_log'::regclass
-       ) as is_attached_audit_partition,
-       exists (
-         select 1 from public._audit_archive_manifest manifest
-          where manifest.partition_name = relation.relname
-            and manifest.state <> 'dropped'
-       ) as is_archived_audit_partition
+       owner.rolname as owner_name
        from pg_class relation
        join pg_namespace namespace on namespace.oid = relation.relnamespace
        join pg_roles owner on owner.oid = relation.relowner
@@ -104,16 +91,7 @@ function validatePublicRelationRow(row: Record<string, unknown>): {
   if ((kind === "r" || kind === "p") && EXPECTED_PUBLIC_TABLES.has(name)) {
     return { expectedTable: name, issues: ownerIssue };
   }
-  if (kind !== "r" || !AUDIT_PARTITION_PATTERN.test(name)) {
-    return { issues: [`Unexpected public relation ${name} (kind ${kind}) must be removed.`] };
-  }
-  const isTracked =
-    row["is_attached_audit_partition"] === true || row["is_archived_audit_partition"] === true;
-  return {
-    issues: isTracked
-      ? ownerIssue
-      : [...ownerIssue, `Audit-shaped table public.${name} is neither attached nor archived.`],
-  };
+  return { issues: [`Unexpected public relation ${name} (kind ${kind}) must be removed.`] };
 }
 
 async function validateExtensions(client: TargetQueryClient): Promise<string[]> {
@@ -464,28 +442,6 @@ async function validateProviderVaultReferences(client: TargetQueryClient): Promi
   return issues;
 }
 
-async function validateAuditPartitionMaintenance(client: TargetQueryClient): Promise<string[]> {
-  const result = await client.query(
-    `select jobname, schedule, command, database, username, active,
-            current_database() as current_database
-       from cron.job
-      where jobname = 'cheatcode-v2-audit-partitions'`,
-  );
-  if (result.rows.length !== 1) {
-    return ["Exactly one database-owned audit-partition maintenance job is required."];
-  }
-  const row = result.rows[0];
-  const isExact =
-    row?.["schedule"] === "17 2 * * *" &&
-    row["command"] === "select public.ensure_v2_audit_partitions();" &&
-    row["database"] === row["current_database"] &&
-    row["username"] === "postgres" &&
-    row["active"] === true;
-  return isExact
-    ? []
-    : ["The audit-partition maintenance job has drifted from its exact daily contract."];
-}
-
 async function validateAuditAccess(client: TargetQueryClient): Promise<string[]> {
   const result = await client.query(
     `select relation.relname, relation.relrowsecurity, relation.relforcerowsecurity
@@ -519,76 +475,6 @@ async function validateAuditAccess(client: TargetQueryClient): Promise<string[]>
     auditPolicy["with_check_expression"] !== "true"
   ) {
     issues.push("public.v2_audit_log must expose only its postgres maintenance policy.");
-  }
-  const partitions = await client.query(
-    `with expected as (
-       select
-         'v2_audit_log_' || pg_catalog.to_char(month_start, 'YYYY_MM') as partition_name,
-         pg_catalog.format(
-           'FOR VALUES FROM (%L) TO (%L)',
-           month_start::text || ' 00:00:00+00',
-           ((month_start + pg_catalog.make_interval(months => 1))::date)::text ||
-             ' 00:00:00+00'
-         ) as partition_bound
-       from (
-         select (
-           pg_catalog.date_trunc(
-             'month',
-             pg_catalog.timezone('UTC', pg_catalog.statement_timestamp())
-           ) + pg_catalog.make_interval(months => month_offset)
-         )::date as month_start
-         from pg_catalog.generate_series(0, 3) month_offset
-       ) months
-     ), attached as (
-       select child.relname as partition_name,
-              pg_catalog.pg_get_expr(child.relpartbound, child.oid) as partition_bound,
-              child.relrowsecurity,
-              child.relforcerowsecurity,
-              (
-                select count(*)
-                  from pg_catalog.pg_policies policy
-                 where policy.schemaname = 'public' and policy.tablename = child.relname
-              ) as policy_count,
-              exists (
-                select 1
-                  from pg_catalog.pg_policies policy
-                 where policy.schemaname = 'public'
-                   and policy.tablename = child.relname
-                   and policy.policyname = 'v2_audit_partition_postgres_all'
-                   and policy.cmd = 'ALL'
-                   and policy.permissive = 'PERMISSIVE'
-                   and policy.roles = array['postgres']::name[]
-                   and policy.qual = 'true'
-                   and policy.with_check = 'true'
-              ) as policy_matches
-         from pg_catalog.pg_inherits inheritance
-         join pg_catalog.pg_class child on child.oid = inheritance.inhrelid
-        where inheritance.inhparent = 'public.v2_audit_log'::pg_catalog.regclass
-     )
-     select count(*) filter (where attached.partition_name is null)::text as missing_count,
-            count(*) filter (
-              where attached.partition_name is not null
-                and attached.partition_bound is distinct from expected.partition_bound
-            )::text as invalid_bound_count,
-            count(*) filter (
-              where attached.partition_name is not null
-                and (not attached.relrowsecurity or not attached.relforcerowsecurity)
-            )::text as invalid_security_count,
-            count(*) filter (
-              where attached.partition_name is not null
-                and (attached.policy_count <> 1 or not attached.policy_matches)
-            )::text as invalid_policy_count
-       from expected
-       left join attached using (partition_name)`,
-  );
-  const partitionState = partitions.rows[0];
-  if (
-    partitionState?.["missing_count"] !== "0" ||
-    partitionState["invalid_bound_count"] !== "0" ||
-    partitionState["invalid_security_count"] !== "0" ||
-    partitionState["invalid_policy_count"] !== "0"
-  ) {
-    issues.push("Audit log must retain the exact current-plus-three-month partition runway.");
   }
   return issues;
 }

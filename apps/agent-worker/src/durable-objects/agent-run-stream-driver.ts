@@ -37,6 +37,7 @@ export interface StreamDriverDeps {
     logicalModelId: LogicalModelId,
     logger: ReturnType<typeof createLogger>,
   ) => Promise<void>;
+  projectSkillRuntimeConfig: (input: StartRunInput, sandbox: ProjectSandboxStub) => Promise<void>;
   setRunStage: (stage: string) => void;
   waitForBrowserTakeover: (signal: AbortSignal) => Promise<number>;
 }
@@ -162,6 +163,7 @@ async function streamMastraRun(
     input: params.input,
     logger: params.logger,
     modelMessages: params.modelMessages,
+    projectSkillRuntimeConfig: () => deps.projectSkillRuntimeConfig(params.input, params.sandbox),
     sandbox: params.sandbox,
     setRunStage: deps.setRunStage,
     waitForBrowserTakeover: deps.waitForBrowserTakeover,

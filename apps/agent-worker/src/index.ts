@@ -13,6 +13,7 @@ import { routePath } from "hono/route";
 import { registerAgentRunHttpRoutes } from "./agent-api-run-routes";
 import { registerAgentSystemHttpRoutes } from "./agent-api-system-routes";
 import type { AgentEnv } from "./agent-env";
+import { AgentLifecycleEntrypoint } from "./agent-lifecycle-entrypoint";
 import { AgentRun } from "./durable-objects/agent-run";
 import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
@@ -22,7 +23,7 @@ import { registerSkillRuntimeExecutionRoutes } from "./skill-runtime-execution-r
 import { registerSkillRuntimeManagedRoutes } from "./skill-runtime-managed-routes";
 import { registerUserSkillHttpRoutes } from "./user-skill-http-routes";
 
-export { AgentRun, AgentRunWorkflow, ProjectSandbox };
+export { AgentLifecycleEntrypoint, AgentRun, AgentRunWorkflow, ProjectSandbox };
 
 export const agentApp = new Hono<{ Bindings: AgentEnv }>();
 

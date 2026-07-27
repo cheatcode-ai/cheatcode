@@ -2,7 +2,8 @@ import { z } from "zod";
 
 export const PRODUCTION_CLERK_FRONTEND_HOSTNAME = "clerk.trycheatcode.com";
 const PRODUCTION_GATEWAY_ORIGIN = "https://gateway.trycheatcode.com";
-const PRODUCTION_PREVIEW_HOSTNAME = "trycheatcode.com";
+export const PRODUCTION_PREVIEW_HOSTNAME = "trycheatcode.com";
+export const LOCAL_PREVIEW_HOSTNAME = "localhost";
 const VercelEnvironmentSchema = z.enum(["development", "preview", "production"]);
 const OptionalVercelEnvironmentSchema = VercelEnvironmentSchema.optional();
 const VercelHostnameSchema = z
@@ -19,8 +20,6 @@ export const WEB_APPLICATION_ENV_KEYS: ReadonlySet<string> = new Set([
   "CLERK_SECRET_KEY",
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_GATEWAY_URL",
-  "NEXT_PUBLIC_PREVIEW_HOSTNAME",
-  "NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA",
   "VERCEL_ENV",
   "VERCEL_TARGET_ENV",
   "VERCEL_URL",
@@ -71,7 +70,6 @@ export type WebBuildEnvironmentInput = WebDeploymentInput &
   Readonly<{
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: string | undefined;
     NEXT_PUBLIC_GATEWAY_URL: string | undefined;
-    NEXT_PUBLIC_PREVIEW_HOSTNAME: string | undefined;
     NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: string | undefined;
   }>;
 
@@ -121,7 +119,6 @@ export function createWebEnvironmentSchemas(deployment: WebDeployment) {
     clerkPublishableKey: clerkPublishableConfiguration.transform(({ key }) => key),
     clerkSecretKey: clerkSecretKeySchema(deployment),
     gatewayOrigin: gatewayOriginSchema(deployment),
-    previewHostname: previewHostnameSchema(deployment),
     releaseSha: releaseShaSchema(deployment),
     vercelEnvironment: OptionalVercelEnvironmentSchema,
     vercelTargetEnvironment: OptionalVercelEnvironmentSchema,
@@ -145,9 +142,13 @@ export function parseWebBuildEnvironment(input: WebBuildEnvironmentInput) {
     clerkPublishableKey: clerk.key,
     deployment,
     gatewayOrigin: schemas.gatewayOrigin.parse(input.NEXT_PUBLIC_GATEWAY_URL),
-    previewHostname: schemas.previewHostname.parse(input.NEXT_PUBLIC_PREVIEW_HOSTNAME),
+    previewHostname: previewHostnameForDeployment(deployment),
     releaseSha: schemas.releaseSha.parse(input.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA),
   };
+}
+
+export function previewHostnameForDeployment(deployment: WebDeployment): string {
+  return deployment.isVercelDeployment ? PRODUCTION_PREVIEW_HOSTNAME : LOCAL_PREVIEW_HOSTNAME;
 }
 
 function clerkPublishableConfigurationSchema(deployment: WebDeployment) {
@@ -205,23 +206,6 @@ function gatewayOriginSchema(deployment: WebDeployment) {
       }
       return parsed.origin;
     });
-}
-
-function previewHostnameSchema(deployment: WebDeployment) {
-  return z
-    .string()
-    .trim()
-    .toLowerCase()
-    .refine(
-      (hostname) =>
-        (!deployment.isVercelDeployment && hostname === "localhost") ||
-        isMultiLabelHostname(hostname),
-      "Preview hostname must be localhost locally or a multi-label DNS hostname",
-    )
-    .refine(
-      (hostname) => !deployment.isVercelDeployment || hostname === PRODUCTION_PREVIEW_HOSTNAME,
-      `Vercel deployments require ${PRODUCTION_PREVIEW_HOSTNAME}`,
-    );
 }
 
 function releaseShaSchema(deployment: WebDeployment) {

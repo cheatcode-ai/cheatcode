@@ -1,15 +1,23 @@
 type MaybePromise<T> = T | Promise<T>;
 
 export type SkillRuntimeConfig = {
+  v: 2;
   backendBaseUrl: string;
-  accessToken: string;
+  accessTokens: Record<SkillRuntimeScope, string>;
+  expiresAt: number;
   projectId?: string;
   runId?: string;
   assistantClientMessageId?: string;
   chatSessionId?: string;
   sandboxContext?: "message" | "project";
-  deliveryChannel?: "telegram" | "imessage";
+  deliveryChannel?: "telegram" | "imessage" | "web";
 };
+
+export type SkillRuntimeScope =
+  | "events:write"
+  | "integrations:execute"
+  | "skills:read"
+  | "skills:write";
 
 export type CheatcodeSkillRequestMethod =
   | "DELETE"

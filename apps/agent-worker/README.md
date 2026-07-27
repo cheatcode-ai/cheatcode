@@ -215,12 +215,14 @@ run before sandbox deletion, while the sandbox fence drains RPCs admitted by the
 After eviction, a deleted or missing Postgres user cannot register the empty object again, so a
 late request cannot resurrect Daytona or durable state. Per-project workspace tombstones remain
 durable for active accounts in one `STRICT` table whose checks bind each canonical slug to its
-project UUID and enforce ordered millisecond timestamps. Every destructive maintenance request uses
-the isolated `ccm2` agent-lifecycle capability and the exact `agent.internal` host. Before any
-Durable Object or Daytona mutation, the Worker validates the account deletion fence or exact
-project/thread soft-delete generation and verifies that every requested run belongs to that
-scope. The 30-second signature window is therefore safe to retry and cannot authorize stale or
-cross-tenant destruction; no shared key or legacy signature fallback exists.
+project UUID and enforce ordered millisecond timestamps. Before any Durable
+Object or Daytona mutation, the Worker validates the account deletion fence or
+exact project/thread soft-delete generation and verifies that every requested
+run belongs to that scope. The operation is not an HTTP route: webhooks holds the
+named `AgentLifecycleEntrypoint` Service Binding, and Cloudflare-authenticated
+binding properties pin the `webhooks` caller and `agent-lifecycle` capability.
+The gateway's default agent binding cannot invoke this entrypoint, and no shared
+application secret is required.
 
 Every ProjectSandbox uses the one configured immutable Daytona snapshot and the
 one configured shared workspace volume. Existing sandbox identity is accepted
@@ -243,6 +245,7 @@ the same bound while streaming.
 ## Public exports
 
 - `agentApp`
+- `AgentLifecycleEntrypoint`
 - `AgentRun`
 - `AgentRunWorkflow`
 - `ProjectSandbox`
@@ -274,11 +277,18 @@ pnpm --filter @cheatcode/agent-worker typecheck
 - `DEEPSEEK_PLATFORM_API_KEY`
 - `OUTPUT_DOWNLOAD_SIGNING_SECRET` (Secrets Store binding)
 - `OUTPUT_DOWNLOAD_BASE_URL`
-- `WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET` (ccm2 `agent-lifecycle` capability shared
-  only with the webhooks caller)
 - `PREVIEW_HOSTNAME`
 - `QUOTA_TRACKER`
 - `R2_AUDIT`
 - `R2_OUTPUTS`
 - `SANDBOX_STATE`
 - `USER_EVENTS`, `AGENT_METRICS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`
+
+Sandbox skills call the fixed public
+`https://gateway.trycheatcode.com/skill-runtime` surface. The tenant-scoped
+`v2_agent_runs` row stores only digests for independently scoped 15-minute
+opaque capabilities, allowing local and production Workers to authorize the
+same sandbox callback safely. The agent rotates the projected sandbox
+configuration every 10 minutes and clears every capability at the terminal run
+transition. No deployment-wide skill-runtime signing secret or configurable
+backend URL exists.
