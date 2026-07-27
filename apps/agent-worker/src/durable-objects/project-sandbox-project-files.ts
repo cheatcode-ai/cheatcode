@@ -1,5 +1,5 @@
 import { workspacePathForSlug } from "@cheatcode/db";
-import { APIError } from "@cheatcode/observability";
+import { APIError, createLogger } from "@cheatcode/observability";
 import { DaytonaApiError } from "@cheatcode/tools-code";
 import {
   PROJECT_FILE_MAX_CURRENT_FILES,
@@ -11,6 +11,7 @@ import {
   ProjectFileUploadResponseSchema,
 } from "@cheatcode/types";
 import { z } from "zod";
+import { sleep } from "./project-sandbox-process-support";
 import { ProjectSandboxProcesses } from "./project-sandbox-processes";
 import {
   type ProjectListUploadedFilesInput,
@@ -27,6 +28,8 @@ const FILE_RECORD_PREFIX = "project-file:";
 const VERSION_RECORD_PREFIX = "project-file-version:";
 const DELETE_BATCH_SIZE = 128;
 const WORKSPACE_TIMESTAMP_TOLERANCE_MS = 2_000;
+const WORKSPACE_FILE_VISIBILITY_ATTEMPTS = 20;
+const WORKSPACE_FILE_VISIBILITY_DELAY_MS = 250;
 
 const ProjectFileVersionSchema = z
   .object({
@@ -163,28 +166,13 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     const sandboxId = await this.ensureSandbox();
     const projectRoot = workspacePathForSlug(input.workspaceSlug);
     const workspacePath = `${projectRoot}/${input.path}`;
-    let written: Uint8Array;
-    try {
-      written = await this.writeProjectFileToWorkspace(
-        sandboxId,
-        projectRoot,
-        workspacePath,
-        input.bytes,
-        workspaceTimestamp,
-      );
-    } catch (error) {
-      if (!isRecoverableWorkspaceMountError(error)) {
-        throw error;
-      }
-      await this.restartSandboxForWorkspaceRecovery(sandboxId);
-      written = await this.writeProjectFileToWorkspace(
-        sandboxId,
-        projectRoot,
-        workspacePath,
-        input.bytes,
-        workspaceTimestamp,
-      );
-    }
+    const written = await this.writeProjectFileWithRecovery(
+      sandboxId,
+      projectRoot,
+      workspacePath,
+      input.bytes,
+      workspaceTimestamp,
+    );
     if (
       written.byteLength !== input.bytes.byteLength ||
       (await sha256Hex(written)) !== contentSha256
@@ -194,6 +182,36 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         "upstream_sandbox_failed",
         "Project file could not be verified in the workspace",
         { retriable: true },
+      );
+    }
+  }
+
+  private async writeProjectFileWithRecovery(
+    sandboxId: string,
+    projectRoot: string,
+    workspacePath: string,
+    bytes: Uint8Array,
+    workspaceTimestamp: string,
+  ): Promise<Uint8Array> {
+    try {
+      return await this.writeProjectFileToWorkspace(
+        sandboxId,
+        projectRoot,
+        workspacePath,
+        bytes,
+        workspaceTimestamp,
+      );
+    } catch (error) {
+      if (!isRecoverableWorkspaceMountError(error)) {
+        throw error;
+      }
+      await this.restartSandboxForWorkspaceRecovery(sandboxId);
+      return this.writeProjectFileToWorkspace(
+        sandboxId,
+        projectRoot,
+        workspacePath,
+        bytes,
+        workspaceTimestamp,
       );
     }
   }
@@ -208,9 +226,33 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     const uploadsPath = `${projectRoot}/uploads`;
     await this.prepareUploadedFileWrite(sandboxId, uploadsPath, workspacePath);
     await this.client().uploadFile(sandboxId, workspacePath, bytes);
-    const written = await this.client().downloadFile(sandboxId, workspacePath, bytes.byteLength);
-    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath, workspaceTimestamp);
+    const written = await this.downloadUploadedFile(sandboxId, workspacePath, bytes.byteLength);
+    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath, workspaceTimestamp).catch(
+      (error: unknown) => {
+        logWorkspaceProtectionFailure(error, "file");
+      },
+    );
     return written;
+  }
+
+  private async downloadUploadedFile(
+    sandboxId: string,
+    workspacePath: string,
+    maxBytes: number,
+  ): Promise<Uint8Array> {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < WORKSPACE_FILE_VISIBILITY_ATTEMPTS; attempt += 1) {
+      try {
+        return await this.client().downloadFile(sandboxId, workspacePath, maxBytes);
+      } catch (error) {
+        if (!(error instanceof DaytonaApiError) || (error.status !== 404 && !error.retriable)) {
+          throw error;
+        }
+        lastError = error;
+        await sleep(WORKSPACE_FILE_VISIBILITY_DELAY_MS);
+      }
+    }
+    throw lastError ?? new Error("Uploaded project file did not become readable");
   }
 
   private async writeAndVerifyObject(
@@ -295,16 +337,19 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         continue;
       }
       const bytes = await this.readStoredProjectFile(current.version);
-      await this.writeProjectFileToWorkspace(
+      const written = await this.writeProjectFileWithRecovery(
         sandboxId,
         projectRoot,
         `${projectRoot}/${current.file.path}`,
         bytes,
         current.file.updatedAt,
       );
+      await assertWorkspaceProjectFile(written, current.file);
       restoredFileCount += 1;
     }
-    await this.protectUploadedDirectory(sandboxId, uploadsPath);
+    await this.protectUploadedDirectory(sandboxId, uploadsPath).catch((error: unknown) => {
+      logWorkspaceProtectionFailure(error, "directory");
+    });
     return { restoredFileCount };
   }
 
@@ -373,22 +418,21 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     uploadsPath: string,
     workspacePath: string,
   ): Promise<void> {
+    await this.client().createFolder(sandboxId, uploadsPath);
     const prepared = await this.client().execute(sandboxId, {
       command: [
-        `install -d -m 0755 ${shellQuote(uploadsPath)}`,
-        `if test -e ${shellQuote(workspacePath)}; then chmod 0644 ${shellQuote(workspacePath)}; fi`,
+        `chmod 0777 -- ${shellQuote(uploadsPath)}`,
+        `if test -e ${shellQuote(workspacePath)}; then chmod 0666 -- ${shellQuote(workspacePath)}; fi`,
       ].join(" && "),
       timeout: 10,
     });
     if (prepared.exitCode !== 0) {
-      throw new APIError(
-        502,
-        "upstream_sandbox_failed",
-        "Project file workspace could not be prepared",
-        { retriable: true },
+      logWorkspaceProtectionFailure(
+        new Error("Workspace cache permissions could not be opened"),
+        "prepare",
+        prepared.exitCode,
       );
     }
-    await this.client().createFolder(sandboxId, uploadsPath);
   }
 
   private async protectUploadedFile(
@@ -399,10 +443,17 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
   ): Promise<void> {
     const protectedFile = await this.client().execute(sandboxId, {
       command: [
-        `touch -d ${shellQuote(workspaceTimestamp)} -- ${shellQuote(workspacePath)}`,
-        `chmod 0444 -- ${shellQuote(workspacePath)}`,
-        `chmod 0555 -- ${shellQuote(uploadsPath)}`,
-      ].join(" && "),
+        "attempt=0",
+        `while test "$attempt" -lt ${WORKSPACE_FILE_VISIBILITY_ATTEMPTS}; do`,
+        `if test -f ${shellQuote(workspacePath)}; then`,
+        `touch -d ${shellQuote(workspaceTimestamp)} -- ${shellQuote(workspacePath)} && chmod 0444 -- ${shellQuote(workspacePath)} && chmod 0555 -- ${shellQuote(uploadsPath)}`,
+        "exit $?",
+        "fi",
+        "attempt=$((attempt + 1))",
+        `sleep ${WORKSPACE_FILE_VISIBILITY_DELAY_MS / 1_000}`,
+        "done",
+        "exit 1",
+      ].join("\n"),
       timeout: 10,
     });
     if (protectedFile.exitCode !== 0) {
@@ -493,6 +544,28 @@ function assertCurrentProjectFile(file: ProjectFile, version: ProjectFileVersion
       retriable: false,
     });
   }
+}
+
+async function assertWorkspaceProjectFile(bytes: Uint8Array, file: ProjectFile): Promise<void> {
+  if (bytes.byteLength === file.sizeBytes && (await sha256Hex(bytes)) === file.sha256) {
+    return;
+  }
+  throw new APIError(
+    502,
+    "upstream_sandbox_failed",
+    "Project file restoration could not be verified",
+    {
+      retriable: true,
+    },
+  );
+}
+
+function logWorkspaceProtectionFailure(
+  error: unknown,
+  stage: "directory" | "file" | "prepare",
+  exitCode?: number,
+): void {
+  createLogger().warn("project_upload_workspace_protection_failed", { error, exitCode, stage });
 }
 
 async function prepareProjectFile(
