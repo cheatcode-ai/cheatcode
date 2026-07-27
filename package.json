@@ -13,7 +13,7 @@
   "type": "module",
   "packageManager": "pnpm@11.15.0",
   "engines": {
-    "node": "22.22.2"
+    "node": "24.18.0"
   },
   "scripts": {
     "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",

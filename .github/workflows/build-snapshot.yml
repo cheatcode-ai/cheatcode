@@ -113,7 +113,7 @@ jobs:
           docker run --rm --platform=linux/amd64 --entrypoint /bin/sh "$IMAGE_TAG" -lc '
             test "$(id -un)" = node
             test "$PWD" = /workspace
-            node --version
+            test "$(node --version)" = v24.18.0
             npm --version
             pnpm --version
             python3 --version
