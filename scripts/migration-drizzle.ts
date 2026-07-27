@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { PgClient } from "../packages/db/src/supabase-target";
+import type { PgClient } from "./pg-client";
 
 interface DrizzleJournalEntry {
   idx: number;

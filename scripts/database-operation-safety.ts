@@ -1,4 +1,4 @@
-import type { PgClient } from "../packages/db/src/supabase-target";
+import type { PgClient } from "./pg-client";
 
 export type DatabaseOperationMode = "apply" | "dry-run";
 

@@ -1,100 +1,12 @@
-import { createStep, createWorkflow } from "@mastra/core/workflows";
-import { stepCountIs } from "ai";
-import { z } from "zod/v4";
-import {
-  createResearchStepContext,
-  mergeResearchSources,
-  ResearchPassDraftSchema,
-  ResearchSynthesisDraftSchema,
-  validateResearchPass,
-  validateSynthesisClaims,
-} from "./research-provenance";
-import {
-  DeepResearchInputSchema,
-  ResearchFindingSchema,
-  ResearchQueryListSchema,
-  ResearchQuerySchema,
-  ResearchReportSchema,
-} from "./research-schemas";
+import { createDeepResearchWorkflow } from "./deep-research-workflow";
 import { buildDeepResearchQueries } from "./research-utils";
 
-const RESEARCH_CHILD_TOOLS = [
-  "firecrawl_extract",
-  "firecrawl_scrape",
-  "firecrawl_search",
-  "search_company",
-  "search_web",
-  "search_web_advanced",
-] as const;
-
-const planDeepQueries = createStep({
-  id: "plan-deep-research-queries",
-  inputSchema: DeepResearchInputSchema,
-  outputSchema: ResearchQueryListSchema,
-  execute: async ({ abortSignal, inputData }) => {
-    abortSignal.throwIfAborted();
-    return ResearchQueryListSchema.parse(
-      buildDeepResearchQueries(inputData.topic, inputData.maxQueries),
-    );
-  },
+export const deepResearch = createDeepResearchWorkflow({
+  buildQueries: (input) => buildDeepResearchQueries(input.topic, input.maxQueries),
+  kind: "deep",
+  queryPrompt: deepResearchPrompt,
+  synthesisPrompt: (findings) => synthesisPrompt("deep research brief", findings),
 });
-
-const runDeepQuery = createStep({
-  id: "run-deep-research-query",
-  inputSchema: ResearchQuerySchema,
-  outputSchema: ResearchFindingSchema,
-  execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
-    const agent = mastra.getAgent("general");
-    const research = createResearchStepContext(requestContext);
-    const response = await agent.generate(deepResearchPrompt(inputData.query), {
-      abortSignal,
-      requestContext: research.requestContext,
-      activeTools: [...RESEARCH_CHILD_TOOLS],
-      stopWhen: stepCountIs(6),
-      structuredOutput: { schema: ResearchPassDraftSchema },
-    });
-    return validateResearchPass(
-      ResearchPassDraftSchema.parse(response.object),
-      inputData.query,
-      research.collector,
-    );
-  },
-});
-
-const synthesizeDeepResearch = createStep({
-  id: "synthesize-deep-research",
-  inputSchema: z.array(ResearchFindingSchema),
-  outputSchema: ResearchReportSchema,
-  execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
-    const agent = mastra.getAgent("general");
-    const sources = mergeResearchSources(inputData);
-    const response = await agent.generate(synthesisPrompt("deep research brief", inputData), {
-      abortSignal,
-      requestContext,
-      stopWhen: stepCountIs(6),
-      structuredOutput: { schema: ResearchSynthesisDraftSchema },
-      toolChoice: "none",
-    });
-    const draft = ResearchSynthesisDraftSchema.parse(response.object);
-    return ResearchReportSchema.parse({
-      claims: validateSynthesisClaims(draft.claims, sources),
-      findings: inputData,
-      report: draft.report,
-      sources,
-    });
-  },
-});
-
-export const deepResearch = createWorkflow({
-  id: "deep-research",
-  inputSchema: DeepResearchInputSchema,
-  options: { shouldPersistSnapshot: () => false },
-  outputSchema: ResearchReportSchema,
-})
-  .then(planDeepQueries)
-  .foreach(runDeepQuery, { concurrency: 5 })
-  .then(synthesizeDeepResearch)
-  .commit();
 
 function deepResearchPrompt(query: string): string {
   return [

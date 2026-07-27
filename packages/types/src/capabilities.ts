@@ -62,7 +62,6 @@ export const TOOL_CAPABILITIES = [
   tool("research", "firecrawl_extract", "Extract structured data with Firecrawl.", REMOTE_TOOL),
   tool("research", "firecrawl_scrape", "Scrape a known URL with Firecrawl.", REMOTE_TOOL),
   tool("research", "firecrawl_search", "Search and scrape with Firecrawl.", REMOTE_TOOL),
-  tool("research", "research_competitor", "Run the competitor research workflow.", REMOTE_TOOL),
   tool("research", "research_deep", "Run the deep research workflow.", REMOTE_TOOL),
   tool("research", "research_fanout", "Run the deep research fan-out workflow.", REMOTE_TOOL),
   tool("research", "search_company", "Search company intel with Exa.", REMOTE_TOOL),

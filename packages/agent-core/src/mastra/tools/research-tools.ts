@@ -267,20 +267,6 @@ export const mastraResearchFanout = createTool({
     }),
 });
 
-export const mastraCompetitorResearch = createTool({
-  id: "research_competitor",
-  description:
-    "Run the Deep Research fan-out workflow for competitor analysis and return a comparison matrix style report.",
-  inputSchema: DeepResearchFanoutInputSchema,
-  outputSchema: ResearchReportSchema,
-  execute: async (input, context) =>
-    runResearchWorkflow({
-      context,
-      inputData: DeepResearchFanoutInputSchema.parse(input),
-      workflowName: "deepResearchFanout",
-    }),
-});
-
 async function executeExaTool(input: unknown, context: ToolExecutionContext) {
   const output = await executeExaSearch(
     ExaSearchInputSchema.parse(input),

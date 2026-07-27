@@ -1,24 +1,35 @@
-import { and, asc, eq, gt, isNull, lt, sql } from "drizzle-orm";
+import { and, asc, eq, gt, isNull, lt, type SQLWrapper, sql } from "drizzle-orm";
 import type { ActivationEventCursor } from "./activation";
 import {
   deleteQuiescedArtifactUploadIntents,
   type QuiescedArtifactUploadIntentRecord,
 } from "./artifact-upload-intents";
 import type { Database } from "./client";
+import { boundedLeaseLimit, createLeaseQueue, type LeaseQueueLease } from "./lease-queue";
 import { type DailyMaintenanceJobPhase, dailyMaintenanceJobs } from "./schema";
-
-const LEASE_DURATION_MS = 2 * 60 * 60 * 1000;
-const MAX_RECONCILIATION_CLAIMS = 25;
-const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
 type JobRow = typeof dailyMaintenanceJobs.$inferSelect;
 
-export interface DailyMaintenanceJobLease {
-  continuation: number;
+export interface DailyMaintenanceJobLease extends LeaseQueueLease {
   day: string;
-  leaseToken: string;
   releaseVersionId: string;
 }
+
+const dailyMaintenanceLeaseQueue = createLeaseQueue({
+  deferredStatus: () => "queued",
+  identity: (lease: DailyMaintenanceJobLease) => [
+    eq(dailyMaintenanceJobs.day, lease.day),
+    eq(dailyMaintenanceJobs.releaseVersionId, lease.releaseVersionId),
+  ],
+  leaseFromContinuation: (continuation, input) => ({
+    continuation,
+    day: input.day,
+    leaseToken: input.nextLeaseToken,
+    releaseVersionId: input.releaseVersionId,
+  }),
+  normalizeErrorCode: (errorCode) => errorCode.slice(0, 128),
+  table: dailyMaintenanceJobs,
+});
 
 export interface DailyMaintenanceJobRecord extends DailyMaintenanceJobLease {
   activationCursor: ActivationEventCursor | null;
@@ -68,7 +79,7 @@ export async function claimReadyDailyMaintenanceJobs(
        where (job.status = 'queued' and job.next_attempt_at <= ${now})
           or (job.status = 'leased' and job.lease_expires_at <= ${now})
        order by coalesce(job.lease_expires_at, job.next_attempt_at), job.day
-       limit ${boundedLimit(input.limit)}
+       limit ${boundedLeaseLimit(input.limit)}
        for update skip locked
     )
     update public.v2_daily_maintenance_jobs job
@@ -87,7 +98,7 @@ export async function claimReadyDailyMaintenanceJobs(
            status = 'leased',
            release_version_id = ${input.releaseVersionId}::uuid,
            lease_token = ${input.leaseToken}::uuid,
-           lease_expires_at = ${leaseExpiry(now)},
+           lease_expires_at = ${dailyMaintenanceLeaseQueue.expiryAt(now)},
            completed_at = null
       from candidates
      where job.day = candidates.day
@@ -116,7 +127,7 @@ export async function listLiveDailyMaintenanceJobLeases(
       ),
     )
     .orderBy(asc(dailyMaintenanceJobs.leaseExpiresAt), asc(dailyMaintenanceJobs.day))
-    .limit(boundedLimit(input.limit));
+    .limit(boundedLeaseLimit(input.limit));
   return rows.map(leaseFromRow);
 }
 
@@ -126,8 +137,8 @@ export async function renewAndLoadDailyMaintenanceJob(
 ): Promise<ClaimedDailyMaintenanceJob> {
   const [row] = await db
     .update(dailyMaintenanceJobs)
-    .set({ leaseExpiresAt: leaseExpiry(new Date()) })
-    .where(claimIdentity(lease))
+    .set(dailyMaintenanceLeaseQueue.renewalFields())
+    .where(dailyMaintenanceLeaseQueue.claimIdentity(lease))
     .returning();
   return row ? { job: jobRecord(row), state: "active" } : { state: "lost" };
 }
@@ -139,8 +150,8 @@ export async function guardDailyMaintenanceJobProgress(
 ): Promise<boolean> {
   const rows = await db
     .update(dailyMaintenanceJobs)
-    .set({ leaseExpiresAt: leaseExpiry(new Date()) })
-    .where(and(claimIdentity(input), progressIdentity(input.expected)))
+    .set(dailyMaintenanceLeaseQueue.renewalFields())
+    .where(and(dailyMaintenanceLeaseQueue.claimIdentity(input), progressIdentity(input.expected)))
     .returning({ day: dailyMaintenanceJobs.day });
   return rows.length === 1;
 }
@@ -153,12 +164,17 @@ export async function advanceDailyMaintenanceJob(
     next: DailyMaintenanceJobProgress;
   },
 ): Promise<boolean> {
-  const rows = await db
-    .update(dailyMaintenanceJobs)
-    .set(progressUpdate(input.next))
-    .where(and(claimIdentity(input), progressIdentity(input.expected)))
-    .returning({ day: dailyMaintenanceJobs.day });
-  return rows.length === 1;
+  const next = input.next.activationCursor;
+  return dailyMaintenanceLeaseQueue.advanceJob(
+    db,
+    input,
+    progressIdentity(input.expected),
+    sql`
+      activation_cursor_event = ${next?.eventName ?? null},
+      activation_cursor_user_id = ${next?.userId ?? null},
+      phase = ${input.next.phase}
+    `,
+  );
 }
 
 /** Remove quiesced intent rows after R2 deletion and renew the same phase atomically. */
@@ -193,45 +209,12 @@ export async function reserveDailyMaintenanceContinuation(
     nextLeaseToken: string;
   },
 ): Promise<DailyMaintenanceJobLease | null> {
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(dailyMaintenanceJobs)
-      .set({
-        continuation: sql`${dailyMaintenanceJobs.continuation} + 1`,
-        leaseExpiresAt: leaseExpiry(new Date()),
-        leaseToken: input.nextLeaseToken,
-      })
-      .where(and(claimIdentity(input), progressIdentity(input.expected)))
-      .returning({
-        continuation: dailyMaintenanceJobs.continuation,
-        day: dailyMaintenanceJobs.day,
-      });
-    if (row) {
-      return {
-        ...row,
-        leaseToken: input.nextLeaseToken,
-        releaseVersionId: input.releaseVersionId,
-      };
-    }
-    return loadReservedContinuation(tx as Database, input);
+  return dailyMaintenanceLeaseQueue.reserveContinuation(db, input, {
+    claimIdentity: (lease: DailyMaintenanceJobLease) =>
+      and(dailyMaintenanceLeaseQueue.claimIdentity(lease), progressIdentity(input.expected)),
+    reservedIdentity: (lease: DailyMaintenanceJobLease) =>
+      dailyMaintenanceLeaseQueue.claimIdentity(lease),
   });
-}
-
-async function loadReservedContinuation(
-  db: Database,
-  input: DailyMaintenanceJobLease & { nextLeaseToken: string },
-): Promise<DailyMaintenanceJobLease | null> {
-  const reserved = await db.query.dailyMaintenanceJobs.findFirst({
-    columns: { continuation: true, day: true, leaseToken: true, releaseVersionId: true },
-    where: and(
-      eq(dailyMaintenanceJobs.day, input.day),
-      eq(dailyMaintenanceJobs.continuation, input.continuation + 1),
-      eq(dailyMaintenanceJobs.status, "leased"),
-      eq(dailyMaintenanceJobs.leaseToken, input.nextLeaseToken),
-      eq(dailyMaintenanceJobs.releaseVersionId, input.releaseVersionId),
-    ),
-  });
-  return reserved ? leaseFromRow(reserved) : null;
 }
 
 /** Return a failed lease to cron admission with unbounded, operationally capped backoff. */
@@ -239,28 +222,14 @@ export async function deferDailyMaintenanceJob(
   db: Database,
   input: DailyMaintenanceJobLease & { errorCode: string },
 ): Promise<{ continuation: number; failureCount: number } | null> {
-  return db.transaction(async (tx) => {
-    const row = await tx.query.dailyMaintenanceJobs.findFirst({ where: claimIdentity(input) });
-    if (!row) {
-      return null;
-    }
-    const failureCount = row.failureCount + 1;
-    const [updated] = await tx
-      .update(dailyMaintenanceJobs)
-      .set({
-        continuation: row.continuation + 1,
-        failureCount,
-        lastErrorCode: input.errorCode.slice(0, 128),
-        leaseExpiresAt: null,
-        leaseToken: null,
-        nextAttemptAt: new Date(Date.now() + retryDelayMs(failureCount)),
-        releaseVersionId: null,
-        status: "queued",
-      })
-      .where(claimIdentity(input))
-      .returning({ continuation: dailyMaintenanceJobs.continuation });
-    return updated ? { continuation: updated.continuation, failureCount } : null;
-  });
+  const deferred = await dailyMaintenanceLeaseQueue.deferJob(
+    db,
+    input,
+    sql`release_version_id = null`,
+  );
+  return deferred
+    ? { continuation: deferred.continuation, failureCount: deferred.failureCount }
+    : null;
 }
 
 /** Terminalize exactly one fenced chain while retaining a short idempotency tombstone. */
@@ -274,27 +243,13 @@ export async function completeDailyMaintenanceJob(
       activationCursorEvent: null,
       activationCursorUserId: null,
       completedAt: new Date(),
-      failureCount: 0,
-      lastErrorCode: null,
-      leaseExpiresAt: null,
-      leaseToken: null,
+      ...dailyMaintenanceLeaseQueue.completionFields(),
       releaseVersionId: null,
       status: "complete",
     })
-    .where(and(claimIdentity(input), progressIdentity(input.expected)))
+    .where(and(dailyMaintenanceLeaseQueue.claimIdentity(input), progressIdentity(input.expected)))
     .returning({ day: dailyMaintenanceJobs.day });
   return rows.length === 1;
-}
-
-function progressUpdate(progress: DailyMaintenanceJobProgress) {
-  return {
-    activationCursorEvent: progress.activationCursor?.eventName ?? null,
-    activationCursorUserId: progress.activationCursor?.userId ?? null,
-    failureCount: 0,
-    lastErrorCode: null,
-    leaseExpiresAt: leaseExpiry(new Date()),
-    phase: progress.phase,
-  };
 }
 
 function progressIdentity(progress: DailyMaintenanceJobProgress) {
@@ -311,9 +266,8 @@ function progressIdentity(progress: DailyMaintenanceJobProgress) {
   );
 }
 
-function nullableTextIdentity<TColumn>(column: TColumn, value: string | undefined) {
-  const typedColumn = column as Parameters<typeof eq>[0];
-  return value === undefined ? isNull(typedColumn) : eq(typedColumn, value);
+function nullableTextIdentity(column: SQLWrapper, value: string | undefined) {
+  return value === undefined ? isNull(column) : sql`${column} = ${value}`;
 }
 
 /** Bound completion tombstones without allowing a same-day delivery to recreate finished work. */
@@ -331,16 +285,6 @@ export async function purgeCompletedDailyMaintenanceJobs(
     )
     .returning({ day: dailyMaintenanceJobs.day });
   return rows.length;
-}
-
-function claimIdentity(lease: DailyMaintenanceJobLease) {
-  return and(
-    eq(dailyMaintenanceJobs.day, lease.day),
-    eq(dailyMaintenanceJobs.continuation, lease.continuation),
-    eq(dailyMaintenanceJobs.status, "leased"),
-    eq(dailyMaintenanceJobs.leaseToken, lease.leaseToken),
-    eq(dailyMaintenanceJobs.releaseVersionId, lease.releaseVersionId),
-  );
 }
 
 function jobRecord(row: JobRow): DailyMaintenanceJobRecord {
@@ -373,18 +317,6 @@ function activationEventName(value: string): ActivationEventCursor["eventName"] 
     return value;
   }
   throw new Error("Daily maintenance activation cursor event is invalid");
-}
-
-function boundedLimit(limit: number | undefined): number {
-  return Math.max(1, Math.min(Math.trunc(limit ?? MAX_RECONCILIATION_CLAIMS), 25));
-}
-
-function leaseExpiry(now: Date): Date {
-  return new Date(now.getTime() + LEASE_DURATION_MS);
-}
-
-function retryDelayMs(failureCount: number): number {
-  return Math.min(MAX_RETRY_DELAY_MS, 30_000 * 2 ** Math.min(failureCount - 1, 10));
 }
 
 function maintenanceDay(value: string): string {
