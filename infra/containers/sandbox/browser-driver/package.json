@@ -5,7 +5,7 @@
   "type": "module",
   "main": "./server.js",
   "engines": {
-    "node": "22.22.2"
+    "node": "24.18.0"
   },
   "dependencies": {
     "@browserbasehq/stagehand": "3.7.0",

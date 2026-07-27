@@ -4,7 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "engines": {
-    "node": "22.22.2"
+    "node": "24.18.0"
   },
   "overrides": {
     "uuid": "11.1.1"

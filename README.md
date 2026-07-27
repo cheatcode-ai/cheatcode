@@ -46,8 +46,8 @@ docker compose version
 docker info
 ```
 
-The expected Node and pnpm versions are `v22.22.2` and `11.15.0`. Do not ignore
-an engine warning: select or install Node 22.22.2 before installing packages or
+The expected Node and pnpm versions are `v24.18.0` and `11.15.0`. Do not ignore
+an engine warning: select or install Node 24.18.0 before installing packages or
 running repository commands. Docker must be running before `pnpm dev`.
 
 ### Configure local credentials
@@ -104,7 +104,7 @@ From the repository root:
 pnpm dev
 ```
 
-The first run builds the pinned Node 22.22.2/pnpm 11.15.0 image, installs the
+The first run builds the pinned Node 24.18.0/pnpm 11.15.0 image, installs the
 locked workspace dependencies inside it, builds shared packages, validates
 `.env.local`, generates permission-restricted local Wrangler configs, and then
 starts the watchers. Subsequent source edits are synchronized into the
@@ -152,7 +152,7 @@ workflow can remove remote resources correctly.
 
 ### Troubleshooting
 
-- **Node engine mismatch:** run `nvm install 22.22.2 && nvm use 22.22.2`, then
+- **Node engine mismatch:** run `nvm install 24.18.0 && nvm use 24.18.0`, then
   confirm `node --version` before retrying.
 - **Docker cannot connect:** start Docker Desktop or the Docker daemon and
   confirm `docker info` succeeds.
