@@ -76,18 +76,18 @@ peerDependencyRules:
     '@ai-sdk/ui-utils@1.2.11>zod': '^4.0.0'
 
 catalog:
-  '@ai-sdk/anthropic': 3.0.84
-  '@ai-sdk/deepseek': 2.0.39
-  '@ai-sdk/google': 3.0.82
-  '@ai-sdk/openai': 3.0.71
-  '@ai-sdk/react': 3.0.207
+  '@ai-sdk/anthropic': 3.0.103
+  '@ai-sdk/deepseek': 2.0.50
+  '@ai-sdk/google': 3.0.101
+  '@ai-sdk/openai': 3.0.88
+  '@ai-sdk/react': 3.0.237
   # 2.5.3-2.5.4 panic in the type-aware module resolver (biomejs/biome#10885).
   # Keep the last non-panicking patch until the upstream fix is released.
-  '@biomejs/biome': 2.5.2
-  '@clerk/backend': 3.11.6
-  '@clerk/nextjs': 7.5.19
-  '@clerk/ui': 1.25.4
-  '@cloudflare/workers-types': 5.20260716.1
+  '@biomejs/biome': 2.5.5
+  '@clerk/backend': 3.13.1
+  '@clerk/nextjs': 7.6.1
+  '@clerk/ui': 1.26.0
+  '@cloudflare/workers-types': 5.20260727.1
   '@commitlint/cli': 21.2.1
   '@commitlint/config-conventional': 21.2.0
   '@hookform/resolvers': 5.4.0
