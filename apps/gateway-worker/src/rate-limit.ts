@@ -2,7 +2,6 @@ import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observabi
 import type { UserId } from "@cheatcode/types";
 import type { RateLimitResult } from "./durable-objects/rate-limit-contract";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
-import { identifyDeclaredGatewayRoute } from "./openapi-route-parity";
 
 type RateLimitClass =
   | "public.read"
@@ -60,15 +59,14 @@ export async function rateLimit(
   userId: UserId,
   route: string,
 ): Promise<RateLimitHeaders | null> {
-  const identity = identifyDeclaredGatewayRoute(route);
   return consumeRateLimit(
     c,
     {
       durableObjectName: `ratelimit:${userId.slice(0, 8)}`,
-      key: `user:${userId}:${identity.operationId}`,
+      key: `user:${userId}:${route}`,
     },
-    identity.operationId,
-    policyForRoute(identity.routeKey),
+    route,
+    policyForRoute(route),
   );
 }
 
@@ -77,7 +75,6 @@ export async function rateLimitPublic(
   route: string,
   policyName: PublicRateLimitPolicyName,
 ): Promise<RateLimitHeaders | null> {
-  const identity = identifyDeclaredGatewayRoute(route);
   const addressHash = await publicClientAddressHash(c.req.raw);
   return consumeRateLimit(
     c,
@@ -86,9 +83,9 @@ export async function rateLimitPublic(
         0,
         PUBLIC_RATE_LIMIT_SHARD_PREFIX_LENGTH,
       )}`,
-      key: `public:${addressHash}:${identity.operationId}`,
+      key: `public:${addressHash}:${route}`,
     },
-    identity.operationId,
+    route,
     RATE_LIMIT_POLICIES[policyName],
   );
 }
@@ -96,7 +93,7 @@ export async function rateLimitPublic(
 async function consumeRateLimit(
   c: RateLimitContext,
   subject: RateLimitSubject,
-  operationId: string,
+  route: string,
   policy: RateLimitPolicy,
 ): Promise<RateLimitHeaders | null> {
   const id = c.env.RATE_LIMITER.idFromName(subject.durableObjectName);
@@ -105,7 +102,7 @@ async function consumeRateLimit(
   try {
     result = await stub.consume(subject.key, policy.cost, rateLimitConfig(policy));
   } catch (error) {
-    return handleRateLimitFailure(operationId, policy, error);
+    return handleRateLimitFailure(route, policy, error);
   }
   const headers = rateLimitHeaders(policy, result);
   if (!result.allowed) {
@@ -138,13 +135,13 @@ export function withRateLimitHeaders(
 }
 
 function policyForRoute(route: string): RateLimitPolicy {
-  if (route === "POST /v1/threads/{threadId}/runs") {
+  if (route === "POST /v1/threads/:threadId/runs") {
     return RATE_LIMIT_POLICIES.runsCreate;
   }
-  if (route === "POST /v1/projects/{projectId}/download") {
+  if (route === "POST /v1/projects/:projectId/download") {
     return RATE_LIMIT_POLICIES.readExpensive;
   }
-  if (route === "GET /v1/threads/{threadId}/runs/stream" || isSandboxReadRoute(route)) {
+  if (route === "GET /v1/threads/:threadId/runs/stream" || isSandboxReadRoute(route)) {
     return RATE_LIMIT_POLICIES.readExpensive;
   }
   if (route.startsWith("GET ")) {
@@ -155,7 +152,7 @@ function policyForRoute(route: string): RateLimitPolicy {
 
 function isSandboxReadRoute(route: string): boolean {
   return (
-    route.startsWith("GET /v1/threads/{threadId}/sandbox/") || route.startsWith("GET /v1/computer/")
+    route.startsWith("GET /v1/threads/:threadId/sandbox/") || route.startsWith("GET /v1/computer/")
   );
 }
 
@@ -191,19 +188,15 @@ function rateLimitReset(retryAfterMs: number): string {
   return String(Math.ceil((Date.now() + resetMs) / 1000));
 }
 
-function logRateLimitFailure(operationId: string, error: unknown): void {
+function logRateLimitFailure(route: string, error: unknown): void {
   createLogger().warn("rate_limiter_unavailable", {
-    route: operationId,
+    route,
     ...safeErrorTelemetry(error),
   });
 }
 
-function handleRateLimitFailure(
-  operationId: string,
-  policy: RateLimitPolicy,
-  error: unknown,
-): null {
-  logRateLimitFailure(operationId, error);
+function handleRateLimitFailure(route: string, policy: RateLimitPolicy, error: unknown): null {
+  logRateLimitFailure(route, error);
   if (policy.failClosed) {
     throw new APIError(503, "unavailable_maintenance", "Request protection is unavailable", {
       hint: "Retry shortly. If this persists, check the gateway RateLimiter Durable Object.",

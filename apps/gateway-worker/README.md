@@ -110,9 +110,6 @@ same traits instead of maintaining parallel tool-name lists.
 
 ## Public exports
 
-- `gatewayApp`
-- `gatewayRoutes`
-- `GatewayAppType`
 - `IdempotencyStore`
 - `QuotaTracker`
 - `RateLimiter`

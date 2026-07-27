@@ -5,6 +5,7 @@ import {
   createWorkerRuntime,
   routeWorkerError,
 } from "@cheatcode/observability";
+import { normalizeTelemetryPath } from "@cheatcode/types";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { routePath } from "hono/route";
@@ -21,12 +22,6 @@ import { formatGatewayRouteError } from "./error-handling";
 import type { GatewayContext, GatewayEnv } from "./gateway-env";
 import { registerIntegrationHttpRoutes } from "./integration-http-routes";
 import { resolveLocalPreviewRoute } from "./local-preview-routing";
-import {
-  assertOpenApiRouteParity,
-  gatewayOperationIdForRegisteredRoute,
-  gatewayOperationIdForRequest,
-  UNMATCHED_GATEWAY_ROUTE,
-} from "./openapi-route-parity";
 import { registerProjectHttpRoutes } from "./project-http-routes";
 import { registerProviderHttpRoutes } from "./provider-http-routes";
 import { withRateLimitErrorHeaders } from "./rate-limit";
@@ -106,17 +101,17 @@ registerProviderHttpRoutes(gatewayApp);
 registerIntegrationHttpRoutes(gatewayApp);
 registerBillingHttpRoutes(gatewayApp);
 registerAgentHttpRoutes(gatewayApp);
-assertOpenApiRouteParity(gatewayApp.routes);
 
 function routeName(request: Request): string {
-  return gatewayOperationIdForRequest(request);
+  const url = new URL(request.url);
+  return `${request.method} ${normalizeTelemetryPath(url.pathname)}`;
 }
 
 function routeNameForContext(c: GatewayContext): string {
   try {
-    return gatewayOperationIdForRegisteredRoute(c.req.method, routePath(c, -1));
+    return `${c.req.method} ${routePath(c, -1)}`;
   } catch {
-    return UNMATCHED_GATEWAY_ROUTE;
+    return routeName(c.req.raw);
   }
 }
 
