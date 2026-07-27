@@ -41,10 +41,10 @@ small current/version namespace records and mirrors the current version to
 `/workspace/<workspaceSlug>/uploads/` on the user's persistent Daytona volume before exposing it.
 An exact replay is idempotent; uploading new bytes at the same path creates a retained version and
 updates the working copy. First-run app scaffolding preserves the `uploads/` directory, and restored
-template projects reuse their persistent dependency installation instead of rebuilding the
-workspace. Project deletion removes the namespace during fenced workspace cleanup and the existing
-resource-deletion prefix sweep removes every immutable object. Account deletion clears both through
-the existing account state and R2 lifecycle phases.
+template projects reuse a complete persistent dependency installation or repair an interrupted one
+instead of rebuilding the workspace. Project deletion removes the namespace during fenced workspace
+cleanup and the existing resource-deletion prefix sweep removes every immutable object. Account
+deletion clears both through the existing account state and R2 lifecycle phases.
 
 Run creation validates the gateway payload with the shared `CreateRunSchema` from
 `packages/types` before selecting the run-scoped `AgentRun` Durable Object. The

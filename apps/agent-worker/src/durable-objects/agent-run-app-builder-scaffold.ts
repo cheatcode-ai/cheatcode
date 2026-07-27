@@ -84,13 +84,13 @@ export async function installAppBuilderDependencies(
   dir: string,
   mobile = false,
 ): Promise<void> {
-  const networkTimeoutMs = mobile ? 300_000 : 120_000;
+  const installTimeoutMs = mobile ? 300_000 : 120_000;
   try {
     await executeShellExec(
       {
         command: ["pnpm", "install", "--frozen-lockfile", "--offline"],
         cwd: dir,
-        timeoutMs: 120_000,
+        timeoutMs: installTimeoutMs,
       },
       { sandbox },
     );
@@ -111,7 +111,7 @@ export async function installAppBuilderDependencies(
         "4",
       ],
       cwd: dir,
-      timeoutMs: networkTimeoutMs,
+      timeoutMs: installTimeoutMs,
     },
     { sandbox },
   );
