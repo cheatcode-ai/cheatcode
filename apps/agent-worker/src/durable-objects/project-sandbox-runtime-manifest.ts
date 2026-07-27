@@ -35,14 +35,31 @@ export async function writeSandboxRuntimeManifest(
 ): Promise<void> {
   const manifest = buildSandboxRuntimeManifest(records);
   const temporaryPath = `${SANDBOX_RUNTIME_MANIFEST_PATH}.tmp-${crypto.randomUUID()}`;
-  await client.createFolder(sandboxId, RUNTIME_DIRECTORY, "700");
+  const prepared = await client.execute(sandboxId, {
+    command: `install -d -m 0700 ${shellQuote(RUNTIME_DIRECTORY)}`,
+    timeout: 10,
+  });
+  if (prepared.exitCode !== 0) {
+    throw new Error("Could not prepare the sandbox runtime projection directory.");
+  }
   await client.uploadFile(
     sandboxId,
     temporaryPath,
     new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
   );
   const moved = await client.execute(sandboxId, {
-    command: `mv -f ${shellQuote(temporaryPath)} ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)}`,
+    command: [
+      "attempt=0",
+      'while test "$attempt" -lt 20; do',
+      `if test -f ${shellQuote(temporaryPath)}; then`,
+      `mv -f ${shellQuote(temporaryPath)} ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)} && chmod 0600 ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)}`,
+      "exit $?",
+      "fi",
+      "attempt=$((attempt + 1))",
+      "sleep 0.25",
+      "done",
+      "exit 1",
+    ].join("\n"),
     timeout: 10,
   });
   if (moved.exitCode !== 0) {

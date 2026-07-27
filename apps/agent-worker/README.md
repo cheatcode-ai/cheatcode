@@ -42,7 +42,12 @@ small current/version namespace records and mirrors the current version to
 An exact replay is idempotent; uploading new bytes at the same path creates a retained version and
 updates the working copy. First-run app scaffolding preserves the `uploads/` directory, and restored
 template projects reuse a complete persistent dependency installation or repair an interrupted one
-instead of rebuilding the workspace. Project deletion removes the namespace during fenced workspace
+instead of rebuilding the workspace. The working copy is a read-only cache: every project-bound
+run verifies its current file set before model access, restores missing, replaced, or modified files
+from the checksum-verified R2 version, and repeats that repair when the run exits. File write/delete
+tools reject the reserved directory, while the system contract requires shell work to copy an upload
+elsewhere before transforming it. Template scaffolding and repository imports both retain the
+reserved directory. Project deletion removes the namespace during fenced workspace
 cleanup and the existing resource-deletion prefix sweep removes every immutable object. Account
 deletion clears both through the existing account state and R2 lifecycle phases.
 
