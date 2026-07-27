@@ -114,6 +114,17 @@ jobs:
             test "$(id -un)" = node
             test "$PWD" = /workspace
             test "$(node --version)" = v24.18.0
+            libnss_version="$(dpkg-query --show libnss3 | cut --fields=2)"
+            dpkg --compare-versions "$libnss_version" ge "2:3.87.1-1+deb12u3"
+            code_server_dir="$(dirname "$(dirname "$(readlink -f "$(command -v code-server)")")")"
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-doc-runtime/node_modules/brace-expansion/package.json)" = 5.0.8
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion/package.json)" = 5.0.8
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar/package.json)" = 7.5.22
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar/package.json)" = 7.5.22
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar/package.json)" = 7.5.22
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/node_modules/js-yaml/package.json")" = 4.3.0
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/shell-quote/package.json")" = 1.10.0
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/tar/package.json")" = 7.5.22
             npm --version
             pnpm --version
             python3 --version
