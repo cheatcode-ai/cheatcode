@@ -196,7 +196,7 @@ async function prepareTemplateWorkspace(
   setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
   if (!shouldBootstrap) {
     setRunStage("Restoring the app workspace.");
-    if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace.dir))) {
+    if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace.dir, mobile))) {
       await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     }
     if (mobile) {
@@ -599,10 +599,19 @@ async function hasExistingAppBuilderWorkspace(
 async function hasInstalledAppBuilderDependencies(
   sandbox: ProjectSandboxStub,
   dir: string,
+  mobile: boolean,
 ): Promise<boolean> {
+  const requiredPaths = mobile
+    ? [
+        "node_modules/.pnpm",
+        "node_modules/@expo/metro-runtime",
+        "node_modules/react-dom",
+        "node_modules/react-native-web",
+      ]
+    : ["node_modules/.pnpm", "node_modules/next", "node_modules/react", "node_modules/react-dom"];
   const result = await executeShellTerminal(
     {
-      command: `test -d ${dir}/node_modules/.pnpm`,
+      command: requiredPaths.map((path) => `test -d ${dir}/${path}`).join(" && "),
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
