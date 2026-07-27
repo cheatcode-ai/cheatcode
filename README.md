@@ -79,18 +79,17 @@ Fill every required value in `.env.local`. Keep the following boundaries:
 - Each signing secret group in `.env.example` must contain non-placeholder
   values of at least 32 UTF-8 bytes. Secrets within a group must be distinct.
   The startup runner checks these requirements before launching a Worker.
-- Keep `NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787`,
-  `NEXT_PUBLIC_PREVIEW_HOSTNAME=localhost`, and
-  `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA=development` for the standard local
-  topology.
+- Keep `NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787` for the standard local
+  topology. The web app derives `localhost` previews locally and the owned
+  `trycheatcode.com` preview apex in Vercel. Release identity is derived
+  automatically from Git in deployments and uses `development` locally.
 - `COMPOSIO_API_KEY`, `COMPOSIO_AUTH_CONFIGS`, and
   `COMPOSIO_WEBHOOK_SECRET` are required for connected-tool flows.
   `COMPOSIO_AUTH_CONFIGS` is the JSON object that maps each supported toolkit
   name to its Composio auth-config ID.
 - `DEEPSEEK_PLATFORM_API_KEY` is optional because users may rely entirely on
-  BYOK. `DAYTONA_ORG_ID`, Clerk webhook verification, and internal alert
-  delivery are optional only when the corresponding account or callback flow
-  is not being exercised.
+  BYOK. `DAYTONA_ORG_ID` and Clerk webhook verification are optional only when
+  the corresponding account or callback flow is not being exercised.
 
 Do not copy `.env.production` into `.env.local`. Do not put database migration
 credentials in this file; authorized operators keep those only in the ignored
@@ -260,12 +259,6 @@ gh workflow run build-snapshot.yml --ref main -f confirmation=BUILD_SNAPSHOT
 Review the emitted immutable snapshot name and commit it in the agent Worker
 configuration. Production Daytona credentials and snapshot publication remain
 inside that workflow.
-
-Audit retention uses the separate protected `Audit Archive` workflow because it
-performs destructive database and R2 maintenance. It accepts exact plan/apply
-confirmation, verifies the pinned production database identity, and uses a
-dedicated bucket-scoped Cloudflare token. Production audit archival must not run
-from a laptop.
 
 The repository contains only the active V2 implementation. The legacy V1 source
 tree was permanently removed on July 13, 2026 after explicit user authorization.

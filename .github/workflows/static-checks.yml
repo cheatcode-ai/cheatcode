@@ -226,10 +226,7 @@ jobs:
           CLERK_SECRET_KEY: sk_test_static_checks_do_not_authenticate
           NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: pk_test_c3RhdGljLWNoZWNrcy0wMC5jbGVyay5hY2NvdW50cy5kZXYk
           NEXT_PUBLIC_GATEWAY_URL: ${{ vars.NEXT_PUBLIC_GATEWAY_URL }}
-          NEXT_PUBLIC_PREVIEW_HOSTNAME: trycheatcode.com
-          NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
-          TURBO_TEAM: cheatcode
-          TURBO_TOKEN: ${{ github.event_name == 'push' && secrets.TURBO_TOKEN || '' }}
+          VERCEL_GIT_COMMIT_SHA: ${{ github.sha }}
         run: |
           set -Eeuo pipefail
           filters=()

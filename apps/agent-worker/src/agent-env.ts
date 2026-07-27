@@ -28,7 +28,4 @@ export interface AgentEnv extends AnalyticsBindings {
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
   SANDBOX_STATE?: KVNamespace;
-  SKILL_RUNTIME_BASE_URL: string;
-  SKILL_RUNTIME_TOKEN_SECRET: WorkerSecret;
-  WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecret;
 }

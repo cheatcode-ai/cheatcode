@@ -1,21 +1,16 @@
-import { createInternalMaintenanceHeaders } from "@cheatcode/auth";
 import { ComposioClient, isComposioNotFoundError } from "@cheatcode/composio";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import {
+  type AgentLifecycleServiceBinding,
+  AgentLifecycleServiceResultSchema,
   type InternalAgentStateDeleteBody,
   InternalAgentStateDeleteBodySchema,
-  InternalStateDeleteResponseSchema,
-  internalUserStateDeletePath,
   type UserId,
 } from "@cheatcode/types";
-import {
-  requireAgentLifecycleSecret,
-  type WebhooksMaintenanceSecretBindings,
-} from "./internal-maintenance";
 
-export interface AgentStateDeletionEnv extends WebhooksMaintenanceSecretBindings {
-  AGENT: Fetcher;
+export interface AgentStateDeletionEnv {
+  AGENT_LIFECYCLE: AgentLifecycleServiceBinding;
 }
 
 export interface LifecycleEnv extends AgentStateDeletionEnv {
@@ -26,7 +21,6 @@ export interface LifecycleEnv extends AgentStateDeletionEnv {
   R2_OUTPUTS: R2Bucket;
 }
 
-const INTERNAL_AGENT_RESPONSE_MAX_BYTES = 64 * 1024;
 const COMPOSIO_DELETE_CONCURRENCY = 5;
 const COMPOSIO_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -94,25 +88,24 @@ async function deleteAgentState(
   userId: UserId,
   payload: InternalAgentStateDeleteBody,
 ): Promise<void> {
-  const body = JSON.stringify(InternalAgentStateDeleteBodySchema.parse(payload));
-  const pathname = internalUserStateDeletePath(userId);
-  const headers = await internalMaintenanceHeaders(env, pathname, body);
-  const response = await env.AGENT.fetch(`https://agent.internal${pathname}`, {
-    body,
-    headers,
-    method: "POST",
-  });
-  if (!response.ok) {
-    const status = response.status;
-    await response.body?.cancel().catch(() => undefined);
+  const body = InternalAgentStateDeleteBodySchema.parse(payload);
+  let result: Awaited<ReturnType<AgentLifecycleServiceBinding["deleteUserState"]>>;
+  try {
+    result = AgentLifecycleServiceResultSchema.parse(
+      await env.AGENT_LIFECYCLE.deleteUserState({ body, userId }),
+    );
+  } catch (error) {
     throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
-      details: { status },
-      retriable: isRetriableUpstreamStatus(status),
+      cause: error,
+      retriable: true,
     });
   }
-  InternalStateDeleteResponseSchema.parse(
-    await readBoundedResponseJson(response, INTERNAL_AGENT_RESPONSE_MAX_BYTES, "Agent Worker"),
-  );
+  if (!result.ok) {
+    throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
+      details: { status: result.status },
+      retriable: result.retriable,
+    });
+  }
 }
 
 export async function revokeUserComposioConnectionPage(
@@ -188,33 +181,6 @@ export async function deleteR2ObjectPrefixBatch(
   return { deleted: keys.length, hasMore: listed.truncated };
 }
 
-async function internalMaintenanceHeaders(
-  env: AgentStateDeletionEnv,
-  pathname: string,
-  rawBody: string,
-): Promise<Headers> {
-  const secret = await requireAgentLifecycleSecret(env);
-  return agentLifecycleHeaders(secret, pathname, rawBody);
-}
-
-async function agentLifecycleHeaders(
-  secret: string,
-  pathname: string,
-  rawBody: string,
-): Promise<Headers> {
-  const headers = await createInternalMaintenanceHeaders({
-    audience: "agent",
-    capability: "agent-lifecycle",
-    issuer: "webhooks",
-    method: "POST",
-    pathname,
-    rawBody,
-    secret,
-  });
-  headers.set("content-type", "application/json");
-  return headers;
-}
-
 async function optionalSecret(
   secret: WorkerSecret | string | undefined,
   name: string,
@@ -241,8 +207,4 @@ function upstreamLifecycleError(message: string, error: unknown): APIError {
     cause: error,
     retriable: true,
   });
-}
-
-function isRetriableUpstreamStatus(status: number): boolean {
-  return status === 408 || status === 429 || status >= 500;
 }

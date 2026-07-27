@@ -16,6 +16,4 @@ export interface AgentRunEnv extends AnalyticsBindings {
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
   QUOTA_TRACKER: DurableObjectNamespace;
   R2_OUTPUTS: R2Bucket;
-  SKILL_RUNTIME_BASE_URL: string;
-  SKILL_RUNTIME_TOKEN_SECRET: WorkerSecret;
 }

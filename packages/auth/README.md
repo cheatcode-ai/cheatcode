@@ -14,8 +14,6 @@ Shared authentication and signed-capability protocols for Workers.
 - `assertHmacSecretStrength`
 - `MINIMUM_HMAC_SECRET_UTF8_BYTES` (32 bytes)
 - `timingSafeEqual`
-- `createInternalMaintenanceHeaders`
-- `verifyInternalMaintenanceRequest`
 - `mintPreviewCapability`
 - `verifyPreviewCapability`
 - `PreviewCapabilityError`
@@ -29,19 +27,6 @@ The shared verifier rejects legacy formats, oversized inputs, future-issued
 claims outside the protocol tolerance, and excessive lifetimes.
 Every shared HMAC operation rejects secrets shorter than 32 UTF-8 bytes before
 key import; configuration errors never include the secret value.
-
-Internal maintenance calls use only the `ccm2` protocol. The HMAC binds the
-issuer, audience, least-privilege capability, uppercase HTTP method, exact
-pathname, 13-digit millisecond timestamp, UUID nonce, and SHA-256 hash of the
-exact request body. The receiver separately pins the expected hostname, so
-Service Binding routes cannot be replayed through a public host. The verifier
-rejects queries, unknown or cross-boundary envelopes, second-based timestamps,
-legacy signatures, and requests outside the 30-second clock-skew window.
-
-The nonce provides cryptographic domain separation; it is not stored or
-consumed and therefore is not a single-use replay ledger. Every mutating `ccm2`
-route must be idempotent or validate an authoritative generation before changing
-state. Webhook replay additionally claims an exact durable command identity.
 
 Clerk user and JWKS reads use the documented Backend REST API with 10-second
 deadlines and pre-parse response ceilings. The canonical sync snapshot validates
@@ -62,8 +47,11 @@ pnpm --filter @cheatcode/auth lint
 
 ## Env
 
-Callers pass `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, `PREVIEW_TOKEN_SECRET`, or one
-of the three isolated `ccm2` capability keys from their validated Worker env:
-`GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET`,
-`WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET`, and `INTERNAL_WEBHOOK_REPLAY_SECRET`.
-No shared or legacy fallback exists.
+Callers pass `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, or
+`PREVIEW_TOKEN_SECRET` from their validated Worker env. Sandbox skill-runtime
+access uses random per-run opaque capabilities whose digests and exact scopes
+live on the tenant-scoped agent-run row shared by local and production Workers;
+this package owns their strict token format, generation, parsing, and
+constant-time digest verification.
+Worker-to-Worker destructive operations use named, scoped Cloudflare Service
+Bindings instead of an authentication protocol from this package.

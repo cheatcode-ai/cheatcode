@@ -1,5 +1,6 @@
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import type { AnalyticsBindings } from "@cheatcode/observability";
+import type { ResourceDeletionServiceBinding } from "@cheatcode/types";
 import type { Context, Hono } from "hono";
 import type { IdempotencyStore } from "./durable-objects/idempotency";
 import type { QuotaTracker } from "./durable-objects/quota-tracker";
@@ -18,7 +19,6 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   COMPOSIO_AUTH_CONFIGS?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
-  GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   IDEMPOTENCY: DurableObjectNamespace<IdempotencyStore>;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
@@ -30,6 +30,7 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   PREVIEW_PROXY?: Fetcher;
   QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
+  RESOURCE_DELETION: ResourceDeletionServiceBinding;
   WEBHOOKS: Fetcher;
 }
 

@@ -10,7 +10,6 @@ export default defineConfig({
   dbCredentials: {
     url: migrationEnv.databaseUrl,
   },
-  tablesFilter: ["!audit_log", "!v2_audit_log"],
   strict: true,
   verbose: true,
 });

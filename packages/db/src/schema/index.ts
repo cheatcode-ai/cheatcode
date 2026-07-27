@@ -8,6 +8,7 @@ export type {
 } from "./daily-maintenance-jobs";
 export { dailyMaintenanceJobs } from "./daily-maintenance-jobs";
 export { providerKeys, userIntegrations } from "./keys";
+export type { StoredSkillRuntimeCapability } from "./messages";
 export { agentRuns, messages } from "./messages";
 export { generatedOutputs } from "./outputs";
 export type { OnboardingStateValue } from "./profiles";

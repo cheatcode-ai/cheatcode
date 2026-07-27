@@ -10,7 +10,7 @@ import { hasToolCall, type ModelMessage, stepCountIs } from "ai";
 import { resolveWithAbortTimeout } from "./abort-timeout";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
-import { projectSkillRuntimeConfig } from "./agent-run-skill-runtime";
+import { SKILL_RUNTIME_CAPABILITY_ROTATION_MS } from "./agent-run-skill-runtime";
 import { resolveUserSkillContext } from "./agent-run-user-skills";
 import { readMastraChunk } from "./agent-run-utils";
 import { resolveAgentToolCredentials } from "./agent-tool-credentials";
@@ -50,6 +50,7 @@ export type MastraStreamOptions = {
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
   modelMessages: ModelMessage[];
+  projectSkillRuntimeConfig: () => Promise<void>;
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => void;
   workspaceResolver: WorkspaceResolver;
@@ -58,16 +59,17 @@ export type MastraStreamOptions = {
 };
 
 export async function runMastraStream(options: MastraStreamOptions): Promise<void> {
-  const prepared = await prepareMastraContext(options);
+  const stopCapabilityRotation = await startSkillRuntimeCapabilityRotation(options);
   const { abortController, cleanupAbortListener } = linkedAbortController(options.abortSignal);
-  options.setRunStage("Opening Mastra stream.");
-  options.logger.info("mastra_stream_opening", {
-    logicalModelId: options.credential.logicalModelId,
-    timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
-    transportModelId: options.credential.transportModelId,
-    transportProvider: options.credential.transportProvider,
-  });
   try {
+    const prepared = await prepareMastraContext(options);
+    options.setRunStage("Opening Mastra stream.");
+    options.logger.info("mastra_stream_opening", {
+      logicalModelId: options.credential.logicalModelId,
+      timeoutMs: MASTRA_FIRST_CHUNK_TIMEOUT_MS,
+      transportModelId: options.credential.transportModelId,
+      transportProvider: options.credential.transportProvider,
+    });
     const stream = await openMastraStream(options, prepared, abortController);
     if (stream === "timeout") {
       if (!options.abortSignal.aborted) {
@@ -91,15 +93,11 @@ export async function runMastraStream(options: MastraStreamOptions): Promise<voi
     });
   } finally {
     cleanupAbortListener();
+    await stopCapabilityRotation();
   }
 }
 
 async function prepareMastraContext(options: MastraStreamOptions): Promise<PreparedMastraContext> {
-  await projectSkillRuntimeConfig({
-    env: options.env,
-    run: options.input,
-    sandbox: options.sandbox,
-  });
   const toolCredentials = await resolveAgentToolCredentials({
     env: options.env,
     logger: options.logger,
@@ -118,6 +116,24 @@ async function prepareMastraContext(options: MastraStreamOptions): Promise<Prepa
     googleMediaConfigured: Boolean(toolCredentials.googleMediaApiKey),
   });
   return { ...userSkillContext, toolCredentials };
+}
+
+async function startSkillRuntimeCapabilityRotation(
+  options: MastraStreamOptions,
+): Promise<() => Promise<void>> {
+  await options.projectSkillRuntimeConfig();
+  let refreshTail = Promise.resolve();
+  const interval = setInterval(() => {
+    refreshTail = refreshTail
+      .then(() => options.projectSkillRuntimeConfig())
+      .catch((error: unknown) => {
+        options.logger.warn("skill_runtime_capability_rotation_failed", { error });
+      });
+  }, SKILL_RUNTIME_CAPABILITY_ROTATION_MS);
+  return async () => {
+    clearInterval(interval);
+    await refreshTail;
+  };
 }
 
 async function openMastraStream(

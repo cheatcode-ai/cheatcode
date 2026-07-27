@@ -1,8 +1,10 @@
 export { artifactUploadIntents } from "./artifact-upload-intents";
+export { auditLog } from "./audit";
 export { entitlements } from "./billing";
 export { deletedClerkIdentities } from "./clerk-deletions";
 export { dailyMaintenanceJobs } from "./daily-maintenance-jobs";
 export { providerKeys, userIntegrations } from "./keys";
+export type { StoredSkillRuntimeCapability } from "./messages";
 export { agentRuns, messages } from "./messages";
 export { generatedOutputs } from "./outputs";
 export { userProfiles } from "./profiles";

@@ -1,14 +1,10 @@
-import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
 import {
   type AnalyticsBindings,
-  APIError,
   createLogger,
   emitErrorEvent,
   redactSecrets,
 } from "@cheatcode/observability";
 import { z } from "zod";
-
-const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 
 const InternalAlertPayloadSchema = z
   .object({
@@ -32,14 +28,7 @@ const InternalAlertPayloadSchema = z
 
 export type InternalAlertPayload = z.infer<typeof InternalAlertPayloadSchema>;
 
-export interface InternalAlertVerificationInput {
-  rawBody: string;
-  secret: string;
-  signature: string | null;
-  timestamp: string | null;
-}
-
-interface VerifiedInternalAlert extends InternalAlertPayload {
+export interface VerifiedInternalAlert extends InternalAlertPayload {
   alertId: string;
 }
 
@@ -47,21 +36,9 @@ export const VerifiedInternalAlertSchema = InternalAlertPayloadSchema.extend({
   alertId: z.string().trim().min(1).max(160),
 });
 
-export async function verifyInternalAlert(
-  input: InternalAlertVerificationInput,
-): Promise<VerifiedInternalAlert> {
-  if (!input.timestamp || !input.signature) {
-    throw invalidInternalAlertSignature("Missing internal alert signature headers");
-  }
-  assertFreshTimestamp(input.timestamp);
-
-  const expected = await hmacSha256Base64(`${input.timestamp}.${input.rawBody}`, input.secret);
-  if (!timingSafeEqual(signaturePayload(input.signature), expected)) {
-    throw invalidInternalAlertSignature("Invalid internal alert signature");
-  }
-
-  const parsedJson = parseJson(input.rawBody);
-  const payload = InternalAlertPayloadSchema.parse(redactSecrets(parsedJson));
+/** Validate and redact a Worker-owned alert before durable ingestion. */
+export function prepareInternalAlert(input: InternalAlertPayload): VerifiedInternalAlert {
+  const payload = InternalAlertPayloadSchema.parse(redactSecrets(input));
   return VerifiedInternalAlertSchema.parse({
     ...payload,
     alertId: payload.id,
@@ -98,31 +75,4 @@ export function recordInternalAlert(env: AnalyticsBindings, alert: VerifiedInter
     ...(alert.runId ? { runId: alert.runId } : {}),
     ...(alert.userId ? { userId: alert.userId } : {}),
   });
-}
-
-function invalidInternalAlertSignature(message: string): APIError {
-  return new APIError(401, "auth_token_invalid", message, { retriable: false });
-}
-
-function assertFreshTimestamp(value: string): void {
-  const rawTimestamp = Number(value);
-  const timestampMs = rawTimestamp > 1_000_000_000_000 ? rawTimestamp : rawTimestamp * 1000;
-  if (!Number.isFinite(timestampMs) || Math.abs(Date.now() - timestampMs) > MAX_CLOCK_SKEW_MS) {
-    throw invalidInternalAlertSignature("Stale internal alert timestamp");
-  }
-}
-
-function signaturePayload(signature: string): string {
-  const parts = signature.split(",");
-  return parts.length > 1 ? (parts[1] ?? "") : signature;
-}
-
-function parseJson(rawBody: string): unknown {
-  try {
-    return JSON.parse(rawBody) as unknown;
-  } catch {
-    throw new APIError(400, "invalid_request_body", "Internal alert body must be JSON", {
-      retriable: false,
-    });
-  }
 }

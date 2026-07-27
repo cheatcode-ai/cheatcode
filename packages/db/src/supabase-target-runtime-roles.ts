@@ -177,6 +177,7 @@ const COLUMN_GRANT_GROUPS: readonly ColumnGrantGroup[] = [
     "idempotency_key_hash",
     "model_id",
     "request_body_hash",
+    "skill_runtime_capabilities",
     "status",
     "thread_id",
     "user_id",
@@ -335,7 +336,12 @@ const COLUMN_GRANT_GROUPS: readonly ColumnGrantGroup[] = [
     "project_id",
     "updated_at",
   ]),
-  columnGrant("UPDATE", "app_agent", "v2_agent_runs", ["finished_at", "model_id", "status"]),
+  columnGrant("UPDATE", "app_agent", "v2_agent_runs", [
+    "finished_at",
+    "model_id",
+    "skill_runtime_capabilities",
+    "status",
+  ]),
   columnGrant("UPDATE", "app_agent", "v2_artifact_upload_intents", [
     "cleanup_not_before",
     "quiesced_at",

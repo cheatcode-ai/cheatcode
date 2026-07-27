@@ -205,6 +205,7 @@ export type {
   ResourceDeletionKind,
   ResourceDeletionPhase,
   ResourceDeletionStatus,
+  StoredSkillRuntimeCapability,
   UserDeletionPhase,
   UserDeletionRefundProviderStatus,
   UserDeletionStatus,
@@ -216,6 +217,11 @@ export type {
   WorkspaceThreadSearchRecord,
 } from "./search";
 export { listRecentThreads, searchWorkspace } from "./search";
+export type { SkillRuntimeCapabilityAuthorization } from "./skill-runtime-capabilities";
+export {
+  authorizeSkillRuntimeCapability,
+  rotateSkillRuntimeCapabilities,
+} from "./skill-runtime-capabilities";
 export type {
   UpsertUserSkillInput,
   UserSkillRecord,

@@ -8,7 +8,6 @@ import {
   TABLE_CONTRACTS,
   type TableContract,
 } from "./supabase-target-contracts";
-import { validateAuditArchiveManifest } from "./supabase-target-ledger";
 import { validateProductionSecurityTarget } from "./supabase-target-security";
 
 interface QueryResult {
@@ -49,7 +48,6 @@ async function validateSupabaseTarget(client: PgClient): Promise<string[]> {
     ...(await validateIntegrityConstraints(client)),
     ...(await validateCanonicalProjectWorkspaces(client)),
     ...(await validateIntegrityIndexes(client)),
-    ...(await validateAuditArchiveManifest(client)),
     ...(await validateFirstArtifactMilestone(client)),
   ];
 }
@@ -76,10 +74,7 @@ async function validateFirstArtifactMilestone(client: PgClient): Promise<string[
 function validateTableSet(publicTableNames: ReadonlySet<string>): string[] {
   const expected = new Set(TABLE_CONTRACTS.map(({ tableName }) => tableName));
   return [...publicTableNames]
-    .filter(
-      (tableName) =>
-        !expected.has(tableName) && !/^v2_audit_log_\d{4}_(0[1-9]|1[0-2])$/u.test(tableName),
-    )
+    .filter((tableName) => !expected.has(tableName))
     .map((tableName) => `Unexpected table public.${tableName} must be removed.`);
 }
 

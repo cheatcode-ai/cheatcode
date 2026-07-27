@@ -1,7 +1,3 @@
-import {
-  assertInternalMaintenanceEnvelope,
-  verifyInternalMaintenanceRequest,
-} from "@cheatcode/auth";
 import type { HyperdriveConnection } from "@cheatcode/db";
 import {
   type CloudflareVersionMetadata,
@@ -20,60 +16,36 @@ import {
   toAPIError,
   withErrorHandler,
 } from "@cheatcode/observability";
-import {
-  INTERNAL_RESOURCE_DELETION_PATH,
-  InternalResourceDeletionRequestSchema,
-} from "@cheatcode/types";
+import type { AgentLifecycleServiceBinding } from "@cheatcode/types";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { Hono } from "hono";
-import { z } from "zod";
 import { verifyComposioWebhook } from "./composio";
 import {
   enqueueDailyMaintenance,
   reconcileDailyMaintenanceWorkflows,
 } from "./daily-maintenance-admission";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
-import { internalAlertEventId, verifyInternalAlert } from "./internal-alert";
-import {
-  assertWebhookReplayHostname,
-  assertWebhooksServiceHostname,
-  requireResourceDeletionSecret,
-  requireWebhookReplaySecret,
-} from "./internal-maintenance";
 import {
   enqueueAnalyticsWatchdog,
   enqueueByokRevalidation,
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
+import { ResourceDeletionEntrypoint } from "./resource-deletion-entrypoint";
 import {
-  enqueueResourceDeletionWorkflow,
   ResourceDeletionWorkflow,
   type ResourceDeletionWorkflowBindings,
   reconcileResourceDeletionWorkflows,
 } from "./resource-deletion-workflow";
 import { admitDueUserDeletionWorkflows } from "./user-deletion-admission";
-import {
-  acceptWebhookEvent,
-  claimInternalWebhookReplay,
-  completeWebhookEvent,
-  getWebhookEventStatus,
-  releaseInternalWebhookReplay,
-  releaseWebhookEvent,
-  type WebhookIdempotencyBindings,
-  WebhookIdempotencyStore,
-  WebhookProviderSchema,
-} from "./webhook-idempotency";
-import {
-  enqueueVerifiedWebhook,
-  WebhookWorkflow,
-  type WebhookWorkflowBindings,
-  type WebhookWorkflowPayload,
-} from "./webhook-workflow";
+import { type WebhookIdempotencyBindings, WebhookIdempotencyStore } from "./webhook-idempotency";
+import { acceptAndEnqueueWebhook } from "./webhook-ingress";
+import { WebhookWorkflow, type WebhookWorkflowBindings } from "./webhook-workflow";
 
 export {
   OpsMaintenanceWorkflow,
+  ResourceDeletionEntrypoint,
   ResourceDeletionWorkflow,
   WebhookIdempotencyStore,
   WebhookWorkflow,
@@ -88,7 +60,7 @@ export interface WebhooksEnv
     OpsWorkflowBindings,
     ResourceDeletionWorkflowBindings,
     WebhookWorkflowBindings {
-  AGENT: Fetcher;
+  AGENT_LIFECYCLE: AgentLifecycleServiceBinding;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
@@ -100,11 +72,7 @@ export interface WebhooksEnv
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecret;
   ENTITLEMENTS_CACHE: KVNamespace;
-  GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecret;
   HYPERDRIVE: HyperdriveConnection;
-  INTERNAL_ALERT_WEBHOOK_SECRET?: WorkerSecret;
-  INTERNAL_ALERT_WEBHOOK_URL?: string;
-  INTERNAL_WEBHOOK_REPLAY_SECRET: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
   POLAR_PRODUCT_ID_MAX?: string;
   POLAR_PRODUCT_ID_PREMIUM?: string;
@@ -117,7 +85,6 @@ export interface WebhooksEnv
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
   SANDBOX_STATE?: KVNamespace;
-  WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecret;
 }
 
 function requestId(): string {
@@ -181,25 +148,6 @@ async function composioWebhookSecret(env: WebhooksEnv): Promise<string> {
   return secret;
 }
 
-async function internalAlertWebhookSecret(env: WebhooksEnv): Promise<string> {
-  const secret = await readOptionalSecret(
-    env.INTERNAL_ALERT_WEBHOOK_SECRET,
-    "INTERNAL_ALERT_WEBHOOK_SECRET",
-  );
-  if (!secret) {
-    throw new APIError(
-      503,
-      "unavailable_maintenance",
-      "Internal alert verification is not configured",
-      {
-        hint: "Set INTERNAL_ALERT_WEBHOOK_SECRET on the webhooks Worker.",
-        retriable: false,
-      },
-    );
-  }
-  return secret;
-}
-
 async function readOptionalSecret(
   secret: WorkerSecret | undefined,
   name: string,
@@ -215,13 +163,6 @@ async function readOptionalSecret(
 }
 
 export const webhooksApp = new Hono<{ Bindings: WebhooksEnv }>();
-
-const WebhookReplaySchema = z
-  .object({
-    eventId: z.string().min(1).max(512),
-    provider: WebhookProviderSchema,
-  })
-  .strict();
 
 webhooksApp.onError((error, c) => {
   const id = c.req.header("X-Request-Id") ?? requestId();
@@ -386,190 +327,6 @@ webhooksApp.post("/daytona", async (c) => {
   return c.json({ ok: true, ...result });
 });
 
-webhooksApp.post("/internal/webhooks/replay", async (c) => {
-  assertWebhookReplayHostname(c.req.raw, c.env.CHEATCODE_ENVIRONMENT);
-  assertInternalMaintenanceEnvelope(c.req.raw, {
-    audience: "webhooks",
-    capability: "webhook-replay",
-    issuer: "operator",
-  });
-  const rawBody = await readBoundedRequestText(
-    c.req.raw,
-    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
-    "Webhook replay",
-  );
-  await verifyInternalMaintenanceRequest({
-    expectedAudience: "webhooks",
-    expectedCapability: "webhook-replay",
-    expectedIssuer: "operator",
-    expectedMethod: "POST",
-    expectedPathname: "/internal/webhooks/replay",
-    rawBody,
-    request: c.req.raw,
-    secret: await requireWebhookReplaySecret(c.env),
-  });
-  const replay = WebhookReplaySchema.parse(parseJsonBody(rawBody, "Webhook replay"));
-  const timestamp = c.req.header("x-cheatcode-maintenance-timestamp");
-  if (!timestamp) {
-    throw new APIError(401, "auth_token_invalid", "Missing internal maintenance timestamp", {
-      retriable: false,
-    });
-  }
-  const command = await claimInternalWebhookReplay(c.env, { rawBody, timestamp });
-  if (!command.claimed) {
-    return c.json({ duplicate: true, ok: true, replayed: false, status: "duplicate" });
-  }
-  try {
-    return await replayWebhookEvent(c.env, replay);
-  } catch (error) {
-    await releaseInternalWebhookReplay(c.env, command.commandId);
-    throw error;
-  }
-});
-
-webhooksApp.post(INTERNAL_RESOURCE_DELETION_PATH, async (c) => {
-  assertWebhooksServiceHostname(c.req.raw);
-  assertInternalMaintenanceEnvelope(c.req.raw, {
-    audience: "webhooks",
-    capability: "resource-deletion",
-    issuer: "gateway",
-  });
-  const rawBody = await readBoundedRequestText(
-    c.req.raw,
-    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
-    "Resource deletion request",
-  );
-  await verifyInternalMaintenanceRequest({
-    expectedAudience: "webhooks",
-    expectedCapability: "resource-deletion",
-    expectedIssuer: "gateway",
-    expectedMethod: "POST",
-    expectedPathname: INTERNAL_RESOURCE_DELETION_PATH,
-    rawBody,
-    request: c.req.raw,
-    secret: await requireResourceDeletionSecret(c.env),
-  });
-  const payload = InternalResourceDeletionRequestSchema.parse(
-    parseJsonBody(rawBody, "Resource deletion request"),
-  );
-  const jobId = await enqueueResourceDeletionWorkflow(c.env, payload);
-  return c.json({ jobId, ok: true }, 202);
-});
-
-async function replayWebhookEvent(env: WebhooksEnv, replay: z.infer<typeof WebhookReplaySchema>) {
-  const record = await getWebhookEventStatus(env, replay);
-  if (!record) {
-    throw new APIError(404, "not_found_run", "Webhook event state was not found", {
-      retriable: false,
-    });
-  }
-  if (!record.workflowId) {
-    throw new APIError(409, "conflict_state_invalid", "Webhook event has no Workflow instance", {
-      retriable: false,
-    });
-  }
-
-  const instance = await env.WEBHOOK_WORKFLOW.get(record.workflowId);
-  const workflowStatus = await instance.status();
-  if (workflowStatus.status === "complete") {
-    await completeWebhookEvent(env, {
-      bodyHash: record.bodyHash,
-      eventId: record.eventId,
-      provider: record.provider,
-      workflowId: record.workflowId,
-    });
-    return Response.json({ ok: true, replayed: false, status: "complete" });
-  }
-  if (workflowStatus.status === "errored" || workflowStatus.status === "terminated") {
-    await instance.restart();
-    return Response.json(
-      { ok: true, replayed: true, status: workflowStatus.status },
-      { status: 202 },
-    );
-  }
-  if (workflowStatus.status === "paused") {
-    await instance.resume();
-    return Response.json({ ok: true, replayed: true, status: "paused" }, { status: 202 });
-  }
-  if (workflowStatus.status === "unknown") {
-    throw new APIError(503, "unavailable_maintenance", "Webhook Workflow status is unknown", {
-      retriable: true,
-    });
-  }
-  return Response.json(
-    { ok: true, replayed: false, status: workflowStatus.status },
-    { status: 202 },
-  );
-}
-
-webhooksApp.post("/internal/alert", async (c) => {
-  const rawBody = await readBoundedRequestText(
-    c.req.raw,
-    MAX_INTERNAL_WEBHOOK_BODY_BYTES,
-    "Internal alert",
-  );
-  const secret = await internalAlertWebhookSecret(c.env);
-  const alert = await verifyInternalAlert({
-    rawBody,
-    secret,
-    signature: c.req.header("x-cheatcode-alert-signature") ?? null,
-    timestamp: c.req.header("x-cheatcode-alert-timestamp") ?? null,
-  });
-  const result = await acceptAndEnqueueWebhook(c.env, {
-    event: alert,
-    eventId: await internalAlertEventId(rawBody),
-    provider: "internal-alert",
-    rawBody,
-  });
-  return c.json({ ok: true, alertId: alert.alertId, severity: alert.severity, ...result });
-});
-
-type VerifiedWebhookInput = Pick<WebhookWorkflowPayload, "event" | "eventId" | "provider"> & {
-  rawBody: string;
-};
-
-interface EnqueuedWebhookResponse {
-  duplicate: boolean;
-  workflowId?: string;
-}
-
-async function acceptAndEnqueueWebhook(
-  env: WebhooksEnv,
-  input: VerifiedWebhookInput,
-): Promise<EnqueuedWebhookResponse> {
-  const accepted = await acceptWebhookEvent(env, input);
-  // An accepted row can outlive a Worker crash between the DO write and Workflow creation.
-  // Re-enqueueing that state is safe because the Workflow id is deterministic.
-  if (accepted.action === "duplicate" && accepted.state !== "accepted") {
-    return { duplicate: true };
-  }
-  try {
-    const workflow = await enqueueVerifiedWebhook(env, {
-      acceptedAt: accepted.acceptedAt,
-      bodyHash: accepted.bodyHash,
-      event: input.event,
-      eventId: input.eventId,
-      provider: input.provider,
-    });
-    if (workflow.status === "complete") {
-      await completeWebhookEvent(env, {
-        bodyHash: accepted.bodyHash,
-        eventId: input.eventId,
-        provider: input.provider,
-        workflowId: workflow.id,
-      });
-    }
-    return { duplicate: accepted.action === "duplicate", workflowId: workflow.id };
-  } catch (error) {
-    await releaseWebhookEvent(env, {
-      bodyHash: accepted.bodyHash,
-      eventId: input.eventId,
-      provider: input.provider,
-    });
-    throw error;
-  }
-}
-
 function requiredHeader(headers: Headers, name: string, provider: string): string {
   const value = headers.get(name)?.trim();
   if (!value) {
@@ -579,19 +336,6 @@ function requiredHeader(headers: Headers, name: string, provider: string): strin
     });
   }
   return value;
-}
-
-function parseJsonBody(rawBody: string, label: string): unknown {
-  try {
-    return JSON.parse(rawBody) as unknown;
-  } catch (error) {
-    if (!(error instanceof SyntaxError)) {
-      throw error;
-    }
-    throw new APIError(400, "invalid_request_body", `${label} body must be valid JSON`, {
-      retriable: false,
-    });
-  }
 }
 
 function routeName(request: Request): string {

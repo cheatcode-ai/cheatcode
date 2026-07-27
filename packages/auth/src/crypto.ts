@@ -26,11 +26,6 @@ export async function hmacSha256Base64Url(message: string, secret: string): Prom
   return base64UrlFromBytes(await hmacSha256(message, secret));
 }
 
-export async function sha256Base64Url(message: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", TEXT_ENCODER.encode(message));
-  return base64UrlFromBytes(new Uint8Array(digest));
-}
-
 export function timingSafeEqual(left: string, right: string): boolean {
   const leftBytes = TEXT_ENCODER.encode(left);
   const rightBytes = TEXT_ENCODER.encode(right);

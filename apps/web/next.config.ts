@@ -19,18 +19,18 @@ for (const key of Object.keys(loadedRootEnvironment.parsedEnv ?? {})) {
   }
 }
 
-const vercelGitCommitSha = process.env["VERCEL_GIT_COMMIT_SHA"];
-if (
-  process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"] === undefined &&
-  vercelGitCommitSha !== undefined
-) {
-  process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"] = vercelGitCommitSha;
+const isVercelBuild =
+  process.env["VERCEL_ENV"] !== undefined || process.env["VERCEL_TARGET_ENV"] !== undefined;
+const releaseSha =
+  process.env["VERCEL_GIT_COMMIT_SHA"] ?? (isVercelBuild ? undefined : "development");
+if (releaseSha === undefined) {
+  throw new Error("Vercel builds require the system-provided VERCEL_GIT_COMMIT_SHA.");
 }
+process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"] = releaseSha;
 
 const WEB_BUILD_ENVIRONMENT = parseWebBuildEnvironment({
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: process.env["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"],
   NEXT_PUBLIC_GATEWAY_URL: process.env["NEXT_PUBLIC_GATEWAY_URL"],
-  NEXT_PUBLIC_PREVIEW_HOSTNAME: process.env["NEXT_PUBLIC_PREVIEW_HOSTNAME"],
   NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA: process.env["NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA"],
   VERCEL_ENV: process.env["VERCEL_ENV"],
   VERCEL_TARGET_ENV: process.env["VERCEL_TARGET_ENV"],

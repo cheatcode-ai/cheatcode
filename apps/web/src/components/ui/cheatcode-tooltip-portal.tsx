@@ -1,6 +1,6 @@
 "use client";
 
-import { useSyncExternalStore } from "react";
+import { type CSSProperties, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { createPortal } from "react-dom";
 import { type TooltipSide, tooltipStyle } from "@/components/ui/cheatcode-tooltip-position";
 import { cn } from "@/lib/ui/cn";
@@ -51,15 +51,36 @@ function TooltipContent({
   shortcutKeys: readonly string[];
   side: TooltipSide;
 }) {
+  const contentRef = useRef<HTMLSpanElement | null>(null);
+  const [position, setPosition] = useState<CSSProperties | null>(null);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content) {
+      return;
+    }
+    const updatePosition = () => {
+      setPosition(
+        tooltipStyle(rect, side, {
+          height: content.offsetHeight,
+          width: content.offsetWidth,
+        }),
+      );
+    };
+    updatePosition();
+    const resizeObserver = new ResizeObserver(updatePosition);
+    resizeObserver.observe(content);
+    return () => resizeObserver.disconnect();
+  }, [rect, side]);
   return (
     <span
       className={cn(
-        "fade-in-0 zoom-in-95 pointer-events-none fixed z-[100] w-fit max-w-[320px] animate-in overflow-hidden whitespace-nowrap rounded-[6px] border border-fg-inverse/10 bg-bg-inverse py-1 pl-2 font-semibold text-[10.5px] text-fg-inverse leading-[15.75px] shadow-none duration-150",
+        "fade-in-0 zoom-in-95 pointer-events-none fixed z-[100] w-fit max-w-[min(320px,calc(100vw-16px))] animate-in overflow-hidden whitespace-nowrap rounded-[6px] border border-fg-inverse/10 bg-bg-inverse py-1 pl-2 font-semibold text-[10.5px] text-fg-inverse leading-[15.75px] shadow-none transition-none duration-150 motion-reduce:animate-none",
         shortcutKeys.length > 0 ? "pr-1" : "pr-2",
       )}
       id={id}
+      ref={contentRef}
       role="tooltip"
-      style={tooltipStyle(rect, side)}
+      style={position ?? { left: 0, top: 0, visibility: "hidden" }}
     >
       <span className="flex min-w-0 items-center gap-2 whitespace-nowrap">
         <span className="block min-w-0 truncate">{label}</span>

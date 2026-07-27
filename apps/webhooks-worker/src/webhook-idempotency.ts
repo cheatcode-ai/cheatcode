@@ -5,12 +5,12 @@ import {
   assertWebhookIdempotencyStorage,
   hasWebhookIdempotencyStorage,
   initializeWebhookIdempotencyStorage,
+  removeRetiredInternalCommandStorage,
 } from "./webhook-idempotency-storage";
 
 const WEBHOOK_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const WEBHOOK_FAILURE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WEBHOOK_LEASE_MS = 15 * 60 * 1000;
-const INTERNAL_COMMAND_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 const SANDBOX_STATE_TTL_SECONDS = 24 * 60 * 60;
 const SANDBOX_STATE_TTL_MS = SANDBOX_STATE_TTL_SECONDS * 1000;
 const MAX_IDEMPOTENCY_REQUEST_BYTES = 8 * 1024;
@@ -62,11 +62,6 @@ const FailWebhookSchema = z.object({
   workflowId: z.string().min(1).max(512),
 });
 
-const WebhookStatusInputSchema = z.object({
-  eventId: z.string().min(1).max(512),
-  provider: WebhookProviderSchema,
-});
-
 const ReleaseWebhookSchema = z.object({
   bodyHash: BodyHashSchema,
   eventId: z.string().min(1).max(512),
@@ -88,17 +83,6 @@ const DaytonaStateUpdateResultSchema = z.object({
   updated: z.boolean(),
 });
 
-const InternalCommandIdSchema = z.object({
-  commandId: BodyHashSchema,
-});
-
-const InternalCommandSchema = InternalCommandIdSchema.extend({
-  expiresAt: z.number().int().nonnegative(),
-  now: z.number().int().nonnegative(),
-});
-
-const InternalCommandResultSchema = z.object({ claimed: z.boolean() });
-
 const BeginWebhookResultSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("proceed"), acceptedAt: z.number().int().nonnegative() }),
   z.object({
@@ -108,18 +92,6 @@ const BeginWebhookResultSchema = z.discriminatedUnion("action", [
   }),
   z.object({ action: z.literal("reused") }),
 ]);
-
-const WebhookStatusSchema = z
-  .object({
-    attempts: z.number().int().nonnegative(),
-    bodyHash: BodyHashSchema,
-    eventId: z.string().min(1).max(512),
-    failureCode: z.string().nullable(),
-    provider: WebhookProviderSchema,
-    state: z.enum(["accepted", "running", "processed", "failed"]),
-    workflowId: z.string().nullable(),
-  })
-  .nullable();
 
 export type WebhookProvider = z.infer<typeof WebhookProviderSchema>;
 type BeginWebhookResult = z.infer<typeof BeginWebhookResultSchema>;
@@ -198,9 +170,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       await this.fail(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
     }
-    if (url.pathname === "/status") {
-      return Response.json(await this.status(await readIdempotencyRequest(request)));
-    }
     if (url.pathname === "/release") {
       await this.release(await readIdempotencyRequest(request));
       return Response.json({ ok: true });
@@ -210,15 +179,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       const result = await this.ctx.blockConcurrencyWhile(() => this.updateDaytonaState(value));
       return Response.json(result);
     }
-    if (url.pathname === "/claim-command") {
-      return Response.json({
-        claimed: await this.claimInternalCommand(await readIdempotencyRequest(request)),
-      });
-    }
-    if (url.pathname === "/release-command") {
-      await this.releaseInternalCommand(await readIdempotencyRequest(request));
-      return Response.json({ ok: true });
-    }
     return new Response("Not found", { status: 404 });
   }
 
@@ -227,6 +187,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       await this.ctx.storage.deleteAlarm();
       return;
     }
+    removeRetiredInternalCommandStorage(this.ctx);
     this.isStorageInitialized = true;
     this.deleteExpired(Date.now());
     const nextExpiry = this.nextExpiry();
@@ -346,28 +307,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     await this.cleanupIfEmpty();
   }
 
-  private async status(value: unknown): Promise<z.infer<typeof WebhookStatusSchema>> {
-    const input = WebhookStatusInputSchema.parse(value);
-    this.ensureStorage();
-    this.deleteExpired(Date.now());
-    const row = this.readRow(webhookEventKey(input.provider, input.eventId));
-    const result = WebhookStatusSchema.parse(
-      row
-        ? {
-            attempts: row.attempts,
-            bodyHash: row.body_hash,
-            eventId: input.eventId,
-            failureCode: row.last_error,
-            provider: input.provider,
-            state: row.state,
-            workflowId: row.workflow_id,
-          }
-        : null,
-    );
-    await this.cleanupIfEmpty();
-    return result;
-  }
-
   private async release(value: unknown): Promise<void> {
     const input = ReleaseWebhookSchema.parse(value);
     this.ensureStorage();
@@ -377,33 +316,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       webhookEventKey(input.provider, input.eventId),
       input.bodyHash,
     );
-    await this.cleanupIfEmpty();
-  }
-
-  private async claimInternalCommand(value: unknown): Promise<boolean> {
-    const input = InternalCommandSchema.parse(value);
-    this.ensureStorage();
-    this.deleteExpired(input.now);
-    const [existing] = this.ctx.storage.sql
-      .exec("SELECT command_id FROM internal_command WHERE command_id = ?", input.commandId)
-      .toArray();
-    if (existing) {
-      await this.cleanupIfEmpty();
-      return false;
-    }
-    this.ctx.storage.sql.exec(
-      "INSERT INTO internal_command (command_id, expires_at) VALUES (?, ?)",
-      input.commandId,
-      input.expiresAt,
-    );
-    await this.ensureAlarm(input.expiresAt);
-    return true;
-  }
-
-  private async releaseInternalCommand(value: unknown): Promise<void> {
-    const input = InternalCommandIdSchema.parse(value);
-    this.ensureStorage();
-    this.ctx.storage.sql.exec("DELETE FROM internal_command WHERE command_id = ?", input.commandId);
     await this.cleanupIfEmpty();
   }
 
@@ -463,7 +375,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
   private deleteExpired(now: number): void {
     this.ctx.storage.sql.exec("DELETE FROM webhook_event WHERE expires_at <= ?", now);
     this.ctx.storage.sql.exec("DELETE FROM daytona_sandbox_state WHERE expires_at <= ?", now);
-    this.ctx.storage.sql.exec("DELETE FROM internal_command WHERE expires_at <= ?", now);
   }
 
   private nextExpiry(): number | null {
@@ -474,8 +385,6 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
            SELECT MIN(expires_at) AS next_expiry FROM webhook_event
            UNION ALL
            SELECT MIN(expires_at) AS next_expiry FROM daytona_sandbox_state
-           UNION ALL
-           SELECT MIN(expires_at) AS next_expiry FROM internal_command
          )`,
       )
       .toArray();
@@ -494,6 +403,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
       return;
     }
     if (hasWebhookIdempotencyStorage(this.ctx)) {
+      removeRetiredInternalCommandStorage(this.ctx);
       assertWebhookIdempotencyStorage(this.ctx);
     } else {
       initializeWebhookIdempotencyStorage(this.ctx);
@@ -575,17 +485,6 @@ export async function failWebhookEvent(
   });
 }
 
-export async function getWebhookEventStatus(
-  env: WebhookIdempotencyBindings,
-  input: { eventId: string; provider: WebhookProvider },
-): Promise<z.infer<typeof WebhookStatusSchema>> {
-  const response = await idempotencyStub(env, input).fetch("https://webhook-idempotency/status", {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
-  return parseIdempotencyResponse(response, WebhookStatusSchema);
-}
-
 /** Persist a Daytona lifecycle transition in event-time order before exposing it via KV. */
 export async function updateDaytonaSandboxState(
   env: WebhookIdempotencyBindings,
@@ -599,35 +498,6 @@ export async function updateDaytonaSandboxState(
     method: "POST",
   });
   return (await parseIdempotencyResponse(response, DaytonaStateUpdateResultSchema)).updated;
-}
-
-export async function claimInternalWebhookReplay(
-  env: WebhookIdempotencyBindings,
-  input: { rawBody: string; timestamp: string },
-): Promise<{ claimed: boolean; commandId: string }> {
-  const commandId = await sha256Hex(`webhook-replay\n${input.timestamp}\n${input.rawBody}`);
-  const stub = internalCommandStub(env, commandId);
-  const now = Date.now();
-  const response = await stub.fetch("https://webhook-idempotency/claim-command", {
-    body: JSON.stringify({ commandId, expiresAt: now + INTERNAL_COMMAND_TTL_MS, now }),
-    method: "POST",
-  });
-  const { claimed } = await parseIdempotencyResponse(response, InternalCommandResultSchema);
-  return { claimed, commandId };
-}
-
-export async function releaseInternalWebhookReplay(
-  env: WebhookIdempotencyBindings,
-  commandId: string,
-): Promise<void> {
-  const response = await internalCommandStub(env, commandId).fetch(
-    "https://webhook-idempotency/release-command",
-    {
-      body: JSON.stringify({ commandId }),
-      method: "POST",
-    },
-  );
-  await discardIdempotencyResponse(response);
 }
 
 export async function releaseWebhookEvent(
@@ -647,15 +517,6 @@ function idempotencyStub(
 ): DurableObjectStub<WebhookIdempotencyStore> {
   const eventKey = webhookEventKey(input.provider, input.eventId);
   return env.WEBHOOK_IDEMPOTENCY.get(env.WEBHOOK_IDEMPOTENCY.idFromName(eventKey));
-}
-
-function internalCommandStub(
-  env: WebhookIdempotencyBindings,
-  commandId: string,
-): DurableObjectStub<WebhookIdempotencyStore> {
-  return env.WEBHOOK_IDEMPOTENCY.get(
-    env.WEBHOOK_IDEMPOTENCY.idFromName(`internal-command:${commandId}`),
-  );
 }
 
 async function postIdempotency(

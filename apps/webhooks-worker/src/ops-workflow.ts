@@ -16,6 +16,7 @@ import {
   UserDeletionPayloadSchema,
 } from "./user-deletion-admission";
 import { processUserDeletionChunk } from "./user-deletion-workflow";
+import type { WebhookIngressBindings } from "./webhook-ingress";
 import { createDeterministicWorkflow } from "./workflow-instance";
 
 const OpsMaintenancePayloadSchema = z.union([
@@ -38,7 +39,11 @@ export interface OpsWorkflowBindings {
   OPS_WORKFLOW: Workflow<OpsMaintenancePayload>;
 }
 
-interface OpsWorkflowEnv extends AnalyticsBindings, LifecycleEnv, OpsWorkflowBindings {
+interface OpsWorkflowEnv
+  extends AnalyticsBindings,
+    LifecycleEnv,
+    OpsWorkflowBindings,
+    WebhookIngressBindings {
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
@@ -46,8 +51,6 @@ interface OpsWorkflowEnv extends AnalyticsBindings, LifecycleEnv, OpsWorkflowBin
   CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   HYPERDRIVE: HyperdriveConnection;
-  INTERNAL_ALERT_WEBHOOK_SECRET?: WorkerSecret;
-  INTERNAL_ALERT_WEBHOOK_URL?: string;
 }
 
 export class OpsMaintenanceWorkflow extends WorkflowEntrypoint<

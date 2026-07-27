@@ -1,11 +1,11 @@
 "use client";
 
-import { env } from "@cheatcode/env/web";
+import { PREVIEW_HOSTNAME } from "@cheatcode/env/web";
 import { useEffect, useState } from "react";
 
 const PREVIEW_SESSION_PATH = "/.well-known/cheatcode-preview-session";
 const PREVIEW_TOKEN_QUERY = "__cc_pt";
-const PREVIEW_HOST_SUFFIX = `.${env.NEXT_PUBLIC_PREVIEW_HOSTNAME}`;
+const PREVIEW_HOST_SUFFIX = `.${PREVIEW_HOSTNAME}`;
 const PREVIEW_HOST_LABEL = /^[a-z0-9]+(?:-[a-z0-9]+)*--\d{1,5}$/u;
 
 interface StablePreviewSource {
@@ -74,8 +74,7 @@ function previewSessionRefreshUrl(previewUrl: string | null): string | null {
 
 function isPreviewProtocol(url: URL): boolean {
   return (
-    url.protocol === "https:" ||
-    (env.NEXT_PUBLIC_PREVIEW_HOSTNAME === "localhost" && url.protocol === "http:")
+    url.protocol === "https:" || (PREVIEW_HOSTNAME === "localhost" && url.protocol === "http:")
   );
 }
 

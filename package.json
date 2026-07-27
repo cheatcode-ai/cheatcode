@@ -17,7 +17,6 @@
   },
   "scripts": {
     "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",
-    "audit:archive": "tsx scripts/archive-audit-log.ts",
     "build": "turbo build",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "turbo db:generate",

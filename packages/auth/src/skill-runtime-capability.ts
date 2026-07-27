@@ -1,17 +1,15 @@
 import { z } from "zod";
-import { hmacSha256Base64Url, timingSafeEqual } from "./crypto";
+import { timingSafeEqual } from "./crypto";
 
-export const SKILL_RUNTIME_CAPABILITY_MAX_TTL_MS = 65 * 60_000;
+export const SKILL_RUNTIME_CAPABILITY_TTL_MS = 15 * 60_000;
 
-const CAPABILITY_PREFIX = "ccs1";
-const CAPABILITY_VERSION = 1;
-const MAX_FUTURE_ISSUED_AT_MS = 5_000;
-const MAX_TOKEN_LENGTH = 4_096;
-const MAX_ENCODED_PAYLOAD_LENGTH = 3_072;
-const MAX_DECODED_PAYLOAD_BYTES = 2_304;
+const CAPABILITY_PREFIX = "ccr1";
+const CAPABILITY_TOKEN_ID_BYTES = 16;
+const CAPABILITY_SECRET_BYTES = 32;
+const CAPABILITY_TOKEN_ID_LENGTH = 22;
+const CAPABILITY_SECRET_LENGTH = 43;
+const CAPABILITY_DIGEST_LENGTH = 43;
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
-const SIGNATURE_LENGTH = 43;
-const TEXT_DECODER = new TextDecoder("utf-8", { fatal: true });
 const TEXT_ENCODER = new TextEncoder();
 
 export const SkillRuntimeScopeSchema = z.enum([
@@ -21,156 +19,96 @@ export const SkillRuntimeScopeSchema = z.enum([
   "skills:write",
 ]);
 
-const SkillRuntimeCapabilityPayloadSchema = z
-  .object({
-    exp: z.number().int().positive().safe(),
-    iat: z.number().int().positive().safe(),
-    projectId: z.string().uuid().nullable(),
-    runId: z.string().uuid(),
-    scopes: z.array(SkillRuntimeScopeSchema).min(1).max(4),
-    userId: z.string().uuid(),
-    v: z.literal(CAPABILITY_VERSION),
-  })
-  .strict();
-
-type SkillRuntimeCapabilityPayload = z.infer<typeof SkillRuntimeCapabilityPayloadSchema>;
 export type SkillRuntimeScope = z.infer<typeof SkillRuntimeScopeSchema>;
 
-export interface VerifiedSkillRuntimeCapability {
+export interface MintedSkillRuntimeCapability {
+  digest: string;
   expiresAt: number;
   issuedAt: number;
-  projectId: string | null;
-  runId: string;
-  scopes: SkillRuntimeScope[];
-  userId: string;
-}
-
-export class SkillRuntimeCapabilityError extends Error {
-  public readonly reason: "expired" | "invalid";
-
-  public constructor(reason: "expired" | "invalid") {
-    super(
-      reason === "expired"
-        ? "Skill runtime capability has expired"
-        : "Invalid skill runtime capability",
-    );
-    this.name = "SkillRuntimeCapabilityError";
-    this.reason = reason;
-  }
-}
-
-/** Mints a short-lived run-bound capability for sandbox skill packages. */
-export async function mintSkillRuntimeCapability(input: {
-  projectId?: string | undefined;
-  runId: string;
-  scopes: readonly SkillRuntimeScope[];
-  secret: string;
-  userId: string;
-}): Promise<{ expiresAt: number; token: string }> {
-  const issuedAt = Date.now();
-  const expiresAt = issuedAt + SKILL_RUNTIME_CAPABILITY_MAX_TTL_MS;
-  const payload = SkillRuntimeCapabilityPayloadSchema.parse({
-    exp: expiresAt,
-    iat: issuedAt,
-    projectId: input.projectId ?? null,
-    runId: input.runId,
-    scopes: [...new Set(input.scopes)].sort(),
-    userId: input.userId,
-    v: CAPABILITY_VERSION,
-  });
-  const encodedPayload = encodePayload(payload);
-  const unsigned = `${CAPABILITY_PREFIX}.${encodedPayload}`;
-  const signature = await hmacSha256Base64Url(unsigned, input.secret);
-  return { expiresAt, token: `${unsigned}.${signature}` };
-}
-
-/** Verifies signature, lifetime, run identity, and required scope. */
-export async function verifySkillRuntimeCapability(input: {
-  requiredScope: SkillRuntimeScope;
-  secret: string;
   token: string;
-}): Promise<VerifiedSkillRuntimeCapability> {
-  const payload = await verifyToken(input.token, input.secret);
-  if (!payload.scopes.includes(input.requiredScope)) {
-    throw invalidCapability();
-  }
+  tokenId: string;
+}
+
+export interface ParsedSkillRuntimeCapability {
+  runId: string;
+  tokenId: string;
+  userId: string;
+}
+
+const RunIdSchema = z.string().uuid();
+
+/** Creates one opaque, run-routable bearer capability and its storage-safe digest. */
+export async function mintSkillRuntimeCapability(input: {
+  runId: string;
+  userId: string;
+}): Promise<MintedSkillRuntimeCapability> {
+  const parsedRunId = RunIdSchema.parse(input.runId);
+  const parsedUserId = RunIdSchema.parse(input.userId);
+  const tokenId = randomBase64Url(CAPABILITY_TOKEN_ID_BYTES);
+  const secret = randomBase64Url(CAPABILITY_SECRET_BYTES);
+  const token = `${CAPABILITY_PREFIX}.${parsedRunId}.${parsedUserId}.${tokenId}.${secret}`;
+  const issuedAt = Date.now();
   return {
-    expiresAt: payload.exp,
-    issuedAt: payload.iat,
-    projectId: payload.projectId,
-    runId: payload.runId,
-    scopes: payload.scopes,
-    userId: payload.userId,
+    digest: await skillRuntimeCapabilityDigest(token),
+    expiresAt: issuedAt + SKILL_RUNTIME_CAPABILITY_TTL_MS,
+    issuedAt,
+    token,
+    tokenId,
   };
 }
 
-async function verifyToken(token: string, secret: string): Promise<SkillRuntimeCapabilityPayload> {
-  if (!secret || token.length > MAX_TOKEN_LENGTH) {
-    throw invalidCapability();
-  }
-  const [prefix, encodedPayload, signature, ...extra] = token.split(".");
+/** Extracts only the non-secret routing fields from a strictly formed capability. */
+export function parseSkillRuntimeCapability(token: string): ParsedSkillRuntimeCapability | null {
+  const [prefix, runId, userId, tokenId, secret, ...extra] = token.split(".");
   if (
     extra.length > 0 ||
     prefix !== CAPABILITY_PREFIX ||
-    !encodedPayload ||
-    encodedPayload.length > MAX_ENCODED_PAYLOAD_LENGTH ||
-    !BASE64_URL_PATTERN.test(encodedPayload) ||
-    !signature ||
-    signature.length !== SIGNATURE_LENGTH ||
-    !BASE64_URL_PATTERN.test(signature)
+    !runId ||
+    !RunIdSchema.safeParse(runId).success ||
+    !userId ||
+    !RunIdSchema.safeParse(userId).success ||
+    !isBase64UrlOfLength(tokenId, CAPABILITY_TOKEN_ID_LENGTH) ||
+    !isBase64UrlOfLength(secret, CAPABILITY_SECRET_LENGTH)
   ) {
-    throw invalidCapability();
+    return null;
   }
-  const expectedSignature = await hmacSha256Base64Url(`${prefix}.${encodedPayload}`, secret);
-  if (!timingSafeEqual(signature, expectedSignature)) {
-    throw invalidCapability();
-  }
-  const payload = decodePayload(encodedPayload);
-  const now = Date.now();
-  const lifetime = payload.exp - payload.iat;
+  return { runId, tokenId, userId };
+}
+
+/** Verifies an opaque token against a digest without exposing timing-sensitive equality. */
+export async function verifySkillRuntimeCapabilityDigest(
+  token: string,
+  expectedDigest: string,
+): Promise<boolean> {
   if (
-    payload.iat > now + MAX_FUTURE_ISSUED_AT_MS ||
-    lifetime <= 0 ||
-    lifetime > SKILL_RUNTIME_CAPABILITY_MAX_TTL_MS
+    expectedDigest.length !== CAPABILITY_DIGEST_LENGTH ||
+    !BASE64_URL_PATTERN.test(expectedDigest) ||
+    parseSkillRuntimeCapability(token) === null
   ) {
-    throw invalidCapability();
+    return false;
   }
-  if (payload.exp <= now) {
-    throw new SkillRuntimeCapabilityError("expired");
-  }
-  return payload;
+  return timingSafeEqual(await skillRuntimeCapabilityDigest(token), expectedDigest);
 }
 
-function encodePayload(payload: SkillRuntimeCapabilityPayload): string {
-  const bytes = TEXT_ENCODER.encode(JSON.stringify(payload));
-  if (bytes.byteLength > MAX_DECODED_PAYLOAD_BYTES) {
-    throw new TypeError("Skill runtime capability payload exceeds the protocol limit");
-  }
+async function skillRuntimeCapabilityDigest(token: string): Promise<string> {
+  const digest = await crypto.subtle.digest("SHA-256", TEXT_ENCODER.encode(token));
+  return base64UrlFromBytes(new Uint8Array(digest));
+}
+
+function randomBase64Url(byteLength: number): string {
+  const bytes = new Uint8Array(byteLength);
+  crypto.getRandomValues(bytes);
   return base64UrlFromBytes(bytes);
-}
-
-function decodePayload(encoded: string): SkillRuntimeCapabilityPayload {
-  try {
-    const normalized = encoded.replaceAll("-", "+").replaceAll("_", "/");
-    const padding = "=".repeat((4 - (normalized.length % 4)) % 4);
-    const binary = atob(`${normalized}${padding}`);
-    if (binary.length > MAX_DECODED_PAYLOAD_BYTES) {
-      throw invalidCapability();
-    }
-    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
-    return SkillRuntimeCapabilityPayloadSchema.parse(JSON.parse(TEXT_DECODER.decode(bytes)));
-  } catch (error) {
-    if (error instanceof SkillRuntimeCapabilityError) throw error;
-    throw invalidCapability();
-  }
 }
 
 function base64UrlFromBytes(bytes: Uint8Array): string {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (const byte of bytes) {
+    binary += String.fromCharCode(byte);
+  }
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
-function invalidCapability(): SkillRuntimeCapabilityError {
-  return new SkillRuntimeCapabilityError("invalid");
+function isBase64UrlOfLength(value: string | undefined, length: number): value is string {
+  return Boolean(value && value.length === length && BASE64_URL_PATTERN.test(value));
 }

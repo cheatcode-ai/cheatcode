@@ -50,7 +50,7 @@ async function requestBrowserHandoff(operation) {
     `${String(config.backendBaseUrl).replace(/\/+$/, "")}/browser/${operation}`,
     {
       headers: {
-        Authorization: `Bearer ${config.accessToken}`,
+        Authorization: `Bearer ${config.accessTokens?.["events:write"] || ""}`,
         "Content-Type": "application/json",
       },
       method: "POST",

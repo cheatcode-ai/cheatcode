@@ -85,7 +85,6 @@ pnpm turbo db:generate                # Generate Drizzle types from schema
 pnpm turbo lint                       # Biome check (fails on warnings in CI)
 pnpm turbo typecheck                  # tsc --noEmit across all packages
 pnpm turbo build                      # Production build
-pnpm audit:archive -- --dry-run       # Admin-only audit partition archive plan
 pnpm --filter @cheatcode/db db:generate  # Create new migration
 ```
 

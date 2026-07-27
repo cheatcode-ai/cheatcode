@@ -33,6 +33,7 @@ import {
 } from "./agent-run-responses";
 import { resolveAgentRunRetentionAction } from "./agent-run-retention";
 import type { StartRunInput } from "./agent-run-schemas";
+import { projectSkillRuntimeConfig } from "./agent-run-skill-runtime";
 import { agentRunStatusPayload } from "./agent-run-status-payload";
 import {
   isTerminalPersistableRunStatus,
@@ -461,6 +462,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           logicalModelId,
           runId: input.runId,
           userId: input.userId,
+        }),
+      projectSkillRuntimeConfig: (input, sandbox) =>
+        projectSkillRuntimeConfig({
+          env: this.env,
+          run: input,
+          sandbox,
         }),
       setRunStage: (stage) => this.setRunStage(stage),
       waitForBrowserTakeover: (signal) => this.browserTakeover.wait(signal),

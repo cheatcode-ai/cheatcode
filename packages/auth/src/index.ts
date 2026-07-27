@@ -16,17 +16,6 @@ export {
   timingSafeEqual,
 } from "./crypto";
 export type {
-  InternalMaintenanceAudience,
-  InternalMaintenanceCapability,
-  InternalMaintenanceEnvelopeExpectation,
-  InternalMaintenanceIssuer,
-} from "./internal-maintenance";
-export {
-  assertInternalMaintenanceEnvelope,
-  createInternalMaintenanceHeaders,
-  verifyInternalMaintenanceRequest,
-} from "./internal-maintenance";
-export type {
   MintedPreviewCapability,
   PreviewCapabilityErrorReason,
   PreviewCapabilityKind,
@@ -41,15 +30,16 @@ export {
   verifyPreviewCapability,
 } from "./preview-capability";
 export type {
+  MintedSkillRuntimeCapability,
+  ParsedSkillRuntimeCapability,
   SkillRuntimeScope,
-  VerifiedSkillRuntimeCapability,
 } from "./skill-runtime-capability";
 export {
   mintSkillRuntimeCapability,
-  SKILL_RUNTIME_CAPABILITY_MAX_TTL_MS,
-  SkillRuntimeCapabilityError,
+  parseSkillRuntimeCapability,
+  SKILL_RUNTIME_CAPABILITY_TTL_MS,
   SkillRuntimeScopeSchema,
-  verifySkillRuntimeCapability,
+  verifySkillRuntimeCapabilityDigest,
 } from "./skill-runtime-capability";
 
 const CLERK_API_URL = "https://api.clerk.com/v1";

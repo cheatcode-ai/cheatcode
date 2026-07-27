@@ -31,7 +31,7 @@ The schema modules under `src/schema/` define:
 - user-authored skills
 - project, account, refund, and daily-maintenance workflow jobs
 - immutable Clerk deletion tombstones
-- partitioned audit records and the archive manifest
+- security-sensitive audit records
 
 Files are not stored in Postgres. `v2_generated_outputs` contains only ownership,
 mime, filename, and R2 object identity.
@@ -47,6 +47,9 @@ mime, filename, and R2 object identity.
   segment marker.
 - Provider-key rows contain Vault references and non-secret fingerprints only.
 - Generated outputs and upload intents bind user, run, and project ownership.
+- Agent-run skill-runtime capabilities store only bounded, short-lived digests;
+  the agent role rotates them under signed user context and terminal transitions
+  clear them.
 - Lifecycle jobs use exact generation, phase, cursor, continuation, and lease
   identities so stale Workflow steps cannot mutate a newer operation.
 - Clerk deletion tombstones are permanent hashes; they prevent a deleted
@@ -114,7 +117,7 @@ The migration runner:
 4. verifies the Drizzle journal checksum and ordering;
 5. applies pending migrations only with `--apply`; and
 6. validates the complete current table, column, constraint, index, function,
-   RLS, grant, role, audit-partition, and data-integrity contract.
+   RLS, grant, role, and data-integrity contract.
 
 The laptop application environment contains only the three runtime-role URLs.
 Administrative migration credentials stay in `.env.migrate` or a protected

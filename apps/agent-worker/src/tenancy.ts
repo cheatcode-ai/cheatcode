@@ -1,7 +1,7 @@
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 
-export const GatewayUserIdSchema = z.string().uuid();
+const GatewayUserIdSchema = z.string().uuid();
 const ThreadRouteParamSchema = z.string().uuid();
 const RunRouteParamSchema = z.string().uuid();
 

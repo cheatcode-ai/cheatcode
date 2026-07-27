@@ -43,7 +43,6 @@ const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "COMPOSIO_API_KEY",
     "COMPOSIO_AUTH_CONFIGS",
     "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
-    "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
     "POLAR_ACCESS_TOKEN",
   ],
   "../agent-worker/wrangler.jsonc": [
@@ -53,8 +52,6 @@ const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "DEEPSEEK_PLATFORM_API_KEY",
     "OUTPUT_DOWNLOAD_SIGNING_SECRET",
     "PREVIEW_TOKEN_SECRET",
-    "SKILL_RUNTIME_TOKEN_SECRET",
-    "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
   ],
   "../webhooks-worker/wrangler.jsonc": [
     "CLERK_WEBHOOK_SIGNING_SECRET",
@@ -62,12 +59,8 @@ const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "COMPOSIO_WEBHOOK_SECRET",
     "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
     "DAYTONA_WEBHOOK_SIGNING_SECRET",
-    "INTERNAL_ALERT_WEBHOOK_SECRET",
-    "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
-    "INTERNAL_WEBHOOK_REPLAY_SECRET",
     "POLAR_ACCESS_TOKEN",
     "POLAR_WEBHOOK_SECRET",
-    "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
   ],
   "../preview-proxy/wrangler.jsonc": ["DAYTONA_API_KEY", "PREVIEW_TOKEN_SECRET"],
 };
@@ -87,10 +80,8 @@ const LOCAL_WORKER_VAR_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "DAYTONA_SANDBOX_SNAPSHOT",
     "DAYTONA_TARGET",
     "DAYTONA_WORKSPACE_VOLUME",
-    "SKILL_RUNTIME_BASE_URL",
   ],
   "../webhooks-worker/wrangler.jsonc": [
-    "INTERNAL_ALERT_WEBHOOK_URL",
     "POLAR_PRODUCT_ID_MAX",
     "POLAR_PRODUCT_ID_PREMIUM",
     "POLAR_PRODUCT_ID_PRO",
@@ -331,11 +322,7 @@ function productionVarsRemovedForLocal(configPath: WorkerConfig, vars: ConfigRec
   if (configPath === "wrangler.jsonc") {
     return withoutProductionProducts;
   }
-  const {
-    CLOUDFLARE_ACCOUNT_ID: _accountId,
-    INTERNAL_ALERT_WEBHOOK_URL: _alertUrl,
-    ...localVars
-  } = withoutProductionProducts;
+  const { CLOUDFLARE_ACCOUNT_ID: _accountId, ...localVars } = withoutProductionProducts;
   return localVars;
 }
 

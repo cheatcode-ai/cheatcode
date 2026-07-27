@@ -39,14 +39,17 @@ or run browser-flow scripts for web acceptance testing.
 ## Env
 
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`
-- `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` (embedded from the exact release SHA by the prebuilt workflow)
 - `NEXT_PUBLIC_GATEWAY_URL`
-- `NEXT_PUBLIC_PREVIEW_HOSTNAME` (must match both preview Workers and the Cloudflare wildcard route)
 - `CLERK_SECRET_KEY`
+- `VERCEL_GIT_COMMIT_SHA` (system-provided build identity, projected into public health metadata)
 - `VERCEL_ENV` (actual Vercel runtime environment)
 - `VERCEL_TARGET_ENV` (Vercel build/deployment target)
 - `VERCEL_URL` (actual immutable deployment hostname)
 
+Every `NEXT_PUBLIC_*` value is browser-visible deployment configuration, never
+a credential or Secrets Store value.
+The web build derives the preview apex from its validated deployment identity:
+`localhost` locally and `trycheatcode.com` for Vercel builds.
 Local development requires Clerk `pk_test_`/`sk_test_` keys. Every Vercel
 deployment requires the production `pk_live_`/`sk_live_` keys; development keys
 exist only in root `.env.local` on the laptop. Middleware also restricts Clerk session-token authorized parties to the exact
@@ -59,8 +62,8 @@ validation branch before a deployment URL exists. Only an actual Vercel
 `production` or `preview` runtime requires `VERCEL_URL`; Vercel supplies
 `VERCEL_ENV` and `VERCEL_URL` after the prebuilt artifact is deployed.
 `next.config.ts` and the runtime env accessor share the pure validators exported
-by `@cheatcode/env/web-config`; all four public build values are explicit and
-missing values have no local or production fallback.
+by `@cheatcode/env/web-config`; public routing values remain explicit, while
+release identity derives from `VERCEL_GIT_COMMIT_SHA` or `development` locally.
 The config loads the repository-root `.env.local` through `@next/env` for local
 builds and strips all loaded Worker-only values before Next evaluates the app;
 no second env file under `apps/web` is used.
@@ -73,5 +76,6 @@ Production additionally admits only Vercel's exact immutable deployment origin.
 
 Vercel's Git integration deploys `apps/web` from the repository using the
 checked-in build command. Production public environment values select the live
-Clerk instance, canonical gateway, and preview hostname. Verify `/api/health`
-and the deployed revision after Vercel finishes.
+Clerk instance and canonical gateway; deployment identity selects the owned
+preview apex. Verify `/api/health` and the deployed revision after Vercel
+finishes.

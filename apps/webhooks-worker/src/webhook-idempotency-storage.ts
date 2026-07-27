@@ -20,21 +20,11 @@ const DAYTONA_STATE_TABLE_SQL = `CREATE TABLE daytona_sandbox_state (
   updated_at INTEGER NOT NULL CHECK (updated_at >= 0),
   expires_at INTEGER NOT NULL CHECK (expires_at >= 0)
 ) STRICT`;
-const INTERNAL_COMMAND_TABLE_SQL = `CREATE TABLE internal_command (
-  command_id TEXT PRIMARY KEY CHECK (length(command_id) = 64 AND command_id NOT GLOB '*[^a-f0-9]*'),
-  expires_at INTEGER NOT NULL CHECK (expires_at >= 0)
-) STRICT`;
 const WEBHOOK_STORAGE_SCHEMA: readonly ExpectedSqliteObject[] = [
   {
     name: "daytona_sandbox_state",
     sql: DAYTONA_STATE_TABLE_SQL,
     tableName: "daytona_sandbox_state",
-    type: "table",
-  },
-  {
-    name: "internal_command",
-    sql: INTERNAL_COMMAND_TABLE_SQL,
-    tableName: "internal_command",
     type: "table",
   },
   {
@@ -50,7 +40,6 @@ export function initializeWebhookIdempotencyStorage(ctx: DurableObjectState): vo
   ctx.storage.transactionSync(() => {
     ctx.storage.sql.exec(WEBHOOK_EVENT_TABLE_SQL);
     ctx.storage.sql.exec(DAYTONA_STATE_TABLE_SQL);
-    ctx.storage.sql.exec(INTERNAL_COMMAND_TABLE_SQL);
     setCurrentSqliteStorageVersion(ctx);
   });
   assertWebhookIdempotencyStorage(ctx);
@@ -58,6 +47,13 @@ export function initializeWebhookIdempotencyStorage(ctx: DurableObjectState): vo
 
 export function assertWebhookIdempotencyStorage(ctx: DurableObjectState): void {
   assertExactSqliteSchema(ctx, WEBHOOK_STORAGE_SCHEMA);
+}
+
+/** Remove the retired internal-command ledger from existing Durable Objects. */
+export function removeRetiredInternalCommandStorage(ctx: DurableObjectState): void {
+  if (ctx.storage.sql.exec("PRAGMA table_info(internal_command)").toArray().length > 0) {
+    ctx.storage.sql.exec("DROP TABLE internal_command");
+  }
 }
 
 export function hasWebhookIdempotencyStorage(ctx: DurableObjectState): boolean {

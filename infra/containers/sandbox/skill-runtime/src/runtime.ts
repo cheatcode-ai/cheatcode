@@ -6,6 +6,7 @@ import type {
   CheatcodeSkillRequestMethod,
   RuntimeBoundSkillRequester,
   SkillRuntimeConfig,
+  SkillRuntimeScope,
 } from "./types";
 
 const DEFAULT_RUNTIME_CONFIG_PATH =
@@ -185,11 +186,6 @@ export async function ensureProjectEnvLoaded(): Promise<void> {
 export async function readProjectSkillRuntimeConfig(): Promise<SkillRuntimeConfig> {
   await ensureProjectEnvLoaded();
 
-  const envBackendBaseUrl =
-    process.env.CHEATCODE_SKILL_BACKEND_BASE_URL?.trim() ||
-    process.env.CHEATCODE_BACKEND_BASE_URL?.trim() ||
-    null;
-  const envAccessToken = process.env.CHEATCODE_SKILL_ACCESS_TOKEN?.trim() || null;
   const envProjectId = process.env.CHEATCODE_PROJECT_ID?.trim() || null;
   const envRunId = process.env.CHEATCODE_RUN_ID?.trim() || null;
   const envAssistantClientMessageId =
@@ -225,10 +221,14 @@ export async function readProjectSkillRuntimeConfig(): Promise<SkillRuntimeConfi
     }
   }
 
-  const backendBaseUrl =
-    envBackendBaseUrl || parsedFileConfig.backendBaseUrl?.trim() || null;
-  const accessToken =
-    envAccessToken || parsedFileConfig.accessToken?.trim() || null;
+  const backendBaseUrl = parsedFileConfig.backendBaseUrl?.trim() || null;
+  const accessTokens = parseAccessTokens(parsedFileConfig.accessTokens);
+  const expiresAt =
+    typeof parsedFileConfig.expiresAt === "number" &&
+    Number.isSafeInteger(parsedFileConfig.expiresAt) &&
+    parsedFileConfig.expiresAt > 0
+      ? parsedFileConfig.expiresAt
+      : null;
   const projectId =
     envProjectId || parsedFileConfig.projectId?.trim() || null;
   const runId = envRunId || parsedFileConfig.runId?.trim() || null;
@@ -243,15 +243,17 @@ export async function readProjectSkillRuntimeConfig(): Promise<SkillRuntimeConfi
   const deliveryChannel =
     envDeliveryChannel || parsedFileConfig.deliveryChannel || null;
 
-  if (!backendBaseUrl || !accessToken) {
+  if (parsedFileConfig.v !== 2 || !backendBaseUrl || !accessTokens || !expiresAt) {
     throw new Error(
-      "Invalid Cheatcode skill runtime config. Expected CHEATCODE_SKILL_ACCESS_TOKEN and CHEATCODE_SKILL_BACKEND_BASE_URL/CHEATCODE_BACKEND_BASE_URL to be set, with optional CHEATCODE_PROJECT_ID and CHEATCODE_SKILL_RUNTIME_CONFIG for file-based fallback.",
+      "Invalid Cheatcode skill runtime config. Expected a version 2 runtime file with a backend URL, expiration, and independently scoped access tokens.",
     );
   }
 
   return {
+    v: 2,
     backendBaseUrl: backendBaseUrl.replace(/\/+$/, ""),
-    accessToken,
+    accessTokens,
+    expiresAt,
     ...(projectId ? { projectId } : {}),
     ...(runId ? { runId } : {}),
     ...(assistantClientMessageId ? { assistantClientMessageId } : {}),
@@ -304,12 +306,15 @@ export async function requestCheatcodeSkillJson<TResponse>(params: {
   body?: unknown;
 }): Promise<TResponse> {
   const { config, path, method = "POST", body } = params;
+  const activeConfig =
+    config.expiresAt <= Date.now() + 60_000 ? await readProjectSkillRuntimeConfig() : config;
+  const requiredScope = skillRuntimeScopeForRequest(path, method);
 
-  const response = await fetch(`${config.backendBaseUrl}${path}`, {
+  const response = await fetch(`${activeConfig.backendBaseUrl}${path}`, {
     method,
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${config.accessToken}`,
+      Authorization: `Bearer ${activeConfig.accessTokens[requiredScope]}`,
     },
     body: typeof body === "undefined" ? undefined : JSON.stringify(body),
   });
@@ -327,6 +332,61 @@ export async function requestCheatcodeSkillJson<TResponse>(params: {
   }
 
   return data;
+}
+
+function parseAccessTokens(
+  value: Partial<Record<SkillRuntimeScope, string>> | undefined,
+): Record<SkillRuntimeScope, string> | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+  const events = value["events:write"]?.trim();
+  const integrations = value["integrations:execute"]?.trim();
+  const skillsRead = value["skills:read"]?.trim();
+  const skillsWrite = value["skills:write"]?.trim();
+  if (!events || !integrations || !skillsRead || !skillsWrite) {
+    return null;
+  }
+  return {
+    "events:write": events,
+    "integrations:execute": integrations,
+    "skills:read": skillsRead,
+    "skills:write": skillsWrite,
+  };
+}
+
+function skillRuntimeScopeForRequest(
+  path: string,
+  method: CheatcodeSkillRequestMethod,
+): SkillRuntimeScope {
+  if (
+    path === "/skill-frontend-events" ||
+    path === "/browser/live-preview" ||
+    path === "/browser/request-user-control"
+  ) {
+    return "events:write";
+  }
+  if (
+    path.startsWith("/composio/") ||
+    path === "/managed-skills/prepare-connect-account" ||
+    path === "/managed-skills/connect-link" ||
+    path === "/managed-skills/connected-accounts/default"
+  ) {
+    return "integrations:execute";
+  }
+  if (
+    method === "GET" &&
+    (path === "/managed-skills" || path === "/managed-skills/connected-accounts")
+  ) {
+    return "skills:read";
+  }
+  if (
+    path === "/managed-skills/custom/save" ||
+    path === "/managed-skills/prepare-change"
+  ) {
+    return "skills:write";
+  }
+  throw new Error(`Unsupported Cheatcode skill runtime route: ${method} ${path}`);
 }
 
 export async function emitCheatcodeSkillFrontendEvent(params: {

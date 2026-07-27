@@ -21,7 +21,6 @@
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
     "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
-    "INTERNAL_ALERT_WEBHOOK_URL": "https://webhooks.trycheatcode.com/internal/alert",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
     "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
   },
@@ -62,26 +61,6 @@
       "secret_name": "cloudflare-analytics-api-token"
     },
     {
-      "binding": "INTERNAL_ALERT_WEBHOOK_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "internal-alert-webhook-secret"
-    },
-    {
-      "binding": "GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "gateway-to-webhooks-resource-deletion-secret"
-    },
-    {
-      "binding": "WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "webhooks-to-agent-lifecycle-secret"
-    },
-    {
-      "binding": "INTERNAL_WEBHOOK_REPLAY_SECRET",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "internal-webhook-replay-secret"
-    },
-    {
       "binding": "POLAR_ACCESS_TOKEN",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "polar-access-token"
@@ -95,8 +74,13 @@
   ],
   "services": [
     {
-      "binding": "AGENT",
-      "service": "cheatcode-agent"
+      "binding": "AGENT_LIFECYCLE",
+      "service": "cheatcode-agent",
+      "entrypoint": "AgentLifecycleEntrypoint",
+      "props": {
+        "caller": "webhooks",
+        "capability": "agent-lifecycle"
+      }
     }
   ],
   "durable_objects": {

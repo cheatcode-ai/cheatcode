@@ -30,7 +30,7 @@ export function CheatcodeTooltip({
   side = "top",
 }: CheatcodeTooltipProps) {
   const id = useId();
-  const tooltip = useCheatcodeTooltip(!disabled && label.trim().length > 0);
+  const tooltip = useCheatcodeTooltip(!disabled && label.trim().length > 0, id);
   const describedBy = mergeDescribedBy(
     children.props["aria-describedby"],
     tooltip.isVisible ? id : undefined,

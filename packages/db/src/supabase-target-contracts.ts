@@ -47,23 +47,6 @@ const column = (
 
 export const TABLE_CONTRACTS: readonly TableContract[] = [
   {
-    tableName: "_audit_archive_manifest",
-    columns: [
-      column("partition_name", "text"),
-      column("month_start", "date"),
-      column("bucket", "text"),
-      column("format_version", "integer"),
-      column("object_key", "text", true),
-      column("row_count", "bigint", true),
-      column("size_bytes", "bigint", true),
-      column("sha256", "text", true),
-      column("state", "text"),
-      column("detached_at", "timestamp with time zone", false, 6),
-      column("verified_at", "timestamp with time zone", true, 6),
-      column("dropped_at", "timestamp with time zone", true, 6),
-    ],
-  },
-  {
     tableName: "v2_users",
     columns: [
       column("id", "uuid"),
@@ -146,6 +129,7 @@ export const TABLE_CONTRACTS: readonly TableContract[] = [
       column("model_id", "text"),
       column("idempotency_key_hash", "text", true),
       column("request_body_hash", "text", true),
+      column("skill_runtime_capabilities", "jsonb"),
       column("started_at", "timestamp with time zone", false, 6),
       column("finished_at", "timestamp with time zone", true, 6),
     ],
@@ -320,7 +304,6 @@ export const TABLE_CONTRACTS: readonly TableContract[] = [
 export const EXPECTED_PUBLIC_TABLES = new Set(TABLE_CONTRACTS.map(({ tableName }) => tableName));
 
 export const EXPECTED_EXTENSIONS = new Set([
-  "pg_cron",
   "pg_stat_statements",
   "pgcrypto",
   "plpgsql",
@@ -353,6 +336,8 @@ export const REQUIRED_INTEGRITY_CONSTRAINTS = [
   ["v2_agent_runs", "v2_agent_runs_thread_user_fk"],
   ["v2_agent_runs", "v2_agent_runs_status_check"],
   ["v2_agent_runs", "v2_agent_runs_finished_order_check"],
+  ["v2_agent_runs", "v2_agent_runs_skill_runtime_capabilities_array_check"],
+  ["v2_agent_runs", "v2_agent_runs_skill_runtime_capabilities_size_check"],
   ["v2_agent_runs", "v2_agent_runs_terminal_timestamp_check"],
   ["v2_threads", "v2_threads_active_run_scope_fk"],
   ["v2_generated_outputs", "v2_generated_outputs_agent_run_user_fk"],
@@ -516,6 +501,16 @@ export const EXACT_INTEGRITY_CONSTRAINTS: readonly ExactIntegrityConstraint[] = 
     definition:
       "CHECK ((status = ANY (ARRAY['pending'::text, 'running'::text, 'completed'::text, 'failed'::text, 'canceled'::text])))",
     name: "v2_agent_runs_status_check",
+    tableName: "v2_agent_runs",
+  },
+  {
+    definition: "CHECK ((jsonb_typeof(skill_runtime_capabilities) = 'array'::text))",
+    name: "v2_agent_runs_skill_runtime_capabilities_array_check",
+    tableName: "v2_agent_runs",
+  },
+  {
+    definition: "CHECK ((octet_length((skill_runtime_capabilities)::text) <= 16384))",
+    name: "v2_agent_runs_skill_runtime_capabilities_size_check",
     tableName: "v2_agent_runs",
   },
   {

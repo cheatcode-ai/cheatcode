@@ -162,20 +162,26 @@ export {
   IntegrationNameSchema,
 } from "./integrations";
 export type {
+  AgentLifecycleServiceBinding,
+  AgentLifecycleServiceResult,
   InternalAgentStateDeleteBody,
+  InternalAgentStateDeleteRequest,
   InternalResourceDeletionRequest,
   InternalStateDeleteResponse,
+  ResourceDeletionServiceBinding,
+  ResourceDeletionServiceResult,
   ResourceDeletionWorkflowPayload,
 } from "./internal-maintenance";
 export {
+  AgentLifecycleServiceResultSchema,
   CanonicalProjectWorkspaceSlugSchema,
-  INTERNAL_RESOURCE_DELETION_PATH,
   InternalAgentStateDeleteBodySchema,
+  InternalAgentStateDeleteRequestSchema,
   InternalProjectDeletionRequestSchema,
   InternalResourceDeletionRequestSchema,
   InternalStateDeleteResponseSchema,
   InternalThreadDeletionRequestSchema,
-  internalUserStateDeletePath,
+  ResourceDeletionServiceResultSchema,
   ResourceDeletionWorkflowPayloadSchema,
 } from "./internal-maintenance";
 export type { CatalogModelId, LogicalModelId } from "./models";

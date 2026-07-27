@@ -185,7 +185,6 @@ export const GatewayWorkerEnvSchema = z
     COMPOSIO_AUTH_CONFIGS: OptionalWorkerSecretSchema,
     DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecretSchema,
     ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
-    GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
     IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
@@ -199,6 +198,7 @@ export const GatewayWorkerEnvSchema = z
     PREVIEW_PROXY: FetcherBindingSchema.optional(),
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
     RATE_LIMITER: DurableObjectNamespaceBindingSchema,
+    RESOURCE_DELETION: FetcherBindingSchema,
     WEBHOOKS: FetcherBindingSchema,
   })
   .strict()
@@ -234,9 +234,6 @@ export const AgentWorkerEnvSchema = z
     R2_AUDIT: R2BucketBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
-    SKILL_RUNTIME_BASE_URL: z.string().url(),
-    SKILL_RUNTIME_TOKEN_SECRET: WorkerSecretSchema,
-    WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecretSchema,
   })
   .strict()
   .superRefine(requireProductionReleaseSha)
@@ -247,7 +244,7 @@ export const WebhooksWorkerEnvSchema = z
   .object({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
-    AGENT: FetcherBindingSchema,
+    AGENT_LIFECYCLE: FetcherBindingSchema,
     CLERK_WEBHOOK_SIGNING_SECRET: OptionalWorkerSecretSchema,
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_ANALYTICS_API_TOKEN: OptionalWorkerSecretSchema,
@@ -256,11 +253,7 @@ export const WebhooksWorkerEnvSchema = z
     DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecretSchema,
     DAYTONA_WEBHOOK_SIGNING_SECRET: WorkerSecretSchema,
     ENTITLEMENTS_CACHE: KvNamespaceBindingSchema,
-    GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET: WorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
-    INTERNAL_ALERT_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
-    INTERNAL_ALERT_WEBHOOK_URL: z.string().url().optional(),
-    INTERNAL_WEBHOOK_REPLAY_SECRET: WorkerSecretSchema,
     OPS_WORKFLOW: WorkflowBindingSchema,
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
     POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
@@ -275,7 +268,6 @@ export const WebhooksWorkerEnvSchema = z
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
     WEBHOOK_IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
     WEBHOOK_WORKFLOW: WorkflowBindingSchema,
-    WEBHOOKS_TO_AGENT_LIFECYCLE_SECRET: WorkerSecretSchema,
   })
   .strict()
   .superRefine(requireProductionReleaseSha);

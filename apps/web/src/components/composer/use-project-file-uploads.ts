@@ -190,13 +190,9 @@ function setFinalStatus(
       ? [`Saved to ${targetProject.name}. Select that project and use / to reference the files.`]
       : []),
   ];
-  const fallback =
-    result.names.length === 1
-      ? `Saved to ${targetProject.name} · available in every chat`
-      : `Saved ${result.names.length} files to ${targetProject.name} · available in every chat`;
   setStatus({
     names: result.names,
     tone: notices.length > 0 ? (result.names.length > 0 ? "warning" : "error") : "ok",
-    text: notices.join(" ") || fallback,
+    text: notices.join(" "),
   });
 }

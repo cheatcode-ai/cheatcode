@@ -11,11 +11,11 @@ from regressing a newer email, display name, or avatar.
 Provider key writes validate each supported BYOK provider through
 `packages/byok` before calling the Vault-backed RPC. Invalid keys are rejected
 before plaintext is sent to storage. Project and thread deletes enqueue an exact-generation
-resource-deletion job through the webhooks Service Binding. That call uses the
-isolated `ccm2` resource-deletion capability and binds gateway issuer, webhooks
-audience, method, path, timestamp, nonce, and exact body hash. The webhooks
-receiver pins `webhooks.internal`; no shared key or legacy signature format is
-accepted.
+resource-deletion job through the webhooks Worker's named
+`ResourceDeletionEntrypoint`. The dedicated Service Binding is the capability:
+the default webhooks HTTP surface does not expose deletion admission, and
+Cloudflare-authenticated binding properties pin the gateway caller and
+`resource-deletion` permission without an application-managed shared secret.
 
 User-scoped Postgres transactions contain database work only. Secrets Store,
 KV, Durable Object, service-binding, weather, Polar, and Composio operations
@@ -131,6 +131,8 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `CF_VERSION_METADATA`
 - `AGENT`
 - `WEBHOOKS`
+- `RESOURCE_DELETION` (named `ResourceDeletionEntrypoint` Service Binding;
+  granted only to gateway with authenticated caller/capability properties)
 - `PREVIEW_PROXY` (generated local-only Service Binding; production preview
   traffic reaches the preview Worker through its wildcard route)
 - `RATE_LIMITER`
@@ -147,6 +149,4 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`, `POLAR_PRODUCT_ID_ULTRA`, `POLAR_PRODUCT_ID_MAX`
 - `COMPOSIO_API_KEY`
 - `COMPOSIO_AUTH_CONFIGS`
-- `GATEWAY_TO_WEBHOOKS_RESOURCE_DELETION_SECRET` (ccm2 `resource-deletion`
-  capability shared only with the webhooks verifier)
 - `USER_EVENTS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`
