@@ -160,11 +160,7 @@ export async function runAppBuilder(
   if (await hasImportedAppWorkspace(sandbox, workspace.dir)) {
     return restoreImportedWorkspace(workspaceOptions);
   }
-  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(
-    sandbox,
-    workspace.dir,
-    workspace.mobile,
-  ));
+  const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(sandbox, workspace.dir));
   if (shouldBootstrap && input.importRepoUrl) {
     return importRepoWorkspace({ ...workspaceOptions, repoUrl: input.importRepoUrl });
   }
@@ -200,13 +196,15 @@ async function prepareTemplateWorkspace(
   setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
   if (!shouldBootstrap) {
     setRunStage("Restoring the app workspace.");
-    await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
+    if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace.dir))) {
+      await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
+    }
     if (mobile) {
       await ensureExpoWebSupport(sandbox, workspace.dir);
     }
     return;
   }
-  await resetAppBuilderDirectory(sandbox, workspace.dir);
+  await resetTemplateAppBuilderDirectory(sandbox, workspace.dir);
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
     await scaffoldExpoApp(sandbox, logger, workspace.dir);
@@ -583,12 +581,28 @@ async function startAppBuilderDevServer(
 async function hasExistingAppBuilderWorkspace(
   sandbox: ProjectSandboxStub,
   dir: string,
-  mobile: boolean,
 ): Promise<boolean> {
-  const appDir = mobile ? "app" : "src/app";
+  const appDirs = ["src/app", "app"];
   const result = await executeShellTerminal(
     {
-      command: `test -f ${dir}/package.json && test -d ${dir}/${appDir}`,
+      command:
+        `test -f ${dir}/package.json && ` +
+        `(test -d ${dir}/${appDirs[0]} || test -d ${dir}/${appDirs[1]})`,
+      cwd: "/workspace",
+      timeoutMs: 10_000,
+    },
+    { sandbox },
+  );
+  return result.success;
+}
+
+async function hasInstalledAppBuilderDependencies(
+  sandbox: ProjectSandboxStub,
+  dir: string,
+): Promise<boolean> {
+  const result = await executeShellTerminal(
+    {
+      command: `test -d ${dir}/node_modules/.pnpm`,
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
@@ -600,6 +614,36 @@ async function hasExistingAppBuilderWorkspace(
 async function resetAppBuilderDirectory(sandbox: ProjectSandboxStub, dir: string): Promise<void> {
   await executeShellExec(
     { command: ["rm", "-rf", dir], cwd: "/workspace", timeoutMs: 120_000 },
+    { sandbox },
+  );
+}
+
+async function resetTemplateAppBuilderDirectory(
+  sandbox: ProjectSandboxStub,
+  dir: string,
+): Promise<void> {
+  await executeShellExec(
+    {
+      command: [
+        "find",
+        dir,
+        "-mindepth",
+        "1",
+        "-maxdepth",
+        "1",
+        "!",
+        "-name",
+        "uploads",
+        "-exec",
+        "rm",
+        "-rf",
+        "--",
+        "{}",
+        "+",
+      ],
+      cwd: "/workspace",
+      timeoutMs: 120_000,
+    },
     { sandbox },
   );
 }
