@@ -44,10 +44,12 @@ updates the working copy. First-run app scaffolding preserves the `uploads/` dir
 template projects reuse a complete persistent dependency installation or repair an interrupted one
 instead of rebuilding the workspace. The working copy is a read-only cache: every project-bound
 run verifies its current file set before model access, restores missing, replaced, or modified files
-from the checksum-verified R2 version, and repeats that repair when the run exits. File write/delete
-tools reject the reserved directory, while the system contract requires shell work to copy an upload
-elsewhere before transforming it. Template scaffolding and repository imports both retain the
-reserved directory. Project deletion removes the namespace during fenced workspace
+from the checksum-verified R2 version, records the exact workspace materialization separately from
+the immutable user-facing file metadata, and repeats that repair when the run exits. Daytona's
+filesystem API assigns the sandbox runtime user and read-only modes after each toolbox upload. File
+write/delete tools reject the reserved directory, while the system contract requires shell work to
+copy an upload elsewhere before transforming it. Template scaffolding and repository imports both
+retain the reserved directory. Project deletion removes the namespace during fenced workspace
 cleanup and the existing resource-deletion prefix sweep removes every immutable object. Account
 deletion clears both through the existing account state and R2 lifecycle phases.
 
@@ -130,9 +132,10 @@ manifest avoids rewriting unchanged packages and limits cleanup to files previou
 managed by that package, preserving local dependencies and generated output. Curated
 default skills are immutable snapshot files under `/home/node/.cheatcode/default-skills/`.
 
-ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as an atomic,
-generated projection of managed app-preview processes. The Durable Object process
-records remain authoritative; the file is only an inspectable runtime manifest.
+ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as a generated,
+mode-restricted projection of managed app-preview processes through Daytona's filesystem API.
+The Durable Object process records remain authoritative; the file is only an inspectable runtime
+manifest.
 
 Managed processes use required stable IDs and a maximum of 32 live metadata slots per user
 sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the

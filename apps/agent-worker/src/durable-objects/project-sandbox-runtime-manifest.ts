@@ -34,32 +34,22 @@ export async function writeSandboxRuntimeManifest(
   records: Map<string, unknown>,
 ): Promise<void> {
   const manifest = buildSandboxRuntimeManifest(records);
-  const temporaryPath = `/workspace/.cheatcode-runtime-${crypto.randomUUID()}.tmp`;
+  await client.createFolder(sandboxId, RUNTIME_DIRECTORY, "0700");
+  await client.setFilePermissions(sandboxId, RUNTIME_DIRECTORY, {
+    group: "node",
+    mode: "0700",
+    owner: "node",
+  });
   await client.uploadFile(
     sandboxId,
-    temporaryPath,
+    SANDBOX_RUNTIME_MANIFEST_PATH,
     new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
   );
-  const moved = await client.execute(sandboxId, {
-    command: [
-      `install -d -m 0700 ${shellQuote(RUNTIME_DIRECTORY)} || exit 1`,
-      "attempt=0",
-      'while test "$attempt" -lt 20; do',
-      `if test -f ${shellQuote(temporaryPath)}; then`,
-      `mv -f ${shellQuote(temporaryPath)} ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)} && chmod 0700 ${shellQuote(RUNTIME_DIRECTORY)} && chmod 0600 ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)}`,
-      "exit $?",
-      "fi",
-      "attempt=$((attempt + 1))",
-      "sleep 0.25",
-      "done",
-      "exit 1",
-    ].join("\n"),
-    timeout: 10,
+  await client.setFilePermissions(sandboxId, SANDBOX_RUNTIME_MANIFEST_PATH, {
+    group: "node",
+    mode: "0600",
+    owner: "node",
   });
-  if (moved.exitCode !== 0) {
-    await client.deleteFilePath(sandboxId, temporaryPath, false).catch(() => undefined);
-    throw new Error("Could not publish the sandbox runtime projection.");
-  }
 }
 
 function buildSandboxRuntimeManifest(
@@ -91,8 +81,4 @@ function buildSandboxRuntimeManifest(
     source: "durable-object-process-state",
     version: 1,
   });
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }

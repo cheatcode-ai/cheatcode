@@ -17,8 +17,10 @@ the first page, and file listings require the canonical RFC 3339 `modifiedAt` fi
 accepting the deprecated `modTime` representation or fabricating timestamps.
 The same REST-only client resolves/creates shared Daytona volumes, validates their current
 provider shape and readiness, supplies `volumeId`/`mountPath`/`subpath` only at sandbox creation,
-and replaces complete sandbox label sets during release-scoped promotion. Snapshot replacement
-does not use the Daytona SDK or assume an in-place snapshot mutation API.
+replaces complete sandbox label sets during release-scoped promotion, and uses Daytona's
+filesystem-permissions endpoint when a toolbox upload must be reassigned to the sandbox runtime
+user with an explicit mode. Snapshot replacement does not use the Daytona SDK or assume an
+in-place snapshot mutation API.
 When a run supplies `/workspace/<project>`, every file, shell, code-execution,
 Git, and dev-server path is confined lexically to that project root; a bare
 `/workspace` is remapped to it and sibling-project paths are rejected.
