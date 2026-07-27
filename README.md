@@ -238,6 +238,11 @@ declared workspace dependencies changed. Dispatch `Deploy Cloudflare` from
 gh workflow run deploy-cloudflare.yml --ref main
 ```
 
+The job runs under the protected `Production` environment, rejects non-`main`
+dispatches before checkout, and requires a successful `Static Checks` push run
+for the exact release commit before installing dependencies or accessing
+deployment credentials.
+
 The workflow builds the four Workers once, binds the reviewed commit SHA into
 each deployment, and publishes agent, webhooks, preview proxy, then gateway.
 Gateway goes last so public traffic sees the new backend only after its service
