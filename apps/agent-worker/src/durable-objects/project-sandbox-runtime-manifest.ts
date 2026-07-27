@@ -34,14 +34,7 @@ export async function writeSandboxRuntimeManifest(
   records: Map<string, unknown>,
 ): Promise<void> {
   const manifest = buildSandboxRuntimeManifest(records);
-  const temporaryPath = `${SANDBOX_RUNTIME_MANIFEST_PATH}.tmp-${crypto.randomUUID()}`;
-  const prepared = await client.execute(sandboxId, {
-    command: `install -d -m 0700 ${shellQuote(RUNTIME_DIRECTORY)}`,
-    timeout: 10,
-  });
-  if (prepared.exitCode !== 0) {
-    throw new Error("Could not prepare the sandbox runtime projection directory.");
-  }
+  const temporaryPath = `/workspace/.cheatcode-runtime-${crypto.randomUUID()}.tmp`;
   await client.uploadFile(
     sandboxId,
     temporaryPath,
@@ -49,10 +42,11 @@ export async function writeSandboxRuntimeManifest(
   );
   const moved = await client.execute(sandboxId, {
     command: [
+      `install -d -m 0700 ${shellQuote(RUNTIME_DIRECTORY)} || exit 1`,
       "attempt=0",
       'while test "$attempt" -lt 20; do',
       `if test -f ${shellQuote(temporaryPath)}; then`,
-      `mv -f ${shellQuote(temporaryPath)} ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)} && chmod 0600 ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)}`,
+      `mv -f ${shellQuote(temporaryPath)} ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)} && chmod 0700 ${shellQuote(RUNTIME_DIRECTORY)} && chmod 0600 ${shellQuote(SANDBOX_RUNTIME_MANIFEST_PATH)}`,
       "exit $?",
       "fi",
       "attempt=$((attempt + 1))",
