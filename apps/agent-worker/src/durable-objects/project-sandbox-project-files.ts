@@ -1,5 +1,5 @@
 import { workspacePathForSlug } from "@cheatcode/db";
-import { APIError, createLogger } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import { DaytonaApiError } from "@cheatcode/tools-code";
 import {
   PROJECT_FILE_MAX_CURRENT_FILES,
@@ -25,9 +25,9 @@ import {
 const FILE_DIGEST_DOMAIN = "cheatcode:project-file:v2";
 const VERSION_DIGEST_DOMAIN = "cheatcode:project-file-version:v2";
 const FILE_RECORD_PREFIX = "project-file:";
+const MATERIALIZATION_RECORD_PREFIX = "project-file-materialization:";
 const VERSION_RECORD_PREFIX = "project-file-version:";
 const DELETE_BATCH_SIZE = 128;
-const WORKSPACE_TIMESTAMP_TOLERANCE_MS = 2_000;
 const WORKSPACE_FILE_VISIBILITY_ATTEMPTS = 20;
 const WORKSPACE_FILE_VISIBILITY_DELAY_MS = 250;
 
@@ -48,6 +48,18 @@ const ProjectFileVersionSchema = z
 
 type ProjectFileVersion = z.infer<typeof ProjectFileVersionSchema>;
 
+const ProjectFileMaterializationSchema = z
+  .object({
+    fileId: z.string().uuid(),
+    modifiedAt: z.string().datetime({ offset: true }),
+    projectId: z.string().uuid(),
+    sizeBytes: z.number().int().positive(),
+    versionId: z.string().uuid(),
+  })
+  .strict();
+
+type ProjectFileMaterialization = z.infer<typeof ProjectFileMaterializationSchema>;
+
 interface PreparedProjectFile {
   contentSha256: string;
   fileId: string;
@@ -57,6 +69,7 @@ interface PreparedProjectFile {
 
 interface CurrentProjectFile {
   file: ProjectFile;
+  materialization: ProjectFileMaterialization | null;
   version: ProjectFileVersion;
 }
 
@@ -85,6 +98,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
   protected deleteUploadedFileMetadata(projectId: string): Promise<void> {
     return Promise.all([
       this.deleteStoragePrefix(fileRecordProjectPrefix(projectId)),
+      this.deleteStoragePrefix(materializationRecordProjectPrefix(projectId)),
       this.deleteStoragePrefix(versionRecordProjectPrefix(projectId)),
     ]).then(() => undefined);
   }
@@ -96,8 +110,6 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     await this.enforceFileCount(input.projectId, existing !== null);
     const prepared = await prepareProjectFile(input, this.ownerUserId());
     const persistedAt = new Date().toISOString();
-    const workspaceTimestamp =
-      existing?.versionId === prepared.versionId ? existing.updatedAt : persistedAt;
     const version = projectFileVersion(input, prepared, persistedAt);
     const previousVersion = await this.storedVersion(version);
     const status = existing
@@ -107,7 +119,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
       : "created";
     await this.writeAndVerifyObject(input, version);
     try {
-      await this.materializeProjectFile(input, prepared.contentSha256, workspaceTimestamp);
+      const materialization = await this.materializeProjectFile(input, prepared);
       const file = await this.commitProjectFile(
         input,
         prepared,
@@ -115,6 +127,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         previousVersion,
         version,
         persistedAt,
+        materialization,
       );
       return ProjectFileUploadResponseSchema.parse({ file, status });
     } catch (error) {
@@ -132,6 +145,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     previousVersion: ProjectFileVersion | null,
     version: ProjectFileVersion,
     persistedAt: string,
+    materialization: ProjectFileMaterialization,
   ): Promise<ProjectFile> {
     const file = ProjectFileSchema.parse({
       contentType: input.contentType,
@@ -154,28 +168,31 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         );
       }
       await transaction.put(fileRecordKey(input.projectId, prepared.fileId), file);
+      await transaction.put(
+        materializationRecordKey(input.projectId, prepared.fileId),
+        materialization,
+      );
     });
     return file;
   }
 
   private async materializeProjectFile(
     input: z.output<typeof ProjectUploadFileInputSchema>,
-    contentSha256: string,
-    workspaceTimestamp: string,
-  ): Promise<void> {
+    prepared: PreparedProjectFile,
+  ): Promise<ProjectFileMaterialization> {
     const sandboxId = await this.ensureSandbox();
     const projectRoot = workspacePathForSlug(input.workspaceSlug);
+    const uploadsPath = `${projectRoot}/uploads`;
     const workspacePath = `${projectRoot}/${input.path}`;
     const written = await this.writeProjectFileWithRecovery(
       sandboxId,
       projectRoot,
       workspacePath,
       input.bytes,
-      workspaceTimestamp,
     );
     if (
       written.byteLength !== input.bytes.byteLength ||
-      (await sha256Hex(written)) !== contentSha256
+      (await sha256Hex(written)) !== prepared.contentSha256
     ) {
       throw new APIError(
         502,
@@ -184,6 +201,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         { retriable: true },
       );
     }
+    return this.readProjectFileMaterialization(sandboxId, uploadsPath, input, prepared);
   }
 
   private async writeProjectFileWithRecovery(
@@ -191,28 +209,15 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     projectRoot: string,
     workspacePath: string,
     bytes: Uint8Array,
-    workspaceTimestamp: string,
   ): Promise<Uint8Array> {
     try {
-      return await this.writeProjectFileToWorkspace(
-        sandboxId,
-        projectRoot,
-        workspacePath,
-        bytes,
-        workspaceTimestamp,
-      );
+      return await this.writeProjectFileToWorkspace(sandboxId, projectRoot, workspacePath, bytes);
     } catch (error) {
       if (!isRecoverableWorkspaceMountError(error)) {
         throw error;
       }
       await this.restartSandboxForWorkspaceRecovery(sandboxId);
-      return this.writeProjectFileToWorkspace(
-        sandboxId,
-        projectRoot,
-        workspacePath,
-        bytes,
-        workspaceTimestamp,
-      );
+      return this.writeProjectFileToWorkspace(sandboxId, projectRoot, workspacePath, bytes);
     }
   }
 
@@ -221,17 +226,12 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     projectRoot: string,
     workspacePath: string,
     bytes: Uint8Array,
-    workspaceTimestamp: string,
   ): Promise<Uint8Array> {
     const uploadsPath = `${projectRoot}/uploads`;
-    await this.prepareUploadedFileWrite(sandboxId, uploadsPath, workspacePath);
+    await this.prepareUploadedFileWrite(sandboxId, uploadsPath);
     await this.client().uploadFile(sandboxId, workspacePath, bytes);
     const written = await this.downloadUploadedFile(sandboxId, workspacePath, bytes.byteLength);
-    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath, workspaceTimestamp).catch(
-      (error: unknown) => {
-        logWorkspaceProtectionFailure(error, "file");
-      },
-    );
+    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath);
     return written;
   }
 
@@ -330,10 +330,11 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     const uploadsPath = `${projectRoot}/uploads`;
     const workspaceFiles = await this.workspaceUploadedFiles(sandboxId, uploadsPath);
     const workspaceFilesByName = new Map(workspaceFiles.map((file) => [file.name, file]));
+    const restoredFiles: CurrentProjectFile[] = [];
     let restoredFileCount = 0;
     for (const current of currentFiles) {
       const workspaceFile = workspaceFilesByName.get(current.file.name);
-      if (!workspaceProjectFileNeedsRestore(workspaceFile, current.file)) {
+      if (!workspaceProjectFileNeedsRestore(workspaceFile, current.file, current.materialization)) {
         continue;
       }
       const bytes = await this.readStoredProjectFile(current.version);
@@ -342,15 +343,45 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         projectRoot,
         `${projectRoot}/${current.file.path}`,
         bytes,
-        current.file.updatedAt,
       );
       await assertWorkspaceProjectFile(written, current.file);
+      restoredFiles.push(current);
       restoredFileCount += 1;
     }
-    await this.protectUploadedDirectory(sandboxId, uploadsPath).catch((error: unknown) => {
-      logWorkspaceProtectionFailure(error, "directory");
-    });
+    await this.recordRestoredProjectFiles(sandboxId, uploadsPath, restoredFiles);
     return { restoredFileCount };
+  }
+
+  private async recordRestoredProjectFiles(
+    sandboxId: string,
+    uploadsPath: string,
+    restoredFiles: CurrentProjectFile[],
+  ): Promise<void> {
+    if (restoredFiles.length === 0) return;
+    const workspaceFiles = await this.workspaceUploadedFiles(sandboxId, uploadsPath);
+    const workspaceFilesByName = new Map(workspaceFiles.map((file) => [file.name, file]));
+    for (const current of restoredFiles) {
+      const workspaceFile = workspaceFilesByName.get(current.file.name);
+      if (!workspaceFile || workspaceFile.isDir || workspaceFile.size !== current.file.sizeBytes) {
+        throw new APIError(
+          502,
+          "upstream_sandbox_failed",
+          "Restored project file metadata is invalid",
+          { retriable: true },
+        );
+      }
+      const materialization = ProjectFileMaterializationSchema.parse({
+        fileId: current.file.fileId,
+        modifiedAt: workspaceFile.modifiedAt,
+        projectId: current.file.projectId,
+        sizeBytes: current.file.sizeBytes,
+        versionId: current.file.versionId,
+      });
+      await this.ctx.storage.put(
+        materializationRecordKey(materialization.projectId, materialization.fileId),
+        materialization,
+      );
+    }
   }
 
   private async currentProjectFiles(projectId: string): Promise<CurrentProjectFile[]> {
@@ -365,7 +396,15 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
       );
       const version = ProjectFileVersionSchema.parse(versionValue);
       assertCurrentProjectFile(file, version);
-      currentFiles.push({ file, version });
+      const materializationValue = await this.ctx.storage.get(
+        materializationRecordKey(file.projectId, file.fileId),
+      );
+      const materialization = ProjectFileMaterializationSchema.safeParse(materializationValue);
+      currentFiles.push({
+        file,
+        materialization: materialization.success ? materialization.data : null,
+        version,
+      });
     }
     currentFiles.sort((left, right) => left.file.path.localeCompare(right.file.path));
     return currentFiles;
@@ -413,75 +452,55 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     return bytes;
   }
 
-  private async prepareUploadedFileWrite(
+  private async readProjectFileMaterialization(
     sandboxId: string,
     uploadsPath: string,
-    workspacePath: string,
-  ): Promise<void> {
-    await this.client().createFolder(sandboxId, uploadsPath);
-    const prepared = await this.client().execute(sandboxId, {
-      command: [
-        `chmod 0777 -- ${shellQuote(uploadsPath)}`,
-        `if test -e ${shellQuote(workspacePath)}; then chmod 0666 -- ${shellQuote(workspacePath)}; fi`,
-      ].join(" && "),
-      timeout: 10,
-    });
-    if (prepared.exitCode !== 0) {
-      logWorkspaceProtectionFailure(
-        new Error("Workspace cache permissions could not be opened"),
-        "prepare",
-        prepared.exitCode,
+    input: z.output<typeof ProjectUploadFileInputSchema>,
+    prepared: PreparedProjectFile,
+  ): Promise<ProjectFileMaterialization> {
+    const workspaceFiles = await this.workspaceUploadedFiles(sandboxId, uploadsPath);
+    const workspaceFile = workspaceFiles.find((file) => file.name === input.name);
+    if (!workspaceFile || workspaceFile.isDir || workspaceFile.size !== input.bytes.byteLength) {
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        "Project file workspace metadata is invalid",
+        { retriable: true },
       );
     }
+    return ProjectFileMaterializationSchema.parse({
+      fileId: prepared.fileId,
+      modifiedAt: workspaceFile.modifiedAt,
+      projectId: input.projectId,
+      sizeBytes: input.bytes.byteLength,
+      versionId: prepared.versionId,
+    });
+  }
+
+  private async prepareUploadedFileWrite(sandboxId: string, uploadsPath: string): Promise<void> {
+    await this.client().createFolder(sandboxId, uploadsPath, "0755");
+    await this.client().setFilePermissions(sandboxId, uploadsPath, {
+      group: "node",
+      mode: "0755",
+      owner: "node",
+    });
   }
 
   private async protectUploadedFile(
     sandboxId: string,
     uploadsPath: string,
     workspacePath: string,
-    workspaceTimestamp: string,
   ): Promise<void> {
-    const protectedFile = await this.client().execute(sandboxId, {
-      command: [
-        "attempt=0",
-        `while test "$attempt" -lt ${WORKSPACE_FILE_VISIBILITY_ATTEMPTS}; do`,
-        `if test -f ${shellQuote(workspacePath)}; then`,
-        `touch -d ${shellQuote(workspaceTimestamp)} -- ${shellQuote(workspacePath)} && chmod 0444 -- ${shellQuote(workspacePath)} && chmod 0555 -- ${shellQuote(uploadsPath)}`,
-        "exit $?",
-        "fi",
-        "attempt=$((attempt + 1))",
-        `sleep ${WORKSPACE_FILE_VISIBILITY_DELAY_MS / 1_000}`,
-        "done",
-        "exit 1",
-      ].join("\n"),
-      timeout: 10,
+    await this.client().setFilePermissions(sandboxId, workspacePath, {
+      group: "node",
+      mode: "0444",
+      owner: "node",
     });
-    if (protectedFile.exitCode !== 0) {
-      throw new APIError(
-        502,
-        "upstream_sandbox_failed",
-        "Project file workspace could not be protected",
-        { retriable: true },
-      );
-    }
-  }
-
-  private async protectUploadedDirectory(sandboxId: string, uploadsPath: string): Promise<void> {
-    const protectedDirectory = await this.client().execute(sandboxId, {
-      command: [
-        `find ${shellQuote(uploadsPath)} -mindepth 1 -maxdepth 1 -type f -exec chmod 0444 -- {} +`,
-        `chmod 0555 -- ${shellQuote(uploadsPath)}`,
-      ].join(" && "),
-      timeout: 10,
+    await this.client().setFilePermissions(sandboxId, uploadsPath, {
+      group: "node",
+      mode: "0555",
+      owner: "node",
     });
-    if (protectedDirectory.exitCode !== 0) {
-      throw new APIError(
-        502,
-        "upstream_sandbox_failed",
-        "Project file workspace could not be protected",
-        { retriable: true },
-      );
-    }
   }
 
   private async listProjectFileRecords(projectId: string): Promise<{ files: ProjectFile[] }> {
@@ -519,14 +538,21 @@ function workspaceProjectFileNeedsRestore(
       }
     | undefined,
   file: ProjectFile,
+  materialization: ProjectFileMaterialization | null,
 ): boolean {
   if (!workspaceFile || workspaceFile.isDir || workspaceFile.size !== file.sizeBytes) {
     return true;
   }
-  return (
-    Date.parse(workspaceFile.modifiedAt) >
-    Date.parse(file.updatedAt) + WORKSPACE_TIMESTAMP_TOLERANCE_MS
-  );
+  if (
+    !materialization ||
+    materialization.fileId !== file.fileId ||
+    materialization.projectId !== file.projectId ||
+    materialization.sizeBytes !== file.sizeBytes ||
+    materialization.versionId !== file.versionId
+  ) {
+    return true;
+  }
+  return Date.parse(workspaceFile.modifiedAt) !== Date.parse(materialization.modifiedAt);
 }
 
 function assertCurrentProjectFile(file: ProjectFile, version: ProjectFileVersion): void {
@@ -558,14 +584,6 @@ async function assertWorkspaceProjectFile(bytes: Uint8Array, file: ProjectFile):
       retriable: true,
     },
   );
-}
-
-function logWorkspaceProtectionFailure(
-  error: unknown,
-  stage: "directory" | "file" | "prepare",
-  exitCode?: number,
-): void {
-  createLogger().warn("project_upload_workspace_protection_failed", { error, exitCode, stage });
 }
 
 async function prepareProjectFile(
@@ -655,16 +673,20 @@ function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
-}
-
 function fileRecordProjectPrefix(projectId: string): string {
   return `${FILE_RECORD_PREFIX}${projectId}:`;
 }
 
 function fileRecordKey(projectId: string, fileId: string): string {
   return `${fileRecordProjectPrefix(projectId)}${fileId}`;
+}
+
+function materializationRecordProjectPrefix(projectId: string): string {
+  return `${MATERIALIZATION_RECORD_PREFIX}${projectId}:`;
+}
+
+function materializationRecordKey(projectId: string, fileId: string): string {
+  return `${materializationRecordProjectPrefix(projectId)}${fileId}`;
 }
 
 function versionRecordProjectPrefix(projectId: string): string {

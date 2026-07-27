@@ -201,6 +201,12 @@ interface ExecuteParams {
   timeout?: number;
 }
 
+interface DaytonaFilePermissions {
+  group?: string;
+  mode?: string;
+  owner?: string;
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -481,6 +487,21 @@ export class DaytonaClient {
       `/files/folder?path=${encodeURIComponent(path)}&mode=${encodeURIComponent(normalizedMode)}`,
       { allowConflict: true },
     );
+  }
+
+  async setFilePermissions(
+    id: string,
+    path: string,
+    permissions: DaytonaFilePermissions,
+  ): Promise<void> {
+    const query = new URLSearchParams({ path });
+    if (permissions.owner !== undefined) query.set("owner", permissions.owner);
+    if (permissions.group !== undefined) query.set("group", permissions.group);
+    if (permissions.mode !== undefined) query.set("mode", permissions.mode);
+    if (query.size === 1) {
+      throw new TypeError("At least one file permission must be provided");
+    }
+    await this.toolbox("POST", id, `/files/permissions?${query.toString()}`);
   }
 
   async deleteFilePath(id: string, path: string, recursive: boolean): Promise<void> {
