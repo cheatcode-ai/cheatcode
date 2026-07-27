@@ -240,14 +240,6 @@ async function requireClaimedUserDeletion(
   }
 }
 
-export async function purgeUserProviderKeySecrets(db: Database, userId: UserId): Promise<number> {
-  const result = await withUserContext(db, userId, (tx) =>
-    tx.execute(sql`select delete_all_provider_keys() as deleted_count`),
-  );
-  const row = result.rows[0] as { deleted_count?: number | string } | undefined;
-  return Number(row?.deleted_count ?? 0);
-}
-
 export async function claimProviderKeyRevalidationTargets(
   db: Database,
   limit: number,

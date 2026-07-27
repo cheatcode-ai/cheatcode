@@ -1,8 +1,6 @@
 export type {
   ActivityHistoryResponse,
   ActivityRunPoint,
-  BrowserTakeoverResume,
-  BrowserTakeoverResumeResult,
   BrowserTakeoverSession,
   BrowserTakeoverStatus,
   CreateRun,
@@ -33,7 +31,6 @@ export type {
   SearchResult,
   SearchResultThread,
   Thread,
-  ToolDomain,
   ToolkitAction,
   ToolkitActionsResponse,
   ToolkitCatalogEntry,
@@ -108,7 +105,7 @@ export {
   UserSkillSchema,
   UserSkillsResponseSchema,
 } from "./api";
-export type { ArtifactKind, OutputDownloadUrlResponse } from "./artifacts";
+export type { OutputDownloadUrlResponse } from "./artifacts";
 export {
   ARTIFACT_KINDS,
   ArtifactKindSchema,
@@ -210,7 +207,6 @@ export {
   normalizeTelemetryPath,
   WebVitalsBodySchema,
 } from "./telemetry";
-export type { TranscriptSegmentParts } from "./transcript-segments";
 export {
   coalesceTranscriptSegmentParts,
   coalesceTranscriptUIMessages,
@@ -224,7 +220,6 @@ export type {
   CheatcodeUIMessage,
   ModelFallbackData,
   SandboxState,
-  TaskStatus,
   UIMessagePart,
 } from "./ui-message";
 export {

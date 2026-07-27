@@ -42,6 +42,7 @@ packages/
   tools-browser/          Stagehand LOCAL browser automation
   tools-docs/             pptxgenjs, docx, exceljs, @react-pdf/renderer
   tools-data/             Arquero CSV analysis + deterministic SVG charts
+  tools-media/            Image generation and media editing
   tools-research/         Exa + Firecrawl
   db/                     Drizzle schema (per-domain) + queries + migrations
   byok/                   Vault-backed BYOK with provider validation
@@ -54,9 +55,9 @@ packages/
   ui/                     shared UI primitives, icon barrel, AI response renderer
   tsconfig/               Shared base/nextjs/worker/library configs
 
-skills/                   8 curated Anthropic SKILL.md skills
-infra/                    Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile/snapshot
-scripts/                  Operational helpers only: build skills, local startup, deploy orchestration, migrations, audit archive
+skills/                   19 curated Anthropic SKILL.md skills
+infra/                    Container images and Dockerfiles for local development and Daytona sandboxes
+scripts/                  Operational helpers: build-skills, dev, dev-worker-config, jsonc, migrate, migration-drizzle, database-operation-safety
 ```
 
 ## Critical conventions (non-negotiable)

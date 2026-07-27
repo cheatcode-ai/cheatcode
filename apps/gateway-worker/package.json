@@ -7,7 +7,6 @@
   "types": "./src/index.ts",
   "scripts": {
     "build": "wrangler deploy --dry-run",
-    "deploy": "wrangler deploy",
     "lint": "biome check .",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },

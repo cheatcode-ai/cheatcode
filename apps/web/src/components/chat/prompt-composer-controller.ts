@@ -13,10 +13,6 @@ import {
   useState,
 } from "react";
 import type { RunStatus } from "@/components/chat/status-pill";
-import {
-  type PromptAttachments,
-  usePromptAttachments,
-} from "@/components/chat/use-prompt-attachments";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 import { useProjectFileItems } from "@/components/composer/project-file-source";
@@ -26,6 +22,10 @@ import {
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
+import {
+  type ProjectFileUploads,
+  useProjectFileUploads,
+} from "@/components/composer/use-project-file-uploads";
 import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import { useAppStore } from "@/lib/store/app-store";
@@ -72,7 +72,7 @@ interface PromptComposerActions {
 
 export interface PromptComposerController {
   actions: PromptComposerActions;
-  attachments: PromptAttachments;
+  attachments: ProjectFileUploads;
   meta: { textareaRef: RefObject<HTMLTextAreaElement | null> };
   state: PromptComposerState;
   triggers: ComposerTriggers;
@@ -92,7 +92,7 @@ export function usePromptComposerController(props: PromptComposerProps): PromptC
     textareaRef,
     value: props.value,
   });
-  const attachments = usePromptAttachments({
+  const attachments = useProjectFileUploads({
     getToken,
     latestValueRef: publisher.latestValueRef,
     onChange: publisher.publishValue,
@@ -225,7 +225,7 @@ function useProjectSelection(project: ProjectSummary | null) {
 }
 
 type PromptComposerAssemblyOptions = {
-  attachments: PromptAttachments;
+  attachments: ProjectFileUploads;
   computerOpen: boolean;
   isRunning: boolean;
   menu: ReturnType<typeof usePromptComposerMenu>;

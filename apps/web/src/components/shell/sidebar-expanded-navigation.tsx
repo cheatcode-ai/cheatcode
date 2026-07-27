@@ -208,7 +208,7 @@ function SidebarHelpCard({ item, pathname }: { item: NavItem; pathname: string }
       <span className="min-w-0">
         <span className="block truncate font-medium text-[14px] leading-5">{item.label}</span>
         <span className="block truncate text-[12px] text-placeholder leading-4">
-          {item.description ?? "Learn what Cheatcode can do"}
+          Learn what Cheatcode can do
         </span>
       </span>
     </Link>

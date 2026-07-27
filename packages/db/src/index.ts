@@ -1,24 +1,14 @@
-export type {
-  ActivationEventCursor,
-  ActivationEventName,
-  ActivationEventPage,
-  ActivationEventRecord,
-} from "./activation";
+export type { ActivationEventCursor } from "./activation";
 export { listDailyActivationEventPage } from "./activation";
-export type { AgentRunStartPoint, AgentRunStartPointRange } from "./activity-runs";
+export type { AgentRunStartPointRange } from "./activity-runs";
 export { listAgentRunStartPoints } from "./activity-runs";
 export { isAgentStateDeletionAuthorized } from "./agent-state-deletion-authority";
 export type {
   ArtifactUploadIdentity,
   ArtifactUploadIntentRecord,
-  FinalizeArtifactUploadInput,
-  FinalizeArtifactUploadResult,
-  GuardArtifactUploadResult,
   QuiescedArtifactUploadIntentRecord,
-  ReserveArtifactUploadResult,
 } from "./artifact-upload-intents";
 export {
-  deleteQuiescedArtifactUploadIntents,
   deleteUserArtifactUploadIntents,
   finalizeArtifactUpload,
   guardArtifactUpload,
@@ -26,13 +16,7 @@ export {
   listUserArtifactUploadIntents,
   reserveArtifactUpload,
 } from "./artifact-upload-intents";
-export type {
-  AgentEntitlementRecord,
-  BillingUserRecord,
-  EntitlementRecord,
-  EntitlementSubscriptionStateInput,
-  EntitlementUpsertInput,
-} from "./billing";
+export type { BillingUserRecord } from "./billing";
 export {
   findAgentEntitlementByUserId,
   findBillingUserById,
@@ -46,11 +30,9 @@ export {
 export type { Database, DatabaseHandle, HyperdriveConnection } from "./client";
 export { createDb, withUserContext } from "./client";
 export type {
-  ClaimedDailyMaintenanceJob,
   DailyMaintenanceJobLease,
   DailyMaintenanceJobProgress,
   DailyMaintenanceJobRecord,
-  OrphanUploadCleanupAdvanceResult,
 } from "./daily-maintenance-jobs";
 export {
   advanceDailyMaintenanceJob,
@@ -65,12 +47,8 @@ export {
   renewAndLoadDailyMaintenanceJob,
   reserveDailyMaintenanceContinuation,
 } from "./daily-maintenance-jobs";
-export type { DatabaseContextConfig, DatabaseRuntimeAudience } from "./database-context";
-export type {
-  AgentIntegrationRecord,
-  UserIntegrationRecord,
-  UserIntegrationUpsertInput,
-} from "./integrations";
+export type { DatabaseContextConfig } from "./database-context";
+export type { UserIntegrationRecord } from "./integrations";
 export {
   deleteUserIntegrationAccount,
   deleteUserIntegrationAccounts,
@@ -83,9 +61,6 @@ export {
   upsertUserIntegrations,
 } from "./integrations";
 export type {
-  CompleteCurrentProviderKeyRevalidationInput,
-  DisableCurrentProviderKeyInput,
-  ProviderKeyRevalidationTarget,
   UserDeletionContext,
   UserDeletionPage,
 } from "./lifecycle";
@@ -98,7 +73,6 @@ export {
   listUserDeletionIntegrationPage,
   listUserDeletionRunPage,
   loadUserDeletionContext,
-  purgeUserProviderKeySecrets,
 } from "./lifecycle";
 export { findGeneratedOutput } from "./outputs";
 export type { RunPersonalization, UpsertUserProfileInput, UserProfileRecord } from "./profiles";
@@ -110,9 +84,6 @@ export {
   deleteResourceDeletionOutputRecords,
   finalizeProjectDeletion,
   finalizeThreadDeletion,
-  isProjectDeletionGenerationCurrent,
-  isResourceDeletionGenerationCurrent,
-  isThreadDeletionGenerationCurrent,
   listProjectDeletionOutputs,
   listProjectDeletionRunIds,
   listThreadDeletionOutputs,
@@ -120,27 +91,17 @@ export {
   ResourceDeletionInvariantError,
 } from "./project-deletion";
 export type {
-  BeginProjectDeletionResult,
-  BeginThreadDeletionResult,
-  CreateMessageInput,
-  CreateProjectInput,
   MessageRecord,
   ProjectSummaryRecord,
-  ProjectWriteState,
   ThreadContextMessageRecord,
   ThreadRecord,
-  TimestampPageCursor,
-  TimestampPageRecord,
-  UpdateProjectInput,
 } from "./project-types";
 export {
   beginProjectDeletion,
   beginThreadDeletion,
-  canonicalWorkspaceSlugForProject,
   countActiveProjects,
   createProject,
   createThread,
-  filesystemSlug,
   getProject,
   getProjectWriteState,
   getThread,
@@ -152,10 +113,6 @@ export {
   workspacePathForSlug,
 } from "./projects";
 export type {
-  ClaimedResourceDeletionJob,
-  DeferredResourceDeletionJob,
-  ResourceDeletionClaimResult,
-  ResourceDeletionDiscoveryResult,
   ResourceDeletionJobGuard,
   ResourceDeletionJobLease,
   ResourceDeletionJobRecord,
@@ -174,19 +131,11 @@ export {
   reserveResourceDeletionContinuation,
   runResourceDeletionJobDatabaseAction,
 } from "./resource-deletion-jobs";
-export type { EntitlementResourceLimitInput } from "./resource-limits";
 export {
   applyEntitlementResourceLimits,
   lockUserProviderKeyMutations,
 } from "./resource-limits";
-export type {
-  AgentRunHandle,
-  AgentRunStatus,
-  CreateAgentRunInput,
-  CreateAgentRunResult,
-  UpdateAgentRunLogicalModelInput,
-  UpdateAgentRunStatusInput,
-} from "./runs";
+export type { AgentRunHandle } from "./runs";
 export {
   createAgentRunForThread,
   findActiveAgentRunForThread,
@@ -197,33 +146,17 @@ export {
   updateAgentRunLogicalModelId,
   updateAgentRunStatus,
 } from "./runs";
+export type { StoredSkillRuntimeCapability } from "./schema";
 export type {
-  DailyMaintenanceJobPhase,
-  DailyMaintenanceJobStatus,
-  OnboardingStateValue,
-  ProjectSettings,
-  ResourceDeletionKind,
-  ResourceDeletionPhase,
-  ResourceDeletionStatus,
-  StoredSkillRuntimeCapability,
-  UserDeletionPhase,
-  UserDeletionRefundProviderStatus,
-  UserDeletionStatus,
-} from "./schema";
-export type {
-  WorkspaceProjectSearchRecord,
-  WorkspaceSearchInput,
   WorkspaceSearchRecord,
   WorkspaceThreadSearchRecord,
 } from "./search";
 export { listRecentThreads, searchWorkspace } from "./search";
-export type { SkillRuntimeCapabilityAuthorization } from "./skill-runtime-capabilities";
 export {
   authorizeSkillRuntimeCapability,
   rotateSkillRuntimeCapabilities,
 } from "./skill-runtime-capabilities";
 export type {
-  UpsertUserSkillInput,
   UserSkillRecord,
   UserSkillSummaryRecord,
 } from "./skills";
@@ -233,7 +166,6 @@ export {
   getUserSkillByName,
   listUserSkillRecords,
   listUserSkillSummaries,
-  UserSkillLimitExceededError,
   upsertUserSkill,
 } from "./skills";
 export {
@@ -242,9 +174,6 @@ export {
   listThreadMessages,
 } from "./thread-messages";
 export type {
-  ClaimedUserDeletionJob,
-  DeferredUserDeletionJob,
-  UserDeletionClaimResult,
   UserDeletionJobLease,
   UserDeletionJobRecord,
 } from "./user-deletion-jobs";
@@ -271,7 +200,6 @@ export {
 } from "./user-deletion-refund-intents";
 export type {
   ClerkUserSyncInput,
-  ClerkUserSyncOutcome,
   ClerkUserSyncResult,
 } from "./users";
 export {

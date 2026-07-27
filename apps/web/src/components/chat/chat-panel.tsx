@@ -2,7 +2,8 @@
 
 import { ChatContextRow } from "@/components/chat/chat-context-row";
 import { MessageList } from "@/components/chat/message-list";
-import { PromptComposer } from "@/components/chat/prompt-composer";
+import { usePromptComposerController } from "@/components/chat/prompt-composer-controller";
+import { PromptComposerView } from "@/components/chat/prompt-composer-view";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
 import {
   type ChatPanelProps,
@@ -11,6 +12,16 @@ import {
 
 export function ChatPanel(props: ChatPanelProps) {
   const controller = useChatPanelController(props);
+  const promptComposerController = usePromptComposerController({
+    onChange: controller.actions.setDraft,
+    onStop: controller.actions.stopRun,
+    onSubmit: controller.actions.submitText,
+    project: props.project,
+    resolvedModelId: props.latestModelId,
+    status: controller.state.composerStatus,
+    threadId: props.threadId,
+    value: controller.state.draft,
+  });
   return (
     <div className="relative flex min-h-0 flex-1 flex-col bg-background">
       <ChatContextRow
@@ -29,16 +40,7 @@ export function ChatPanel(props: ChatPanelProps) {
         onLoadOlderMessages={controller.actions.loadOlderMessages}
         threadId={props.threadId}
       />
-      <PromptComposer
-        onChange={controller.actions.setDraft}
-        onStop={controller.actions.stopRun}
-        onSubmit={controller.actions.submitText}
-        project={props.project}
-        resolvedModelId={props.latestModelId}
-        status={controller.state.composerStatus}
-        threadId={props.threadId}
-        value={controller.state.draft}
-      />
+      <PromptComposerView controller={promptComposerController} />
     </div>
   );
 }

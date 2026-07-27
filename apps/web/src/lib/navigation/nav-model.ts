@@ -23,8 +23,6 @@ type NavSection = "footer" | "primary" | "workspace";
 type NavTarget = { href: string; kind: "route"; matchPrefix: string } | { kind: "action" };
 
 export interface NavItem {
-  description?: string;
-  expandable?: boolean;
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean | "false" | "true" }>;
   id: NavItemId;
   label: string;
@@ -42,7 +40,6 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     target: { href: "/", kind: "route", matchPrefix: "/" },
   },
   {
-    expandable: true,
     icon: SidebarProjectsIcon,
     id: "projects",
     label: "Projects",
@@ -75,7 +72,6 @@ export const WORKSPACE_NAV: readonly NavItem[] = [
     target: { href: "/models", kind: "route", matchPrefix: "/models" },
   },
   {
-    description: "Learn what Cheatcode can do",
     icon: CheatcodeMark,
     id: "cheatcode-101",
     label: "Cheatcode 101",

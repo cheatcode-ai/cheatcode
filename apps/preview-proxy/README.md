@@ -212,12 +212,9 @@ the shared `@cheatcode/observability` emitters.
   for Clerk, documentation, and the Vercel frontend hostname.
   `preview.trycheatcode.com` deliberately has no exact route and inherits the
   preview wildcard for release health checks.
-- [`infra/cloudflare/production-route-contract.json`](../../infra/cloudflare/production-route-contract.json)
-  is the production contract. `stage-closed` creates only a missing exact
-  no-script route through the Workers Routes API before deploying the wildcard;
-  it never updates or deletes an existing route. Conflicts, semantic duplicates,
-  and overlapping wildcard routes stop the release. The contract is checked
-  again after preview deployment and before the gateway can reopen.
+- The wildcard route is declared in
+  [`apps/preview-proxy/wrangler.jsonc`](./wrangler.jsonc) and deployed directly
+  by [`.github/workflows/deploy-cloudflare.yml`](../../.github/workflows/deploy-cloudflare.yml).
 - DNS: a **proxied** wildcard record `*` -> the zone (orange-cloud) so
   Cloudflare terminates TLS and runs this Worker for every sub-subdomain.
 - TLS: the wildcard is one label deep beyond the configured apex; Cloudflare

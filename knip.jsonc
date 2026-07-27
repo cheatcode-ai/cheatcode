@@ -14,7 +14,23 @@
       "drizzle": {
         "config": []
       },
-      "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
+      "entry": ["drizzle.config.ts"],
+      "ignoreExportsUsedInFile": true
+    },
+    "packages/composio": {
+      "ignoreExportsUsedInFile": true
+    },
+    "packages/sandbox-contracts": {
+      "ignoreExportsUsedInFile": true
+    },
+    "packages/types": {
+      "ignoreExportsUsedInFile": true,
+      // The root barrel is intentionally narrower than its source modules;
+      // definition-level exports are audited separately.
+      "ignoreIssues": {
+        "src/api.ts": ["types"],
+        "src/ui-message.ts": ["types"]
+      }
     },
     "infra/containers/sandbox/browser-driver": {
       // Must stay declared as a workspace so its package.json `main` (server.js,

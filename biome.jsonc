@@ -151,19 +151,15 @@
         "**/app/**/global-error.tsx",
         "**/app/**/not-found.tsx",
         "**/app/**/opengraph-image.tsx",
-        "**/middleware.ts",
         "**/proxy.ts",
         "**/next.config.ts",
         "**/postcss.config.mjs",
         "**/drizzle.config.ts",
         "**/commitlint.config.js",
-        "**/wrangler.config.ts",
         "apps/agent-worker/src/index.ts",
         "apps/gateway-worker/src/index.ts",
         "apps/preview-proxy/src/index.ts",
-        "apps/webhooks-worker/src/index.ts",
-        "**/mastra.config.ts",
-        "**/src/lib/intl/request.ts"
+        "apps/webhooks-worker/src/index.ts"
       ],
       "linter": {
         "rules": {

@@ -83,7 +83,7 @@ function UserMessageParts({ message }: { message: CheatcodeUIMessage }) {
           Skill Creator
         </span>
       ) : null}
-      <div className="chat-markdown min-w-0 flex-1 text-foreground">
+      <div className="min-w-0 flex-1 text-foreground">
         <MarkdownResponse>{text}</MarkdownResponse>
       </div>
     </div>
@@ -99,7 +99,7 @@ interface MessagePartViewProps {
 function MessagePartView({ onContinue, part, threadId }: MessagePartViewProps) {
   if (part.type === "text") {
     return (
-      <div className="chat-markdown max-w-none text-[14px] text-foreground leading-6">
+      <div className="max-w-none text-[14px] text-foreground leading-6">
         <MarkdownResponse>{part.text}</MarkdownResponse>
       </div>
     );

@@ -6,7 +6,6 @@ export {
   emitUserEvent,
 } from "./analytics";
 export { withErrorHandler } from "./error-handler";
-export type { SafeErrorTelemetry } from "./errors";
 export { APIError, safeErrorTelemetry, toAPIError } from "./errors";
 export {
   readBoundedRequestBytes,

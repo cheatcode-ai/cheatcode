@@ -20,32 +20,13 @@ const CURSOR_IMAGE_SIZE = 20;
 const INTERACTIVE_SELECTOR =
   'a, button, input, textarea, select, summary, [role="button"], [contenteditable="true"], [data-cheatcode-ignore]';
 
-type FieldVariant = "home" | "loading";
-
-type CheatcodeCursorFieldProps = {
-  className?: string | undefined;
-  variant?: FieldVariant | undefined;
-};
-
 type Point = {
   x: number;
   y: number;
 };
 
 /** Runs Cheatcode's cursor-trail interaction while preserving the native cursor. */
-export function CheatcodeCursorField({ className, variant = "home" }: CheatcodeCursorFieldProps) {
-  return (
-    <CheatcodeCursorTrail className={className} restrictToWhitespace={variant !== "loading"} />
-  );
-}
-
-function CheatcodeCursorTrail({
-  className,
-  restrictToWhitespace,
-}: {
-  className?: string | undefined;
-  restrictToWhitespace: boolean;
-}) {
+export function CheatcodeCursorTrail({ className }: { className?: string | undefined }) {
   const surfaceRef = useRef<HTMLDivElement>(null);
   const imageRefs = useRef<Array<HTMLImageElement | null>>([]);
   const nextImageRef = useRef(0);
@@ -65,13 +46,13 @@ function CheatcodeCursorTrail({
   }).current;
 
   useEffect(() => setIsMounted(true), []);
-  useExactTrailMotion(motionRefs, restrictToWhitespace);
+  useExactTrailMotion(motionRefs);
 
   return (
     <div
       aria-hidden="true"
       className={cn("pointer-events-none absolute inset-0 size-full", className)}
-      data-cheatcode-cursor-field={restrictToWhitespace ? "home" : "loading-trail"}
+      data-cheatcode-cursor-field="home"
       ref={surfaceRef}
     >
       {isMounted ? createPortal(<CursorTrailPortal imageRefs={imageRefs} />, document.body) : null}
@@ -89,7 +70,7 @@ type TrailMotionRefs = {
   timeRef: React.RefObject<number>;
 };
 
-function useExactTrailMotion(refs: TrailMotionRefs, restrictToWhitespace: boolean): void {
+function useExactTrailMotion(refs: TrailMotionRefs): void {
   const placeImage = usePlaceTrailImage(refs);
   const hideImage = useHideTrailImage(refs);
 
@@ -99,12 +80,12 @@ function useExactTrailMotion(refs: TrailMotionRefs, restrictToWhitespace: boolea
     if (motionQuery.matches || !pointerQuery.matches) return;
 
     const handleMouseMove = (event: MouseEvent) => {
-      if (!isEligiblePointerEvent(refs.surfaceRef.current, event, restrictToWhitespace)) return;
+      if (!isEligiblePointerEvent(refs.surfaceRef.current, event)) return;
       moveTrail(event.clientX, event.clientY, refs, placeImage, hideImage);
     };
     window.addEventListener("mousemove", handleMouseMove, { passive: true });
     return () => window.removeEventListener("mousemove", handleMouseMove);
-  }, [hideImage, placeImage, refs, restrictToWhitespace]);
+  }, [hideImage, placeImage, refs]);
 
   useEffect(() => () => clearTrail(refs), [refs]);
 }
@@ -205,11 +186,7 @@ function clearTrail(refs: TrailMotionRefs): void {
   }
 }
 
-function isEligiblePointerEvent(
-  surface: HTMLDivElement | null,
-  event: MouseEvent,
-  restrictToWhitespace: boolean,
-): boolean {
+function isEligiblePointerEvent(surface: HTMLDivElement | null, event: MouseEvent): boolean {
   if (!surface) return false;
   const rect = surface.getBoundingClientRect();
   const isInside =
@@ -218,7 +195,6 @@ function isEligiblePointerEvent(
     event.clientY >= rect.top &&
     event.clientY <= rect.bottom;
   if (!isInside) return false;
-  if (!restrictToWhitespace) return true;
   return !(event.target instanceof Element && event.target.closest(INTERACTIVE_SELECTOR));
 }
 

@@ -10,7 +10,6 @@ Shared authentication and signed-capability protocols for Workers.
 - `fetchClerkUserSyncSnapshot`
 - `updateClerkUserPublicMetadata`
 - `hmacSha256Base64`
-- `assertDistinctHmacSecrets`
 - `assertHmacSecretStrength`
 - `MINIMUM_HMAC_SECRET_UTF8_BYTES` (32 bytes)
 - `timingSafeEqual`

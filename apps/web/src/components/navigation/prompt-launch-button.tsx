@@ -10,7 +10,6 @@ type PromptLaunchButtonProps = Omit<
   "children" | "onClick" | "type"
 > & {
   children: ReactNode;
-  onLaunch?: (() => void) | undefined;
   prompt: string;
   query?: Readonly<Record<string, string | undefined>> | undefined;
 };
@@ -18,7 +17,6 @@ type PromptLaunchButtonProps = Omit<
 /** Navigates with an opaque, one-time session key so prompt text never enters the URL. */
 export function PromptLaunchButton({
   children,
-  onLaunch,
   prompt,
   query,
   ...buttonProps
@@ -37,7 +35,6 @@ export function PromptLaunchButton({
             }
           }
           params.set("promptKey", createPromptHandoff(prompt).promptKey);
-          onLaunch?.();
           router.push(`/?${params.toString()}`);
         } catch (error) {
           toast.error(error instanceof Error ? error.message : "Could not open that prompt.");

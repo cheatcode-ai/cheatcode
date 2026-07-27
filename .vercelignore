@@ -1,7 +1,3 @@
-# Local documentation and planning directories are not part of the deploy bundle.
-/docs/
-/tasks/
-/plans/
 # Build artifacts (match anywhere; Vercel installs + builds fresh)
 node_modules
 .pnpm-store
@@ -17,4 +13,3 @@ node_modules
 compose.yaml
 .dockerignore
 infra/containers/dev
-supabase

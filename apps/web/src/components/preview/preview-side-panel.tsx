@@ -5,6 +5,7 @@ import { Monitor, Smartphone } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { QRCodeSVG } from "qrcode.react";
 import { Activity, type ReactNode, useEffect } from "react";
+import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { PreviewSessionRefresh, useStablePreviewSource } from "@/lib/preview/preview-session";
@@ -14,7 +15,6 @@ import type { PreviewDevice, PreviewTab } from "@/lib/store/app-store";
 import { useAppStore } from "@/lib/store/app-store";
 import { emitFirstPreviewOpened } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
-import { BootingComputer } from "./booting-computer";
 import { ComputerPanelTabs } from "./computer-panel-tabs";
 import { ComputerSurfaceFrame } from "./computer-surface-frame";
 import { ComputerToggleButton } from "./computer-toggle-button";
@@ -351,7 +351,12 @@ function AppTab({
     !hasProject &&
     (sandboxStatus === "cold" || sandboxStatus === "starting")
   ) {
-    return <BootingComputer />;
+    return (
+      <CheatcodeLoader
+        className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
+        label="Booting computer"
+      />
+    );
   }
   return (
     <AppTabLayout expoUrl={expoUrl} isError={previewPhase === "error"} previewUrl={previewUrl}>
@@ -413,7 +418,12 @@ function AppTabContent({
     return (
       <PreviewDeviceFrame
         device={frameDevice}
-        content={<BootingComputer label="Starting preview…" />}
+        content={
+          <CheatcodeLoader
+            className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
+            label="Starting preview…"
+          />
+        }
       />
     );
   }

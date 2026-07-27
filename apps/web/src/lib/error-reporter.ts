@@ -1,7 +1,7 @@
 "use client";
 
+import { normalizeTelemetryPath } from "@cheatcode/types";
 import { gatewayRequestUrl } from "@/lib/api/gateway-url";
-import { telemetryPage } from "@/lib/telemetry-page";
 
 const CLIENT_ERROR_ENDPOINT = gatewayRequestUrl("/v1/client-error");
 let initialized = false;
@@ -22,7 +22,7 @@ export function reportClientError(type: ClientErrorType): void {
   postClientError({
     timestamp: Date.now(),
     type,
-    url: telemetryPage(),
+    url: normalizeTelemetryPath(window.location.pathname),
   });
 }
 

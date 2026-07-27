@@ -135,7 +135,7 @@ function ActivityNarration({ text }: { text: string }) {
     return null;
   }
   return (
-    <div className="chat-markdown max-w-none text-[14px] text-fg-secondary leading-5">
+    <div className="max-w-none text-[14px] text-fg-secondary leading-5">
       <MarkdownResponse>{text}</MarkdownResponse>
     </div>
   );

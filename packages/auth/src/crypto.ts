@@ -8,16 +8,6 @@ export function assertHmacSecretStrength(secret: string): void {
   }
 }
 
-/** Reject capability sets whose keys would collapse otherwise isolated trust boundaries. */
-export function assertDistinctHmacSecrets(secrets: readonly string[]): void {
-  for (const secret of secrets) {
-    assertHmacSecretStrength(secret);
-  }
-  if (new Set(secrets).size !== secrets.length) {
-    throw new TypeError("HMAC capability secrets must be distinct");
-  }
-}
-
 export async function hmacSha256Base64(message: string, secret: string): Promise<string> {
   return base64FromBytes(await hmacSha256(message, secret));
 }

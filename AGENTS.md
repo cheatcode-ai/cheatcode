@@ -41,6 +41,7 @@ apps/                    Deployable services
 packages/                Shared libraries
   agent-core/            Mastra instance + workflows
   tools-*/               Tool implementations per domain
+  tools-media/           Image generation and media editing tools
   db/                    Drizzle schema (per-domain) + queries + migrations
   byok/                  Vault-backed BYOK key store
   skills/                Build-time skill bundler
@@ -49,9 +50,9 @@ packages/                Shared libraries
   types/                 Zod schemas + branded IDs + InferAgentUIMessage
   ui/                    Shared Cheatcode UI primitives, icon barrel, AI response renderer
 
-skills/                  8 curated Anthropic SKILL.md skills
-infra/                   Wrangler configs, Supabase migrations, Daytona sandbox Dockerfile
-scripts/                 Operational helpers only: build skills, local startup, deploy orchestration, migrations
+skills/                  19 curated Anthropic SKILL.md skills
+infra/                   Container images and Dockerfiles for local development and Daytona sandboxes
+scripts/                 Operational helpers: build-skills, dev, dev-worker-config, jsonc, migrate, migration-drizzle, database-operation-safety
 ```
 
 ## Build

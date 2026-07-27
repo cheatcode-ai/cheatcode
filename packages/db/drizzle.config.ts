@@ -5,7 +5,7 @@ const migrationEnv = loadMigrationEnv();
 
 export default defineConfig({
   dialect: "postgresql",
-  schema: "./src/schema/drizzle.ts",
+  schema: "./src/schema/index.ts",
   out: "./drizzle",
   dbCredentials: {
     url: migrationEnv.databaseUrl,

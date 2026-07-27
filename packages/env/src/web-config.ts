@@ -61,11 +61,6 @@ const ClerkPublishableKeyIdentitySchema = z
     };
   });
 
-/** Decode only the non-secret environment and Frontend API identity carried by a Clerk key. */
-export function parseClerkPublishableKeyIdentity(value: unknown): ClerkPublishableKeyIdentity {
-  return ClerkPublishableKeyIdentitySchema.parse(value);
-}
-
 export type WebBuildEnvironmentInput = WebDeploymentInput &
   Readonly<{
     NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: string | undefined;
