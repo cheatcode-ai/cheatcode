@@ -15,7 +15,7 @@ interface SessionOptions {
 }
 
 const MAINTENANCE_LOCK_NAME = "cheatcode:database-maintenance:v1";
-const RUNTIME_DATABASE_ROLES = new Set(["app_agent", "app_gateway", "app_webhooks", "app_worker"]);
+const RUNTIME_DATABASE_ROLES = new Set(["app_agent", "app_gateway", "app_webhooks"]);
 
 export function assertAdministrativeConnectionTarget(
   databaseUrl: string,

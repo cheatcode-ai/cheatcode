@@ -17,16 +17,13 @@
       "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
     },
     "infra/containers/sandbox/browser-driver": {
-      // Stagehand resolves these declared peers only inside the separately
-      // installed sandbox image, so there is no source import for Knip to trace.
-      "ignoreDependencies": ["playwright-core", "zod"]
+      // Must stay declared as a workspace so its package.json `main` (server.js,
+      // launched by scripts/start-browser-driver.sh) anchors the module graph.
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve these executables by installed binary name;
-      // Knip cannot infer that runtime edge from spawnSync or the shebang.
-      "ignoreDependencies": ["agent-browser", "tsx"],
-      "ignoreBinaries": ["agent-browser"]
+      // The launcher resolves tsx through a hard-coded installed binary path.
+      "ignoreDependencies": ["tsx"]
     }
   }
 }

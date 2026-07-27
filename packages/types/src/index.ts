@@ -205,6 +205,8 @@ export {
   UserProfileSchema,
 } from "./profile";
 export { RunStatusSnapshotSchema } from "./run-control";
+export type { SkillRuntimeScope } from "./skill-runtime";
+export { SkillRuntimeScopeSchema } from "./skill-runtime";
 export {
   ClientErrorBodySchema,
   ClientUserEventBodySchema,

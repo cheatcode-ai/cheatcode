@@ -7,7 +7,7 @@ const PRODUCTION_WEB_ORIGIN = "https://trycheatcode.com";
 const REJECTED_AUTHORIZED_PARTY = "https://invalid.invalid";
 const AUTH_PATH_PATTERN = /^\/sign-(?:in|up)(?:\/|$)/u;
 const PROTECTED_PATH_PATTERN =
-  /^\/(?:101|billing|chats|models|onboarding|personalization|projects|skills)(?:\/|$)/u;
+  /^\/(?:101|chats|models|onboarding|personalization|pricing|skills|usage)(?:\/|$)/u;
 const ONBOARDING_PATH_PATTERN = /^\/onboarding(?:\/|$)/u;
 
 const proxy = clerkMiddleware(async (auth, request) => {

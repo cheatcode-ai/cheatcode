@@ -32,13 +32,11 @@ export {
 export type {
   MintedSkillRuntimeCapability,
   ParsedSkillRuntimeCapability,
-  SkillRuntimeScope,
 } from "./skill-runtime-capability";
 export {
   mintSkillRuntimeCapability,
   parseSkillRuntimeCapability,
   SKILL_RUNTIME_CAPABILITY_TTL_MS,
-  SkillRuntimeScopeSchema,
   verifySkillRuntimeCapabilityDigest,
 } from "./skill-runtime-capability";
 
