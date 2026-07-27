@@ -7,7 +7,6 @@ import type {
   SandboxWriteFileResult,
 } from "@cheatcode/sandbox-contracts";
 import { DaytonaApiError } from "@cheatcode/tools-code";
-import type { SandboxFilePreview } from "@cheatcode/types";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   CODE_SERVER_DISPLAY_DIR,
@@ -20,25 +19,16 @@ import {
   codeServerTrustedOrigins,
 } from "./project-sandbox-code-server";
 import {
-  basename,
   buildGrepCommand,
-  conversionErrorMessage,
   decodeBase64,
   dirname,
   encodeBase64,
-  imageMimeType,
-  isOfficePreviewExtension,
-  lowercaseExtension,
-  MAX_PREVIEW_BYTES,
-  PREVIEW_DIR,
   PROJECT_ARCHIVE_MAX_BYTES,
   PROJECT_ARCHIVE_MAX_FILES,
   PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
   PROJECT_ARCHIVE_SCRIPT,
   parseGrepOutput,
-  unsupportedPreview,
   WORKSPACE_DIR,
-  withoutExtension,
 } from "./project-sandbox-content-support";
 import { listSandboxFiles } from "./project-sandbox-files";
 import { buildPreviewUrl, signedUrlToExpo } from "./project-sandbox-preview";
@@ -66,8 +56,6 @@ import {
   ProjectDeleteFileInputSchema,
   type ProjectListFilesInput,
   ProjectListFilesInputSchema,
-  type ProjectPreviewFileInput,
-  ProjectPreviewFileInputSchema,
   type ProjectPreviewStatusInput,
   ProjectPreviewStatusInputSchema,
   type ProjectReadFileInput,
@@ -173,22 +161,6 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
       path: parsed.path,
       size: bytes.byteLength,
     };
-  }
-
-  public async previewFile(input: ProjectPreviewFileInput): Promise<SandboxFilePreview> {
-    const parsed = ProjectPreviewFileInputSchema.parse(input);
-    const extension = lowercaseExtension(parsed.path);
-    const imageMime = imageMimeType(extension);
-    if (imageMime) {
-      return this.base64Preview(parsed.path, parsed.path, "image", imageMime);
-    }
-    if (extension === ".pdf") {
-      return this.base64Preview(parsed.path, parsed.path, "pdf", "application/pdf");
-    }
-    if (isOfficePreviewExtension(extension)) {
-      return this.officePdfPreview(parsed.path);
-    }
-    return unsupportedPreview(parsed.path, "No preview renderer is available for this file type.");
   }
 
   public async writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
@@ -431,70 +403,6 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
         PORT: String(record.port),
       },
     };
-  }
-
-  private async base64Preview(
-    sourcePath: string,
-    previewPath: string,
-    kind: "image" | "pdf",
-    mimeType: string,
-  ): Promise<SandboxFilePreview> {
-    const id = await this.ensureSandbox();
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.client().downloadFile(id, previewPath, MAX_PREVIEW_BYTES + 1);
-    } catch (error) {
-      if (isDaytonaResponseTooLarge(error)) {
-        return unsupportedPreview(sourcePath, "Preview file is too large to display inline.");
-      }
-      throw error;
-    }
-    if (bytes.byteLength > MAX_PREVIEW_BYTES) {
-      return unsupportedPreview(sourcePath, "Preview file is too large to display inline.");
-    }
-    return {
-      content: encodeBase64(bytes),
-      encoding: "base64",
-      error: null,
-      kind,
-      mimeType,
-      path: sourcePath,
-      previewPath,
-    };
-  }
-
-  private async officePdfPreview(sourcePath: string): Promise<SandboxFilePreview> {
-    const id = await this.ensureSandbox();
-    if (!(await this.hasLibreOfficeRuntime(id))) {
-      return unsupportedPreview(
-        sourcePath,
-        "Office preview requires the current sandbox image with LibreOffice installed.",
-      );
-    }
-    const outputDir = `${PREVIEW_DIR}/${crypto.randomUUID()}`;
-    const command = [
-      `mkdir -p ${shellQuote(outputDir)}`,
-      `libreoffice --headless --nologo --nofirststartwizard --convert-to pdf --outdir ${shellQuote(
-        outputDir,
-      )} ${shellQuote(sourcePath)}`,
-    ].join(" && ");
-    const converted = await this.client()
-      .execute(id, { command, cwd: WORKSPACE_DIR, timeout: timeoutSeconds(90_000) })
-      .catch((error: unknown) => {
-        throw this.toUpstreamError(error, "Office preview conversion failed.");
-      });
-    if (converted.exitCode !== 0) {
-      return unsupportedPreview(sourcePath, conversionErrorMessage(converted.result ?? ""));
-    }
-    const previewPath = `${outputDir}/${withoutExtension(basename(sourcePath))}.pdf`;
-    return this.base64Preview(sourcePath, previewPath, "pdf", "application/pdf");
-  }
-
-  private async hasLibreOfficeRuntime(id: string): Promise<boolean> {
-    const probe = await this.client()
-      .execute(id, { command: "command -v libreoffice >/dev/null", timeout: 5 })
-      .catch(() => null);
-    return probe?.exitCode === 0;
   }
 
   private async ensureMobileMetroForwardedHostConfig(id: string, cwd: string): Promise<boolean> {

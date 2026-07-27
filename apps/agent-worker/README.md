@@ -188,9 +188,6 @@ Mastra tool-call chunks also emit `step_started`, `step_completed`,
 live stream. If the last stream subscriber disconnects while a run is still
 running, AgentRun emits `run_abandoned` for the watchdog/funnel trail.
 
-AgentRun also emits `data-plan` and `data-task-status` UI chunks so the web app can
-render task progress without polling a separate status endpoint.
-
 Project deletion first fences project/thread mutations, refuses an active run, records a
 durable cleanup request, then removes that project's workspace folder. The database marks
 cleanup complete only after the Agent service succeeds, so a repeated DELETE retries a

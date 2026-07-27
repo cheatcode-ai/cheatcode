@@ -50,8 +50,6 @@ import {
   ProjectAllocateProcessPortInputSchema,
   type ProjectExecInput,
   ProjectExecInputSchema,
-  type ProjectGetPortInput,
-  ProjectGetPortInputSchema,
   type ProjectKillProcessInput,
   ProjectKillProcessInputSchema,
   type ProjectReadDevServerLogsInput,
@@ -230,14 +228,6 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
       await transaction.put(PORT_ALLOC_KEY, allocation);
       return candidate;
     });
-  }
-
-  public async getProjectPort(input: ProjectGetPortInput): Promise<number | null> {
-    const parsed = ProjectGetPortInputSchema.parse(input);
-    const allocation = PortAllocationSchema.parse(
-      (await this.ctx.storage.get(PORT_ALLOC_KEY)) ?? {},
-    );
-    return allocation.ports[parsed.projectId] ?? null;
   }
 
   public async allocateProcessPort(input: ProjectAllocateProcessPortInput): Promise<number> {

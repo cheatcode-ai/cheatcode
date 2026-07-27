@@ -102,14 +102,6 @@ export class ProjectSandbox extends ProjectSandboxContent {
     );
   }
 
-  public override getProjectPort(
-    ...args: Parameters<ProjectSandboxContent["getProjectPort"]>
-  ): ReturnType<ProjectSandboxContent["getProjectPort"]> {
-    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].projectId), () =>
-      super.getProjectPort(...args),
-    );
-  }
-
   public override allocateProcessPort(
     ...args: Parameters<ProjectSandboxContent["allocateProcessPort"]>
   ): ReturnType<ProjectSandboxContent["allocateProcessPort"]> {
@@ -171,14 +163,6 @@ export class ProjectSandbox extends ProjectSandboxContent {
   ): ReturnType<ProjectSandboxContent["uploadProjectFile"]> {
     return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].workspaceSlug), () =>
       super.uploadProjectFile(...args),
-    );
-  }
-
-  public override previewFile(
-    ...args: Parameters<ProjectSandboxContent["previewFile"]>
-  ): ReturnType<ProjectSandboxContent["previewFile"]> {
-    return this.withActiveProjectWorkspaceOperation(workspaceSlugFromPath(args[0].path), () =>
-      super.previewFile(...args),
     );
   }
 

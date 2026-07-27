@@ -177,10 +177,6 @@ export interface SandboxAllocateProjectPortInput {
   stack: "web" | "mobile";
 }
 
-interface SandboxGetProjectPortInput {
-  projectId: string;
-}
-
 export interface SandboxAllocateProcessPortInput {
   maxPort: number;
   minPort: number;
@@ -193,7 +189,6 @@ export interface SandboxLike {
   deleteFile?(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
   ensureReady?(): Promise<SandboxStatus>;
   exec?(input: SandboxExecInput): Promise<SandboxExecResult>;
-  getProjectPort?(input: SandboxGetProjectPortInput): Promise<number | null>;
   getSignedPreviewUrl?(input: SandboxSignedPreviewUrlInput): Promise<SandboxSignedPreviewUrlResult>;
   killAllProcesses?(): Promise<number>;
   killProcess?(input: SandboxKillProcessInput): Promise<SandboxKillProcessResult>;

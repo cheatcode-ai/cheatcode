@@ -305,13 +305,6 @@ export const ToolSummarySchema = z
   })
   .strict();
 
-export const AgentSummarySchema = z
-  .object({
-    description: z.string(),
-    name: z.string(),
-  })
-  .strict();
-
 export const UpsertProviderKeySchema = z
   .object({
     provider: ProviderSchema,
@@ -351,18 +344,6 @@ export const SandboxFileSchema = z
     content: z.string(),
     encoding: z.enum(["utf8", "base64"]),
     path: SandboxFilePathSchema,
-  })
-  .strict();
-
-export const SandboxFilePreviewSchema = z
-  .object({
-    content: z.string().max(30_000_000).nullable(),
-    encoding: z.literal("base64").nullable(),
-    error: z.string().max(1_000).nullable(),
-    kind: z.enum(["image", "pdf", "unsupported"]),
-    mimeType: z.string().min(1).max(200).nullable(),
-    path: SandboxFilePathSchema,
-    previewPath: SandboxFilePathSchema.nullable(),
   })
   .strict();
 
@@ -672,7 +653,6 @@ export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;
-export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type Integration = z.infer<typeof IntegrationSchema>;
 export type IntegrationAccount = z.infer<typeof IntegrationAccountSchema>;
 export type IntegrationCatalog = z.infer<typeof IntegrationCatalogSchema>;
@@ -695,7 +675,6 @@ export type SandboxConsoleLine = z.infer<typeof SandboxConsoleLineSchema>;
 export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;
 export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
-export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;
 export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
 export type BrowserTakeoverStatus = z.infer<typeof BrowserTakeoverStatusSchema>;
 export type BrowserTakeoverSession = z.infer<typeof BrowserTakeoverSessionSchema>;

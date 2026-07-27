@@ -4,17 +4,12 @@ import {
   BrowserTakeoverSessionSchema,
   BrowserTakeoverStatusSchema,
   SandboxConsoleSnapshotSchema,
-  SandboxFileListSchema,
-  SandboxFilePreviewSchema,
-  SandboxFileSchema,
-  SandboxFileWriteSchema,
   SandboxIdeSessionSchema,
   SandboxPreviewStatusSchema,
   SandboxPreviewWakeSchema,
   SandboxTerminalCommandSchema,
   SandboxTerminalContextSchema,
   SandboxTerminalResultSchema,
-  UpdateSandboxPathFileSchema,
 } from "@cheatcode/types";
 import {
   type JsonValue,
@@ -32,49 +27,12 @@ export const sandboxSchemas: Record<string, JsonValue> = {
   BrowserTakeoverStatus: zodJsonSchema(BrowserTakeoverStatusSchema),
   OpenSandboxTerminal: zodJsonSchema(SandboxTerminalCommandSchema, "input"),
   SandboxConsoleSnapshot: zodJsonSchema(SandboxConsoleSnapshotSchema),
-  SandboxFile: zodJsonSchema(SandboxFileSchema),
-  SandboxFileList: zodJsonSchema(SandboxFileListSchema),
-  SandboxFilePreview: zodJsonSchema(SandboxFilePreviewSchema),
-  SandboxFileWrite: zodJsonSchema(SandboxFileWriteSchema),
   SandboxIdeSession: zodJsonSchema(SandboxIdeSessionSchema),
   SandboxPreviewStatus: zodJsonSchema(SandboxPreviewStatusSchema),
   SandboxPreviewWake: zodJsonSchema(SandboxPreviewWakeSchema),
   TerminalContext: zodJsonSchema(SandboxTerminalContextSchema),
   TerminalPreview: zodJsonSchema(SandboxTerminalResultSchema),
-  WriteSandboxFile: zodJsonSchema(UpdateSandboxPathFileSchema, "input"),
 };
-
-const sandboxEncodingParameter: JsonValue = {
-  in: "query",
-  name: "encoding",
-  schema: { enum: ["utf8", "base64"], type: "string" },
-};
-
-const sandboxFilePathParameter: JsonValue = {
-  in: "query",
-  name: "path",
-  required: true,
-  schema: {
-    maxLength: 1_000,
-    pattern: "^/workspace(?:/(?!\\.{1,2}(?:/|$))[^/\\u0000]+)*$",
-    type: "string",
-  },
-};
-
-const sandboxFileListParameters: JsonValue[] = [
-  {
-    in: "query",
-    name: "path",
-    schema: {
-      default: "/workspace",
-      maxLength: 1_000,
-      pattern: "^/workspace(?:/(?!\\.{1,2}(?:/|$))[^/\\u0000]+)*$",
-      type: "string",
-    },
-  },
-  { in: "query", name: "recursive", schema: { default: true, type: "boolean" } },
-  { in: "query", name: "includeHidden", schema: { default: false, type: "boolean" } },
-];
 
 export const sandboxRoutes: OpenApiRoute[] = [
   {
@@ -171,16 +129,6 @@ export const sandboxRoutes: OpenApiRoute[] = [
   },
   {
     method: "get",
-    operationId: "listSandboxFiles",
-    parameters: sandboxFileListParameters,
-    path: "/v1/threads/{threadId}/sandbox/files",
-    responses: { "200": jsonResponse("Sandbox files", schemaRef("SandboxFileList")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List sandbox files for a thread",
-    tags: ["sandbox"],
-  },
-  {
-    method: "get",
     operationId: "openSandboxIde",
     path: "/v1/threads/{threadId}/sandbox/ide",
     responses: { "200": jsonResponse("Sandbox IDE session", schemaRef("SandboxIdeSession")) },
@@ -208,36 +156,6 @@ export const sandboxRoutes: OpenApiRoute[] = [
     },
     security: [{ bearerAuth: [] }],
     summary: "Wake the thread's preview sandbox and dev server",
-    tags: ["sandbox"],
-  },
-  {
-    method: "get",
-    operationId: "readSandboxFile",
-    parameters: [sandboxFilePathParameter, sandboxEncodingParameter],
-    path: "/v1/threads/{threadId}/sandbox/file",
-    responses: { "200": jsonResponse("Sandbox file", schemaRef("SandboxFile")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Read a sandbox file by path",
-    tags: ["sandbox"],
-  },
-  {
-    method: "get",
-    operationId: "previewSandboxFile",
-    parameters: [sandboxFilePathParameter],
-    path: "/v1/threads/{threadId}/sandbox/file-preview",
-    responses: { "200": jsonResponse("Sandbox file preview", schemaRef("SandboxFilePreview")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Preview a sandbox file by path",
-    tags: ["sandbox"],
-  },
-  {
-    method: "patch",
-    operationId: "writeSandboxFile",
-    path: "/v1/threads/{threadId}/sandbox/file",
-    requestBody: jsonBody(schemaRef("WriteSandboxFile")),
-    responses: { "200": jsonResponse("Sandbox file write", schemaRef("SandboxFileWrite")) },
-    security: [{ bearerAuth: [] }],
-    summary: "Write a sandbox file by path",
     tags: ["sandbox"],
   },
   {

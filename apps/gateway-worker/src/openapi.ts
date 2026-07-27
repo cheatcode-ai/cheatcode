@@ -1,13 +1,9 @@
 import {
-  AgentSummarySchema,
   ClientErrorBodySchema,
   ClientUserEventBodySchema,
   CreateRunSchema,
   ErrorResponseSchema,
   OutputDownloadUrlResponseSchema,
-  RunStatusSnapshotSchema,
-  ToolDomainSchema,
-  ToolSummarySchema,
   WebVitalsBodySchema,
 } from "@cheatcode/types";
 import { accountRoutes, accountSchemas } from "./openapi-account-routes";
@@ -33,7 +29,6 @@ import { zodJsonSchema } from "./openapi-zod";
 
 const COMPONENT_SCHEMAS: Record<string, JsonValue> = {
   ...integrationSchemas,
-  Agent: zodJsonSchema(AgentSummarySchema),
   ClientError: zodJsonSchema(ClientErrorBodySchema, "input"),
   ClientUserEvent: zodJsonSchema(ClientUserEventBodySchema, "input"),
   CreateRun: zodJsonSchema(CreateRunSchema, "input"),
@@ -72,8 +67,6 @@ const COMPONENT_SCHEMAS: Record<string, JsonValue> = {
     type: "object",
   },
   OutputDownloadUrl: zodJsonSchema(OutputDownloadUrlResponseSchema),
-  RunStatus: zodJsonSchema(RunStatusSnapshotSchema),
-  Tool: zodJsonSchema(ToolSummarySchema),
   WebVitals: zodJsonSchema(WebVitalsBodySchema, "input"),
 };
 
@@ -84,11 +77,6 @@ const runStreamCursorParameter: JsonValue = {
   in: "query",
   name: "lastSeq",
   schema: { default: 0, minimum: 0, type: "integer" },
-};
-const toolDomainParameter: JsonValue = {
-  in: "query",
-  name: "domain",
-  schema: zodJsonSchema(ToolDomainSchema),
 };
 const outputDownloadParameters: JsonValue[] = [
   {
@@ -153,18 +141,6 @@ const routes: OpenApiRoute[] = [
     tags: ["runs"],
   },
   {
-    method: "get",
-    operationId: "getThreadRunStatus",
-    path: "/v1/threads/{threadId}/runs/status",
-    responses: {
-      "200": jsonResponse("Run status", schemaRef("RunStatus")),
-      "204": emptyResponse("No active run"),
-    },
-    security: [{ bearerAuth: [] }],
-    summary: "Get active run status for a thread",
-    tags: ["runs"],
-  },
-  {
     method: "post",
     operationId: "cancelRun",
     path: "/v1/runs/{runId}/cancel",
@@ -207,25 +183,6 @@ const routes: OpenApiRoute[] = [
     },
     summary: "Download a signed generated output",
     tags: ["outputs"],
-  },
-  {
-    method: "get",
-    operationId: "listTools",
-    parameters: [toolDomainParameter],
-    path: "/v1/tools",
-    responses: { "200": jsonResponse("Tools", arraySchema("Tool")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List tools",
-    tags: ["metadata"],
-  },
-  {
-    method: "get",
-    operationId: "listAgents",
-    path: "/v1/agents",
-    responses: { "200": jsonResponse("Agents", arraySchema("Agent")) },
-    security: [{ bearerAuth: [] }],
-    summary: "List agents",
-    tags: ["metadata"],
   },
   ...sandboxRoutes,
   ...skillRoutes,

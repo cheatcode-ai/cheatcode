@@ -20,6 +20,7 @@ export const ModelFallbackDataSchema = z
   })
   .strict();
 
+/* retained for historical transcripts */
 const PlanDataSchema = z
   .object({
     v: z.literal(1),

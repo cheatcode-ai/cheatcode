@@ -23,7 +23,6 @@ export type {
   SandboxConsoleProcess,
   SandboxConsoleSnapshot,
   SandboxFileEntry,
-  SandboxFilePreview,
   SandboxHourPoint,
   SandboxIdeSession,
   SandboxPreviewStatus,
@@ -47,7 +46,6 @@ export type {
 export {
   ActivityHistoryResponseSchema,
   ActivityQuerySchema,
-  AgentSummarySchema,
   BrowserTakeoverActiveSchema,
   BrowserTakeoverResumeResultSchema,
   BrowserTakeoverResumeSchema,
@@ -87,7 +85,6 @@ export {
   SandboxConsoleSnapshotSchema,
   SandboxFileListSchema,
   SandboxFilePathSchema,
-  SandboxFilePreviewSchema,
   SandboxFileSchema,
   SandboxFileWriteSchema,
   SandboxIdeSessionSchema,
@@ -146,7 +143,7 @@ export {
   SandboxUsageSummaryResponseSchema,
 } from "./billing";
 export type { AgentCapabilityName, ToolCapabilityName } from "./capabilities";
-export { AGENT_CAPABILITIES, TOOL_CAPABILITIES } from "./capabilities";
+export { TOOL_CAPABILITIES } from "./capabilities";
 export type { ErrorCode } from "./errors";
 export { ErrorResponseSchema } from "./errors";
 export {

@@ -5,7 +5,6 @@ import type { AgentRunEnv } from "./agent-run-env";
 import { toAgentRunStreamError } from "./agent-run-errors";
 import { persistOrQueueAssistantMessage } from "./agent-run-message-persistence";
 import type { AgentRunOutput } from "./agent-run-output";
-import { runPlanChunk, runTaskStatusChunk } from "./agent-run-progress";
 import type { StartRunInput } from "./agent-run-schemas";
 import type { PersistableRunStatus } from "./agent-run-status-persistence";
 import type { ProjectSandbox } from "./project-sandbox";
@@ -86,15 +85,12 @@ async function executeActiveRun(execution: RunExecution): Promise<void> {
   const { deps, input } = execution;
   await deps.persistRunStatus(input, "running");
   await deps.append({ messageId: input.runId, type: "start" });
-  await deps.append(runPlanChunk());
   await deps.append({ type: "data-sandbox-status", data: { v: 1, status: "starting" } });
   deps.setRunStage("Preparing project sandbox.");
   await openRunLease(execution);
   if (deps.isCanceled()) {
     return;
   }
-  await deps.append(runTaskStatusChunk("prepare-sandbox", "completed"));
-  await deps.append(runTaskStatusChunk("run-agent", "running"));
   const path = await deps.executeRunPath(
     input,
     execution.sandbox,
@@ -127,10 +123,7 @@ async function renewRunLease(execution: RunExecution): Promise<void> {
 async function completeRun(execution: RunExecution): Promise<void> {
   const { deps, input } = execution;
   await deps.finalizeTerminal("completed", async () => {
-    await deps.append(runTaskStatusChunk("run-agent", "completed"));
-    await deps.append(runTaskStatusChunk("stream-results", "running"));
     await deps.append({ type: "data-sandbox-status", data: { v: 1, status: "ready" } });
-    await deps.append(runTaskStatusChunk("stream-results", "completed"));
     await deps.output.appendClosingBackstop();
     await deps.output.ensureAnswerSegmentEnded();
     await deps.append({ type: "finish", finishReason: "stop" });
@@ -152,8 +145,6 @@ async function failRun(execution: RunExecution, error: unknown): Promise<void> {
       retriable: streamError.retriable,
     });
     await deps.append({ type: "data-sandbox-status", data: { v: 1, status: "failed" } });
-    await deps.append(runTaskStatusChunk("run-agent", "failed", streamError.message));
-    await deps.append(runTaskStatusChunk("stream-results", "failed", streamError.message));
     await deps.append({
       type: "data-error",
       data: {

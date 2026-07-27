@@ -10,9 +10,9 @@ Mastra agents, tool registry, and workflow entrypoints.
 
 The tool and agent registries are statically constrained by the lightweight
 capability catalog in `@cheatcode/types`. A runtime capability cannot be added
-or removed without updating the public `/v1/tools` or `/v1/agents` contract.
-Sandbox-status and artifact-stream routing derive from the catalog's exact
-runtime traits, so a tool's registry, discovery, and stream behavior move together.
+or removed without updating that shared contract. Sandbox-status and
+artifact-stream routing derive from the catalog's exact runtime traits, so a
+tool's registry and stream behavior move together.
 Sandbox and artifact capabilities cross tool-domain boundaries only through
 `@cheatcode/sandbox-contracts`; concrete code-tool executors remain in
 `@cheatcode/tools-code`.
