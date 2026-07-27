@@ -1,8 +1,6 @@
 import {
   claimReadyDailyMaintenanceJobs,
-  createDb,
   type DailyMaintenanceJobLease,
-  type Database,
   deferDailyMaintenanceJob,
   listLiveDailyMaintenanceJobLeases,
   purgeCompletedDailyMaintenanceJobs,
@@ -16,6 +14,7 @@ import {
   type DailyMaintenanceEnv,
   previousUtcDay,
 } from "./daily-maintenance-workflow";
+import { withDatabase } from "./deletion-job-runner";
 import type { DeterministicWorkflowResult } from "./workflow-instance";
 
 const MAINTENANCE_RECONCILIATION_LIMIT = 25;
@@ -195,20 +194,5 @@ async function tryDeferLease(
       ...safeErrorTelemetry(error),
     });
     return false;
-  }
-}
-
-async function withDatabase<T>(
-  env: DailyMaintenanceEnv,
-  operation: (db: Database) => Promise<T>,
-): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
   }
 }

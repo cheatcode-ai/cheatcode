@@ -4,7 +4,7 @@ import { IntegrationNameSchema } from "@cheatcode/types/integrations";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
-import { agentRunForRunId } from "./agent-routing";
+import { agentRunForRunId, callAgentRun } from "./agent-routing";
 import { resolveComposioRuntimeCredentials } from "./durable-objects/composio-provider";
 import { requireSkillRuntimePrincipal } from "./skill-runtime-auth";
 
@@ -127,12 +127,8 @@ async function acceptFrontendEvent(c: AgentContext): Promise<Response> {
 
 async function startBrowserTakeover(c: AgentContext): Promise<Response> {
   const principal = await requireSkillRuntimePrincipal(c.env, c.req.raw.headers, "events:write");
-  return agentRunForRunId(c.env, principal.runId).fetch(
-    "https://agent-run.internal/browser-takeover/start",
-    {
-      headers: { "X-Cheatcode-User-Id": principal.userId },
-      method: "POST",
-    },
+  return callAgentRun(
+    agentRunForRunId(c.env, principal.runId).browserTakeoverStart(principal.userId),
   );
 }
 

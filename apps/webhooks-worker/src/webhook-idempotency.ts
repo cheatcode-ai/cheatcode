@@ -1,5 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { APIError, readBoundedResponseJson, readJsonRequest } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 import {
   assertWebhookIdempotencyStorage,
@@ -13,8 +13,6 @@ const WEBHOOK_FAILURE_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 const WEBHOOK_LEASE_MS = 15 * 60 * 1000;
 const SANDBOX_STATE_TTL_SECONDS = 24 * 60 * 60;
 const SANDBOX_STATE_TTL_MS = SANDBOX_STATE_TTL_SECONDS * 1000;
-const MAX_IDEMPOTENCY_REQUEST_BYTES = 8 * 1024;
-const MAX_IDEMPOTENCY_RESPONSE_BYTES = 16 * 1024;
 
 export const WebhookProviderSchema = z.enum([
   "clerk",
@@ -24,77 +22,45 @@ export const WebhookProviderSchema = z.enum([
   "internal-alert",
 ]);
 
-const BodyHashSchema = z.string().regex(/^[a-f0-9]{64}$/);
-
-const BeginWebhookSchema = z.object({
-  bodyHash: BodyHashSchema,
-  eventId: z.string().min(1).max(512),
-  now: z.number().int().nonnegative(),
-  provider: WebhookProviderSchema,
-  staleAfterMs: z.number().int().positive(),
-  ttlMs: z.number().int().positive(),
-});
-
-const CompleteWebhookSchema = z.object({
-  bodyHash: BodyHashSchema,
-  eventId: z.string().min(1).max(512),
-  processedAt: z.number().int().nonnegative(),
-  provider: WebhookProviderSchema,
-  ttlMs: z.number().int().positive(),
-  workflowId: z.string().min(1).max(512),
-});
-
-const StartWebhookSchema = z.object({
-  bodyHash: BodyHashSchema,
-  eventId: z.string().min(1).max(512),
-  provider: WebhookProviderSchema,
-  startedAt: z.number().int().nonnegative(),
-  workflowId: z.string().min(1).max(512),
-});
-
-const FailWebhookSchema = z.object({
-  bodyHash: BodyHashSchema,
-  eventId: z.string().min(1).max(512),
-  failedAt: z.number().int().nonnegative(),
-  failureCode: z.string().min(1).max(100),
-  provider: WebhookProviderSchema,
-  ttlMs: z.number().int().positive(),
-  workflowId: z.string().min(1).max(512),
-});
-
-const ReleaseWebhookSchema = z.object({
-  bodyHash: BodyHashSchema,
-  eventId: z.string().min(1).max(512),
-  provider: WebhookProviderSchema,
-});
-
-const DaytonaStateUpdateSchema = z.object({
-  receivedAt: z.number().int().nonnegative(),
-  sandboxId: z.string().uuid(),
-  state: z
-    .string()
-    .min(1)
-    .max(64)
-    .regex(/^[a-z_]+$/),
-  updatedAt: z.number().int().nonnegative(),
-});
-
-const DaytonaStateUpdateResultSchema = z.object({
-  updated: z.boolean(),
-});
-
-const BeginWebhookResultSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("proceed"), acceptedAt: z.number().int().nonnegative() }),
-  z.object({
-    action: z.literal("duplicate"),
-    acceptedAt: z.number().int().nonnegative(),
-    state: z.enum(["accepted", "running", "processed"]),
-  }),
-  z.object({ action: z.literal("reused") }),
-]);
-
 export type WebhookProvider = z.infer<typeof WebhookProviderSchema>;
-type BeginWebhookResult = z.infer<typeof BeginWebhookResultSchema>;
+type BeginWebhookResult =
+  | { action: "proceed"; acceptedAt: number }
+  | {
+      action: "duplicate";
+      acceptedAt: number;
+      state: "accepted" | "running" | "processed";
+    }
+  | { action: "reused" };
+
+interface BeginWebhookInput {
+  bodyHash: string;
+  eventId: string;
+  now: number;
+  provider: WebhookProvider;
+  staleAfterMs: number;
+  ttlMs: number;
+}
+
+interface CompleteWebhookInput extends WebhookCompletionInput {
+  processedAt: number;
+  ttlMs: number;
+}
+
+interface StartWebhookInput extends WebhookCompletionInput {
+  startedAt: number;
+}
+
+interface FailWebhookInput extends WebhookFailureInput {
+  failedAt: number;
+  ttlMs: number;
+}
+
+interface DaytonaStateUpdateInput {
+  receivedAt: number;
+  sandboxId: string;
+  state: string;
+  updatedAt: number;
+}
 
 interface WebhookEventRow {
   attempts: number;
@@ -150,38 +116,6 @@ interface WebhookIdempotencyEnv {
 export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv> {
   private isStorageInitialized = false;
 
-  public override async fetch(request: Request): Promise<Response> {
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    const url = new URL(request.url);
-    if (url.pathname === "/begin") {
-      return Response.json(await this.begin(await readIdempotencyRequest(request)));
-    }
-    if (url.pathname === "/complete") {
-      await this.complete(await readIdempotencyRequest(request));
-      return Response.json({ ok: true });
-    }
-    if (url.pathname === "/start") {
-      await this.start(await readIdempotencyRequest(request));
-      return Response.json({ ok: true });
-    }
-    if (url.pathname === "/fail") {
-      await this.fail(await readIdempotencyRequest(request));
-      return Response.json({ ok: true });
-    }
-    if (url.pathname === "/release") {
-      await this.release(await readIdempotencyRequest(request));
-      return Response.json({ ok: true });
-    }
-    if (url.pathname === "/daytona-state") {
-      const value = await readIdempotencyRequest(request);
-      const result = await this.ctx.blockConcurrencyWhile(() => this.updateDaytonaState(value));
-      return Response.json(result);
-    }
-    return new Response("Not found", { status: 404 });
-  }
-
   public override async alarm(): Promise<void> {
     if (!hasWebhookIdempotencyStorage(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
@@ -199,8 +133,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     this.isStorageInitialized = false;
   }
 
-  private async begin(value: unknown): Promise<BeginWebhookResult> {
-    const input = BeginWebhookSchema.parse(value);
+  public async begin(input: BeginWebhookInput): Promise<BeginWebhookResult> {
     this.ensureStorage();
     this.deleteExpired(input.now);
     const eventKey = webhookEventKey(input.provider, input.eventId);
@@ -217,11 +150,11 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
         input.now + input.ttlMs,
       );
       await this.ensureAlarm(input.now + input.ttlMs);
-      return BeginWebhookResultSchema.parse({ action: "proceed", acceptedAt: input.now });
+      return { action: "proceed", acceptedAt: input.now };
     }
     await this.ensureAlarm(row.expires_at);
     if (row.body_hash !== input.bodyHash) {
-      return BeginWebhookResultSchema.parse({ action: "reused" });
+      return { action: "reused" };
     }
     if (
       row.state === "failed" ||
@@ -242,17 +175,16 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
         input.bodyHash,
       );
       await this.ensureAlarm(input.now + input.ttlMs);
-      return BeginWebhookResultSchema.parse({ action: "proceed", acceptedAt: row.created_at });
+      return { action: "proceed", acceptedAt: row.created_at };
     }
-    return BeginWebhookResultSchema.parse({
+    return {
       action: "duplicate",
       acceptedAt: row.created_at,
       state: row.state,
-    });
+    };
   }
 
-  private async complete(value: unknown): Promise<void> {
-    const input = CompleteWebhookSchema.parse(value);
+  public async complete(input: CompleteWebhookInput): Promise<void> {
     this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
@@ -271,8 +203,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     await this.cleanupIfEmpty();
   }
 
-  private async start(value: unknown): Promise<void> {
-    const input = StartWebhookSchema.parse(value);
+  public async start(input: StartWebhookInput): Promise<void> {
     this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
@@ -286,8 +217,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     await this.cleanupIfEmpty();
   }
 
-  private async fail(value: unknown): Promise<void> {
-    const input = FailWebhookSchema.parse(value);
+  public async fail(input: FailWebhookInput): Promise<void> {
     this.ensureStorage();
     this.ctx.storage.sql.exec(
       `UPDATE webhook_event
@@ -307,8 +237,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     await this.cleanupIfEmpty();
   }
 
-  private async release(value: unknown): Promise<void> {
-    const input = ReleaseWebhookSchema.parse(value);
+  public async release(input: WebhookReleaseInput): Promise<void> {
     this.ensureStorage();
     this.ctx.storage.sql.exec(
       `DELETE FROM webhook_event
@@ -319,10 +248,13 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     await this.cleanupIfEmpty();
   }
 
-  private async updateDaytonaState(
-    value: unknown,
-  ): Promise<z.infer<typeof DaytonaStateUpdateResultSchema>> {
-    const input = DaytonaStateUpdateSchema.parse(value);
+  public updateDaytonaState(input: DaytonaStateUpdateInput): Promise<{ updated: boolean }> {
+    return this.ctx.blockConcurrencyWhile(() => this.updateDaytonaStateLocked(input));
+  }
+
+  private async updateDaytonaStateLocked(
+    input: DaytonaStateUpdateInput,
+  ): Promise<{ updated: boolean }> {
     this.ensureStorage();
     this.deleteExpired(input.receivedAt);
     const [existing] = this.ctx.storage.sql
@@ -347,9 +279,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
     return { updated: true };
   }
 
-  private async writeSandboxStateCache(
-    input: z.infer<typeof DaytonaStateUpdateSchema>,
-  ): Promise<void> {
+  private async writeSandboxStateCache(input: DaytonaStateUpdateInput): Promise<void> {
     if (!this.env.SANDBOX_STATE) {
       return;
     }
@@ -369,7 +299,7 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
         eventKey,
       )
       .toArray();
-    return isWebhookEventRow(row) ? row : null;
+    return (row as WebhookEventRow | undefined) ?? null;
   }
 
   private deleteExpired(now: number): void {
@@ -427,18 +357,14 @@ export async function acceptWebhookEvent(
   input: WebhookIdempotencyInput,
 ): Promise<AcceptedWebhookEvent> {
   const bodyHash = await sha256Hex(`${input.provider}\n${input.eventId}\n${input.rawBody}`);
-  const response = await idempotencyStub(env, input).fetch("https://webhook-idempotency/begin", {
-    body: JSON.stringify({
-      bodyHash,
-      eventId: input.eventId,
-      now: Date.now(),
-      provider: input.provider,
-      staleAfterMs: WEBHOOK_LEASE_MS,
-      ttlMs: WEBHOOK_TTL_MS,
-    }),
-    method: "POST",
+  const result = await idempotencyStub(env, input).begin({
+    bodyHash,
+    eventId: input.eventId,
+    now: Date.now(),
+    provider: input.provider,
+    staleAfterMs: WEBHOOK_LEASE_MS,
+    ttlMs: WEBHOOK_TTL_MS,
   });
-  const result = await parseIdempotencyResponse(response, BeginWebhookResultSchema);
   if (result.action === "reused") {
     throw new APIError(422, "idempotency_key_reused", "Webhook event id reused with a new body", {
       hint: "Rejecting provider event id reuse prevents duplicate or forged webhook writes.",
@@ -457,7 +383,7 @@ export async function startWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookCompletionInput,
 ): Promise<void> {
-  await postIdempotency(env, input, "/start", {
+  await idempotencyStub(env, input).start({
     ...input,
     startedAt: Date.now(),
   });
@@ -467,7 +393,7 @@ export async function completeWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookCompletionInput,
 ): Promise<void> {
-  await postIdempotency(env, input, "/complete", {
+  await idempotencyStub(env, input).complete({
     ...input,
     processedAt: Date.now(),
     ttlMs: WEBHOOK_TTL_MS,
@@ -478,7 +404,7 @@ export async function failWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookFailureInput,
 ): Promise<void> {
-  await postIdempotency(env, input, "/fail", {
+  await idempotencyStub(env, input).fail({
     ...input,
     failedAt: Date.now(),
     ttlMs: WEBHOOK_FAILURE_TTL_MS,
@@ -493,22 +419,14 @@ export async function updateDaytonaSandboxState(
   const stub = env.WEBHOOK_IDEMPOTENCY.get(
     env.WEBHOOK_IDEMPOTENCY.idFromName(`daytona-sandbox:${input.sandboxId}`),
   );
-  const response = await stub.fetch("https://webhook-idempotency/daytona-state", {
-    body: JSON.stringify({ ...input, receivedAt: Date.now() }),
-    method: "POST",
-  });
-  return (await parseIdempotencyResponse(response, DaytonaStateUpdateResultSchema)).updated;
+  return (await stub.updateDaytonaState({ ...input, receivedAt: Date.now() })).updated;
 }
 
 export async function releaseWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookReleaseInput,
 ): Promise<void> {
-  const response = await idempotencyStub(env, input).fetch("https://webhook-idempotency/release", {
-    body: JSON.stringify(input),
-    method: "POST",
-  });
-  await discardIdempotencyResponse(response);
+  await idempotencyStub(env, input).release(input);
 }
 
 function idempotencyStub(
@@ -519,45 +437,6 @@ function idempotencyStub(
   return env.WEBHOOK_IDEMPOTENCY.get(env.WEBHOOK_IDEMPOTENCY.idFromName(eventKey));
 }
 
-async function postIdempotency(
-  env: WebhookIdempotencyBindings,
-  input: { eventId: string; provider: WebhookProvider },
-  path: string,
-  body: unknown,
-): Promise<void> {
-  const response = await idempotencyStub(env, input).fetch(`https://webhook-idempotency${path}`, {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
-  await discardIdempotencyResponse(response);
-}
-
-async function readIdempotencyRequest(request: Request): Promise<unknown> {
-  return readJsonRequest(request, MAX_IDEMPOTENCY_REQUEST_BYTES, "Idempotency request");
-}
-
-async function parseIdempotencyResponse<T>(response: Response, schema: z.ZodType<T>): Promise<T> {
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw unavailableStore();
-  }
-  return schema.parse(
-    await readBoundedResponseJson(
-      response,
-      MAX_IDEMPOTENCY_RESPONSE_BYTES,
-      "Webhook idempotency store",
-    ),
-  );
-}
-
-async function discardIdempotencyResponse(response: Response): Promise<void> {
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw unavailableStore();
-  }
-  await response.body?.cancel().catch(() => undefined);
-}
-
 function webhookEventKey(provider: WebhookProvider, eventId: string): string {
   return `${provider}:${eventId}`;
 }
@@ -565,32 +444,4 @@ function webhookEventKey(provider: WebhookProvider, eventId: string): string {
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value));
   return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("");
-}
-
-function isWebhookEventRow(value: unknown): value is WebhookEventRow {
-  if (typeof value !== "object" || value === null) {
-    return false;
-  }
-  const row = value as Record<string, unknown>;
-  return (
-    typeof row["body_hash"] === "string" &&
-    typeof row["created_at"] === "number" &&
-    typeof row["event_key"] === "string" &&
-    typeof row["expires_at"] === "number" &&
-    typeof row["updated_at"] === "number" &&
-    typeof row["attempts"] === "number" &&
-    (typeof row["last_error"] === "string" || row["last_error"] === null) &&
-    (typeof row["workflow_id"] === "string" || row["workflow_id"] === null) &&
-    (row["state"] === "accepted" ||
-      row["state"] === "running" ||
-      row["state"] === "processed" ||
-      row["state"] === "failed")
-  );
-}
-
-function unavailableStore(): APIError {
-  return new APIError(503, "unavailable_maintenance", "Webhook idempotency store is unavailable", {
-    hint: "Retry the provider callback after the WebhookIdempotencyStore Durable Object recovers.",
-    retriable: true,
-  });
 }

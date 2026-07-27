@@ -8,6 +8,7 @@ import {
   InternalAgentStateDeleteBodySchema,
   type UserId,
 } from "@cheatcode/types";
+import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 
 export interface AgentStateDeletionEnv {
   AGENT_LIFECYCLE: AgentLifecycleServiceBinding;
@@ -17,7 +18,7 @@ export interface LifecycleEnv extends AgentStateDeletionEnv {
   COMPOSIO_API_KEY?: WorkerSecret;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
   POLAR_SERVER?: "production" | "sandbox";
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_OUTPUTS: R2Bucket;
 }
 
@@ -32,21 +33,18 @@ export async function deleteUserQuotaDurableState(
 }
 
 async function deleteQuotaNamespaceState(
-  namespace: DurableObjectNamespace,
+  namespace: QuotaTrackerNamespace,
   userId: UserId,
 ): Promise<void> {
   const quota = namespace.get(namespace.idFromName(`quota:${userId}`));
-  const response = await quota.fetch("https://quota.internal/delete-all", {
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
+  try {
+    await quota.deleteAllState();
+  } catch (error) {
     throw new APIError(503, "unavailable_maintenance", "Quota durable state deletion failed", {
-      details: { status: response.status },
+      cause: error,
       retriable: true,
     });
   }
-  await response.body?.cancel().catch(() => undefined);
 }
 
 export async function deleteUserAgentAccountState(

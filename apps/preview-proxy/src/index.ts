@@ -1,13 +1,5 @@
 import { resolveWorkerSecret } from "@cheatcode/env";
-import {
-  APIError,
-  createLogger,
-  emitErrorEvent,
-  emitPerformanceMetric,
-  safeErrorTelemetry,
-  toAPIError,
-  withErrorHandler,
-} from "@cheatcode/observability";
+import { APIError, createWorkerRuntime, routeName } from "@cheatcode/observability";
 import { type PreviewProxyEnv, PreviewProxyEnvSchema } from "./env";
 import { type PreviewTarget, parsePreviewHost } from "./host";
 import {
@@ -173,20 +165,6 @@ function buildSessionCookie(
   return `${name}=${token}; HttpOnly; Secure; SameSite=None; Partitioned; Path=/; Max-Age=${maxAgeSeconds}`;
 }
 
-function requestId(): string {
-  return `req_${crypto.randomUUID().replaceAll("-", "")}`;
-}
-
-function withRequestId(response: Response, id: string): Response {
-  // A 101 WebSocket upgrade response cannot be cloned/re-headered, so pass it through.
-  if (response.status === 101 || response.webSocket) {
-    return response;
-  }
-  const wrapped = new Response(response.body, response);
-  wrapped.headers.set("X-Request-Id", id);
-  return wrapped;
-}
-
 function withPreviewSecurityHeaders(response: Response, appOrigin?: string): Response {
   if (response.status === 101 || response.webSocket) {
     return response;
@@ -221,10 +199,6 @@ function appendSecurityVary(headers: Headers): void {
   headers.set("Vary", vary.join(", "));
 }
 
-function routeName(request: Request): string {
-  return `${request.method} ${new URL(request.url).pathname}`;
-}
-
 function requestContextTelemetry(request: Request) {
   return {
     fetchDestination: request.headers.get("Sec-Fetch-Dest") ?? "missing",
@@ -247,66 +221,30 @@ function safeHeaderOrigin(value: string | null): string {
   }
 }
 
-function statusClass(status: number): string {
-  if (status >= 500) {
-    return "5xx";
-  }
-  if (status >= 400) {
-    return "4xx";
-  }
-  if (status >= 300) {
-    return "3xx";
-  }
-  return "2xx";
-}
-
-const previewProxyHandler = {
-  async fetch(request: Request, env: PreviewProxyEnv): Promise<Response> {
-    const id = requestId();
-    const startedAt = performance.now();
-    let status = 500;
-    let appOrigin: string | undefined;
-    try {
-      PreviewProxyEnvSchema.parse(env);
-      appOrigin = env.CHEATCODE_APP_ORIGIN;
-      const response = withPreviewSecurityHeaders(
-        withRequestId(await handlePreviewRequest(request, env), id),
-        appOrigin,
-      );
-      status = response.status;
-      return response;
-    } catch (error) {
-      const apiError = toAPIError(error);
-      status = apiError.status;
-      emitErrorEvent(env, {
-        errorCategory: WORKER_NAME,
-        errorCode: apiError.code,
-        httpStatus: apiError.status,
-        route: routeName(request),
-        workerName: WORKER_NAME,
-        ...safeErrorTelemetry(error),
-      });
-      createLogger({ requestId: id }).error("preview_proxy_request_failed", {
-        apiCode: apiError.code,
-        httpStatus: apiError.status,
-        ...(apiError.code === "permission_denied" ? requestContextTelemetry(request) : {}),
-        ...safeErrorTelemetry(error),
-      });
-      return withPreviewSecurityHeaders(apiError.toResponse(id), appOrigin);
-    } finally {
-      emitPerformanceMetric(env, {
-        route: WORKER_NAME,
-        statusClass: statusClass(status),
-        totalMs: performance.now() - startedAt,
-        workerName: WORKER_NAME,
-      });
-    }
-  },
-};
-
-export default withErrorHandler(previewProxyHandler, {
+const previewProxyHandler = createWorkerRuntime<PreviewProxyEnv, ExecutionContext>({
   errorCategory: WORKER_NAME,
-  requestId: (request) => request.headers.get("X-Request-Id"),
+  errorLogFields: ({ apiError, request }) => ({
+    httpStatus: apiError.status,
+    ...(apiError.code === "permission_denied" ? requestContextTelemetry(request) : {}),
+  }),
+  errorLogName: "preview_proxy_request_failed",
+  fetch: async (request, env) => {
+    PreviewProxyEnvSchema.parse(env);
+    return withPreviewSecurityHeaders(
+      await handlePreviewRequest(request, env),
+      env.CHEATCODE_APP_ORIGIN,
+    );
+  },
+  formatError: ({ apiError, env, requestId: id }) =>
+    withPreviewSecurityHeaders(apiError.toResponse(id), validatedAppOrigin(env)),
+  performanceRouteName: () => WORKER_NAME,
   routeName,
   workerName: WORKER_NAME,
 });
+
+function validatedAppOrigin(env: PreviewProxyEnv): string | undefined {
+  const parsed = PreviewProxyEnvSchema.safeParse(env);
+  return parsed.success ? parsed.data.CHEATCODE_APP_ORIGIN : undefined;
+}
+
+export default previewProxyHandler;

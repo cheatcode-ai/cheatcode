@@ -28,13 +28,7 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
-import {
-  type AnalyticsBindings,
-  APIError,
-  createLogger,
-  emitErrorEvent,
-  safeErrorTelemetry,
-} from "@cheatcode/observability";
+import { type AnalyticsBindings, createLogger } from "@cheatcode/observability";
 import {
   AgentRunId,
   type InternalResourceDeletionRequest,
@@ -43,6 +37,15 @@ import {
   UserId,
 } from "@cheatcode/types";
 import { z } from "zod";
+import {
+  CREATE_STEP_OPTIONS,
+  createDeletionJobRunner,
+  type DeletionActionOutcome,
+  type DeletionWorkflowOutcome,
+  deletionErrorClassifier,
+  MAX_TRANSIENT_DELETION_FAILURES,
+  runDeletionActions,
+} from "./deletion-job-runner";
 import {
   type AgentStateDeletionEnv,
   deleteProjectAgentWorkspace,
@@ -73,14 +76,8 @@ import { outputFromWireRecord, outputToWireRecord } from "./resource-deletion-ou
 
 export type { ResourceDeletionWorkflowBindings } from "./resource-deletion-instances";
 
-const ACTIONS_PER_INSTANCE = 8;
-const MAX_TRANSIENT_FAILURES = 8;
 const OUTPUT_PAGE_SIZE = 50;
 const PROJECT_RUN_PAGE_SIZE = 25;
-const CREATE_STEP_OPTIONS = {
-  retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
-} as const;
 const RunIdPageSchema = z.array(z.string().uuid()).max(PROJECT_RUN_PAGE_SIZE);
 const OutputPageSchema = z
   .array(
@@ -94,8 +91,8 @@ const OutputPageSchema = z
   )
   .max(OUTPUT_PAGE_SIZE);
 
-type ActionOutcome = "advanced" | "completed" | "noop";
-type WorkflowOutcome = "completed" | "continued" | "deferred" | "noop" | "quarantined";
+type ActionOutcome = DeletionActionOutcome;
+type WorkflowOutcome = DeletionWorkflowOutcome;
 
 export interface ResourceDeletionWorkflowEnv
   extends AnalyticsBindings,
@@ -105,6 +102,55 @@ export interface ResourceDeletionWorkflowEnv
   HYPERDRIVE: HyperdriveConnection;
   R2_OUTPUTS: R2Bucket;
 }
+
+type DeferredResourceDeletion = NonNullable<Awaited<ReturnType<typeof deferResourceDeletionJob>>>;
+
+const RESOURCE_DELETION_RUNNER = createDeletionJobRunner<
+  ResourceDeletionWorkflowEnv,
+  ResourceDeletionJobLease,
+  DeferredResourceDeletion
+>({
+  classify: deletionErrorClassifier({
+    invalidStateCode: "resource_deletion_invalid_state",
+    invariantCode: "resource_deletion_invariant",
+    isInvariant: (error) => error instanceof ResourceDeletionInvariantError,
+  }),
+  defer: (env, step, lease, errorCode, label) =>
+    dbStep(step, `${label} defer deletion`, () =>
+      withUserDatabase(env, lease.userId, (db) =>
+        deferResourceDeletionJob(db, {
+          ...lease,
+          errorCode,
+          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
+        }),
+      ),
+    ),
+  onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {
+    if (deferred && deferred.status !== "quarantined") {
+      createLogger().warn("resource_deletion_deferred", {
+        errorCode,
+        failureCount: deferred.failureCount,
+        jobId: lease.jobId,
+      });
+    }
+  },
+  quarantine: {
+    errorEventName: "resource_deletion_quarantined",
+    errorRoute: "resource-deletion-workflow",
+    failureName: "ResourceDeletionQuarantined",
+    fallbackMessage: "Resource deletion quarantine termination failed",
+    identity: (lease) => ({ jobId: lease.jobId }),
+    logEventName: "resource_deletion_quarantined",
+    message: (errorCode) => `Resource deletion quarantined (${errorCode})`,
+    quarantine: (env, step, lease, errorCode, label) =>
+      dbStep(step, `${label} quarantine deletion`, () =>
+        withUserDatabase(env, lease.userId, (db) =>
+          quarantineResourceDeletionJob(db, { ...lease, errorCode }),
+        ),
+      ),
+    terminationStepName: (label) => `${label} terminate quarantined deletion`,
+  },
+});
 
 export class ResourceDeletionWorkflow extends WorkflowEntrypoint<
   ResourceDeletionWorkflowEnv,
@@ -124,7 +170,13 @@ export class ResourceDeletionWorkflow extends WorkflowEntrypoint<
     try {
       return await processDeletionChunk(this.env, parsed.data, step);
     } catch (error) {
-      return handleDeletionFailure(this.env, step, parsed.data, error, "execution");
+      return RESOURCE_DELETION_RUNNER.handleFailure(
+        this.env,
+        step,
+        parsed.data,
+        error,
+        "execution",
+      );
     }
   }
 }
@@ -187,7 +239,7 @@ export async function reconcileResourceDeletionWorkflows(
     const claimed = await claimReadyResourceDeletionJobs(db, {
       leaseToken: crypto.randomUUID(),
       limit: 25,
-      maxFailures: MAX_TRANSIENT_FAILURES,
+      maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
     });
     leases = claimed.leases;
     quarantinedJobIds = claimed.quarantinedJobIds;
@@ -195,7 +247,7 @@ export async function reconcileResourceDeletionWorkflows(
     await close();
   }
   for (const jobId of quarantinedJobIds) {
-    emitQuarantineAlert(
+    RESOURCE_DELETION_RUNNER.reportQuarantine(
       env,
       { jobId },
       new Error("Resource deletion lease repeatedly expired"),
@@ -217,19 +269,16 @@ async function processDeletionChunk(
   lease: ResourceDeletionJobLease,
   step: WorkflowStep,
 ): Promise<{ outcome: WorkflowOutcome }> {
-  for (let action = 1; action <= ACTIONS_PER_INSTANCE; action += 1) {
-    const claimed = await dbStep(step, `revalidate deletion action ${action}`, () =>
-      withUserDatabase(env, lease.userId, (db) => renewAndLoadResourceDeletionJob(db, lease)),
-    );
-    if (claimed.state !== "active") {
-      return { outcome: "noop" };
-    }
-    const outcome = await processDeletionAction(env, step, claimed.job, action);
-    if (outcome !== "advanced") {
-      return { outcome };
-    }
-  }
-  return continueDeletion(env, step, lease);
+  return runDeletionActions({
+    continueDeletion: () => continueDeletion(env, step, lease),
+    load: async (action) => {
+      const claimed = await dbStep(step, `revalidate deletion action ${action}`, () =>
+        withUserDatabase(env, lease.userId, (db) => renewAndLoadResourceDeletionJob(db, lease)),
+      );
+      return claimed.state === "active" ? claimed.job : null;
+    },
+    process: (job, action) => processDeletionAction(env, step, job, action),
+  });
 }
 
 async function processDeletionAction(
@@ -499,80 +548,8 @@ async function continueDeletion(
     });
     return { outcome: "continued" };
   } catch (error) {
-    return handleDeletionFailure(env, step, next, error, "continuation");
+    return RESOURCE_DELETION_RUNNER.handleFailure(env, step, next, error, "continuation");
   }
-}
-
-async function handleDeletionFailure(
-  env: ResourceDeletionWorkflowEnv,
-  step: WorkflowStep,
-  lease: ResourceDeletionJobLease,
-  error: unknown,
-  label: string,
-): Promise<{ outcome: WorkflowOutcome }> {
-  const errorCode = deletionErrorCode(error);
-  if (isPermanentDeletionError(error)) {
-    const quarantined = await quarantineJob(env, step, lease, errorCode, label);
-    if (!quarantined) {
-      return { outcome: "noop" };
-    }
-    emitQuarantineAlert(env, lease, error, errorCode);
-    return terminateQuarantinedWorkflow(step, errorCode, label);
-  }
-  const deferred = await dbStep(step, `${label} defer deletion`, () =>
-    withUserDatabase(env, lease.userId, (db) =>
-      deferResourceDeletionJob(db, {
-        ...lease,
-        errorCode,
-        maxFailures: MAX_TRANSIENT_FAILURES,
-      }),
-    ),
-  );
-  if (!deferred) {
-    return { outcome: "noop" };
-  }
-  if (deferred.status === "quarantined") {
-    emitQuarantineAlert(env, lease, error, errorCode);
-    return terminateQuarantinedWorkflow(step, errorCode, label);
-  }
-  createLogger().warn("resource_deletion_deferred", {
-    errorCode,
-    failureCount: deferred.failureCount,
-    jobId: lease.jobId,
-  });
-  return { outcome: "deferred" };
-}
-
-async function quarantineJob(
-  env: ResourceDeletionWorkflowEnv,
-  step: WorkflowStep,
-  lease: ResourceDeletionJobLease,
-  errorCode: string,
-  label: string,
-): Promise<boolean> {
-  return dbStep(step, `${label} quarantine deletion`, () =>
-    withUserDatabase(env, lease.userId, (db) =>
-      quarantineResourceDeletionJob(db, { ...lease, errorCode }),
-    ),
-  );
-}
-
-async function terminateQuarantinedWorkflow(
-  step: WorkflowStep,
-  errorCode: string,
-  label: string,
-): Promise<never> {
-  await step.do(
-    `${label} terminate quarantined deletion`,
-    { retries: { limit: 0, delay: "1 second" }, timeout: "1 minute" },
-    async () => {
-      throw new NonRetryableError(
-        `Resource deletion quarantined (${errorCode})`,
-        "ResourceDeletionQuarantined",
-      );
-    },
-  );
-  throw new NonRetryableError("Resource deletion quarantine termination failed");
 }
 
 async function advanceJob(
@@ -676,7 +653,7 @@ async function deferFailedInstanceCreations(
   leases: ResourceDeletionJobLease[],
   error: unknown,
 ): Promise<void> {
-  const errorCode = deletionErrorCode(error);
+  const errorCode = RESOURCE_DELETION_RUNNER.errorCode(error);
   let quarantined = 0;
   await withDatabase(env, async (db) => {
     for (const lease of leases) {
@@ -684,12 +661,12 @@ async function deferFailedInstanceCreations(
         deferResourceDeletionJob(tx, {
           ...lease,
           errorCode,
-          maxFailures: MAX_TRANSIENT_FAILURES,
+          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
         }),
       );
       if (deferred?.status === "quarantined") {
         quarantined += 1;
-        emitQuarantineAlert(env, lease, error, errorCode);
+        RESOURCE_DELETION_RUNNER.reportQuarantine(env, { jobId: lease.jobId }, error, errorCode);
       }
     }
   });
@@ -697,56 +674,5 @@ async function deferFailedInstanceCreations(
     attempted: leases.length,
     errorCode,
     quarantined,
-  });
-}
-
-function isPermanentDeletionError(error: unknown): boolean {
-  if (error instanceof APIError) {
-    return !error.retriable;
-  }
-  if (error instanceof z.ZodError || error instanceof ResourceDeletionInvariantError) {
-    return true;
-  }
-  return readRetriable(error) === false;
-}
-
-function deletionErrorCode(error: unknown): string {
-  if (error instanceof APIError) {
-    return error.code;
-  }
-  if (error instanceof z.ZodError) {
-    return "resource_deletion_invalid_state";
-  }
-  if (error instanceof ResourceDeletionInvariantError) {
-    return "resource_deletion_invariant";
-  }
-  const name = error instanceof Error ? error.name : "UnknownError";
-  return /^[A-Za-z][A-Za-z0-9_.:$-]{0,127}$/u.test(name) ? name : "UnknownError";
-}
-
-function readRetriable(error: unknown): boolean | undefined {
-  if (typeof error !== "object" || error === null || !("retriable" in error)) {
-    return undefined;
-  }
-  const value = error.retriable;
-  return typeof value === "boolean" ? value : undefined;
-}
-
-function emitQuarantineAlert(
-  env: ResourceDeletionWorkflowEnv,
-  identity: Pick<ResourceDeletionJobLease, "jobId">,
-  error: unknown,
-  errorCode: string,
-): void {
-  createLogger().error("resource_deletion_quarantined", {
-    errorCode,
-    jobId: identity.jobId,
-    ...safeErrorTelemetry(error),
-  });
-  emitErrorEvent(env, {
-    errorCategory: "lifecycle",
-    errorCode: "resource_deletion_quarantined",
-    route: "resource-deletion-workflow",
-    workerName: "webhooks",
   });
 }

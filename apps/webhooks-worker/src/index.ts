@@ -9,17 +9,15 @@ import {
   type AnalyticsBindings,
   APIError,
   createLogger,
-  emitErrorEvent,
-  emitPerformanceMetric,
+  createPerformanceMetricMiddleware,
+  createWorkerRuntime,
   readBoundedRequestText,
-  safeErrorTelemetry,
-  toAPIError,
-  withErrorHandler,
+  routeName,
 } from "@cheatcode/observability";
 import type { AgentLifecycleServiceBinding } from "@cheatcode/types";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
-import { Hono } from "hono";
+import { type Context, Hono } from "hono";
 import { verifyComposioWebhook } from "./composio";
 import {
   enqueueDailyMaintenance,
@@ -32,6 +30,7 @@ import {
   OpsMaintenanceWorkflow,
   type OpsWorkflowBindings,
 } from "./ops-workflow";
+import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 import { ResourceDeletionEntrypoint } from "./resource-deletion-entrypoint";
 import {
   ResourceDeletionWorkflow,
@@ -80,21 +79,11 @@ export interface WebhooksEnv
   POLAR_PRODUCT_ID_ULTRA?: string;
   POLAR_SERVER?: "production" | "sandbox";
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_OUTPUTS: R2Bucket;
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.
   SANDBOX_STATE?: KVNamespace;
-}
-
-function requestId(): string {
-  return `req_${crypto.randomUUID().replaceAll("-", "")}`;
-}
-
-function withRequestId(response: Response, id: string): Response {
-  const wrapped = new Response(response.body, response);
-  wrapped.headers.set("X-Request-Id", id);
-  return wrapped;
 }
 
 async function clerkWebhookSigningSecret(env: WebhooksEnv): Promise<string> {
@@ -164,39 +153,17 @@ async function readOptionalSecret(
 
 export const webhooksApp = new Hono<{ Bindings: WebhooksEnv }>();
 
-webhooksApp.onError((error, c) => {
-  const id = c.req.header("X-Request-Id") ?? requestId();
-  const apiError = toAPIError(error);
-  emitErrorEvent(c.env, {
-    errorCategory: "webhook",
-    errorCode: apiError.code,
-    httpStatus: apiError.status,
-    route: routeName(c.req.raw),
-    workerName: "webhooks",
-    ...safeErrorTelemetry(error),
-  });
-  createLogger({ requestId: id }).error("webhook_request_failed", {
-    apiCode: apiError.code,
-    ...safeErrorTelemetry(error),
-  });
-  return apiError.toResponse(id);
+webhooksApp.onError((error) => {
+  throw error;
 });
 
-webhooksApp.use("*", async (c, next) => {
-  const startedAt = performance.now();
-  let status = 500;
-  try {
-    await next();
-    status = c.res.status;
-  } finally {
-    emitPerformanceMetric(c.env, {
-      route: routeName(c.req.raw),
-      statusClass: statusClass(status),
-      totalMs: performance.now() - startedAt,
-      workerName: "webhooks",
-    });
-  }
-});
+webhooksApp.use(
+  "*",
+  createPerformanceMetricMiddleware<WebhooksEnv, Context<{ Bindings: WebhooksEnv }>>({
+    routeName: (context) => routeName(context.req.raw),
+    workerName: "webhooks",
+  }),
+);
 
 webhooksApp.get("/health", (c) =>
   c.json({
@@ -338,24 +305,6 @@ function requiredHeader(headers: Headers, name: string, provider: string): strin
   return value;
 }
 
-function routeName(request: Request): string {
-  const url = new URL(request.url);
-  return `${request.method} ${url.pathname}`;
-}
-
-function statusClass(status: number): string {
-  if (status >= 500) {
-    return "5xx";
-  }
-  if (status >= 400) {
-    return "4xx";
-  }
-  if (status >= 300) {
-    return "3xx";
-  }
-  return "2xx";
-}
-
 function headersToRecord(headers: Headers): Record<string, string> {
   const output: Record<string, string> = {};
   headers.forEach((value, key) => {
@@ -364,33 +313,19 @@ function headersToRecord(headers: Headers): Record<string, string> {
   return output;
 }
 
-const webhooksHandler = {
-  async fetch(request: Request, env: WebhooksEnv, ctx: ExecutionContext): Promise<Response> {
+const webhooksRuntime = createWorkerRuntime<WebhooksEnv, ExecutionContext>({
+  errorCategory: "webhook",
+  errorLogName: "webhook_request_failed",
+  fetch: (request, env, ctx) => {
     WebhooksWorkerEnvSchema.parse(env);
-    const id = requestId();
-    const logger = createLogger({ requestId: id });
-    try {
-      const requestWithId = new Request(request);
-      requestWithId.headers.set("X-Request-Id", id);
-      const response = await webhooksApp.fetch(requestWithId, env, ctx);
-      return withRequestId(response, id);
-    } catch (error) {
-      const apiError = toAPIError(error);
-      emitErrorEvent(env, {
-        errorCategory: "webhook",
-        errorCode: apiError.code,
-        httpStatus: apiError.status,
-        route: routeName(request),
-        workerName: "webhooks",
-        ...safeErrorTelemetry(error),
-      });
-      logger.error("webhook_request_failed", {
-        apiCode: apiError.code,
-        ...safeErrorTelemetry(error),
-      });
-      return apiError.toResponse(id);
-    }
+    return webhooksApp.fetch(request, env, ctx);
   },
+  routeName,
+  workerName: "webhooks",
+});
+
+const webhooksHandler = {
+  ...webhooksRuntime,
   async scheduled(
     controller: ScheduledController,
     env: WebhooksEnv,
@@ -451,9 +386,4 @@ const webhooksHandler = {
 const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
 const DAILY_MAINTENANCE_CRON = "20 0 * * *";
 
-export default withErrorHandler(webhooksHandler, {
-  errorCategory: "webhook",
-  requestId: (request) => request.headers.get("X-Request-Id"),
-  routeName,
-  workerName: "webhooks",
-});
+export default webhooksHandler;

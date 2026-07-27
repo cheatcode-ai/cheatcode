@@ -4,11 +4,9 @@ import {
   type ActivationEventCursor,
   advanceDailyMaintenanceJob,
   completeDailyMaintenanceJob,
-  createDb,
   type DailyMaintenanceJobLease,
   type DailyMaintenanceJobProgress,
   type DailyMaintenanceJobRecord,
-  type Database,
   deferDailyMaintenanceJob,
   type HyperdriveConnection,
   listDailyActivationEventPage,
@@ -24,6 +22,11 @@ import {
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import { z } from "zod";
+import {
+  continuationLeaseToken as createContinuationLeaseToken,
+  createDeletionJobRunner,
+  withDatabase,
+} from "./deletion-job-runner";
 import { processOrphanUploadCleanupGeneration } from "./orphan-upload-cleanup";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
@@ -78,6 +81,36 @@ export interface DailyMaintenanceEnv extends AnalyticsBindings, DailyMaintenance
   HYPERDRIVE: HyperdriveConnection;
   R2_OUTPUTS: R2Bucket;
 }
+
+type DeferredDailyMaintenance = NonNullable<Awaited<ReturnType<typeof deferDailyMaintenanceJob>>>;
+
+const DAILY_MAINTENANCE_RUNNER = createDeletionJobRunner<
+  DailyMaintenanceEnv,
+  DailyMaintenanceJobLease,
+  DeferredDailyMaintenance
+>({
+  classify: (error) => ({ errorCode: dailyMaintenanceErrorCode(error), permanent: false }),
+  defer: (env, step, lease, errorCode, label) =>
+    step.do(`${label} defer daily maintenance job`, DB_STEP_OPTIONS, () =>
+      withDatabase(env, (db) => deferDailyMaintenanceJob(db, { ...lease, errorCode })),
+    ),
+  onDeferred: (env, lease, error, errorCode, label, deferred) => {
+    createLogger().warn("daily_maintenance_deferred", {
+      continuation: lease.continuation,
+      day: lease.day,
+      errorCode,
+      failureCount: deferred?.failureCount,
+      label,
+      ...safeErrorTelemetry(error),
+    });
+    emitErrorEvent(env, {
+      errorCategory: "workflow",
+      errorCode: "daily_maintenance_deferred",
+      route: "daily-maintenance",
+      workerName: "webhooks",
+    });
+  },
+});
 
 const ActivationEventCursorSchema = z
   .object({
@@ -140,7 +173,7 @@ export async function processDailyMaintenance(
       await continueDailyMaintenance(env, step, outcome.job);
     }
   } catch (error) {
-    await deferWorkflowFailure(env, step, lease, error, "execution");
+    await DAILY_MAINTENANCE_RUNNER.handleFailure(env, step, lease, error, "execution");
   }
 }
 
@@ -290,35 +323,8 @@ async function continueDailyMaintenance(
       createDailyMaintenanceInstance(env, next),
     );
   } catch (error) {
-    await deferWorkflowFailure(env, step, next, error, "continuation");
+    await DAILY_MAINTENANCE_RUNNER.handleFailure(env, step, next, error, "continuation");
   }
-}
-
-async function deferWorkflowFailure(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  lease: DailyMaintenanceJobLease,
-  error: unknown,
-  label: string,
-): Promise<void> {
-  const errorCode = dailyMaintenanceErrorCode(error);
-  const deferred = await step.do(`${label} defer daily maintenance job`, DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) => deferDailyMaintenanceJob(db, { ...lease, errorCode })),
-  );
-  createLogger().warn("daily_maintenance_deferred", {
-    continuation: lease.continuation,
-    day: lease.day,
-    errorCode,
-    failureCount: deferred?.failureCount,
-    label,
-    ...safeErrorTelemetry(error),
-  });
-  emitErrorEvent(env, {
-    errorCategory: "workflow",
-    errorCode: "daily_maintenance_deferred",
-    route: "daily-maintenance",
-    workerName: "webhooks",
-  });
 }
 
 export function createDailyMaintenanceInstance(
@@ -448,19 +454,10 @@ export function activeDailyMaintenanceReleaseVersion(env: DailyMaintenanceEnv): 
 }
 
 async function continuationLeaseToken(lease: DailyMaintenanceJobLease): Promise<string> {
-  const input = new TextEncoder().encode(
+  return createContinuationLeaseToken(
     `daily-maintenance:${lease.day}:${lease.continuation + 1}:${lease.releaseVersionId}`,
+    () => new Error("Daily maintenance continuation digest was incomplete"),
   );
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", input)).slice(0, 16);
-  const versionByte = bytes[6];
-  const variantByte = bytes[8];
-  if (versionByte === undefined || variantByte === undefined) {
-    throw new Error("Daily maintenance continuation digest was incomplete");
-  }
-  bytes[6] = (versionByte & 0x0f) | 0x80;
-  bytes[8] = (variantByte & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
 function assertActivationPageConsistent(
@@ -534,21 +531,6 @@ function dailyMaintenanceErrorCode(error: unknown): string {
 
 function dailyMaintenanceInvariant(message: string): NonRetryableError {
   return new NonRetryableError(message, "DailyMaintenanceInvariantViolation");
-}
-
-async function withDatabase<T>(
-  env: DailyMaintenanceEnv,
-  operation: (db: Database) => Promise<T>,
-): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
-  }
 }
 
 export function previousUtcDay(now: Date): string {

@@ -21,7 +21,7 @@ import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
 import {
   agentRunForRunId,
-  fetchAgentRun,
+  callAgentRun,
   sandboxForUser,
   sandboxStubForUser,
 } from "./agent-routing";
@@ -99,11 +99,7 @@ async function deleteRunStates(env: AgentEnv, userId: string, runIds: string[]):
       if (!runId) {
         continue;
       }
-      const response = await fetchAgentRun(
-        agentRunForRunId(env, runId),
-        "https://agent-run.internal/delete-all",
-        { headers: { "X-Cheatcode-User-Id": userId }, method: "POST" },
-      );
+      const response = await callAgentRun(agentRunForRunId(env, runId).deleteAll(userId));
       if (!response.ok) {
         const status = response.status;
         await response.body?.cancel().catch(() => undefined);

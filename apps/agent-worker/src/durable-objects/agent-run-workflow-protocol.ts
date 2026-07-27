@@ -57,22 +57,16 @@ export const AgentRunWorkflowPayloadSchema = z
 
 export type AgentRunWorkflowPayload = z.infer<typeof AgentRunWorkflowPayloadSchema>;
 
-export const AgentRunWorkflowCallbackInputSchema = AgentRunWorkflowPayloadSchema.extend({
-  workflowInstanceId: z.string().min(1).max(100),
-}).strict();
+export interface AgentRunWorkflowCallbackInput extends AgentRunWorkflowPayload {
+  workflowInstanceId: string;
+}
 
-export type AgentRunWorkflowCallbackInput = z.infer<typeof AgentRunWorkflowCallbackInputSchema>;
-
-export const AgentRunWorkflowFailureInputSchema = z
-  .object({
-    generation: WorkflowGenerationSchema,
-    inputHash: Sha256HexSchema,
-    message: z.string().trim().min(1).max(500),
-    workflowInstanceId: z.string().min(1).max(100),
-  })
-  .strict();
-
-export type AgentRunWorkflowFailureInput = z.infer<typeof AgentRunWorkflowFailureInputSchema>;
+export interface AgentRunWorkflowFailureInput {
+  generation: number;
+  inputHash: string;
+  message: string;
+  workflowInstanceId: string;
+}
 
 export const AgentRunWorkflowEpochResultSchema = z
   .object({

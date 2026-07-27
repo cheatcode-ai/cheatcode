@@ -1,10 +1,5 @@
 import { DurableObject } from "cloudflare:workers";
-import { readJsonRequest } from "@cheatcode/observability";
-import {
-  type RateLimitConfig,
-  RateLimitConsumeBodySchema,
-  type RateLimitResult,
-} from "./rate-limit-contract";
+import type { RateLimitConfig, RateLimitResult } from "./rate-limit-contract";
 import { ensureRateLimiterStorage, hasRateLimiterStorage } from "./rate-limiter-storage";
 import { nextGatewayDurableObjectAlarm, RATE_LIMITER_RETENTION_MS } from "./retention";
 
@@ -12,8 +7,6 @@ interface BucketRow {
   tokens: number;
   last_refill_ms: number;
 }
-
-const MAX_RATE_LIMIT_REQUEST_BYTES = 16 * 1024;
 
 function isBucketRow(value: unknown): value is BucketRow {
   if (!value || typeof value !== "object") {
@@ -65,16 +58,6 @@ export class RateLimiter extends DurableObject {
     await this.ensureCleanupAlarm();
 
     return { allowed: true, remaining: Math.floor(nextTokens), retryAfterMs: 0 };
-  }
-
-  public override async fetch(request: Request): Promise<Response> {
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    const body = RateLimitConsumeBodySchema.parse(
-      await readJsonRequest(request, MAX_RATE_LIMIT_REQUEST_BYTES, "Rate limit request"),
-    );
-    return Response.json(await this.consume(body.key, body.cost, body.config));
   }
 
   public override async alarm(): Promise<void> {

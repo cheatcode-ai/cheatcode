@@ -1,16 +1,7 @@
-import {
-  createLogger,
-  readBoundedResponseJson,
-  safeErrorTelemetry,
-} from "@cheatcode/observability";
-import {
-  QUOTA_FEATURES,
-  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-  QuotaPeriodEndSchema,
-  QuotaRecordRequestSchema,
-  QuotaUsageResponseSchema,
-} from "@cheatcode/types/quota";
+import { createLogger, safeErrorTelemetry } from "@cheatcode/observability";
+import { QUOTA_FEATURES, QuotaPeriodEndSchema } from "@cheatcode/types/quota";
 import { z } from "zod";
+import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 
 const SANDBOX_METER_STATE_KEY = "sandbox_meter_state";
 const SANDBOX_QUOTA_PERIOD_END_KEY = "sandbox_quota_period_end";
@@ -40,7 +31,7 @@ type MeterState = z.infer<typeof MeterStateSchema>;
 type PendingAccrual = z.infer<typeof PendingAccrualSchema>;
 
 interface SandboxMeteringEnv {
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
 }
 
 export interface SandboxMeteringContext {
@@ -209,28 +200,17 @@ async function stageNextAccrual(
 }
 
 async function sendAccrual(
-  namespace: DurableObjectNamespace,
+  namespace: QuotaTrackerNamespace,
   ownerUserId: string,
   pending: PendingAccrual,
 ): Promise<void> {
   const stub = namespace.get(namespace.idFromName(`quota:${ownerUserId}`));
-  const body = QuotaRecordRequestSchema.parse({
-    amount: pending.amountMs / MILLIS_PER_HOUR,
-    eventId: pending.eventId,
-    feature: QUOTA_FEATURES.sandboxHours,
-    periodEnd: pending.periodEnd,
-    recordedAt: new Date(pending.recordedAtMs).toISOString(),
-  });
-  const response = await stub.fetch("https://quota.internal/record", {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error(`QuotaTracker record failed with HTTP ${response.status}`);
-  }
-  QuotaUsageResponseSchema.parse(
-    await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota record"),
+  await stub.record(
+    QUOTA_FEATURES.sandboxHours,
+    pending.amountMs / MILLIS_PER_HOUR,
+    new Date(pending.periodEnd),
+    pending.eventId,
+    new Date(pending.recordedAtMs),
   );
 }
 

@@ -1,12 +1,9 @@
 import { GatewayWorkerEnvSchema } from "@cheatcode/env";
 import {
   APIError,
-  createLogger,
-  emitErrorEvent,
-  emitPerformanceMetric,
-  safeErrorTelemetry,
-  toAPIError,
-  withErrorHandler,
+  createPerformanceMetricMiddleware,
+  createWorkerRuntime,
+  routeWorkerError,
 } from "@cheatcode/observability";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
@@ -75,18 +72,8 @@ const GATEWAY_SECURITY_HEADERS = {
 
 const gatewayApp = new Hono<{ Bindings: GatewayEnv }>();
 
-gatewayApp.onError((error, c) => {
-  const id = c.req.header("X-Request-Id") ?? requestId();
-  const apiError = toAPIError(error);
-  emitErrorEvent(c.env, {
-    errorCategory: "gateway",
-    errorCode: apiError.code,
-    httpStatus: apiError.status,
-    route: routeNameForContext(c),
-    workerName: "gateway",
-    ...safeErrorTelemetry(error),
-  });
-  return withRateLimitErrorHeaders(formatGatewayRouteError(error, id), error);
+gatewayApp.onError((error, context) => {
+  throw routeWorkerError(error, routeNameForContext(context));
 });
 
 gatewayApp.use("*", secureHeaders(GATEWAY_SECURITY_HEADERS));
@@ -104,21 +91,13 @@ gatewayApp.use(
       ),
   }),
 );
-gatewayApp.use("*", async (c, next) => {
-  const startedAt = performance.now();
-  let status = 500;
-  try {
-    await next();
-    status = c.res.status;
-  } finally {
-    emitPerformanceMetric(c.env, {
-      route: routeNameForContext(c),
-      statusClass: statusClass(status),
-      totalMs: performance.now() - startedAt,
-      workerName: "gateway",
-    });
-  }
-});
+gatewayApp.use(
+  "*",
+  createPerformanceMetricMiddleware<GatewayEnv, GatewayContext>({
+    routeName: routeNameForContext,
+    workerName: "gateway",
+  }),
+);
 
 registerCoreHttpRoutes(gatewayApp);
 registerAccountHttpRoutes(gatewayApp);
@@ -128,19 +107,6 @@ registerIntegrationHttpRoutes(gatewayApp);
 registerBillingHttpRoutes(gatewayApp);
 registerAgentHttpRoutes(gatewayApp);
 assertOpenApiRouteParity(gatewayApp.routes);
-
-function requestId(): string {
-  return `req_${crypto.randomUUID().replaceAll("-", "")}`;
-}
-
-function withRequestId(response: Response, id: string): Response {
-  if (response.status === 101 || response.webSocket) {
-    return response;
-  }
-  const wrapped = new Response(response.body, response);
-  wrapped.headers.set("X-Request-Id", id);
-  return wrapped;
-}
 
 function routeName(request: Request): string {
   return gatewayOperationIdForRequest(request);
@@ -154,53 +120,28 @@ function routeNameForContext(c: GatewayContext): string {
   }
 }
 
-function statusClass(status: number): string {
-  if (status >= 500) return "5xx";
-  if (status >= 400) return "4xx";
-  if (status >= 300) return "3xx";
-  return "2xx";
-}
-
-const gatewayHandler = {
-  async fetch(request: Request, env: GatewayEnv, ctx: ExecutionContext): Promise<Response> {
-    const id = requestId();
-    const logger = createLogger({ requestId: id });
-    try {
-      GatewayWorkerEnvSchema.parse(env);
-      return await routeGatewayRequest(request, env, ctx, id);
-    } catch (error) {
-      const apiError = toAPIError(error);
-      emitErrorEvent(env, {
-        errorCategory: "gateway",
-        errorCode: apiError.code,
-        httpStatus: apiError.status,
-        route: routeName(request),
-        workerName: "gateway",
-        ...safeErrorTelemetry(error),
-      });
-      logger.error("gateway_request_failed", {
-        apiCode: apiError.code,
-        ...safeErrorTelemetry(error),
-      });
-      return apiError.toResponse(id);
-    }
+const gatewayHandler = createWorkerRuntime<GatewayEnv, ExecutionContext>({
+  errorCategory: "gateway",
+  errorLogName: "gateway_request_failed",
+  fetch: async (request, env, ctx) => {
+    GatewayWorkerEnvSchema.parse(env);
+    return routeGatewayRequest(request, env, ctx);
   },
-};
+  formatError: ({ error, requestId: id }) =>
+    withRateLimitErrorHeaders(formatGatewayRouteError(error, id), error),
+  routeName,
+  workerName: "gateway",
+});
 
 async function routeGatewayRequest(
   request: Request,
   env: GatewayEnv,
   ctx: ExecutionContext,
-  id: string,
 ): Promise<Response> {
-  const requestWithId = isWebSocketUpgrade(request) ? request : new Request(request);
-  if (!isWebSocketUpgrade(requestWithId)) {
-    requestWithId.headers.set("X-Request-Id", id);
-  }
   const localPreview =
-    env.CHEATCODE_ENVIRONMENT === "development" ? resolveLocalPreviewRoute(requestWithId) : null;
+    env.CHEATCODE_ENVIRONMENT === "development" ? resolveLocalPreviewRoute(request) : null;
   if (localPreview?.kind === "redirect") {
-    return withRequestId(localPreview.response, id);
+    return localPreview.response;
   }
   if (localPreview?.kind === "proxy") {
     if (!env.PREVIEW_PROXY) {
@@ -208,18 +149,9 @@ async function routeGatewayRequest(
         retriable: false,
       });
     }
-    return withRequestId(await env.PREVIEW_PROXY.fetch(localPreview.request), id);
+    return env.PREVIEW_PROXY.fetch(localPreview.request);
   }
-  return withRequestId(await gatewayApp.fetch(requestWithId, env, ctx), id);
+  return gatewayApp.fetch(request, env, ctx);
 }
 
-function isWebSocketUpgrade(request: Request): boolean {
-  return (request.headers.get("Upgrade") ?? "").toLowerCase() === "websocket";
-}
-
-export default withErrorHandler(gatewayHandler, {
-  errorCategory: "gateway",
-  requestId: (request) => request.headers.get("X-Request-Id"),
-  routeName,
-  workerName: "gateway",
-});
+export default gatewayHandler;

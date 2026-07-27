@@ -15,12 +15,7 @@ import {
   type RunPersonalization,
   withUserContext,
 } from "@cheatcode/db";
-import {
-  APIError,
-  createLogger,
-  emitUserEvent,
-  readBoundedResponseJson,
-} from "@cheatcode/observability";
+import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
 import {
   AgentRunId,
   type CreateRun,
@@ -29,17 +24,12 @@ import {
   ThreadId,
   UserId,
 } from "@cheatcode/types";
-import {
-  QUOTA_FEATURES,
-  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-  QuotaPeekRequestSchema,
-  QuotaSetLimitRequestSchema,
-  QuotaSetLimitResponseSchema,
-  QuotaUsageResponseSchema,
-} from "@cheatcode/types/quota";
+import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { AgentEnv } from "./agent-env";
 import type { AgentRun } from "./durable-objects/agent-run";
+import { type StartRunInput, StartRunInputSchema } from "./durable-objects/agent-run-schemas";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
+import type { QuotaTrackerStub } from "./quota-tracker-binding";
 import { extractRunMessageText } from "./run-request";
 import { userSandboxName } from "./tenancy";
 
@@ -195,7 +185,7 @@ export async function startAgentRun(
   const { body, modelExplicit, personalization, run, sandboxName, userId } = input;
   const messageText = extractRunMessageText(body);
   const stub = agentRunForRunId(env, run.runId);
-  const startBody = JSON.stringify({
+  const startInput = StartRunInputSchema.parse({
     isFirstRun: Boolean(run.isFirstRun),
     ...(personalization.agentDisplayName
       ? { agentDisplayName: personalization.agentDisplayName }
@@ -215,7 +205,7 @@ export async function startAgentRun(
     threadId: run.threadId,
     userId,
   });
-  const outcome = await attemptAgentRunStart(stub, userId, startBody);
+  const outcome = await attemptAgentRunStart(stub, userId, startInput);
   if (outcome.type === "confirmed") {
     emitRunStartEvents(env, { messageText, response: outcome.response, run, userId });
   }
@@ -234,17 +224,17 @@ export async function reconcileAgentRunAdmission(
 async function attemptAgentRunStart(
   stub: DurableObjectStub<AgentRun>,
   userId: string,
-  startBody: string,
+  startInput: StartRunInput,
 ): Promise<AgentRunAdmissionOutcome> {
   try {
-    const first = await fetchAgentRunStart(stub, startBody);
+    const first = await stub.start(startInput);
     if (first.ok) {
       return { response: first, type: "confirmed" };
     }
     await discardResponse(first);
   } catch {
     try {
-      const retry = await fetchAgentRunStart(stub, startBody);
+      const retry = await stub.start(startInput);
       if (retry.ok) {
         return { response: retry, type: "confirmed" };
       }
@@ -257,19 +247,13 @@ async function attemptAgentRunStart(
   return probeAgentRunAdmission(stub, userId);
 }
 
-function fetchAgentRunStart(stub: DurableObjectStub<AgentRun>, body: string): Promise<Response> {
-  return stub.fetch("https://agent-run.internal/start", { body, method: "POST" });
-}
-
 async function probeAgentRunAdmission(
   stub: DurableObjectStub<AgentRun>,
   userId: string,
 ): Promise<AgentRunAdmissionOutcome> {
   let statusResponse: Response;
   try {
-    statusResponse = await stub.fetch("https://agent-run.internal/status", {
-      headers: { "X-Cheatcode-User-Id": userId },
-    });
+    statusResponse = await stub.status(userId);
   } catch {
     return { type: "ambiguous" };
   }
@@ -366,49 +350,20 @@ async function enforceSandboxHoursGate(
 }
 
 async function syncSandboxHoursLimit(
-  stub: DurableObjectStub,
+  stub: QuotaTrackerStub,
   allowanceHours: number,
   entitlementVersion: number,
 ): Promise<void> {
   try {
-    const body = QuotaSetLimitRequestSchema.parse({
-      entitlementVersion,
-      feature: QUOTA_FEATURES.sandboxHours,
-      limit: allowanceHours,
-    });
-    const response = await stub.fetch("https://quota.internal/set-limit", {
-      body: JSON.stringify(body),
-      method: "POST",
-    });
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error(`QuotaTracker set-limit failed with HTTP ${response.status}`);
-    }
-    QuotaSetLimitResponseSchema.parse(
-      await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota set-limit"),
-    );
+    await stub.setLimit(QUOTA_FEATURES.sandboxHours, allowanceHours, entitlementVersion);
   } catch {
     throw quotaTrackerUnavailableError();
   }
 }
 
-async function peekSandboxHoursUsed(stub: DurableObjectStub, periodEnd: Date): Promise<number> {
+async function peekSandboxHoursUsed(stub: QuotaTrackerStub, periodEnd: Date): Promise<number> {
   try {
-    const body = QuotaPeekRequestSchema.parse({
-      feature: QUOTA_FEATURES.sandboxHours,
-      periodEnd: periodEnd.toISOString(),
-    });
-    const response = await stub.fetch("https://quota.internal/peek", {
-      body: JSON.stringify(body),
-      method: "POST",
-    });
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error(`QuotaTracker peek failed with HTTP ${response.status}`);
-    }
-    return QuotaUsageResponseSchema.parse(
-      await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota tracker"),
-    ).used;
+    return (await stub.peek(QUOTA_FEATURES.sandboxHours, periodEnd)).used;
   } catch {
     throw quotaTrackerUnavailableError();
   }
@@ -514,6 +469,14 @@ export async function fetchAgentRun(
 ): Promise<Response> {
   try {
     return await stub.fetch(url, init);
+  } catch (error) {
+    throw agentRunUnavailableError(error);
+  }
+}
+
+export async function callAgentRun(operation: Promise<Response>): Promise<Response> {
+  try {
+    return await operation;
   } catch (error) {
     throw agentRunUnavailableError(error);
   }

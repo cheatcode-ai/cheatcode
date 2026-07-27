@@ -1,5 +1,6 @@
 import type { WorkerSecret } from "@cheatcode/env";
 import type { AnalyticsBindings } from "@cheatcode/observability";
+import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 import type { AgentRunWorkflowPayload } from "./agent-run-workflow-protocol";
 import type { ProjectSandbox } from "./project-sandbox";
 
@@ -14,6 +15,6 @@ export interface AgentRunEnv extends AnalyticsBindings {
   OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_OUTPUTS: R2Bucket;
 }

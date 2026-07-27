@@ -1,11 +1,6 @@
-import {
-  APIError,
-  createLogger,
-  readBoundedResponseJson,
-  safeErrorTelemetry,
-} from "@cheatcode/observability";
+import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import { type RateLimitResult, RateLimitResultSchema } from "./durable-objects/rate-limit-contract";
+import type { RateLimitResult } from "./durable-objects/rate-limit-contract";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
 import { identifyDeclaredGatewayRoute } from "./openapi-route-parity";
 
@@ -51,8 +46,6 @@ interface RateLimitSubject {
 
 // A bounded 256-shard pool avoids creating a permanently alarmed Durable Object per client IP.
 const PUBLIC_RATE_LIMIT_SHARD_PREFIX_LENGTH = 2;
-const MAX_RATE_LIMIT_RESPONSE_BYTES = 16 * 1024;
-
 const RATE_LIMIT_POLICIES = {
   publicRead: { className: "public.read", cost: 1, failClosed: false, limitPerMinute: 300 },
   publicWrite: { className: "public.write", cost: 1, failClosed: true, limitPerMinute: 60 },
@@ -108,30 +101,9 @@ async function consumeRateLimit(
 ): Promise<RateLimitHeaders | null> {
   const id = c.env.RATE_LIMITER.idFromName(subject.durableObjectName);
   const stub = c.env.RATE_LIMITER.get(id);
-  const body = JSON.stringify({
-    key: subject.key,
-    cost: policy.cost,
-    config: rateLimitConfig(policy),
-  });
-  let response: Response;
-  try {
-    response = await stub.fetch("https://rate-limit.internal/consume", { body, method: "POST" });
-  } catch (error) {
-    return handleRateLimitFailure(operationId, policy, error);
-  }
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    return handleRateLimitFailure(
-      operationId,
-      policy,
-      new Error(`Rate limiter returned HTTP ${response.status}`),
-    );
-  }
   let result: RateLimitResult;
   try {
-    result = RateLimitResultSchema.parse(
-      await readBoundedResponseJson(response, MAX_RATE_LIMIT_RESPONSE_BYTES, "Rate limiter"),
-    );
+    result = await stub.consume(subject.key, policy.cost, rateLimitConfig(policy));
   } catch (error) {
     return handleRateLimitFailure(operationId, policy, error);
   }

@@ -12,23 +12,17 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
-import { type createLogger, readBoundedResponseJson } from "@cheatcode/observability";
+import type { createLogger } from "@cheatcode/observability";
 import { IntegrationNameSchema, UserId } from "@cheatcode/types";
-import {
-  QUOTA_FEATURES,
-  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-  QuotaSetLimitRequestSchema,
-  QuotaSetLimitResponseSchema,
-  QuotaTryConsumeRequestSchema,
-  QuotaTryConsumeResponseSchema,
-} from "@cheatcode/types/quota";
+import { QUOTA_FEATURES } from "@cheatcode/types/quota";
+import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface ComposioProviderEnv {
   COMPOSIO_API_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
 }
 
 interface ComposioProviderInput {
@@ -137,54 +131,14 @@ function quotaMeter(
 }
 
 async function consumeComposioQuota(
-  namespace: DurableObjectNamespace,
+  namespace: QuotaTrackerNamespace,
   userId: UserId,
   quota: ComposioQuotaConfig,
   eventId: string,
 ): Promise<ComposioQuotaResult> {
   const stub = namespace.get(namespace.idFromName(`quota:${userId}`));
-  const limitBody = QuotaSetLimitRequestSchema.parse({
-    entitlementVersion: quota.entitlementVersion,
-    feature: QUOTA_FEATURES.composioCalls,
-    limit: quota.limit,
-  });
-  const limitResponse = await requireQuotaResponse(
-    stub.fetch("https://quota.internal/set-limit", {
-      body: JSON.stringify(limitBody),
-      method: "POST",
-    }),
-  );
-  QuotaSetLimitResponseSchema.parse(
-    await readBoundedResponseJson(
-      limitResponse,
-      QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-      "Quota set-limit",
-    ),
-  );
-  const consumeBody = QuotaTryConsumeRequestSchema.parse({
-    amount: 1,
-    eventId,
-    feature: QUOTA_FEATURES.composioCalls,
-    periodEnd: quota.periodEnd.toISOString(),
-  });
-  const response = await requireQuotaResponse(
-    stub.fetch("https://quota.internal/try-consume", {
-      body: JSON.stringify(consumeBody),
-      method: "POST",
-    }),
-  );
-  return QuotaTryConsumeResponseSchema.parse(
-    await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota tracker"),
-  );
-}
-
-async function requireQuotaResponse(responsePromise: Promise<Response>): Promise<Response> {
-  const response = await responsePromise;
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
-    throw new Error("Quota tracker rejected Composio call metering.");
-  }
-  return response;
+  await stub.setLimit(QUOTA_FEATURES.composioCalls, quota.limit, quota.entitlementVersion);
+  return stub.tryConsume(QUOTA_FEATURES.composioCalls, 1, quota.periodEnd, eventId);
 }
 
 async function closeDatabase(

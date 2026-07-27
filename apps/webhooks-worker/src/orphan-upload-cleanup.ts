@@ -1,10 +1,8 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import {
-  createDb,
   type DailyMaintenanceJobLease,
   type DailyMaintenanceJobProgress,
   type DailyMaintenanceJobRecord,
-  type Database,
   deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob,
   guardDailyMaintenanceJobProgress,
   type HyperdriveConnection,
@@ -13,6 +11,7 @@ import {
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { z } from "zod";
+import { withDatabase } from "./deletion-job-runner";
 
 const ARTIFACT_INTENT_PAGE_SIZE = 500;
 const ARTIFACT_INTENT_PAGES_PER_GENERATION = 2;
@@ -195,19 +194,4 @@ function jobProgress(job: DailyMaintenanceJobRecord): DailyMaintenanceJobProgres
     activationCursor: job.activationCursor,
     phase: job.phase,
   };
-}
-
-async function withDatabase<T>(
-  env: OrphanUploadCleanupEnv,
-  operation: (db: Database) => Promise<T>,
-): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
-  }
 }

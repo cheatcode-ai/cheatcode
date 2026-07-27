@@ -27,6 +27,7 @@ import {
   type AgentRunAdmissionOutcome,
   activeRunForThreadRoute,
   agentRunForRunId,
+  callAgentRun,
   fetchAgentRun,
   reconcileAgentRunAdmission,
   runEntitlementPolicy,
@@ -279,10 +280,7 @@ async function cancelRun(c: AgentContext): Promise<Response> {
   const userId = readGatewayUserId(c.req.raw.headers);
   const runId = parseRunRouteParam(c.req.param("runId") ?? "");
   const run = await runForRoute(c.env, userId, runId);
-  return fetchAgentRun(agentRunForRunId(c.env, run.runId), "https://agent-run.internal/cancel", {
-    headers: { "X-Cheatcode-User-Id": userId },
-    method: "POST",
-  });
+  return callAgentRun(agentRunForRunId(c.env, run.runId).cancel(userId));
 }
 
 async function browserTakeoverStatus(c: AgentContext): Promise<Response> {
@@ -291,11 +289,7 @@ async function browserTakeoverStatus(c: AgentContext): Promise<Response> {
   if (!run) {
     return Response.json(BrowserTakeoverStatusSchema.parse({ status: "inactive" }));
   }
-  return fetchAgentRun(
-    agentRunForRunId(c.env, run.runId),
-    "https://agent-run.internal/browser-takeover",
-    { headers: { "X-Cheatcode-User-Id": userId } },
-  );
+  return callAgentRun(agentRunForRunId(c.env, run.runId).browserTakeoverStatus(userId));
 }
 
 async function startBrowserTakeover(c: AgentContext): Promise<Response> {
@@ -307,11 +301,7 @@ async function startBrowserTakeover(c: AgentContext): Promise<Response> {
       retriable: false,
     });
   }
-  return fetchAgentRun(
-    agentRunForRunId(c.env, run.runId),
-    "https://agent-run.internal/browser-takeover/start",
-    { headers: { "X-Cheatcode-User-Id": userId }, method: "POST" },
-  );
+  return callAgentRun(agentRunForRunId(c.env, run.runId).browserTakeoverStart(userId));
 }
 
 async function resumeBrowserTakeover(c: AgentContext): Promise<Response> {
@@ -323,17 +313,8 @@ async function resumeBrowserTakeover(c: AgentContext): Promise<Response> {
   if (!run) {
     return Response.json(BrowserTakeoverResumeResultSchema.parse({ ok: true, status: "inactive" }));
   }
-  return fetchAgentRun(
-    agentRunForRunId(c.env, run.runId),
-    "https://agent-run.internal/browser-takeover/resume",
-    {
-      body: JSON.stringify(body),
-      headers: {
-        "Content-Type": "application/json",
-        "X-Cheatcode-User-Id": userId,
-      },
-      method: "POST",
-    },
+  return callAgentRun(
+    agentRunForRunId(c.env, run.runId).browserTakeoverResume(userId, body.takeoverId),
   );
 }
 

@@ -1,17 +1,12 @@
 import { quotaPeriodEndFor, sandboxHoursWarnLevel } from "@cheatcode/billing";
 import type { Database } from "@cheatcode/db";
-import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
+import { APIError } from "@cheatcode/observability";
 import {
   type SandboxUsageSummaryResponse,
   SandboxUsageSummaryResponseSchema,
   type UserId,
 } from "@cheatcode/types";
-import {
-  QUOTA_FEATURES,
-  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-  QuotaPeekRequestSchema,
-  QuotaUsageResponseSchema,
-} from "@cheatcode/types/quota";
+import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import { type LimitBindings, resolveEntitlement, syncQuotaLimits } from "./limits";
 
 /**
@@ -44,24 +39,15 @@ async function peekSandboxHoursUsed(
   periodEnd: Date,
 ): Promise<number> {
   const stub = env.QUOTA_TRACKER.get(env.QUOTA_TRACKER.idFromName(`quota:${userId}`));
-  const body = QuotaPeekRequestSchema.parse({
-    feature: QUOTA_FEATURES.sandboxHours,
-    periodEnd: periodEnd.toISOString(),
-  });
-  const response = await stub.fetch("https://quota.internal/peek", {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
+  try {
+    return (await stub.peek(QUOTA_FEATURES.sandboxHours, periodEnd)).used;
+  } catch (error) {
     throw new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
+      cause: error,
       hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
       retriable: true,
     });
   }
-  return QuotaUsageResponseSchema.parse(
-    await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota tracker"),
-  ).used;
 }
 
 function round1(value: number): number {

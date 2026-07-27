@@ -3,8 +3,6 @@ import { getProviderKeyForRevalidation, validateProviderKey } from "@cheatcode/b
 import {
   claimProviderKeyRevalidationTargets,
   completeCurrentProviderKeyRevalidation,
-  createDb,
-  type Database,
   disableCurrentProviderKey,
   type HyperdriveConnection,
   lockUserProviderKeyMutations,
@@ -14,6 +12,7 @@ import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
 import { type Provider, ProviderSchema, type UserId } from "@cheatcode/types";
 import { z } from "zod";
+import { withDatabase } from "./deletion-job-runner";
 
 interface ByokRevalidationEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
@@ -218,19 +217,4 @@ function addOutcome(
   totals.disabled += outcome.disabled;
   totals.invalid += outcome.invalid;
   totals.skipped += outcome.skipped;
-}
-
-async function withDatabase<T>(
-  env: ByokRevalidationEnv,
-  operation: (db: Database) => Promise<T>,
-): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
-  }
 }

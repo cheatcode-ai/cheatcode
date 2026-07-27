@@ -5,7 +5,6 @@ export {
   emitPerformanceMetric,
   emitUserEvent,
 } from "./analytics";
-export { withErrorHandler } from "./error-handler";
 export { APIError, safeErrorTelemetry, toAPIError } from "./errors";
 export {
   readBoundedRequestBytes,
@@ -18,3 +17,17 @@ export {
 export type { Logger } from "./logger";
 export { createLogger } from "./logger";
 export { redactSecrets } from "./redact";
+export type {
+  PerformanceMiddlewareOptions,
+  WorkerRuntimeOptions,
+} from "./worker-runtime";
+export {
+  createPerformanceMetricMiddleware,
+  createWorkerRuntime,
+  isWebSocketUpgrade,
+  requestId,
+  routeName,
+  routeWorkerError,
+  statusClass,
+  withRequestId,
+} from "./worker-runtime";

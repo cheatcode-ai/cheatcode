@@ -11,15 +11,9 @@ import {
   lockUserProjectMutations,
   withUserContext,
 } from "@cheatcode/db";
-import { APIError, createLogger, readBoundedResponseJson } from "@cheatcode/observability";
+import { APIError, createLogger } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import {
-  QUOTA_FEATURES,
-  QUOTA_TRACKER_MAX_RESPONSE_BYTES,
-  type QuotaFeature,
-  QuotaSetLimitRequestSchema,
-  QuotaSetLimitResponseSchema,
-} from "@cheatcode/types/quota";
+import { QUOTA_FEATURES, type QuotaFeature } from "@cheatcode/types/quota";
 import type { QuotaTracker } from "./durable-objects/quota-tracker";
 
 export interface LimitBindings {
@@ -108,21 +102,15 @@ async function setQuotaLimit(
   limit: number,
   entitlementVersion: number,
 ): Promise<void> {
-  const body = QuotaSetLimitRequestSchema.parse({ entitlementVersion, feature, limit });
-  const response = await stub.fetch("https://quota.internal/set-limit", {
-    body: JSON.stringify(body),
-    method: "POST",
-  });
-  if (!response.ok) {
-    await response.body?.cancel().catch(() => undefined);
+  try {
+    await stub.setLimit(feature, limit, entitlementVersion);
+  } catch (error) {
     throw new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
+      cause: error,
       hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
       retriable: true,
     });
   }
-  QuotaSetLimitResponseSchema.parse(
-    await readBoundedResponseJson(response, QUOTA_TRACKER_MAX_RESPONSE_BYTES, "Quota set-limit"),
-  );
 }
 
 async function readCachedEntitlement(

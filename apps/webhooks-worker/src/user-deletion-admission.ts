@@ -1,7 +1,5 @@
 import {
   claimReadyUserDeletionJobs,
-  createDb,
-  type Database,
   deferUserDeletionJob,
   discoverUserDeletionJobs,
   type HyperdriveConnection,
@@ -16,6 +14,7 @@ import {
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import { z } from "zod";
+import { withDatabase } from "./deletion-job-runner";
 import type { OpsWorkflowBindings } from "./ops-workflow";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
@@ -276,20 +275,5 @@ function emitClaimQuarantines(env: UserDeletionAdmissionEnv, jobIds: string[]): 
       route: "user-deletion-admission",
       workerName: "webhooks",
     });
-  }
-}
-
-async function withDatabase<T>(
-  env: Pick<UserDeletionAdmissionEnv, "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS" | "HYPERDRIVE">,
-  operation: (db: Database) => Promise<T>,
-): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
   }
 }
