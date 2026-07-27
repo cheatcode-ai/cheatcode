@@ -15,6 +15,8 @@ import { ProjectSandboxProcesses } from "./project-sandbox-processes";
 import {
   type ProjectListUploadedFilesInput,
   ProjectListUploadedFilesInputSchema,
+  type ProjectRestoreUploadedFilesInput,
+  ProjectRestoreUploadedFilesInputSchema,
   type ProjectUploadFileInput,
   ProjectUploadFileInputSchema,
 } from "./project-sandbox-runtime";
@@ -24,6 +26,7 @@ const VERSION_DIGEST_DOMAIN = "cheatcode:project-file-version:v2";
 const FILE_RECORD_PREFIX = "project-file:";
 const VERSION_RECORD_PREFIX = "project-file-version:";
 const DELETE_BATCH_SIZE = 128;
+const WORKSPACE_TIMESTAMP_TOLERANCE_MS = 2_000;
 
 const ProjectFileVersionSchema = z
   .object({
@@ -49,6 +52,11 @@ interface PreparedProjectFile {
   versionId: string;
 }
 
+interface CurrentProjectFile {
+  file: ProjectFile;
+  version: ProjectFileVersion;
+}
+
 export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses {
   private projectFileMutationTail: Promise<void> = Promise.resolve();
 
@@ -61,14 +69,14 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
 
   public uploadProjectFile(input: ProjectUploadFileInput): Promise<ProjectFileUploadResponse> {
     const parsed = ProjectUploadFileInputSchema.parse(input);
-    const operation = this.projectFileMutationTail
-      .catch(() => undefined)
-      .then(() => this.persistProjectFile(parsed));
-    this.projectFileMutationTail = operation.then(
-      () => undefined,
-      () => undefined,
-    );
-    return operation;
+    return this.enqueueProjectFileMutation(() => this.persistProjectFile(parsed));
+  }
+
+  public restoreUploadedFiles(
+    input: ProjectRestoreUploadedFilesInput,
+  ): Promise<{ restoredFileCount: number }> {
+    const parsed = ProjectRestoreUploadedFilesInputSchema.parse(input);
+    return this.enqueueProjectFileMutation(() => this.restoreProjectFiles(parsed));
   }
 
   protected deleteUploadedFileMetadata(projectId: string): Promise<void> {
@@ -84,7 +92,10 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     const existing = await this.currentFile(input.projectId, input.path);
     await this.enforceFileCount(input.projectId, existing !== null);
     const prepared = await prepareProjectFile(input, this.ownerUserId());
-    const version = projectFileVersion(input, prepared);
+    const persistedAt = new Date().toISOString();
+    const workspaceTimestamp =
+      existing?.versionId === prepared.versionId ? existing.updatedAt : persistedAt;
+    const version = projectFileVersion(input, prepared, persistedAt);
     const previousVersion = await this.storedVersion(version);
     const status = existing
       ? existing.versionId === prepared.versionId
@@ -93,8 +104,15 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
       : "created";
     await this.writeAndVerifyObject(input, version);
     try {
-      await this.materializeProjectFile(input, prepared.contentSha256);
-      const file = await this.commitProjectFile(input, prepared, existing, previousVersion);
+      await this.materializeProjectFile(input, prepared.contentSha256, workspaceTimestamp);
+      const file = await this.commitProjectFile(
+        input,
+        prepared,
+        existing,
+        previousVersion,
+        version,
+        persistedAt,
+      );
       return ProjectFileUploadResponseSchema.parse({ file, status });
     } catch (error) {
       if (!previousVersion) {
@@ -109,18 +127,19 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     prepared: PreparedProjectFile,
     existing: ProjectFile | null,
     previousVersion: ProjectFileVersion | null,
+    version: ProjectFileVersion,
+    persistedAt: string,
   ): Promise<ProjectFile> {
-    const now = new Date().toISOString();
     const file = ProjectFileSchema.parse({
       contentType: input.contentType,
-      createdAt: existing?.createdAt ?? now,
+      createdAt: existing?.createdAt ?? persistedAt,
       fileId: prepared.fileId,
       name: input.name,
       path: input.path,
       projectId: input.projectId,
       sha256: prepared.contentSha256,
       sizeBytes: input.bytes.byteLength,
-      updatedAt: existing?.versionId === prepared.versionId ? existing.updatedAt : now,
+      updatedAt: existing?.versionId === prepared.versionId ? existing.updatedAt : persistedAt,
       versionCount: (existing?.versionCount ?? 0) + (previousVersion ? 0 : 1),
       versionId: prepared.versionId,
     });
@@ -128,7 +147,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
       if (!previousVersion) {
         await transaction.put(
           versionRecordKey(input.projectId, prepared.fileId, prepared.versionId),
-          projectFileVersion(input, prepared),
+          version,
         );
       }
       await transaction.put(fileRecordKey(input.projectId, prepared.fileId), file);
@@ -139,6 +158,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
   private async materializeProjectFile(
     input: z.output<typeof ProjectUploadFileInputSchema>,
     contentSha256: string,
+    workspaceTimestamp: string,
   ): Promise<void> {
     const sandboxId = await this.ensureSandbox();
     const projectRoot = workspacePathForSlug(input.workspaceSlug);
@@ -150,6 +170,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         projectRoot,
         workspacePath,
         input.bytes,
+        workspaceTimestamp,
       );
     } catch (error) {
       if (!isRecoverableWorkspaceMountError(error)) {
@@ -161,6 +182,7 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
         projectRoot,
         workspacePath,
         input.bytes,
+        workspaceTimestamp,
       );
     }
     if (
@@ -181,10 +203,14 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     projectRoot: string,
     workspacePath: string,
     bytes: Uint8Array,
+    workspaceTimestamp: string,
   ): Promise<Uint8Array> {
-    await this.client().createFolder(sandboxId, `${projectRoot}/uploads`);
+    const uploadsPath = `${projectRoot}/uploads`;
+    await this.prepareUploadedFileWrite(sandboxId, uploadsPath, workspacePath);
     await this.client().uploadFile(sandboxId, workspacePath, bytes);
-    return this.client().downloadFile(sandboxId, workspacePath, bytes.byteLength);
+    const written = await this.client().downloadFile(sandboxId, workspacePath, bytes.byteLength);
+    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath, workspaceTimestamp);
+    return written;
   }
 
   private async writeAndVerifyObject(
@@ -241,6 +267,172 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     }
   }
 
+  private enqueueProjectFileMutation<T>(operation: () => Promise<T>): Promise<T> {
+    const pending = this.projectFileMutationTail.catch(() => undefined).then(operation);
+    this.projectFileMutationTail = pending.then(
+      () => undefined,
+      () => undefined,
+    );
+    return pending;
+  }
+
+  private async restoreProjectFiles(
+    input: z.output<typeof ProjectRestoreUploadedFilesInputSchema>,
+  ): Promise<{ restoredFileCount: number }> {
+    const currentFiles = await this.currentProjectFiles(input.projectId);
+    if (currentFiles.length === 0) {
+      return { restoredFileCount: 0 };
+    }
+    const sandboxId = await this.ensureSandbox();
+    const projectRoot = workspacePathForSlug(input.workspaceSlug);
+    const uploadsPath = `${projectRoot}/uploads`;
+    const workspaceFiles = await this.workspaceUploadedFiles(sandboxId, uploadsPath);
+    const workspaceFilesByName = new Map(workspaceFiles.map((file) => [file.name, file]));
+    let restoredFileCount = 0;
+    for (const current of currentFiles) {
+      const workspaceFile = workspaceFilesByName.get(current.file.name);
+      if (!workspaceProjectFileNeedsRestore(workspaceFile, current.file)) {
+        continue;
+      }
+      const bytes = await this.readStoredProjectFile(current.version);
+      await this.writeProjectFileToWorkspace(
+        sandboxId,
+        projectRoot,
+        `${projectRoot}/${current.file.path}`,
+        bytes,
+        current.file.updatedAt,
+      );
+      restoredFileCount += 1;
+    }
+    await this.protectUploadedDirectory(sandboxId, uploadsPath);
+    return { restoredFileCount };
+  }
+
+  private async currentProjectFiles(projectId: string): Promise<CurrentProjectFile[]> {
+    const records = await this.ctx.storage.list({
+      prefix: fileRecordProjectPrefix(projectId),
+    });
+    const currentFiles: CurrentProjectFile[] = [];
+    for (const value of records.values()) {
+      const file = ProjectFileSchema.parse(value);
+      const versionValue = await this.ctx.storage.get(
+        versionRecordKey(file.projectId, file.fileId, file.versionId),
+      );
+      const version = ProjectFileVersionSchema.parse(versionValue);
+      assertCurrentProjectFile(file, version);
+      currentFiles.push({ file, version });
+    }
+    currentFiles.sort((left, right) => left.file.path.localeCompare(right.file.path));
+    return currentFiles;
+  }
+
+  private async workspaceUploadedFiles(sandboxId: string, uploadsPath: string) {
+    try {
+      return await this.client().listFiles(sandboxId, uploadsPath);
+    } catch (error) {
+      if (error instanceof DaytonaApiError && error.status === 404) {
+        return [];
+      }
+      if (!isRecoverableWorkspaceMountError(error)) {
+        throw error;
+      }
+      await this.restartSandboxForWorkspaceRecovery(sandboxId);
+      try {
+        return await this.client().listFiles(sandboxId, uploadsPath);
+      } catch (retryError) {
+        if (retryError instanceof DaytonaApiError && retryError.status === 404) {
+          return [];
+        }
+        throw retryError;
+      }
+    }
+  }
+
+  private async readStoredProjectFile(version: ProjectFileVersion): Promise<Uint8Array> {
+    const object = await this.env.R2_OUTPUTS.get(version.r2Key);
+    if (!object) {
+      throw new APIError(409, "conflict_state_invalid", "Stored project file is missing", {
+        retriable: false,
+      });
+    }
+    assertStoredProjectFile(object, version);
+    const bytes = new Uint8Array(await object.arrayBuffer());
+    if (bytes.byteLength !== version.sizeBytes || (await sha256Hex(bytes)) !== version.sha256) {
+      throw new APIError(
+        409,
+        "conflict_state_invalid",
+        "Stored project file contents are invalid",
+        { retriable: false },
+      );
+    }
+    return bytes;
+  }
+
+  private async prepareUploadedFileWrite(
+    sandboxId: string,
+    uploadsPath: string,
+    workspacePath: string,
+  ): Promise<void> {
+    const prepared = await this.client().execute(sandboxId, {
+      command: [
+        `install -d -m 0755 ${shellQuote(uploadsPath)}`,
+        `if test -e ${shellQuote(workspacePath)}; then chmod 0644 ${shellQuote(workspacePath)}; fi`,
+      ].join(" && "),
+      timeout: 10,
+    });
+    if (prepared.exitCode !== 0) {
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        "Project file workspace could not be prepared",
+        { retriable: true },
+      );
+    }
+    await this.client().createFolder(sandboxId, uploadsPath);
+  }
+
+  private async protectUploadedFile(
+    sandboxId: string,
+    uploadsPath: string,
+    workspacePath: string,
+    workspaceTimestamp: string,
+  ): Promise<void> {
+    const protectedFile = await this.client().execute(sandboxId, {
+      command: [
+        `touch -d ${shellQuote(workspaceTimestamp)} -- ${shellQuote(workspacePath)}`,
+        `chmod 0444 -- ${shellQuote(workspacePath)}`,
+        `chmod 0555 -- ${shellQuote(uploadsPath)}`,
+      ].join(" && "),
+      timeout: 10,
+    });
+    if (protectedFile.exitCode !== 0) {
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        "Project file workspace could not be protected",
+        { retriable: true },
+      );
+    }
+  }
+
+  private async protectUploadedDirectory(sandboxId: string, uploadsPath: string): Promise<void> {
+    const protectedDirectory = await this.client().execute(sandboxId, {
+      command: [
+        `find ${shellQuote(uploadsPath)} -mindepth 1 -maxdepth 1 -type f -exec chmod 0444 -- {} +`,
+        `chmod 0555 -- ${shellQuote(uploadsPath)}`,
+      ].join(" && "),
+      timeout: 10,
+    });
+    if (protectedDirectory.exitCode !== 0) {
+      throw new APIError(
+        502,
+        "upstream_sandbox_failed",
+        "Project file workspace could not be protected",
+        { retriable: true },
+      );
+    }
+  }
+
   private async listProjectFileRecords(projectId: string): Promise<{ files: ProjectFile[] }> {
     const records = await this.ctx.storage.list({
       prefix: fileRecordProjectPrefix(projectId),
@@ -267,6 +459,42 @@ function isRecoverableWorkspaceMountError(error: unknown): boolean {
   return error instanceof DaytonaApiError && error.status === 400;
 }
 
+function workspaceProjectFileNeedsRestore(
+  workspaceFile:
+    | {
+        isDir: boolean;
+        modifiedAt: string;
+        size: number;
+      }
+    | undefined,
+  file: ProjectFile,
+): boolean {
+  if (!workspaceFile || workspaceFile.isDir || workspaceFile.size !== file.sizeBytes) {
+    return true;
+  }
+  return (
+    Date.parse(workspaceFile.modifiedAt) >
+    Date.parse(file.updatedAt) + WORKSPACE_TIMESTAMP_TOLERANCE_MS
+  );
+}
+
+function assertCurrentProjectFile(file: ProjectFile, version: ProjectFileVersion): void {
+  if (
+    file.contentType !== version.contentType ||
+    file.fileId !== version.fileId ||
+    file.name !== version.name ||
+    file.path !== version.path ||
+    file.projectId !== version.projectId ||
+    file.sha256 !== version.sha256 ||
+    file.sizeBytes !== version.sizeBytes ||
+    file.versionId !== version.versionId
+  ) {
+    throw new APIError(409, "conflict_state_invalid", "Project file identity is invalid", {
+      retriable: false,
+    });
+  }
+}
+
 async function prepareProjectFile(
   input: z.output<typeof ProjectUploadFileInputSchema>,
   userId: string,
@@ -291,10 +519,11 @@ async function prepareProjectFile(
 function projectFileVersion(
   input: z.output<typeof ProjectUploadFileInputSchema>,
   prepared: PreparedProjectFile,
+  createdAt: string,
 ): ProjectFileVersion {
   return ProjectFileVersionSchema.parse({
     contentType: input.contentType,
-    createdAt: new Date().toISOString(),
+    createdAt,
     fileId: prepared.fileId,
     name: input.name,
     path: input.path,
@@ -351,6 +580,10 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function fileRecordProjectPrefix(projectId: string): string {

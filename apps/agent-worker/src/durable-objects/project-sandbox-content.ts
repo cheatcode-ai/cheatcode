@@ -20,6 +20,8 @@ import {
   codeServerTrustedOrigins,
 } from "./project-sandbox-code-server";
 import {
+  assertDeletableWorkspacePath,
+  assertMutableWorkspacePath,
   basename,
   buildGrepCommand,
   conversionErrorMessage,
@@ -193,6 +195,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
 
   public async writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
     const parsed = ProjectWriteFileInputSchema.parse(input);
+    assertMutableWorkspacePath(parsed.path);
     const id = await this.ensureSandbox();
     await this.client().createFolder(id, dirname(parsed.path));
     const bytes =
@@ -235,6 +238,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
 
   public async deleteFile(input: ProjectDeleteFileInput): Promise<SandboxDeleteFileResult> {
     const parsed = ProjectDeleteFileInputSchema.parse(input);
+    assertDeletableWorkspacePath(parsed.path);
     const id = await this.ensureSandbox();
     await this.client().deleteFilePath(id, parsed.path, parsed.recursive);
     return { path: parsed.path, success: true };

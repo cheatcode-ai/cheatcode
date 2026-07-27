@@ -174,6 +174,14 @@ export class ProjectSandbox extends ProjectSandboxContent {
     );
   }
 
+  public override restoreUploadedFiles(
+    ...args: Parameters<ProjectSandboxContent["restoreUploadedFiles"]>
+  ): ReturnType<ProjectSandboxContent["restoreUploadedFiles"]> {
+    return this.withActiveProjectWorkspaceOperation(workspaceSlug(args[0].workspaceSlug), () =>
+      super.restoreUploadedFiles(...args),
+    );
+  }
+
   public override previewFile(
     ...args: Parameters<ProjectSandboxContent["previewFile"]>
   ): ReturnType<ProjectSandboxContent["previewFile"]> {

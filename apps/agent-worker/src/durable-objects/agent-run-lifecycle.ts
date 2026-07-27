@@ -93,6 +93,7 @@ async function executeActiveRun(execution: RunExecution): Promise<void> {
   if (deps.isCanceled()) {
     return;
   }
+  await restoreRunProjectFiles(execution);
   await deps.append(runTaskStatusChunk("prepare-sandbox", "completed"));
   await deps.append(runTaskStatusChunk("run-agent", "running"));
   const path = await deps.executeRunPath(
@@ -198,8 +199,28 @@ async function cleanupRun(execution: RunExecution): Promise<void> {
         });
       });
   }
+  await restoreRunProjectFiles(execution).catch((error: unknown) => {
+    execution.logger.warn("project_upload_restore_after_run_failed", {
+      error,
+      projectId: execution.input.projectId,
+    });
+  });
   if (execution.runLeaseOpened) {
     await execution.sandbox.endRun(execution.input.runId).catch(() => undefined);
+  }
+}
+
+async function restoreRunProjectFiles(execution: RunExecution): Promise<void> {
+  const { projectId, workspaceSlug } = execution.input;
+  if (!projectId || !workspaceSlug) {
+    return;
+  }
+  const result = await execution.sandbox.restoreUploadedFiles({ projectId, workspaceSlug });
+  if (result.restoredFileCount > 0) {
+    execution.logger.info("project_uploads_restored", {
+      projectId,
+      restoredFileCount: result.restoredFileCount,
+    });
   }
 }
 

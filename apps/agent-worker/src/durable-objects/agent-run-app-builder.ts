@@ -256,10 +256,10 @@ export async function restartMobilePreview(
   });
 }
 
-// First import run only: clone the public GitHub repo over the empty workspace,
-// drop the one-shot marker, best-effort install, and hand control to the agent
-// without auto-starting a dev server (framework/port are unknowable). Failure
-// throws repo_import_failed, which rides the existing run() failure path.
+// First import run only: retain uploads, clone the public GitHub repo through a
+// private staging directory, drop the one-shot marker, best-effort install, and
+// hand control to the agent without auto-starting a dev server (framework/port
+// are unknowable). Failure throws repo_import_failed through the run failure path.
 async function importRepoWorkspace(
   options: WorkspaceOptions & { repoUrl: string },
 ): Promise<{ agentContextNote: string }> {
@@ -273,9 +273,11 @@ async function importRepoWorkspace(
   }
   logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
   setRunStage(`Cloning ${repoRef.path}.`);
-  await resetAppBuilderDirectory(sandbox, workspace.dir);
+  await resetTemplateAppBuilderDirectory(sandbox, workspace.dir);
   throwIfRunCanceled(options.abortSignal);
-  await cloneRepoOrThrow({ dir: workspace.dir, env, input, logger, repoRef, repoUrl, sandbox });
+  const cloneDir = `${workspace.dir}/.cheatcode-import-${input.runId ?? crypto.randomUUID()}`;
+  await cloneRepoOrThrow({ dir: cloneDir, env, input, logger, repoRef, repoUrl, sandbox });
+  await promoteImportedRepo(sandbox, cloneDir, workspace.dir);
   throwIfRunCanceled(options.abortSignal);
   await markImportedWorkspace(sandbox, workspace.dir);
   const installRan = await installImportedDependencies(sandbox, logger, workspace.dir);
@@ -289,6 +291,29 @@ async function importRepoWorkspace(
   });
   emitImportEvent(env, input, "repo_import_succeeded");
   return { agentContextNote: importedContextNote(workspace, repoUrl) };
+}
+
+async function promoteImportedRepo(
+  sandbox: ProjectSandboxStub,
+  cloneDir: string,
+  workspaceDir: string,
+): Promise<void> {
+  await executeShellExec(
+    { command: ["rm", "-rf", `${cloneDir}/uploads`], cwd: "/workspace", timeoutMs: 120_000 },
+    { sandbox },
+  );
+  await executeShellExec(
+    {
+      command: ["cp", "-a", `${cloneDir}/.`, `${workspaceDir}/`],
+      cwd: "/workspace",
+      timeoutMs: 120_000,
+    },
+    { sandbox },
+  );
+  await executeShellExec(
+    { command: ["rm", "-rf", cloneDir], cwd: "/workspace", timeoutMs: 120_000 },
+    { sandbox },
+  );
 }
 
 // Every follow-up run of an imported project: re-install best-effort, but NEVER
@@ -618,13 +643,6 @@ async function hasInstalledAppBuilderDependencies(
     { sandbox },
   );
   return result.success;
-}
-
-async function resetAppBuilderDirectory(sandbox: ProjectSandboxStub, dir: string): Promise<void> {
-  await executeShellExec(
-    { command: ["rm", "-rf", dir], cwd: "/workspace", timeoutMs: 120_000 },
-    { sandbox },
-  );
 }
 
 async function resetTemplateAppBuilderDirectory(
