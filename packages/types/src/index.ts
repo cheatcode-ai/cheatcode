@@ -43,7 +43,6 @@ export type {
 export {
   ActivityHistoryResponseSchema,
   ActivityQuerySchema,
-  BrowserTakeoverActiveSchema,
   BrowserTakeoverResumeResultSchema,
   BrowserTakeoverResumeSchema,
   BrowserTakeoverSessionSchema,
@@ -58,14 +57,12 @@ export {
   IntegrationConnectResponseSchema,
   IntegrationSchema,
   MAX_USER_SKILLS,
-  MessagePartSchema,
   Paginated,
   PaginationQuerySchema,
   PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
   PROJECT_FILE_MAX_BATCH,
   PROJECT_FILE_MAX_BYTES,
   PROJECT_FILE_MAX_CURRENT_FILES,
-  PROJECT_MODES,
   ProjectFileListSchema,
   ProjectFileRelativePathSchema,
   ProjectFileSchema,
@@ -76,14 +73,10 @@ export {
   ProviderSchema,
   RecentThreadsQuerySchema,
   RecentThreadsResponseSchema,
-  RUN_INTENTS,
   RunIntentSchema,
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
-  SandboxFileListSchema,
   SandboxFilePathSchema,
-  SandboxFileSchema,
-  SandboxFileWriteSchema,
   SandboxIdeSessionSchema,
   SandboxPreviewStatusSchema,
   SandboxPreviewWakeSchema,
@@ -93,12 +86,9 @@ export {
   SearchQuerySchema,
   SearchResponseSchema,
   ThreadSchema,
-  ToolDomainSchema,
   ToolkitActionsResponseSchema,
-  ToolSummarySchema,
   UIMessageRecordSchema,
   UpdateProjectSchema,
-  UpdateSandboxPathFileSchema,
   UpdateThreadSchema,
   UpsertProviderKeySchema,
   USER_MESSAGE_MAX_CHARACTERS,
@@ -107,10 +97,7 @@ export {
 } from "./api";
 export type { OutputDownloadUrlResponse } from "./artifacts";
 export {
-  ARTIFACT_KINDS,
-  ArtifactKindSchema,
   OutputDownloadUrlResponseSchema,
-  OutputDownloadUrlSchema,
   OutputIdSchema,
 } from "./artifacts";
 export type {
@@ -140,7 +127,6 @@ export {
   SandboxUsageSummaryResponseSchema,
 } from "./billing";
 export type { AgentCapabilityName, ToolCapabilityName } from "./capabilities";
-export { TOOL_CAPABILITIES } from "./capabilities";
 export type { ErrorCode } from "./errors";
 export { ErrorResponseSchema } from "./errors";
 export {
@@ -150,11 +136,7 @@ export {
   UserId,
 } from "./ids";
 export type { IntegrationName } from "./integrations";
-export {
-  INTEGRATION_NAME_MAX_LENGTH,
-  INTEGRATION_NAME_PATTERN,
-  IntegrationNameSchema,
-} from "./integrations";
+export { IntegrationNameSchema } from "./integrations";
 export type {
   AgentLifecycleServiceBinding,
   AgentLifecycleServiceResult,
@@ -168,13 +150,10 @@ export type {
 } from "./internal-maintenance";
 export {
   AgentLifecycleServiceResultSchema,
-  CanonicalProjectWorkspaceSlugSchema,
   InternalAgentStateDeleteBodySchema,
   InternalAgentStateDeleteRequestSchema,
-  InternalProjectDeletionRequestSchema,
   InternalResourceDeletionRequestSchema,
   InternalStateDeleteResponseSchema,
-  InternalThreadDeletionRequestSchema,
   ResourceDeletionServiceResultSchema,
   ResourceDeletionWorkflowPayloadSchema,
 } from "./internal-maintenance";
@@ -224,8 +203,6 @@ export type {
 } from "./ui-message";
 export {
   CHEATCODE_DATA_SCHEMAS,
-  MessagePartsSchema,
   ModelFallbackDataSchema,
   parseMessagePart,
-  TranscriptFragmentDataSchema,
 } from "./ui-message";

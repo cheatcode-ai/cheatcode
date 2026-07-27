@@ -33,7 +33,7 @@ const REQUEST_BODY_MAX_BYTES = 256 * 1024;
 
 type QueryValue = boolean | number | readonly string[] | string | undefined;
 
-export class ComposioApiError extends Error {
+class ComposioApiError extends Error {
   readonly status: number;
 
   constructor(status: number, message = `Composio request failed with status ${status}`) {

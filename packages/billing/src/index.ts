@@ -28,7 +28,7 @@ const CancellationReasonSchema = z.enum([
 ]);
 type CancellationReason = z.infer<typeof CancellationReasonSchema>;
 
-export interface TierLimits {
+interface TierLimits {
   maxProjects: number | null;
   quotaComposioCalls: number | null;
   quotaSandboxHours: number | null;
@@ -315,7 +315,7 @@ export async function updateCustomerProfile(input: UpdateCustomerProfileInput): 
   });
 }
 
-export function tierLimits(tier: BillingTier): TierLimits {
+function tierLimits(tier: BillingTier): TierLimits {
   return TIER_LIMITS[tier];
 }
 

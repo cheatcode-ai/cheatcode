@@ -11,7 +11,7 @@ export const QuotaFeatureSchema = z.enum([
 ]);
 
 export const QuotaPeriodEndSchema = z.string().datetime();
-export const QuotaLimitSchema = z.number().finite().nonnegative();
+const QuotaLimitSchema = z.number().finite().nonnegative();
 
 export const QuotaUsageResponseSchema = z
   .object({

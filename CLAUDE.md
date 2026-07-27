@@ -37,12 +37,9 @@ apps/
   webhooks-worker/        Clerk, Polar, Composio webhooks + internal ops workflows
 
 packages/
-  agent-core/             Mastra agent, workflows, tools, and runtime contexts
+  agent-core/             Mastra agent, workflows, contexts, and data/document/media tools
   tools-code/             Sandbox shell/file/git/runCode tools
   tools-browser/          Stagehand LOCAL browser automation
-  tools-docs/             pptxgenjs, docx, exceljs, @react-pdf/renderer
-  tools-data/             Arquero CSV analysis + deterministic SVG charts
-  tools-media/            Image generation and media editing
   tools-research/         Exa + Firecrawl
   db/                     Drizzle schema (per-domain) + queries + migrations
   byok/                   Vault-backed BYOK with provider validation
@@ -55,7 +52,7 @@ packages/
   ui/                     shared UI primitives, icon barrel, AI response renderer
   tsconfig/               Shared base/nextjs/worker/library configs
 
-skills/                   19 curated Anthropic SKILL.md skills
+skills/                   19 curated skills; _shared/office is vendored and not bundled
 infra/                    Container images and Dockerfiles for local development and Daytona sandboxes
 scripts/                  Operational helpers: build-skills, dev, dev-worker-config, jsonc, migrate, migration-drizzle, database-operation-safety
 ```
@@ -90,42 +87,29 @@ pnpm --filter @cheatcode/db db:generate  # Create new migration
 ```
 
 Pre-commit (Lefthook) runs Biome on staged + typecheck on changed packages. Must stay <5s.
-Product/acceptance testing is direct `agent-browser --auto-connect --session cheatcode-debug`
-UI operation plus console/network/app-log review. Do not add or run scripted
-browser/product-flow test harnesses; package `test` scripts and source-level
-`*.test.ts` files are intentionally absent from the V2 command surface. Do not generate temporary validation scripts either; operate
-the UI directly and check logs, and remove any throwaway product QA script that
-appears in the V2 tree. Operational scripts may exist only for build,
-migration, secret sync, Docker cleanup, and guarded deploy orchestration; they are not
-product tests and must not simulate UI/user flows. Do not create temporary
-testing scripts in `scripts/`, package folders, `/tmp`, or any out-of-tree
-location. Delete future V2 product validators instead of running them. The
+Product/acceptance testing uses only direct
+`agent-browser --auto-connect --session cheatcode-debug` commands issued in the
+transcript to click, fill, and type through real flows, capture screenshots,
+inspect console/network/resources, and read running app logs. Never add, run,
+write, or keep scripts for browser or product-flow testing, including
+`pnpm`/`tsx` wrappers, shell or command loops, `/tmp` or generated helpers,
+browser-driver wrappers, package aliases, prompt drivers, curl flows,
+validators, and throwaway QA helpers in `scripts/`, package folders, or any
+out-of-tree location; delete them on sight instead of running them. Package
+`test` scripts and source-level `*.test.ts` files remain absent. Operational
+scripts may exist only for build, migration, secret sync, Docker cleanup, and
+guarded deploy orchestration and must not click the UI, submit prompts, drive
+auth, gather acceptance evidence, simulate UI/user flows, or replace direct
+browser operation. Typecheck, lint, and build are code-health gates only, not
+product QA. Code the all-weeks V2 surface first, then perform final QA through
+the direct browser commands and direct console/network/app-log inspection. The
 removed V1 tree must not be restored or copied back as a testing surface.
-
-May 28, 2026 hardening: do not wrap product QA in `pnpm`, `tsx`, shell loops,
-`/tmp` helpers, generated files, browser-driver wrappers, package aliases, or
-any scripted flow. Each UI action, screenshot, console read, network/resource
-inspection, and app-log inspection must be issued directly in the transcript.
-Typecheck/lint/build remain code-health gates only.
-
-May 28, 2026 direct override: delete any product-flow test script, temporary
-helper, command-loop runner, browser wrapper, prompt driver, curl flow, or
-package alias when discovered. The active V2 tree should contain no product-test
-scripts. The remaining `scripts/` files are operational only and must not click
-the UI, submit prompts, drive auth, gather acceptance evidence, or replace
-direct `agent-browser` operation.
-
-May 28, 2026 latest user directive: code the all-weeks V2 surface first, then
-run final product QA only through direct `agent-browser --auto-connect --session
-cheatcode-debug` UI actions and direct console/network/app-log inspection. Do
-not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
-`agent-browser`, run curl flows, or gather acceptance evidence.
 
 ## Where things live
 
 | Need | File |
 |---|---|
-| Add a new tool | `packages/tools-<domain>/src/<tool>.ts` |
+| Add a new tool | `packages/agent-core/src/tools/<domain>/<tool>.ts` for data/docs/media; `packages/tools-<domain>/src/<tool>.ts` for browser/code/research |
 | Add a new agent | `packages/agent-core/src/mastra/agents/<name>.ts` |
 | Add a new workflow | `packages/agent-core/src/mastra/workflows/<name>.ts` |
 | Add a new skill | `skills/<name>/SKILL.md` (+ optional `references/` / `assets/`) |
@@ -137,7 +121,13 @@ not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
 
 Curated skills are bundled at build time into `packages/skills/src/generated.ts` (Workers have no filesystem at runtime). Anthropic SKILL.md format. V2 has no bundled skill scripts, no `evals/evals.json`, no local skill-eval runner, and no `skill_run_script` tool.
 
-The source-of-truth catalog is the set of skill folders under `skills/`; do not duplicate a manually maintained name list here. External skill registry exports, skills.sh links, public publishing scripts, and launch-prep copy are outside V2 unless the user explicitly re-expands the plan.
+The source-of-truth catalog is the set of non-underscore skill folders under
+`skills/`; do not duplicate a manually maintained name list here.
+`skills/_shared/office/` is the shared vendored tree materialized by the sandbox
+Dockerfile, and `scripts/build-skills.ts` skips `_`-prefixed directories.
+External skill registry exports, skills.sh links, public publishing scripts,
+and launch-prep copy are outside V2 unless the user explicitly re-expands the
+plan.
 
 The bundler contract lives in `scripts/build-skills.ts` and `packages/skills`.
 

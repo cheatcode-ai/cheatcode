@@ -1,4 +1,4 @@
-export const CURRENT_SQLITE_STORAGE_VERSION = 1;
+const CURRENT_SQLITE_STORAGE_VERSION = 1;
 
 const STORAGE_METADATA_TABLE = "__cheatcode_storage_metadata";
 const STORAGE_METADATA_TABLE_SQL = `CREATE TABLE ${STORAGE_METADATA_TABLE} (
@@ -12,7 +12,7 @@ const STORAGE_METADATA_SCHEMA: ExpectedSqliteObject = {
   type: "table",
 };
 
-export class SqliteSchemaMismatchError extends Error {
+class SqliteSchemaMismatchError extends Error {
   override readonly name = "SqliteSchemaMismatchError";
 }
 
@@ -23,7 +23,7 @@ export interface ExpectedSqliteObject {
   type: SqliteSchemaObjectType;
 }
 
-export type SqliteSchemaObjectType = "index" | "table" | "trigger" | "view";
+type SqliteSchemaObjectType = "index" | "table" | "trigger" | "view";
 
 type SqlTokenKind = "number" | "quoted-identifier" | "string" | "symbol" | "word";
 

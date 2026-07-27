@@ -1,8 +1,8 @@
 const TEXT_ENCODER = new TextEncoder();
-export const MINIMUM_HMAC_SECRET_UTF8_BYTES = 32;
+const MINIMUM_HMAC_SECRET_UTF8_BYTES = 32;
 
 /** Reject HMAC keys that do not meet the platform's minimum cryptographic key size. */
-export function assertHmacSecretStrength(secret: string): void {
+function assertHmacSecretStrength(secret: string): void {
   if (TEXT_ENCODER.encode(secret).byteLength < MINIMUM_HMAC_SECRET_UTF8_BYTES) {
     throw new TypeError("HMAC secret must contain at least 32 UTF-8 bytes");
   }

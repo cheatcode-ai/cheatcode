@@ -39,9 +39,8 @@ apps/                    Deployable services
   webhooks-worker/       Polar/Clerk/Composio webhooks + internal ops workflows
 
 packages/                Shared libraries
-  agent-core/            Mastra instance + workflows
-  tools-*/               Tool implementations per domain
-  tools-media/           Image generation and media editing tools
+  agent-core/            Mastra instance, workflows, and data/document/media tools
+  tools-{browser,code,research}/  Multi-consumer and isolated tool-domain packages
   db/                    Drizzle schema (per-domain) + queries + migrations
   byok/                  Vault-backed BYOK key store
   skills/                Build-time skill bundler
@@ -50,7 +49,7 @@ packages/                Shared libraries
   types/                 Zod schemas + branded IDs + InferAgentUIMessage
   ui/                    Shared Cheatcode UI primitives, icon barrel, AI response renderer
 
-skills/                  19 curated Anthropic SKILL.md skills
+skills/                  19 curated skills; _shared/office is vendored and not bundled
 infra/                   Container images and Dockerfiles for local development and Daytona sandboxes
 scripts/                 Operational helpers: build-skills, dev, dev-worker-config, jsonc, migrate, migration-drizzle, database-operation-safety
 ```
@@ -74,46 +73,24 @@ pnpm turbo lint                         # Biome check (fails CI on warnings)
 pnpm turbo build                        # Production build
 ```
 
-Product/acceptance testing is direct `agent-browser --auto-connect --session cheatcode-debug`
-UI interaction only: click/fill/type through real flows, capture screenshots,
-inspect console/network output, and read app logs. Do not add or run scripted
-test harnesses for product flows, browser automation, prompt submission, auth,
-accessibility, load, or final E2E. Package `test` scripts are intentionally not
-part of the V2 command surface, and source-level `*.test.ts` files are
-intentionally absent. Do not generate temporary validation scripts either;
-operate the UI directly and check logs, and remove any throwaway product QA
-script that appears in the V2 tree. Operational scripts may exist only for
-build, migration, and local-stack configuration; they are not
-product tests and must not simulate UI/user flows. Do not create temporary
-testing scripts in `scripts/`, package folders, `/tmp`, or any out-of-tree
-location.
-
-May 27, 2026 user override: never use scripts for product testing. Product QA
-means direct `agent-browser` UI operation, screenshots, console/network
-inspection, and running app-log review only. Delete any future V2 product-flow
-validator, prompt runner, browser wrapper, or throwaway QA helper on sight
-instead of running it. The removed V1 tree must not be restored, copied back,
-or used as a source of product-test scripts.
-
-May 28, 2026 hardening: do not wrap product QA in `pnpm`, `tsx`, shell loops,
-`/tmp` helpers, generated files, browser-driver wrappers, package aliases, or
-any scripted flow. Every product UI action, screenshot, console read,
-network/resource inspection, and app-log inspection must be issued directly in
-the transcript. Typecheck/lint/build are code-health gates only; they are not
-product QA.
-
-May 28, 2026 direct override: delete any product-flow test script, temporary
-helper, command-loop runner, browser wrapper, prompt driver, curl flow, or
-package alias when discovered. The active V2 tree should contain no product-test
-scripts. The remaining `scripts/` files are operational only and must not click
-the UI, submit prompts, drive auth, gather acceptance evidence, or replace
-direct `agent-browser` operation.
-
-May 28, 2026 latest user directive: code the all-weeks V2 surface first, then
-run final product QA only through direct `agent-browser --auto-connect --session
-cheatcode-debug` UI actions and direct console/network/app-log inspection. Do
-not write, run, or keep scripts to submit prompts, click UI, drive auth, wrap
-`agent-browser`, run curl flows, or gather acceptance evidence.
+Product/acceptance testing uses only direct
+`agent-browser --auto-connect --session cheatcode-debug` commands issued in the
+transcript to click, fill, and type through real flows, capture screenshots,
+inspect console/network/resources, and read running app logs. Never add, run,
+write, or keep scripts for product testing, browser automation, prompt
+submission, auth, accessibility, load, or final E2E, including `pnpm`/`tsx`
+wrappers, shell or command loops, `/tmp` or generated helpers, browser-driver
+wrappers, package aliases, prompt drivers, curl flows, validators, and
+throwaway QA helpers in `scripts/`, package folders, or any out-of-tree
+location; delete them on sight instead of running them. Package `test` scripts
+and source-level `*.test.ts` files remain absent. Operational scripts may exist
+only for build, migration, and local-stack configuration and must not click the
+UI, submit prompts, drive auth, gather acceptance evidence, or replace direct
+browser operation. Typecheck, lint, and build are code-health gates only, not
+product QA. Code the all-weeks V2 surface first, then perform final QA through
+the direct browser commands and direct console/network/app-log inspection. The
+removed V1 tree must not be restored, copied back, used as a testing surface, or
+used as a source of product-test scripts.
 
 ## Run locally
 
@@ -122,47 +99,8 @@ pnpm dev                                # Compose: Next + chained Workers agains
 pnpm dev:down                           # Stop the local Compose stack
 ```
 
-Required local env vars in `.env.local` (template in `.env.example`):
-
-```
-# Production Supabase session-pooler URLs for the three isolated Worker roles.
-# Administrative migration credentials never belong in .env.local.
-SUPABASE_GATEWAY_DATABASE_URL=
-SUPABASE_AGENT_DATABASE_URL=
-SUPABASE_WEBHOOKS_DATABASE_URL=
-
-# Per-Worker signed tenant context (three distinct secrets, each at least 32 bytes)
-DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY=
-DATABASE_CONTEXT_SIGNING_SECRET_AGENT=
-DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS=
-
-# Daytona
-DAYTONA_API_KEY=
-DAYTONA_API_URL=https://app.daytona.io/api
-DAYTONA_TARGET=us
-DAYTONA_SANDBOX_SNAPSHOT=
-DAYTONA_WORKSPACE_VOLUME=cheatcode-workspaces-development
-PREVIEW_TOKEN_SECRET=
-
-# Clerk development instance only
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
-CLERK_SECRET_KEY=
-
-# Polar
-POLAR_ACCESS_TOKEN=
-POLAR_WEBHOOK_SECRET=
-
-# Composio
-COMPOSIO_API_KEY=
-COMPOSIO_AUTH_CONFIGS={"github":"ac_...","gmail":"ac_...","slack":"ac_...","notion":"ac_...","linear":"ac_..."}
-COMPOSIO_WEBHOOK_SECRET=
-
-# Signed output capability
-OUTPUT_DOWNLOAD_SIGNING_SECRET=
-
-# Browser-visible local routing configuration (not secrets)
-NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787
-```
+Copy the complete `.env.local` template from `.env.example`;
+`scripts/dev.ts` validates it before local startup.
 
 Never commit `.env.local`. It is the sole laptop application credential file;
 its database URLs contain only the three least-privilege production runtime

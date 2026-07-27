@@ -1,12 +1,12 @@
 import { z } from "zod";
 
 /** Exact artifact kinds that can be stored, streamed, and rendered by V2. */
-export const ARTIFACT_KINDS = ["docx", "image", "pdf", "slide", "video", "xlsx"] as const;
+const ARTIFACT_KINDS = ["docx", "image", "pdf", "slide", "video", "xlsx"] as const;
 
 export const ArtifactKindSchema = z.enum(ARTIFACT_KINDS);
 export const OutputIdSchema = z.string().uuid();
 
-export const OutputDownloadUrlSchema = z
+const OutputDownloadUrlSchema = z
   .string()
   .url()
   .refine(isSafeOutputDownloadUrl, "Output download URL must use HTTPS");

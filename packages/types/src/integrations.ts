@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const INTEGRATION_NAME_MAX_LENGTH = 64;
-export const INTEGRATION_NAME_PATTERN = /^[a-z0-9_]+$/u;
+const INTEGRATION_NAME_MAX_LENGTH = 64;
+const INTEGRATION_NAME_PATTERN = /^[a-z0-9_]+$/u;
 
 /** Open Composio toolkit slug, such as `github` or `google_calendar`. */
 export const IntegrationNameSchema = z

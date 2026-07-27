@@ -34,8 +34,8 @@ positions.
   query parameters
 - `createWorkerRuntime` for one request-ID, error-formatting, logging, error
   event, and optional performance-metric boundary per Worker
-- `createPerformanceMetricMiddleware`, `requestId`, `withRequestId`,
-  `routeName`, `routeWorkerError`, `statusClass`, and `isWebSocketUpgrade`
+- `createPerformanceMetricMiddleware`, `requestId`, `routeName`, and
+  `routeWorkerError`
 - bounded request/response readers: `readJsonRequest`, `readBoundedRequestBytes`,
   `readBoundedRequestText`, `readBoundedResponseText`, and `readBoundedResponseJson`
 - `withBoundedResponseBody` for enforcing response limits before an SDK parser

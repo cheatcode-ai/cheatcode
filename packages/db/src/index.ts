@@ -47,7 +47,6 @@ export {
   renewAndLoadDailyMaintenanceJob,
   reserveDailyMaintenanceContinuation,
 } from "./daily-maintenance-jobs";
-export type { DatabaseContextConfig } from "./database-context";
 export type { UserIntegrationRecord } from "./integrations";
 export {
   deleteUserIntegrationAccount,

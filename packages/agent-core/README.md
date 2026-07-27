@@ -17,6 +17,14 @@ Sandbox and artifact capabilities cross tool-domain boundaries only through
 `@cheatcode/sandbox-contracts`; concrete code-tool executors remain in
 `@cheatcode/tools-code`.
 
+Single-consumer data, document, and media implementations live under
+`src/tools/`. Data tools profile and normalize bounded tabular inputs and render
+deterministic SVG/Recharts output. Document tools generate sandbox-side PPTX,
+DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media tools use
+the active request's Google BYOK key for image/video work. All three receive
+sandbox and R2 artifact capabilities through request-scoped contracts; they do
+not read environment variables, persist credentials, or log keys.
+
 Tools execute autonomously inside the active request context. Sandbox operations
 remain project-root confined, browser actions remain origin-bound, connected-app
 actions remain scoped to the user's active account, and secret-bearing input is

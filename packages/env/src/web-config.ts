@@ -1,9 +1,9 @@
 import { z } from "zod";
 
-export const PRODUCTION_CLERK_FRONTEND_HOSTNAME = "clerk.trycheatcode.com";
+const PRODUCTION_CLERK_FRONTEND_HOSTNAME = "clerk.trycheatcode.com";
 const PRODUCTION_GATEWAY_ORIGIN = "https://gateway.trycheatcode.com";
-export const PRODUCTION_PREVIEW_HOSTNAME = "trycheatcode.com";
-export const LOCAL_PREVIEW_HOSTNAME = "localhost";
+const PRODUCTION_PREVIEW_HOSTNAME = "trycheatcode.com";
+const LOCAL_PREVIEW_HOSTNAME = "localhost";
 const VercelEnvironmentSchema = z.enum(["development", "preview", "production"]);
 const OptionalVercelEnvironmentSchema = VercelEnvironmentSchema.optional();
 const VercelHostnameSchema = z
@@ -30,7 +30,7 @@ export type WebDeploymentInput = Readonly<{
   VERCEL_TARGET_ENV: string | undefined;
 }>;
 
-export type ClerkPublishableKeyIdentity = Readonly<{
+type ClerkPublishableKeyIdentity = Readonly<{
   environmentType: "development" | "production";
   frontendApiHostname: string;
 }>;

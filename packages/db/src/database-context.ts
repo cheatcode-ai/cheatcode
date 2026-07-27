@@ -1,7 +1,7 @@
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import type { UserId } from "@cheatcode/types";
 
-export type DatabaseRuntimeAudience = "app_agent" | "app_gateway" | "app_webhooks";
+type DatabaseRuntimeAudience = "app_agent" | "app_gateway" | "app_webhooks";
 
 export interface DatabaseContextConfig {
   audience: DatabaseRuntimeAudience;

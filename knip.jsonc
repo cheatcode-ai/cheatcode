@@ -4,6 +4,7 @@
   // `cloudflare:workers` and `cloudflare:workflows` are platform modules, not
   // installable package dependencies. Knip cannot infer either edge.
   "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare"],
+  "includeEntryExports": true,
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
@@ -15,21 +16,9 @@
         "config": []
       },
       "entry": ["drizzle.config.ts"],
-      "ignoreExportsUsedInFile": true
-    },
-    "packages/composio": {
-      "ignoreExportsUsedInFile": true
-    },
-    "packages/sandbox-contracts": {
-      "ignoreExportsUsedInFile": true
-    },
-    "packages/types": {
-      "ignoreExportsUsedInFile": true,
-      // The root barrel is intentionally narrower than its source modules;
-      // definition-level exports are audited separately.
+      // Drizzle Kit loads this default export through its config convention.
       "ignoreIssues": {
-        "src/api.ts": ["types"],
-        "src/ui-message.ts": ["types"]
+        "drizzle.config.ts": ["exports"]
       }
     },
     "infra/containers/sandbox/browser-driver": {
@@ -38,6 +27,9 @@
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
+      // Public helpers are documented for user-authored sandbox skills and have
+      // out-of-repo consumers that Knip cannot discover.
+      "includeEntryExports": false,
       // The launcher resolves tsx through a hard-coded installed binary path.
       "ignoreDependencies": ["tsx"]
     }

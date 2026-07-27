@@ -23,8 +23,6 @@ support `PRAGMA user_version`. Attestation excludes only Workerd's exact
 - `assertExactSqliteSchema`
 - `setCurrentSqliteStorageVersion`
 - `ExpectedSqliteObject`
-- `SqliteSchemaMismatchError`
-- `SqliteSchemaObjectType`
 
 ## Code checks
 

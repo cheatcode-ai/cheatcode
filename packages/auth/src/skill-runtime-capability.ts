@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { timingSafeEqual } from "./crypto";
 
-export const SKILL_RUNTIME_CAPABILITY_TTL_MS = 15 * 60_000;
+const SKILL_RUNTIME_CAPABILITY_TTL_MS = 15 * 60_000;
 
 const CAPABILITY_PREFIX = "ccr1";
 const CAPABILITY_TOKEN_ID_BYTES = 16;

@@ -68,7 +68,7 @@ export interface SandboxWriteFileResult {
   success: boolean;
 }
 
-export interface SandboxFileEntry {
+interface SandboxFileEntry {
   modifiedAt: string;
   name: string;
   path: string;
@@ -98,7 +98,7 @@ export interface SandboxSearchFilesInput {
   query: string;
 }
 
-export interface SandboxSearchMatch {
+interface SandboxSearchMatch {
   column?: number;
   context?: string;
   line: number;
@@ -156,28 +156,28 @@ export interface SandboxKillProcessResult {
   success: boolean;
 }
 
-export interface SandboxStatus {
+interface SandboxStatus {
   healthy: boolean;
   ping: string;
   sandboxId: string;
 }
 
-export interface SandboxSignedPreviewUrlInput {
+interface SandboxSignedPreviewUrlInput {
   expiresInSeconds: number;
   port: number;
 }
 
-export interface SandboxSignedPreviewUrlResult {
+interface SandboxSignedPreviewUrlResult {
   token: string;
   url: string;
 }
 
-export interface SandboxAllocateProjectPortInput {
+interface SandboxAllocateProjectPortInput {
   projectId: string;
   stack: "web" | "mobile";
 }
 
-export interface SandboxAllocateProcessPortInput {
+interface SandboxAllocateProcessPortInput {
   maxPort: number;
   minPort: number;
   processId: string;

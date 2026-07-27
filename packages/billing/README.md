@@ -14,7 +14,6 @@ plan catalog, and resource-entitlement helpers.
 - `updateCustomerProfile`
 - `entitlementCacheFromValues`
 - `entitlementValuesForTier`
-- `tierLimits`
 - `PLAN_CATALOG`
 - sandbox-hour quota helpers
 

@@ -1,9 +1,9 @@
 import { sql } from "drizzle-orm";
 import type { Database } from "./client";
 
-export type ActivationEventName = "first_week_mau" | "retention_d28" | "retention_d7";
+type ActivationEventName = "first_week_mau" | "retention_d28" | "retention_d7";
 
-export interface ActivationEventRecord {
+interface ActivationEventRecord {
   cohortMonth?: string;
   cohortWeek?: string;
   eventName: ActivationEventName;

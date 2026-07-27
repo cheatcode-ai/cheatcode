@@ -11,7 +11,7 @@ interface RoutedWorkerError {
   readonly route: string;
 }
 
-export interface WorkerRuntimeOptions<Env extends AnalyticsBindings, Ctx> {
+interface WorkerRuntimeOptions<Env extends AnalyticsBindings, Ctx> {
   errorCategory?: string;
   errorLogFields?: (input: {
     apiError: ReturnType<typeof toAPIError>;
@@ -39,7 +39,7 @@ interface PerformanceContext<Env extends AnalyticsBindings> {
   readonly res: Response;
 }
 
-export interface PerformanceMiddlewareOptions<Context> {
+interface PerformanceMiddlewareOptions<Context> {
   errorStatus?: (error: unknown) => number;
   routeName: (context: Context) => string;
   workerName: string;
@@ -146,7 +146,7 @@ export function requestId(): string {
   return `req_${crypto.randomUUID().replaceAll("-", "")}`;
 }
 
-export function withRequestId(response: Response, id: string): Response {
+function withRequestId(response: Response, id: string): Response {
   if (response.status === 101) {
     return response;
   }
@@ -159,14 +159,14 @@ export function routeName(request: Request): string {
   return `${request.method} ${new URL(request.url).pathname}`;
 }
 
-export function statusClass(status: number): string {
+function statusClass(status: number): string {
   if (status >= 500) return "5xx";
   if (status >= 400) return "4xx";
   if (status >= 300) return "3xx";
   return "2xx";
 }
 
-export function isWebSocketUpgrade(request: Request): boolean {
+function isWebSocketUpgrade(request: Request): boolean {
   return (request.headers.get("Upgrade") ?? "").toLowerCase() === "websocket";
 }
 

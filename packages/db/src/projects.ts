@@ -116,7 +116,7 @@ export function workspacePathForSlug(slug: string): string {
 }
 
 /** Lowercase, filesystem-safe kebab slug (folder name) from a project display name. */
-export function filesystemSlug(name: string): string {
+function filesystemSlug(name: string): string {
   const slug = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
@@ -126,7 +126,7 @@ export function filesystemSlug(name: string): string {
   return slug || "project";
 }
 
-export function canonicalWorkspaceSlugForProject(name: string, projectId: ProjectId): string {
+function canonicalWorkspaceSlugForProject(name: string, projectId: ProjectId): string {
   const base = filesystemSlug(name).slice(0, 27).replace(/-+$/g, "") || "project";
   return `${base}-${projectId}`;
 }
