@@ -138,15 +138,17 @@ Each user has one durable Daytona sandbox. Projects are lexically confined to th
 folders under `/workspace`, and run leases keep the sandbox active while the agent is
 working. Project folders share the sandbox's Unix identity, so this prevents accidental
 cross-project access but is not an operating-system security boundary within one user.
-Sandbox lookup validates canonical ownership labels before trusting a cached ID; the
-physical Daytona name is deliberately not identity because a promoted replacement has a
-release-scoped name. A missing/stale Durable Object cache therefore recovers the one
-canonical sandbox by labels, while duplicate live canonical matches fail closed. New
-sandboxes pin the configured immutable snapshot and mount the environment's shared Daytona
-volume at `/workspace` with the user sandbox name as its isolated subpath. Canonical and
-candidate checks require the provider's actual mount tuple as well as the matching labels; labels
-alone cannot attest durable storage. A noncurrent
-sandbox is maintenance-only and cannot serve product work.
+Sandbox lookup validates canonical ownership labels before trusting a cached Daytona
+resource ID. A missing/stale Durable Object cache therefore recovers the one canonical
+sandbox by labels, while duplicate live canonical matches fail closed. New sandboxes pin
+the configured immutable snapshot and mount the environment's shared Daytona volume at
+`/workspace` with the user sandbox name as its isolated subpath. Canonical and candidate
+checks require the provider's actual mount tuple as well as the matching labels; labels
+alone cannot attest durable storage. When the configured snapshot or target changes, the
+first operation after active work drains replaces only the stale container and remounts
+that same volume subpath. New operations are fenced during replacement, stale process
+projections are cleared, and project files plus user-installed skills remain durable.
+Identity, snapshot-label, or storage-mount ambiguity still fails closed.
 
 Preview URLs carry a 60-second `handoff` capability minted by `@cheatcode/auth`.
 The preview-proxy Worker exchanges it for a distinct host-only, HttpOnly
@@ -229,10 +231,12 @@ application secret is required.
 Every ProjectSandbox uses the one configured immutable Daytona snapshot and the
 one configured shared workspace volume. Existing sandbox identity is accepted
 only when its owner, canonical labels, snapshot, volume, and mount contract all
-match. Mismatches fail closed instead of running a hidden migration. New
+match. A stale snapshot or target is replaced automatically only when canonical
+ownership and the persistent mount are unambiguous and no other operation or run
+lease is active. All other contract mismatches fail closed. New and replacement
 sandboxes mount the user's isolated volume subpath directly at `/workspace`.
-Account deletion clears that subpath before deleting all exactly owned
-sandboxes, so persistent volume data does not outlive the account.
+Account deletion clears that subpath before deleting all exactly owned sandboxes,
+so persistent volume data does not outlive the account.
 
 Production deploys bind one immutable `CHEATCODE_RELEASE_SHA`. Health responses
 expose that identity so the deployment workflow can verify that service

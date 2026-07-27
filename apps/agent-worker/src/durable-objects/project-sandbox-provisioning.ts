@@ -9,6 +9,7 @@ import {
   canonicalSandboxLabels,
   isCanonicalSandbox,
   isDesiredCanonicalSandbox,
+  isRuntimeReplaceableCanonicalSandbox,
 } from "./project-sandbox-daytona-identity";
 import {
   AUTO_ARCHIVE_MIN,
@@ -23,6 +24,7 @@ import {
 import { isDestroyed, isFailedState, sleep } from "./project-sandbox-process-support";
 
 const WORKSPACE_MOUNT_PATH = "/workspace";
+const SANDBOX_DELETE_ATTEMPTS = 30;
 const VOLUME_READY_ATTEMPTS = 60;
 const VOLUME_READY_DELAY_MS = 2_000;
 
@@ -38,23 +40,24 @@ export class ProjectSandboxProvisioning {
   public constructor(private readonly input: ProjectSandboxProvisioningInput) {}
 
   public async resolve(client: DaytonaClient): Promise<DaytonaSandbox> {
-    const name = this.input.sandboxName();
-    const resolved = (await this.findExisting(client)) ?? (await this.create(client, name));
-    if (this.isDesired(resolved)) {
-      return resolved;
+    return (await this.findExisting(client)) ?? this.create(client);
+  }
+
+  public async deleteForReplacement(client: DaytonaClient, sandbox: DaytonaSandbox): Promise<void> {
+    this.assertRuntimeReplacementSafe(sandbox);
+    await client.deleteSandbox(sandbox.id);
+    for (let attempt = 0; attempt < SANDBOX_DELETE_ATTEMPTS; attempt += 1) {
+      const current = await client.getSandbox(sandbox.id);
+      if (!current) {
+        return;
+      }
+      await sleep(ENSURE_STARTED_DELAY_MS);
     }
     throw new APIError(
-      503,
-      "unavailable_maintenance",
-      "Sandbox does not match the configured runtime",
-      {
-        details: {
-          actualSnapshot: resolved.snapshot,
-          expectedSnapshot: this.input.env.DAYTONA_SANDBOX_SNAPSHOT,
-          sandboxId: name,
-        },
-        retriable: false,
-      },
+      504,
+      "upstream_sandbox_failed",
+      "Daytona sandbox replacement did not finish deleting the old runtime",
+      { retriable: true },
     );
   }
 
@@ -184,11 +187,13 @@ export class ProjectSandboxProvisioning {
     return isDesiredCanonicalSandbox(sandbox, {
       sandboxName: this.input.sandboxName(),
       snapshot: this.input.env.DAYTONA_SANDBOX_SNAPSHOT,
+      target: this.input.env.DAYTONA_TARGET,
       volumeName: this.input.env.DAYTONA_WORKSPACE_VOLUME,
     });
   }
 
-  private async create(client: DaytonaClient, name: string): Promise<DaytonaSandbox> {
+  public async create(client: DaytonaClient): Promise<DaytonaSandbox> {
+    const name = this.input.sandboxName();
     try {
       const volume = await this.ensureWorkspaceVolume(client);
       const created = await client.createSandbox({
@@ -272,6 +277,27 @@ export class ProjectSandboxProvisioning {
       hint: "Inspect the sandbox labels and durable object binding before retrying.",
       retriable: false,
     });
+  }
+
+  public assertRuntimeReplacementSafe(sandbox: DaytonaSandbox): void {
+    if (
+      isRuntimeReplaceableCanonicalSandbox(sandbox, {
+        sandboxName: this.input.sandboxName(),
+        volumeName: this.input.env.DAYTONA_WORKSPACE_VOLUME,
+      })
+    ) {
+      return;
+    }
+    throw new APIError(
+      409,
+      "conflict_state_invalid",
+      "Daytona sandbox storage contract mismatch; automatic replacement refused",
+      {
+        details: { daytonaId: sandbox.id, sandboxId: this.input.sandboxName() },
+        hint: "Inspect the sandbox identity, snapshot label, and workspace mount before retrying.",
+        retriable: false,
+      },
+    );
   }
 
   private async waitForReadyVolume(
