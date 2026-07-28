@@ -35,21 +35,11 @@ export async function writeSandboxRuntimeManifest(
 ): Promise<void> {
   const manifest = buildSandboxRuntimeManifest(records);
   await client.createFolder(sandboxId, RUNTIME_DIRECTORY, "0700");
-  await client.setFilePermissions(sandboxId, RUNTIME_DIRECTORY, {
-    group: "node",
-    mode: "0700",
-    owner: "node",
-  });
   await client.uploadFile(
     sandboxId,
     SANDBOX_RUNTIME_MANIFEST_PATH,
     new TextEncoder().encode(`${JSON.stringify(manifest, null, 2)}\n`),
   );
-  await client.setFilePermissions(sandboxId, SANDBOX_RUNTIME_MANIFEST_PATH, {
-    group: "node",
-    mode: "0600",
-    owner: "node",
-  });
 }
 
 function buildSandboxRuntimeManifest(

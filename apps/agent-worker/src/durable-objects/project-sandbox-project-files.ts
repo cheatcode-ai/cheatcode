@@ -228,11 +228,9 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
     bytes: Uint8Array,
   ): Promise<Uint8Array> {
     const uploadsPath = `${projectRoot}/uploads`;
-    await this.prepareUploadedFileWrite(sandboxId, uploadsPath);
+    await this.client().createFolder(sandboxId, uploadsPath);
     await this.client().uploadFile(sandboxId, workspacePath, bytes);
-    const written = await this.downloadUploadedFile(sandboxId, workspacePath, bytes.byteLength);
-    await this.protectUploadedFile(sandboxId, uploadsPath, workspacePath);
-    return written;
+    return this.downloadUploadedFile(sandboxId, workspacePath, bytes.byteLength);
   }
 
   private async downloadUploadedFile(
@@ -474,32 +472,6 @@ export abstract class ProjectSandboxProjectFiles extends ProjectSandboxProcesses
       projectId: input.projectId,
       sizeBytes: input.bytes.byteLength,
       versionId: prepared.versionId,
-    });
-  }
-
-  private async prepareUploadedFileWrite(sandboxId: string, uploadsPath: string): Promise<void> {
-    await this.client().createFolder(sandboxId, uploadsPath, "0755");
-    await this.client().setFilePermissions(sandboxId, uploadsPath, {
-      group: "node",
-      mode: "0755",
-      owner: "node",
-    });
-  }
-
-  private async protectUploadedFile(
-    sandboxId: string,
-    uploadsPath: string,
-    workspacePath: string,
-  ): Promise<void> {
-    await this.client().setFilePermissions(sandboxId, workspacePath, {
-      group: "node",
-      mode: "0444",
-      owner: "node",
-    });
-    await this.client().setFilePermissions(sandboxId, uploadsPath, {
-      group: "node",
-      mode: "0555",
-      owner: "node",
     });
   }
 

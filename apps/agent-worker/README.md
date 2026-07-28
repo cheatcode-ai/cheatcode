@@ -42,16 +42,17 @@ small current/version namespace records and mirrors the current version to
 An exact replay is idempotent; uploading new bytes at the same path creates a retained version and
 updates the working copy. First-run app scaffolding preserves the `uploads/` directory, and restored
 template projects reuse a complete persistent dependency installation or repair an interrupted one
-instead of rebuilding the workspace. The working copy is a read-only cache: every project-bound
-run verifies its current file set before model access, restores missing, replaced, or modified files
-from the checksum-verified R2 version, records the exact workspace materialization separately from
-the immutable user-facing file metadata, and repeats that repair when the run exits. Daytona's
-filesystem API assigns the sandbox runtime user and read-only modes after each toolbox upload. File
-write/delete tools reject the reserved directory, while the system contract requires shell work to
-copy an upload elsewhere before transforming it. Template scaffolding and repository imports both
-retain the reserved directory. Project deletion removes the namespace during fenced workspace
-cleanup and the existing resource-deletion prefix sweep removes every immutable object. Account
-deletion clears both through the existing account state and R2 lifecycle phases.
+instead of rebuilding the workspace. The working copy is a reserved cache: every project-bound run
+verifies its current file set before model access, restores missing, replaced, or modified files from
+the checksum-verified R2 version, records the exact workspace materialization separately from the
+immutable user-facing file metadata, and repeats that repair when the run exits. File write/delete
+tools reject the reserved directory, while the system contract requires shell work to copy an upload
+elsewhere before transforming it. The mounted Daytona volume does not provide a portable
+ownership/mode boundary, so application guards and R2 repair—not advisory FUSE permissions—enforce
+the contract. Template scaffolding and repository imports both retain the reserved directory.
+Project deletion removes the namespace during fenced workspace cleanup and the existing
+resource-deletion prefix sweep removes every immutable object. Account deletion clears both through
+the existing account state and R2 lifecycle phases.
 
 Run creation validates the gateway payload with the shared `CreateRunSchema` from
 `packages/types` before selecting the run-scoped `AgentRun` Durable Object. The
@@ -132,10 +133,9 @@ manifest avoids rewriting unchanged packages and limits cleanup to files previou
 managed by that package, preserving local dependencies and generated output. Curated
 default skills are immutable snapshot files under `/home/node/.cheatcode/default-skills/`.
 
-ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as a generated,
-mode-restricted projection of managed app-preview processes through Daytona's filesystem API.
-The Durable Object process records remain authoritative; the file is only an inspectable runtime
-manifest.
+ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as a generated projection of
+managed app-preview processes through Daytona's filesystem API. The Durable Object process records
+remain authoritative; the file is only an inspectable runtime manifest.
 
 Managed processes use required stable IDs and a maximum of 32 live metadata slots per user
 sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the
