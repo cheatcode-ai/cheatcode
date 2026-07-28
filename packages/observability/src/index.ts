@@ -20,6 +20,7 @@ export { redactSecrets } from "./redact";
 export {
   createPerformanceMetricMiddleware,
   createWorkerRuntime,
+  reportWorkerError,
   requestId,
   routeName,
   routeWorkerError,

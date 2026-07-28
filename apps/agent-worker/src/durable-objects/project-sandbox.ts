@@ -64,9 +64,12 @@ export class ProjectSandbox extends ProjectSandboxContent {
       return this.withActiveOwnerRegistration(input, operation);
     }
     if (kind === "cleanup-signal") {
+      // The signal wrapper is void-typed; capture the value so the overload's
+      // Promise<Result> contract holds if a signal method ever returns one.
+      let result: unknown;
       return this.withActiveSandboxCleanupSignal(async () => {
-        await operation();
-      });
+        result = await operation();
+      }).then(() => result);
     }
     if (kind === "shared-workspace") {
       return this.withActiveSharedWorkspaceMutation(operation);

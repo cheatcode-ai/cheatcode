@@ -62,17 +62,19 @@ interface DaytonaStateUpdateInput {
   updatedAt: number;
 }
 
-interface WebhookEventRow {
-  attempts: number;
-  body_hash: string;
-  created_at: number;
-  event_key: string;
-  expires_at: number;
-  last_error: string | null;
-  state: "accepted" | "running" | "processed" | "failed";
-  updated_at: number;
-  workflow_id: string | null;
-}
+const WebhookEventRowSchema = z.object({
+  attempts: z.number(),
+  body_hash: z.string(),
+  created_at: z.number(),
+  event_key: z.string(),
+  expires_at: z.number(),
+  last_error: z.string().nullable(),
+  state: z.enum(["accepted", "running", "processed", "failed"]),
+  updated_at: z.number(),
+  workflow_id: z.string().nullable(),
+});
+
+type WebhookEventRow = z.infer<typeof WebhookEventRowSchema>;
 
 export interface WebhookIdempotencyBindings {
   WEBHOOK_IDEMPOTENCY: DurableObjectNamespace<WebhookIdempotencyStore>;
@@ -299,7 +301,10 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
         eventKey,
       )
       .toArray();
-    return (row as WebhookEventRow | undefined) ?? null;
+    // A malformed row must read as absent so begin() re-accepts the event;
+    // treating it as a body-hash mismatch would 422 and drop the webhook forever.
+    const parsed = WebhookEventRowSchema.safeParse(row);
+    return parsed.success ? parsed.data : null;
   }
 
   private deleteExpired(now: number): void {
@@ -352,19 +357,37 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
   }
 }
 
+/**
+ * Providers retry on 503 but treat 500 as terminal; a store outage must stay
+ * retriable, so every stub failure is translated instead of leaking as
+ * internal_error.
+ */
+async function callIdempotencyStore<Result>(operation: () => Promise<Result>): Promise<Result> {
+  try {
+    return await operation();
+  } catch {
+    throw new APIError(503, "unavailable_maintenance", "Webhook idempotency store is unavailable", {
+      hint: "Retry the provider callback after the WebhookIdempotencyStore Durable Object recovers.",
+      retriable: true,
+    });
+  }
+}
+
 export async function acceptWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookIdempotencyInput,
 ): Promise<AcceptedWebhookEvent> {
   const bodyHash = await sha256Hex(`${input.provider}\n${input.eventId}\n${input.rawBody}`);
-  const result = await idempotencyStub(env, input).begin({
-    bodyHash,
-    eventId: input.eventId,
-    now: Date.now(),
-    provider: input.provider,
-    staleAfterMs: WEBHOOK_LEASE_MS,
-    ttlMs: WEBHOOK_TTL_MS,
-  });
+  const result = await callIdempotencyStore<BeginWebhookResult>(() =>
+    idempotencyStub(env, input).begin({
+      bodyHash,
+      eventId: input.eventId,
+      now: Date.now(),
+      provider: input.provider,
+      staleAfterMs: WEBHOOK_LEASE_MS,
+      ttlMs: WEBHOOK_TTL_MS,
+    }),
+  );
   if (result.action === "reused") {
     throw new APIError(422, "idempotency_key_reused", "Webhook event id reused with a new body", {
       hint: "Rejecting provider event id reuse prevents duplicate or forged webhook writes.",
@@ -383,32 +406,38 @@ export async function startWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookCompletionInput,
 ): Promise<void> {
-  await idempotencyStub(env, input).start({
-    ...input,
-    startedAt: Date.now(),
-  });
+  await callIdempotencyStore(() =>
+    idempotencyStub(env, input).start({
+      ...input,
+      startedAt: Date.now(),
+    }),
+  );
 }
 
 export async function completeWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookCompletionInput,
 ): Promise<void> {
-  await idempotencyStub(env, input).complete({
-    ...input,
-    processedAt: Date.now(),
-    ttlMs: WEBHOOK_TTL_MS,
-  });
+  await callIdempotencyStore(() =>
+    idempotencyStub(env, input).complete({
+      ...input,
+      processedAt: Date.now(),
+      ttlMs: WEBHOOK_TTL_MS,
+    }),
+  );
 }
 
 export async function failWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookFailureInput,
 ): Promise<void> {
-  await idempotencyStub(env, input).fail({
-    ...input,
-    failedAt: Date.now(),
-    ttlMs: WEBHOOK_FAILURE_TTL_MS,
-  });
+  await callIdempotencyStore(() =>
+    idempotencyStub(env, input).fail({
+      ...input,
+      failedAt: Date.now(),
+      ttlMs: WEBHOOK_FAILURE_TTL_MS,
+    }),
+  );
 }
 
 /** Persist a Daytona lifecycle transition in event-time order before exposing it via KV. */
@@ -419,14 +448,16 @@ export async function updateDaytonaSandboxState(
   const stub = env.WEBHOOK_IDEMPOTENCY.get(
     env.WEBHOOK_IDEMPOTENCY.idFromName(`daytona-sandbox:${input.sandboxId}`),
   );
-  return (await stub.updateDaytonaState({ ...input, receivedAt: Date.now() })).updated;
+  return (
+    await callIdempotencyStore(() => stub.updateDaytonaState({ ...input, receivedAt: Date.now() }))
+  ).updated;
 }
 
 export async function releaseWebhookEvent(
   env: WebhookIdempotencyBindings,
   input: WebhookReleaseInput,
 ): Promise<void> {
-  await idempotencyStub(env, input).release(input);
+  await callIdempotencyStore(() => idempotencyStub(env, input).release(input));
 }
 
 function idempotencyStub(

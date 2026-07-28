@@ -76,6 +76,43 @@ export function createWorkerRuntime<Env extends AnalyticsBindings, Ctx>(
   };
 }
 
+interface ReportWorkerErrorInput {
+  error: unknown;
+  errorCategory?: string;
+  errorLogFields?: Record<string, unknown>;
+  errorLogName: string;
+  requestId: string;
+  route: string;
+  workerName: string;
+}
+
+/**
+ * Emit the error event and log exactly once and return the classified APIError.
+ * Routers that answer errors in-band (so response middleware still applies) must
+ * call this instead of rethrowing into the runtime's catch-all.
+ */
+export function reportWorkerError(
+  env: AnalyticsBindings,
+  input: ReportWorkerErrorInput,
+): ReturnType<typeof toAPIError> {
+  const apiError = toAPIError(input.error);
+  const telemetry = safeErrorTelemetry(input.error);
+  emitErrorEvent(env, {
+    errorCategory: input.errorCategory ?? input.workerName,
+    errorCode: apiError.code,
+    httpStatus: apiError.status,
+    route: input.route,
+    workerName: input.workerName,
+    ...telemetry,
+  });
+  createLogger({ requestId: input.requestId }).error(input.errorLogName, {
+    apiCode: apiError.code,
+    ...input.errorLogFields,
+    ...telemetry,
+  });
+  return apiError;
+}
+
 function formatWorkerError<Env extends AnalyticsBindings, Ctx>(
   options: WorkerRuntimeOptions<Env, Ctx>,
   env: Env,
@@ -85,21 +122,21 @@ function formatWorkerError<Env extends AnalyticsBindings, Ctx>(
 ): Response {
   const routed = routedWorkerError(error);
   const sourceError = routed?.error ?? error;
-  const apiError = toAPIError(sourceError);
   const route = routed?.route ?? options.routeName?.(request) ?? routeName(request);
-  const telemetry = safeErrorTelemetry(sourceError);
-  emitErrorEvent(env, {
-    errorCategory: options.errorCategory ?? options.workerName,
-    errorCode: apiError.code,
-    httpStatus: apiError.status,
+  const logFields = options.errorLogFields?.({
+    apiError: toAPIError(sourceError),
+    error: sourceError,
+    request,
+    route,
+  });
+  const apiError = reportWorkerError(env, {
+    error: sourceError,
+    errorLogName: options.errorLogName,
+    requestId: id,
     route,
     workerName: options.workerName,
-    ...telemetry,
-  });
-  createLogger({ requestId: id }).error(options.errorLogName, {
-    apiCode: apiError.code,
-    ...options.errorLogFields?.({ apiError, error: sourceError, request, route }),
-    ...telemetry,
+    ...(logFields === undefined ? {} : { errorLogFields: logFields }),
+    ...(options.errorCategory === undefined ? {} : { errorCategory: options.errorCategory }),
   });
   return (
     options.formatError?.({ apiError, env, error: sourceError, request, requestId: id }) ??

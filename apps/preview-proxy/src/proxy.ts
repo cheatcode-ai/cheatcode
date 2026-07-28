@@ -228,6 +228,8 @@ function buildForwardHeaders(
       headers.append(key, value);
     }
   });
+  // Edge-internal telemetry id; user-app dev servers must see the request as sent.
+  headers.delete("X-Request-Id");
   stripProxyCredentials(headers);
   headers.set(DAYTONA_TOKEN_HEADER, origin.token);
   headers.set(DAYTONA_SKIP_WARNING_HEADER, "true");

@@ -3,7 +3,8 @@ import {
   APIError,
   createPerformanceMetricMiddleware,
   createWorkerRuntime,
-  routeWorkerError,
+  reportWorkerError,
+  requestId,
 } from "@cheatcode/observability";
 import { normalizeTelemetryPath } from "@cheatcode/types";
 import { Hono } from "hono";
@@ -67,8 +68,20 @@ const GATEWAY_SECURITY_HEADERS = {
 
 const gatewayApp = new Hono<{ Bindings: GatewayEnv }>();
 
+// Answer route errors in-band: cors() stages its headers on the context before
+// the route runs and secureHeaders() applies after it, so the error response
+// must flow back through the middleware stack. Rethrowing to the runtime's
+// catch-all would strip CORS from every cross-origin error the SPA reads.
 gatewayApp.onError((error, context) => {
-  throw routeWorkerError(error, routeNameForContext(context));
+  const id = context.req.header("X-Request-Id") ?? requestId();
+  reportWorkerError(context.env, {
+    error,
+    errorLogName: "gateway_request_failed",
+    requestId: id,
+    route: routeNameForContext(context),
+    workerName: "gateway",
+  });
+  return withRateLimitErrorHeaders(formatGatewayRouteError(error, id), error);
 });
 
 gatewayApp.use("*", secureHeaders(GATEWAY_SECURITY_HEADERS));

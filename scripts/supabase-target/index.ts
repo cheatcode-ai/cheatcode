@@ -7,6 +7,12 @@ import {
   REQUIRED_SCHEMAS,
   RUNTIME_DATABASE_ROLES,
 } from "./contracts";
+import {
+  validateCanonicalProjectWorkspaces,
+  validateFirstArtifactMilestone,
+  validateIntegrityConstraints,
+  validateIntegrityIndexes,
+} from "./invariants";
 
 class SupabaseTargetError extends Error {
   public readonly issues: readonly string[];
@@ -27,6 +33,10 @@ export async function assertSupabaseTarget(client: PgClient): Promise<void> {
     validateRuntimeRoles(client),
     validateRuntimeAcl(client),
     validateDataApiIsolation(client),
+    validateIntegrityConstraints(client),
+    validateIntegrityIndexes(client),
+    validateCanonicalProjectWorkspaces(client),
+    validateFirstArtifactMilestone(client),
   ]);
   const issues = checks.flat();
   if (issues.length > 0) {
