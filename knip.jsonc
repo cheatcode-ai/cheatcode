@@ -22,16 +22,20 @@
       }
     },
     "infra/containers/sandbox/browser-driver": {
-      // Must stay declared as a workspace so its package.json `main` (server.js,
-      // launched by scripts/start-browser-driver.sh) anchors the module graph.
+      // This npm-lockfile workspace is installed only inside the sandbox image,
+      // never in CI, so Knip cannot resolve its deps there. Locally-installed
+      // node_modules make these ignores look redundant — they are not.
+      "ignoreDependencies": ["playwright-core", "zod"]
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
       // Public helpers are documented for user-authored sandbox skills and have
       // out-of-repo consumers that Knip cannot discover.
       "includeEntryExports": false,
-      // The launcher resolves tsx through a hard-coded installed binary path.
-      "ignoreDependencies": ["tsx"]
+      // Same in-image-only install: agent-browser and tsx resolve purely by
+      // installed binary path at sandbox runtime, invisible to CI.
+      "ignoreBinaries": ["agent-browser"],
+      "ignoreDependencies": ["agent-browser", "tsx"]
     }
   }
 }
