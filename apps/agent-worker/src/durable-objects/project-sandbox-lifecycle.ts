@@ -47,7 +47,6 @@ import {
 } from "./project-sandbox-workspace-state";
 
 const ClearWorkspaceEvidenceSchema = z.object({ cleared: z.literal(true) }).strict();
-const RUNTIME_MANIFEST_PATH = "/workspace/.cheatcode/runtime.json";
 const RUNTIME_RESET_PENDING_KEY = "sandbox_runtime_reset_pending";
 const SKILL_RUNTIME_DIRECTORY = "/workspace/.cheatcode/runtime";
 
@@ -682,7 +681,6 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
       return;
     }
     try {
-      await client.deleteFilePath(sandboxId, RUNTIME_MANIFEST_PATH, false);
       await client.deleteFilePath(sandboxId, SKILL_RUNTIME_DIRECTORY, true);
       await this.ctx.storage.delete(RUNTIME_RESET_PENDING_KEY);
     } catch (error) {

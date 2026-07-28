@@ -154,10 +154,6 @@ is canonical in R2 and mirrored completely to
 source, schemas, references, templates, and common binary assets; dependency
 folders, virtual environments, caches, locks, and build output remain sandbox-local.
 
-`/workspace/.cheatcode/runtime.json` is generated from Durable Object-managed
-preview process state. It is a human-readable projection only; sandbox code
-must never treat it as the lifecycle authority.
-
 Cheatcode does not deploy or synchronize generated user apps. The curated
 catalog therefore has no deploy skill, deploy runtime, or app-side Composio
 bridge. Connected-app skills invoke the existing request-scoped Composio tools
