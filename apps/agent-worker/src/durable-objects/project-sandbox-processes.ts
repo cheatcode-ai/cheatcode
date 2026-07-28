@@ -61,7 +61,6 @@ import {
   type ProjectStartProcessInput,
   ProjectStartProcessInputSchema,
 } from "./project-sandbox-runtime";
-import { writeSandboxRuntimeManifest } from "./project-sandbox-runtime-manifest";
 
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
 
@@ -76,8 +75,6 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
 
   public async ensureReady(): Promise<ProjectSandboxStatus> {
     const result = await this.runCode({ code: "print('ready')", language: "python" });
-    const id = await this.existingSandboxId();
-    if (id) await this.syncRuntimeManifestBestEffort(id);
     return {
       healthy: result.success,
       ping: result.stdout.trim(),
@@ -198,12 +195,10 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
       );
     } catch (error) {
       await this.cleanupLaunchedProcess(id, sessionId, name);
-      await this.syncRuntimeManifestBestEffort(id);
       throw error;
     }
     const record = { ...provisionalRecord, cmdId: exec.cmdId ?? sessionId };
     await this.persistStartedProcess(id, name, record, parsed.waitForPort);
-    await this.syncRuntimeManifestBestEffort(id);
     await recordSandboxUsageBestEffort(await this.meteringContext());
     return { command: record.command, id: name, status: "running" };
   }
@@ -299,7 +294,6 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
       await this.client().deleteFilePath(id, ENV_FILE_DIR, true);
     }
     await this.ctx.storage.delete(PROCESS_PORT_ALLOC_KEY);
-    if (id) await this.syncRuntimeManifestBestEffort(id);
     return killed;
   }
 
@@ -317,7 +311,6 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
       await this.ctx.storage.delete(`${PROC_PREFIX}${processId}`);
       await this.releaseProcessPort(processId);
     }
-    if (id) await this.syncRuntimeManifestBestEffort(id);
     return { processId, status: "killed", success: true };
   }
 
@@ -335,7 +328,6 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
         if (isMissingDaytonaProcessError(error)) {
           await this.ctx.storage.delete(`${PROC_PREFIX}${process.name}`);
           await this.releaseProcessPort(process.name);
-          await this.syncRuntimeManifestBestEffort(id);
           return null;
         }
         throw this.toUpstreamError(error, "Sandbox console read failed.");
@@ -379,10 +371,8 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
         cmdId: exec.cmdId ?? sessionId,
         startedAtMs: Date.now(),
       } satisfies ProcessRecord);
-      await this.syncRuntimeManifestBestEffort(id);
     } catch (error) {
       await this.cleanupLaunchedProcess(id, sessionId, name);
-      await this.syncRuntimeManifestBestEffort(id);
       throw error;
     }
   }
@@ -685,16 +675,6 @@ cd ${shellQuote(cwd)} && ${rawCommand}`;
     await this.deleteSessionEnvironment(id, sessionId);
     await this.releaseProcessPort(name);
     await this.ctx.storage.delete(`${PROC_PREFIX}${name}`);
-  }
-
-  private async syncRuntimeManifestBestEffort(id: string): Promise<void> {
-    const records = await this.ctx.storage.list({ prefix: PROC_PREFIX });
-    await writeSandboxRuntimeManifest(this.client(), id, records).catch((error: unknown) => {
-      createLogger().warn("sandbox_runtime_manifest_sync_failed", {
-        error,
-        sandboxId: this.sandboxName(),
-      });
-    });
   }
 
   private async deleteSessionEnvironment(id: string, sessionId: string): Promise<void> {

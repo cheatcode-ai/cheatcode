@@ -133,10 +133,6 @@ manifest avoids rewriting unchanged packages and limits cleanup to files previou
 managed by that package, preserving local dependencies and generated output. Curated
 default skills are immutable snapshot files under `/home/node/.cheatcode/default-skills/`.
 
-ProjectSandbox also writes `/workspace/.cheatcode/runtime.json` as a generated projection of
-managed app-preview processes through Daytona's filesystem API. The Durable Object process records
-remain authoritative; the file is only an inspectable runtime manifest.
-
 Managed processes use required stable IDs and a maximum of 32 live metadata slots per user
 sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the
 bounded record set against Daytona, removes missing or completed sessions and their port state,
