@@ -2,7 +2,7 @@ FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd3
 
 ARG CODE_SERVER_VERSION=4.128.0
 ARG CODE_SERVER_SHA256=79ba26bf186e5268a22b7c17b30a5f288a16c37791f0b86c27859e8fef103188
-ARG DEBIAN_SNAPSHOT=20260718T000000Z
+ARG DEBIAN_SNAPSHOT=20260722T000000Z
 
 # Daytona injects its own daemon (host-mounted, PID 1) and overrides ENTRYPOINT,
 # so we do NOT bake a sandbox daemon. Headed Chromium uses Xvfb, which the
@@ -33,16 +33,35 @@ RUN set -eux; \
 
 COPY package-manager/package.json package-manager/package-lock.json /opt/cheatcode-package-manager/
 COPY doc-runtime/package.json doc-runtime/package-lock.json /opt/cheatcode-doc-runtime/
+# npm, pnpm, and code-server ship their own dependency trees, so ordinary
+# top-level overrides cannot replace vulnerable packages inside those bundles.
+COPY runtime-security-overrides/package.json runtime-security-overrides/package-lock.json /opt/cheatcode-runtime-security-overrides/
 COPY skill-runtime/package.json skill-runtime/package-lock.json skill-runtime/tsconfig.json /opt/cheatcode-skill-runtime/
 COPY skill-runtime/bin/ /opt/cheatcode-skill-runtime/bin/
 COPY skill-runtime/src/ /opt/cheatcode-skill-runtime/src/
+WORKDIR /opt/cheatcode-runtime-security-overrides
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
 WORKDIR /opt/cheatcode-package-manager
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && rm -rf /usr/local/lib/node_modules/npm \
   && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/npm /usr/local/bin/npm \
   && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/npx /usr/local/bin/npx \
   && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/pnpm /usr/local/bin/pnpm \
-  && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/pnpx /usr/local/bin/pnpx
+  && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/pnpx /usr/local/bin/pnpx \
+  && rm -rf \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/brace-expansion \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar \
+  && rm -f /opt/cheatcode-package-manager/package-lock.json
 WORKDIR /opt/cheatcode-doc-runtime
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && npm cache clean --force
@@ -61,7 +80,17 @@ RUN curl -fsSL \
   && echo "${CODE_SERVER_SHA256}  /tmp/code-server.tar.gz" | sha256sum --check --strict \
   && tar -xzf /tmp/code-server.tar.gz -C /opt \
   && ln -sf "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/bin/code-server" /usr/local/bin/code-server \
-  && rm -f /tmp/code-server.tar.gz
+  && rm -f /tmp/code-server.tar.gz \
+  && rm -rf \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/js-yaml" \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/shell-quote" \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/tar" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/js-yaml \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/js-yaml" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/shell-quote \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/shell-quote" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/tar"
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install --break-system-packages --disable-pip-version-check --no-cache-dir \

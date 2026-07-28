@@ -121,7 +121,7 @@ async function uploadToProjectWorkspace(
         "Project files are temporarily unavailable while this computer is being updated.",
         {
           hint: "Try the upload again after workspace maintenance completes.",
-          retriable: false,
+          retriable: true,
         },
       );
     }

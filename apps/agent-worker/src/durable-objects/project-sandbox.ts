@@ -36,6 +36,7 @@ export class ProjectSandbox extends ProjectSandboxContent {
   public override readFile(...args: MethodArgs<"readFile">) { return this.withLease("readFile", args[0], () => super.readFile(...args)); }
   public override listUploadedFiles(...args: MethodArgs<"listUploadedFiles">) { return this.withLease("listUploadedFiles", undefined, () => super.listUploadedFiles(...args)); }
   public override uploadProjectFile(...args: MethodArgs<"uploadProjectFile">) { return this.withLease("uploadProjectFile", args[0], () => super.uploadProjectFile(...args)); }
+  public override restoreUploadedFiles(...args: MethodArgs<"restoreUploadedFiles">) { return this.withLease("restoreUploadedFiles", args[0], () => super.restoreUploadedFiles(...args)); }
   public override writeFile(...args: MethodArgs<"writeFile">) { return this.withLease("writeFile", args[0], () => super.writeFile(...args)); }
   public override listFiles(...args: MethodArgs<"listFiles">) { return this.withLease("listFiles", args[0], () => super.listFiles(...args)); }
   public override searchFiles(...args: MethodArgs<"searchFiles">) { return this.withLease("searchFiles", args[0], () => super.searchFiles(...args)); }

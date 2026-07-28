@@ -28,6 +28,7 @@ const LEASE_POLICIES = {
   downloadProjectArchive: ["streaming", "workspace-slug"],
   readFile: ["workspace", "path"], listUploadedFiles: ["sandbox"],
   uploadProjectFile: ["workspace", "workspace-slug"],
+  restoreUploadedFiles: ["workspace", "workspace-slug"],
   writeFile: ["workspace", "path"], listFiles: ["workspace", "path"],
   searchFiles: ["workspace", "path"], deleteFile: ["workspace", "path"],
   getSignedPreviewUrl: ["sandbox"], exposeBrowserTakeover: ["sandbox"],

@@ -103,6 +103,17 @@ export const ProjectListUploadedFilesInputSchema = z
   })
   .strict();
 
+export const ProjectRestoreUploadedFilesInputSchema = z
+  .object({
+    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
+  })
+  .strict()
+  .refine(
+    (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
+    "Workspace slug does not belong to the requested project.",
+  );
+
 export const ProjectListFilesInputSchema = z
   .object({
     path: WorkspacePathSchema,
@@ -241,6 +252,9 @@ export type ProjectReadFileInput = z.input<typeof ProjectReadFileInputSchema>;
 export type ProjectWriteFileInput = z.input<typeof ProjectWriteFileInputSchema>;
 export type ProjectUploadFileInput = z.input<typeof ProjectUploadFileInputSchema>;
 export type ProjectListUploadedFilesInput = z.input<typeof ProjectListUploadedFilesInputSchema>;
+export type ProjectRestoreUploadedFilesInput = z.input<
+  typeof ProjectRestoreUploadedFilesInputSchema
+>;
 export type ProjectListFilesInput = z.input<typeof ProjectListFilesInputSchema>;
 export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSchema>;
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;

@@ -36,7 +36,7 @@ import {
 } from "../system-prompt";
 import { BROWSER_RUN_ID_CONTEXT_KEY } from "./browser-runtime";
 
-export interface CodeRequestContextOptions {
+interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
   anthropicApiKey?: string | undefined;
   composioApiKey?: string | undefined;

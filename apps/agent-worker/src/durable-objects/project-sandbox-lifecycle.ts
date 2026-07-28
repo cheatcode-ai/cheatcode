@@ -34,6 +34,7 @@ import {
   setSandboxQuotaPeriod,
 } from "./project-sandbox-metering";
 import { assertProjectSandboxOwnerActive } from "./project-sandbox-owner-admission";
+import { PROC_PREFIX, PROCESS_PORT_ALLOC_KEY } from "./project-sandbox-process-support";
 import { ProjectSandboxProvisioning } from "./project-sandbox-provisioning";
 import type {
   ParsedProjectCleanupWorkspaceInput,
@@ -46,6 +47,8 @@ import {
 } from "./project-sandbox-workspace-state";
 
 const ClearWorkspaceEvidenceSchema = z.object({ cleared: z.literal(true) }).strict();
+const RUNTIME_RESET_PENDING_KEY = "sandbox_runtime_reset_pending";
+const SKILL_RUNTIME_DIRECTORY = "/workspace/.cheatcode/runtime";
 
 export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandboxEnv> {
   private accountDeletionCompleted = false;
@@ -56,6 +59,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private daytonaClient: DaytonaClient | undefined;
   private daytonaId: string | undefined;
   private sandboxMutationTail: Promise<void> = Promise.resolve();
+  private sandboxRuntimeUpdateInProgress = false;
   private startedVerifiedAtMs = 0;
   private readonly identityState: ProjectSandboxIdentityState;
   private readonly provisioning: ProjectSandboxProvisioning;
@@ -146,6 +150,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     operation: () => Promise<T>,
     isSharedMutation = false,
     shouldLeaseUnknownWorkspace = false,
+    allowRuntimeUpdate = false,
   ): Promise<T> {
     let release: (() => void) | undefined;
     try {
@@ -153,6 +158,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
         workspaceScope,
         isSharedMutation,
         shouldLeaseUnknownWorkspace,
+        allowRuntimeUpdate,
       );
       return operation().finally(release);
     } catch (error) {
@@ -187,7 +193,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   protected withActiveSandboxCleanupSignal(operation: () => Promise<void>): Promise<void> {
     return this.accountDeletionInProgress || !this.identityState.hasRegisteredOwner()
       ? Promise.resolve()
-      : this.withActiveSandboxOperation(operation);
+      : this.withActiveOperation(null, operation, false, false, true);
   }
 
   private async initializeIdentityState(): Promise<void> {
@@ -245,7 +251,7 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     remaining.push({ runId, startedMs: Date.now() });
     await this.ctx.storage.put(RUN_LEASES_KEY, remaining);
     try {
-      const id = await this.ensureSandbox();
+      const id = await this.ensureSandbox(runId);
       await this.client()
         .setAutoStopInterval(id, 0)
         .catch(() => undefined);
@@ -441,9 +447,13 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   private acquireActiveSandboxOperation(
     allowUnregisteredOwner = false,
     allowWorkspaceCleanup = false,
+    allowRuntimeUpdate = false,
   ): () => void {
     if (this.accountDeletionInProgress) {
       throw accountSandboxDeletedError();
+    }
+    if (this.sandboxRuntimeUpdateInProgress && !allowRuntimeUpdate) {
+      throw sandboxRuntimeUpdatePending(this.env.DAYTONA_SANDBOX_SNAPSHOT);
     }
     if (!allowUnregisteredOwner && !this.identityState.hasRegisteredOwner()) {
       throw accountSandboxDeletedError();
@@ -468,8 +478,9 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     workspaceScope: string | readonly string[] | null,
     isSharedMutation = false,
     shouldLeaseUnknownWorkspace = false,
+    allowRuntimeUpdate = false,
   ): () => void {
-    const releaseSandbox = this.acquireActiveSandboxOperation();
+    const releaseSandbox = this.acquireActiveSandboxOperation(false, false, allowRuntimeUpdate);
     let releaseWorkspace: (() => void) | undefined;
     try {
       const workspaceSlugs =
@@ -529,12 +540,12 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     this.startedVerifiedAtMs = Date.now();
   }
 
-  protected async ensureSandbox(): Promise<string> {
+  protected async ensureSandbox(startingRunId?: string): Promise<string> {
     return this.withSandboxMutation(async () => {
       if (this.daytonaId && Date.now() - this.startedVerifiedAtMs < STARTED_REVERIFY_MS) {
         return this.daytonaId;
       }
-      return this.resolveStartedSandbox();
+      return this.resolveStartedSandbox(startingRunId);
     });
   }
 
@@ -588,11 +599,14 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     }
   }
 
-  private async resolveStartedSandbox(): Promise<string> {
+  private async resolveStartedSandbox(startingRunId?: string): Promise<string> {
     const client = await this.ensureClient();
     let resolved: DaytonaSandbox;
     try {
       resolved = await this.provisioning.resolve(client);
+      if (!this.provisioning.isDesired(resolved)) {
+        resolved = await this.replaceSandboxRuntime(client, resolved, startingRunId);
+      }
     } catch (error) {
       throw this.toUpstreamError(error, "Daytona sandbox lookup failed.");
     }
@@ -603,8 +617,75 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
         retriable: true,
       });
     }
+    await this.clearPersistedRuntimeProjection(client, resolved.id);
     this.startedVerifiedAtMs = Date.now();
     return resolved.id;
+  }
+
+  private async replaceSandboxRuntime(
+    client: DaytonaClient,
+    current: DaytonaSandbox,
+    startingRunId?: string,
+  ): Promise<DaytonaSandbox> {
+    this.sandboxRuntimeUpdateInProgress = true;
+    try {
+      await this.assertSandboxReplacementAllowed(startingRunId);
+      this.provisioning.assertRuntimeReplacementSafe(current);
+      await this.prepareForSandboxReplacement();
+      await this.provisioning.deleteForReplacement(client, current);
+      const replacement = await this.provisioning.create(client);
+      if (!this.provisioning.isDesired(replacement)) {
+        throw sandboxRuntimeUpdatePending(this.env.DAYTONA_SANDBOX_SNAPSHOT);
+      }
+      createLogger().info("sandbox_runtime_replaced", {
+        sandboxId: this.sandboxName(),
+        snapshot: this.env.DAYTONA_SANDBOX_SNAPSHOT,
+      });
+      return replacement;
+    } finally {
+      this.sandboxRuntimeUpdateInProgress = false;
+    }
+  }
+
+  private async assertSandboxReplacementAllowed(startingRunId?: string): Promise<void> {
+    const leases = await this.runLeases();
+    const activeRunLeases = leases.filter(
+      (lease) => Date.now() - lease.startedMs < STALE_RUN_LEASE_MS,
+    );
+    if (activeRunLeases.length !== leases.length) {
+      await this.ctx.storage.put(RUN_LEASES_KEY, activeRunLeases);
+    }
+    const otherRunLeases = activeRunLeases.filter((lease) => lease.runId !== startingRunId);
+    if (this.activeOperationCount > 1 || otherRunLeases.length > 0) {
+      throw sandboxRuntimeUpdatePending(this.env.DAYTONA_SANDBOX_SNAPSHOT);
+    }
+  }
+
+  private async prepareForSandboxReplacement(): Promise<void> {
+    this.daytonaId = undefined;
+    this.startedVerifiedAtMs = 0;
+    await this.ctx.storage.delete(DAYTONA_ID_KEY);
+    await this.ctx.storage.put(RUNTIME_RESET_PENDING_KEY, true);
+    const processRecords = await this.ctx.storage.list({ prefix: PROC_PREFIX });
+    if (processRecords.size > 0) {
+      await this.ctx.storage.delete([...processRecords.keys()]);
+    }
+    await this.ctx.storage.delete(PROCESS_PORT_ALLOC_KEY);
+  }
+
+  private async clearPersistedRuntimeProjection(
+    client: DaytonaClient,
+    sandboxId: string,
+  ): Promise<void> {
+    if ((await this.ctx.storage.get(RUNTIME_RESET_PENDING_KEY)) !== true) {
+      return;
+    }
+    try {
+      await client.deleteFilePath(sandboxId, SKILL_RUNTIME_DIRECTORY, true);
+      await this.ctx.storage.delete(RUNTIME_RESET_PENDING_KEY);
+    } catch (error) {
+      throw this.toUpstreamError(error, "Daytona runtime reset failed.");
+    }
   }
 
   protected async existingSandboxId(): Promise<string | null> {
@@ -707,4 +788,17 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
     this.daytonaId = undefined;
     this.startedVerifiedAtMs = 0;
   }
+}
+
+function sandboxRuntimeUpdatePending(expectedSnapshot: string): APIError {
+  return new APIError(
+    503,
+    "unavailable_maintenance",
+    "This computer is updating to the current runtime.",
+    {
+      details: { expectedSnapshot },
+      hint: "Retry after the active operation finishes.",
+      retriable: true,
+    },
+  );
 }

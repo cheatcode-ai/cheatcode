@@ -124,8 +124,8 @@ export const DeleteFileOutputSchema = z
 
 type ReadFileInput = z.input<typeof ReadFileInputSchema>;
 type ReadFileOutput = z.infer<typeof ReadFileOutputSchema>;
-export type WriteFileInput = z.input<typeof WriteFileInputSchema>;
-export type WriteFileOutput = z.infer<typeof WriteFileOutputSchema>;
+type WriteFileInput = z.input<typeof WriteFileInputSchema>;
+type WriteFileOutput = z.infer<typeof WriteFileOutputSchema>;
 type ListFilesInput = z.input<typeof ListFilesInputSchema>;
 type ListFilesOutput = z.infer<typeof ListFilesOutputSchema>;
 type SearchFilesInput = z.input<typeof SearchFilesInputSchema>;

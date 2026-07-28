@@ -24,7 +24,11 @@ pre-existing, or ambiguous snapshots fail closed and are never deleted or replac
 Promotion is a separate reviewed source change: update the agent-worker
 `DAYTONA_SANDBOX_SNAPSHOT` var to the candidate name, then use the protected database
 migration/backend release path. Keeping publication and promotion separate preserves
-the currently running snapshot as an immediate rollback target.
+the currently running snapshot as an immediate rollback target. After promotion, each
+user's first workspace operation waits for active work to drain, deletes only the stale
+canonical container, and recreates it on the same isolated persistent-volume subpath.
+Project files and user-installed skills therefore survive runtime promotion. Ambiguous
+ownership, snapshot labels, duplicate identities, or storage mounts fail closed.
 
 The protected production release preflight independently installs the same
 checksum-pinned Daytona CLI and scans every paginated snapshot-list page. It accepts
@@ -149,10 +153,6 @@ is canonical in R2 and mirrored completely to
 `/workspace/.cheatcode/skills/<slug>/` for editing. The package may contain bounded
 source, schemas, references, templates, and common binary assets; dependency
 folders, virtual environments, caches, locks, and build output remain sandbox-local.
-
-`/workspace/.cheatcode/runtime.json` is generated from Durable Object-managed
-preview process state. It is a human-readable projection only; sandbox code
-must never treat it as the lifecycle authority.
 
 Cheatcode does not deploy or synchronize generated user apps. The curated
 catalog therefore has no deploy skill, deploy runtime, or app-side Composio

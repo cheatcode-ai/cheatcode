@@ -1,3 +1,4 @@
+import { APIError } from "@cheatcode/observability";
 import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types";
 import { shellQuote } from "./project-sandbox-process-support";
 import {
@@ -8,6 +9,8 @@ import {
 export const PROJECT_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
 export const PROJECT_ARCHIVE_MAX_FILES = 25_000;
 export const WORKSPACE_DIR = "/workspace";
+const MANAGED_PROJECT_UPLOAD_PATH = /^\/workspace\/[^/]+\/uploads(?:\/|$)/u;
+const PROJECT_WORKSPACE_ROOT_PATH = /^\/workspace\/[^/]+\/?$/u;
 
 export const PROJECT_ARCHIVE_SCRIPT = `
 import os
@@ -101,6 +104,31 @@ if archive_size > max_output_bytes:
 `;
 
 export { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES };
+
+export function assertMutableWorkspacePath(path: string): void {
+  if (!MANAGED_PROJECT_UPLOAD_PATH.test(path)) {
+    return;
+  }
+  throw new APIError(403, "permission_denied", "Uploaded project files are read-only", {
+    hint: "Read the uploaded file or copy it to another project path before editing it.",
+    retriable: false,
+  });
+}
+
+export function assertDeletableWorkspacePath(path: string): void {
+  if (PROJECT_WORKSPACE_ROOT_PATH.test(path)) {
+    throw new APIError(
+      403,
+      "permission_denied",
+      "Project roots cannot be deleted with file tools",
+      {
+        hint: "Delete individual generated files or use the project deletion action.",
+        retriable: false,
+      },
+    );
+  }
+  assertMutableWorkspacePath(path);
+}
 
 export function buildGrepCommand(input: ProjectSearchFilesInput): string {
   const parsed = ProjectSearchFilesInputSchema.parse(input);
