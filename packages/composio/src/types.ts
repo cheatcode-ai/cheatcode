@@ -1,4 +1,4 @@
-export interface ComposioConnectedAccount {
+interface ComposioConnectedAccount {
   alias?: string | null;
   createdAt: string;
   id: string;
@@ -14,7 +14,7 @@ export interface ComposioConnectedAccountPage {
   nextCursor: string | null;
 }
 
-export interface ComposioAuthConfig {
+interface ComposioAuthConfig {
   id: string;
   status: "DISABLED" | "ENABLED";
 }

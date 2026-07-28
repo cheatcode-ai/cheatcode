@@ -11,7 +11,7 @@ const InternalRunIdListSchema = z
   });
 const DeletionFenceSchema = z.string().regex(/^[1-9]\d{12}$/u);
 const DeletionGenerationSchema = z.string().datetime({ offset: true });
-export const CanonicalProjectWorkspaceSlugSchema = z
+const CanonicalProjectWorkspaceSlugSchema = z
   .string()
   .min(38)
   .max(64)
@@ -76,7 +76,7 @@ export const InternalAgentStateDeleteRequestSchema = z
 
 export type InternalAgentStateDeleteRequest = z.infer<typeof InternalAgentStateDeleteRequestSchema>;
 
-export const InternalProjectDeletionRequestSchema = z
+const InternalProjectDeletionRequestSchema = z
   .object({
     deletedAt: z.string().datetime({ offset: true }),
     kind: z.literal("project-deletion"),
@@ -86,7 +86,7 @@ export const InternalProjectDeletionRequestSchema = z
   })
   .strict();
 
-export const InternalThreadDeletionRequestSchema = z
+const InternalThreadDeletionRequestSchema = z
   .object({
     deletedAt: z.string().datetime({ offset: true }),
     kind: z.literal("thread-deletion"),

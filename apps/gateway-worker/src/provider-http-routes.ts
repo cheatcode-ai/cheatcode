@@ -6,32 +6,14 @@ import {
 } from "@cheatcode/byok";
 import { createDb, lockUserProviderKeyMutations, withUserContext } from "@cheatcode/db";
 import { APIError, emitUserEvent, readJsonRequest } from "@cheatcode/observability";
-import { ProviderSchema, ToolDomainSchema, UpsertProviderKeySchema } from "@cheatcode/types";
+import { ProviderSchema, UpsertProviderKeySchema } from "@cheatcode/types";
 import { authenticate } from "./authenticate";
 import type { GatewayApp, GatewayContext } from "./gateway-env";
-import { listAgentsRoute, listToolsRoute } from "./metadata-routes";
 import { rateLimit } from "./rate-limit";
 
 const MAX_PROVIDER_KEY_REQUEST_BYTES = 32 * 1024;
 
 export function registerProviderHttpRoutes(app: GatewayApp): void {
-  app.get("/v1/tools", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/tools");
-    const parsedDomain = ToolDomainSchema.optional().safeParse(c.req.query("domain"));
-    if (!parsedDomain.success) {
-      throw new APIError(400, "invalid_query_param", "Invalid tool domain", {
-        details: { issues: parsedDomain.error.issues.map((issue) => issue.message) },
-        retriable: false,
-      });
-    }
-    return listToolsRoute(parsedDomain.data);
-  });
-  app.get("/v1/agents", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/agents");
-    return listAgentsRoute();
-  });
   app.get("/v1/provider-keys", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/provider-keys");

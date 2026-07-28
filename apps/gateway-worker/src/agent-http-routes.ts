@@ -18,26 +18,19 @@ export function registerAgentHttpRoutes(app: GatewayApp): void {
   for (const [path, route] of POST_AGENT_ROUTES) {
     app.post(path, (c) => forwardAgentRequest(c, route));
   }
-  app.patch("/v1/threads/:threadId/sandbox/file", (c) =>
-    forwardAgentRequest(c, "PATCH /v1/threads/:threadId/sandbox/file"),
-  );
   app.get("/v1/threads/:threadId/sandbox/console", (c) => readSandboxConsoleRoute(c));
 }
 
 const GET_AGENT_ROUTES = [
   ["/v1/threads/:threadId/runs/stream", "GET /v1/threads/:threadId/runs/stream"],
-  ["/v1/threads/:threadId/runs/status", "GET /v1/threads/:threadId/runs/status"],
   ["/v1/threads/:threadId/browser-takeover", "GET /v1/threads/:threadId/browser-takeover"],
   ["/v1/computer/ide", "GET /v1/computer/ide"],
   ["/v1/computer/terminal/context", "GET /v1/computer/terminal/context"],
-  ["/v1/threads/:threadId/sandbox/files", "GET /v1/threads/:threadId/sandbox/files"],
   ["/v1/threads/:threadId/sandbox/ide", "GET /v1/threads/:threadId/sandbox/ide"],
   [
     "/v1/threads/:threadId/sandbox/preview/status",
     "GET /v1/threads/:threadId/sandbox/preview/status",
   ],
-  ["/v1/threads/:threadId/sandbox/file", "GET /v1/threads/:threadId/sandbox/file"],
-  ["/v1/threads/:threadId/sandbox/file-preview", "GET /v1/threads/:threadId/sandbox/file-preview"],
   [
     "/v1/threads/:threadId/sandbox/terminal/context",
     "GET /v1/threads/:threadId/sandbox/terminal/context",

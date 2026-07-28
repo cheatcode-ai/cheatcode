@@ -32,9 +32,6 @@ COPY packages/sandbox-contracts/package.json packages/sandbox-contracts/package.
 COPY packages/skills/package.json packages/skills/package.json
 COPY packages/tools-browser/package.json packages/tools-browser/package.json
 COPY packages/tools-code/package.json packages/tools-code/package.json
-COPY packages/tools-data/package.json packages/tools-data/package.json
-COPY packages/tools-docs/package.json packages/tools-docs/package.json
-COPY packages/tools-media/package.json packages/tools-media/package.json
 COPY packages/tools-research/package.json packages/tools-research/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
 COPY packages/types/package.json packages/types/package.json

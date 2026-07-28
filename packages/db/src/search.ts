@@ -9,7 +9,7 @@ export interface WorkspaceSearchInput {
   limit: number;
 }
 
-export interface WorkspaceProjectSearchRecord {
+interface WorkspaceProjectSearchRecord {
   type: "project";
   id: ProjectId;
   name: string;

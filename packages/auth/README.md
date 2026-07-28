@@ -10,15 +10,10 @@ Shared authentication and signed-capability protocols for Workers.
 - `fetchClerkUserSyncSnapshot`
 - `updateClerkUserPublicMetadata`
 - `hmacSha256Base64`
-- `assertDistinctHmacSecrets`
-- `assertHmacSecretStrength`
-- `MINIMUM_HMAC_SECRET_UTF8_BYTES` (32 bytes)
 - `timingSafeEqual`
 - `mintPreviewCapability`
 - `verifyPreviewCapability`
 - `PreviewCapabilityError`
-- `PREVIEW_HANDOFF_MAX_TTL_MS` (60 seconds)
-- `PREVIEW_SESSION_MAX_TTL_MS` (10 minutes)
 
 Preview capabilities are versioned, HMAC-signed, exact-host/sandbox/port bound,
 nonce-bearing credentials. `handoff` tokens are query-only and `session` tokens

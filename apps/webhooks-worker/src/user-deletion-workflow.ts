@@ -1,13 +1,10 @@
 import type { WorkflowStep } from "cloudflare:workers";
-import { NonRetryableError } from "cloudflare:workflows";
 import {
   advanceUserDeletionJob,
   archiveUserProjects,
-  createDb,
   type Database,
   deferUserDeletionJob,
   deleteUserArtifactUploadIntents,
-  type HyperdriveConnection,
   hardDeleteUserV2Data,
   listUserArtifactUploadIntents,
   listUserDeletionIntegrationPage,
@@ -20,17 +17,22 @@ import {
   type UserDeletionJobLease,
   type UserDeletionJobRecord,
   type UserDeletionPage,
-  withUserContext,
 } from "@cheatcode/db";
-import type { WorkerSecret } from "@cheatcode/env";
-import {
-  APIError,
-  createLogger,
-  emitErrorEvent,
-  safeErrorTelemetry,
-} from "@cheatcode/observability";
+import { createLogger } from "@cheatcode/observability";
 import { UserId } from "@cheatcode/types";
 import { z } from "zod";
+import {
+  CREATE_STEP_OPTIONS,
+  continuationLeaseToken as createContinuationLeaseToken,
+  createDeletionJobRunner,
+  type DeletionActionOutcome,
+  type DeletionWorkflowOutcome,
+  dbStep,
+  deletionErrorClassifier,
+  MAX_TRANSIENT_DELETION_FAILURES,
+  runDeletionActions,
+  withUserDatabase,
+} from "./deletion-job-runner";
 import {
   deleteUserAgentAccountState,
   deleteUserAgentRunStatePage,
@@ -52,24 +54,14 @@ import {
 import { processUserDeletionBilling } from "./user-deletion-billing";
 import { UserDeletionPhaseSchema } from "./user-deletion-phase";
 
-const ACTIONS_PER_INSTANCE = 8;
-const MAX_TRANSIENT_FAILURES = 8;
 const RUN_PAGE_SIZE = 500;
 const INTEGRATION_PAGE_SIZE = 10;
-const DB_STEP_OPTIONS = {
-  retries: { limit: 3, delay: "20 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
-} as const;
 const EXTERNAL_STEP_OPTIONS = {
   retries: { limit: 5, delay: "30 seconds", backoff: "exponential" },
   timeout: "15 minutes",
 } as const;
 const COMPOSIO_STEP_OPTIONS = {
   retries: { limit: 5, delay: "30 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
-} as const;
-const CREATE_STEP_OPTIONS = {
-  retries: { limit: 5, delay: "10 seconds", backoff: "exponential" },
   timeout: "2 minutes",
 } as const;
 
@@ -111,11 +103,64 @@ const R2DeletionResultSchema = z
   .strict();
 
 type ActiveJob = z.infer<typeof ActiveJobSchema> & { userId: ReturnType<typeof UserId> };
-type ActionOutcome = "advanced" | "completed" | "noop";
-type WorkflowOutcome = "completed" | "continued" | "deferred" | "noop" | "quarantined";
+type ActionOutcome = DeletionActionOutcome;
+type WorkflowOutcome = DeletionWorkflowOutcome;
 type ExternalStepOptions = typeof COMPOSIO_STEP_OPTIONS | typeof EXTERNAL_STEP_OPTIONS;
 
 export interface UserDeletionWorkflowEnv extends LifecycleEnv, UserDeletionAdmissionEnv {}
+
+class UserDeletionInvariantError extends Error {
+  public readonly retriable = false;
+}
+
+type DeferredUserDeletion = NonNullable<Awaited<ReturnType<typeof deferUserDeletionJob>>>;
+
+const USER_DELETION_RUNNER = createDeletionJobRunner<
+  UserDeletionWorkflowEnv,
+  UserDeletionJobLease,
+  DeferredUserDeletion
+>({
+  classify: deletionErrorClassifier({
+    invalidStateCode: "user_deletion_invalid_state",
+    invariantCode: "user_deletion_invariant",
+    isInvariant: (error) => error instanceof UserDeletionInvariantError,
+  }),
+  defer: (env, step, lease, errorCode, label) =>
+    dbStep(step, `${label} defer account deletion`, () =>
+      withUserDatabase(env, lease.userId, (db) =>
+        deferUserDeletionJob(db, {
+          ...lease,
+          errorCode,
+          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
+        }),
+      ),
+    ),
+  onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {
+    if (deferred && deferred.status !== "quarantined") {
+      createLogger().warn("user_deletion_deferred", {
+        errorCode,
+        failureCount: deferred.failureCount,
+        jobId: lease.jobId,
+      });
+    }
+  },
+  quarantine: {
+    errorEventName: "user_deletion_quarantined",
+    errorRoute: "user-deletion-workflow",
+    failureName: "UserDeletionQuarantined",
+    fallbackMessage: "Account deletion quarantine termination failed",
+    identity: (lease) => ({ jobId: lease.jobId }),
+    logEventName: "user_deletion_quarantined",
+    message: (errorCode) => `Account deletion quarantined (${errorCode})`,
+    quarantine: (env, step, lease, errorCode, label) =>
+      dbStep(step, `${label} quarantine account deletion`, () =>
+        withUserDatabase(env, lease.userId, (db) =>
+          quarantineUserDeletionJob(db, { ...lease, errorCode }),
+        ),
+      ),
+    terminationStepName: (label) => `${label} terminate quarantined account deletion`,
+  },
+});
 
 export async function processUserDeletionChunk(
   env: UserDeletionWorkflowEnv,
@@ -126,7 +171,7 @@ export async function processUserDeletionChunk(
   try {
     return await processActions(env, payload, lease, step);
   } catch (error) {
-    return handleDeletionFailure(env, step, lease, error, "execution");
+    return USER_DELETION_RUNNER.handleFailure(env, step, lease, error, "execution");
   }
 }
 
@@ -136,17 +181,11 @@ async function processActions(
   lease: UserDeletionJobLease,
   step: WorkflowStep,
 ): Promise<{ outcome: WorkflowOutcome }> {
-  for (let action = 1; action <= ACTIONS_PER_INSTANCE; action += 1) {
-    const job = await loadCurrentJob(env, step, lease, action);
-    if (!job) {
-      return { outcome: "noop" };
-    }
-    const outcome = await processAction(env, step, job, action);
-    if (outcome !== "advanced") {
-      return { outcome };
-    }
-  }
-  return continueDeletion(env, step, lease, payload.releaseVersionId);
+  return runDeletionActions({
+    continueDeletion: () => continueDeletion(env, step, lease, payload.releaseVersionId),
+    load: (action) => loadCurrentJob(env, step, lease, action),
+    process: (job, action) => processAction(env, step, job, action),
+  });
 }
 
 async function loadCurrentJob(
@@ -556,76 +595,8 @@ async function continueDeletion(
     );
     return { outcome: "continued" };
   } catch (error) {
-    return handleDeletionFailure(env, step, next, error, "continuation");
+    return USER_DELETION_RUNNER.handleFailure(env, step, next, error, "continuation");
   }
-}
-
-async function handleDeletionFailure(
-  env: UserDeletionWorkflowEnv,
-  step: WorkflowStep,
-  lease: UserDeletionJobLease,
-  error: unknown,
-  label: string,
-): Promise<{ outcome: WorkflowOutcome }> {
-  const errorCode = deletionErrorCode(error);
-  if (isPermanentDeletionError(error)) {
-    const quarantined = await quarantineJob(env, step, lease, errorCode, label);
-    if (!quarantined) {
-      return { outcome: "noop" };
-    }
-    emitQuarantineAlert(env, lease, error, errorCode);
-    return terminateQuarantinedWorkflow(step, errorCode, label);
-  }
-  const deferred = await dbStep(step, `${label} defer account deletion`, () =>
-    withUserDatabase(env, lease.userId, (db) =>
-      deferUserDeletionJob(db, { ...lease, errorCode, maxFailures: MAX_TRANSIENT_FAILURES }),
-    ),
-  );
-  if (!deferred) {
-    return { outcome: "noop" };
-  }
-  if (deferred.status === "quarantined") {
-    emitQuarantineAlert(env, lease, error, errorCode);
-    return terminateQuarantinedWorkflow(step, errorCode, label);
-  }
-  createLogger().warn("user_deletion_deferred", {
-    errorCode,
-    failureCount: deferred.failureCount,
-    jobId: lease.jobId,
-  });
-  return { outcome: "deferred" };
-}
-
-async function quarantineJob(
-  env: UserDeletionWorkflowEnv,
-  step: WorkflowStep,
-  lease: UserDeletionJobLease,
-  errorCode: string,
-  label: string,
-): Promise<boolean> {
-  return dbStep(step, `${label} quarantine account deletion`, () =>
-    withUserDatabase(env, lease.userId, (db) =>
-      quarantineUserDeletionJob(db, { ...lease, errorCode }),
-    ),
-  );
-}
-
-async function terminateQuarantinedWorkflow(
-  step: WorkflowStep,
-  errorCode: string,
-  label: string,
-): Promise<never> {
-  await step.do(
-    `${label} terminate quarantined account deletion`,
-    { retries: { limit: 0, delay: "1 second" }, timeout: "1 minute" },
-    async () => {
-      throw new NonRetryableError(
-        `Account deletion quarantined (${errorCode})`,
-        "UserDeletionQuarantined",
-      );
-    },
-  );
-  throw new NonRetryableError("Account deletion quarantine termination failed");
 }
 
 function payloadLease(payload: UserDeletionPayload): UserDeletionJobLease {
@@ -647,17 +618,9 @@ function jobLease(job: ActiveJob): UserDeletionJobLease {
 }
 
 async function continuationLeaseToken(lease: UserDeletionJobLease): Promise<string> {
-  const input = new TextEncoder().encode(`${lease.jobId}:${lease.continuation + 1}`);
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", input)).slice(0, 16);
-  const versionByte = bytes[6];
-  const variantByte = bytes[8];
-  if (versionByte === undefined || variantByte === undefined) {
-    throw deletionInvariant("Account deletion continuation digest was incomplete");
-  }
-  bytes[6] = (versionByte & 0x0f) | 0x80;
-  bytes[8] = (variantByte & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return createContinuationLeaseToken(`${lease.jobId}:${lease.continuation + 1}`, () =>
+    deletionInvariant("Account deletion continuation digest was incomplete"),
+  );
 }
 
 function assertEmptyTerminalPage(page: UserDeletionPage, label: string): void {
@@ -666,70 +629,8 @@ function assertEmptyTerminalPage(page: UserDeletionPage, label: string): void {
   }
 }
 
-class UserDeletionInvariantError extends Error {
-  public readonly retriable = false;
-}
-
 function deletionInvariant(message: string): UserDeletionInvariantError {
   return new UserDeletionInvariantError(message);
-}
-
-function isPermanentDeletionError(error: unknown): boolean {
-  if (error instanceof APIError) {
-    return !error.retriable;
-  }
-  if (error instanceof z.ZodError || error instanceof UserDeletionInvariantError) {
-    return true;
-  }
-  return readRetriable(error) === false;
-}
-
-function deletionErrorCode(error: unknown): string {
-  if (error instanceof APIError) {
-    return error.code;
-  }
-  if (error instanceof z.ZodError) {
-    return "user_deletion_invalid_state";
-  }
-  if (error instanceof UserDeletionInvariantError) {
-    return "user_deletion_invariant";
-  }
-  const name = error instanceof Error ? error.name : "UnknownError";
-  return /^[A-Za-z][A-Za-z0-9_.:$-]{0,127}$/u.test(name) ? name : "UnknownError";
-}
-
-function readRetriable(error: unknown): boolean | undefined {
-  if (typeof error !== "object" || error === null || !("retriable" in error)) {
-    return undefined;
-  }
-  return typeof error.retriable === "boolean" ? error.retriable : undefined;
-}
-
-function emitQuarantineAlert(
-  env: UserDeletionWorkflowEnv,
-  lease: Pick<UserDeletionJobLease, "jobId">,
-  error: unknown,
-  errorCode: string,
-): void {
-  createLogger().error("user_deletion_quarantined", {
-    errorCode,
-    jobId: lease.jobId,
-    ...safeErrorTelemetry(error),
-  });
-  emitErrorEvent(env, {
-    errorCategory: "lifecycle",
-    errorCode: "user_deletion_quarantined",
-    route: "user-deletion-workflow",
-    workerName: "webhooks",
-  });
-}
-
-async function dbStep<Result extends Rpc.Serializable<Result>>(
-  step: WorkflowStep,
-  name: string,
-  operation: () => Promise<Result>,
-): Promise<Result> {
-  return step.do(name, DB_STEP_OPTIONS, operation);
 }
 
 async function externalStep<Result extends Rpc.Serializable<Result>>(
@@ -739,23 +640,4 @@ async function externalStep<Result extends Rpc.Serializable<Result>>(
   options: ExternalStepOptions = EXTERNAL_STEP_OPTIONS,
 ): Promise<Result> {
   return step.do(name, options, operation);
-}
-
-async function withUserDatabase<Result>(
-  env: {
-    DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
-    HYPERDRIVE: HyperdriveConnection;
-  },
-  userId: ReturnType<typeof UserId>,
-  operation: (db: Database) => Promise<Result>,
-): Promise<Result> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await withUserContext(db, userId, operation);
-  } finally {
-    await close();
-  }
 }

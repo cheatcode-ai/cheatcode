@@ -69,12 +69,6 @@ export const ProjectReadFileInputSchema = z
   })
   .strict();
 
-export const ProjectPreviewFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema,
-  })
-  .strict();
-
 export const ProjectWriteFileInputSchema = z
   .object({
     path: WorkspaceFilePathSchema,
@@ -171,12 +165,6 @@ export const ProjectAllocatePortInputSchema = z
   })
   .strict();
 
-export const ProjectGetPortInputSchema = z
-  .object({
-    projectId: ProjectWorkspaceSlugSchema,
-  })
-  .strict();
-
 export const ProjectAllocateProcessPortInputSchema = z
   .object({
     maxPort: z.number().int().min(1_024).max(65_535),
@@ -260,7 +248,6 @@ export const ProjectArchiveInputSchema = z
 
 export type ProjectExecInput = z.input<typeof ProjectExecInputSchema>;
 export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSchema>;
-export type ProjectPreviewFileInput = z.input<typeof ProjectPreviewFileInputSchema>;
 export type ProjectReadFileInput = z.input<typeof ProjectReadFileInputSchema>;
 export type ProjectWriteFileInput = z.input<typeof ProjectWriteFileInputSchema>;
 export type ProjectUploadFileInput = z.input<typeof ProjectUploadFileInputSchema>;
@@ -273,7 +260,6 @@ export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSche
 export type ProjectDeleteFileInput = z.input<typeof ProjectDeleteFileInputSchema>;
 export type ProjectKillProcessInput = z.input<typeof ProjectKillProcessInputSchema>;
 export type ProjectAllocatePortInput = z.input<typeof ProjectAllocatePortInputSchema>;
-export type ProjectGetPortInput = z.input<typeof ProjectGetPortInputSchema>;
 export type ProjectAllocateProcessPortInput = z.input<typeof ProjectAllocateProcessPortInputSchema>;
 export type ProjectCodeServerInput = z.input<typeof ProjectCodeServerInputSchema>;
 export type ProjectWakePreviewInput = z.input<typeof ProjectWakePreviewInputSchema>;

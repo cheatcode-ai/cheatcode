@@ -162,17 +162,3 @@ export type CheatcodeComposioToolEnvelope<
   data?: TData;
   error?: TError;
 };
-
-export type RuntimeBoundSkillRequester<
-  TOperation extends string,
-  TResponseMap extends Record<string, unknown>,
-> = {
-  <TSpecificOperation extends keyof TResponseMap & TOperation>(params: {
-    operation: TSpecificOperation;
-    body?: Record<string, unknown>;
-  }): Promise<TResponseMap[TSpecificOperation]>;
-  <TResponse>(params: {
-    operation: TOperation;
-    body?: Record<string, unknown>;
-  }): Promise<TResponse>;
-};

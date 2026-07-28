@@ -1,98 +1,12 @@
-import { createStep, createWorkflow } from "@mastra/core/workflows";
-import { stepCountIs } from "ai";
-import { z } from "zod/v4";
-import {
-  createResearchStepContext,
-  mergeResearchSources,
-  ResearchPassDraftSchema,
-  ResearchSynthesisDraftSchema,
-  validateResearchPass,
-  validateSynthesisClaims,
-} from "./research-provenance";
-import {
-  DeepResearchFanoutInputSchema,
-  ResearchFindingSchema,
-  ResearchQueryListSchema,
-  ResearchQuerySchema,
-  ResearchReportSchema,
-} from "./research-schemas";
+import { createDeepResearchWorkflow } from "./deep-research-workflow";
 import { buildFanoutQueries } from "./research-utils";
 
-const RESEARCH_CHILD_TOOLS = [
-  "firecrawl_extract",
-  "firecrawl_scrape",
-  "firecrawl_search",
-  "search_company",
-  "search_web",
-  "search_web_advanced",
-] as const;
-
-const planFanoutQueries = createStep({
-  id: "plan-deep-research-fanout-queries",
-  inputSchema: DeepResearchFanoutInputSchema,
-  outputSchema: ResearchQueryListSchema,
-  execute: async ({ abortSignal, inputData }) => {
-    abortSignal.throwIfAborted();
-    return ResearchQueryListSchema.parse(buildFanoutQueries(inputData));
-  },
+export const deepResearchFanout = createDeepResearchWorkflow({
+  buildQueries: buildFanoutQueries,
+  kind: "fanout",
+  queryPrompt: fanoutResearchPrompt,
+  synthesisPrompt: fanoutSynthesisPrompt,
 });
-
-const runFanoutQuery = createStep({
-  id: "run-deep-research-fanout-query",
-  inputSchema: ResearchQuerySchema,
-  outputSchema: ResearchFindingSchema,
-  execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
-    const agent = mastra.getAgent("general");
-    const research = createResearchStepContext(requestContext);
-    const response = await agent.generate(fanoutResearchPrompt(inputData.query), {
-      abortSignal,
-      requestContext: research.requestContext,
-      activeTools: [...RESEARCH_CHILD_TOOLS],
-      stopWhen: stepCountIs(6),
-      structuredOutput: { schema: ResearchPassDraftSchema },
-    });
-    return validateResearchPass(
-      ResearchPassDraftSchema.parse(response.object),
-      inputData.query,
-      research.collector,
-    );
-  },
-});
-
-const synthesizeFanoutResearch = createStep({
-  id: "synthesize-deep-research-fanout",
-  inputSchema: z.array(ResearchFindingSchema),
-  outputSchema: ResearchReportSchema,
-  execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
-    const agent = mastra.getAgent("general");
-    const sources = mergeResearchSources(inputData);
-    const response = await agent.generate(fanoutSynthesisPrompt(inputData), {
-      abortSignal,
-      requestContext,
-      stopWhen: stepCountIs(6),
-      structuredOutput: { schema: ResearchSynthesisDraftSchema },
-      toolChoice: "none",
-    });
-    const draft = ResearchSynthesisDraftSchema.parse(response.object);
-    return ResearchReportSchema.parse({
-      claims: validateSynthesisClaims(draft.claims, sources),
-      findings: inputData,
-      report: draft.report,
-      sources,
-    });
-  },
-});
-
-export const deepResearchFanout = createWorkflow({
-  id: "deep-research-fanout",
-  inputSchema: DeepResearchFanoutInputSchema,
-  options: { shouldPersistSnapshot: () => false },
-  outputSchema: ResearchReportSchema,
-})
-  .then(planFanoutQueries)
-  .foreach(runFanoutQuery, { concurrency: 5 })
-  .then(synthesizeFanoutResearch)
-  .commit();
 
 function fanoutResearchPrompt(query: string): string {
   return [

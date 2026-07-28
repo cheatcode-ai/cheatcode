@@ -594,21 +594,15 @@ importers:
       '@cheatcode/tools-code':
         specifier: workspace:*
         version: link:../tools-code
-      '@cheatcode/tools-data':
-        specifier: workspace:*
-        version: link:../tools-data
-      '@cheatcode/tools-docs':
-        specifier: workspace:*
-        version: link:../tools-docs
-      '@cheatcode/tools-media':
-        specifier: workspace:*
-        version: link:../tools-media
       '@cheatcode/tools-research':
         specifier: workspace:*
         version: link:../tools-research
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../types
+      '@google/genai':
+        specifier: 'catalog:'
+        version: 2.12.0(@modelcontextprotocol/sdk@1.29.0(supports-color@10.2.2)(zod@4.4.3))(bufferutil@4.1.0)(supports-color@10.2.2)(utf-8-validate@5.0.10)
       '@mastra/core':
         specifier: 'catalog:'
         version: 1.51.0(ai@6.0.205(zod@4.4.3))(bufferutil@4.1.0)(express@5.2.1(supports-color@10.2.2))(supports-color@10.2.2)(utf-8-validate@5.0.10)(zod@4.4.3)
@@ -618,6 +612,9 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 6.0.205(zod@4.4.3)
+      arquero:
+        specifier: 'catalog:'
+        version: 8.0.3
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -868,69 +865,6 @@ importers:
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../types
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/tools-data:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@cheatcode/sandbox-contracts':
-        specifier: workspace:*
-        version: link:../sandbox-contracts
-      arquero:
-        specifier: 'catalog:'
-        version: 8.0.3
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/tools-docs:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@cheatcode/sandbox-contracts':
-        specifier: workspace:*
-        version: link:../sandbox-contracts
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/tools-media:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@cheatcode/sandbox-contracts':
-        specifier: workspace:*
-        version: link:../sandbox-contracts
-      '@google/genai':
-        specifier: 'catalog:'
-        version: 2.12.0(@modelcontextprotocol/sdk@1.29.0(supports-color@10.2.2)(zod@4.4.3))(bufferutil@4.1.0)(supports-color@10.2.2)(utf-8-validate@5.0.10)
       zod:
         specifier: 'catalog:'
         version: 4.4.3

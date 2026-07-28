@@ -32,7 +32,6 @@ export {
 } from "./document-tools";
 export { mastraGenerateOrEditMedia } from "./media-tools";
 export {
-  mastraCompetitorResearch,
   mastraDeepResearch,
   mastraFirecrawlExtract,
   mastraFirecrawlScrape,

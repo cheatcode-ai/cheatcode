@@ -1,9 +1,9 @@
+import { createTool } from "@mastra/core/tools";
+import { executeGenerateOrEditMedia } from "../../tools/media/execute";
 import {
-  executeGenerateOrEditMedia,
   GenerateOrEditMediaInputSchema,
   GenerateOrEditMediaOutputSchema,
-} from "@cheatcode/tools-media";
-import { createTool } from "@mastra/core/tools";
+} from "../../tools/media/schemas";
 import { GOOGLE_API_KEY_CONTEXT_KEY } from "../llm-context";
 import { requestContextFromToolContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 

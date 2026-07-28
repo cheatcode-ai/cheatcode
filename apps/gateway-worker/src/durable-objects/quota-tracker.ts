@@ -1,27 +1,16 @@
 import { DurableObject } from "cloudflare:workers";
-import { readJsonRequest } from "@cheatcode/observability";
 import {
-  QUOTA_TRACKER_MAX_REQUEST_BYTES,
   type QuotaFeature,
   QuotaFeatureSchema,
-  QuotaPeekRequestSchema,
-  QuotaRecordRequestSchema,
-  QuotaSetLimitRequestSchema,
-  QuotaSetLimitResponseSchema,
-  QuotaTryConsumeRequestSchema,
+  type QuotaHistoryResult,
+  QuotaHistoryResultSchema,
+  type QuotaSnapshotResult,
+  QuotaSnapshotResultSchema,
   type QuotaTryConsumeResponse,
   QuotaTryConsumeResponseSchema,
   type QuotaUsageResponse,
   QuotaUsageResponseSchema,
 } from "@cheatcode/types/quota";
-import {
-  QuotaHistoryBodySchema,
-  type QuotaHistoryResult,
-  QuotaHistoryResultSchema,
-  QuotaSnapshotBodySchema,
-  type QuotaSnapshotResult,
-  QuotaSnapshotResultSchema,
-} from "./quota-tracker-contract";
 import { ensureQuotaTrackerStorage, hasQuotaTrackerStorage } from "./quota-tracker-storage";
 import { nextGatewayDurableObjectAlarm, QUOTA_TRACKER_RETENTION_MS } from "./retention";
 
@@ -220,62 +209,6 @@ export class QuotaTracker extends DurableObject {
     return QuotaSnapshotResultSchema.parse(snapshot);
   }
 
-  public override async fetch(request: Request): Promise<Response> {
-    if (request.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
-    }
-    return this.handlePost(new URL(request.url).pathname, request);
-  }
-
-  private async handlePost(pathname: string, request: Request): Promise<Response> {
-    if (pathname === "/try-consume") {
-      const body = QuotaTryConsumeRequestSchema.parse(await readQuotaRequest(request));
-      return Response.json(
-        QuotaTryConsumeResponseSchema.parse(
-          await this.tryConsume(body.feature, body.amount, new Date(body.periodEnd), body.eventId),
-        ),
-      );
-    }
-    if (pathname === "/peek") {
-      const body = QuotaPeekRequestSchema.parse(await readQuotaRequest(request));
-      return Response.json(
-        QuotaUsageResponseSchema.parse(await this.peek(body.feature, new Date(body.periodEnd))),
-      );
-    }
-    if (pathname === "/record") {
-      const body = QuotaRecordRequestSchema.parse(await readQuotaRequest(request));
-      return Response.json(
-        QuotaUsageResponseSchema.parse(
-          await this.record(
-            body.feature,
-            body.amount,
-            new Date(body.periodEnd),
-            body.eventId,
-            new Date(body.recordedAt),
-          ),
-        ),
-      );
-    }
-    if (pathname === "/history") {
-      const body = QuotaHistoryBodySchema.parse(await readQuotaRequest(request));
-      return Response.json(await this.history(body.feature, new Date(body.from)));
-    }
-    if (pathname === "/set-limit") {
-      const body = QuotaSetLimitRequestSchema.parse(await readQuotaRequest(request));
-      await this.setLimit(body.feature, body.limit, body.entitlementVersion);
-      return Response.json(QuotaSetLimitResponseSchema.parse({ ok: true }));
-    }
-    if (pathname === "/snapshot") {
-      const body = QuotaSnapshotBodySchema.parse(await readQuotaRequest(request));
-      return Response.json(await this.snapshot(new Date(body.periodEnd)));
-    }
-    if (pathname === "/delete-all") {
-      await this.deleteAllState();
-      return Response.json({ ok: true });
-    }
-    return new Response("Not found", { status: 404 });
-  }
-
   public override async alarm(): Promise<void> {
     if (!hasQuotaTrackerStorage(this.ctx)) {
       await this.ctx.storage.deleteAlarm();
@@ -440,10 +373,6 @@ export class QuotaTracker extends DurableObject {
       recordedAt,
     );
   }
-}
-
-async function readQuotaRequest(request: Request): Promise<unknown> {
-  return readJsonRequest(request, QUOTA_TRACKER_MAX_REQUEST_BYTES, "Quota tracker request");
 }
 
 function operationConsumeResult(row: OperationRow): QuotaTryConsumeResponse {

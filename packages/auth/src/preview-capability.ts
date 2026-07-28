@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { hmacSha256Base64Url, timingSafeEqual } from "./crypto";
 
-export const PREVIEW_HANDOFF_MAX_TTL_MS = 60_000;
-export const PREVIEW_SESSION_MAX_TTL_MS = 10 * 60_000;
+const PREVIEW_HANDOFF_MAX_TTL_MS = 60_000;
+const PREVIEW_SESSION_MAX_TTL_MS = 10 * 60_000;
 
 const PREVIEW_CAPABILITY_PREFIX = "ccp1";
 const PREVIEW_CAPABILITY_VERSION = 1;

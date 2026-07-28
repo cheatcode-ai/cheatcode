@@ -1,15 +1,11 @@
 import { APIError } from "@cheatcode/observability";
-import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES, type SandboxFilePreview } from "@cheatcode/types";
+import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types";
 import { shellQuote } from "./project-sandbox-process-support";
 import {
   type ProjectSearchFilesInput,
   ProjectSearchFilesInputSchema,
 } from "./project-sandbox-runtime";
 
-// Base64 expands by one third; keep the encoded JSON response below the web
-// client's 8 MiB file-response boundary and the Worker's isolate memory budget.
-export const MAX_PREVIEW_BYTES = 5 * 1024 * 1024;
-export const PREVIEW_DIR = "/workspace/.cheatcode-previews";
 export const PROJECT_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
 export const PROJECT_ARCHIVE_MAX_FILES = 25_000;
 export const WORKSPACE_DIR = "/workspace";
@@ -134,69 +130,6 @@ export function assertDeletableWorkspacePath(path: string): void {
   assertMutableWorkspacePath(path);
 }
 
-export function lowercaseExtension(path: string): string {
-  const filename = basename(path).toLowerCase();
-  const dot = filename.lastIndexOf(".");
-  return dot === -1 ? "" : filename.slice(dot);
-}
-
-export function imageMimeType(extension: string): string | null {
-  const mimeTypes: Record<string, string> = {
-    ".gif": "image/gif",
-    ".jpeg": "image/jpeg",
-    ".jpg": "image/jpeg",
-    ".png": "image/png",
-    ".svg": "image/svg+xml",
-    ".webp": "image/webp",
-  };
-  return mimeTypes[extension] ?? null;
-}
-
-const OFFICE_PREVIEW_EXTENSIONS = new Set([
-  ".doc",
-  ".docx",
-  ".odp",
-  ".ods",
-  ".odt",
-  ".pot",
-  ".potx",
-  ".pps",
-  ".ppsx",
-  ".ppt",
-  ".pptx",
-  ".xls",
-  ".xlsx",
-]);
-
-export function isOfficePreviewExtension(extension: string): boolean {
-  return OFFICE_PREVIEW_EXTENSIONS.has(extension);
-}
-
-export function unsupportedPreview(path: string, error: string): SandboxFilePreview {
-  return {
-    content: null,
-    encoding: null,
-    error,
-    kind: "unsupported",
-    mimeType: null,
-    path,
-    previewPath: null,
-  };
-}
-
-export function conversionErrorMessage(output: string): string {
-  const trimmed = output.trim();
-  if (!trimmed) {
-    return "Office preview conversion failed.";
-  }
-  return trimmed.length > 1_000 ? `${trimmed.slice(0, 997)}...` : trimmed;
-}
-
-export function withoutExtension(filename: string): string {
-  const dot = filename.lastIndexOf(".");
-  return dot <= 0 ? filename : filename.slice(0, dot);
-}
-
 export function buildGrepCommand(input: ProjectSearchFilesInput): string {
   const parsed = ProjectSearchFilesInputSchema.parse(input);
   const flags = ["-rnI"];
@@ -233,11 +166,6 @@ export function parseGrepOutput(
 export function dirname(path: string): string {
   const index = path.lastIndexOf("/");
   return index <= 0 ? "/" : path.slice(0, index);
-}
-
-export function basename(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index === -1 ? path : path.slice(index + 1);
 }
 
 export function encodeBase64(bytes: Uint8Array): string {

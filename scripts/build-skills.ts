@@ -135,7 +135,9 @@ function bundleSkill(slug: string): BundledSkill {
   return bundledSkill;
 }
 
+// Underscore-prefixed directories are shared assets materialized by the sandbox Dockerfile.
 const skills = readdirSync(SKILLS_DIR)
+  .filter((slug) => !slug.startsWith("_"))
   .filter((slug) => statSync(join(SKILLS_DIR, slug)).isDirectory())
   .sort()
   .map(bundleSkill);

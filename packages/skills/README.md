@@ -7,6 +7,7 @@ Build-time skill loader. Worker runtime imports generated TypeScript instead of 
 - `SKILLS`
 - `buildSystemPromptSection`
 - `getSkillByName`
+- `@cheatcode/skills/manifest`: `SKILL_MANIFEST`
 
 ## Code Checks
 

@@ -17,7 +17,4 @@
 *.log
 /*.png
 **/*.tsbuildinfo
-coverage
 node_modules
-qa-output
-supabase/.temp

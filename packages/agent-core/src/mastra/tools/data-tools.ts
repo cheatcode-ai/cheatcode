@@ -1,3 +1,6 @@
+import { createTool } from "@mastra/core/tools";
+import { executeAnalyzeCsv } from "../../tools/data/analyze";
+import { executeDataChart } from "../../tools/data/chart";
 import {
   AnalyzeCsvInputSchema,
   AnalyzeCsvOutputSchema,
@@ -5,11 +8,8 @@ import {
   DataChartOutputSchema,
   DataScrapeToCsvInputSchema,
   DataScrapeToCsvOutputSchema,
-  executeAnalyzeCsv,
-  executeDataChart,
-  executeDataScrapeToCsv,
-} from "@cheatcode/tools-data";
-import { createTool } from "@mastra/core/tools";
+} from "../../tools/data/schemas";
+import { executeDataScrapeToCsv } from "../../tools/data/scrape-to-csv";
 import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 
 export const mastraDataAnalyzeCsv = createTool({

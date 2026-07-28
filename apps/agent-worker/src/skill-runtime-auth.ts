@@ -1,11 +1,7 @@
-import {
-  parseSkillRuntimeCapability,
-  type SkillRuntimeScope,
-  verifySkillRuntimeCapabilityDigest,
-} from "@cheatcode/auth";
+import { parseSkillRuntimeCapability, verifySkillRuntimeCapabilityDigest } from "@cheatcode/auth";
 import { authorizeSkillRuntimeCapability, createDb, withUserContext } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { AgentRunId, UserId } from "@cheatcode/types";
+import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
 import type { AgentEnv } from "./agent-env";
 
 export interface SkillRuntimePrincipal {

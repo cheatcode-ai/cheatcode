@@ -2,6 +2,7 @@ import type { WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import { DaytonaApiError, type DaytonaSandbox } from "@cheatcode/tools-code";
 import { z } from "zod";
+import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 
 export interface ProjectSandboxEnv {
   CHEATCODE_RELEASE_SHA?: string;
@@ -16,7 +17,7 @@ export interface ProjectSandboxEnv {
   DAYTONA_PREVIEW_HOST_SUFFIXES?: string;
   PREVIEW_TOKEN_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME: string;
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
 }

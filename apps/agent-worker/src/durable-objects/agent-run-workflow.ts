@@ -151,10 +151,7 @@ async function reserveAgentRunSuccessor(
   payload: AgentRunWorkflowPayload,
 ): Promise<AgentRunWorkflowRolloverResult> {
   const stub = env.AGENT_RUN.get(env.AGENT_RUN.idFromName(payload.input.runId));
-  const response = await stub.fetch("https://agent-run.internal/workflow/rollover", {
-    body: JSON.stringify({ ...payload, workflowInstanceId }),
-    method: "POST",
-  });
+  const response = await stub.rolloverWorkflow({ ...payload, workflowInstanceId });
   if (!response.ok) {
     const detail = await readBoundedResponseText(
       response,
@@ -196,10 +193,7 @@ async function executeEpoch(
   payload: AgentRunWorkflowPayload,
 ): Promise<AgentRunWorkflowEpochResult> {
   const stub = env.AGENT_RUN.get(env.AGENT_RUN.idFromName(payload.input.runId));
-  const response = await stub.fetch("https://agent-run.internal/workflow/execute", {
-    body: JSON.stringify({ ...payload, workflowInstanceId }),
-    method: "POST",
-  });
+  const response = await stub.executeWorkflow({ ...payload, workflowInstanceId });
   if (!response.ok) {
     const detail = await readBoundedResponseText(
       response,
@@ -227,14 +221,11 @@ async function terminalizeOwnershipFailure(
   payload: AgentRunWorkflowPayload,
 ): Promise<{ ok: true }> {
   const stub = env.AGENT_RUN.get(env.AGENT_RUN.idFromName(payload.input.runId));
-  const response = await stub.fetch("https://agent-run.internal/workflow/failed", {
-    body: JSON.stringify({
-      inputHash: payload.inputHash,
-      generation: payload.generation,
-      message: "Durable AgentRun execution ownership failed.",
-      workflowInstanceId,
-    }),
-    method: "POST",
+  const response = await stub.failWorkflow({
+    inputHash: payload.inputHash,
+    generation: payload.generation,
+    message: "Durable AgentRun execution ownership failed.",
+    workflowInstanceId,
   });
   if (!response.ok) {
     await response.body?.cancel().catch(() => undefined);

@@ -102,18 +102,14 @@ schema. New objects initialize that schema directly; existing objects must
 already match it before an operation is admitted. Run creation is also durably
 idempotent in Postgres, so request-cache state cannot create a duplicate run.
 
-`/v1/tools` and `/v1/agents` read the shared framework-free capability catalog
-from `@cheatcode/types`. The Mastra registries are statically constrained to the
-same exact names; workflows are exposed through tools and are not reported as
-agents. Each tool summary also declares whether it uses the sandbox and whether
-it produces an artifact; AgentRun stream status and deliverable routing derive
-from those same traits instead of maintaining parallel tool-name lists.
+The shared framework-free tool capability catalog in `@cheatcode/types`
+statically constrains the Mastra tool registry to the same exact names. Each
+tool summary also declares whether it uses the sandbox and whether it produces
+an artifact; AgentRun stream status and deliverable routing derive from those
+same traits instead of maintaining parallel tool-name lists.
 
 ## Public exports
 
-- `gatewayApp`
-- `gatewayRoutes`
-- `GatewayAppType`
 - `IdempotencyStore`
 - `QuotaTracker`
 - `RateLimiter`

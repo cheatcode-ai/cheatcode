@@ -10,6 +10,13 @@ import {
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import {
+  boundedLeaseLimit,
+  createLeaseQueue,
+  type DeferredLeaseQueueJob,
+  type LeaseQueueLease,
+  partitionLeaseClaims,
+} from "./lease-queue";
+import {
   isResourceDeletionGenerationCurrent,
   ResourceDeletionInvariantError,
   type ResourceDeletionScope,
@@ -23,7 +30,6 @@ import {
   users,
 } from "./schema";
 
-const LEASE_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_RECONCILIATION_CLAIMS = 25;
 
 type JobRow = typeof resourceDeletionJobs.$inferSelect;
@@ -44,12 +50,28 @@ export interface ResourceDeletionJobRecord
   workspaceSlug: string | null;
 }
 
-export interface ResourceDeletionJobLease {
-  continuation: number;
+export interface ResourceDeletionJobLease extends LeaseQueueLease {
   jobId: string;
-  leaseToken: string;
   userId: UserId;
 }
+
+const resourceDeletionLeaseQueue = createLeaseQueue({
+  deferredStatus: (
+    failureCount,
+    input: { errorCode: string; maxFailures: number },
+  ): "queued" | "quarantined" => (failureCount >= input.maxFailures ? "quarantined" : "queued"),
+  identity: (lease: ResourceDeletionJobLease) => [
+    eq(resourceDeletionJobs.id, lease.jobId),
+    eq(resourceDeletionJobs.userId, lease.userId),
+  ],
+  leaseFromContinuation: (continuation, input) => ({
+    continuation,
+    jobId: input.jobId,
+    leaseToken: input.nextLeaseToken,
+    userId: input.userId,
+  }),
+  table: resourceDeletionJobs,
+});
 
 export interface ResourceDeletionJobGuard
   extends ResourceDeletionJobLease,
@@ -72,11 +94,8 @@ export interface ResourceDeletionClaimResult {
   quarantinedJobIds: string[];
 }
 
-export interface DeferredResourceDeletionJob {
-  continuation: number;
-  failureCount: number;
-  status: "queued" | "quarantined";
-}
+export interface DeferredResourceDeletionJob
+  extends DeferredLeaseQueueJob<"queued" | "quarantined"> {}
 
 export async function registerResourceDeletionJob(
   db: Database,
@@ -142,29 +161,20 @@ export async function claimReadyResourceDeletionJobs(
   const result = await db.execute(sql`
     select * from public.webhooks_claim_ready_resource_deletion_jobs(
       ${leaseToken}::uuid,
-      ${Math.max(1, Math.min(input.limit ?? MAX_RECONCILIATION_CLAIMS, 25))},
+      ${boundedLeaseLimit(input.limit, false)},
       ${Math.max(1, Math.trunc(input.maxFailures))},
       ${input.now ?? new Date()}
     )
   `);
-  const rows = result.rows as Array<{
-    continuation: number;
-    disposition: "leased" | "quarantined";
-    job_id: string;
-    user_id: string;
-  }>;
+  const claims = partitionLeaseClaims(result.rows);
   return {
-    leases: rows
-      .filter((row) => row.disposition === "leased")
-      .map((row) => ({
-        continuation: row.continuation,
-        jobId: row.job_id,
-        leaseToken,
-        userId: toUserId(row.user_id),
-      })),
-    quarantinedJobIds: rows
-      .filter((row) => row.disposition === "quarantined")
-      .map((row) => row.job_id),
+    leases: claims.leased.map((row) => ({
+      continuation: row.continuation,
+      jobId: row.job_id,
+      leaseToken,
+      userId: toUserId(row.user_id),
+    })),
+    quarantinedJobIds: claims.quarantinedJobIds,
   };
 }
 
@@ -180,7 +190,7 @@ export async function claimResourceDeletionJobById(
     const [job] = await tx
       .update(resourceDeletionJobs)
       .set({
-        leaseExpiresAt: leaseExpiry(now),
+        leaseExpiresAt: resourceDeletionLeaseQueue.expiryAt(now),
         leaseToken: input.leaseToken,
         status: "leased",
       })
@@ -207,15 +217,15 @@ export async function renewAndLoadResourceDeletionJob(
   return db.transaction(async (tx) => {
     const [row] = await tx
       .update(resourceDeletionJobs)
-      .set({ leaseExpiresAt: leaseExpiry(new Date()) })
-      .where(claimIdentity(lease))
+      .set(resourceDeletionLeaseQueue.renewalFields())
+      .where(resourceDeletionLeaseQueue.claimIdentity(lease))
       .returning();
     if (!row) {
       return { state: "lost" };
     }
     const context = await loadResourceContext(tx as Database, row);
     if (!context) {
-      await tx.delete(resourceDeletionJobs).where(claimIdentity(lease));
+      await tx.delete(resourceDeletionJobs).where(resourceDeletionLeaseQueue.claimIdentity(lease));
       return { state: "stale" };
     }
     return { job: context, state: "active" };
@@ -257,117 +267,32 @@ export async function advanceResourceDeletionJob(
     if (!(await renewCurrentResourceDeletionProgress(tx, input))) {
       return false;
     }
-    const rows = await tx
-      .update(resourceDeletionJobs)
-      .set({
-        cursor: input.cursor,
-        failureCount: 0,
-        lastErrorCode: null,
-        leaseExpiresAt: leaseExpiry(new Date()),
-        phase: input.phase,
-      })
-      .where(and(claimIdentity(input), progressIdentity(input)))
-      .returning({ id: resourceDeletionJobs.id });
-    return rows.length === 1;
+    return resourceDeletionLeaseQueue.advanceJob(
+      tx,
+      input,
+      progressIdentity(input),
+      sql`cursor = ${input.cursor}, phase = ${input.phase}`,
+    );
   });
 }
 
-export async function reserveResourceDeletionContinuation(
+export const reserveResourceDeletionContinuation = (
   db: Database,
   input: ResourceDeletionJobLease & { nextLeaseToken: string },
-): Promise<ResourceDeletionJobLease | null> {
-  return db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(resourceDeletionJobs)
-      .set({
-        continuation: sql`${resourceDeletionJobs.continuation} + 1`,
-        leaseExpiresAt: leaseExpiry(new Date()),
-        leaseToken: input.nextLeaseToken,
-      })
-      .where(claimIdentity(input))
-      .returning({
-        continuation: resourceDeletionJobs.continuation,
-        jobId: resourceDeletionJobs.id,
-      });
-    if (row) {
-      return {
-        ...row,
-        leaseToken: input.nextLeaseToken,
-        userId: input.userId,
-      };
-    }
-    const reserved = await tx.query.resourceDeletionJobs.findFirst({
-      columns: { continuation: true, id: true, leaseToken: true },
-      where: and(
-        eq(resourceDeletionJobs.id, input.jobId),
-        eq(resourceDeletionJobs.userId, input.userId),
-        eq(resourceDeletionJobs.continuation, input.continuation + 1),
-        eq(resourceDeletionJobs.status, "leased"),
-        eq(resourceDeletionJobs.leaseToken, input.nextLeaseToken),
-      ),
-    });
-    return reserved?.leaseToken
-      ? {
-          continuation: reserved.continuation,
-          jobId: reserved.id,
-          leaseToken: reserved.leaseToken,
-          userId: input.userId,
-        }
-      : null;
-  });
-}
+) => resourceDeletionLeaseQueue.reserveContinuation(db, input);
 
-export async function deferResourceDeletionJob(
+export const deferResourceDeletionJob = (
   db: Database,
   input: ResourceDeletionJobLease & {
     errorCode: string;
     maxFailures: number;
   },
-): Promise<DeferredResourceDeletionJob | null> {
-  return db.transaction(async (tx) => {
-    const row = await tx.query.resourceDeletionJobs.findFirst({
-      where: claimIdentity(input),
-    });
-    if (!row) {
-      return null;
-    }
-    const failureCount = row.failureCount + 1;
-    const status = failureCount >= input.maxFailures ? "quarantined" : "queued";
-    const nextAttemptAt = new Date(Date.now() + deletionRetryDelayMs(failureCount));
-    const [updated] = await tx
-      .update(resourceDeletionJobs)
-      .set({
-        continuation: row.continuation + 1,
-        failureCount,
-        lastErrorCode: input.errorCode,
-        leaseExpiresAt: null,
-        leaseToken: null,
-        nextAttemptAt,
-        status,
-      })
-      .where(claimIdentity(input))
-      .returning({ continuation: resourceDeletionJobs.continuation });
-    return updated ? { continuation: updated.continuation, failureCount, status } : null;
-  });
-}
+): Promise<DeferredResourceDeletionJob | null> => resourceDeletionLeaseQueue.deferJob(db, input);
 
-export async function quarantineResourceDeletionJob(
+export const quarantineResourceDeletionJob = (
   db: Database,
   input: ResourceDeletionJobLease & { errorCode: string },
-): Promise<boolean> {
-  const rows = await db
-    .update(resourceDeletionJobs)
-    .set({
-      failureCount: sql`${resourceDeletionJobs.failureCount} + 1`,
-      lastErrorCode: input.errorCode,
-      leaseExpiresAt: null,
-      leaseToken: null,
-      status: "quarantined",
-    })
-    .where(claimIdentity(input))
-    .returning({ id: resourceDeletionJobs.id });
-  return rows.length === 1;
-}
+) => resourceDeletionLeaseQueue.quarantineJob(db, input);
 
 export async function completeResourceDeletionJob(
   db: Database,
@@ -375,7 +300,7 @@ export async function completeResourceDeletionJob(
 ): Promise<boolean> {
   const rows = await db
     .delete(resourceDeletionJobs)
-    .where(and(claimIdentity(input), progressIdentity(input)))
+    .where(and(resourceDeletionLeaseQueue.claimIdentity(input), progressIdentity(input)))
     .returning({ id: resourceDeletionJobs.id });
   return rows.length === 1;
 }
@@ -386,8 +311,8 @@ async function renewCurrentResourceDeletionProgress(
 ): Promise<boolean> {
   const [row] = await db
     .update(resourceDeletionJobs)
-    .set({ leaseExpiresAt: leaseExpiry(new Date()) })
-    .where(and(claimIdentity(input), progressIdentity(input)))
+    .set(resourceDeletionLeaseQueue.renewalFields())
+    .where(and(resourceDeletionLeaseQueue.claimIdentity(input), progressIdentity(input)))
     .returning();
   if (!row) {
     return false;
@@ -395,7 +320,9 @@ async function renewCurrentResourceDeletionProgress(
   if (await loadResourceContext(db, row)) {
     return true;
   }
-  await db.delete(resourceDeletionJobs).where(and(claimIdentity(input), progressIdentity(input)));
+  await db
+    .delete(resourceDeletionJobs)
+    .where(and(resourceDeletionLeaseQueue.claimIdentity(input), progressIdentity(input)));
   return false;
 }
 
@@ -499,16 +426,6 @@ async function deletionMaintenanceAvailable(db: Database): Promise<boolean> {
   return result.rows[0]?.["acquired"] === true;
 }
 
-function claimIdentity(lease: ResourceDeletionJobLease) {
-  return and(
-    eq(resourceDeletionJobs.id, lease.jobId),
-    eq(resourceDeletionJobs.userId, lease.userId),
-    eq(resourceDeletionJobs.continuation, lease.continuation),
-    eq(resourceDeletionJobs.status, "leased"),
-    eq(resourceDeletionJobs.leaseToken, lease.leaseToken),
-  );
-}
-
 async function loadResourceContext(
   db: Database,
   row: JobRow,
@@ -601,14 +518,6 @@ function requestScope(request: InternalResourceDeletionRequest): ResourceDeletio
   return request.kind === "project-deletion"
     ? { deletedAt, kind: request.kind, projectId: toProjectId(request.projectId), userId }
     : { deletedAt, kind: request.kind, threadId: toThreadId(request.threadId), userId };
-}
-
-function leaseExpiry(now: Date): Date {
-  return new Date(now.getTime() + LEASE_DURATION_MS);
-}
-
-function deletionRetryDelayMs(failureCount: number): number {
-  return Math.min(6 * 60 * 60 * 1000, 30_000 * 2 ** Math.min(failureCount - 1, 10));
 }
 
 function integerField(row: Record<string, unknown> | undefined, key: string): number {

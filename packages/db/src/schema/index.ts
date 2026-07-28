@@ -1,6 +1,8 @@
 export { artifactUploadIntents } from "./artifact-upload-intents";
+/** Written only by plpgsql triggers; kept for drizzle-kit diff parity. */
 export { auditLog } from "./audit";
 export { entitlements } from "./billing";
+/** Written only by plpgsql triggers; kept for drizzle-kit diff parity. */
 export { deletedClerkIdentities } from "./clerk-deletions";
 export type {
   DailyMaintenanceJobPhase,

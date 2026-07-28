@@ -1,8 +1,11 @@
+import { createTool } from "@mastra/core/tools";
 import {
   executeGenerateDocx,
   executeGeneratePdf,
   executeGenerateSlides,
   executeGenerateXlsx,
+} from "../../tools/docs/execute";
+import {
   GenerateDocumentInputSchema,
   GenerateDocxOutputSchema,
   GeneratePdfOutputSchema,
@@ -10,8 +13,7 @@ import {
   GenerateSlidesOutputSchema,
   GenerateSpreadsheetInputSchema,
   GenerateXlsxOutputSchema,
-} from "@cheatcode/tools-docs";
-import { createTool } from "@mastra/core/tools";
+} from "../../tools/docs/schemas";
 import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 
 export const mastraDocsGenerateSlides = createTool({

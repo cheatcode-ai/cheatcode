@@ -42,6 +42,7 @@ export function isHiddenTranscriptPart(part: MessagePart): boolean {
   return (
     part.type === "data-artifact" ||
     part.type === "data-sandbox-status" ||
+    /* retained for historical transcripts */
     part.type === "data-plan" ||
     part.type === "data-task-status" ||
     part.type === "data-transcript-fragment"

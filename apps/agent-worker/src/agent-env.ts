@@ -3,6 +3,7 @@ import type { AnalyticsBindings } from "@cheatcode/observability";
 import type { AgentRun } from "./durable-objects/agent-run";
 import type { AgentRunWorkflowPayload } from "./durable-objects/agent-run-workflow-protocol";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
+import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 
 export interface AgentEnv extends AnalyticsBindings {
   AGENT_RUN: DurableObjectNamespace<AgentRun>;
@@ -24,7 +25,7 @@ export interface AgentEnv extends AnalyticsBindings {
   PREVIEW_TOKEN_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
-  QUOTA_TRACKER: DurableObjectNamespace;
+  QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
   SANDBOX_STATE?: KVNamespace;

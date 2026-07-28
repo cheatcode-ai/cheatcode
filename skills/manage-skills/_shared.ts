@@ -24,7 +24,7 @@ const logManagedSkillDebug = (message: string, details: Record<string, unknown>)
   console.error(message, details);
 };
 
-export type ManagedSkillSource = "built_in" | "custom" | "integration";
+type ManagedSkillSource = "built_in" | "custom" | "integration";
 
 export type ManagedSkillListItem = {
   slug: string;
@@ -43,7 +43,7 @@ export type ManagedSkillListItem = {
 
 export type ManagedSkillsListFilter = "all" | "available" | "enabled";
 
-export type ManagedSkillConnectedAccountItem = {
+type ManagedSkillConnectedAccountItem = {
   id: string;
   label: string;
   status: string;
@@ -188,7 +188,7 @@ export async function discoverManagedSkillToolPaths(
   );
 }
 
-export type ManagedSkillConfirmationQuestion = {
+type ManagedSkillConfirmationQuestion = {
   questions: Array<{
     id: string;
     text: string;
@@ -256,7 +256,7 @@ function matchesManagedSkillsListFilter(
   return !isManagedSkillEnabled(skill);
 }
 
-export function renderManagedSkillSummary(
+function renderManagedSkillSummary(
   skill: ManagedSkillListItem,
   runnableToolPaths: readonly string[] = [],
   options: {

@@ -6,7 +6,6 @@ import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
-import "./chat-markdown.css";
 import "./effects.css";
 import { ClientObservability } from "@/components/observability/client-observability";
 import { Providers } from "./providers";

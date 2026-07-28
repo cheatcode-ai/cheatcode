@@ -6,11 +6,7 @@ node_modules/
 .next/
 .vercel/
 dist/
-coverage/
 .qa/
-qa-output/
-qa-*.png
-*.har
 *.tsbuildinfo
 .env
 .env.*

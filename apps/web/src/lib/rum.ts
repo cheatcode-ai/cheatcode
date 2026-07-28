@@ -1,5 +1,6 @@
 "use client";
 
+import { normalizeTelemetryPath } from "@cheatcode/types";
 import {
   type MetricWithAttribution,
   onCLS,
@@ -9,7 +10,6 @@ import {
   onTTFB,
 } from "web-vitals/attribution";
 import { gatewayRequestUrl } from "@/lib/api/gateway-url";
-import { telemetryPage } from "@/lib/telemetry-page";
 
 const VITALS_ENDPOINT = gatewayRequestUrl("/v1/vitals");
 const queue = new Set<WebVitalPayload>();
@@ -54,7 +54,7 @@ function report(metric: MetricWithAttribution): void {
     name: metric.name,
     navigationType: metric.navigationType,
     rating: metric.rating,
-    url: telemetryPage(),
+    url: normalizeTelemetryPath(window.location.pathname),
     value: metric.value,
     ...(target ? { attributionTarget: target } : {}),
   });

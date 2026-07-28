@@ -7,7 +7,6 @@ are capped before JSON parsing and Workers do not bundle unused SDK features.
 ## Public exports
 
 - `ComposioClient`
-- `ComposioApiError`
 - `isComposioNotFoundError`
 - response and request types used by gateway, lifecycle, and agent tools
 

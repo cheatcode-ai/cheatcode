@@ -12,7 +12,7 @@ export interface ClerkUserSyncInput {
   email: string;
 }
 
-export type ClerkUserSyncOutcome = "created" | "stale" | "unchanged" | "updated";
+type ClerkUserSyncOutcome = "created" | "stale" | "unchanged" | "updated";
 
 export interface ClerkUserSyncResult {
   avatarUrl: string | null;

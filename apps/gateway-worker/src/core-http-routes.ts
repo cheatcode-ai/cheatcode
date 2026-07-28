@@ -3,7 +3,6 @@ import type { UserId } from "@cheatcode/types";
 import { agentServiceRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
 import type { GatewayApp, GatewayEnv } from "./gateway-env";
-import { OPENAPI_DOCUMENT, openApiDocsHtml } from "./openapi";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
 import { readDownstreamReleaseHealth } from "./release-health";
 import { listUserSkillsRoute } from "./skills-routes";
@@ -12,7 +11,6 @@ import type { WaitUntilContext } from "./wait-until-context";
 
 export function registerCoreHttpRoutes(app: GatewayApp): void {
   registerHealthRoute(app);
-  registerDiscoveryRoutes(app);
   registerTelemetryRoutes(app);
   registerOutputRoute(app);
   registerSkillRoutes(app);
@@ -46,22 +44,6 @@ function registerHealthRoute(app: GatewayApp): void {
       }),
       headers,
     );
-  });
-}
-
-function registerDiscoveryRoutes(app: GatewayApp): void {
-  app.get("/openapi.json", async (c) => {
-    const headers = await rateLimitPublic(c, "GET /openapi.json", "publicRead");
-    return withRateLimitHeaders(
-      new Response(JSON.stringify(OPENAPI_DOCUMENT), {
-        headers: { "Content-Type": "application/json; charset=utf-8" },
-      }),
-      headers,
-    );
-  });
-  app.get("/docs", async (c) => {
-    await rateLimitPublic(c, "GET /docs", "publicRead");
-    return c.html(openApiDocsHtml());
   });
 }
 

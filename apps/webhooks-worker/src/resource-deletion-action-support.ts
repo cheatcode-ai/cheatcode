@@ -1,31 +1,23 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import {
-  createDb,
   type Database,
   guardResourceDeletionJobProgress,
-  type HyperdriveConnection,
   ResourceDeletionInvariantError,
   type ResourceDeletionJobGuard,
   type ResourceDeletionJobRecord,
   type ResourceDeletionScope,
   runResourceDeletionJobDatabaseAction,
-  withUserContext,
 } from "@cheatcode/db";
-import type { WorkerSecret } from "@cheatcode/env";
+import { dbStep, withDatabase, withUserDatabase } from "./deletion-job-runner";
 
-const DB_STEP_OPTIONS = {
-  retries: { limit: 3, delay: "20 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
-} as const;
+export { dbStep, withDatabase, withUserDatabase };
+
 const EXTERNAL_STEP_OPTIONS = {
   retries: { limit: 5, delay: "30 seconds", backoff: "exponential" },
   timeout: "10 minutes",
 } as const;
 
-interface ResourceDeletionDatabaseEnv {
-  DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
-  HYPERDRIVE: HyperdriveConnection;
-}
+type ResourceDeletionDatabaseEnv = Parameters<typeof withDatabase>[0];
 
 export function exactJob(job: ResourceDeletionJobRecord): ResourceDeletionJobGuard {
   return {
@@ -82,14 +74,6 @@ export function deletionInvariant(message: string): ResourceDeletionInvariantErr
   return new ResourceDeletionInvariantError(message);
 }
 
-export async function dbStep<Result extends Rpc.Serializable<Result>>(
-  step: WorkflowStep,
-  name: string,
-  operation: () => Promise<Result>,
-): Promise<Result> {
-  return step.do(name, DB_STEP_OPTIONS, operation);
-}
-
 export async function guardedExternalStep<Result extends Rpc.Serializable<Result>>(
   env: ResourceDeletionDatabaseEnv,
   step: WorkflowStep,
@@ -113,27 +97,4 @@ export async function guardedDatabaseAction<Result extends Rpc.Serializable<Resu
   return withUserDatabase(env, job.userId, (db) =>
     runResourceDeletionJobDatabaseAction(db, exactJob(job), operation),
   );
-}
-
-export async function withDatabase<Result>(
-  env: ResourceDeletionDatabaseEnv,
-  operation: (db: Database) => Promise<Result>,
-): Promise<Result> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
-  }
-}
-
-export async function withUserDatabase<Result>(
-  env: ResourceDeletionDatabaseEnv,
-  userId: ResourceDeletionJobRecord["userId"],
-  operation: (db: Database) => Promise<Result>,
-): Promise<Result> {
-  return withDatabase(env, (db) => withUserContext(db, userId, operation));
 }

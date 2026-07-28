@@ -1,16 +1,10 @@
-import type { AgentRunId, UserId } from "@cheatcode/types";
+import { type AgentRunId, SkillRuntimeScopeSchema, type UserId } from "@cheatcode/types";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { z } from "zod";
 import type { Database } from "./client";
 import { agentRuns, projects, type StoredSkillRuntimeCapability, threads } from "./schema";
 
 const MAX_STORED_CAPABILITIES_PER_RUN = 12;
-const SkillRuntimeScopeSchema = z.enum([
-  "events:write",
-  "integrations:execute",
-  "skills:read",
-  "skills:write",
-]);
 const StoredSkillRuntimeCapabilitySchema = z
   .object({
     digest: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),

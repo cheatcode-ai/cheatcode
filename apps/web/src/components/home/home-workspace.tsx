@@ -10,7 +10,7 @@ import { HomeSessionChrome } from "@/components/home/home-session-chrome";
 import { HomeSidebarOffset } from "@/components/home/home-sidebar-offset";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { SidebarContentFrame } from "@/components/shell/sidebar-content-frame";
-import { CheatcodeCursorField } from "@/components/ui/cheatcode-cursor-field";
+import { CheatcodeCursorTrail } from "@/components/ui/cheatcode-cursor-field";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
 import { useAppStore } from "@/lib/store/app-store";
@@ -85,7 +85,7 @@ function HomeContentPane({ computerOpen }: { computerOpen: boolean }) {
           <HomeGreeting variant="mobile" />
         </Suspense>
       </div>
-      <CheatcodeCursorField className="z-0" />
+      <CheatcodeCursorTrail className="z-0" />
       <div className="chat-scrollbar relative z-10 flex min-h-0 flex-1 flex-col items-center justify-start overflow-y-auto px-4 py-6 md:px-6 md:py-10 [@media(max-height:500px)]:py-0">
         <div
           className="mx-auto my-auto flex w-full max-w-[740px] flex-col items-center md:px-4"

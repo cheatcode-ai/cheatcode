@@ -18,7 +18,7 @@ export interface UserSkillRecord {
 
 export type UserSkillSummaryRecord = Omit<UserSkillRecord, "body" | "userId">;
 
-export class UserSkillLimitExceededError extends Error {
+class UserSkillLimitExceededError extends Error {
   public constructor() {
     super(`A user can store at most ${MAX_USER_SKILLS} live custom skills.`);
     this.name = "UserSkillLimitExceededError";

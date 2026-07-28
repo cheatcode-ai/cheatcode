@@ -4,6 +4,7 @@
   // `cloudflare:workers` and `cloudflare:workflows` are platform modules, not
   // installable package dependencies. Knip cannot infer either edge.
   "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare"],
+  "includeEntryExports": true,
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
@@ -14,19 +15,27 @@
       "drizzle": {
         "config": []
       },
-      "entry": ["drizzle.config.ts", "src/schema/drizzle.ts"]
+      "entry": ["drizzle.config.ts"],
+      // Drizzle Kit loads this default export through its config convention.
+      "ignoreIssues": {
+        "drizzle.config.ts": ["exports"]
+      }
     },
     "infra/containers/sandbox/browser-driver": {
-      // Stagehand resolves these declared peers only inside the separately
-      // installed sandbox image, so there is no source import for Knip to trace.
+      // This npm-lockfile workspace is installed only inside the sandbox image,
+      // never in CI, so Knip cannot resolve its deps there. Locally-installed
+      // node_modules make these ignores look redundant — they are not.
       "ignoreDependencies": ["playwright-core", "zod"]
     },
     "infra/containers/sandbox/skill-runtime": {
       "entry": ["bin/*.mjs"],
-      // Snapshot launchers resolve these executables by installed binary name;
-      // Knip cannot infer that runtime edge from spawnSync or the shebang.
-      "ignoreDependencies": ["agent-browser", "tsx"],
-      "ignoreBinaries": ["agent-browser"]
+      // Public helpers are documented for user-authored sandbox skills and have
+      // out-of-repo consumers that Knip cannot discover.
+      "includeEntryExports": false,
+      // Same in-image-only install: agent-browser and tsx resolve purely by
+      // installed binary path at sandbox runtime, invisible to CI.
+      "ignoreBinaries": ["agent-browser"],
+      "ignoreDependencies": ["agent-browser", "tsx"]
     }
   }
 }

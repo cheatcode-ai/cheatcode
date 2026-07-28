@@ -195,6 +195,11 @@ RUN set -eux; \
 # The bundled catalog is the single source of truth for both the agent prompt and
 # the inspectable sandbox copy. It intentionally contains no user-app deploy skill.
 COPY --from=default_skills --chown=node:node / /home/node/.cheatcode/default-skills/
+RUN set -eux; \
+  cp -a /home/node/.cheatcode/default-skills/_shared/office /home/node/.cheatcode/default-skills/docx/scripts/office; \
+  cp -a /home/node/.cheatcode/default-skills/_shared/office /home/node/.cheatcode/default-skills/pptx/scripts/office; \
+  cp -a /home/node/.cheatcode/default-skills/_shared/office /home/node/.cheatcode/default-skills/xlsx/scripts/office; \
+  rm -rf /home/node/.cheatcode/default-skills/_shared
 COPY --chown=node:node skill-runtime/tsconfig.json /home/node/.cheatcode/tsconfig.json
 
 # Template dependency churn must not invalidate the larger browser and editor layers.

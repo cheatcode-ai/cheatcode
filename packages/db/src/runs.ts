@@ -37,7 +37,7 @@ import {
   threads,
 } from "./schema";
 
-export type AgentRunStatus = "pending" | "running" | "completed" | "failed" | "canceled";
+type AgentRunStatus = "pending" | "running" | "completed" | "failed" | "canceled";
 
 /**
  * Total wall-clock minutes the agent "worked" for this user since the start of

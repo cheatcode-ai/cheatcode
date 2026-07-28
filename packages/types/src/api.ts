@@ -3,8 +3,6 @@ import { IntegrationNameSchema } from "./integrations";
 import { LogicalModelIdSchema } from "./models";
 import { MessagePartsSchema } from "./ui-message";
 
-export { MessagePartSchema } from "./ui-message";
-
 /** Canonical total character budget for one submitted user message, including inline attachments. */
 export const USER_MESSAGE_MAX_CHARACTERS = 20_000;
 
@@ -33,11 +31,11 @@ export const GitHubRepoUrlSchema = z
     "Must be a public https://github.com/{owner}/{repo} URL",
   );
 
-export const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
+const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
 export const ProjectModeSchema = z.enum(PROJECT_MODES);
 
 /** Explicit one-run product modes. These are UI intent, never inferred from prompt text. */
-export const RUN_INTENTS = ["skill-creator"] as const;
+const RUN_INTENTS = ["skill-creator"] as const;
 export const RunIntentSchema = z.enum(RUN_INTENTS);
 
 export const CreateProjectSchema = z
@@ -284,7 +282,7 @@ export const ToolkitActionsResponseSchema = z
   })
   .strict();
 
-export const ToolDomainSchema = z.enum([
+const ToolDomainSchema = z.enum([
   "browser",
   "code",
   "data",
@@ -295,20 +293,13 @@ export const ToolDomainSchema = z.enum([
   "skills",
 ]);
 
-export const ToolSummarySchema = z
+const ToolSummarySchema = z
   .object({
     description: z.string(),
     domain: ToolDomainSchema,
     name: z.string(),
     producesArtifact: z.boolean(),
     usesSandbox: z.boolean(),
-  })
-  .strict();
-
-export const AgentSummarySchema = z
-  .object({
-    description: z.string(),
-    name: z.string(),
   })
   .strict();
 
@@ -336,51 +327,6 @@ const SandboxFileEntrySchema = z
     relativePath: z.string(),
     size: z.number().int().nonnegative(),
     type: z.enum(["file", "directory", "symlink", "other"]),
-  })
-  .strict();
-
-export const SandboxFileListSchema = z
-  .object({
-    files: z.array(SandboxFileEntrySchema),
-    path: SandboxFilePathSchema,
-  })
-  .strict();
-
-export const SandboxFileSchema = z
-  .object({
-    content: z.string(),
-    encoding: z.enum(["utf8", "base64"]),
-    path: SandboxFilePathSchema,
-  })
-  .strict();
-
-export const SandboxFilePreviewSchema = z
-  .object({
-    content: z.string().max(30_000_000).nullable(),
-    encoding: z.literal("base64").nullable(),
-    error: z.string().max(1_000).nullable(),
-    kind: z.enum(["image", "pdf", "unsupported"]),
-    mimeType: z.string().min(1).max(200).nullable(),
-    path: SandboxFilePathSchema,
-    previewPath: SandboxFilePathSchema.nullable(),
-  })
-  .strict();
-
-const UpdateSandboxFileSchema = z
-  .object({
-    content: z.string().max(2_000_000),
-    encoding: z.enum(["utf8", "base64"]).default("utf8"),
-  })
-  .strict();
-
-export const UpdateSandboxPathFileSchema = UpdateSandboxFileSchema.extend({
-  path: SandboxFilePathSchema,
-}).strict();
-
-export const SandboxFileWriteSchema = z
-  .object({
-    path: SandboxFilePathSchema,
-    success: z.boolean(),
   })
   .strict();
 
@@ -423,7 +369,7 @@ export const SandboxIdeSessionSchema = z
   })
   .strict();
 
-export const BrowserTakeoverActiveSchema = z
+const BrowserTakeoverActiveSchema = z
   .object({
     expiresAt: z.string().datetime(),
     status: z.literal("active"),
@@ -672,7 +618,6 @@ export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;
-export type AgentSummary = z.infer<typeof AgentSummarySchema>;
 export type Integration = z.infer<typeof IntegrationSchema>;
 export type IntegrationAccount = z.infer<typeof IntegrationAccountSchema>;
 export type IntegrationCatalog = z.infer<typeof IntegrationCatalogSchema>;
@@ -695,12 +640,9 @@ export type SandboxConsoleLine = z.infer<typeof SandboxConsoleLineSchema>;
 export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;
 export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
-export type SandboxFilePreview = z.infer<typeof SandboxFilePreviewSchema>;
 export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
 export type BrowserTakeoverStatus = z.infer<typeof BrowserTakeoverStatusSchema>;
 export type BrowserTakeoverSession = z.infer<typeof BrowserTakeoverSessionSchema>;
-export type BrowserTakeoverResume = z.infer<typeof BrowserTakeoverResumeSchema>;
-export type BrowserTakeoverResumeResult = z.infer<typeof BrowserTakeoverResumeResultSchema>;
 export type SandboxPreviewWake = z.infer<typeof SandboxPreviewWakeSchema>;
 export type SandboxPreviewStatus = z.infer<typeof SandboxPreviewStatusSchema>;
 export type SandboxTerminalContext = z.infer<typeof SandboxTerminalContextSchema>;
@@ -708,4 +650,3 @@ export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
 export type ActivityHistoryResponse = z.infer<typeof ActivityHistoryResponseSchema>;
 export type ActivityRunPoint = z.infer<typeof ActivityRunPointSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;
-export type ToolDomain = z.infer<typeof ToolDomainSchema>;

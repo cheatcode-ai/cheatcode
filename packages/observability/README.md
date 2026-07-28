@@ -32,7 +32,10 @@ positions.
 - `safeErrorTelemetry` for allowlisted error metadata (`name`, `code`,
   `constraint`, `status`, and `retriable`) without messages, stacks, SQL, or
   query parameters
-- `withErrorHandler`
+- `createWorkerRuntime` for one request-ID, error-formatting, logging, error
+  event, and optional performance-metric boundary per Worker
+- `createPerformanceMetricMiddleware`, `requestId`, `routeName`, and
+  `routeWorkerError`
 - bounded request/response readers: `readJsonRequest`, `readBoundedRequestBytes`,
   `readBoundedRequestText`, `readBoundedResponseText`, and `readBoundedResponseJson`
 - `withBoundedResponseBody` for enforcing response limits before an SDK parser

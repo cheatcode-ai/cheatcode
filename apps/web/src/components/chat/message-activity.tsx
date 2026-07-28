@@ -72,7 +72,6 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   search_web: { verb: "Searched the web", argKeys: ["query", "q"] },
   search_web_advanced: { verb: "Searched the web", argKeys: ["query", "q"] },
   search_company: { verb: "Researched a company", argKeys: ["company", "name", "query"] },
-  research_competitor: { verb: "Researched competitors", argKeys: ["query", "company"] },
   research_deep: { verb: "Researched", argKeys: ["query", "topic"] },
   research_fanout: { verb: "Researched", argKeys: ["query", "topic"] },
   composio_execute: { verb: "Ran an app action", argKeys: ["tool", "action", "slug"] },
@@ -135,7 +134,7 @@ function ActivityNarration({ text }: { text: string }) {
     return null;
   }
   return (
-    <div className="chat-markdown max-w-none text-[14px] text-fg-secondary leading-5">
+    <div className="max-w-none text-[14px] text-fg-secondary leading-5">
       <MarkdownResponse>{text}</MarkdownResponse>
     </div>
   );

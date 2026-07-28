@@ -4,7 +4,6 @@ import path from "node:path";
 import type {
   CheatcodeSkillFrontendEvent,
   CheatcodeSkillRequestMethod,
-  RuntimeBoundSkillRequester,
   SkillRuntimeConfig,
   SkillRuntimeScope,
 } from "./types";
@@ -261,42 +260,6 @@ export async function readProjectSkillRuntimeConfig(): Promise<SkillRuntimeConfi
     ...(sandboxContext ? { sandboxContext } : {}),
     ...(deliveryChannel ? { deliveryChannel } : {}),
   };
-}
-
-export function createRuntimeBoundSkillRequester<
-  TOperation extends string,
-  TResponseMap extends Record<string, unknown>,
->(
-  execute: (
-    config: SkillRuntimeConfig,
-    operation: TOperation,
-    body: Record<string, unknown>,
-  ) => Promise<unknown>,
-): RuntimeBoundSkillRequester<TOperation, TResponseMap> {
-  async function requestSkillJson<
-    TSpecificOperation extends keyof TResponseMap & TOperation,
-  >(params: {
-    operation: TSpecificOperation;
-    body?: Record<string, unknown>;
-  }): Promise<TResponseMap[TSpecificOperation]>;
-  async function requestSkillJson<TResponse>(params: {
-    operation: TOperation;
-    body?: Record<string, unknown>;
-  }): Promise<TResponse>;
-  async function requestSkillJson<TResponse>(params: {
-    operation: TOperation;
-    body?: Record<string, unknown>;
-  }): Promise<TResponse> {
-    const config = await readProjectSkillRuntimeConfig();
-
-    return execute(
-      config,
-      params.operation,
-      params.body ?? {},
-    ) as Promise<TResponse>;
-  }
-
-  return requestSkillJson;
 }
 
 export async function requestCheatcodeSkillJson<TResponse>(params: {

@@ -1,20 +1,10 @@
 const TEXT_ENCODER = new TextEncoder();
-export const MINIMUM_HMAC_SECRET_UTF8_BYTES = 32;
+const MINIMUM_HMAC_SECRET_UTF8_BYTES = 32;
 
 /** Reject HMAC keys that do not meet the platform's minimum cryptographic key size. */
-export function assertHmacSecretStrength(secret: string): void {
+function assertHmacSecretStrength(secret: string): void {
   if (TEXT_ENCODER.encode(secret).byteLength < MINIMUM_HMAC_SECRET_UTF8_BYTES) {
     throw new TypeError("HMAC secret must contain at least 32 UTF-8 bytes");
-  }
-}
-
-/** Reject capability sets whose keys would collapse otherwise isolated trust boundaries. */
-export function assertDistinctHmacSecrets(secrets: readonly string[]): void {
-  for (const secret of secrets) {
-    assertHmacSecretStrength(secret);
-  }
-  if (new Set(secrets).size !== secrets.length) {
-    throw new TypeError("HMAC capability secrets must be distinct");
   }
 }
 

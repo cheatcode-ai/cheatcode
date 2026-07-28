@@ -5,8 +5,6 @@ export {
   emitPerformanceMetric,
   emitUserEvent,
 } from "./analytics";
-export { withErrorHandler } from "./error-handler";
-export type { SafeErrorTelemetry } from "./errors";
 export { APIError, safeErrorTelemetry, toAPIError } from "./errors";
 export {
   readBoundedRequestBytes,
@@ -19,3 +17,11 @@ export {
 export type { Logger } from "./logger";
 export { createLogger } from "./logger";
 export { redactSecrets } from "./redact";
+export {
+  createPerformanceMetricMiddleware,
+  createWorkerRuntime,
+  reportWorkerError,
+  requestId,
+  routeName,
+  routeWorkerError,
+} from "./worker-runtime";

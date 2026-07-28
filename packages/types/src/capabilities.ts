@@ -1,4 +1,4 @@
-import type { AgentSummary, ToolSummary } from "./api";
+import type { ToolSummary } from "./api";
 
 const REMOTE_TOOL = { producesArtifact: false, usesSandbox: false } as const;
 const SANDBOX_TOOL = { producesArtifact: false, usesSandbox: true } as const;
@@ -62,7 +62,6 @@ export const TOOL_CAPABILITIES = [
   tool("research", "firecrawl_extract", "Extract structured data with Firecrawl.", REMOTE_TOOL),
   tool("research", "firecrawl_scrape", "Scrape a known URL with Firecrawl.", REMOTE_TOOL),
   tool("research", "firecrawl_search", "Search and scrape with Firecrawl.", REMOTE_TOOL),
-  tool("research", "research_competitor", "Run the competitor research workflow.", REMOTE_TOOL),
   tool("research", "research_deep", "Run the deep research workflow.", REMOTE_TOOL),
   tool("research", "research_fanout", "Run the deep research fan-out workflow.", REMOTE_TOOL),
   tool("research", "search_company", "Search company intel with Exa.", REMOTE_TOOL),
@@ -77,19 +76,8 @@ export const TOOL_CAPABILITIES = [
 /** Exact names accepted by the live Mastra tool registry. */
 export type ToolCapabilityName = (typeof TOOL_CAPABILITIES)[number]["name"];
 
-/**
- * Public agent discovery contract. Workflows remain discoverable through their
- * tool capabilities and are intentionally not represented as Mastra agents.
- */
-export const AGENT_CAPABILITIES = [
-  {
-    description: "General Cheatcode agent with sandbox, research, browser, and artifact tools.",
-    name: "general",
-  },
-] as const satisfies readonly AgentSummary[];
-
 /** Exact names accepted by the live Mastra agent registry. */
-export type AgentCapabilityName = (typeof AGENT_CAPABILITIES)[number]["name"];
+export type AgentCapabilityName = "general";
 
 function tool<
   const Domain extends ToolSummary["domain"],

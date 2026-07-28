@@ -14,7 +14,6 @@ import { storeAgentArtifact } from "./agent-run-artifacts";
 import { AgentRunBrowserTakeover } from "./agent-run-browser-takeover";
 import { emitMastraChunkTelemetry } from "./agent-run-chunk-telemetry";
 import type { AgentRunEnv } from "./agent-run-env";
-import { handleAgentRunRequest } from "./agent-run-http";
 import { executeAgentRunLifecycle } from "./agent-run-lifecycle";
 import {
   pendingAssistantMessageRetryAt,
@@ -55,10 +54,15 @@ import {
   upsertRunRow,
 } from "./agent-run-storage";
 import type { StreamDriverDeps } from "./agent-run-stream-driver";
+import { missingInternalUserResponse } from "./agent-run-utils";
 import { AgentRunWorkflowController } from "./agent-run-workflow-controller";
+import type {
+  AgentRunWorkflowCallbackInput,
+  AgentRunWorkflowFailureInput,
+} from "./agent-run-workflow-protocol";
 import { createRunWorkspaceResolver } from "./agent-run-workspace";
 import { mastraChunkError, normalizeMastraStreamError } from "./mastra-stream-chunks";
-import { hasActiveRun } from "./run-state";
+import { hasActiveRun, parseLastSeqParam } from "./run-state";
 import { type AgentRunSnapshotStatus, snapshotAgentRunStatus } from "./run-summary";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
@@ -165,44 +169,109 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   }
 
   public override fetch(request: Request): Promise<Response> {
-    // FIFO admission makes /start settle before a later presence probe observes the object.
-    const response = this.requestAdmissionTail.then(() => {
-      const hasStorage = hasAgentRunStorage(this.ctx);
-      if (hasStorage) {
+    const url = new URL(request.url);
+    if (request.method !== "GET" || url.pathname !== "/stream") {
+      return Promise.resolve(new Response("Not found", { status: 404 }));
+    }
+    const lastSeq = parseLastSeqParam(url.searchParams.get("lastSeq"));
+    if (lastSeq === null) {
+      return Promise.resolve(invalidResumeCursorResponse());
+    }
+    const userId = request.headers.get("X-Cheatcode-User-Id");
+    if (!userId) {
+      return Promise.resolve(missingInternalUserResponse("streams"));
+    }
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => this.resume(userId, lastSeq),
+        () => new Response(null, { status: 204 }),
+      ),
+    );
+  }
+
+  public start(input: StartRunInput): Promise<Response> {
+    return this.enqueueRequest(() => {
+      if (!hasAgentRunStorage(this.ctx)) {
+        initializeAgentRunStorage(this.ctx);
+      } else {
         assertAgentRunStorage(this.ctx);
       }
-      return handleAgentRunRequest(request, {
-        browserTakeoverResume: (userId, takeoverId) =>
-          hasStorage ? this.browserTakeover.resume(userId, takeoverId) : absentAgentRunOkResponse(),
-        browserTakeoverStart: (userId) =>
-          hasStorage ? this.browserTakeover.start(userId) : absentAgentRunOkResponse(),
-        browserTakeoverStatus: (userId) =>
-          hasStorage ? this.browserTakeover.status(userId) : absentAgentRunOkResponse(),
-        cancel: (userId) => (hasStorage ? this.cancel(userId) : absentAgentRunOkResponse()),
-        deleteAll: (userId) =>
-          hasStorage ? this.deleteAllState(userId) : absentAgentRunOkResponse(),
-        executeWorkflow: (input) =>
-          hasStorage
-            ? agentRunWorkflowResponse(() => this.workflow.executeEpoch(input))
-            : absentAgentRunWorkflowResponse(),
-        failWorkflow: (input) =>
-          hasStorage
-            ? agentRunWorkflowResponse(() => this.workflow.failWorkflow(input))
-            : absentAgentRunOkResponse(),
-        rolloverWorkflow: (input) =>
-          hasStorage
-            ? agentRunWorkflowResponse(() => this.workflow.reserveSuccessor(input))
-            : absentAgentRunWorkflowResponse(),
-        resume: (userId, lastSeq) =>
-          hasStorage ? this.resume(userId, lastSeq) : new Response(null, { status: 204 }),
-        start: (input) => {
-          if (!hasStorage) initializeAgentRunStorage(this.ctx);
-          return this.start(input);
-        },
-        status: (userId) =>
-          hasStorage ? this.status(userId) : new Response(null, { status: 204 }),
-      });
+      return this.startInternal(input);
     });
+  }
+
+  public status(userId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => this.statusInternal(userId),
+        () => new Response(null, { status: 204 }),
+      ),
+    );
+  }
+
+  public cancel(userId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(() => this.cancelInternal(userId), absentAgentRunOkResponse),
+    );
+  }
+
+  public deleteAll(userId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(() => this.deleteAllState(userId), absentAgentRunOkResponse),
+    );
+  }
+
+  public browserTakeoverStatus(userId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(() => this.browserTakeover.status(userId), absentAgentRunOkResponse),
+    );
+  }
+
+  public browserTakeoverStart(userId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(() => this.browserTakeover.start(userId), absentAgentRunOkResponse),
+    );
+  }
+
+  public browserTakeoverResume(userId: string, takeoverId: string): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => this.browserTakeover.resume(userId, takeoverId),
+        absentAgentRunOkResponse,
+      ),
+    );
+  }
+
+  public executeWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.workflow.executeEpoch(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public failWorkflow(input: AgentRunWorkflowFailureInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.workflow.failWorkflow(input)),
+        absentAgentRunOkResponse,
+      ),
+    );
+  }
+
+  public rolloverWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.workflow.reserveSuccessor(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  private enqueueRequest(operation: () => Promise<Response> | Response): Promise<Response> {
+    // FIFO admission makes start settle before a later presence probe observes the object.
+    const response = this.requestAdmissionTail.then(operation);
     this.requestAdmissionTail = response.then(
       () => undefined,
       () => undefined,
@@ -210,7 +279,18 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return response;
   }
 
-  private async start(input: StartRunInput): Promise<Response> {
+  private withStorage(
+    operation: () => Promise<Response> | Response,
+    absent: () => Response,
+  ): Promise<Response> | Response {
+    if (!hasAgentRunStorage(this.ctx)) {
+      return absent();
+    }
+    assertAgentRunStorage(this.ctx);
+    return operation();
+  }
+
+  private async startInternal(input: StartRunInput): Promise<Response> {
     if (this.deletionInProgress || isAgentRunDeleted(this.ctx)) {
       return deletedAgentRunResponse();
     }
@@ -288,7 +368,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return stream ? createAgentStreamResponse({ stream }) : agentRunStreamCapacityResponse();
   }
 
-  private async status(userId: string): Promise<Response> {
+  private async statusInternal(userId: string): Promise<Response> {
     const runId = getRunStateValue(this.ctx, "run_id");
     if (!runId) {
       return new Response(null, { status: 204 });
@@ -337,7 +417,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return Response.json({ ok: true });
   }
 
-  private async cancel(userId: string): Promise<Response> {
+  private async cancelInternal(userId: string): Promise<Response> {
     const ownerUserId = this.getOwnerUserId();
     if (ownerUserId !== userId) {
       return new APIError(403, "permission_denied", "Run ownership mismatch", {
@@ -728,4 +808,11 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     this.statusPersistenceChain = current.catch(() => undefined);
     await current;
   }
+}
+
+function invalidResumeCursorResponse(): Response {
+  return new APIError(400, "invalid_query_param", "Invalid resume cursor", {
+    hint: "Pass lastSeq as a non-negative integer.",
+    retriable: false,
+  }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
 }

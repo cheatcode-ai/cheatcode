@@ -20,6 +20,7 @@ export const ModelFallbackDataSchema = z
   })
   .strict();
 
+/* retained for historical transcripts */
 const PlanDataSchema = z
   .object({
     v: z.literal(1),
@@ -110,7 +111,7 @@ const ErrorDataSchema = z
 export const TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS = 16 * 1024;
 
 /** Lossless transport envelope for one UI part that is larger than a transcript segment. */
-export const TranscriptFragmentDataSchema = z
+const TranscriptFragmentDataSchema = z
   .object({
     v: z.literal(1),
     final: z.boolean(),
@@ -176,7 +177,6 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
 ]);
 
 export type ModelFallbackData = z.infer<typeof ModelFallbackDataSchema>;
-export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type SandboxState = "cold" | z.infer<typeof SandboxStreamStatusSchema>;
 
 type CheatcodeDataParts = {

@@ -1,5 +1,6 @@
 import type { ResourceDeletionJobLease } from "@cheatcode/db";
 import type { ResourceDeletionWorkflowPayload } from "@cheatcode/types";
+import { continuationLeaseToken as createContinuationLeaseToken } from "./deletion-job-runner";
 
 export interface ResourceDeletionWorkflowBindings {
   RESOURCE_DELETION_WORKFLOW: Workflow<ResourceDeletionWorkflowPayload>;
@@ -35,17 +36,10 @@ export async function createResourceDeletionInstances(
 
 /** Keeps replayed continuation reservation attempts on the same fencing identity. */
 export async function continuationLeaseToken(lease: ResourceDeletionJobLease): Promise<string> {
-  const input = new TextEncoder().encode(`${lease.jobId}:${lease.continuation + 1}`);
-  const bytes = new Uint8Array(await crypto.subtle.digest("SHA-256", input)).slice(0, 16);
-  const versionByte = bytes[6];
-  const variantByte = bytes[8];
-  if (versionByte === undefined || variantByte === undefined) {
-    throw new ResourceDeletionInstanceInvariantError("Continuation lease digest was incomplete");
-  }
-  bytes[6] = (versionByte & 0x0f) | 0x80;
-  bytes[8] = (variantByte & 0x3f) | 0x80;
-  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+  return createContinuationLeaseToken(
+    `${lease.jobId}:${lease.continuation + 1}`,
+    () => new ResourceDeletionInstanceInvariantError("Continuation lease digest was incomplete"),
+  );
 }
 
 function workflowPayload(lease: ResourceDeletionJobLease): ResourceDeletionWorkflowPayload {

@@ -1,4 +1,4 @@
-import { mintSkillRuntimeCapability, type SkillRuntimeScope } from "@cheatcode/auth";
+import { mintSkillRuntimeCapability } from "@cheatcode/auth";
 import {
   createDb,
   rotateSkillRuntimeCapabilities,
@@ -6,7 +6,7 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
-import { AgentRunId, UserId } from "@cheatcode/types";
+import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 

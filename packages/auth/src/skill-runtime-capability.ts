@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { timingSafeEqual } from "./crypto";
 
-export const SKILL_RUNTIME_CAPABILITY_TTL_MS = 15 * 60_000;
+const SKILL_RUNTIME_CAPABILITY_TTL_MS = 15 * 60_000;
 
 const CAPABILITY_PREFIX = "ccr1";
 const CAPABILITY_TOKEN_ID_BYTES = 16;
@@ -11,15 +11,6 @@ const CAPABILITY_SECRET_LENGTH = 43;
 const CAPABILITY_DIGEST_LENGTH = 43;
 const BASE64_URL_PATTERN = /^[A-Za-z0-9_-]+$/u;
 const TEXT_ENCODER = new TextEncoder();
-
-export const SkillRuntimeScopeSchema = z.enum([
-  "events:write",
-  "integrations:execute",
-  "skills:read",
-  "skills:write",
-]);
-
-export type SkillRuntimeScope = z.infer<typeof SkillRuntimeScopeSchema>;
 
 export interface MintedSkillRuntimeCapability {
   digest: string;

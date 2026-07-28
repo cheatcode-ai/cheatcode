@@ -1,8 +1,6 @@
 export type {
   ActivityHistoryResponse,
   ActivityRunPoint,
-  BrowserTakeoverResume,
-  BrowserTakeoverResumeResult,
   BrowserTakeoverSession,
   BrowserTakeoverStatus,
   CreateRun,
@@ -23,7 +21,6 @@ export type {
   SandboxConsoleProcess,
   SandboxConsoleSnapshot,
   SandboxFileEntry,
-  SandboxFilePreview,
   SandboxHourPoint,
   SandboxIdeSession,
   SandboxPreviewStatus,
@@ -34,7 +31,6 @@ export type {
   SearchResult,
   SearchResultThread,
   Thread,
-  ToolDomain,
   ToolkitAction,
   ToolkitActionsResponse,
   ToolkitCatalogEntry,
@@ -47,8 +43,6 @@ export type {
 export {
   ActivityHistoryResponseSchema,
   ActivityQuerySchema,
-  AgentSummarySchema,
-  BrowserTakeoverActiveSchema,
   BrowserTakeoverResumeResultSchema,
   BrowserTakeoverResumeSchema,
   BrowserTakeoverSessionSchema,
@@ -63,14 +57,12 @@ export {
   IntegrationConnectResponseSchema,
   IntegrationSchema,
   MAX_USER_SKILLS,
-  MessagePartSchema,
   Paginated,
   PaginationQuerySchema,
   PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
   PROJECT_FILE_MAX_BATCH,
   PROJECT_FILE_MAX_BYTES,
   PROJECT_FILE_MAX_CURRENT_FILES,
-  PROJECT_MODES,
   ProjectFileListSchema,
   ProjectFileRelativePathSchema,
   ProjectFileSchema,
@@ -81,15 +73,10 @@ export {
   ProviderSchema,
   RecentThreadsQuerySchema,
   RecentThreadsResponseSchema,
-  RUN_INTENTS,
   RunIntentSchema,
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,
-  SandboxFileListSchema,
   SandboxFilePathSchema,
-  SandboxFilePreviewSchema,
-  SandboxFileSchema,
-  SandboxFileWriteSchema,
   SandboxIdeSessionSchema,
   SandboxPreviewStatusSchema,
   SandboxPreviewWakeSchema,
@@ -99,24 +86,18 @@ export {
   SearchQuerySchema,
   SearchResponseSchema,
   ThreadSchema,
-  ToolDomainSchema,
   ToolkitActionsResponseSchema,
-  ToolSummarySchema,
   UIMessageRecordSchema,
   UpdateProjectSchema,
-  UpdateSandboxPathFileSchema,
   UpdateThreadSchema,
   UpsertProviderKeySchema,
   USER_MESSAGE_MAX_CHARACTERS,
   UserSkillSchema,
   UserSkillsResponseSchema,
 } from "./api";
-export type { ArtifactKind, OutputDownloadUrlResponse } from "./artifacts";
+export type { OutputDownloadUrlResponse } from "./artifacts";
 export {
-  ARTIFACT_KINDS,
-  ArtifactKindSchema,
   OutputDownloadUrlResponseSchema,
-  OutputDownloadUrlSchema,
   OutputIdSchema,
 } from "./artifacts";
 export type {
@@ -146,7 +127,6 @@ export {
   SandboxUsageSummaryResponseSchema,
 } from "./billing";
 export type { AgentCapabilityName, ToolCapabilityName } from "./capabilities";
-export { AGENT_CAPABILITIES, TOOL_CAPABILITIES } from "./capabilities";
 export type { ErrorCode } from "./errors";
 export { ErrorResponseSchema } from "./errors";
 export {
@@ -156,11 +136,7 @@ export {
   UserId,
 } from "./ids";
 export type { IntegrationName } from "./integrations";
-export {
-  INTEGRATION_NAME_MAX_LENGTH,
-  INTEGRATION_NAME_PATTERN,
-  IntegrationNameSchema,
-} from "./integrations";
+export { IntegrationNameSchema } from "./integrations";
 export type {
   AgentLifecycleServiceBinding,
   AgentLifecycleServiceResult,
@@ -174,13 +150,10 @@ export type {
 } from "./internal-maintenance";
 export {
   AgentLifecycleServiceResultSchema,
-  CanonicalProjectWorkspaceSlugSchema,
   InternalAgentStateDeleteBodySchema,
   InternalAgentStateDeleteRequestSchema,
-  InternalProjectDeletionRequestSchema,
   InternalResourceDeletionRequestSchema,
   InternalStateDeleteResponseSchema,
-  InternalThreadDeletionRequestSchema,
   ResourceDeletionServiceResultSchema,
   ResourceDeletionWorkflowPayloadSchema,
 } from "./internal-maintenance";
@@ -205,13 +178,14 @@ export {
   UserProfileSchema,
 } from "./profile";
 export { RunStatusSnapshotSchema } from "./run-control";
+export type { SkillRuntimeScope } from "./skill-runtime";
+export { SkillRuntimeScopeSchema } from "./skill-runtime";
 export {
   ClientErrorBodySchema,
   ClientUserEventBodySchema,
   normalizeTelemetryPath,
   WebVitalsBodySchema,
 } from "./telemetry";
-export type { TranscriptSegmentParts } from "./transcript-segments";
 export {
   coalesceTranscriptSegmentParts,
   coalesceTranscriptUIMessages,
@@ -225,13 +199,10 @@ export type {
   CheatcodeUIMessage,
   ModelFallbackData,
   SandboxState,
-  TaskStatus,
   UIMessagePart,
 } from "./ui-message";
 export {
   CHEATCODE_DATA_SCHEMAS,
-  MessagePartsSchema,
   ModelFallbackDataSchema,
   parseMessagePart,
-  TranscriptFragmentDataSchema,
 } from "./ui-message";
