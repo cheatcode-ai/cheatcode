@@ -4,26 +4,24 @@ import { z } from "zod";
  * Daytona `sandbox.state.updated` webhook payload. `id` is the sandbox UUID,
  * `newState` the new lifecycle state (e.g. "STARTED", "STOPPED"). Extra fields are tolerated.
  */
-export const DaytonaWebhookSchema = z
-  .object({
-    event: z.literal("sandbox.state.updated"),
-    id: z.string().uuid(),
-    newState: z
-      .string()
-      .trim()
-      .min(1)
-      .max(64)
-      .regex(/^[A-Za-z_]+$/),
-    oldState: z
-      .string()
-      .trim()
-      .min(1)
-      .max(64)
-      .regex(/^[A-Za-z_]+$/)
-      .optional(),
-    updatedAt: z.string().datetime({ offset: true }),
-  })
-  .passthrough();
+export const DaytonaWebhookSchema = z.looseObject({
+  event: z.literal("sandbox.state.updated"),
+  id: z.string().uuid(),
+  newState: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z_]+$/),
+  oldState: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .regex(/^[A-Za-z_]+$/)
+    .optional(),
+  updatedAt: z.string().datetime({ offset: true }),
+});
 
 const WEBHOOK_TOLERANCE_SECONDS = 5 * 60;
 const MAX_SIGNATURE_HEADER_LENGTH = 2_048;
@@ -65,7 +63,7 @@ export async function verifyDaytonaWebhook(
   const signedContent = new TextEncoder().encode(`${messageId}.${timestamp}.${rawBody}`);
   for (const candidate of signature.split(/\s+/u)) {
     const encoded = candidate.startsWith("v1,") ? candidate.slice(3) : "";
-    const signatureBytes = decodeBase64(encoded);
+    const signatureBytes = decodeWebhookBase64(encoded);
     if (
       signatureBytes &&
       (await crypto.subtle.verify("HMAC", key, signatureBytes, signedContent))
@@ -91,10 +89,10 @@ function isFreshWebhookTimestamp(value: string): boolean {
 
 function decodeSigningSecret(secret: string): Uint8Array<ArrayBuffer> | null {
   const encoded = secret.startsWith("whsec_") ? secret.slice(6) : "";
-  return decodeBase64(encoded);
+  return decodeWebhookBase64(encoded);
 }
 
-function decodeBase64(value: string): Uint8Array<ArrayBuffer> | null {
+function decodeWebhookBase64(value: string): Uint8Array<ArrayBuffer> | null {
   if (!value || value.length > 1_024) return null;
   try {
     const binary = atob(value);

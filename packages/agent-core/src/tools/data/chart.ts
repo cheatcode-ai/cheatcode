@@ -7,7 +7,7 @@ import {
   DataChartInputSchema,
   type DataChartOutput,
   DataChartOutputSchema,
-  type DataRecord,
+  type DataEntry,
 } from "./schemas";
 
 export async function executeDataChart(
@@ -45,7 +45,7 @@ export async function executeDataChart(
   });
 }
 
-function rowsFromInput(input: DataChartInput): DataRecord[] {
+function rowsFromInput(input: DataChartInput): DataEntry[] {
   if (input.csv) {
     return csvToRecords(input.csv, input.delimiter, { maxColumns: 100, maxRows: 5_000 }).rows.slice(
       0,
@@ -55,30 +55,30 @@ function rowsFromInput(input: DataChartInput): DataRecord[] {
   return normalizeRows(input.rows ?? []).slice(0, 500);
 }
 
-function projectChartRows(input: DataChartInput, rows: readonly DataRecord[]): DataRecord[] {
+function projectChartRows(input: DataChartInput, rows: readonly DataEntry[]): DataEntry[] {
   return rows.map((row) =>
     Object.fromEntries([input.xKey, ...input.yKeys].map((key) => [key, row[key] ?? null])),
   );
 }
 
-function assertChartColumns(input: DataChartInput, rows: readonly DataRecord[]): void {
+function assertChartColumns(input: DataChartInput, rows: readonly DataEntry[]): void {
   const first = rows[0];
   if (!first) {
-    throw new APIError(400, "invalid_request_body", "Chart data has no rows", {
+    throw new APIError(400, "request_body_invalid", "Chart data has no rows", {
       retriable: false,
     });
   }
   const keys = new Set(Object.keys(first));
   const missing = [input.xKey, ...input.yKeys].filter((key) => !keys.has(key));
   if (missing.length > 0) {
-    throw new APIError(400, "invalid_request_body", "Chart columns are missing", {
+    throw new APIError(400, "request_body_invalid", "Chart columns are missing", {
       details: { missing },
       retriable: false,
     });
   }
 }
 
-function chartPoints(input: DataChartInput, rows: readonly DataRecord[]): ChartPoint[] {
+function chartPoints(input: DataChartInput, rows: readonly DataEntry[]): ChartPoint[] {
   return rows.map((row, rowIndex) => ({
     label: String(row[input.xKey] ?? ""),
     values: input.yKeys.map((key) => numericChartValue(row[key], key, rowIndex)),
@@ -88,7 +88,7 @@ function chartPoints(input: DataChartInput, rows: readonly DataRecord[]): ChartP
 function numericChartValue(value: unknown, key: string, rowIndex: number): number {
   const numeric = typeof value === "number" ? value : Number(String(value ?? "").trim());
   if (!Number.isFinite(numeric)) {
-    throw new APIError(400, "invalid_request_body", "Chart series values must be numeric", {
+    throw new APIError(400, "request_body_invalid", "Chart series values must be numeric", {
       details: { column: key, row: rowIndex + 1 },
       retriable: false,
     });

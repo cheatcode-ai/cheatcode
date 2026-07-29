@@ -7,7 +7,7 @@ export function formatAgentRouteError(error: unknown, requestId: string): Respon
 
 export function toAgentRouteError(error: unknown): APIError {
   if (error instanceof z.ZodError) {
-    return new APIError(400, "invalid_request_body", "Invalid request payload", {
+    return new APIError(400, "request_body_invalid", "Invalid request payload", {
       details: { issues: error.issues.map((issue) => issue.message) },
       retriable: false,
     });

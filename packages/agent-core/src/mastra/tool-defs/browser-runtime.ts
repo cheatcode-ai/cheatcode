@@ -41,9 +41,14 @@ export function browserRuntimeFromRequestContext(
   const runtimeContext = CodeRuntimeContextSchema.parse(requestContext.get(CONTEXT.codeRuntime));
   const runId = requestContext.get(CONTEXT.browserRunId);
   if (typeof runId !== "string" || runId.length === 0) {
-    throw new APIError(500, "internal_error", "Browser runtime is missing its run identity.", {
-      retriable: false,
-    });
+    throw new APIError(
+      500,
+      "internal_service_error",
+      "Browser runtime is missing its run identity.",
+      {
+        retriable: false,
+      },
+    );
   }
   return {
     ...(runtimeContext.artifacts ? { artifacts: runtimeContext.artifacts } : {}),

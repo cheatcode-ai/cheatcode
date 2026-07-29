@@ -1,9 +1,10 @@
 import { getProject, getThread, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import { toProjectId, toThreadId, toUserId } from "@cheatcode/types";
 import type { SandboxFileEntry } from "@cheatcode/types/api";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
+import { shellQuote } from "./sandbox-support";
 
 export const SANDBOX_WORKSPACE_ROOT = "/workspace";
 export const TERMINAL_DISPLAY_WORKSPACE = "/home/user/computer";
@@ -48,31 +49,36 @@ const CODE_SERVER_ENTRY_RELATIVE_PATHS = [
   "main.py",
   "README.md",
 ];
-const SandboxStateCacheSchema = z
-  .object({ state: z.string().min(1).max(50), updatedAt: z.string().optional() })
-  .strict();
+const SandboxStateCacheSchema = z.strictObject({
+  state: z.string().min(1).max(50),
+  updatedAt: z.string().optional(),
+});
 
 export async function terminalProjectForThread(
   env: AgentEnv,
   userId: string,
   threadId: string,
 ): Promise<{ id: string; name: string; workspaceSlug: string } | null> {
-  const parsedUserId = UserId(userId);
+  const parsedUserId = toUserId(userId);
   return withUserDb(env, parsedUserId, async ({ transaction }) => {
     return await transaction(async (tx) => {
-      const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
+      const thread = await getThread(tx, { threadId: toThreadId(threadId), userId: parsedUserId });
       if (!thread) {
-        throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+        throw new APIError(404, "resource_thread_not_found", "Thread not found", {
+          retriable: false,
+        });
       }
       if (!thread.projectId) {
         return null;
       }
       const project = await getProject(tx, {
-        projectId: ProjectId(thread.projectId),
+        projectId: toProjectId(thread.projectId),
         userId: parsedUserId,
       });
       if (!project) {
-        throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+        throw new APIError(404, "resource_project_not_found", "Project not found", {
+          retriable: false,
+        });
       }
       return { id: project.id, name: project.name, workspaceSlug: project.workspaceSlug };
     });
@@ -166,10 +172,6 @@ export function withTerminalCwdMarker(command: string, marker: string): string {
 __cc_terminal_status=$?
 printf '\n%s%s\n' ${shellQuote(marker)} "$PWD"
 exit "$__cc_terminal_status"`;
-}
-
-function shellQuote(value: string): string {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 export function extractTerminalCwd(

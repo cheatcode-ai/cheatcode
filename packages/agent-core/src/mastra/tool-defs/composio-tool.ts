@@ -18,7 +18,7 @@ const MAX_COMPOSIO_OUTPUT_DEPTH = 6;
 const COMPOSIO_LIST_LIMIT = 1000;
 const COMPOSIO_LIST_TIMEOUT_MS = 30_000;
 const COMPOSIO_EXECUTE_TIMEOUT_MS = 120_000;
-const requestContextReaderSchema = {
+const RequestContextReaderSchema = {
   parse(value: unknown): { get(key: string): unknown } {
     if (!value || typeof value !== "object") {
       throw new Error("Mastra request context is required for Composio tools.");
@@ -31,90 +31,82 @@ const requestContextReaderSchema = {
   },
 };
 
-const composioArgumentsSchema = z
+const ComposioArgumentsSchema = z
   .record(z.string().min(1).max(120), z.unknown())
   .default({})
   .describe("Tool arguments to pass to Composio. Keep serialized JSON under 100KB.");
 
-const composioListToolsInputSchema = z
-  .object({
-    integration: IntegrationNameSchema.describe(
-      "Connected integration whose tools should be listed.",
+const ComposioListToolsInputSchema = z.strictObject({
+  integration: IntegrationNameSchema.describe(
+    "Connected integration whose tools should be listed.",
+  ),
+  search: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .optional()
+    .describe(
+      "Optional keyword filter (e.g. 'create issue') to narrow large toolkits. Use this when a previous listing returned toolsTruncated=true.",
     ),
-    search: z
-      .string()
-      .trim()
-      .min(1)
-      .max(120)
-      .optional()
-      .describe(
-        "Optional keyword filter (e.g. 'create issue') to narrow large toolkits. Use this when a previous listing returned toolsTruncated=true.",
-      ),
-  })
-  .strict();
+});
 
-const composioListToolsOutputSchema = z
-  .object({
-    error: z.string().max(1_000).nullable(),
-    integration: IntegrationNameSchema,
-    successful: z.boolean(),
-    toolCount: z.number().int().nonnegative(),
-    toolsJson: z.string().max(MAX_COMPOSIO_OUTPUT_CHARS),
-    toolsTruncated: z.boolean(),
-  })
-  .strict();
+const ComposioListToolsOutputSchema = z.strictObject({
+  error: z.string().max(1_000).nullable(),
+  integration: IntegrationNameSchema,
+  success: z.boolean(),
+  toolCount: z.number().int().nonnegative(),
+  toolsJson: z.string().max(MAX_COMPOSIO_OUTPUT_CHARS),
+  toolsTruncated: z.boolean(),
+});
 
-const composioExecuteInputSchema = z
-  .object({
-    allowLatestVersion: z
-      .boolean()
-      .default(false)
-      .describe("Set true only when the user accepts executing the latest Composio tool version."),
-    arguments: composioArgumentsSchema,
-    integration: IntegrationNameSchema.describe("Connected integration to use for this action."),
-    toolSlug: z
-      .string()
-      .trim()
-      .min(1)
-      .max(160)
-      .regex(/^[A-Z0-9_]+$/)
-      .describe("Exact Composio tool slug, for example GITHUB_GET_REPO."),
-    version: z
-      .string()
-      .trim()
-      .min(1)
-      .max(120)
-      .optional()
-      .describe("Concrete Composio toolkit version. Prefer this over allowLatestVersion."),
-  })
-  .strict();
+const ComposioExecuteInputSchema = z.strictObject({
+  allowLatestVersion: z
+    .boolean()
+    .default(false)
+    .describe("Set true only when the user accepts executing the latest Composio tool version."),
+  arguments: ComposioArgumentsSchema,
+  integration: IntegrationNameSchema.describe("Connected integration to use for this action."),
+  toolSlug: z
+    .string()
+    .trim()
+    .min(1)
+    .max(160)
+    .regex(/^[A-Z0-9_]+$/)
+    .describe("Exact Composio tool slug, for example GITHUB_GET_REPO."),
+  version: z
+    .string()
+    .trim()
+    .min(1)
+    .max(120)
+    .optional()
+    .describe("Concrete Composio toolkit version. Prefer this over allowLatestVersion."),
+});
 
-const composioExecuteOutputSchema = z
-  .object({
-    connectedAccountId: z.string().max(500).nullable(),
-    data: z.string().max(MAX_COMPOSIO_OUTPUT_CHARS),
-    dataTruncated: z.boolean(),
-    error: z.string().max(1_000).nullable(),
-    integration: IntegrationNameSchema,
-    logId: z.string().max(500).nullable(),
-    quota: z
-      .object({
-        limit: z.number().finite().nonnegative(),
-        remaining: z.number().finite().nonnegative(),
-      })
-      .strict()
-      .nullable(),
-    successful: z.boolean(),
-    toolSlug: z.string().max(160),
-  })
-  .strict();
+const ComposioExecuteOutputSchema = z.strictObject({
+  connectedAccountId: z.string().max(500).nullable(),
+  data: z.string().max(MAX_COMPOSIO_OUTPUT_CHARS),
+  dataTruncated: z.boolean(),
+  error: z.string().max(1_000).nullable(),
+  integration: IntegrationNameSchema,
+  logId: z.string().max(500).nullable(),
+  quota: z
+    .strictObject({
+      limit: z.number().finite().nonnegative(),
+      remaining: z.number().finite().nonnegative(),
+    })
 
-const composioExecuteResponseSchema = z
+    .nullable(),
+  success: z.boolean(),
+  toolSlug: z.string().max(160),
+});
+
+const ComposioExecuteResponseSchema = z
   .object({
     data: z.unknown(),
     error: z.string().max(1_000).nullable(),
     logId: z.string().max(500).optional(),
-    successful: z.boolean(),
+    success: z.boolean(),
   })
   .strip();
 
@@ -122,7 +114,7 @@ const composioExecuteResponseSchema = z
 // schema projects each tool down to exactly what the agent needs for
 // composio_execute: its canonical slug, input schema, version, and deprecation
 // signal. Dropping output metadata keeps more actions within the output ceiling.
-const composioRawToolSchema = z.object({
+const ComposioRawToolSchema = z.object({
   slug: z.string().min(1).max(160),
   name: z.string().max(200).optional(),
   description: z.string().max(4_000).optional(),
@@ -131,12 +123,12 @@ const composioRawToolSchema = z.object({
   isDeprecated: z.boolean().optional(),
 });
 
-const composioRawToolListSchema = z.array(composioRawToolSchema).max(COMPOSIO_LIST_LIMIT);
+const ComposioRawToolListSchema = z.array(ComposioRawToolSchema).max(COMPOSIO_LIST_LIMIT);
 
-type ComposioListToolsInput = z.infer<typeof composioListToolsInputSchema>;
-type ComposioExecuteInput = z.infer<typeof composioExecuteInputSchema>;
-type ComposioExecuteOutput = z.infer<typeof composioExecuteOutputSchema>;
-type ComposioListToolsOutput = z.infer<typeof composioListToolsOutputSchema>;
+type ComposioListToolsInput = z.infer<typeof ComposioListToolsInputSchema>;
+type ComposioExecuteInput = z.infer<typeof ComposioExecuteInputSchema>;
+type ComposioExecuteOutput = z.infer<typeof ComposioExecuteOutputSchema>;
+type ComposioListToolsOutput = z.infer<typeof ComposioListToolsOutputSchema>;
 
 export interface ComposioRuntimeContext {
   apiKey?: string | undefined;
@@ -165,7 +157,7 @@ interface ComposioExecutionTarget {
 }
 
 function requestContextFromToolContext(context: unknown): { get(key: string): unknown } {
-  return requestContextReaderSchema.parse(
+  return RequestContextReaderSchema.parse(
     typeof context === "object" && context !== null
       ? (context as { requestContext?: unknown }).requestContext
       : undefined,
@@ -215,15 +207,15 @@ async function listComposioTools(
       },
       COMPOSIO_LIST_TIMEOUT_MS,
     );
-    const parsed = composioRawToolListSchema.safeParse(page.items);
+    const parsed = ComposioRawToolListSchema.safeParse(page.items);
     if (!parsed.success) {
       return composioListFailure(input, "Composio returned an unexpected tool list shape.");
     }
     const bounded = boundedToolListJson(parsed.data, MAX_COMPOSIO_OUTPUT_CHARS);
-    return composioListToolsOutputSchema.parse({
+    return ComposioListToolsOutputSchema.parse({
       error: null,
       integration: input.integration,
-      successful: true,
+      success: true,
       toolCount: parsed.data.length,
       toolsJson: bounded.text,
       toolsTruncated: bounded.truncated || page.nextCursor !== null,
@@ -298,7 +290,7 @@ async function executeMeteredComposioAction(
   quota: { limit: number; remaining: number } | null,
 ): Promise<ComposioExecuteOutput> {
   try {
-    const response = composioExecuteResponseSchema.parse(
+    const response = ComposioExecuteResponseSchema.parse(
       await new ComposioClient(target.apiKey).executeTool(
         input.toolSlug,
         {
@@ -311,7 +303,7 @@ async function executeMeteredComposioAction(
       ),
     );
     const bounded = boundedJson(response.data, MAX_COMPOSIO_OUTPUT_CHARS);
-    return composioExecuteOutputSchema.parse({
+    return ComposioExecuteOutputSchema.parse({
       connectedAccountId: target.connectionId,
       data: bounded.text,
       dataTruncated: bounded.truncated,
@@ -319,7 +311,7 @@ async function executeMeteredComposioAction(
       integration: input.integration,
       logId: response.logId ?? null,
       quota: quota ? { limit: quota.limit, remaining: quota.remaining } : null,
-      successful: response.successful,
+      success: response.success,
       toolSlug: input.toolSlug,
     });
   } catch (error) {
@@ -337,10 +329,10 @@ function composioListFailure(
   input: ComposioListToolsInput,
   error: string,
 ): ComposioListToolsOutput {
-  return composioListToolsOutputSchema.parse({
+  return ComposioListToolsOutputSchema.parse({
     error,
     integration: input.integration,
-    successful: false,
+    success: false,
     toolCount: 0,
     toolsJson: "[]",
     toolsTruncated: false,
@@ -353,7 +345,7 @@ function composioExecuteFailure(
   error: string,
   quota: { limit: number; remaining: number } | null = null,
 ): ComposioExecuteOutput {
-  return composioExecuteOutputSchema.parse({
+  return ComposioExecuteOutputSchema.parse({
     connectedAccountId,
     data: "{}",
     dataTruncated: false,
@@ -361,7 +353,7 @@ function composioExecuteFailure(
     integration: input.integration,
     logId: null,
     quota,
-    successful: false,
+    success: false,
     toolSlug: input.toolSlug,
   });
 }
@@ -532,8 +524,8 @@ export const mastraComposioListTools = createTool({
   id: "composio_list_tools",
   description:
     "List available Composio action tools for a user-connected integration before choosing an exact action slug. If toolsTruncated is true, call again with a `search` keyword to narrow to the action you need.",
-  inputSchema: composioListToolsInputSchema,
-  outputSchema: composioListToolsOutputSchema,
+  inputSchema: ComposioListToolsInputSchema,
+  outputSchema: ComposioListToolsOutputSchema,
   execute: async (input, context) => listComposioTools(input, composioRuntimeFromContext(context)),
 });
 
@@ -541,10 +533,10 @@ export const mastraComposioExecute = createTool({
   id: "composio_execute",
   description:
     "Execute an explicit user-requested action through a connected Composio OAuth integration. Use only when the user asks Cheatcode to act in that external app.",
-  inputSchema: composioExecuteInputSchema,
-  outputSchema: composioExecuteOutputSchema,
+  inputSchema: ComposioExecuteInputSchema,
+  outputSchema: ComposioExecuteOutputSchema,
   execute: async (input, context) => {
-    const parsedInput = composioExecuteInputSchema.parse(input);
+    const parsedInput = ComposioExecuteInputSchema.parse(input);
     const runtime = composioRuntimeFromContext(context);
     return executeComposioAction(parsedInput, runtime, composioQuotaEventId(context));
   },

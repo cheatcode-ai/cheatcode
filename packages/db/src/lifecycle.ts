@@ -1,5 +1,5 @@
 import type { UserId } from "@cheatcode/types";
-import { UserId as toUserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import type { Provider } from "@cheatcode/types/api";
 import { and, asc, eq, gt, gte, isNull, sql } from "drizzle-orm";
 import { clerkIdentityHash } from "./clerk-identity";

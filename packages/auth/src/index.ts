@@ -109,10 +109,15 @@ async function verifyClerkToken(
       throw error;
     }
     if (!(error instanceof TokenVerificationError)) {
-      throw new APIError(503, "unavailable_maintenance", "Clerk verification is unavailable", {
-        cause: error,
-        retriable: true,
-      });
+      throw new APIError(
+        503,
+        "service_maintenance_unavailable",
+        "Clerk verification is unavailable",
+        {
+          cause: error,
+          retriable: true,
+        },
+      );
     }
     throw new APIError(401, "auth_token_invalid", "Invalid or expired bearer token", {
       cause: error,
@@ -271,9 +276,14 @@ async function clerkJwkForToken(
   secretKey: string | undefined,
 ): Promise<JsonWebKey> {
   if (!secretKey) {
-    throw new APIError(503, "unavailable_maintenance", "Clerk verification is unavailable", {
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Clerk verification is unavailable",
+      {
+        retriable: true,
+      },
+    );
   }
   if (!kid) {
     throw new APIError(401, "auth_token_invalid", "Clerk token key ID is missing", {
@@ -384,7 +394,7 @@ async function clerkApiRequest(
   init: { body?: string; method: "GET" | "PATCH" },
 ): Promise<Response> {
   if (!secretKey.trim() || secretKey.length > 2_000) {
-    throw new APIError(503, "unavailable_maintenance", "Clerk credentials are invalid", {
+    throw new APIError(503, "service_maintenance_unavailable", "Clerk credentials are invalid", {
       retriable: false,
     });
   }
@@ -417,7 +427,7 @@ async function clerkApiRequest(
 function boundedClerkRequestBody(value: Record<string, unknown>): string {
   const body = JSON.stringify(value);
   if (new TextEncoder().encode(body).byteLength > CLERK_REQUEST_BODY_MAX_BYTES) {
-    throw new APIError(400, "invalid_request_body", "Clerk metadata payload is too large", {
+    throw new APIError(400, "request_body_invalid", "Clerk metadata payload is too large", {
       retriable: false,
     });
   }

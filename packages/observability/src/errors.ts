@@ -3,11 +3,11 @@ import type { ErrorCode } from "@cheatcode/types";
 const RETRIABLE_CODES = new Set<ErrorCode>([
   "rate_limit_exceeded",
   "upstream_llm_overloaded",
-  "upstream_timeout_llm",
-  "upstream_timeout_sandbox",
-  "internal_error",
-  "unavailable_maintenance",
-  "conflict_in_flight",
+  "upstream_llm_timeout",
+  "upstream_sandbox_timeout",
+  "internal_service_error",
+  "service_maintenance_unavailable",
+  "conflict_request_in_flight",
 ]);
 
 export class APIError extends Error {
@@ -116,7 +116,7 @@ export function toAPIError(error: unknown): APIError {
   if (error instanceof APIError) {
     return error;
   }
-  return new APIError(500, "internal_error", "Internal error", {
+  return new APIError(500, "internal_service_error", "Internal error", {
     hint: "Retry the request. If it persists, check Workers Logs with the request_id.",
     retriable: true,
   });

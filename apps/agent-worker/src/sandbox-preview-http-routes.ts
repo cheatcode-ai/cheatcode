@@ -14,7 +14,7 @@ import {
   selectInitialCodeServerFile,
   terminalDisplayCwd,
   terminalProjectForThread,
-} from "./sandbox-route-helpers";
+} from "./sandbox-route-support";
 import { parseThreadRouteParam, readGatewayUserId } from "./tenancy";
 
 const PRIVATE_CAPABILITY_CACHE_CONTROL = "private, no-store";

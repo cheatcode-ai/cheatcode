@@ -41,7 +41,7 @@ const SandboxExecResultBaseShape = {
   success: z.boolean(),
 } satisfies z.ZodRawShape;
 
-const SandboxExecResultBaseSchema = z.object(SandboxExecResultBaseShape).strict();
+const SandboxExecResultBaseSchema = z.strictObject(SandboxExecResultBaseShape);
 
 export type SandboxExecResultBase = z.infer<typeof SandboxExecResultBaseSchema>;
 

@@ -1,16 +1,12 @@
 import type { LogicalModelId, UIMessagePart } from "@cheatcode/types";
-import {
-  LogicalModelIdSchema,
-  ProjectId as toProjectId,
-  ThreadId as toThreadId,
-} from "@cheatcode/types";
+import { LogicalModelIdSchema, toProjectId, toThreadId } from "@cheatcode/types";
 import type { ProjectMode } from "@cheatcode/types/api";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "./client";
 import type {
   CreateProjectInput,
   MessageRecord,
-  ProjectSummaryRecord,
+  ProjectRecord,
   ThreadRecord,
   UpdateProjectInput,
 } from "./project-types";
@@ -116,7 +112,7 @@ export function projectSummaryFromRow(row: {
   settings: ProjectSettings;
   updatedAt: Date;
   workspaceSlug: string;
-}): ProjectSummaryRecord {
+}): ProjectRecord {
   return {
     archiveAfter: row.archiveAfter,
     createdAt: row.createdAt,

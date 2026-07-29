@@ -6,45 +6,38 @@ import {
 import { z } from "zod";
 import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
 
-export const ShellExecInputSchema = z
-  .object({
-    command: z
-      .array(
-        z
-          .string()
-          .min(1)
-          .max(8_192)
-          .describe("One argv element. Do not pass a shell-joined string."),
-      )
-      .min(1)
-      .max(128)
-      .describe("Command argv to run inside the sandbox."),
-    cwd: WorkspacePathSchema.optional().describe("Absolute working directory under /workspace."),
-    env: EnvironmentVariablesSchema.optional().describe(
-      "Request-scoped environment variables for this command only.",
-    ),
-    timeoutMs: z
-      .number()
-      .int()
-      .positive()
-      .max(600_000)
-      .optional()
-      .describe("Maximum command runtime in milliseconds."),
-  })
-  .strict();
+export const ShellExecInputSchema = z.strictObject({
+  command: z
+    .array(
+      z.string().min(1).max(8_192).describe("One argv element. Do not pass a shell-joined string."),
+    )
+    .min(1)
+    .max(128)
+    .describe("Command argv to run inside the sandbox."),
+  cwd: WorkspacePathSchema.optional().describe("Absolute working directory under /workspace."),
+  env: EnvironmentVariablesSchema.optional().describe(
+    "Request-scoped environment variables for this command only.",
+  ),
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .max(600_000)
+    .optional()
+    .describe("Maximum command runtime in milliseconds."),
+});
 
-export const ShellExecOutputSchema = z
-  .object({
-    command: z.string(),
-    stdout: z.string(),
-    stderr: z.string(),
-    success: z.boolean(),
-    exitCode: z.number().int(),
-    durationMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+export const ShellExecOutputSchema = z.strictObject({
+  command: z.string(),
+  stdout: z.string(),
+  stderr: z.string(),
+  success: z.boolean(),
+  exitCode: z.number().int(),
+  durationMs: z.number().int().nonnegative().optional(),
+});
 
-export const ShellStartProcessInputSchema = ShellExecInputSchema.extend({
+export const ShellStartProcessInputSchema = z.strictObject({
+  ...ShellExecInputSchema.shape,
   keepAliveTimeoutMs: z
     .number()
     .int()
@@ -59,45 +52,37 @@ export const ShellStartProcessInputSchema = ShellExecInputSchema.extend({
     .describe("Stable idempotency slot for replacing, inspecting, and stopping the process."),
   restartOnFailure: z.boolean().default(true),
   waitForPort: z
-    .object({
+    .strictObject({
       port: z.number().int().positive().max(65_535),
       path: z.string().min(1).max(500).optional(),
       timeoutMs: z.number().int().positive().max(600_000).optional(),
     })
-    .strict()
+
     .optional(),
-}).strict();
+});
 
-export const ShellProcessOutputSchema = z
-  .object({
-    command: z.string(),
-    id: z.string(),
-    pid: z.number().int().positive().optional(),
-    status: z.string(),
-  })
-  .strict();
+export const ShellProcessOutputSchema = z.strictObject({
+  command: z.string(),
+  id: z.string(),
+  pid: z.number().int().positive().optional(),
+  status: z.string(),
+});
 
-export const ShellKillProcessInputSchema = z
-  .object({
-    processId: z.string().min(1).max(200),
-  })
-  .strict();
+export const ShellKillProcessInputSchema = z.strictObject({
+  processId: z.string().min(1).max(200),
+});
 
-export const ShellKillProcessOutputSchema = z
-  .object({
-    processId: z.string(),
-    status: z.string(),
-    success: z.boolean(),
-  })
-  .strict();
+export const ShellKillProcessOutputSchema = z.strictObject({
+  processId: z.string(),
+  status: z.string(),
+  success: z.boolean(),
+});
 
-export const ShellTerminalInputSchema = z
-  .object({
-    command: z.string().min(1).max(4_000),
-    cwd: WorkspacePathSchema.default("/workspace"),
-    timeoutMs: z.number().int().positive().max(600_000).default(120_000),
-  })
-  .strict();
+export const ShellTerminalInputSchema = z.strictObject({
+  command: z.string().min(1).max(4_000),
+  cwd: WorkspacePathSchema.default("/workspace"),
+  timeoutMs: z.number().int().positive().max(600_000).default(120_000),
+});
 
 export type ShellExecInput = z.input<typeof ShellExecInputSchema>;
 export type ShellExecOutput = z.infer<typeof ShellExecOutputSchema>;

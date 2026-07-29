@@ -40,10 +40,15 @@ export async function authenticate(c: GatewayContext): Promise<UserId> {
 async function clerkVerification(env: AuthEnv) {
   const secretKey = await readOptionalClerkSecret(env);
   if (!secretKey) {
-    throw new APIError(503, "unavailable_maintenance", "Clerk verification is not configured", {
-      hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Clerk verification is not configured",
+      {
+        hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
+        retriable: false,
+      },
+    );
   }
   const verificationOptions = {
     authorizedParties: clerkAuthorizedParties(env),
@@ -62,14 +67,14 @@ async function resolveOrSyncClerkUser(
     return userId;
   }
   if (!secretKey) {
-    throw new APIError(404, "not_found_user", "Authenticated user is not synced", {
+    throw new APIError(404, "resource_user_not_found", "Authenticated user is not synced", {
       hint: "Wait for the Clerk user.created webhook to finish, then retry.",
       retriable: true,
     });
   }
   const snapshot = await fetchCanonicalClerkSnapshot(clerkUserId, secretKey);
   if (!snapshot.email) {
-    throw new APIError(404, "not_found_user", "Authenticated user is missing an email", {
+    throw new APIError(404, "resource_user_not_found", "Authenticated user is missing an email", {
       hint: "Add a primary email address to the Clerk user, then retry.",
       retriable: false,
     });
@@ -99,7 +104,7 @@ function mapClerkSyncError(error: unknown): unknown {
       retriable: false,
     });
   }
-  return new APIError(409, "conflict_in_flight", "Account deletion is in progress", {
+  return new APIError(409, "conflict_request_in_flight", "Account deletion is in progress", {
     hint: "Wait for deletion to finish before creating a new account.",
     retriable: true,
   });
@@ -112,7 +117,7 @@ async function fetchCanonicalClerkSnapshot(
   try {
     return await fetchClerkUserSyncSnapshot({ clerkUserId, secretKey });
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "Unable to sync Clerk user", {
+    throw new APIError(503, "service_maintenance_unavailable", "Unable to sync Clerk user", {
       hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
       retriable: true,
     });
@@ -129,11 +134,16 @@ export async function requireVerifiedClerkEmail(request: Request, env: AuthEnv):
   if (emailStatus.verified) {
     return;
   }
-  throw new APIError(403, "permission_denied", "Verify your email before starting a sandbox run", {
-    details: { email: emailStatus.email },
-    hint: "Complete Clerk email verification, refresh the app, and start the run again.",
-    retriable: false,
-  });
+  throw new APIError(
+    403,
+    "permission_access_denied",
+    "Verify your email before starting a sandbox run",
+    {
+      details: { email: emailStatus.email },
+      hint: "Complete Clerk email verification, refresh the app, and start the run again.",
+      retriable: false,
+    },
+  );
 }
 
 export function clerkAuthorizedParties(
@@ -147,10 +157,15 @@ export function clerkAuthorizedParties(
     .filter(Boolean);
   const parties = configured && configured.length > 0 ? configured : ["http://localhost:3001"];
   if (parties.length > 16 || parties.some((value) => !isExactHttpOrigin(value))) {
-    throw new APIError(503, "unavailable_maintenance", "Clerk authorized parties are invalid", {
-      hint: "Configure CLERK_AUTHORIZED_PARTIES as comma-separated exact HTTP(S) origins.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Clerk authorized parties are invalid",
+      {
+        hint: "Configure CLERK_AUTHORIZED_PARTIES as comma-separated exact HTTP(S) origins.",
+        retriable: false,
+      },
+    );
   }
   return [...new Set(parties)];
 }
@@ -176,10 +191,15 @@ async function fetchClerkEmailStatus(clerkUserId: string, secretKey: string) {
   try {
     return await fetchClerkUserPrimaryEmailStatus({ clerkUserId, secretKey });
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "Unable to verify Clerk email status", {
-      hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Unable to verify Clerk email status",
+      {
+        hint: "Verify CLERK_SECRET_KEY and Clerk Backend API availability.",
+        retriable: true,
+      },
+    );
   }
 }
 
@@ -190,7 +210,7 @@ async function readOptionalSecret(
   try {
     return await resolveWorkerSecret(secret);
   } catch {
-    throw new APIError(503, "unavailable_maintenance", `${name} is unavailable`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is unavailable`, {
       hint: `Verify the ${name} Cloudflare Secrets Store binding and secret value.`,
       retriable: false,
     });
@@ -203,7 +223,7 @@ export async function readRequiredSecret(
 ): Promise<string> {
   const value = await readOptionalSecret(secret, name);
   if (!value) {
-    throw new APIError(503, "unavailable_maintenance", `${name} is not configured`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is not configured`, {
       hint: `Set ${name} in the gateway Worker environment.`,
       retriable: false,
     });
@@ -223,10 +243,15 @@ async function readRequiredClerkSecret(
 ): Promise<string> {
   const value = await readOptionalClerkSecret(env);
   if (!value) {
-    throw new APIError(503, "unavailable_maintenance", "CLERK_SECRET_KEY is not configured", {
-      hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "CLERK_SECRET_KEY is not configured",
+      {
+        hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
+        retriable: false,
+      },
+    );
   }
   return value;
 }
@@ -239,7 +264,7 @@ function assertClerkSecretKeyFamily(
   if (!value.startsWith(requiredPrefix)) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Clerk secret key does not match the deployment environment",
       {
         hint: `Use a ${requiredPrefix} Clerk key for ${environment}.`,

@@ -17,12 +17,10 @@ import {
   type ResourceDeletionWorkflowEnv,
 } from "./resource-deletion-workflow";
 
-const ResourceDeletionCallerSchema = z
-  .object({
-    caller: z.literal("gateway"),
-    capability: z.literal("resource-deletion"),
-  })
-  .strict();
+const ResourceDeletionCallerSchema = z.strictObject({
+  caller: z.literal("gateway"),
+  capability: z.literal("resource-deletion"),
+});
 
 type ResourceDeletionCaller = z.infer<typeof ResourceDeletionCallerSchema>;
 

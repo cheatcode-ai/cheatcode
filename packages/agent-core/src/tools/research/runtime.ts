@@ -1,12 +1,10 @@
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod/v4";
 
-export const ResearchRuntimeContextSchema = z
-  .object({
-    exaApiKey: z.string().trim().min(1).optional(),
-    firecrawlApiKey: z.string().trim().min(1).optional(),
-  })
-  .strict();
+export const ResearchRuntimeContextSchema = z.strictObject({
+  exaApiKey: z.string().trim().min(1).optional(),
+  firecrawlApiKey: z.string().trim().min(1).optional(),
+});
 
 export type ResearchRuntimeContext = z.infer<typeof ResearchRuntimeContextSchema>;
 

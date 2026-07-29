@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ChevronDown, Loader2 } from "@/components/ui";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import { cn } from "@/lib/ui/cn";
+import type { useModelsPanelController } from "./models-panel-controller";
 import {
   CATALOG_PROVIDER_LABELS,
   type CatalogModel,
@@ -15,7 +16,6 @@ import {
   shortModelLabel,
 } from "./models-panel-model";
 import { ModelSourceList } from "./models-source-list";
-import type { useModelsPanelController } from "./use-models-panel-controller";
 
 type ModelsController = ReturnType<typeof useModelsPanelController>;
 

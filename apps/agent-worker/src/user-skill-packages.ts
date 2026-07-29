@@ -92,31 +92,29 @@ const PackageFilePathSchema = z.string().min(1).max(300).superRefine(validatePac
 const PackageFileEncodingSchema = z.enum(["utf8", "base64"]);
 
 export const UserSkillPackageFileSchema = z
-  .object({
+  .strictObject({
     content: z.string().max(MAX_ENCODED_FILE_CHARACTERS),
     encoding: PackageFileEncodingSchema.default("utf8"),
     path: PackageFilePathSchema,
   })
-  .strict()
+
   .superRefine(validatePackageFile);
 
 const RevisionSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const UserSkillPackageSchema = z
-  .object({
+  .strictObject({
     files: z.array(UserSkillPackageFileSchema).min(1).max(MAX_USER_SKILL_PACKAGE_FILES),
     revision: RevisionSchema,
     skillId: z.string().uuid(),
     v: z.literal(2),
   })
-  .strict()
+
   .superRefine(validatePackage);
-const MirrorManifestSchema = z
-  .object({
-    files: z.array(PackageFilePathSchema).max(MAX_USER_SKILL_PACKAGE_FILES),
-    revision: RevisionSchema,
-    v: z.literal(1),
-  })
-  .strict();
+const MirrorManifestSchema = z.strictObject({
+  files: z.array(PackageFilePathSchema).max(MAX_USER_SKILL_PACKAGE_FILES),
+  revision: RevisionSchema,
+  v: z.literal(1),
+});
 
 export type UserSkillPackage = z.infer<typeof UserSkillPackageSchema>;
 export type UserSkillPackageFile = z.infer<typeof UserSkillPackageFileSchema>;

@@ -29,22 +29,18 @@ interface MediaReference {
 }
 
 const InteractionStepsSchema = z.array(
-  z
-    .object({
-      content: z
-        .array(
-          z
-            .object({
-              data: z.string().optional(),
-              mime_type: z.string().optional(),
-              type: z.string(),
-            })
-            .passthrough(),
-        )
-        .optional(),
-      type: z.string(),
-    })
-    .passthrough(),
+  z.looseObject({
+    content: z
+      .array(
+        z.looseObject({
+          data: z.string().optional(),
+          mime_type: z.string().optional(),
+          type: z.string(),
+        }),
+      )
+      .optional(),
+    type: z.string(),
+  }),
 );
 
 export async function executeGenerateOrEditMedia(
@@ -246,7 +242,7 @@ async function loadReference(
     return loadRemoteReference(path, expected);
   }
   if (!runtime.sandbox.readFile) {
-    throw new APIError(500, "internal_error", "Sandbox file reading is unavailable.");
+    throw new APIError(500, "internal_service_error", "Sandbox file reading is unavailable.");
   }
   const resolved = resolveSandboxPath(path, runtime.workspaceDir);
   const file = await runtime.sandbox.readFile({ encoding: "base64", path: resolved });
@@ -297,7 +293,7 @@ async function storeArtifact(
   media: GeneratedMedia,
 ): Promise<ArtifactUploadResult> {
   if (!runtime.artifacts) {
-    throw new APIError(500, "internal_error", "Artifact storage is unavailable.", {
+    throw new APIError(500, "internal_service_error", "Artifact storage is unavailable.", {
       retriable: true,
     });
   }

@@ -55,15 +55,15 @@ export async function prepareIdempotentRunRequest(
       retriable: false,
     });
   }
-  if (result.action === "conflict_in_flight") {
-    throw new APIError(409, "conflict_in_flight", "Idempotent request is already running", {
+  if (result.action === "conflict_request_in_flight") {
+    throw new APIError(409, "conflict_request_in_flight", "Idempotent request is already running", {
       details: { retry_after_ms: result.retryAfterMs },
       hint: "Wait briefly, then reconnect to the run stream instead of starting another run.",
       retriable: true,
     });
   }
   if (result.response.body === null) {
-    throw new APIError(409, "conflict_in_flight", "Run was already started for this key", {
+    throw new APIError(409, "conflict_request_in_flight", "Run was already started for this key", {
       hint: "Reconnect through GET /v1/threads/{threadId}/runs/stream to resume the stream.",
       retriable: true,
     });
@@ -110,7 +110,7 @@ export async function completeIdempotentRunRequest(
     (await attemptIdempotencyCompletion(stub, body)) ||
     (await attemptIdempotencyCompletion(stub, body));
   if (!completed) {
-    throw new APIError(503, "unavailable_maintenance", "Idempotency store is unavailable", {
+    throw new APIError(503, "service_maintenance_unavailable", "Idempotency store is unavailable", {
       retriable: true,
     });
   }
@@ -137,13 +137,13 @@ async function attemptIdempotencyCompletion(
 function readIdempotencyKey(request: Request): string {
   const key = request.headers.get("Idempotency-Key")?.trim();
   if (!key) {
-    throw new APIError(400, "invalid_request_body", "Missing Idempotency-Key header", {
+    throw new APIError(400, "request_body_invalid", "Missing Idempotency-Key header", {
       hint: "POST /v1/threads/{threadId}/runs requires a unique Idempotency-Key.",
       retriable: false,
     });
   }
   if (key.length > 255) {
-    throw new APIError(400, "invalid_request_body", "Invalid Idempotency-Key header", {
+    throw new APIError(400, "request_body_invalid", "Invalid Idempotency-Key header", {
       hint: "Idempotency-Key must be 1-255 characters.",
       retriable: false,
     });
@@ -169,7 +169,7 @@ async function beginIdempotency(
   const result =
     (await attemptIdempotencyBegin(stub, body)) ?? (await attemptIdempotencyBegin(stub, body));
   if (!result) {
-    throw new APIError(503, "unavailable_maintenance", "Idempotency store is unavailable", {
+    throw new APIError(503, "service_maintenance_unavailable", "Idempotency store is unavailable", {
       hint: "Retry the request. If it persists, check the gateway Durable Object logs.",
       retriable: true,
     });

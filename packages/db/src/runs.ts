@@ -3,9 +3,9 @@ import {
   AGENT_MODEL_CATALOG,
   LogicalModelIdSchema,
   PRODUCTION_DEFAULT_MODEL_ID,
-  AgentRunId as toAgentRunId,
-  ProjectId as toProjectId,
-  ThreadId as toThreadId,
+  toAgentRunId,
+  toProjectId,
+  toThreadId,
 } from "@cheatcode/types";
 import type { ProjectMode } from "@cheatcode/types/api";
 import { ProjectModeSchema } from "@cheatcode/types/api";
@@ -17,7 +17,7 @@ import {
 } from "./billing";
 import type { Database } from "./client";
 import type { RunPersonalization } from "./profiles";
-import type { ProjectSummaryRecord } from "./project-types";
+import type { ProjectRecord } from "./project-types";
 import {
   countActiveProjects,
   createProject,
@@ -85,22 +85,22 @@ export interface CreateAgentRunInput {
 }
 
 export type CreateAgentRunResult =
-  | { modelExplicit: boolean; run: AgentRunHandle; type: "created" }
-  | { run: AgentRunHandle; type: "idempotent-replay" }
-  | { type: "idempotency-key-reused" }
-  | { type: "thread-not-found" }
-  | { archiveAfter: Date | null; type: "project-read-only" }
-  | { limit: number; type: "project-limit-reached"; used: number }
-  | { run: AgentRunHandle; type: "active-run-exists" };
+  | { isModelExplicit: boolean; run: AgentRunHandle; kind: "created" }
+  | { run: AgentRunHandle; kind: "idempotent-replay" }
+  | { kind: "idempotency-key-reused" }
+  | { kind: "thread-not-found" }
+  | { archiveAfter: Date | null; kind: "project-read-only" }
+  | { limit: number; kind: "project-limit-reached"; used: number }
+  | { run: AgentRunHandle; kind: "active-run-exists" };
 
 export type MaterializeThreadProjectResult =
-  | { project: ProjectSummaryRecord; type: "created" | "existing" }
-  | { type: "thread-not-found" }
-  | { archiveAfter: Date | null; type: "project-read-only" }
-  | { limit: number; type: "project-limit-reached"; used: number };
+  | { project: ProjectRecord; kind: "created" | "existing" }
+  | { kind: "thread-not-found" }
+  | { archiveAfter: Date | null; kind: "project-read-only" }
+  | { limit: number; kind: "project-limit-reached"; used: number };
 
 export interface UpdateAgentRunStatusInput {
-  artifactsQuiesced: boolean;
+  isArtifactsQuiesced: boolean;
   runId: AgentRunId;
   status: AgentRunStatus;
   userId: UserId;
@@ -131,7 +131,7 @@ interface CreatedRunRow {
 
 interface RunModelPlan {
   logicalModelId: LogicalModelId;
-  modelExplicit: boolean;
+  isModelExplicit: boolean;
 }
 
 export async function createAgentRunForThread(
@@ -154,7 +154,7 @@ async function createAgentRunTransaction(
   }
   const currentThread = await loadAgentRunThreadContext(db, input);
   if (!currentThread) {
-    return { type: "thread-not-found" };
+    return { kind: "thread-not-found" };
   }
   const blockedResult = await blockedRunCreationResult(db, input, currentThread);
   if (blockedResult) {
@@ -177,9 +177,9 @@ async function createAndActivateRun(
   const created = await insertPendingRun(db, input, modelPlan.logicalModelId);
   if (await activateCreatedRun(db, input, created.id, modelPlan.logicalModelId)) {
     return {
-      modelExplicit: modelPlan.modelExplicit,
+      isModelExplicit: modelPlan.isModelExplicit,
       run: createdRunHandle(thread, modelPlan.logicalModelId, created, isFirstRun),
-      type: "created",
+      kind: "created",
     };
   }
   await cancelSupersededRun(db, created.id);
@@ -190,14 +190,14 @@ async function createAndActivateRun(
   if (!active) {
     const currentThread = await loadAgentRunThreadContext(db, input);
     if (!currentThread) {
-      return { type: "thread-not-found" };
+      return { kind: "thread-not-found" };
     }
     if (currentThread.overQuota) {
-      return { archiveAfter: currentThread.archiveAfter, type: "project-read-only" };
+      return { archiveAfter: currentThread.archiveAfter, kind: "project-read-only" };
     }
     throw new Error("Thread active run changed but could not be resolved");
   }
-  return { run: active, type: "active-run-exists" };
+  return { run: active, kind: "active-run-exists" };
 }
 
 async function lockRunIdempotencyKey(db: Database, input: CreateAgentRunInput): Promise<void> {
@@ -246,7 +246,7 @@ async function materializeThreadProjectInLockedTx(
     .for("update")
     .limit(1);
   if (!locked) {
-    return { type: "thread-not-found" };
+    return { kind: "thread-not-found" };
   }
   if (locked.projectId) {
     const project = await getProject(db, {
@@ -254,16 +254,16 @@ async function materializeThreadProjectInLockedTx(
       userId: input.userId,
     });
     if (!project) {
-      return { type: "thread-not-found" };
+      return { kind: "thread-not-found" };
     }
     if (project.readOnly) {
-      return { archiveAfter: project.archiveAfter, type: "project-read-only" };
+      return { archiveAfter: project.archiveAfter, kind: "project-read-only" };
     }
-    return { project, type: "existing" };
+    return { project, kind: "existing" };
   }
   const used = await countActiveProjects(db, input.userId);
   if (used >= maxActiveProjects) {
-    return { limit: maxActiveProjects, type: "project-limit-reached", used };
+    return { limit: maxActiveProjects, kind: "project-limit-reached", used };
   }
   const intent: ThreadLaunchIntent = locked.launchIntent ?? {};
   const project = await createProject(db, {
@@ -279,7 +279,7 @@ async function materializeThreadProjectInLockedTx(
     // project-bound copy creates two sources of truth for mode and settings.
     .set({ launchIntent: null, projectId: project.id, updatedAt: sql`now()` })
     .where(and(eq(threads.id, input.threadId), isNull(threads.projectId)));
-  return { project, type: "created" };
+  return { project, kind: "created" };
 }
 
 /** Concise kebab project name from the chat's first prompt (Cheatcode's `simple-todo-app`). */
@@ -311,11 +311,11 @@ async function blockedRunCreationResult(
         runId: thread.activeRunId,
         userId: input.userId,
       }),
-      type: "active-run-exists",
+      kind: "active-run-exists",
     };
   }
   if (thread.overQuota) {
-    return { archiveAfter: thread.archiveAfter, type: "project-read-only" };
+    return { archiveAfter: thread.archiveAfter, kind: "project-read-only" };
   }
   return null;
 }
@@ -439,7 +439,7 @@ async function idempotentRunCreationResult(
     return null;
   }
   if (existing.threadId !== input.threadId || existing.requestBodyHash !== input.requestBodyHash) {
-    return { type: "idempotency-key-reused" };
+    return { kind: "idempotency-key-reused" };
   }
   const run = await findAgentRunForUser(db, {
     runId: toAgentRunId(existing.runId),
@@ -448,7 +448,7 @@ async function idempotentRunCreationResult(
   if (!run) {
     throw new Error("Idempotent run exists without a readable run handle");
   }
-  return { run, type: "idempotent-replay" };
+  return { run, kind: "idempotent-replay" };
 }
 
 async function activateCreatedRun(
@@ -491,23 +491,23 @@ function resolveRunModelPlan(
   const explicit = parseLogicalModelId(inputModelId);
   if (explicit) {
     // An explicitly-disabled model is rejected pre-resolution (400); pass the pick through unchanged.
-    return { logicalModelId: explicit, modelExplicit: true };
+    return { logicalModelId: explicit, isModelExplicit: true };
   }
   const disabled = new Set(personalization?.disabledModels ?? []);
   for (const candidate of [parseLogicalModelId(projectSettings.defaultModel)]) {
     if (candidate && !disabled.has(candidate)) {
-      return { logicalModelId: candidate, modelExplicit: true };
+      return { logicalModelId: candidate, isModelExplicit: true };
     }
   }
   // "Auto" is a concrete plan; the execution layer may later attribute a logical fallback.
   if (!disabled.has(PRODUCTION_DEFAULT_MODEL_ID)) {
-    return { logicalModelId: PRODUCTION_DEFAULT_MODEL_ID, modelExplicit: false };
+    return { logicalModelId: PRODUCTION_DEFAULT_MODEL_ID, isModelExplicit: false };
   }
   const fallback = AGENT_MODEL_CATALOG.find((entry) => !disabled.has(entry.id));
   if (!fallback) {
     throw new Error("At least one agent model must remain enabled");
   }
-  return { logicalModelId: fallback.id, modelExplicit: false };
+  return { logicalModelId: fallback.id, isModelExplicit: false };
 }
 
 function parseLogicalModelId(value: string | null | undefined): LogicalModelId | undefined {
@@ -589,7 +589,7 @@ export async function updateAgentRunStatus(
   db: Database,
   input: UpdateAgentRunStatusInput,
 ): Promise<boolean> {
-  if (input.artifactsQuiesced && !isTerminalRunStatus(input.status)) {
+  if (input.isArtifactsQuiesced && !isTerminalRunStatus(input.status)) {
     throw new Error("Artifact quiescence can only accompany a terminal run status");
   }
   return db.transaction(async (tx) => {
@@ -612,14 +612,14 @@ export async function updateAgentRunStatus(
     const updated = updateRows[0];
     if (!updated) {
       if (
-        input.artifactsQuiesced &&
+        input.isArtifactsQuiesced &&
         (await hasTerminalAgentRun(transaction, input.runId, input.userId))
       ) {
         await markArtifactUploadsQuiesced(transaction, input.runId, input.userId);
       }
       return false;
     }
-    if (input.artifactsQuiesced) {
+    if (input.isArtifactsQuiesced) {
       await markArtifactUploadsQuiesced(transaction, input.runId, input.userId);
     }
     if (isTerminalRunStatus(input.status)) {

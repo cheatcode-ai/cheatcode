@@ -30,7 +30,7 @@ import {
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { type AnalyticsBindings, createLogger } from "@cheatcode/observability";
-import { AgentRunId, UserId } from "@cheatcode/types";
+import { type AgentRunId, toAgentRunId, toUserId } from "@cheatcode/types";
 import {
   type InternalResourceDeletionRequest,
   type ResourceDeletionWorkflowPayload,
@@ -83,13 +83,11 @@ const PROJECT_RUN_PAGE_SIZE = 25;
 const RunIdPageSchema = z.array(z.string().uuid()).max(PROJECT_RUN_PAGE_SIZE);
 const OutputPageSchema = z
   .array(
-    z
-      .object({
-        id: z.string().uuid(),
-        recordType: z.enum(["generated-output", "upload-intent"]),
-        r2Key: z.string().min(1),
-      })
-      .strict(),
+    z.strictObject({
+      id: z.string().uuid(),
+      recordType: z.enum(["generated-output", "upload-intent"]),
+      r2Key: z.string().min(1),
+    }),
   )
   .max(OUTPUT_PAGE_SIZE);
 
@@ -183,7 +181,7 @@ export async function enqueueResourceDeletionWorkflow(
   env: ResourceDeletionWorkflowEnv,
   request: InternalResourceDeletionRequest,
 ): Promise<string | null> {
-  const userId = UserId(request.userId);
+  const userId = toUserId(request.userId);
   const registered = await withUserDb(env, userId, ({ transaction }) =>
     transaction(async (tx) => {
       const job = await registerResourceDeletionJob(tx, request);
@@ -585,7 +583,7 @@ async function loadRunIds(
           }),
     ),
   );
-  return RunIdPageSchema.parse(values).map(AgentRunId);
+  return RunIdPageSchema.parse(values).map(toAgentRunId);
 }
 
 async function loadOutputs(

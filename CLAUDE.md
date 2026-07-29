@@ -101,6 +101,49 @@ product QA. Code the all-weeks V2 surface first, then perform final QA through
 the direct browser commands and direct console/network/app-log inspection. The
 removed V1 tree must not be restored or copied back as a testing surface.
 
+## House conventions
+
+Use these names as contracts, not interchangeable synonyms:
+
+- `fetch*` performs third-party network I/O.
+- `load*` assembles a composite from our database.
+- `read*` reads bytes or Durable Object storage.
+- `get*` is a cheap keyed lookup without a fallback chain.
+- `resolve*` selects through an explicit fallback chain.
+- `assert*` synchronously checks an invariant and throws.
+- `require*` asynchronously fetches a prerequisite and throws when absent.
+- `ensure*` idempotently creates or establishes a prerequisite.
+- `guard*` wraps an operation with policy.
+- `verify*` is cryptographic verification; `validate*` applies business rules.
+
+Data and lifecycle nouns have fixed meanings:
+
+- `Row` is a private raw persistence shape and keeps source `snake_case`.
+- `Record` is an exported, mapped persistence shape in `camelCase`.
+- `Options` are caller-selected, per-call inputs.
+- `Config` is validated, longer-lived configuration.
+- `Context` carries request-scoped dependencies and identity.
+- `State` is mutable or persisted lifecycle data.
+
+Wire and schema grammar is equally strict:
+
+- Generic wire or storage union tags use `type`.
+- Generic in-process-only union tags use `kind`.
+- Domain fields such as `status`, `provider`, and literal `ok` keep their names.
+- Persisted message parts are wire data and therefore keep `type`.
+- Schemas we own are closed with `z.strictObject(...)`.
+- Third-party payload projections use `z.object(...).strip()` intentionally.
+- Use `z.looseObject(...)` only when unknown keys must be preserved by contract.
+- Error codes use `<category>_<subject>_<condition>`.
+- Event names use `<subsystem>_<object>_<past-participle>`.
+
+File suffixes describe architectural roles:
+
+- Shared implementation modules end in `-support`, not `-utils` or `-helpers`.
+- UI role modules use `-controller`, `-view`, or `-model`.
+- Worker route collections use `-routes`; transport-only collections use `-http-routes`.
+- Hooks keep a `use*` function name, but controller filenames omit a redundant `use-` prefix.
+
 ## Where things live
 
 | Need | File |

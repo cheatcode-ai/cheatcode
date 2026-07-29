@@ -1,13 +1,13 @@
 import { deleteUserSkill, getUserSkillById, type UserSkillRecord, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { SandboxIdeSessionSchema } from "@cheatcode/types/api";
 import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
 import { sandboxForUser } from "./agent-routing";
-import { terminalDisplayCwd } from "./sandbox-route-helpers";
+import { terminalDisplayCwd } from "./sandbox-route-support";
 import { readGatewayUserId } from "./tenancy";
 import { userSkillDirectoryPath, writeUserSkillMirror } from "./user-skill-files";
 import {
@@ -27,11 +27,11 @@ export function registerUserSkillHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): 
 }
 
 async function deleteSavedUserSkill(c: AgentContext): Promise<Response> {
-  const userId = UserId(readGatewayUserId(c.req.raw.headers));
+  const userId = toUserId(readGatewayUserId(c.req.raw.headers));
   const skillId = parsedId(c.req.param("skillId"), "skill");
   const skill = await readSkill(c.env, userId, skillId);
   if (!skill) {
-    throw new APIError(404, "not_found_skill", "Skill not found", { retriable: false });
+    throw new APIError(404, "resource_skill_not_found", "Skill not found", { retriable: false });
   }
   await removeSkillPackageFiles(c.env, userId, skill);
   await deleteSkillRecord(c.env, userId, skillId);
@@ -39,11 +39,11 @@ async function deleteSavedUserSkill(c: AgentContext): Promise<Response> {
 }
 
 async function openUserSkill(c: AgentContext): Promise<Response> {
-  const userId = UserId(readGatewayUserId(c.req.raw.headers));
+  const userId = toUserId(readGatewayUserId(c.req.raw.headers));
   const skillId = parsedId(c.req.param("skillId"), "skill");
   const skill = await readSkill(c.env, userId, skillId);
   if (!skill) {
-    throw new APIError(404, "not_found_skill", "Skill not found", { retriable: false });
+    throw new APIError(404, "resource_skill_not_found", "Skill not found", { retriable: false });
   }
   const filePath = await mirrorSkillPackage(c.env, userId, skill);
   const sandbox = await sandboxForUser(c.env, userId);
@@ -97,7 +97,7 @@ async function deleteSkillRecord(env: AgentEnv, userId: UserId, skillId: string)
   return withUserDb(env, userId, async ({ transaction }) => {
     const deleted = await transaction((tx) => deleteUserSkill(tx, userId, skillId));
     if (!deleted) {
-      throw new APIError(404, "not_found_skill", "Skill not found", { retriable: false });
+      throw new APIError(404, "resource_skill_not_found", "Skill not found", { retriable: false });
     }
   });
 }
@@ -105,7 +105,9 @@ async function deleteSkillRecord(env: AgentEnv, userId: UserId, skillId: string)
 function parsedId(value: string | undefined, label: string): string {
   const parsed = IdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", `Invalid ${label} id`, { retriable: false });
+    throw new APIError(400, "request_path_param_invalid", `Invalid ${label} id`, {
+      retriable: false,
+    });
   }
   return parsed.data;
 }

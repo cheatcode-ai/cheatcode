@@ -11,122 +11,96 @@ const SandboxStreamStatusSchema = z.enum(["starting", "ready", "failed"]);
  * Informational model-transition part. Replaces the silent text-delta fallback
  * notice and explains why routing changed.
  */
-export const ModelFallbackDataSchema = z
-  .object({
-    v: z.literal(1),
-    fromModel: LogicalModelIdSchema,
-    toModel: LogicalModelIdSchema,
-    reason: z.enum(["rate_limit", "provider_balance", "provider_error"]),
-  })
-  .strict();
+export const ModelFallbackDataSchema = z.strictObject({
+  v: z.literal(1),
+  fromModel: LogicalModelIdSchema,
+  toModel: LogicalModelIdSchema,
+  reason: z.enum(["rate_limit", "provider_balance", "provider_error"]),
+});
 
 /* retained for historical transcripts */
-const PlanDataSchema = z
-  .object({
-    v: z.literal(1),
-    parallelGroups: z.array(z.array(z.number().int().nonnegative())),
-    tasks: z.array(
-      z
-        .object({
-          id: z.string().min(1),
-          status: TaskStatusSchema,
-          title: z.string().min(1),
-        })
-        .strict(),
-    ),
-  })
-  .strict();
+const PlanDataSchema = z.strictObject({
+  v: z.literal(1),
+  parallelGroups: z.array(z.array(z.number().int().nonnegative())),
+  tasks: z.array(
+    z.strictObject({
+      id: z.string().min(1),
+      status: TaskStatusSchema,
+      title: z.string().min(1),
+    }),
+  ),
+});
 
-const TaskStatusDataSchema = z
-  .object({
-    v: z.literal(1),
-    error: z.string().optional(),
-    status: TaskStatusSchema,
-    taskId: z.string().min(1),
-  })
-  .strict();
+const TaskStatusDataSchema = z.strictObject({
+  v: z.literal(1),
+  error: z.string().optional(),
+  status: TaskStatusSchema,
+  taskId: z.string().min(1),
+});
 
-const SandboxStatusDataSchema = z
-  .object({
-    v: z.literal(1),
-    status: SandboxStreamStatusSchema,
-  })
-  .strict();
+const SandboxStatusDataSchema = z.strictObject({
+  v: z.literal(1),
+  status: SandboxStreamStatusSchema,
+});
 
-const ProjectCreatedDataSchema = z
-  .object({
-    v: z.literal(1),
-    projectId: z.string().uuid(),
-    projectName: z.string().min(1).max(200),
-  })
-  .strict();
+const ProjectCreatedDataSchema = z.strictObject({
+  v: z.literal(1),
+  projectId: z.string().uuid(),
+  projectName: z.string().min(1).max(200),
+});
 
-const SkillCreatedDataSchema = z
-  .object({
-    v: z.literal(1),
-    description: z.string().min(1).max(400).optional(),
-    filePath: z.string().min(1).max(1_000).optional(),
-    id: z.string().uuid().optional(),
-    name: z.string().min(1).max(80),
-    slug: z.string().min(1).max(80).optional(),
-  })
-  .strict();
+const SkillCreatedDataSchema = z.strictObject({
+  v: z.literal(1),
+  description: z.string().min(1).max(400).optional(),
+  filePath: z.string().min(1).max(1_000).optional(),
+  id: z.string().uuid().optional(),
+  name: z.string().min(1).max(80),
+  slug: z.string().min(1).max(80).optional(),
+});
 
-const RunIntentDataSchema = z
-  .object({
-    v: z.literal(1),
-    intent: z.literal("skill-creator"),
-  })
-  .strict();
+const RunIntentDataSchema = z.strictObject({
+  v: z.literal(1),
+  intent: z.literal("skill-creator"),
+});
 
-const ArtifactDataSchema = z
-  .object({
-    v: z.literal(1),
-    filename: z.string().min(1),
-    kind: ArtifactKindSchema,
-    mimeType: z.string().min(1),
-    outputId: OutputIdSchema,
-    sizeBytes: z.number().int().nonnegative(),
-  })
-  .strict();
+const ArtifactDataSchema = z.strictObject({
+  v: z.literal(1),
+  filename: z.string().min(1),
+  kind: ArtifactKindSchema,
+  mimeType: z.string().min(1),
+  outputId: OutputIdSchema,
+  sizeBytes: z.number().int().nonnegative(),
+});
 
-const ToolDataSchema = z
-  .object({
-    v: z.literal(1),
-    input: z.record(z.string(), z.unknown()).optional(),
-    toolCallId: z.string().min(1),
-    toolName: z.string().min(1),
-  })
-  .strict();
+const ToolDataSchema = z.strictObject({
+  v: z.literal(1),
+  input: z.record(z.string(), z.unknown()).optional(),
+  toolCallId: z.string().min(1),
+  toolName: z.string().min(1),
+});
 
-const ErrorDataSchema = z
-  .object({
-    v: z.literal(1),
-    code: z.string().min(1),
-    message: z.string(),
-    retriable: z.boolean(),
-  })
-  .strict();
+const ErrorDataSchema = z.strictObject({
+  v: z.literal(1),
+  code: z.string().min(1),
+  message: z.string(),
+  retriable: z.boolean(),
+});
 
 export const TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS = 16 * 1024;
 
 /** Lossless transport envelope for one UI part that is larger than a transcript segment. */
-const TranscriptFragmentDataSchema = z
-  .object({
-    v: z.literal(1),
-    final: z.boolean(),
-    index: z.number().int().nonnegative(),
-    partId: z.string().min(1).max(64),
-    payload: z.string().max(TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS),
-  })
-  .strict();
+const TranscriptFragmentDataSchema = z.strictObject({
+  v: z.literal(1),
+  final: z.boolean(),
+  index: z.number().int().nonnegative(),
+  partId: z.string().min(1).max(64),
+  payload: z.string().max(TRANSCRIPT_FRAGMENT_PAYLOAD_MAX_CHARACTERS),
+});
 
-const SeqDataSchema = z
-  .object({
-    v: z.literal(1),
-    seq: z.number().int().nonnegative(),
-  })
-  .strict();
+const SeqDataSchema = z.strictObject({
+  v: z.literal(1),
+  seq: z.number().int().nonnegative(),
+});
 
 export const CHEATCODE_DATA_SCHEMAS = {
   artifact: ArtifactDataSchema,
@@ -143,21 +117,17 @@ export const CHEATCODE_DATA_SCHEMAS = {
   "transcript-fragment": TranscriptFragmentDataSchema,
 } as const;
 
-const TextMessagePartSchema = z
-  .object({
-    state: z.enum(["streaming", "done"]).default("done"),
-    text: z.string(),
-    type: z.literal("text"),
-  })
-  .strict();
+const TextMessagePartSchema = z.strictObject({
+  state: z.enum(["streaming", "done"]).default("done"),
+  text: z.string(),
+  type: z.literal("text"),
+});
 function dataMessagePartSchema<Name extends keyof typeof CHEATCODE_DATA_SCHEMAS>(name: Name) {
-  return z
-    .object({
-      data: CHEATCODE_DATA_SCHEMAS[name],
-      id: z.string().optional(),
-      type: z.literal(`data-${name}`),
-    })
-    .strict();
+  return z.strictObject({
+    data: CHEATCODE_DATA_SCHEMAS[name],
+    id: z.string().optional(),
+    type: z.literal(`data-${name}`),
+  });
 }
 
 /** Exact V2 message-part contract persisted in Postgres and replayed to the web client. */

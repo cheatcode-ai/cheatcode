@@ -40,10 +40,15 @@ async function deleteQuotaNamespaceState(
   try {
     await quota.deleteAllState();
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "Quota durable state deletion failed", {
-      cause: error,
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Quota durable state deletion failed",
+      {
+        cause: error,
+        retriable: true,
+      },
+    );
   }
 }
 
@@ -93,16 +98,26 @@ async function deleteAgentState(
       await env.AGENT_LIFECYCLE.deleteUserState({ body, userId }),
     );
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
-      cause: error,
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Agent durable state deletion failed",
+      {
+        cause: error,
+        retriable: true,
+      },
+    );
   }
   if (!result.ok) {
-    throw new APIError(503, "unavailable_maintenance", "Agent durable state deletion failed", {
-      details: { status: result.status },
-      retriable: result.retriable,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Agent durable state deletion failed",
+      {
+        details: { status: result.status },
+        retriable: result.retriable,
+      },
+    );
   }
 }
 
@@ -117,7 +132,7 @@ export async function revokeUserComposioConnectionPage(
   if (!apiKey) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Composio deletion credentials are missing",
       {
         hint: "Set COMPOSIO_API_KEY before retrying the user deletion Workflow.",
@@ -193,7 +208,7 @@ async function optionalSecret(
     const value = await resolveWorkerSecret(secret);
     return value?.trim() ? value : null;
   } catch {
-    throw new APIError(503, "unavailable_maintenance", `${name} is unavailable`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is unavailable`, {
       hint: `Verify the ${name} Cloudflare secret binding.`,
       retriable: false,
     });

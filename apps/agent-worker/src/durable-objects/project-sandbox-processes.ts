@@ -353,7 +353,7 @@ function isReusableReservation(
 }
 
 function noProcessPortAvailable(): APIError {
-  return new APIError(503, "sandbox_failed_to_start", "No sandbox process port is available.", {
+  return new APIError(503, "sandbox_start_failed", "No sandbox process port is available.", {
     retriable: true,
   });
 }

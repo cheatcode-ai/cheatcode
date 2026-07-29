@@ -1,7 +1,7 @@
 import { parseSkillRuntimeCapability, verifySkillRuntimeCapabilityDigest } from "@cheatcode/auth";
 import { authorizeSkillRuntimeCapability, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
+import { type SkillRuntimeScope, toAgentRunId, toUserId, type UserId } from "@cheatcode/types";
 import type { AgentEnv } from "./agent-env";
 
 export interface SkillRuntimePrincipal {
@@ -9,7 +9,7 @@ export interface SkillRuntimePrincipal {
   projectId: string | null;
   runId: string;
   scope: SkillRuntimeScope;
-  userId: ReturnType<typeof UserId>;
+  userId: UserId;
 }
 
 /** Resolves one opaque sandbox capability through shared, tenant-scoped run state. */
@@ -23,12 +23,12 @@ export async function requireSkillRuntimePrincipal(
   if (!parsed) {
     throw invalidCapability();
   }
-  const userId = UserId(parsed.userId);
+  const userId = toUserId(parsed.userId);
   return withUserDb(env, userId, async ({ transaction }) => {
     const authorization = await transaction((tx) =>
       authorizeSkillRuntimeCapability(tx, {
         requiredScope,
-        runId: AgentRunId(parsed.runId),
+        runId: toAgentRunId(parsed.runId),
         tokenId: parsed.tokenId,
         userId,
       }),

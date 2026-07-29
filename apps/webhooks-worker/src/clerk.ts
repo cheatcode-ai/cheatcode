@@ -4,36 +4,30 @@ import type { UserId } from "@cheatcode/types";
 import type { WebhookEvent, WebhookEventType } from "@clerk/backend/webhooks";
 import { z } from "zod";
 
-const ClerkEmailAddressSchema = z
-  .object({
-    id: z.string().min(1),
-    email_address: z.string().min(1),
-  })
-  .passthrough();
+const ClerkEmailAddressSchema = z.looseObject({
+  id: z.string().min(1),
+  email_address: z.string().min(1),
+});
 
-const ClerkUserDataSchema = z
-  .object({
-    first_name: z.string().nullable().optional(),
-    id: z.string().min(1),
-    image_url: z.string().nullable().optional(),
-    last_name: z.string().nullable().optional(),
-    primary_email_address_id: z.string().min(1).nullable().optional(),
-    email_addresses: z.array(ClerkEmailAddressSchema),
-    updated_at: z.number().int().safe().nonnegative(),
-    username: z.string().nullable().optional(),
-  })
-  .passthrough();
+const ClerkUserDataSchema = z.looseObject({
+  first_name: z.string().nullable().optional(),
+  id: z.string().min(1),
+  image_url: z.string().nullable().optional(),
+  last_name: z.string().nullable().optional(),
+  primary_email_address_id: z.string().min(1).nullable().optional(),
+  email_addresses: z.array(ClerkEmailAddressSchema),
+  updated_at: z.number().int().safe().nonnegative(),
+  username: z.string().nullable().optional(),
+});
 
-const ClerkDeletedUserDataSchema = z
-  .object({
-    id: z.string().min(1).optional(),
-  })
-  .passthrough();
+const ClerkDeletedUserDataSchema = z.looseObject({
+  id: z.string().min(1).optional(),
+});
 
 type ClerkUserData = z.infer<typeof ClerkUserDataSchema>;
 
 function invalidClerkPayload(message: string): APIError {
-  return new APIError(400, "invalid_request_body", message, {
+  return new APIError(400, "request_body_invalid", message, {
     hint: "Check the Clerk webhook event selection and payload shape.",
     retriable: false,
   });
@@ -125,7 +119,7 @@ async function upsertClerkWebhookUser(
   const data = parseClerkUserData(event.data);
   const email = primaryEmailFromClerkUser(data);
   if (!email) {
-    throw new APIError(400, "invalid_request_body", "Clerk user webhook is missing an email", {
+    throw new APIError(400, "request_body_invalid", "Clerk user webhook is missing an email", {
       hint: "Configure Clerk to send email_addresses on user.created and user.updated events.",
       retriable: false,
     });

@@ -23,31 +23,27 @@ function isTelemetryIdentifier(segment: string): boolean {
   );
 }
 
-export const ClientErrorBodySchema = z
-  .object({
-    timestamp: z.number().int().nonnegative(),
-    type: z.enum([
-      "app-route-error-boundary",
-      "global-error-boundary",
-      "unhandled-rejection",
-      "window-error",
-    ]),
-    url: z.string().max(2_000).optional(),
-  })
-  .strict();
+export const ClientErrorBodySchema = z.strictObject({
+  timestamp: z.number().int().nonnegative(),
+  type: z.enum([
+    "app-route-error-boundary",
+    "global-error-boundary",
+    "unhandled-rejection",
+    "window-error",
+  ]),
+  url: z.string().max(2_000).optional(),
+});
 
-const WebVitalMetricSchema = z
-  .object({
-    attributionTarget: z.string().max(1_000).optional(),
-    delta: z.number().finite().optional(),
-    id: z.string().max(200),
-    name: z.string().max(40),
-    navigationType: z.string().max(80).optional(),
-    rating: z.enum(["good", "needs-improvement", "poor"]).optional(),
-    url: z.string().max(2_000).optional(),
-    value: z.number().finite(),
-  })
-  .strict();
+const WebVitalMetricSchema = z.strictObject({
+  attributionTarget: z.string().max(1_000).optional(),
+  delta: z.number().finite().optional(),
+  id: z.string().max(200),
+  name: z.string().max(40),
+  navigationType: z.string().max(80).optional(),
+  rating: z.enum(["good", "needs-improvement", "poor"]).optional(),
+  url: z.string().max(2_000).optional(),
+  value: z.number().finite(),
+});
 
 export const WebVitalsBodySchema = z.union([
   WebVitalMetricSchema,
@@ -63,6 +59,4 @@ const ClientUserEventNameSchema = z.enum([
   "skill_use_clicked",
 ]);
 
-export const ClientUserEventBodySchema = z
-  .object({ eventName: ClientUserEventNameSchema })
-  .strict();
+export const ClientUserEventBodySchema = z.strictObject({ eventName: ClientUserEventNameSchema });

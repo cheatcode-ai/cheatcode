@@ -21,12 +21,10 @@ const CfGeoSchema = z.object({
   timezone: z.string().min(1).optional(),
 });
 
-const WeatherSchema = z
-  .object({
-    tempC: z.number(),
-    weatherCode: z.number().int(),
-  })
-  .strict();
+const WeatherSchema = z.strictObject({
+  tempC: z.number(),
+  weatherCode: z.number().int(),
+});
 type Weather = z.infer<typeof WeatherSchema>;
 
 const OpenMeteoCurrentSchema = z.object({

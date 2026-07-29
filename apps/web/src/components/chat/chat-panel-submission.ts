@@ -1,5 +1,5 @@
 import type { CheatcodeUIMessage } from "@cheatcode/types";
-import type { ProjectSummary, UIMessageRecord } from "@cheatcode/types/api";
+import type { ProjectSummary, ThreadMessage } from "@cheatcode/types/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
@@ -123,7 +123,7 @@ async function submissionWasAccepted(
   return threadResult.status === "fulfilled" && threadResult.value.activeRunId !== null;
 }
 
-function matchesPendingSubmission(record: UIMessageRecord, pending: PendingSubmission): boolean {
+function matchesPendingSubmission(record: ThreadMessage, pending: PendingSubmission): boolean {
   const createdAt = Date.parse(record.createdAt);
   return (
     record.role === "user" &&
@@ -134,7 +134,7 @@ function matchesPendingSubmission(record: UIMessageRecord, pending: PendingSubmi
   );
 }
 
-function messageRecordText(record: UIMessageRecord): string {
+function messageRecordText(record: ThreadMessage): string {
   return record.parts
     .map((part) => (part.type === "text" && typeof part["text"] === "string" ? part["text"] : ""))
     .join("");

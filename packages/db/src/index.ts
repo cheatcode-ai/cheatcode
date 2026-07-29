@@ -86,7 +86,7 @@ export {
 } from "./project-deletion";
 export type {
   MessageRecord,
-  ProjectSummaryRecord,
+  ProjectRecord,
   ThreadContextMessageRecord,
   ThreadRecord,
 } from "./project-types";
@@ -154,7 +154,7 @@ export {
 export type {
   UpsertUserSkillInput,
   UserSkillRecord,
-  UserSkillSummaryRecord,
+  UserSkillSummary,
 } from "./skills";
 export {
   countUserSkills,

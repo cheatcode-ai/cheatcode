@@ -58,7 +58,7 @@ export interface ComposioToolExecution {
   data: unknown;
   error: string | null;
   logId?: string;
-  successful: boolean;
+  success: boolean;
 }
 
 export interface ListConnectedAccountsInput {

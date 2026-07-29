@@ -1,8 +1,9 @@
 import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/agent-core/tools/code";
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
-import { ProjectId } from "@cheatcode/types";
+import { toProjectId } from "@cheatcode/types";
 import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema } from "@cheatcode/types/api";
 import { z } from "zod";
+import { shellQuote } from "../sandbox-support";
 
 const CommandArgvSchema = z.array(z.string().min(1).max(8_192)).min(1).max(128);
 const ProcessIdSchema = z
@@ -20,28 +21,25 @@ export const ProjectWorkspaceSlugSchema = z
     "Workspace slugs may contain lowercase letters, numbers, and single hyphens.",
   );
 
-export const ProjectRunCodeInputSchema = z
-  .object({
-    language: z.enum(["python", "javascript"]),
-    code: z.string().min(1).max(100_000),
-    cwd: WorkspacePathSchema.optional(),
-    env: EnvironmentVariablesSchema.optional(),
-    timeoutMs: z.number().int().positive().max(600_000).optional(),
-  })
-  .strict();
+export const ProjectRunCodeInputSchema = z.strictObject({
+  language: z.enum(["python", "javascript"]),
+  code: z.string().min(1).max(100_000),
+  cwd: WorkspacePathSchema.optional(),
+  env: EnvironmentVariablesSchema.optional(),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
+});
 
 export type ProjectRunCodeInput = z.infer<typeof ProjectRunCodeInputSchema>;
 
-export const ProjectExecInputSchema = z
-  .object({
-    command: CommandArgvSchema,
-    cwd: WorkspacePathSchema.optional(),
-    env: EnvironmentVariablesSchema.optional(),
-    timeoutMs: z.number().int().positive().max(600_000).optional(),
-  })
-  .strict();
+export const ProjectExecInputSchema = z.strictObject({
+  command: CommandArgvSchema,
+  cwd: WorkspacePathSchema.optional(),
+  env: EnvironmentVariablesSchema.optional(),
+  timeoutMs: z.number().int().positive().max(600_000).optional(),
+});
 
-export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
+export const ProjectStartProcessInputSchema = z.strictObject({
+  ...ProjectExecInputSchema.shape,
   stdin: z.string().min(1).max(64_000).optional(),
   isMobile: z.boolean().optional(),
   keepAliveTimeoutMs: z
@@ -54,32 +52,28 @@ export const ProjectStartProcessInputSchema = ProjectExecInputSchema.extend({
   processId: ProcessIdSchema,
   restartOnFailure: z.boolean().optional(),
   waitForPort: z
-    .object({
+    .strictObject({
       port: z.number().int().positive().max(65_535),
       path: z.string().min(1).max(500).optional(),
       timeoutMs: z.number().int().positive().max(600_000).optional(),
     })
-    .strict()
+
     .optional(),
-}).strict();
+});
 
-export const ProjectReadFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema,
-    encoding: z.enum(["utf8", "base64"]).optional(),
-  })
-  .strict();
+export const ProjectReadFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema,
+  encoding: z.enum(["utf8", "base64"]).optional(),
+});
 
-export const ProjectWriteFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema,
-    content: z.string().max(2_000_000),
-    encoding: z.enum(["utf8", "base64"]).default("utf8"),
-  })
-  .strict();
+export const ProjectWriteFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema,
+  content: z.string().max(2_000_000),
+  encoding: z.enum(["utf8", "base64"]).default("utf8"),
+});
 
 export const ProjectUploadFileInputSchema = z
-  .object({
+  .strictObject({
     bytes: z
       .instanceof(Uint8Array)
       .refine(
@@ -89,163 +83,135 @@ export const ProjectUploadFileInputSchema = z
     contentType: z.string().trim().min(1).max(200),
     name: z.string().trim().min(1).max(200),
     path: ProjectFileRelativePathSchema,
-    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+    projectId: z.string().uuid().toLowerCase().transform(toProjectId),
     workspaceSlug: ProjectWorkspaceSlugSchema,
   })
-  .strict()
+
   .refine(
     (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
     "Workspace slug does not belong to the requested project.",
   );
 
-export const ProjectListUploadedFilesInputSchema = z
-  .object({
-    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
-  })
-  .strict();
+export const ProjectListUploadedFilesInputSchema = z.strictObject({
+  projectId: z.string().uuid().toLowerCase().transform(toProjectId),
+});
 
 export const ProjectRestoreUploadedFilesInputSchema = z
-  .object({
-    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+  .strictObject({
+    projectId: z.string().uuid().toLowerCase().transform(toProjectId),
     workspaceSlug: ProjectWorkspaceSlugSchema,
   })
-  .strict()
+
   .refine(
     (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
     "Workspace slug does not belong to the requested project.",
   );
 
-export const ProjectListFilesInputSchema = z
-  .object({
-    path: WorkspacePathSchema,
-    includeHidden: z.boolean().default(false),
-    recursive: z.boolean().default(false),
-  })
-  .strict();
+export const ProjectListFilesInputSchema = z.strictObject({
+  path: WorkspacePathSchema,
+  includeHidden: z.boolean().default(false),
+  recursive: z.boolean().default(false),
+});
 
-export const ProjectSearchFilesInputSchema = z
-  .object({
-    caseSensitive: z.boolean().default(false),
-    contextLines: z.number().int().min(0).max(10).default(0),
-    excludeDirs: z.array(z.string().min(1).max(200)).max(25).default([]),
-    filePattern: z.string().min(1).max(200).optional(),
-    maxResults: z.number().int().positive().max(1_000).default(100),
-    path: WorkspacePathSchema,
-    query: z.string().min(1).max(500),
-  })
-  .strict();
+export const ProjectSearchFilesInputSchema = z.strictObject({
+  caseSensitive: z.boolean().default(false),
+  contextLines: z.number().int().min(0).max(10).default(0),
+  excludeDirs: z.array(z.string().min(1).max(200)).max(25).default([]),
+  filePattern: z.string().min(1).max(200).optional(),
+  maxResults: z.number().int().positive().max(1_000).default(100),
+  path: WorkspacePathSchema,
+  query: z.string().min(1).max(500),
+});
 
-export const ProjectDeleteFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema,
-    recursive: z.boolean().default(false),
-  })
-  .strict();
+export const ProjectDeleteFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema,
+  recursive: z.boolean().default(false),
+});
 
-export const ProjectKillProcessInputSchema = z
-  .object({
-    processId: ProcessIdSchema,
-  })
-  .strict();
+export const ProjectKillProcessInputSchema = z.strictObject({
+  processId: ProcessIdSchema,
+});
 
-export const ProjectReadDevServerLogsInputSchema = z
-  .object({
-    lastPid: z.string().min(1).max(100).optional(),
-    processId: ProcessIdSchema.default("app-preview"),
-    stderrCursor: z.number().int().min(0).default(0),
-    stdoutCursor: z.number().int().min(0).default(0),
-    tail: z.number().int().min(1).max(500).default(200),
-  })
-  .strict();
+export const ProjectReadDevServerLogsInputSchema = z.strictObject({
+  lastPid: z.string().min(1).max(100).optional(),
+  processId: ProcessIdSchema.default("app-preview"),
+  stderrCursor: z.number().int().min(0).default(0),
+  stdoutCursor: z.number().int().min(0).default(0),
+  tail: z.number().int().min(1).max(500).default(200),
+});
 export type ProjectReadDevServerLogsInput = z.input<typeof ProjectReadDevServerLogsInputSchema>;
 
-export const ProjectAllocatePortInputSchema = z
-  .object({
-    projectId: z.string().min(1).max(200),
-    stack: z.enum(["web", "mobile"]),
-  })
-  .strict();
+export const ProjectAllocatePortInputSchema = z.strictObject({
+  projectId: z.string().min(1).max(200),
+  stack: z.enum(["web", "mobile"]),
+});
 
 export const ProjectAllocateProcessPortInputSchema = z
-  .object({
+  .strictObject({
     maxPort: z.number().int().min(1_024).max(65_535),
     minPort: z.number().int().min(1_024).max(65_535),
     processId: ProcessIdSchema,
   })
-  .strict()
+
   .refine((input) => input.minPort <= input.maxPort, "Process port range is invalid.");
 
-export const ProjectCodeServerInputSchema = z
-  .object({
-    initialFilePath: WorkspaceFilePathSchema.optional(),
-    workspacePath: WorkspacePathSchema.default("/workspace"),
-  })
-  .strict();
+export const ProjectCodeServerInputSchema = z.strictObject({
+  initialFilePath: WorkspaceFilePathSchema.optional(),
+  workspacePath: WorkspacePathSchema.default("/workspace"),
+});
 
-export const ProjectWakePreviewInputSchema = z
-  .object({
-    // Which project's dev server to wake — its ProcessRecord slot is keyed by the project's
-    // workspaceSlug (matching the start_dev_server tool + app-builder paths). Absent for a
-    // project-less chat, where there is no dev server to revive.
-    workspaceSlug: ProjectWorkspaceSlugSchema.optional(),
-  })
-  .strict();
+export const ProjectWakePreviewInputSchema = z.strictObject({
+  // Which project's dev server to wake — its ProcessRecord slot is keyed by the project's
+  // workspaceSlug (matching the code_start_dev_server tool + app-builder paths). Absent for a
+  // project-less chat, where there is no dev server to revive.
+  workspaceSlug: ProjectWorkspaceSlugSchema.optional(),
+});
 
 // Read-only preview liveness for the status panel. Names which project's dev server to check —
-// its ProcessRecord slot is keyed by workspaceSlug (matching start_dev_server + wakePreview).
+// its ProcessRecord slot is keyed by workspaceSlug (matching code_start_dev_server + wakePreview).
 // Always provided: only a project chat calls this, and every project owns a workspace slug.
-export const ProjectPreviewStatusInputSchema = z
-  .object({
-    workspaceSlug: ProjectWorkspaceSlugSchema,
-  })
-  .strict();
+export const ProjectPreviewStatusInputSchema = z.strictObject({
+  workspaceSlug: ProjectWorkspaceSlugSchema,
+});
 
-export const ProjectSignedPreviewUrlInputSchema = z
-  .object({
-    port: z.number().int().positive().max(65_535),
-    expiresInSeconds: z
-      .number()
-      .int()
-      .positive()
-      .max(24 * 60 * 60),
-  })
-  .strict();
+export const ProjectSignedPreviewUrlInputSchema = z.strictObject({
+  port: z.number().int().positive().max(65_535),
+  expiresInSeconds: z
+    .number()
+    .int()
+    .positive()
+    .max(24 * 60 * 60),
+});
 
-export const ProjectBrowserTakeoverInputSchema = z
-  .object({
-    expiresInSeconds: z
-      .number()
-      .int()
-      .min(60)
-      .max(10 * 60),
-    runId: z.string().uuid(),
-    takeoverId: z.string().uuid(),
-  })
-  .strict();
+export const ProjectBrowserTakeoverInputSchema = z.strictObject({
+  expiresInSeconds: z
+    .number()
+    .int()
+    .min(60)
+    .max(10 * 60),
+  runId: z.string().uuid(),
+  takeoverId: z.string().uuid(),
+});
 
-export const ProjectBrowserTakeoverStopInputSchema = z
-  .object({ runId: z.string().uuid() })
-  .strict();
+export const ProjectBrowserTakeoverStopInputSchema = z.strictObject({ runId: z.string().uuid() });
 
 // Per-project teardown inside the shared per-user sandbox: names ONE project's workspace folder
 // (/workspace/<workspaceSlug>) whose dev server, port, and folder should be reclaimed — without
 // ever touching the shared sandbox itself.
 export const ProjectCleanupWorkspaceInputSchema = z
-  .object({
-    projectId: z.string().uuid().toLowerCase().transform(ProjectId),
+  .strictObject({
+    projectId: z.string().uuid().toLowerCase().transform(toProjectId),
     workspaceSlug: ProjectWorkspaceSlugSchema,
   })
-  .strict()
+
   .refine(
     (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
     "Workspace slug does not belong to the requested project.",
   );
 
-export const ProjectArchiveInputSchema = z
-  .object({
-    workspaceSlug: ProjectWorkspaceSlugSchema,
-  })
-  .strict();
+export const ProjectArchiveInputSchema = z.strictObject({
+  workspaceSlug: ProjectWorkspaceSlugSchema,
+});
 
 export type ProjectExecInput = z.input<typeof ProjectExecInputSchema>;
 export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSchema>;
@@ -318,10 +284,6 @@ export function workspaceSlugFromPath(path: string | undefined): string | null {
   }
   const parsed = ProjectWorkspaceSlugSchema.safeParse(segments[1]);
   return parsed.success ? parsed.data : null;
-}
-
-function shellQuote(arg: string): string {
-  return `'${arg.replaceAll("'", "'\\''")}'`;
 }
 
 export function commandToShellString(command: string[]): string {

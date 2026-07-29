@@ -25,19 +25,15 @@ export interface BrowserRuntimeContext {
   sandbox: BrowserSandbox;
 }
 
-const BrowserCredentialSchema = z
-  .object({
-    apiKey: z.string().min(1),
-    modelId: z.string().min(1).max(200),
-    provider: z.enum(["anthropic", "google", "openai"]),
-  })
-  .strict();
+const BrowserCredentialSchema = z.strictObject({
+  apiKey: z.string().min(1),
+  modelId: z.string().min(1).max(200),
+  provider: z.enum(["anthropic", "google", "openai"]),
+});
 
-export const BrowserRuntimeContextSchema = z
-  .object({
-    artifacts: ArtifactRuntimeSchema.optional(),
-    credential: BrowserCredentialSchema,
-    runId: z.string().min(1).max(200),
-    sandbox: SandboxLikeSchema,
-  })
-  .strict();
+export const BrowserRuntimeContextSchema = z.strictObject({
+  artifacts: ArtifactRuntimeSchema.optional(),
+  credential: BrowserCredentialSchema,
+  runId: z.string().min(1).max(200),
+  sandbox: SandboxLikeSchema,
+});

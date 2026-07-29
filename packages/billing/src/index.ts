@@ -41,18 +41,16 @@ export interface EntitlementValues {
   tier: BillingTier;
 }
 
-export const EntitlementCacheSchema = z
-  .object({
-    currentPeriodEnd: z.string().datetime().nullable(),
-    currentPeriodStart: z.string().datetime().nullable(),
-    maxProjects: z.number().int().positive(),
-    quotaComposioCalls: z.number().int().nonnegative(),
-    quotaSandboxHours: z.number().nonnegative(),
-    subscriptionStatus: z.string(),
-    tier: BillingTierSchema,
-    updatedAt: z.string().datetime(),
-  })
-  .strict();
+export const EntitlementCacheSchema = z.strictObject({
+  currentPeriodEnd: z.string().datetime().nullable(),
+  currentPeriodStart: z.string().datetime().nullable(),
+  maxProjects: z.number().int().positive(),
+  quotaComposioCalls: z.number().int().nonnegative(),
+  quotaSandboxHours: z.number().nonnegative(),
+  subscriptionStatus: z.string(),
+  tier: BillingTierSchema,
+  updatedAt: z.string().datetime(),
+});
 
 export type EntitlementCache = z.infer<typeof EntitlementCacheSchema>;
 
@@ -364,10 +362,15 @@ async function polarClient(
   server: PolarServer = "production",
 ): Promise<Polar> {
   if (accessToken.trim().length === 0) {
-    throw new APIError(503, "unavailable_maintenance", "Polar access token is not configured", {
-      hint: "Set POLAR_ACCESS_TOKEN in the gateway Worker environment.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Polar access token is not configured",
+      {
+        hint: "Set POLAR_ACCESS_TOKEN in the gateway Worker environment.",
+        retriable: false,
+      },
+    );
   }
   const { HTTPClient, Polar } = await import("@polar-sh/sdk");
   const httpClient = new HTTPClient({

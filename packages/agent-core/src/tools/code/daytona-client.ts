@@ -114,12 +114,10 @@ const VolumeSchema = z
 
 export type DaytonaVolume = z.infer<typeof VolumeSchema>;
 
-const SandboxListSchema = z
-  .object({
-    items: z.array(SandboxSchema).max(DAYTONA_SANDBOX_PAGE_MAX_ITEMS),
-    nextCursor: z.string().min(1).max(DAYTONA_CURSOR_MAX_CHARACTERS).nullable(),
-  })
-  .strict();
+const SandboxListSchema = z.strictObject({
+  items: z.array(SandboxSchema).max(DAYTONA_SANDBOX_PAGE_MAX_ITEMS),
+  nextCursor: z.string().min(1).max(DAYTONA_CURSOR_MAX_CHARACTERS).nullable(),
+});
 
 const ExecuteResponseSchema = z
   .object({

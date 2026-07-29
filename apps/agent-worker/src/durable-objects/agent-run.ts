@@ -6,7 +6,13 @@ import type {
   CodeRuntimeContext,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import { AgentRunId, ProjectId, RunStatusSnapshotSchema, ThreadId, UserId } from "@cheatcode/types";
+import {
+  RunStatusSnapshotSchema,
+  toAgentRunId,
+  toProjectId,
+  toThreadId,
+  toUserId,
+} from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { createAgentStreamResponse } from "../streaming/ui-message-stream";
 import { armAgentRunAlarm } from "./agent-run-alarm";
@@ -54,7 +60,7 @@ import {
   upsertRunRow,
 } from "./agent-run-storage";
 import type { StreamDriverDeps } from "./agent-run-stream-driver";
-import { missingInternalUserResponse } from "./agent-run-utils";
+import { missingInternalUserResponse } from "./agent-run-support";
 import { AgentRunWorkflowController } from "./agent-run-workflow-controller";
 import type {
   AgentRunWorkflowCallbackInput,
@@ -329,7 +335,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
 
   private async resumeExistingStart(input: StartRunInput): Promise<Response> {
     if (this.getOwnerUserId() !== input.userId) {
-      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+      return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
         hint: "Open the thread from the account that started the active run.",
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
@@ -356,7 +362,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       return new Response(null, { status: 204 });
     }
     if (ownerUserId !== userId) {
-      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+      return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
         hint: "Open the thread from the account that started the run.",
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
@@ -375,7 +381,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     }
     const ownerUserId = this.getOwnerUserId();
     if (ownerUserId !== userId) {
-      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+      return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
         hint: "Open the thread from the account that started the run.",
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
@@ -386,7 +392,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const status = this.snapshotStatus();
     const payload = agentRunStatusPayload({ ctx: this.ctx, status });
     if (!payload) {
-      return new APIError(503, "unavailable_maintenance", "Run state is incomplete", {
+      return new APIError(503, "service_maintenance_unavailable", "Run state is incomplete", {
         hint: "Retry the request. If it persists, start a new run.",
         retriable: true,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
@@ -396,7 +402,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
 
   private async deleteAllState(userId: string): Promise<Response> {
     if (!claimAgentRunDeletion(this.ctx, userId)) {
-      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+      return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
     }
@@ -420,7 +426,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async cancelInternal(userId: string): Promise<Response> {
     const ownerUserId = this.getOwnerUserId();
     if (ownerUserId !== userId) {
-      return new APIError(403, "permission_denied", "Run ownership mismatch", {
+      return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
         hint: "Open the thread from the account that started the run.",
         retriable: false,
       }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
@@ -488,7 +494,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         output: this.output,
         persistRunStatus: (runInput, status, error) =>
           this.persistRunStatusById({
-            artifactsQuiesced: isTerminalPersistableRunStatus(status),
+            isArtifactsQuiesced: isTerminalPersistableRunStatus(status),
             ...(error ? { error } : {}),
             runId: runInput.runId,
             status,
@@ -577,10 +583,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
           artifact,
           env: this.env,
           input: {
-            projectId: ProjectId(workspace.projectId),
-            runId: AgentRunId(input.runId),
-            threadId: ThreadId(input.threadId),
-            userId: UserId(input.userId),
+            projectId: toProjectId(workspace.projectId),
+            runId: toAgentRunId(input.runId),
+            threadId: toThreadId(input.threadId),
+            userId: toUserId(input.userId),
           },
         });
       },
@@ -703,7 +709,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async persistStoredRunStatus(
     status: PersistableRunStatus,
     error?: { message: string; type: string },
-    artifactsQuiesced = false,
+    isArtifactsQuiesced = false,
   ): Promise<void> {
     const runId = getRunStateValue(this.ctx, "run_id");
     const userId = this.getOwnerUserId();
@@ -711,7 +717,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       return;
     }
     await this.persistRunStatusById({
-      artifactsQuiesced,
+      isArtifactsQuiesced,
       ...(error ? { error } : {}),
       runId,
       status,
@@ -720,7 +726,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   }
 
   private async persistRunStatusById(input: {
-    artifactsQuiesced: boolean;
+    isArtifactsQuiesced: boolean;
     error?: { message: string; type: string };
     runId: string;
     status: PersistableRunStatus;
@@ -738,12 +744,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async finalizeTerminal(
     status: TerminalRunStatus,
     operation: () => Promise<void>,
-    artifactsQuiesced: boolean,
+    isArtifactsQuiesced: boolean,
   ): Promise<boolean> {
     if (!this.tryCommitTerminal(status)) {
       return false;
     }
-    const transition = this.performTerminalTransition(status, operation, artifactsQuiesced);
+    const transition = this.performTerminalTransition(status, operation, isArtifactsQuiesced);
     this.terminalTransitionPromise = transition;
     try {
       await transition;
@@ -758,12 +764,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async performTerminalTransition(
     status: TerminalRunStatus,
     operation: () => Promise<void>,
-    artifactsQuiesced: boolean,
+    isArtifactsQuiesced: boolean,
   ): Promise<void> {
     try {
       await operation();
     } catch (error) {
-      await this.persistTerminalFallback(status, error, artifactsQuiesced);
+      await this.persistTerminalFallback(status, error, isArtifactsQuiesced);
       throw error;
     } finally {
       this.terminalTransitionOpen = false;
@@ -788,12 +794,12 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
   private async persistTerminalFallback(
     status: TerminalRunStatus,
     error: unknown,
-    artifactsQuiesced: boolean,
+    isArtifactsQuiesced: boolean,
   ): Promise<void> {
     const runId = getRunStateValue(this.ctx, "run_id");
     const logger = createLogger(runId ? { runId } : {});
     logger.error("agent_terminal_finalize_failed", { error, terminalStatus: status });
-    await this.persistStoredRunStatus(status, undefined, artifactsQuiesced).catch(
+    await this.persistStoredRunStatus(status, undefined, isArtifactsQuiesced).catch(
       (persistError: unknown) => {
         logger.error("agent_terminal_fallback_persist_failed", {
           error: persistError,
@@ -811,7 +817,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
 }
 
 function invalidResumeCursorResponse(): Response {
-  return new APIError(400, "invalid_query_param", "Invalid resume cursor", {
+  return new APIError(400, "request_query_param_invalid", "Invalid resume cursor", {
     hint: "Pass lastSeq as a non-negative integer.",
     retriable: false,
   }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);

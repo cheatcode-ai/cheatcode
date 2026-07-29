@@ -3,10 +3,10 @@ import { ResearchRuntimeContextSchema } from "../../tools/research";
 import { CONTEXT } from "../context";
 import { browserRuntimeFromRequestContext } from "./browser-runtime";
 
-const requestContextReaderSchema = {
+const RequestContextReaderSchema = {
   parse(value: unknown): RequestContextReader {
     if (!value || typeof value !== "object") {
-      throw new Error("Mastra request context is required for runCode.");
+      throw new Error("Mastra request context is required for code_run.");
     }
     const candidate = value as { get?: unknown };
     if (typeof candidate.get !== "function") {
@@ -19,7 +19,7 @@ const requestContextReaderSchema = {
 export type RequestContextReader = { get(key: string): unknown };
 
 export function requestContextFromToolContext(context: unknown): RequestContextReader {
-  return requestContextReaderSchema.parse(
+  return RequestContextReaderSchema.parse(
     typeof context === "object" && context !== null
       ? (context as { requestContext?: unknown }).requestContext
       : undefined,

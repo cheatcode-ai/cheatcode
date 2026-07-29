@@ -6,7 +6,7 @@ import type {
   WorkspaceBinding,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import { BillingTierSchema, ThreadId, UserId } from "@cheatcode/types";
+import { BillingTierSchema, toThreadId, toUserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -37,16 +37,16 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
     return binding(input.input.projectId, input.input.workspaceSlug);
   }
   const result = await materializeWorkspaceProject(input);
-  if (result.type === "thread-not-found") {
-    throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+  if (result.kind === "thread-not-found") {
+    throw new APIError(404, "resource_thread_not_found", "Thread not found", { retriable: false });
   }
-  if (result.type === "project-read-only") {
+  if (result.kind === "project-read-only") {
     throw new APIError(403, "permission_plan_required", "Project is read-only after downgrade", {
       details: { archiveAfter: result.archiveAfter?.toISOString() ?? null },
       retriable: false,
     });
   }
-  if (result.type === "project-limit-reached") {
+  if (result.kind === "project-limit-reached") {
     throw new APIError(403, "permission_plan_required", "Active project limit reached", {
       details: { limit: result.limit, used: result.used },
       hint: "Upgrade your plan or archive an existing project before creating workspace files.",
@@ -57,7 +57,7 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
   input.input.projectId = project.id;
   input.input.workspaceSlug = project.workspaceSlug;
   await ensureWorkspaceDirectory(input, project.workspaceSlug);
-  if (result.type === "created") {
+  if (result.kind === "created") {
     await input.append({
       data: { projectId: project.id, projectName: project.name, v: 1 },
       type: "data-project-created",
@@ -71,13 +71,13 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
 }
 
 async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
-  const userId = UserId(input.input.userId);
+  const userId = toUserId(input.input.userId);
   return withUserDb(input.env, userId, async ({ transaction }) => {
     return await transaction((tx) =>
       materializeThreadProject(
         tx,
         {
-          threadId: ThreadId(input.input.threadId),
+          threadId: toThreadId(input.input.threadId),
           userId,
         },
         (entitlement) =>
@@ -100,7 +100,7 @@ async function ensureWorkspaceDirectory(
     timeoutMs: 15_000,
   });
   if (!result.success) {
-    throw new APIError(503, "sandbox_failed_to_start", "Could not prepare the project workspace", {
+    throw new APIError(503, "sandbox_start_failed", "Could not prepare the project workspace", {
       retriable: true,
     });
   }

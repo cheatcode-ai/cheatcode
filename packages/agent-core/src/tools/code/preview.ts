@@ -7,36 +7,32 @@ import {
 import { z } from "zod";
 import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
 
-const StartDevServerInputSchema = z
-  .object({
-    command: z.array(z.string().min(1).max(8_192)).min(1).max(128),
-    cwd: WorkspacePathSchema,
-    env: EnvironmentVariablesSchema.optional(),
-    // Mobile (Expo Metro) dev server: threads through to the ProcessRecord so the authenticated
-    // wake path can mint the correct browser and Expo sessions without exposing them to the model.
-    isMobile: z.boolean().default(false),
-    keepAliveTimeoutMs: z
-      .number()
-      .int()
-      .min(0)
-      .max(24 * 60 * 60 * 1000)
-      .default(60 * 60 * 1000),
-    maxRestarts: z.number().int().min(0).max(25).default(3),
-    name: z.string().min(1).max(100).default("app-preview"),
-    port: z.number().int().positive().max(65_535).default(5173),
-    restartOnFailure: z.boolean().default(true),
-    timeoutMs: z.number().int().positive().max(600_000).default(120_000),
-  })
-  .strict();
+const StartDevServerInputSchema = z.strictObject({
+  command: z.array(z.string().min(1).max(8_192)).min(1).max(128),
+  cwd: WorkspacePathSchema,
+  env: EnvironmentVariablesSchema.optional(),
+  // Mobile (Expo Metro) dev server: threads through to the ProcessRecord so the authenticated
+  // wake path can mint the correct browser and Expo sessions without exposing them to the model.
+  isMobile: z.boolean().default(false),
+  keepAliveTimeoutMs: z
+    .number()
+    .int()
+    .min(0)
+    .max(24 * 60 * 60 * 1000)
+    .default(60 * 60 * 1000),
+  maxRestarts: z.number().int().min(0).max(25).default(3),
+  name: z.string().min(1).max(100).default("app-preview"),
+  port: z.number().int().positive().max(65_535).default(5173),
+  restartOnFailure: z.boolean().default(true),
+  timeoutMs: z.number().int().positive().max(600_000).default(120_000),
+});
 
-const StartDevServerOutputSchema = z
-  .object({
-    processId: z.string(),
-    pid: z.number().int().positive().optional(),
-    port: z.number().int().positive(),
-    status: z.string(),
-  })
-  .strict();
+const StartDevServerOutputSchema = z.strictObject({
+  processId: z.string(),
+  pid: z.number().int().positive().optional(),
+  port: z.number().int().positive(),
+  status: z.string(),
+});
 
 export type StartDevServerInput = z.input<typeof StartDevServerInputSchema>;
 export type StartDevServerOutput = z.infer<typeof StartDevServerOutputSchema>;
@@ -197,7 +193,7 @@ async function allocateDevServerPort(
 function devServerPortAllocationError(slug: string): APIError {
   return new APIError(
     502,
-    "sandbox_failed_to_start",
+    "sandbox_start_failed",
     "Could not allocate a per-project dev-server port.",
     {
       details: { slug },

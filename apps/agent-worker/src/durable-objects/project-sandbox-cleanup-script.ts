@@ -1,4 +1,4 @@
-import { shellQuote } from "./project-sandbox-process-support";
+import { shellQuote } from "../sandbox-support";
 
 const CLEAR_WORKSPACE_SCRIPT = `
 import base64

@@ -2,7 +2,7 @@ import { APIError } from "@cheatcode/observability";
 import {
   type OutputDownloadUrlResponse,
   OutputDownloadUrlResponseSchema,
-  UserId,
+  toUserId,
   type UserId as UserIdType,
 } from "@cheatcode/types";
 import { z } from "zod";
@@ -12,13 +12,11 @@ const OUTPUT_DOWNLOAD_TTL_SECONDS = 60 * 60;
 const MINIMUM_SIGNING_SECRET_BYTES = 32;
 const MAXIMUM_SIGNING_SECRET_BYTES = 1_024;
 
-export const OutputDownloadQuerySchema = z
-  .object({
-    expires: z.coerce.number().int().positive(),
-    sig: z.string().min(32).max(256),
-    userId: z.string().uuid().transform(UserId),
-  })
-  .strict();
+export const OutputDownloadQuerySchema = z.strictObject({
+  expires: z.coerce.number().int().positive(),
+  sig: z.string().min(32).max(256),
+  userId: z.string().uuid().transform(toUserId),
+});
 
 export interface CreateOutputDownloadCapabilityInput {
   baseUrl?: string | undefined;
@@ -99,7 +97,7 @@ function normalizeOutputDownloadBaseUrl(value: string | undefined): string {
 }
 
 function invalidDownloadBaseUrl(): APIError {
-  return new APIError(500, "internal_error", "Artifact download origin is invalid", {
+  return new APIError(500, "internal_service_error", "Artifact download origin is invalid", {
     hint: "Use an HTTPS origin, or an HTTP loopback origin in local development.",
     retriable: false,
   });
@@ -109,10 +107,15 @@ function requiredSigningSecret(value: string | undefined): string {
   const trimmed = value?.trim();
   const size = trimmed ? new TextEncoder().encode(trimmed).byteLength : 0;
   if (!trimmed || size < MINIMUM_SIGNING_SECRET_BYTES || size > MAXIMUM_SIGNING_SECRET_BYTES) {
-    throw new APIError(500, "internal_error", "Artifact download signing is not configured", {
-      hint: "Set OUTPUT_DOWNLOAD_SIGNING_SECRET to a distinct 32-byte-or-longer secret.",
-      retriable: false,
-    });
+    throw new APIError(
+      500,
+      "internal_service_error",
+      "Artifact download signing is not configured",
+      {
+        hint: "Set OUTPUT_DOWNLOAD_SIGNING_SECRET to a distinct 32-byte-or-longer secret.",
+        retriable: false,
+      },
+    );
   }
   return trimmed;
 }

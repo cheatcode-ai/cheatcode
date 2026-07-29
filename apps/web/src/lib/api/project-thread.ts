@@ -1,6 +1,6 @@
 "use client";
 
-import { AgentRunId, CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage } from "@cheatcode/types";
+import { CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage, toAgentRunId } from "@cheatcode/types";
 import {
   Paginated,
   type ProjectMode,
@@ -13,9 +13,9 @@ import {
   SandboxPreviewWakeSchema,
   type SearchResultThread,
   type Thread,
+  type ThreadMessage,
+  ThreadMessageSchema,
   ThreadSchema,
-  type UIMessageRecord,
-  UIMessageRecordSchema,
   type UpdateProject,
   type UpdateThread,
 } from "@cheatcode/types/api";
@@ -29,7 +29,7 @@ import {
   readBoundedJsonResponse,
 } from "@/lib/api/authorized-fetch";
 
-const ThreadMessagePageSchema = Paginated(UIMessageRecordSchema);
+const ThreadMessagePageSchema = Paginated(ThreadMessageSchema);
 const ProjectPageSchema = Paginated(ProjectSummarySchema);
 const ThreadPageSchema = Paginated(ThreadSchema);
 const PROJECT_ARCHIVE_CONTENT_TYPES = new Set([
@@ -423,7 +423,7 @@ export async function listThreadMessageRecordsPage(
   threadId: string,
   cursor: string | null = null,
   signal?: AbortSignal,
-): Promise<CursorPage<UIMessageRecord>> {
+): Promise<CursorPage<ThreadMessage>> {
   const response = await authorizedFetch(
     getToken,
     paginatedPath(`/v1/threads/${encodeURIComponent(threadId)}/messages`, 100, cursor),
@@ -441,9 +441,7 @@ function paginatedPath(path: string, limit: number, cursor: string | null): stri
   return `${path}?${query.toString()}`;
 }
 
-async function messageRecordToUiMessage(
-  record: UIMessageRecord,
-): Promise<CheatcodeUIMessage | null> {
+async function messageRecordToUiMessage(record: ThreadMessage): Promise<CheatcodeUIMessage | null> {
   const role = uiMessageRole(record.role);
   if (!role) {
     return null;
@@ -456,7 +454,7 @@ async function messageRecordToUiMessage(
   if (message?.role !== "assistant" || !record.agentRunId) {
     return message;
   }
-  const agentRunId = AgentRunId(record.agentRunId);
+  const agentRunId = toAgentRunId(record.agentRunId);
   return {
     ...message,
     id: agentRunId,

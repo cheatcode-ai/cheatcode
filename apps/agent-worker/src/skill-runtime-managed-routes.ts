@@ -39,19 +39,18 @@ const SkillSlugSchema = z
   .min(1)
   .max(80)
   .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/u);
-const SaveCustomSkillSchema = z
-  .object({
-    files: z.array(UserSkillPackageFileSchema).min(1).max(MAX_USER_SKILL_PACKAGE_FILES),
-    skillSlug: SkillSlugSchema,
-  })
-  .strict();
-const SkillActionSchema = z
-  .object({ action: z.enum(["enable", "disable"]), skillSlug: SkillSlugSchema })
-  .strict();
-const SkillSelectionSchema = z.object({ skillSlug: SkillSlugSchema }).strict();
-const DefaultAccountSchema = z
-  .object({ connectedAccountId: z.string().trim().min(1).max(256) })
-  .strict();
+const SaveCustomSkillSchema = z.strictObject({
+  files: z.array(UserSkillPackageFileSchema).min(1).max(MAX_USER_SKILL_PACKAGE_FILES),
+  skillSlug: SkillSlugSchema,
+});
+const SkillActionSchema = z.strictObject({
+  action: z.enum(["enable", "disable"]),
+  skillSlug: SkillSlugSchema,
+});
+const SkillSelectionSchema = z.strictObject({ skillSlug: SkillSlugSchema });
+const DefaultAccountSchema = z.strictObject({
+  connectedAccountId: z.string().trim().min(1).max(256),
+});
 const KNOWN_INTEGRATIONS = [
   "gmail",
   "github",
@@ -183,9 +182,9 @@ async function connectLinkFallback(c: AgentContext): Promise<Response> {
     c.req.raw.headers,
     "integrations:execute",
   );
-  const input = SkillSelectionSchema.passthrough().parse(
-    await readJsonRequest(c.req.raw, 8 * 1024, "Managed integration link"),
-  );
+  const input = z
+    .looseObject(SkillSelectionSchema.shape)
+    .parse(await readJsonRequest(c.req.raw, 8 * 1024, "Managed integration link"));
   const state = await loadManagedState(c.env, principal);
   const connected = state.integrations.some(
     (item) => item.integration === input.skillSlug && isActiveStatus(item.status),
@@ -434,7 +433,7 @@ function invalidSkillPackage(message: string): APIError {
 }
 
 function skillNotFound(skill: string): APIError {
-  return new APIError(404, "not_found_skill", `Managed skill not found: ${skill}`, {
+  return new APIError(404, "resource_skill_not_found", `Managed skill not found: ${skill}`, {
     retriable: false,
   });
 }

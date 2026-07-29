@@ -8,7 +8,7 @@ const MediaReferenceSchema = z
   .describe("A project-relative or absolute sandbox path, or a public HTTPS URL.");
 
 export const GenerateOrEditMediaInputSchema = z
-  .object({
+  .strictObject({
     aspect_ratio: z
       .enum(["1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9"])
       .optional(),
@@ -19,7 +19,7 @@ export const GenerateOrEditMediaInputSchema = z
     reference_video: MediaReferenceSchema.optional(),
     type: z.enum(["image", "video"]),
   })
-  .strict()
+
   .superRefine((input, context) => {
     if (input.reference_images?.length && input.reference_video) {
       context.addIssue({
@@ -55,24 +55,20 @@ export const GenerateOrEditMediaInputSchema = z
     }
   });
 
-const MediaArtifactSchema = z
-  .object({
-    filename: z.string().min(1),
-    kind: z.enum(["image", "video"]),
-    mimeType: z.string().min(1),
-    outputId: z.string().min(1),
-    sizeBytes: z.number().int().nonnegative(),
-  })
-  .strict();
+const MediaArtifactSchema = z.strictObject({
+  filename: z.string().min(1),
+  kind: z.enum(["image", "video"]),
+  mimeType: z.string().min(1),
+  outputId: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+});
 
-export const GenerateOrEditMediaOutputSchema = z
-  .object({
-    artifact: MediaArtifactSchema,
-    model: z.string().min(1),
-    sandboxPath: z.string().min(1),
-    type: z.enum(["image", "video"]),
-  })
-  .strict();
+export const GenerateOrEditMediaOutputSchema = z.strictObject({
+  artifact: MediaArtifactSchema,
+  model: z.string().min(1),
+  sandboxPath: z.string().min(1),
+  type: z.enum(["image", "video"]),
+});
 
 export type GenerateOrEditMediaInput = z.input<typeof GenerateOrEditMediaInputSchema>;
 export type GenerateOrEditMediaOutput = z.output<typeof GenerateOrEditMediaOutputSchema>;

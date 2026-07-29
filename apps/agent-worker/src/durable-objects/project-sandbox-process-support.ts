@@ -1,6 +1,7 @@
 import { type DaytonaSandbox, WorkspacePathSchema } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
+import { shellQuote } from "../sandbox-support";
 import type { ProjectStartProcessInputSchema } from "./project-sandbox-runtime";
 
 export const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
@@ -13,24 +14,22 @@ export const PROC_PREFIX = "proc:";
 export const MAX_TRACKED_PROCESSES = 32;
 const WEB_PORT_BASE = 5173;
 
-export const ProcessRecordSchema = z
-  .object({
-    sessionId: z
-      .string()
-      .min(1)
-      .max(250)
-      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
-    cmdId: z.string(),
-    command: z.string(),
-    port: z.number().optional(),
-    isMobile: z.boolean().optional(),
-    keepAliveTimeoutMs: z.number().int().nonnegative().optional(),
-    maxRestarts: z.number().int().nonnegative().optional(),
-    restartOnFailure: z.boolean().optional(),
-    cwd: WorkspacePathSchema,
-    startedAtMs: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+export const ProcessRecordSchema = z.strictObject({
+  sessionId: z
+    .string()
+    .min(1)
+    .max(250)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
+  cmdId: z.string(),
+  command: z.string(),
+  port: z.number().optional(),
+  isMobile: z.boolean().optional(),
+  keepAliveTimeoutMs: z.number().int().nonnegative().optional(),
+  maxRestarts: z.number().int().nonnegative().optional(),
+  restartOnFailure: z.boolean().optional(),
+  cwd: WorkspacePathSchema,
+  startedAtMs: z.number().int().nonnegative().optional(),
+});
 export type ProcessRecord = z.infer<typeof ProcessRecordSchema>;
 export type ParsedProcessStartInput = z.infer<typeof ProjectStartProcessInputSchema>;
 export type ProcessPolicy = Pick<
@@ -61,23 +60,19 @@ export class ProcessMutationQueue {
   }
 }
 
-export const PortAllocationSchema = z
-  .object({
-    webNext: z.number().int().positive().default(WEB_PORT_BASE),
-    mobileNext: z.number().int().positive().default(MOBILE_PORT_BASE),
-    ports: z.record(z.string(), z.number().int().positive()).default({}),
-  })
-  .strict();
+export const PortAllocationSchema = z.strictObject({
+  webNext: z.number().int().positive().default(WEB_PORT_BASE),
+  mobileNext: z.number().int().positive().default(MOBILE_PORT_BASE),
+  ports: z.record(z.string(), z.number().int().positive()).default({}),
+});
 
 export const ProcessPortReservationsSchema = z
   .record(
     z.string(),
-    z
-      .object({
-        port: z.number().int().positive().max(65_535),
-        reservedAtMs: z.number().int().nonnegative(),
-      })
-      .strict(),
+    z.strictObject({
+      port: z.number().int().positive().max(65_535),
+      reservedAtMs: z.number().int().nonnegative(),
+    }),
   )
   .default({});
 export type ProcessPortReservations = z.infer<typeof ProcessPortReservationsSchema>;
@@ -88,7 +83,7 @@ export function timeoutSeconds(timeoutMs: number | undefined): number {
 
 export function assertValidProcessStart(input: ParsedProcessStartInput): void {
   if ((input.maxRestarts ?? 0) > 0 && input.restartOnFailure !== true) {
-    throw new APIError(400, "invalid_request_body", "maxRestarts requires restartOnFailure.", {
+    throw new APIError(400, "request_body_invalid", "maxRestarts requires restartOnFailure.", {
       retriable: false,
     });
   }
@@ -220,12 +215,4 @@ export function isDestroyed(sandbox: DaytonaSandbox): boolean {
 
 export function isFailedState(state: string): boolean {
   return state === "error" || state === "build_failed";
-}
-
-export function shellQuote(arg: string): string {
-  return `'${arg.replaceAll("'", "'\\''")}'`;
-}
-
-export function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

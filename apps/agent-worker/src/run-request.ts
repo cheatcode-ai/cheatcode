@@ -4,7 +4,7 @@ import { type CreateRun, CreateRunSchema } from "@cheatcode/types/api";
 export function parseCreateRunRequestBody(value: unknown): CreateRun {
   const parsed = CreateRunSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_request_body", "Invalid run payload", {
+    throw new APIError(400, "request_body_invalid", "Invalid run payload", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
       retriable: false,
     });

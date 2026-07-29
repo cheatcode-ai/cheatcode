@@ -1,13 +1,22 @@
-import type { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { eq } from "drizzle-orm";
 import type { Database } from "./client";
 import type { OnboardingStateValue } from "./schema";
 import { userProfiles } from "./schema";
 
-export type UserProfileRecord = typeof userProfiles.$inferSelect;
-
 type OnboardingStepKey = "intro" | "name" | "tools" | "basics" | "plan";
 type OnboardingStepStatusValue = "done" | "skipped";
+type UserProfileRow = typeof userProfiles.$inferSelect;
+
+export interface UserProfileRecord {
+  agentDisplayName: string | null;
+  disabledModels: string[];
+  globalMemory: string | null;
+  onboardingCompletedAt: Date | null;
+  onboardingState: OnboardingStateValue;
+  updatedAt: Date;
+  userId: UserId;
+}
 
 export interface UpsertUserProfileInput {
   userId: UserId;
@@ -35,7 +44,7 @@ export async function getUserProfile(
   userId: UserId,
 ): Promise<UserProfileRecord | null> {
   const row = await db.query.userProfiles.findFirst({ where: eq(userProfiles.userId, userId) });
-  return row ?? null;
+  return row ? profileFromRow(row) : null;
 }
 
 /** Narrow read for the run-create hot path; missing row → all defaults. */
@@ -83,7 +92,19 @@ export async function upsertUserProfile(
   if (!row) {
     throw new Error("Failed to upsert user profile.");
   }
-  return row;
+  return profileFromRow(row);
+}
+
+function profileFromRow(row: UserProfileRow): UserProfileRecord {
+  return {
+    agentDisplayName: row.agentDisplayName,
+    disabledModels: row.disabledModels,
+    globalMemory: row.globalMemory,
+    onboardingCompletedAt: row.onboardingCompletedAt,
+    onboardingState: row.onboardingState,
+    updatedAt: row.updatedAt,
+    userId: toUserId(row.userId),
+  };
 }
 
 function profileColumnUpdates(

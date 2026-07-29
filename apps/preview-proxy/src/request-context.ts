@@ -101,7 +101,7 @@ function isTrustedPreviewOrigin(
 }
 
 function crossOriginDenied(): APIError {
-  return new APIError(403, "permission_denied", "Cross-origin preview request denied", {
+  return new APIError(403, "permission_access_denied", "Cross-origin preview request denied", {
     retriable: false,
   });
 }

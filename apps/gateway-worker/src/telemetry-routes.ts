@@ -80,9 +80,14 @@ export async function clientUserEventRoute(
   }
   const userId = await resolveTelemetryUser(c);
   if (userId === "anonymous") {
-    throw new APIError(401, "permission_denied", "Authentication is required for user events", {
-      retriable: false,
-    });
+    throw new APIError(
+      401,
+      "permission_access_denied",
+      "Authentication is required for user events",
+      {
+        retriable: false,
+      },
+    );
   }
   emitUserEvent(c.env, {
     eventName: parsed.data.eventName,
@@ -98,26 +103,26 @@ function requestId(): string {
 async function readTelemetryJson(request: Request): Promise<unknown> {
   const text = await readBoundedRequestText(request, MAX_TELEMETRY_BODY_BYTES, "Telemetry request");
   if (text.length > MAX_TELEMETRY_BODY_CHARS) {
-    throw new APIError(400, "invalid_request_body", "Telemetry payload is too large", {
+    throw new APIError(400, "request_body_invalid", "Telemetry payload is too large", {
       retriable: false,
     });
   }
   if (text.trim().length === 0) {
-    throw new APIError(400, "invalid_request_body", "Telemetry payload is empty", {
+    throw new APIError(400, "request_body_invalid", "Telemetry payload is empty", {
       retriable: false,
     });
   }
   try {
     return JSON.parse(text) as unknown;
   } catch {
-    throw new APIError(400, "invalid_request_body", "Telemetry payload must be JSON", {
+    throw new APIError(400, "request_body_invalid", "Telemetry payload must be JSON", {
       retriable: false,
     });
   }
 }
 
 function invalidTelemetryPayload(error: z.ZodError): APIError {
-  return new APIError(400, "invalid_request_body", "Invalid telemetry payload", {
+  return new APIError(400, "request_body_invalid", "Invalid telemetry payload", {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });

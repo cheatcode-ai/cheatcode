@@ -19,7 +19,7 @@ export type MessagePart = CheatcodeUIMessage["parts"][number];
 export type ToolPart = Extract<MessagePart, { type: "data-tool" }>;
 export type ProjectCreatedPart = Extract<MessagePart, { type: "data-project-created" }>;
 type TextPart = Extract<MessagePart, { type: "text" }>;
-export type ActivityRow =
+export type ActivityItem =
   | { kind: "tools"; key: string; parts: ToolPart[] }
   | { kind: "project-created"; key: string; part: ProjectCreatedPart }
   | { kind: "narration"; key: string; part: TextPart };
@@ -33,7 +33,7 @@ type ToolDetailSection = {
 };
 
 const TOOL_VERBS: Record<string, ToolVerbSpec> = {
-  runCode: { verb: "Ran", argKeys: ["code"] },
+  code_run: { verb: "Ran", argKeys: ["code"] },
   fs_read: { verb: "Read", argKeys: ["path", "file", "filePath"] },
   fs_write: { verb: "Wrote", argKeys: ["path", "file", "filePath"] },
   fs_delete: { verb: "Deleted", argKeys: ["path", "file"] },
@@ -43,7 +43,7 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   shell_terminal: { verb: "Ran", argKeys: ["command", "cmd"] },
   shell_start_process: { verb: "Started", argKeys: ["command", "cmd"] },
   shell_kill_process: { verb: "Stopped a process" },
-  start_dev_server: { verb: "Started the dev server" },
+  code_start_dev_server: { verb: "Started the dev server" },
   git_clone: { verb: "Cloned", argKeys: ["repo", "url"] },
   git_commit: { verb: "Committed", argKeys: ["message"] },
   git_push: { verb: "Pushed changes" },
@@ -60,9 +60,9 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   docs_generate_pdf: { verb: "Generated a PDF" },
   docs_generate_slides: { verb: "Generated slides" },
   docs_generate_xlsx: { verb: "Generated a spreadsheet" },
-  firecrawl_scrape: { verb: "Scraped", argKeys: ["url"] },
-  firecrawl_search: { verb: "Searched the web", argKeys: ["query", "q"] },
-  firecrawl_extract: { verb: "Extracted", argKeys: ["url"] },
+  search_scrape: { verb: "Scraped", argKeys: ["url"] },
+  search_web_content: { verb: "Searched the web", argKeys: ["query", "q"] },
+  search_extract: { verb: "Extracted", argKeys: ["url"] },
   search_web: { verb: "Searched the web", argKeys: ["query", "q"] },
   search_web_advanced: { verb: "Searched the web", argKeys: ["query", "q"] },
   search_company: { verb: "Researched a company", argKeys: ["company", "name", "query"] },
@@ -75,8 +75,8 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   skill_read_reference: { verb: "Read a skill reference", argKeys: ["path", "name"] },
 };
 
-export function buildActivityRows(parts: MessagePart[]): ActivityRow[] {
-  const rows: ActivityRow[] = [];
+export function buildActivityRows(parts: MessagePart[]): ActivityItem[] {
+  const rows: ActivityItem[] = [];
   let run: { parts: ToolPart[]; startIndex: number } | null = null;
   const flush = () => {
     if (run) {
@@ -187,7 +187,7 @@ function commandValue(input: Record<string, unknown>): string {
 }
 
 function isCommandTool(name: string): boolean {
-  return name === "runCode" || name.startsWith("shell_") || name === "start_dev_server";
+  return name === "code_run" || name.startsWith("shell_") || name === "code_start_dev_server";
 }
 
 function toolNameAndInput(part: ToolPart): { input: Record<string, unknown>; name: string } {

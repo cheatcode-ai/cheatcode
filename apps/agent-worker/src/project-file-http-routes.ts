@@ -119,7 +119,7 @@ async function uploadToProjectWorkspace(
     if (isMaintenanceRpcError(error)) {
       throw new APIError(
         503,
-        "unavailable_maintenance",
+        "service_maintenance_unavailable",
         "Project files are temporarily unavailable while this computer is being updated.",
         {
           hint: "Try the upload again after workspace maintenance completes.",
@@ -134,13 +134,13 @@ async function uploadToProjectWorkspace(
 function isMaintenanceRpcError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   const value = error as Record<string, unknown>;
-  return value["status"] === 503 && value["code"] === "unavailable_maintenance";
+  return value["status"] === 503 && value["code"] === "service_maintenance_unavailable";
 }
 
 function parseProjectId(value: string | undefined): string {
   const parsed = ProjectIdParamSchema.safeParse(value);
   if (parsed.success) return parsed.data;
-  throw new APIError(400, "invalid_path_param", "Invalid project id", { retriable: false });
+  throw new APIError(400, "request_path_param_invalid", "Invalid project id", { retriable: false });
 }
 
 function sanitizeFilename(source: string): string {
@@ -255,7 +255,7 @@ function isControlCharacter(character: string): boolean {
 }
 
 function invalidProjectFile(message: string): APIError {
-  return new APIError(422, "invalid_request_body", message, {
+  return new APIError(422, "request_body_invalid", message, {
     hint: "Upload a supported file up to 20 MB and try again.",
     retriable: false,
   });

@@ -10,109 +10,87 @@ import {
 
 const EncodingSchema = z.enum(["utf8", "base64"]);
 
-export const ReadFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema.describe(
-      "Absolute file path under /workspace, for example /workspace/<project>/package.json.",
-    ),
-    encoding: EncodingSchema.optional().describe("Read text as utf8 or binary data as base64."),
-  })
-  .strict();
+export const ReadFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema.describe(
+    "Absolute file path under /workspace, for example /workspace/<project>/package.json.",
+  ),
+  encoding: EncodingSchema.optional().describe("Read text as utf8 or binary data as base64."),
+});
 
-export const ReadFileOutputSchema = z
-  .object({
-    path: z.string(),
-    content: z.string(),
-    encoding: EncodingSchema,
-    size: z.number().int().nonnegative().optional(),
-  })
-  .strict();
+export const ReadFileOutputSchema = z.strictObject({
+  path: z.string(),
+  content: z.string(),
+  encoding: EncodingSchema,
+  size: z.number().int().nonnegative().optional(),
+});
 
-export const WriteFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema.describe("Absolute file path under /workspace."),
-    content: z.string().max(2_000_000).describe("File contents to write."),
-    encoding: EncodingSchema.default("utf8").describe("Write text as utf8 or binary as base64."),
-  })
-  .strict();
+export const WriteFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema.describe("Absolute file path under /workspace."),
+  content: z.string().max(2_000_000).describe("File contents to write."),
+  encoding: EncodingSchema.default("utf8").describe("Write text as utf8 or binary as base64."),
+});
 
-export const WriteFileOutputSchema = z
-  .object({
-    path: z.string(),
-    success: z.boolean(),
-  })
-  .strict();
+export const WriteFileOutputSchema = z.strictObject({
+  path: z.string(),
+  success: z.boolean(),
+});
 
-export const ListFilesInputSchema = z
-  .object({
-    path: WorkspacePathSchema.describe("Absolute directory path under /workspace."),
-    includeHidden: z
-      .boolean()
-      .default(false)
-      .describe("Include dotfiles and dot-directories when true."),
-    recursive: z.boolean().default(false).describe("List descendants recursively when true."),
-  })
-  .strict();
+export const ListFilesInputSchema = z.strictObject({
+  path: WorkspacePathSchema.describe("Absolute directory path under /workspace."),
+  includeHidden: z
+    .boolean()
+    .default(false)
+    .describe("Include dotfiles and dot-directories when true."),
+  recursive: z.boolean().default(false).describe("List descendants recursively when true."),
+});
 
-const FileEntrySchema = z.object(sandboxFileEntryShape(z.string(), "list-files")).strict();
+const FileEntrySchema = z.strictObject(sandboxFileEntryShape(z.string(), "list-files"));
 
-export const ListFilesOutputSchema = z
-  .object({
-    path: z.string(),
-    files: z.array(FileEntrySchema),
-  })
-  .strict();
+export const ListFilesOutputSchema = z.strictObject({
+  path: z.string(),
+  files: z.array(FileEntrySchema),
+});
 
-export const SearchFilesInputSchema = z
-  .object({
-    path: WorkspacePathSchema,
-    query: z.string().min(1).max(500),
-    caseSensitive: z.boolean().default(false),
-    contextLines: z.number().int().min(0).max(10).default(0),
-    excludeDirs: z
-      .array(z.string().min(1).max(200))
-      .max(25)
-      .default(["node_modules", ".git", ".next", ".turbo"]),
-    filePattern: z.string().min(1).max(200).optional(),
-    maxResults: z.number().int().positive().max(1_000).default(100),
-  })
-  .strict();
+export const SearchFilesInputSchema = z.strictObject({
+  path: WorkspacePathSchema,
+  query: z.string().min(1).max(500),
+  caseSensitive: z.boolean().default(false),
+  contextLines: z.number().int().min(0).max(10).default(0),
+  excludeDirs: z
+    .array(z.string().min(1).max(200))
+    .max(25)
+    .default(["node_modules", ".git", ".next", ".turbo"]),
+  filePattern: z.string().min(1).max(200).optional(),
+  maxResults: z.number().int().positive().max(1_000).default(100),
+});
 
-const SearchFilesMatchSchema = z
-  .object({
-    column: z.number().int().nonnegative().optional(),
-    context: z.string().optional(),
-    line: z.number().int().positive(),
-    path: z.string(),
-    text: z.string(),
-  })
-  .strict();
+const SearchFilesMatchSchema = z.strictObject({
+  column: z.number().int().nonnegative().optional(),
+  context: z.string().optional(),
+  line: z.number().int().positive(),
+  path: z.string(),
+  text: z.string(),
+});
 
-export const SearchFilesOutputSchema = z
-  .object({
-    matches: z.array(SearchFilesMatchSchema),
-    query: z.string(),
-    total: z.number().int().nonnegative(),
-    truncated: z.boolean().optional(),
-  })
-  .strict();
+export const SearchFilesOutputSchema = z.strictObject({
+  matches: z.array(SearchFilesMatchSchema),
+  query: z.string(),
+  total: z.number().int().nonnegative(),
+  truncated: z.boolean().optional(),
+});
 
-export const DeleteFileInputSchema = z
-  .object({
-    path: WorkspaceFilePathSchema.refine(
-      (path) => path !== "/workspace/",
-      "Delete path must be inside /workspace and not /workspace itself.",
-    ),
-    recursive: z.boolean().default(false),
-  })
-  .strict();
+export const DeleteFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema.refine(
+    (path) => path !== "/workspace/",
+    "Delete path must be inside /workspace and not /workspace itself.",
+  ),
+  recursive: z.boolean().default(false),
+});
 
-export const DeleteFileOutputSchema = z
-  .object({
-    path: z.string(),
-    success: z.boolean(),
-  })
-  .strict();
+export const DeleteFileOutputSchema = z.strictObject({
+  path: z.string(),
+  success: z.boolean(),
+});
 
 type ReadFileInput = z.input<typeof ReadFileInputSchema>;
 type ReadFileOutput = z.infer<typeof ReadFileOutputSchema>;

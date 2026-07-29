@@ -1,6 +1,6 @@
 import type { ProjectDeletionOutputRecord } from "@cheatcode/db";
 
-export interface ResourceDeletionOutputWireRecord {
+export interface ResourceDeletionOutputWire {
   id: string;
   recordType: "generated-output" | "upload-intent";
   r2Key: string;
@@ -8,12 +8,12 @@ export interface ResourceDeletionOutputWireRecord {
 
 export function outputToWireRecord(
   output: ProjectDeletionOutputRecord,
-): ResourceDeletionOutputWireRecord {
+): ResourceDeletionOutputWire {
   return output;
 }
 
 export function outputFromWireRecord(
-  output: ResourceDeletionOutputWireRecord,
+  output: ResourceDeletionOutputWire,
 ): ProjectDeletionOutputRecord {
   return output;
 }

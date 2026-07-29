@@ -14,7 +14,7 @@ import {
   INCLUDED_DEEPSEEK_MODEL_ID,
   type LogicalModelId,
   LogicalModelIdSchema,
-  UserId,
+  toUserId,
 } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
@@ -28,7 +28,7 @@ interface LlmProviderInput {
   model: LogicalModelId;
   userId: string;
   /** Whether the request or project settings pinned this model (vs Auto). */
-  modelExplicit: boolean;
+  isModelExplicit: boolean;
   /** Models the user disabled in settings; gates the included DeepSeek fallback. */
   disabledModels: readonly string[];
 }
@@ -43,7 +43,7 @@ export interface LlmCredential {
 
 interface PlatformFallbackContext {
   platformDeepseekKey: string | undefined;
-  modelExplicit: boolean;
+  isModelExplicit: boolean;
   disabledModels: readonly string[];
 }
 
@@ -68,7 +68,7 @@ export async function resolveLlmCredential(
   const platformDeepseekKey = await resolveWorkerSecret(env.DEEPSEEK_PLATFORM_API_KEY);
   return resolveProviderKey(env, input.userId, requestedModel, logger, {
     disabledModels: input.disabledModels,
-    modelExplicit: input.modelExplicit,
+    isModelExplicit: input.isModelExplicit,
     platformDeepseekKey,
   });
 }
@@ -86,7 +86,7 @@ export async function resolveOpenAiFallbackCredential(
     // The OpenAI fallback never receives the platform DeepSeek key.
     return await resolveProviderKey(env, input.userId, requestedModel, logger, {
       disabledModels: [],
-      modelExplicit: true,
+      isModelExplicit: true,
       platformDeepseekKey: undefined,
     });
   } catch (error) {
@@ -99,13 +99,13 @@ export async function resolveOpenAiFallbackCredential(
 }
 
 export function shouldFallbackToOpenAI(
-  modelExplicit: boolean,
+  isModelExplicit: boolean,
   primary: LlmCredential,
   hasVisibleOutput: boolean,
   error: unknown,
 ): boolean {
   // Restarting after visible output can duplicate a tool side effect or splice two answers.
-  if (modelExplicit || hasVisibleOutput || primary.transportProvider !== "anthropic") {
+  if (isModelExplicit || hasVisibleOutput || primary.transportProvider !== "anthropic") {
     return false;
   }
   const message = error instanceof Error ? error.message.toLowerCase() : "";
@@ -159,7 +159,7 @@ function resolveModelRequest(model: LogicalModelId): RequestedModel {
       selection,
     };
   } catch (error) {
-    throw new APIError(400, "invalid_request_body", "Unsupported model selection.", {
+    throw new APIError(400, "request_body_invalid", "Unsupported model selection.", {
       details: { message: error instanceof Error ? error.message : "Unknown model error" },
       hint: "Use a supported Anthropic, Google Gemini, OpenAI, DeepSeek, or OpenRouter model id.",
       retriable: false,
@@ -174,7 +174,7 @@ async function resolveProviderKey(
   logger: ReturnType<typeof createLogger>,
   platformFallback: PlatformFallbackContext,
 ): Promise<LlmCredential> {
-  const brandedUserId = UserId(userId);
+  const brandedUserId = toUserId(userId);
   return withUserDb(
     env,
     brandedUserId,
@@ -242,7 +242,7 @@ async function resolveTransportKey(
   }
 
   // (d) Auto/implicit run with no usable key → platform model as a last resort.
-  if (!platformFallback.modelExplicit && platformKey) {
+  if (!platformFallback.isModelExplicit && platformKey) {
     return platformTransport(platformKey);
   }
 

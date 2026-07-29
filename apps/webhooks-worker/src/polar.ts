@@ -17,23 +17,27 @@ import {
   withUserContext,
 } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { type BillingTier, BillingTierSchema, billingTierRank, UserId } from "@cheatcode/types";
+import {
+  type BillingTier,
+  BillingTierSchema,
+  billingTierRank,
+  toUserId,
+  type UserId,
+} from "@cheatcode/types";
 import { z } from "zod";
 import { entitlementResourcePolicy } from "./lifecycle/entitlement-resource-policy";
 
 type PolarProductTierMap = Readonly<Record<string, BillingTier>>;
 
-const PolarEventSchema = z
-  .object({
-    data: z.record(z.string(), z.unknown()),
-    type: z.string().min(1),
-  })
-  .passthrough();
+const PolarEventSchema = z.looseObject({
+  data: z.record(z.string(), z.unknown()),
+  type: z.string().min(1),
+});
 
 const InternalUserIdSchema = z
   .string()
   .uuid()
-  .transform((value) => UserId(value));
+  .transform((value) => toUserId(value));
 
 export interface PolarWebhookResult {
   action: string;
@@ -124,7 +128,7 @@ function highestTierSubscription(
     if (!tier || tier === "free") {
       throw new APIError(
         503,
-        "unavailable_maintenance",
+        "service_maintenance_unavailable",
         "Active Polar product is not mapped to a billing tier",
         {
           details: { productId: subscription.productId },

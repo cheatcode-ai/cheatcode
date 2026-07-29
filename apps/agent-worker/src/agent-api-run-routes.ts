@@ -13,8 +13,8 @@ import {
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   type AgentRunId,
-  ThreadId,
-  UserId as toUserId,
+  toThreadId,
+  toUserId,
   type UIMessagePart,
   type UserId,
 } from "@cheatcode/types";
@@ -60,11 +60,11 @@ type AgentContext = Context<{ Bindings: AgentEnv }>;
 type CreateRunResult = Awaited<ReturnType<typeof createAgentRunForThread>>;
 type ExistingRunResult = Extract<
   CreateRunResult,
-  { type: "active-run-exists" | "idempotent-replay" }
+  { kind: "active-run-exists" | "idempotent-replay" }
 >;
 type RejectedRunResult = Exclude<
   CreateRunResult,
-  ExistingRunResult | Extract<CreateRunResult, { type: "created" }>
+  ExistingRunResult | Extract<CreateRunResult, { kind: "created" }>
 >;
 
 export function registerAgentRunHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
@@ -100,11 +100,13 @@ async function createRun(c: AgentContext): Promise<Response> {
   return withUserDb(c.env, parsedUserId, async ({ transaction }) => {
     const prepared = await transaction(async (tx) => {
       const thread = await loadAgentRunThreadContext(tx, {
-        threadId: ThreadId(threadId),
+        threadId: toThreadId(threadId),
         userId: parsedUserId,
       });
       if (!thread) {
-        throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+        throw new APIError(404, "resource_thread_not_found", "Thread not found", {
+          retriable: false,
+        });
       }
       return {
         entitlement: await loadRunEntitlementPolicy(tx, parsedUserId),
@@ -125,10 +127,10 @@ async function createRun(c: AgentContext): Promise<Response> {
         userId: parsedUserId,
       }),
     );
-    if (result.type === "created") {
+    if (result.kind === "created") {
       const outcome = await startAgentRun(c.env, {
         body,
-        modelExplicit: result.modelExplicit,
+        isModelExplicit: result.isModelExplicit,
         personalization: prepared.personalization,
         run: result.run,
         sandboxName,
@@ -136,7 +138,7 @@ async function createRun(c: AgentContext): Promise<Response> {
       });
       return resolveRunAdmission(parsedUserId, result.run, outcome, transaction);
     }
-    if (result.type === "active-run-exists" || result.type === "idempotent-replay") {
+    if (result.kind === "active-run-exists" || result.kind === "idempotent-replay") {
       const outcome = await reconcileAgentRunAdmission(c.env, userId, result.run.runId);
       return resolveRunAdmission(parsedUserId, result.run, outcome, transaction);
     }
@@ -161,13 +163,13 @@ async function persistRunRequest(
       idempotencyKeyHash: input.requestIdentity.keyHash,
       personalization: input.personalization,
       requestBodyHash: input.requestIdentity.bodyHash,
-      threadId: ThreadId(input.threadId),
+      threadId: toThreadId(input.threadId),
       userId: input.userId,
       ...(input.body.model === undefined ? {} : { modelId: input.body.model }),
     },
     thread,
   );
-  if (created.type === "created") {
+  if (created.kind === "created") {
     await createThreadMessage(tx, {
       agentRunId: created.run.runId,
       parts: persistedUserMessageParts(input.body),
@@ -193,16 +195,16 @@ function persistedUserMessageParts(body: CreateRun): UIMessagePart[] {
 }
 
 function rejectedRunError(result: RejectedRunResult): APIError {
-  if (result.type === "thread-not-found") {
-    return new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+  if (result.kind === "thread-not-found") {
+    return new APIError(404, "resource_thread_not_found", "Thread not found", { retriable: false });
   }
-  if (result.type === "idempotency-key-reused") {
+  if (result.kind === "idempotency-key-reused") {
     return new APIError(422, "idempotency_key_reused", "Idempotency key was reused", {
       hint: "Generate a new Idempotency-Key for a different thread or request body.",
       retriable: false,
     });
   }
-  if (result.type === "project-read-only") {
+  if (result.kind === "project-read-only") {
     return new APIError(403, "permission_plan_required", "Project is read-only after downgrade", {
       details: { archiveAfter: result.archiveAfter?.toISOString() ?? null },
       hint: "Delete or archive over-limit projects, or upgrade your plan to continue editing this project.",
@@ -222,10 +224,10 @@ async function resolveRunAdmission(
   outcome: AgentRunAdmissionOutcome,
   transaction: UserDatabaseSession["transaction"],
 ): Promise<Response> {
-  if (outcome.type === "confirmed") {
+  if (outcome.kind === "confirmed") {
     return withRunLocation(outcome.response, run.runId);
   }
-  if (outcome.type === "ambiguous") {
+  if (outcome.kind === "ambiguous") {
     throw runAdmissionAmbiguousError(run.runId);
   }
   const reconciliation = await reconcileAbsentRunRow(transaction, userId, run.runId);
@@ -252,7 +254,7 @@ function runAdmissionAbsentError(runId: AgentRunId): APIError {
 }
 
 function runAdmissionAmbiguousError(runId: AgentRunId): APIError {
-  return new APIError(503, "unavailable_maintenance", "Agent run admission is uncertain", {
+  return new APIError(503, "service_maintenance_unavailable", "Agent run admission is uncertain", {
     details: { runId },
     hint: "Retry this same request so Cheatcode can reconcile the existing run safely.",
     retriable: true,
@@ -327,7 +329,7 @@ function readRunRequestIdentity(headers: Headers): { bodyHash: string; keyHash: 
     keyHash: headers.get(RUN_IDEMPOTENCY_KEY_HASH_HEADER),
   });
   if (!parsed.success) {
-    throw new APIError(400, "invalid_request_body", "Missing internal run request identity", {
+    throw new APIError(400, "request_body_invalid", "Missing internal run request identity", {
       retriable: false,
     });
   }

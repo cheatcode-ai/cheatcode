@@ -5,7 +5,7 @@ import {
   withUserDb,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
-import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
+import { type SkillRuntimeScope, toAgentRunId, toUserId } from "@cheatcode/types";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 
@@ -83,13 +83,13 @@ async function persistCapabilities(
   },
   capabilities: StoredSkillRuntimeCapability[],
 ): Promise<void> {
-  const userId = UserId(input.run.userId);
+  const userId = toUserId(input.run.userId);
   return withUserDb(input.env, userId, async ({ transaction }) => {
     const rotated = await transaction((tx) =>
       rotateSkillRuntimeCapabilities(tx, {
         capabilities,
         now: Date.now(),
-        runId: AgentRunId(input.run.runId),
+        runId: toAgentRunId(input.run.runId),
         userId,
       }),
     );

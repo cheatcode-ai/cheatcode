@@ -43,10 +43,10 @@ import {
   WriteFileOutputSchema,
 } from "../../tools/code";
 import { codeRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
-import { startDevServerInputSchema, startDevServerOutputSchema } from "./tool-schemas";
+import { StartDevServerInputSchema, StartDevServerOutputSchema } from "./tool-schemas";
 
 export const mastraRunCode = createTool({
-  id: "runCode",
+  id: "code_run",
   description:
     "Run a short, self-contained Python or JavaScript snippet inline in the sandbox for a quick throwaway computation. It cannot install packages or save files. For real project code, generated files, or anything needing dependencies, use fs_write plus shell_exec instead.",
   inputSchema: RunCodeInputSchema,
@@ -213,13 +213,13 @@ export const mastraGitPush = createTool({
 });
 
 export const mastraStartDevServer = createTool({
-  id: "start_dev_server",
+  id: "code_start_dev_server",
   description:
     "Start a managed long-running dev server under /workspace. Returns only process readiness and the internal port; the user opens the authenticated preview from the Computer panel.",
-  inputSchema: startDevServerInputSchema,
-  outputSchema: startDevServerOutputSchema,
+  inputSchema: StartDevServerInputSchema,
+  outputSchema: StartDevServerOutputSchema,
   execute: async (input, context) => {
-    const parsedInput = startDevServerInputSchema.parse(input);
+    const parsedInput = StartDevServerInputSchema.parse(input);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executePreparedStartDevServer(
       await prepareStartDevServer(parsedInput, runtimeContext),

@@ -39,7 +39,7 @@ export const STARTED_REVERIFY_MS = 30_000;
 export const ENSURE_STARTED_ATTEMPTS = 30;
 export const ENSURE_STARTED_DELAY_MS = 2_000;
 const RunLeasesSchema = z
-  .array(z.object({ runId: z.string(), startedMs: z.number() }).strict())
+  .array(z.strictObject({ runId: z.string(), startedMs: z.number() }))
   .default([]);
 
 export function isDaytonaNameConflictError(error: unknown): boolean {
@@ -103,7 +103,7 @@ export async function storedDaytonaId(storage: DurableObjectStorage): Promise<st
 export function sandboxRuntimeUpdatePending(expectedSnapshot: string): APIError {
   return new APIError(
     503,
-    "unavailable_maintenance",
+    "service_maintenance_unavailable",
     "This computer is updating to the current runtime.",
     {
       details: { expectedSnapshot },

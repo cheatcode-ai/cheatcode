@@ -1,5 +1,5 @@
 import { createDeepResearchWorkflow } from "./deep-research-workflow";
-import { buildFanoutQueries } from "./research-utils";
+import { buildFanoutQueries } from "./research-support";
 
 export const deepResearchFanout = createDeepResearchWorkflow({
   buildQueries: buildFanoutQueries,
@@ -11,7 +11,7 @@ export const deepResearchFanout = createDeepResearchWorkflow({
 function fanoutResearchPrompt(query: string): string {
   return [
     "Run a breadth-first research pass for the query below.",
-    "Prefer search_web or search_company for discovery, then firecrawl_scrape for official pages.",
+    "Prefer search_web or search_company for discovery, then search_scrape for official pages.",
     "Do not call research_deep or research_fanout from inside this workflow step.",
     "Return structured claims only from provider results. Cite every claim with the exact Exa result ID and URL or exact Firecrawl URL returned by the tools.",
     "Do not infer citation IDs from prose and do not cite a URL that no tool returned.",

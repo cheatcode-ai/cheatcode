@@ -6,7 +6,7 @@ import { agentRuns, projects, type StoredSkillRuntimeCapability, threads } from 
 
 const MAX_STORED_CAPABILITIES_PER_RUN = 12;
 const StoredSkillRuntimeCapabilitySchema = z
-  .object({
+  .strictObject({
     digest: z.string().regex(/^[A-Za-z0-9_-]{43}$/u),
     expiresAt: z.number().int().positive().safe(),
     issuedAt: z.number().int().positive().safe(),
@@ -14,7 +14,7 @@ const StoredSkillRuntimeCapabilitySchema = z
     scope: SkillRuntimeScopeSchema,
     tokenId: z.string().regex(/^[A-Za-z0-9_-]{22}$/u),
   })
-  .strict()
+
   .refine((value) => value.expiresAt > value.issuedAt, {
     message: "Capability expiration must follow issuance",
   });

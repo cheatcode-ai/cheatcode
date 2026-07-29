@@ -140,10 +140,15 @@ export async function ensureExpoWebSupport(
     { sandbox },
   );
   if (!alreadyInstalled.success) {
-    throw new APIError(503, "unavailable_maintenance", "Expo web dependencies are unavailable", {
-      hint: "Rebuild the pinned Daytona snapshot and its offline Expo package store.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Expo web dependencies are unavailable",
+      {
+        hint: "Rebuild the pinned Daytona snapshot and its offline Expo package store.",
+        retriable: false,
+      },
+    );
   }
   // Force the Metro web bundler + single-page output for Expo Router web. `output:"single"`
   // serves a client-rendered SPA (one index.html) instead of per-request server rendering,
@@ -210,7 +215,7 @@ async function ensureMetroForwardedHostFix(
 function missingBakedTemplateError(template: "Expo" | "Next.js"): APIError {
   return new APIError(
     503,
-    "unavailable_maintenance",
+    "service_maintenance_unavailable",
     `${template} sandbox template is unavailable`,
     {
       hint: "Rebuild and publish the pinned Daytona snapshot before accepting app-builder runs.",

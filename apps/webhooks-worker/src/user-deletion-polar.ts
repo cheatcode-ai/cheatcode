@@ -320,10 +320,15 @@ async function listSubscriptionOrders(
 async function requirePolarClient(env: UserDeletionPolarEnv): Promise<Polar> {
   const token = await polarAccessToken(env.POLAR_ACCESS_TOKEN);
   if (!token) {
-    throw new APIError(503, "unavailable_maintenance", "Polar deletion credentials are missing", {
-      hint: "Set POLAR_ACCESS_TOKEN before retrying the user deletion Workflow.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Polar deletion credentials are missing",
+      {
+        hint: "Set POLAR_ACCESS_TOKEN before retrying the user deletion Workflow.",
+        retriable: false,
+      },
+    );
   }
   const httpClient = new HTTPClient({
     fetcher: async (input, init) =>
@@ -345,11 +350,16 @@ async function polarAccessToken(secret: WorkerSecret | undefined): Promise<strin
     const value = await resolveWorkerSecret(secret);
     return value?.trim() ? value : null;
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "POLAR_ACCESS_TOKEN is unavailable", {
-      cause: error,
-      hint: "Verify the POLAR_ACCESS_TOKEN Cloudflare secret binding.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "POLAR_ACCESS_TOKEN is unavailable",
+      {
+        cause: error,
+        hint: "Verify the POLAR_ACCESS_TOKEN Cloudflare secret binding.",
+        retriable: false,
+      },
+    );
   }
 }
 

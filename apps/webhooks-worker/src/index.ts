@@ -94,7 +94,7 @@ async function clerkWebhookSigningSecret(env: WebhooksEnv): Promise<string> {
   if (!secret) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Clerk webhook verification is not configured",
       {
         hint: "Set CLERK_WEBHOOK_SIGNING_SECRET on the webhooks Worker.",
@@ -110,7 +110,7 @@ async function polarWebhookSecret(env: WebhooksEnv): Promise<string> {
   if (!secret) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Polar webhook verification is not configured",
       {
         hint: "Set POLAR_WEBHOOK_SECRET on the webhooks Worker.",
@@ -126,7 +126,7 @@ async function composioWebhookSecret(env: WebhooksEnv): Promise<string> {
   if (!secret) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Composio webhook verification is not configured",
       {
         hint: "Set COMPOSIO_WEBHOOK_SECRET on the webhooks Worker.",
@@ -144,7 +144,7 @@ async function readOptionalSecret(
   try {
     return await resolveWorkerSecret(secret);
   } catch {
-    throw new APIError(503, "unavailable_maintenance", `${name} is unavailable`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is unavailable`, {
       hint: `Verify the ${name} Cloudflare Secrets Store binding and secret value.`,
       retriable: false,
     });
@@ -267,7 +267,7 @@ webhooksApp.post("/daytona", async (c) => {
   if (!secret) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       "Daytona webhook verification is not configured",
       { retriable: false },
     );
@@ -280,7 +280,7 @@ webhooksApp.post("/daytona", async (c) => {
   try {
     payload = JSON.parse(rawBody);
   } catch {
-    throw new APIError(400, "invalid_request_body", "Daytona webhook JSON is invalid", {
+    throw new APIError(400, "request_body_invalid", "Daytona webhook JSON is invalid", {
       retriable: false,
     });
   }
@@ -297,7 +297,7 @@ webhooksApp.post("/daytona", async (c) => {
 function requiredHeader(headers: Headers, name: string, provider: string): string {
   const value = headers.get(name)?.trim();
   if (!value) {
-    throw new APIError(400, "invalid_request_body", `Missing ${provider} webhook event id`, {
+    throw new APIError(400, "request_body_invalid", `Missing ${provider} webhook event id`, {
       hint: `Expected the ${name} header before accepting this webhook event.`,
       retriable: false,
     });

@@ -53,7 +53,7 @@ function supportsExaCategoryFilters(input: ExaFilterCheckInput): boolean {
 }
 
 export const ExaSearchInputSchema = z
-  .object({
+  .strictObject({
     query: z.string().trim().min(1).max(2_000),
     numResults: z.number().int().min(1).max(25).default(8),
     type: ExaSearchTypeSchema.default("auto"),
@@ -69,7 +69,7 @@ export const ExaSearchInputSchema = z
     includeSummary: z.boolean().default(false),
     summaryQuery: z.string().trim().min(1).max(1_000).optional(),
   })
-  .strict()
+
   .refine((input) => !(input.includeDomains && input.excludeDomains), {
     message: "Use either includeDomains or excludeDomains, not both.",
     path: ["includeDomains"],
@@ -79,27 +79,23 @@ export const ExaSearchInputSchema = z
     path: ["category"],
   });
 
-const ExaSearchResultSchema = z
-  .object({
-    author: z.string().max(500).nullable().optional(),
-    highlights: z.array(z.string().max(2_000)).max(10).default([]),
-    id: z.string().max(500),
-    publishedDate: z.string().max(100).optional(),
-    score: z.number().optional(),
-    summary: z.string().max(4_000).optional(),
-    text: z.string().max(10_000).optional(),
-    title: z.string().max(1_000).nullable(),
-    url: urlSchema,
-  })
-  .strict();
+const ExaSearchResultSchema = z.strictObject({
+  author: z.string().max(500).nullable().optional(),
+  highlights: z.array(z.string().max(2_000)).max(10).default([]),
+  id: z.string().max(500),
+  publishedDate: z.string().max(100).optional(),
+  score: z.number().optional(),
+  summary: z.string().max(4_000).optional(),
+  text: z.string().max(10_000).optional(),
+  title: z.string().max(1_000).nullable(),
+  url: urlSchema,
+});
 
-export const ExaSearchOutputSchema = z
-  .object({
-    requestId: z.string().max(500),
-    results: z.array(ExaSearchResultSchema).max(25),
-    warning: warningSchema,
-  })
-  .strict();
+export const ExaSearchOutputSchema = z.strictObject({
+  requestId: z.string().max(500),
+  results: z.array(ExaSearchResultSchema).max(25),
+  warning: warningSchema,
+});
 
 const FirecrawlScrapeFormatSchema = z.enum([
   "markdown",
@@ -110,108 +106,92 @@ const FirecrawlScrapeFormatSchema = z.enum([
   "screenshot@fullPage",
 ]);
 
-export const FirecrawlScrapeInputSchema = z
-  .object({
-    url: urlSchema,
-    formats: z.array(FirecrawlScrapeFormatSchema).min(1).max(6).default(["markdown"]),
-    onlyMainContent: z.boolean().default(true),
-    waitFor: z.number().int().min(0).max(30_000).optional(),
-    timeout: z.number().int().min(1_000).max(120_000).optional(),
-    mobile: z.boolean().default(false),
-    removeBase64Images: z.boolean().default(true),
-    proxy: z.enum(["basic", "stealth", "auto"]).optional(),
-  })
-  .strict();
+export const FirecrawlScrapeInputSchema = z.strictObject({
+  url: urlSchema,
+  formats: z.array(FirecrawlScrapeFormatSchema).min(1).max(6).default(["markdown"]),
+  onlyMainContent: z.boolean().default(true),
+  waitFor: z.number().int().min(0).max(30_000).optional(),
+  timeout: z.number().int().min(1_000).max(120_000).optional(),
+  mobile: z.boolean().default(false),
+  removeBase64Images: z.boolean().default(true),
+  proxy: z.enum(["basic", "stealth", "auto"]).optional(),
+});
 
-export const FirecrawlSearchInputSchema = z
-  .object({
-    query: z.string().trim().min(1).max(2_000),
-    limit: z.number().int().min(1).max(25).default(5),
-    tbs: z.string().trim().min(1).max(100).optional(),
-    filter: z.string().trim().min(1).max(500).optional(),
-    lang: z.string().trim().min(2).max(20).optional(),
-    country: z.string().trim().min(2).max(80).optional(),
-    location: z.string().trim().min(2).max(200).optional(),
-    scrapeResults: z.boolean().default(false),
-    onlyMainContent: z.boolean().default(true),
-  })
-  .strict();
+export const FirecrawlSearchInputSchema = z.strictObject({
+  query: z.string().trim().min(1).max(2_000),
+  limit: z.number().int().min(1).max(25).default(5),
+  tbs: z.string().trim().min(1).max(100).optional(),
+  filter: z.string().trim().min(1).max(500).optional(),
+  lang: z.string().trim().min(2).max(20).optional(),
+  country: z.string().trim().min(2).max(80).optional(),
+  location: z.string().trim().min(2).max(200).optional(),
+  scrapeResults: z.boolean().default(false),
+  onlyMainContent: z.boolean().default(true),
+});
 
-export const FirecrawlExtractInputSchema = z
-  .object({
-    urls: z.array(urlSchema).min(1).max(10),
-    prompt: z.string().trim().min(1).max(4_000),
-    jsonSchema: z
-      .record(z.string(), z.unknown())
-      .refine((value) => serializedSizeWithin(value, FIRECRAWL_JSON_SCHEMA_MAX_BYTES), {
-        message: "JSON schema is too large.",
-      })
-      .optional(),
-    systemPrompt: z.string().trim().min(1).max(4_000).optional(),
-    allowExternalLinks: z.boolean().default(false),
-    enableWebSearch: z.boolean().default(false),
-    includeSubdomains: z.boolean().default(false),
-    showSources: z.boolean().default(true),
-    timeoutMs: z.number().int().min(10_000).max(120_000).default(120_000),
-  })
-  .strict();
+export const FirecrawlExtractInputSchema = z.strictObject({
+  urls: z.array(urlSchema).min(1).max(10),
+  prompt: z.string().trim().min(1).max(4_000),
+  jsonSchema: z
+    .record(z.string(), z.unknown())
+    .refine((value) => serializedSizeWithin(value, FIRECRAWL_JSON_SCHEMA_MAX_BYTES), {
+      message: "JSON schema is too large.",
+    })
+    .optional(),
+  systemPrompt: z.string().trim().min(1).max(4_000).optional(),
+  allowExternalLinks: z.boolean().default(false),
+  enableWebSearch: z.boolean().default(false),
+  includeSubdomains: z.boolean().default(false),
+  showSources: z.boolean().default(true),
+  timeoutMs: z.number().int().min(10_000).max(120_000).default(120_000),
+});
 
-const FirecrawlDocumentMetadataSchema = z
-  .object({
-    description: z.string().max(2_000).optional(),
-    sourceURL: urlSchema.optional(),
-    statusCode: z.number().int().optional(),
-    title: z.string().max(1_000).optional(),
-  })
-  .strict();
+const FirecrawlDocumentMetadataSchema = z.strictObject({
+  description: z.string().max(2_000).optional(),
+  sourceURL: urlSchema.optional(),
+  statusCode: z.number().int().optional(),
+  title: z.string().max(1_000).optional(),
+});
 
-const FirecrawlDocumentSchema = z
-  .object({
-    description: z.string().max(2_000).optional(),
-    html: z.string().max(80_000).optional(),
-    links: z.array(urlSchema).max(100).default([]),
-    markdown: z.string().max(80_000).optional(),
-    metadata: FirecrawlDocumentMetadataSchema.optional(),
-    rawHtml: z.string().max(80_000).optional(),
-    screenshot: urlSchema.optional(),
-    title: z.string().max(1_000).optional(),
-    url: urlSchema.optional(),
-  })
-  .strict();
+const FirecrawlDocumentSchema = z.strictObject({
+  description: z.string().max(2_000).optional(),
+  html: z.string().max(80_000).optional(),
+  links: z.array(urlSchema).max(100).default([]),
+  markdown: z.string().max(80_000).optional(),
+  metadata: FirecrawlDocumentMetadataSchema.optional(),
+  rawHtml: z.string().max(80_000).optional(),
+  screenshot: urlSchema.optional(),
+  title: z.string().max(1_000).optional(),
+  url: urlSchema.optional(),
+});
 
-export const FirecrawlScrapeOutputSchema = z
-  .object({
-    description: z.string().max(2_000).optional(),
-    html: z.string().max(120_000).optional(),
-    links: z.array(urlSchema).max(100).default([]),
-    markdown: z.string().max(120_000).optional(),
-    metadata: FirecrawlDocumentMetadataSchema.optional(),
-    rawHtml: z.string().max(120_000).optional(),
-    screenshot: urlSchema.optional(),
-    title: z.string().max(1_000).optional(),
-    url: urlSchema,
-    warning: warningSchema,
-  })
-  .strict();
+export const FirecrawlScrapeOutputSchema = z.strictObject({
+  description: z.string().max(2_000).optional(),
+  html: z.string().max(120_000).optional(),
+  links: z.array(urlSchema).max(100).default([]),
+  markdown: z.string().max(120_000).optional(),
+  metadata: FirecrawlDocumentMetadataSchema.optional(),
+  rawHtml: z.string().max(120_000).optional(),
+  screenshot: urlSchema.optional(),
+  title: z.string().max(1_000).optional(),
+  url: urlSchema,
+  warning: warningSchema,
+});
 
-export const FirecrawlSearchOutputSchema = z
-  .object({
-    results: z.array(FirecrawlDocumentSchema).max(25),
-    warning: warningSchema,
-  })
-  .strict();
+export const FirecrawlSearchOutputSchema = z.strictObject({
+  results: z.array(FirecrawlDocumentSchema).max(25),
+  warning: warningSchema,
+});
 
-export const FirecrawlExtractOutputSchema = z
-  .object({
-    data: z
-      .unknown()
-      .refine((value) => serializedSizeWithin(value, FIRECRAWL_EXTRACT_DATA_MAX_BYTES), {
-        message: "Extracted data is too large.",
-      }),
-    sources: z.array(urlSchema).max(50).default([]),
-    warning: warningSchema,
-  })
-  .strict();
+export const FirecrawlExtractOutputSchema = z.strictObject({
+  data: z
+    .unknown()
+    .refine((value) => serializedSizeWithin(value, FIRECRAWL_EXTRACT_DATA_MAX_BYTES), {
+      message: "Extracted data is too large.",
+    }),
+  sources: z.array(urlSchema).max(50).default([]),
+  warning: warningSchema,
+});
 
 export type ExaSearchInput = z.infer<typeof ExaSearchInputSchema>;
 export type ExaSearchOutput = z.infer<typeof ExaSearchOutputSchema>;

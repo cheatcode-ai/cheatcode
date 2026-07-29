@@ -1,13 +1,13 @@
 import {
   type DatabaseHandle,
   listUserSkillSummaries,
-  type UserSkillSummaryRecord,
+  type UserSkillSummary,
   withUserDb,
 } from "@cheatcode/db";
 import type { UserId } from "@cheatcode/types";
 import { MAX_USER_SKILLS, UserSkillSchema, UserSkillsResponseSchema } from "@cheatcode/types/api";
 
-function skillSummary(record: UserSkillSummaryRecord): unknown {
+function skillSummary(record: UserSkillSummary): unknown {
   return UserSkillSchema.parse({
     category: record.category,
     createdAt: record.createdAt.toISOString(),

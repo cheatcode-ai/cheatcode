@@ -33,7 +33,7 @@ function registerHealthRoute(app: GatewayApp): void {
       readDownstreamReleaseHealth(c.env, "webhooks"),
     ]);
     if (agent.releaseSha !== releaseSha || webhooks.releaseSha !== releaseSha) {
-      throw new APIError(503, "unavailable_maintenance", "Release is still converging", {
+      throw new APIError(503, "service_maintenance_unavailable", "Release is still converging", {
         details: {
           agentReleaseSha: agent.releaseSha,
           gatewayReleaseSha: releaseSha,

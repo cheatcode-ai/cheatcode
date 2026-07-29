@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
 import {
-  type ActivityRow,
+  type ActivityItem,
   buildActivityRows,
   buildToolDetailSections,
   collapseToolRuns,
@@ -49,7 +49,7 @@ export function ActivityDisclosure({
   );
 }
 
-function ActivityTimeline({ rows }: { rows: ActivityRow[] }) {
+function ActivityTimeline({ rows }: { rows: ActivityItem[] }) {
   return (
     <div className="relative ml-[5px] pt-1.5 pl-5">
       {rows.map((row) => (

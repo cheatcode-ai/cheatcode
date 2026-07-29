@@ -1,4 +1,4 @@
-import type { DataChartInput, DataRecord } from "./schemas";
+import type { DataChartInput, DataEntry } from "./schemas";
 
 const PALETTE = ["#8B5CF6", "#22C55E", "#F97316", "#06B6D4"] as const;
 const GRID_LINES = 5;
@@ -44,7 +44,7 @@ export function renderChartSvg(input: DataChartInput, points: readonly ChartPoin
 
 export function buildChartComponentSource(
   input: DataChartInput,
-  rows: readonly DataRecord[],
+  rows: readonly DataEntry[],
 ): string {
   const chartName = chartComponentName(input.chartType);
   const seriesName = seriesComponentName(input.chartType);

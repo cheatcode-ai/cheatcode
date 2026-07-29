@@ -18,6 +18,10 @@ import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
 import type { ComposerTriggers } from "@/components/composer/use-composer-triggers";
 import {
+  type HomeComposerProps,
+  useHomeComposerController,
+} from "@/components/home/home-composer-controller";
+import {
   HomeQuickActions,
   RemovableChip,
   SkillCreatorSuggestions,
@@ -25,10 +29,6 @@ import {
 import type { ComposerIntent, IntentId } from "@/components/home/home-composer-intents";
 import { SandboxUsageBanner } from "@/components/home/home-composer-plan-banner";
 import { repoLabel } from "@/components/home/home-composer-prompt-state";
-import {
-  type HomeComposerProps,
-  useHomeComposerController,
-} from "@/components/home/use-home-composer-controller";
 import { ArrowUp, X } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";

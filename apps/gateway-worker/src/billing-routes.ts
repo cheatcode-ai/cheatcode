@@ -75,7 +75,7 @@ export async function billingCheckoutRoute(
     await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
   );
   if (!parsedInput.success) {
-    throw new APIError(400, "invalid_request_body", "Invalid billing checkout payload", {
+    throw new APIError(400, "request_body_invalid", "Invalid billing checkout payload", {
       details: { issues: parsedInput.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -185,7 +185,7 @@ export async function billingCancelRoute(
     await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
   );
   if (!parsedInput.success) {
-    throw new APIError(400, "invalid_request_body", "Invalid billing cancellation payload", {
+    throw new APIError(400, "request_body_invalid", "Invalid billing cancellation payload", {
       details: { issues: parsedInput.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -231,7 +231,7 @@ export async function billingReactivateRoute(
 async function requireBillingUser(transaction: UserDatabaseSession["transaction"], userId: UserId) {
   const user = await transaction((tx) => findBillingUserById(tx, userId));
   if (!user) {
-    throw new APIError(404, "not_found_user", "Billing user is not synced", {
+    throw new APIError(404, "resource_user_not_found", "Billing user is not synced", {
       hint: "Sign out and sign back in so Clerk can resync your account.",
       retriable: true,
     });
@@ -340,7 +340,7 @@ function polarProductIdForTier(env: GatewayEnv, tier: PaidBillingTier): string {
   if (!productId) {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       `Polar product for the ${tier} tier is not configured`,
       {
         hint: `Set ${POLAR_PRODUCT_ID_ENV[tier]} in the gateway Worker environment.`,

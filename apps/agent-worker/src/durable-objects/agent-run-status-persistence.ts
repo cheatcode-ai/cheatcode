@@ -1,7 +1,7 @@
 import { updateAgentRunStatus, withUserDb } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { createLogger } from "@cheatcode/observability";
-import { AgentRunId, UserId } from "@cheatcode/types";
+import { toAgentRunId, toUserId } from "@cheatcode/types";
 import { z } from "zod";
 import type { AgentRunEnv } from "./agent-run-env";
 import { pendingAssistantMessageRetryAt } from "./agent-run-message-persistence";
@@ -22,7 +22,7 @@ interface AgentRunStatusPersistenceEnv {
 }
 
 export interface PersistAgentRunStatusInput {
-  artifactsQuiesced: boolean;
+  isArtifactsQuiesced: boolean;
   runId: string;
   status: PersistableRunStatus;
   userId: string;
@@ -66,15 +66,13 @@ const PENDING_STATUS_RETRY_AT_KEY = "pending_db_status_retry_at";
 const MIN_STATUS_RETRY_MS = 5_000;
 const MAX_STATUS_RETRY_MS = 5 * 60 * 1000;
 
-const PendingStatusSchema = z
-  .object({
-    attempt: z.number().int().nonnegative(),
-    artifactsQuiesced: z.boolean(),
-    runId: z.string().uuid(),
-    status: z.enum(["running", "completed", "failed", "canceled"]),
-    userId: z.string().uuid(),
-  })
-  .strict();
+const PendingStatusSchema = z.strictObject({
+  attempt: z.number().int().nonnegative(),
+  isArtifactsQuiesced: z.boolean(),
+  runId: z.string().uuid(),
+  status: z.enum(["running", "completed", "failed", "canceled"]),
+  userId: z.string().uuid(),
+});
 
 type PendingStatus = z.infer<typeof PendingStatusSchema>;
 
@@ -85,15 +83,15 @@ async function persistAgentRunStatus(
   const logger = createLogger({ runId: input.runId, userId: input.userId });
   return withUserDb(
     env,
-    UserId(input.userId),
+    toUserId(input.userId),
     async ({ transaction }) => {
       try {
         const updated = await transaction((tx) =>
           updateAgentRunStatus(tx, {
-            artifactsQuiesced: input.artifactsQuiesced,
-            runId: AgentRunId(input.runId),
+            isArtifactsQuiesced: input.isArtifactsQuiesced,
+            runId: toAgentRunId(input.runId),
             status: input.status,
-            userId: UserId(input.userId),
+            userId: toUserId(input.userId),
           }),
         );
         if (!updated) {
@@ -179,7 +177,7 @@ function readPendingStatus(ctx: DurableObjectState): PendingStatus | null {
 
 function statusInputFromPending(pending: PendingStatus): PersistAgentRunStatusInput {
   return {
-    artifactsQuiesced: pending.artifactsQuiesced,
+    isArtifactsQuiesced: pending.isArtifactsQuiesced,
     runId: pending.runId,
     status: pending.status,
     userId: pending.userId,

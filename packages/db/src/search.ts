@@ -1,5 +1,5 @@
 import type { ProjectId, ThreadId, UserId } from "@cheatcode/types";
-import { ProjectId as toProjectId, ThreadId as toThreadId } from "@cheatcode/types";
+import { toProjectId, toThreadId } from "@cheatcode/types";
 import { and, desc, eq, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { projects, threads } from "./schema";

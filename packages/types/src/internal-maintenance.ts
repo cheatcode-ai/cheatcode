@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { UserId } from "./ids";
+import { toUserId } from "./ids";
 
 const InternalRunIdListSchema = z
   .array(z.string().uuid())
@@ -21,80 +21,62 @@ const CanonicalProjectWorkspaceSlugSchema = z
   );
 
 export const InternalAgentStateDeleteBodySchema = z.discriminatedUnion("scope", [
-  z
-    .object({
-      deletionFence: DeletionFenceSchema,
-      scope: z.literal("account"),
-    })
-    .strict(),
-  z
-    .object({
-      deletedAt: DeletionGenerationSchema,
-      projectId: z.string().uuid().toLowerCase(),
-      scope: z.literal("project"),
-      workspaceSlug: CanonicalProjectWorkspaceSlugSchema,
-    })
-    .strict(),
-  z
-    .object({
-      authority: z.discriminatedUnion("kind", [
-        z
-          .object({
-            deletionFence: DeletionFenceSchema,
-            kind: z.literal("account"),
-          })
-          .strict(),
-        z
-          .object({
-            deletedAt: DeletionGenerationSchema,
-            kind: z.literal("project"),
-            projectId: z.string().uuid().toLowerCase(),
-          })
-          .strict(),
-        z
-          .object({
-            deletedAt: DeletionGenerationSchema,
-            kind: z.literal("thread"),
-            threadId: z.string().uuid().toLowerCase(),
-          })
-          .strict(),
-      ]),
-      runIds: InternalRunIdListSchema,
-      scope: z.literal("runs"),
-    })
-    .strict(),
+  z.strictObject({
+    deletionFence: DeletionFenceSchema,
+    scope: z.literal("account"),
+  }),
+  z.strictObject({
+    deletedAt: DeletionGenerationSchema,
+    projectId: z.string().uuid().toLowerCase(),
+    scope: z.literal("project"),
+    workspaceSlug: CanonicalProjectWorkspaceSlugSchema,
+  }),
+  z.strictObject({
+    authority: z.discriminatedUnion("kind", [
+      z.strictObject({
+        deletionFence: DeletionFenceSchema,
+        kind: z.literal("account"),
+      }),
+      z.strictObject({
+        deletedAt: DeletionGenerationSchema,
+        kind: z.literal("project"),
+        projectId: z.string().uuid().toLowerCase(),
+      }),
+      z.strictObject({
+        deletedAt: DeletionGenerationSchema,
+        kind: z.literal("thread"),
+        threadId: z.string().uuid().toLowerCase(),
+      }),
+    ]),
+    runIds: InternalRunIdListSchema,
+    scope: z.literal("runs"),
+  }),
 ]);
 
 export type InternalAgentStateDeleteBody = z.infer<typeof InternalAgentStateDeleteBodySchema>;
 
-export const InternalAgentStateDeleteRequestSchema = z
-  .object({
-    body: InternalAgentStateDeleteBodySchema,
-    userId: z.string().uuid().transform(UserId),
-  })
-  .strict();
+export const InternalAgentStateDeleteRequestSchema = z.strictObject({
+  body: InternalAgentStateDeleteBodySchema,
+  userId: z.string().uuid().transform(toUserId),
+});
 
 export type InternalAgentStateDeleteRequest = z.infer<typeof InternalAgentStateDeleteRequestSchema>;
 
-const InternalProjectDeletionRequestSchema = z
-  .object({
-    deletedAt: z.string().datetime({ offset: true }),
-    kind: z.literal("project-deletion"),
-    projectId: z.string().uuid(),
-    userId: z.string().uuid(),
-    workspaceSlug: z.string().min(1).max(200),
-  })
-  .strict();
+const InternalProjectDeletionRequestSchema = z.strictObject({
+  deletedAt: z.string().datetime({ offset: true }),
+  kind: z.literal("project-deletion"),
+  projectId: z.string().uuid(),
+  userId: z.string().uuid(),
+  workspaceSlug: z.string().min(1).max(200),
+});
 
-const InternalThreadDeletionRequestSchema = z
-  .object({
-    deletedAt: z.string().datetime({ offset: true }),
-    kind: z.literal("thread-deletion"),
-    projectId: z.string().uuid().nullable(),
-    threadId: z.string().uuid(),
-    userId: z.string().uuid(),
-  })
-  .strict();
+const InternalThreadDeletionRequestSchema = z.strictObject({
+  deletedAt: z.string().datetime({ offset: true }),
+  kind: z.literal("thread-deletion"),
+  projectId: z.string().uuid().nullable(),
+  threadId: z.string().uuid(),
+  userId: z.string().uuid(),
+});
 
 export const InternalResourceDeletionRequestSchema = z.discriminatedUnion("kind", [
   InternalProjectDeletionRequestSchema,
@@ -103,28 +85,24 @@ export const InternalResourceDeletionRequestSchema = z.discriminatedUnion("kind"
 
 export type InternalResourceDeletionRequest = z.infer<typeof InternalResourceDeletionRequestSchema>;
 
-export const ResourceDeletionWorkflowPayloadSchema = z
-  .object({
-    continuation: z.number().int().nonnegative(),
-    jobId: z.string().uuid(),
-    leaseToken: z.string().uuid(),
-    userId: z.string().uuid().transform(UserId),
-  })
-  .strict();
+export const ResourceDeletionWorkflowPayloadSchema = z.strictObject({
+  continuation: z.number().int().nonnegative(),
+  jobId: z.string().uuid(),
+  leaseToken: z.string().uuid(),
+  userId: z.string().uuid().transform(toUserId),
+});
 
 export type ResourceDeletionWorkflowPayload = z.infer<typeof ResourceDeletionWorkflowPayloadSchema>;
 
-export const InternalStateDeleteResponseSchema = z.object({ ok: z.literal(true) }).strict();
+export const InternalStateDeleteResponseSchema = z.strictObject({ ok: z.literal(true) });
 
 export type InternalStateDeleteResponse = z.infer<typeof InternalStateDeleteResponseSchema>;
 
-const InternalServiceFailureSchema = z
-  .object({
-    ok: z.literal(false),
-    retriable: z.boolean(),
-    status: z.number().int().min(400).max(599),
-  })
-  .strict();
+const InternalServiceFailureSchema = z.strictObject({
+  ok: z.literal(false),
+  retriable: z.boolean(),
+  status: z.number().int().min(400).max(599),
+});
 
 export const AgentLifecycleServiceResultSchema = z.discriminatedUnion("ok", [
   InternalStateDeleteResponseSchema,
@@ -134,12 +112,10 @@ export const AgentLifecycleServiceResultSchema = z.discriminatedUnion("ok", [
 export type AgentLifecycleServiceResult = z.infer<typeof AgentLifecycleServiceResultSchema>;
 
 export const ResourceDeletionServiceResultSchema = z.discriminatedUnion("ok", [
-  z
-    .object({
-      jobId: z.string().uuid().nullable(),
-      ok: z.literal(true),
-    })
-    .strict(),
+  z.strictObject({
+    jobId: z.string().uuid().nullable(),
+    ok: z.literal(true),
+  }),
   InternalServiceFailureSchema,
 ]);
 

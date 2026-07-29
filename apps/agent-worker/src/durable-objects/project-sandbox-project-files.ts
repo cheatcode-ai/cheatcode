@@ -11,7 +11,7 @@ import {
   ProjectFileUploadResponseSchema,
 } from "@cheatcode/types/api";
 import { z } from "zod";
-import { sleep } from "./project-sandbox-process-support";
+import { sleep } from "../sandbox-support";
 import {
   type ProjectListUploadedFilesInput,
   ProjectListUploadedFilesInputSchema,
@@ -31,32 +31,28 @@ const DELETE_BATCH_SIZE = 128;
 const WORKSPACE_FILE_VISIBILITY_ATTEMPTS = 20;
 const WORKSPACE_FILE_VISIBILITY_DELAY_MS = 250;
 
-const ProjectFileVersionSchema = z
-  .object({
-    contentType: z.string().min(1).max(200),
-    createdAt: z.string().datetime(),
-    fileId: z.string().uuid(),
-    name: z.string().min(1).max(200),
-    path: ProjectFileRelativePathSchema,
-    projectId: z.string().uuid(),
-    r2Key: z.string().min(1).max(1_000),
-    sha256: z.string().regex(/^[a-f0-9]{64}$/u),
-    sizeBytes: z.number().int().positive(),
-    versionId: z.string().uuid(),
-  })
-  .strict();
+const ProjectFileVersionSchema = z.strictObject({
+  contentType: z.string().min(1).max(200),
+  createdAt: z.string().datetime(),
+  fileId: z.string().uuid(),
+  name: z.string().min(1).max(200),
+  path: ProjectFileRelativePathSchema,
+  projectId: z.string().uuid(),
+  r2Key: z.string().min(1).max(1_000),
+  sha256: z.string().regex(/^[a-f0-9]{64}$/u),
+  sizeBytes: z.number().int().positive(),
+  versionId: z.string().uuid(),
+});
 
 type ProjectFileVersion = z.infer<typeof ProjectFileVersionSchema>;
 
-const ProjectFileMaterializationSchema = z
-  .object({
-    fileId: z.string().uuid(),
-    modifiedAt: z.string().datetime({ offset: true }),
-    projectId: z.string().uuid(),
-    sizeBytes: z.number().int().positive(),
-    versionId: z.string().uuid(),
-  })
-  .strict();
+const ProjectFileMaterializationSchema = z.strictObject({
+  fileId: z.string().uuid(),
+  modifiedAt: z.string().datetime({ offset: true }),
+  projectId: z.string().uuid(),
+  sizeBytes: z.number().int().positive(),
+  versionId: z.string().uuid(),
+});
 
 type ProjectFileMaterialization = z.infer<typeof ProjectFileMaterializationSchema>;
 

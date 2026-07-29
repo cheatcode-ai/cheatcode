@@ -1,7 +1,7 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
 import { type Database, expireComposioConnection } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { ComposioConnectionIdSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
@@ -13,51 +13,43 @@ const V1_SIGNATURE_PATTERN = /^v1,([A-Za-z0-9+/]{43}=)$/;
 const InternalUserIdSchema = z
   .string()
   .uuid()
-  .transform((value) => UserId(value));
+  .transform((value) => toUserId(value));
 
 const ComposioEventIdSchema = z.string().min(1).max(COMPOSIO_ID_MAX_CHARACTERS);
 const ComposioTimestampSchema = z.string().datetime({ offset: true });
 const ComposioSlugSchema = z.string().trim().min(1).max(COMPOSIO_SLUG_MAX_CHARACTERS);
 
-const ComposioTriggerMessageSchema = z
-  .object({
-    data: z.record(z.string(), z.unknown()),
-    id: ComposioEventIdSchema,
-    metadata: z
-      .object({
-        auth_config_id: ComposioEventIdSchema,
-        connected_account_id: ComposioConnectionIdSchema,
-        log_id: ComposioEventIdSchema,
-        trigger_id: ComposioEventIdSchema,
-        trigger_slug: ComposioSlugSchema,
-        user_id: InternalUserIdSchema,
-      })
-      .strict(),
-    timestamp: ComposioTimestampSchema,
-    type: z.literal("composio.trigger.message"),
-  })
-  .strict();
+const ComposioTriggerMessageSchema = z.strictObject({
+  data: z.record(z.string(), z.unknown()),
+  id: ComposioEventIdSchema,
+  metadata: z.strictObject({
+    auth_config_id: ComposioEventIdSchema,
+    connected_account_id: ComposioConnectionIdSchema,
+    log_id: ComposioEventIdSchema,
+    trigger_id: ComposioEventIdSchema,
+    trigger_slug: ComposioSlugSchema,
+    user_id: InternalUserIdSchema,
+  }),
+  timestamp: ComposioTimestampSchema,
+  type: z.literal("composio.trigger.message"),
+});
 
-const ComposioConnectionExpiredSchema = z
-  .object({
-    data: z
-      .object({
-        id: ComposioConnectionIdSchema,
-        status: z.literal("EXPIRED"),
-        toolkit: z.object({ slug: ComposioSlugSchema }).strip(),
-      })
-      .strip(),
-    id: ComposioEventIdSchema,
-    metadata: z
-      .object({
-        org_id: ComposioEventIdSchema,
-        project_id: ComposioEventIdSchema,
-      })
-      .strict(),
-    timestamp: ComposioTimestampSchema,
-    type: z.literal("composio.connected_account.expired"),
-  })
-  .strict();
+const ComposioConnectionExpiredSchema = z.strictObject({
+  data: z
+    .object({
+      id: ComposioConnectionIdSchema,
+      status: z.literal("EXPIRED"),
+      toolkit: z.object({ slug: ComposioSlugSchema }).strip(),
+    })
+    .strip(),
+  id: ComposioEventIdSchema,
+  metadata: z.strictObject({
+    org_id: ComposioEventIdSchema,
+    project_id: ComposioEventIdSchema,
+  }),
+  timestamp: ComposioTimestampSchema,
+  type: z.literal("composio.connected_account.expired"),
+});
 
 const ComposioWebhookEventSchema = z.discriminatedUnion("type", [
   ComposioTriggerMessageSchema,
@@ -123,7 +115,7 @@ function parseComposioEvent(rawBody: string): ComposioWebhookEvent {
   try {
     event = JSON.parse(rawBody);
   } catch {
-    throw new APIError(400, "invalid_request_body", "Composio webhook JSON is invalid", {
+    throw new APIError(400, "request_body_invalid", "Composio webhook JSON is invalid", {
       retriable: false,
     });
   }
@@ -131,7 +123,7 @@ function parseComposioEvent(rawBody: string): ComposioWebhookEvent {
   if (!parsed.success) {
     throw new APIError(
       400,
-      "invalid_request_body",
+      "request_body_invalid",
       "Unsupported or invalid Composio V3 webhook payload",
       { retriable: false },
     );

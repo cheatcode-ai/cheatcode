@@ -40,7 +40,7 @@ export async function readJsonRequest(
     }
     throw new APIError(
       400,
-      "invalid_request_body",
+      "request_body_invalid",
       label ? `${label} must be valid JSON` : "Request body must be valid JSON",
       {
         retriable: false,
@@ -171,7 +171,7 @@ function validateMaxBytes(maxBytes: number): void {
 }
 
 function bodyTooLarge(label: string): APIError {
-  return new APIError(413, "invalid_request_body", `${label} body is too large`, {
+  return new APIError(413, "request_body_invalid", `${label} body is too large`, {
     retriable: false,
   });
 }

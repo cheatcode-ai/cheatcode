@@ -10,7 +10,7 @@ import {
   isThreadDeletionGenerationCurrent,
   loadProjectWorkspaceDeletionState,
 } from "@cheatcode/db";
-import { ProjectId, ThreadId, type UserId } from "@cheatcode/types";
+import { toProjectId, toThreadId, type UserId } from "@cheatcode/types";
 import type { InternalAgentStateDeleteBody } from "@cheatcode/types/internal";
 
 export async function isAgentStateDeletionAuthorized(
@@ -44,7 +44,7 @@ async function isProjectWorkspaceDeletionCurrent(
   body: Extract<InternalAgentStateDeleteBody, { scope: "project" }>,
 ): Promise<boolean> {
   const state = await loadProjectWorkspaceDeletionState(db, {
-    projectId: ProjectId(body.projectId),
+    projectId: toProjectId(body.projectId),
     userId,
   });
   return (
@@ -64,12 +64,12 @@ async function isRunDeletionGenerationCurrent(
   return authority.kind === "project"
     ? isProjectDeletionGenerationCurrent(db, {
         deletedAt: new Date(authority.deletedAt),
-        projectId: ProjectId(authority.projectId),
+        projectId: toProjectId(authority.projectId),
         userId,
       })
     : isThreadDeletionGenerationCurrent(db, {
         deletedAt: new Date(authority.deletedAt),
-        threadId: ThreadId(authority.threadId),
+        threadId: toThreadId(authority.threadId),
         userId,
       });
 }
@@ -85,14 +85,14 @@ async function areRunDeletionTargetsOwned(
   const owned =
     body.authority.kind === "project"
       ? await countOwnedProjectRunTargets(db, {
-          projectId: ProjectId(body.authority.projectId),
+          projectId: toProjectId(body.authority.projectId),
           runIds: body.runIds,
           userId,
         })
       : body.authority.kind === "thread"
         ? await countOwnedThreadRunTargets(db, {
             runIds: body.runIds,
-            threadId: ThreadId(body.authority.threadId),
+            threadId: toThreadId(body.authority.threadId),
             userId,
           })
         : await countOwnedUserRunTargets(db, { runIds: body.runIds, userId });

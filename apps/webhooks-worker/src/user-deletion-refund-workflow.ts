@@ -1,28 +1,28 @@
 import type { UserDeletionRefundEvidence, UserDeletionRefundIntentRecord } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import { z } from "zod";
 import type { UserDeletionPolarPage } from "./user-deletion-polar";
 
 const ProviderStatusSchema = z.enum(["pending", "succeeded", "failed", "canceled"]);
-const RefundCandidateSchema = z
-  .object({
-    amount: z.number().int().positive().max(2_147_483_647),
-    currency: z.string().regex(/^[a-z]{3}$/u),
-    orderId: z.string().min(1),
+const RefundCandidateSchema = z.strictObject({
+  amount: z.number().int().positive().max(2_147_483_647),
+  currency: z.string().regex(/^[a-z]{3}$/u),
+  orderId: z.string().min(1),
+});
+const UserDeletionRefundIntentWireSchema = z
+  .strictObject({
+    ...RefundCandidateSchema.shape,
+    createdAt: z.string().datetime({ offset: true }),
+    generation: z.string().datetime({ offset: true }),
+    idempotencyKey: z.string().regex(/^cheatcode:user-deletion-refund:[0-9a-f-]{36}$/u),
+    jobId: z.string().uuid(),
+    providerRefundId: z.string().min(1).nullable(),
+    providerStatus: ProviderStatusSchema.nullable(),
+    reconciledAt: z.string().datetime({ offset: true }).nullable(),
+    userId: z.string().uuid(),
   })
-  .strict();
-const UserDeletionRefundIntentWireSchema = RefundCandidateSchema.extend({
-  createdAt: z.string().datetime({ offset: true }),
-  generation: z.string().datetime({ offset: true }),
-  idempotencyKey: z.string().regex(/^cheatcode:user-deletion-refund:[0-9a-f-]{36}$/u),
-  jobId: z.string().uuid(),
-  providerRefundId: z.string().min(1).nullable(),
-  providerStatus: ProviderStatusSchema.nullable(),
-  reconciledAt: z.string().datetime({ offset: true }).nullable(),
-  userId: z.string().uuid(),
-})
-  .strict()
+
   .superRefine((intent, context) => {
     if (intent.idempotencyKey !== `cheatcode:user-deletion-refund:${intent.jobId}`) {
       context.addIssue({ code: "custom", message: "Refund idempotency identity is inconsistent" });
@@ -39,16 +39,15 @@ const UserDeletionRefundIntentWireSchema = RefundCandidateSchema.extend({
       context.addIssue({ code: "custom", message: "Refund provider evidence is incomplete" });
     }
   });
-const UserDeletionRefundEvidenceWireSchema = RefundCandidateSchema.extend({
+const UserDeletionRefundEvidenceWireSchema = z.strictObject({
+  ...RefundCandidateSchema.shape,
   providerRefundId: z.string().min(1),
   providerStatus: ProviderStatusSchema,
-}).strict();
-const UserDeletionPolarPageWireSchema = z
-  .object({
-    candidate: RefundCandidateSchema.nullable(),
-    nextPage: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
-  })
-  .strict();
+});
+const UserDeletionPolarPageWireSchema = z.strictObject({
+  candidate: RefundCandidateSchema.nullable(),
+  nextPage: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+});
 
 export type UserDeletionRefundIntentWire = z.infer<typeof UserDeletionRefundIntentWireSchema>;
 export type UserDeletionRefundEvidenceWire = z.infer<typeof UserDeletionRefundEvidenceWireSchema>;
@@ -170,7 +169,7 @@ export function userDeletionRefundIntentFromWire(
     createdAt: new Date(intent.createdAt),
     generation: new Date(intent.generation),
     reconciledAt: intent.reconciledAt ? new Date(intent.reconciledAt) : null,
-    userId: UserId(intent.userId),
+    userId: toUserId(intent.userId),
   };
 }
 

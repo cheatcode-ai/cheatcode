@@ -1,4 +1,4 @@
-import { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { and, desc, eq, inArray, ne, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { userIntegrations } from "./schema";
@@ -428,6 +428,6 @@ function toUserIntegrationRecord(row: {
 }): UserIntegrationRecord {
   return {
     ...row,
-    userId: UserId(row.userId),
+    userId: toUserId(row.userId),
   };
 }

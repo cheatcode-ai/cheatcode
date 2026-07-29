@@ -103,7 +103,7 @@ async function setQuotaLimit(
   try {
     await stub.setLimit(feature, limit, entitlementVersion);
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
+    throw new APIError(503, "service_maintenance_unavailable", "Quota tracker is unavailable", {
       cause: error,
       hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
       retriable: true,

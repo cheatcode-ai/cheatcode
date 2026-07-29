@@ -9,22 +9,21 @@ const MILLIS_PER_HOUR = 60 * 60 * 1_000;
 const MILLIS_PER_DAY = 24 * MILLIS_PER_HOUR;
 
 const TimestampSchema = z.number().int().nonnegative().finite();
-const AccrualSchema = z
-  .object({
-    amountMs: z.number().int().positive().finite(),
-    periodEnd: QuotaPeriodEndSchema,
-    recordedAtMs: TimestampSchema,
-  })
-  .strict();
-const PendingAccrualSchema = AccrualSchema.extend({ eventId: z.string().min(1).max(200) }).strict();
-const MeterStateSchema = z
-  .object({
-    accruals: z.array(AccrualSchema),
-    active: z.boolean(),
-    checkpointMs: TimestampSchema.nullable(),
-    pending: PendingAccrualSchema.nullable(),
-  })
-  .strict();
+const AccrualSchema = z.strictObject({
+  amountMs: z.number().int().positive().finite(),
+  periodEnd: QuotaPeriodEndSchema,
+  recordedAtMs: TimestampSchema,
+});
+const PendingAccrualSchema = z.strictObject({
+  ...AccrualSchema.shape,
+  eventId: z.string().min(1).max(200),
+});
+const MeterStateSchema = z.strictObject({
+  accruals: z.array(AccrualSchema),
+  active: z.boolean(),
+  checkpointMs: TimestampSchema.nullable(),
+  pending: PendingAccrualSchema.nullable(),
+});
 
 type Accrual = z.infer<typeof AccrualSchema>;
 type MeterState = z.infer<typeof MeterStateSchema>;

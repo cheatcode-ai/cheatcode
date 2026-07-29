@@ -43,7 +43,7 @@ export function resolveProjectWorkspacePath(
 ): string {
   const projectRoot = canonicalWorkspacePath(workspaceDir ?? "/workspace");
   if (!isSafeWorkspacePath(projectRoot)) {
-    throw new APIError(500, "internal_error", "Project workspace is invalid", {
+    throw new APIError(500, "internal_service_error", "Project workspace is invalid", {
       retriable: false,
     });
   }

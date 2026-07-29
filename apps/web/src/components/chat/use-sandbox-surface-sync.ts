@@ -33,8 +33,8 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
 }
 
 export type SurfaceCommand =
-  | { status: SandboxStatusData["status"]; type: "status" }
-  | { toolCallId: string; type: "open-browser-preview" };
+  | { kind: "status"; status: SandboxStatusData["status"] }
+  | { kind: "open-browser-preview"; toolCallId: string };
 
 export interface WorkspaceSurfaceApplier {
   apply: (command: SurfaceCommand) => void;
@@ -85,7 +85,7 @@ export function useWorkspaceSurfaceApplier(
 
 export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
   const commands = useMemo(() => hydratedSurfaceCommands(input.messages), [input.messages]);
-  const status = commands.status?.type === "status" ? commands.status.status : null;
+  const status = commands.status?.kind === "status" ? commands.status.status : null;
   const defaultedProjectFilesRef = useRef<string | null>(null);
   const previousStatusRef = useRef(input.chatStatus);
   const actions = useMemo(
@@ -110,14 +110,14 @@ export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
   }
   if (part["type"] === "data-sandbox-status") {
     const parsed = CHEATCODE_DATA_SCHEMAS["sandbox-status"].safeParse(part["data"]);
-    return parsed.success ? { status: parsed.data.status, type: "status" } : null;
+    return parsed.success ? { kind: "status", status: parsed.data.status } : null;
   }
   if (part["type"] !== "data-tool") {
     return null;
   }
   const parsed = CHEATCODE_DATA_SCHEMAS.tool.safeParse(part["data"]);
   return parsed.success && isBrowserToolName(parsed.data.toolName)
-    ? { toolCallId: parsed.data.toolCallId, type: "open-browser-preview" }
+    ? { kind: "open-browser-preview", toolCallId: parsed.data.toolCallId }
     : null;
 }
 
@@ -200,9 +200,9 @@ function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): Hydra
         continue;
       }
       const command = workspaceSurfaceEffect(part);
-      if (command?.type === "status") {
+      if (command?.kind === "status") {
         status = command;
-      } else if (command?.type === "open-browser-preview") {
+      } else if (command?.kind === "open-browser-preview") {
         browser = command;
       }
     }
@@ -216,7 +216,7 @@ function applyWorkspaceSurfaceCommand(
   state: SurfaceCommandState,
   actions: SandboxStatusActions,
 ): void {
-  if (command.type === "status") {
+  if (command.kind === "status") {
     if (useAppStore.getState().sandboxStatus !== command.status) {
       actions.setSandboxStatus(command.status);
     }
