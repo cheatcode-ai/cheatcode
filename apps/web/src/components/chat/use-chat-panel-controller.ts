@@ -30,6 +30,7 @@ import {
 } from "@/components/chat/use-sandbox-surface-sync";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
+import { invalidateChatLists, projectKeys, threadKeys } from "@/lib/api/query-keys";
 import { USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
@@ -270,8 +271,8 @@ function useCancelRun(threadId: string, getToken: () => Promise<null | string>) 
       toast.error(error instanceof Error ? error.message : "Run cancellation failed");
     },
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ["threads", threadId] });
-      void queryClient.invalidateQueries({ queryKey: ["threads", threadId, "messages"] });
+      void queryClient.invalidateQueries({ queryKey: threadKeys.detail(threadId) });
+      void queryClient.invalidateQueries({ queryKey: threadKeys.messages(threadId) });
     },
   });
 }
@@ -376,20 +377,15 @@ function handleProjectCreated(
   projectId: string,
   input: Parameters<typeof useChatSession>[0],
 ): void {
-  input.queryClient.setQueryData<Thread>(["threads", input.threadId], (thread) =>
+  input.queryClient.setQueryData<Thread>(threadKeys.detail(input.threadId), (thread) =>
     thread ? { ...thread, projectId } : thread,
   );
   input.sandboxActions.setActivePreviewTab("files");
   input.sandboxActions.setPreviewPanelOpen(true);
-  for (const queryKey of [
-    ["threads", input.threadId],
-    ["projects", projectId],
-    ["sidebar-projects"],
-    ["sidebar-project-threads"],
-    ["sidebar-chats"],
-  ]) {
+  for (const queryKey of [threadKeys.detail(input.threadId), projectKeys.detail(projectId)]) {
     void input.queryClient.invalidateQueries({ queryKey });
   }
+  void invalidateChatLists(input.queryClient);
 }
 
 function handleStreamFinish(isError: boolean, input: Parameters<typeof useChatSession>[0]): void {
@@ -397,15 +393,10 @@ function handleStreamFinish(isError: boolean, input: Parameters<typeof useChatSe
     input.pendingSubmissionRef.current = null;
   }
   input.hasSubmittedRef.current = false;
-  for (const queryKey of [
-    ["threads", input.threadId],
-    ["threads", input.threadId, "messages"],
-    ["sidebar-chats"],
-    ["sidebar-projects"],
-    ["sidebar-project-threads"],
-  ]) {
+  for (const queryKey of [threadKeys.detail(input.threadId), threadKeys.messages(input.threadId)]) {
     void input.queryClient.invalidateQueries({ queryKey });
   }
+  void invalidateChatLists(input.queryClient);
 }
 
 function useOlderMessageLoader(

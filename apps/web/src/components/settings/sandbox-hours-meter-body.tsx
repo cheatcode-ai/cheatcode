@@ -19,13 +19,7 @@ const SANDBOX_BAR_SEGMENTS = Array.from({ length: 84 }, (_, position) => ({
   position,
 }));
 
-export function SandboxHoursMeterBody({
-  getToken,
-  usage,
-}: {
-  getToken: () => Promise<null | string>;
-  usage: SandboxUsageSummaryResponse;
-}) {
+export function SandboxHoursMeterBody({ usage }: { usage: SandboxUsageSummaryResponse }) {
   const meter = useSandboxHoursMeter(usage);
   return (
     <div>
@@ -36,17 +30,12 @@ export function SandboxHoursMeterBody({
       <SandboxHoursHeader meter={meter} usage={usage} />
       <SandboxHoursBar fraction={meter.fraction} warnLevel={usage.warnLevel} />
       <ManageSubscriptionDialog
-        getToken={getToken}
         onClose={() => meter.setManagerOpen(false)}
         open={meter.managerOpen}
         planDisplayName={meter.tierLabel}
         sandboxHoursTotal={usage.sandboxHoursTotal}
       />
-      <UpgradeDialog
-        getToken={getToken}
-        onClose={() => meter.setPickerOpen(false)}
-        open={meter.pickerOpen}
-      />
+      <UpgradeDialog onClose={() => meter.setPickerOpen(false)} open={meter.pickerOpen} />
     </div>
   );
 }

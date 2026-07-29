@@ -1,12 +1,11 @@
 "use client";
 
-import { useAuth } from "@clerk/nextjs";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import dynamic from "next/dynamic";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import type { ReactNode } from "react";
-import { useEffect, useLayoutEffect, useState } from "react";
+import { use, useEffect, useLayoutEffect, useState } from "react";
 import { Toaster } from "sonner";
 import { useAppStore } from "@/lib/store/app-store";
 import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
@@ -17,22 +16,39 @@ const CommandPalette = dynamic(
   { ssr: false },
 );
 
-export function Providers({ children }: { children: ReactNode }) {
+interface RootSession {
+  orgId: null | string;
+  userId: null | string;
+}
+
+export function Providers({
+  children,
+  sessionPromise,
+}: {
+  children: ReactNode;
+  sessionPromise: Promise<RootSession>;
+}) {
   return (
     <NuqsAdapter>
       <ThemeProvider attribute="class" defaultTheme="light" disableTransitionOnChange enableSystem>
-        <IdentityQueryProvider>{children}</IdentityQueryProvider>
+        <IdentityQueryProvider sessionPromise={sessionPromise}>{children}</IdentityQueryProvider>
       </ThemeProvider>
     </NuqsAdapter>
   );
 }
 
-function IdentityQueryProvider({ children }: { children: ReactNode }) {
-  const { isLoaded, orgId, userId } = useAuth();
-  const identity = isLoaded ? `${userId ?? "anonymous"}:${orgId ?? "personal"}` : "loading";
+function IdentityQueryProvider({
+  children,
+  sessionPromise,
+}: {
+  children: ReactNode;
+  sessionPromise: Promise<RootSession>;
+}) {
+  const { orgId, userId } = use(sessionPromise);
+  const identity = `${userId ?? "anonymous"}:${orgId ?? "personal"}`;
 
   return (
-    <IdentityQueryBoundary key={identity} showCommandPalette={Boolean(isLoaded && userId)}>
+    <IdentityQueryBoundary key={identity} showCommandPalette={Boolean(userId)}>
       {children}
     </IdentityQueryBoundary>
   );

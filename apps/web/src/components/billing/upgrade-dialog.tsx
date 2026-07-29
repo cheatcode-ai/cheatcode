@@ -2,6 +2,7 @@
 
 import type { PlanSummary } from "@cheatcode/types";
 import { PaidBillingTierSchema } from "@cheatcode/types";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { CreditCard, Loader2, ModalShell } from "@/components/ui";
@@ -17,16 +18,8 @@ import { useBillingCatalogQuery } from "@/lib/hooks/use-billing";
  * id is configured). Checkout passes the tier the user picked — no surface hardcodes
  * a single tier.
  */
-export function UpgradeDialog({
-  getToken,
-  onClose,
-  open,
-}: {
-  getToken: () => Promise<null | string>;
-  onClose: () => void;
-  open: boolean;
-}) {
-  const controller = useUpgradeDialog(getToken);
+export function UpgradeDialog({ onClose, open }: { onClose: () => void; open: boolean }) {
+  const controller = useUpgradeDialog();
   return (
     <ModalShell
       ariaLabel="Choose a plan"
@@ -42,7 +35,8 @@ export function UpgradeDialog({
   );
 }
 
-function useUpgradeDialog(getToken: () => Promise<null | string>) {
+function useUpgradeDialog() {
+  const { getToken } = useAuth();
   const query = useBillingCatalogQuery(getToken);
   const checkout = useMutation({
     mutationFn: (tier: PlanSummary["id"]) =>

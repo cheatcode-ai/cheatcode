@@ -18,7 +18,6 @@ export interface ExpandedSidebarContentProps {
   activeThreadId: string | null;
   chatsOpen: boolean;
   displayName: string;
-  getToken: () => Promise<null | string>;
   isLoaded: boolean;
   isOverlay: boolean;
   isSignedIn: boolean;

@@ -6,6 +6,7 @@ import { type ChangeEvent, type RefObject, useCallback, useEffect, useRef, useSt
 import type { ComposerAttachmentStatusState } from "@/components/composer/composer-attachment-status";
 import { projectFilesQueryKey, uploadProjectFile } from "@/lib/api/project-files";
 import { createProject } from "@/lib/api/project-thread";
+import { sidebarKeys } from "@/lib/api/query-keys";
 import {
   appendProjectFileReference,
   PROJECT_FILE_MAX_BATCH,
@@ -65,7 +66,7 @@ export function useProjectFileUploads(options: ProjectFileUploadOptions): Projec
         return;
       }
       if (!options.project) {
-        await queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
+        await queryClient.invalidateQueries({ queryKey: sidebarKeys.projects });
       }
       const result = await uploadSequentially(
         options,

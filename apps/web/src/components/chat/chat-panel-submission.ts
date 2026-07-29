@@ -10,6 +10,7 @@ import {
   listThreadMessageRecordsPage,
   updateThread,
 } from "@/lib/api/project-thread";
+import { sidebarKeys, threadKeys } from "@/lib/api/query-keys";
 
 export interface PendingSubmission {
   messageId: string;
@@ -51,7 +52,7 @@ export async function reconcileFailedSubmission(input: {
   const accepted = await submissionWasAccepted(input.getToken, input.threadId, input.pending);
   input.clearError();
   if (accepted) {
-    await input.queryClient.invalidateQueries({ queryKey: ["threads", input.threadId] });
+    await input.queryClient.invalidateQueries({ queryKey: threadKeys.detail(input.threadId) });
     await input.resumeStream();
     return;
   }
@@ -96,10 +97,10 @@ export async function titleChatFromFirstPrompt(
 ): Promise<void> {
   try {
     const updated = await updateThread(getToken, threadId, { title: buildThreadTitle(prompt) });
-    queryClient.setQueryData(["threads", threadId], updated);
+    queryClient.setQueryData(threadKeys.detail(threadId), updated);
     await Promise.all([
-      queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] }),
-      queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] }),
+      queryClient.invalidateQueries({ queryKey: sidebarKeys.chats }),
+      queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads }),
       queryClient.invalidateQueries({ queryKey: ["folder-chats", updated.projectId] }),
     ]);
   } catch {
@@ -145,8 +146,8 @@ function completeProjectTargetNavigation(
 ): void {
   const handoff = buildExistingProjectParams(input.prompt).toString();
   input.setDraft(input.threadId, "");
-  void input.queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
-  void input.queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+  void input.queryClient.invalidateQueries({ queryKey: sidebarKeys.chats });
+  void input.queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads });
   input.router.push(`/chats/${encodeURIComponent(targetThreadId)}?${handoff}`);
 }
 

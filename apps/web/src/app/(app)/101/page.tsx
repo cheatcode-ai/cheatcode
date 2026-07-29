@@ -1,15 +1,16 @@
 import { Cheatcode101SectionView, Cheatcode101Toc } from "@/components/docs/cheatcode-101-sections";
+import { SettingsPageShell } from "@/components/settings/settings-page-shell";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { CHEATCODE_101_SECTIONS, CHEATCODE_101_TAGLINE } from "@/content/cheatcode-101";
 
 export default function Cheatcode101Page() {
   return (
-    <section className="chat-scrollbar min-h-0 min-w-0 flex-1 overflow-y-auto bg-background">
-      <div className="mx-auto flex w-full max-w-3xl px-6">
-        <aside className="hidden w-44 shrink-0 pt-12 pr-6 lg:block">
+    <SettingsPageShell width="narrow">
+      <div className="flex">
+        <aside className="hidden w-44 shrink-0 pt-6 pr-6 md:pt-2 lg:block">
           <Cheatcode101Toc sections={CHEATCODE_101_SECTIONS} />
         </aside>
-        <article className="min-w-0 flex-1 pt-12 pb-24">
+        <article className="min-w-0 flex-1 pt-6 pb-8 md:pt-2">
           <header className="mb-16">
             <div className="mb-4 flex items-center gap-2.5 min-[350px]:gap-3">
               <CheatcodeMark
@@ -29,6 +30,6 @@ export default function Cheatcode101Page() {
           ))}
         </article>
       </div>
-    </section>
+    </SettingsPageShell>
   );
 }

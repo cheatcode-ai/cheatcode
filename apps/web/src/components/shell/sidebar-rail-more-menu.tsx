@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type RefObject, useEffect, useId, useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 import { FOOTER_NAV, isExternalHref } from "@/components/shell/sidebar-navigation-model";
 import { SidebarRailLink } from "@/components/shell/sidebar-rail-navigation";
 import {
@@ -13,6 +13,7 @@ import { useSidebarTheme } from "@/components/shell/sidebar-theme";
 import { CreditCard, LifeBuoy, type LucideIcon, MoreVertical, TrendingUp } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 const HELP_ITEM = FOOTER_NAV.find((item) => item.id === "cheatcode-101");
 const RAIL_SETTINGS_MENU_LINKS = [
@@ -32,7 +33,7 @@ export function SidebarRailMoreMenu({ pathname }: { pathname: string }) {
   const menuId = useId();
   const menuRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
-  useDismissibleRailMenu(menuRef, open, setOpen);
+  useDismissable({ isOpen: open, onDismiss: () => setOpen(false), ref: menuRef });
   return (
     <div className="relative z-10 mt-auto flex shrink-0 flex-col" ref={menuRef}>
       <SidebarRailMoreDisclosure
@@ -177,26 +178,4 @@ function SidebarRailMenuLink({
       </Link>
     </CheatcodeTooltip>
   );
-}
-
-function useDismissibleRailMenu(
-  menuRef: RefObject<HTMLDivElement | null>,
-  open: boolean,
-  setOpen: (open: boolean) => void,
-) {
-  useEffect(() => {
-    if (!open) return;
-    const closeOnOutsidePress = (event: PointerEvent) => {
-      if (event.target instanceof Node && !menuRef.current?.contains(event.target)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePress);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePress);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [menuRef, open, setOpen]);
 }

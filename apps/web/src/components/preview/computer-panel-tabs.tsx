@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { type CSSProperties, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   Download,
@@ -16,6 +16,7 @@ import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { downloadProjectArchive } from "@/lib/api/project-thread";
 import type { PreviewTab } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 import { ComputerToggleButton } from "./computer-toggle-button";
 import type { BrowserTakeoverController } from "./use-browser-takeover";
 
@@ -159,7 +160,7 @@ function ComputerMoreActions({
   const menuRef = useRef<HTMLSpanElement | null>(null);
   const [isOpen, setOpen] = useState(false);
   const download = useComputerDownload(projectId, projectName, () => setOpen(false));
-  useCloseComputerMenu(menuRef, isOpen, setOpen);
+  useDismissable({ isOpen, onDismiss: () => setOpen(false), ref: menuRef });
   return (
     <span className="relative" ref={menuRef}>
       <CheatcodeTooltip disabled={isOpen} label="More actions" side="bottom">
@@ -231,28 +232,6 @@ function DeliverablesButton({ count }: { count: number }) {
       </button>
     </CheatcodeTooltip>
   );
-}
-
-function useCloseComputerMenu(
-  menuRef: React.RefObject<HTMLSpanElement | null>,
-  isOpen: boolean,
-  setOpen: (open: boolean) => void,
-): void {
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen, menuRef, setOpen]);
 }
 
 function computerTabStyle(activeTab: PreviewTab): CSSProperties {

@@ -7,19 +7,19 @@ import type {
   ConsoleTerminalAction,
   GetToken,
   TerminalMutationInput,
-} from "./console-terminal.types";
+} from "@/components/preview/console-terminal.types";
 import {
   consoleTerminalReducer,
   createConsoleTerminalState,
   DEFAULT_TERMINAL_DISPLAY_WORKSPACE,
   terminalHostFromPreview,
-} from "./console-terminal-state";
+} from "@/components/preview/console-terminal-state";
 import {
   terminalScopeKey,
   useContextCwd,
   useTerminalContext,
   useTerminalMutation,
-} from "./use-console-terminal-data";
+} from "@/components/preview/use-console-terminal-data";
 
 type TerminalDispatch = Dispatch<ConsoleTerminalAction>;
 

@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { type ReactNode, Suspense, useEffect, useRef } from "react";
+import { type ReactNode, Suspense } from "react";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { SidebarContentFrame } from "@/components/shell/sidebar-content-frame";
+import { useAutoCollapseSidebar } from "@/components/shell/use-auto-collapse-sidebar";
 import { Plus } from "@/components/ui";
 import { useAppStore } from "@/lib/store/app-store";
 
@@ -40,28 +41,7 @@ function WorkspaceChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const isWorkspace = pathname.startsWith("/chats");
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
-  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
-  const setSidebarCollapsed = useAppStore((state) => state.setSidebarCollapsed);
-  const previousSidebarCollapsedRef = useRef<boolean | null>(null);
-
-  useEffect(() => {
-    if (!isWorkspace || !previewPanelOpen) {
-      if (previousSidebarCollapsedRef.current !== null) {
-        setSidebarCollapsed(previousSidebarCollapsedRef.current);
-        previousSidebarCollapsedRef.current = null;
-      }
-      return;
-    }
-
-    // Collapse the rail ONCE when the preview opens (saving the prior state to
-    // restore on close), but let the user re-expand it while the preview stays
-    // open. Guarding on the ref — rather than re-collapsing on every
-    // sidebarCollapsed change — is what makes the Expand-sidebar button work here.
-    if (previousSidebarCollapsedRef.current === null) {
-      previousSidebarCollapsedRef.current = sidebarCollapsed;
-      setSidebarCollapsed(true);
-    }
-  }, [isWorkspace, previewPanelOpen, setSidebarCollapsed, sidebarCollapsed]);
+  useAutoCollapseSidebar(isWorkspace && previewPanelOpen);
 
   return (
     <>

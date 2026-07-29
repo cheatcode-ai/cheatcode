@@ -24,7 +24,7 @@ export interface PreviewConsoleState {
  * was paused. The applied snapshot drives the next poll, so the side effects
  * live in the queryFn (react-query v5 has no onSuccess).
  */
-export function usePreviewConsole(threadId: string | null, enabled: boolean): PreviewConsoleState {
+export function usePreviewConsole(threadId: null | string, enabled: boolean): PreviewConsoleState {
   const { getToken } = useAuth();
 
   const { error, isFetching } = useQuery<SandboxConsoleSnapshot>({

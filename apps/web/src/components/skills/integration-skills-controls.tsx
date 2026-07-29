@@ -2,9 +2,10 @@
 
 import type { ToolkitCategory } from "@cheatcode/types/api";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { MoreVertical, Search } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 const ALL_CATEGORY = "all";
 const PRIMARY_CATEGORY_SLUGS = ["developer-tools", "team-collaboration", "documents"] as const;
@@ -91,18 +92,7 @@ export function CategoryTabs({
 function useCategoryMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const onPointerDown = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", onPointerDown);
-    return () => document.removeEventListener("pointerdown", onPointerDown);
-  }, [isOpen]);
+  useDismissable({ isOpen, onDismiss: () => setIsOpen(false), ref });
   return { close: () => setIsOpen(false), isOpen, ref, toggle: () => setIsOpen((value) => !value) };
 }
 

@@ -21,6 +21,7 @@ import { SidebarListLoading } from "@/components/shell/sidebar-list-loading";
 import { MoreHorizontal, Pencil, Trash2 } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { createChat, deleteProject } from "@/lib/api/project-thread";
+import { invalidateChatLists, sidebarKeys } from "@/lib/api/query-keys";
 import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
 import { cn } from "@/lib/ui/cn";
 
@@ -178,17 +179,15 @@ function useProjectChatMutation({
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Couldn't start a chat"),
     onSuccess: (thread) => {
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+      void queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads });
+      void queryClient.invalidateQueries({ queryKey: sidebarKeys.chats });
       routerPush(`/chats/${encodeURIComponent(thread.id)}`);
     },
   });
 }
 
 function invalidateProjectQueries(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
-  void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
-  void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+  void invalidateChatLists(queryClient);
 }
 
 interface ProjectRowProps {

@@ -30,7 +30,7 @@ interface PreviewRefreshDependencies {
   setActivePreviewTab: (tab: PreviewTab) => void;
   setExpoUrl: (url: string | null) => void;
   setPreviewUrl: (url: string | null) => void;
-  threadId: string | null;
+  threadId: null | string;
 }
 
 interface PreviewLiveRuntime {

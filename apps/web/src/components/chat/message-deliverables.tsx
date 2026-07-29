@@ -16,10 +16,7 @@ import {
 } from "@/components/ui";
 import { createOutputDownloadUrl } from "@/lib/api/outputs";
 
-type GetToken = () => Promise<null | string>;
-
 export function DeliverablesBlock({ items }: { items: readonly ArtifactData[] }) {
-  const { getToken } = useAuth();
   return (
     <div
       className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3"
@@ -30,14 +27,15 @@ export function DeliverablesBlock({ items }: { items: readonly ArtifactData[] })
       </div>
       <div className="space-y-1.5">
         {items.map((item) => (
-          <DeliverableChip data={item} getToken={getToken} key={item.outputId} />
+          <DeliverableChip data={item} key={item.outputId} />
         ))}
       </div>
     </div>
   );
 }
 
-function DeliverableChip({ data, getToken }: { data: ArtifactData; getToken: GetToken }) {
+function DeliverableChip({ data }: { data: ArtifactData }) {
+  const { getToken } = useAuth();
   const [isPreparing, setIsPreparing] = useState(false);
   const Icon = deliverableIcon(data.kind, data.mimeType);
   const label = data.filename;

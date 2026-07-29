@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import type { LucideIcon } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 export function SidebarInlineActions({ children, open }: { children: ReactNode; open: boolean }) {
   return (
@@ -58,20 +59,6 @@ export function useSidebarInlineMenu(
   setOpen: (open: boolean) => void,
 ): React.RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen, setOpen]);
+  useDismissable({ isOpen, onDismiss: () => setOpen(false), ref });
   return ref;
 }

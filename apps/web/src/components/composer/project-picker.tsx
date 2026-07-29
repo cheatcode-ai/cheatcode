@@ -5,8 +5,8 @@ import {
   type ProjectPickerVariant,
   useProjectPickerController,
 } from "@/components/composer/project-picker-controller";
+import { ProjectPickerDialogs } from "@/components/composer/project-picker-dialogs";
 import {
-  ProjectPickerDialogs,
   ProjectPickerMenu,
   ProjectPickerTrigger,
 } from "@/components/composer/project-picker-parts";

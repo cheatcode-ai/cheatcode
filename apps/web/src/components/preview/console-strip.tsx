@@ -3,8 +3,8 @@
 import { useAuth } from "@clerk/nextjs";
 import { ConsoleStripHeader } from "@/components/preview/console-strip-header";
 import { ConsoleTerminalPane } from "@/components/preview/console-terminal-pane";
-import { useConsoleTerminal } from "@/lib/preview/use-console-terminal";
-import { usePreviewConsole } from "@/lib/preview/use-preview-console";
+import { useConsoleTerminal } from "@/components/preview/use-console-terminal";
+import { usePreviewConsole } from "@/components/preview/use-preview-console";
 import { useAppStore } from "@/lib/store/app-store";
 import { emitConsoleStripOpened } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";

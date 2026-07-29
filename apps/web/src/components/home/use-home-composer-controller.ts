@@ -1,9 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import type { UserSkill } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";
 import {
   type FormEvent,
@@ -14,28 +12,15 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ComposerMenuItem } from "@/components/composer/composer-popover";
-import { useProjectFileItems } from "@/components/composer/project-file-source";
-import { slashSkillItems } from "@/components/composer/slash-skill-source";
-import {
-  type TriggerDetector,
-  useComposerTriggers,
-} from "@/components/composer/use-composer-triggers";
+import { useComposerMenu } from "@/components/composer/use-composer-menu";
 import { useProjectFileUploads } from "@/components/composer/use-project-file-uploads";
 import { resolveComposerAuthToken } from "@/components/home/home-composer-auth";
 import { useHomeComposerSelection } from "@/components/home/use-home-composer-selection";
 import { useHomeComposerSubmission } from "@/components/home/use-home-composer-submission";
 import { useHomePromptState } from "@/components/home/use-home-prompt-state";
 import { resolveInitialSkill } from "@/components/home/use-initial-skill";
-import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
-import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import { useAppStore } from "@/lib/store/app-store";
-import { emitComposerEvent } from "@/lib/telemetry/user-events";
-
-const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
-const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
-const COMPOSER_SOURCES: readonly TriggerDetector[] = [SLASH_DETECTOR, MENTION_DETECTOR];
 
 export interface HomeComposerProps {
   initialPromptKey?: string | undefined;
@@ -68,11 +53,12 @@ export function useHomeComposerController(input: HomeComposerProps) {
     value: prompt.state.value,
   });
   const [authRedirectTo, setAuthRedirectTo] = useState<string | null>(null);
-  const composerMenu = useHomeComposerMenu({
+  const composerMenu = useComposerMenu({
     getToken: identity.getToken,
+    onChange: prompt.actions.publishValue,
+    onSelectSkill: selection.actions.selectSkill,
+    onSelectTool: selection.actions.selectTool,
     projectId: selection.state.selectedProject?.id ?? null,
-    publishValue: prompt.actions.publishValue,
-    selectSkill: selection.actions.selectSkill,
     textareaRef: textarea.ref,
     value: prompt.state.value,
   });
@@ -90,7 +76,6 @@ export function useHomeComposerController(input: HomeComposerProps) {
     selection.state.intent?.placeholder ?? "Ask anything, @ for skills, / for files";
   return homeComposerControllerValue({
     authRedirectTo,
-    getToken: identity.getToken,
     handleKeyDown,
     placeholder,
     prompt,
@@ -177,13 +162,12 @@ function useHomeSubmit(submit: () => void, canSubmit: boolean) {
 
 interface HomeControllerParts {
   authRedirectTo: string | null;
-  getToken: () => Promise<null | string>;
   handleKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => void;
   placeholder: string;
   prompt: ReturnType<typeof useHomePromptState>;
   selection: ReturnType<typeof useHomeComposerSelection>;
   setAuthRedirectTo: (value: string | null) => void;
-  composerMenu: ReturnType<typeof useHomeComposerMenu>;
+  composerMenu: ReturnType<typeof useComposerMenu>;
   submission: ReturnType<typeof useHomeComposerSubmission>;
   submit: (event?: FormEvent<HTMLFormElement>) => void;
   textareaRef: { current: HTMLTextAreaElement | null };
@@ -202,7 +186,6 @@ function homeComposerControllerValue(parts: HomeControllerParts) {
       submit: parts.submit,
     },
     menu: parts.composerMenu,
-    meta: { getToken: parts.getToken },
     refs: {
       attachmentInputRef: parts.uploads.inputRef,
       textareaRef: parts.textareaRef,
@@ -218,77 +201,14 @@ function homeComposerControllerValue(parts: HomeControllerParts) {
   };
 }
 
-function useHomeComposerMenu(input: {
-  getToken: () => Promise<null | string>;
-  projectId: null | string;
-  publishValue: (value: string) => void;
-  selectSkill: (skill: string) => void;
-  textareaRef: { current: HTMLTextAreaElement | null };
-  value: string;
-}) {
-  const { data: userSkills } = useQuery({
-    queryFn: ({ signal }) => listUserSkills(input.getToken, signal),
-    queryKey: USER_SKILLS_QUERY,
-    staleTime: 60_000,
-  });
-  const triggers = useComposerTriggers({
-    onChange: input.publishValue,
-    onInsert: (kind, item) => {
-      if (kind === "mention") selectSkillItem(item, input.selectSkill);
-      emitComposerEvent(
-        input.getToken,
-        kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
-      );
-    },
-    sources: COMPOSER_SOURCES,
-    textareaRef: input.textareaRef,
-    value: input.value,
-  });
-  const fileItems = useProjectFileItems({
-    enabled: triggers.kind === "slash",
-    projectId: input.projectId,
-    query: triggers.query,
-  });
-  const items = resolveHomeMenuItems({
-    fileItems,
-    triggers,
-    userSkills: userSkills ?? [],
-  });
-  return {
-    ariaLabel: triggers.kind === "slash" ? "Project files" : "Skills",
-    isOpen: triggers.isActive && items.length > 0,
-    items,
-    triggers,
-  };
-}
-
-function resolveHomeMenuItems(input: {
-  fileItems: ComposerMenuItem[];
-  triggers: ReturnType<typeof useComposerTriggers>;
-  userSkills: UserSkill[];
-}): ComposerMenuItem[] {
-  if (input.triggers.kind === "slash") return input.fileItems;
-  const items = slashSkillItems(input.triggers.query, input.userSkills);
-  if (items.length > 0) return items;
-  return [statusMenuItem("No matching skills")];
-}
-
-function statusMenuItem(label: string): ComposerMenuItem {
-  return { disabled: true, id: `status:${label}`, insert: "", label, visual: "status" };
-}
-
-function selectSkillItem(item: ComposerMenuItem, selectSkill: (skill: string) => void) {
-  if (item.skillName) selectSkill(item.skillName);
-}
-
 function useComposerKeyDown(
-  menu: ReturnType<typeof useHomeComposerMenu>,
+  menu: ReturnType<typeof useComposerMenu>,
   canSubmit: boolean,
   submit: () => void,
 ) {
   return useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (menu.triggers.handleMenuKeyDown(event, menu.items)) {
+      if (menu.handleKeyDown(event)) {
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === "Enter" && canSubmit) {
@@ -296,6 +216,6 @@ function useComposerKeyDown(
         submit();
       }
     },
-    [canSubmit, menu.items, menu.triggers, submit],
+    [canSubmit, menu.handleKeyDown, submit],
   );
 }

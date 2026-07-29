@@ -1,12 +1,12 @@
 "use client";
 
-import type { RefObject } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import type { LucideIcon } from "@/components/ui";
 import { Monitor, Smartphone, Tablet } from "@/components/ui";
 import type { PreviewDevice } from "@/lib/store/app-store";
 import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 const DEVICES: ReadonlyArray<{ value: PreviewDevice; label: string; Icon: LucideIcon }> = [
   { value: "desktop", label: "Desktop", Icon: Monitor },
@@ -16,7 +16,8 @@ const DEVICES: ReadonlyArray<{ value: PreviewDevice; label: string; Icon: Lucide
 
 export function PreviewDeviceMenu({ isPreviewAvailable }: { isPreviewAvailable: boolean }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
-  const disclosure = useDeviceMenuDisclosure(menuRef);
+  const disclosure = useDeviceMenuDisclosure();
+  useDismissable({ isOpen: disclosure.isOpen, onDismiss: disclosure.close, ref: menuRef });
   const previewDevice = useAppStore((state) => state.previewDevice);
   const setPreviewDevice = useAppStore((state) => state.setPreviewDevice);
   const ActiveDeviceIcon =
@@ -80,29 +81,8 @@ function DeviceMenuItems({ close, previewDevice, setPreviewDevice }: DeviceMenuI
   );
 }
 
-function useDeviceMenuDisclosure(menuRef: RefObject<HTMLDivElement | null>) {
+function useDeviceMenuDisclosure() {
   const [isOpen, setIsOpen] = useState(false);
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    const closeOnOutsidePointer = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    };
-    document.addEventListener("pointerdown", closeOnOutsidePointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnOutsidePointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [isOpen, menuRef]);
   return {
     close: () => setIsOpen(false),
     isOpen,

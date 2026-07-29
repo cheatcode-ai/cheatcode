@@ -1,9 +1,9 @@
 "use client";
 
+import type { ConsoleTab } from "@/components/preview/console-terminal.types";
+import { consoleTabLabel } from "@/components/preview/console-terminal-state";
 import { ChevronDown, Plus, X } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import type { ConsoleTab } from "@/lib/preview/console-terminal.types";
-import { consoleTabLabel } from "@/lib/preview/console-terminal-state";
 import { cn } from "@/lib/ui/cn";
 
 interface ConsoleStripHeaderProps {

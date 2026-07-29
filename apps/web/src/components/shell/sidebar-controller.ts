@@ -14,18 +14,18 @@ import {
 } from "@/components/shell/sidebar-data";
 import { activeChatIdFromPathname } from "@/components/shell/sidebar-navigation-model";
 import { updateProject } from "@/lib/api/project-thread";
+import { invalidateChatLists } from "@/lib/api/query-keys";
 import { useAppStore } from "@/lib/store/app-store";
 
 export type FullSidebarMode = "docked" | "overlay";
 
 export function useSidebarIdentity() {
-  const { getToken, isLoaded, isSignedIn } = useAuth();
+  const { isLoaded, isSignedIn } = useAuth();
   const { signOut } = useClerk();
   const { user } = useUser();
   const primaryEmail = user?.primaryEmailAddress?.emailAddress ?? null;
   return {
     displayName: user?.fullName ?? user?.firstName ?? primaryEmail ?? "cheatcode",
-    getToken,
     isLoaded,
     isSignedIn: Boolean(isSignedIn),
     primaryEmail,
@@ -35,14 +35,13 @@ export function useSidebarIdentity() {
 }
 
 export function useSidebarNavigationData({
-  getToken,
   isSignedIn,
   pathname,
 }: {
-  getToken: () => Promise<null | string>;
   isSignedIn: boolean;
   pathname: string;
 }) {
+  const { getToken } = useAuth();
   const activeThreadId = activeChatIdFromPathname(pathname);
   const activeProjectId = useActiveProjectId(getToken, activeThreadId, isSignedIn);
   return {
@@ -64,9 +63,7 @@ function useProjectRenameMutation(getToken: () => Promise<null | string>) {
     },
     onSuccess: (result) => {
       toast.success(`Renamed to ${result.name}`);
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
+      void invalidateChatLists(queryClient);
     },
   });
 }

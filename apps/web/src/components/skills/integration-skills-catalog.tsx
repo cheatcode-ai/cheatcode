@@ -9,7 +9,7 @@ import { UserSkillsError, useUserSkillsCatalog } from "@/components/skills/user-
 
 export function IntegrationSkillsCatalog() {
   const catalog = useIntegrationSkillsCatalog();
-  const userSkills = useUserSkillsCatalog(catalog.getToken);
+  const userSkills = useUserSkillsCatalog();
   const visibleUserSkills = filterUserSkills(userSkills.skills, catalog.category, catalog.search);
   const selectedUserSkill = userSkills.selectedSkill;
   const deleteSelectedUserSkill = () => {

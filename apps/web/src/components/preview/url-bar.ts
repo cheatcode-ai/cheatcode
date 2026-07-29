@@ -9,10 +9,10 @@
 
 const SANDBOX_PROXY_PREFIX = "/__sandbox/";
 
-interface SplitPreviewUrl {
+type SplitPreviewUrl = {
   base: string;
   path: string;
-}
+};
 
 /** Origin to navigate within. Preserves the current local proxy's `/__sandbox/<host>` prefix. */
 export function previewOrigin(previewUrl: string): string {

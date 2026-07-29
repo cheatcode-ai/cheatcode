@@ -38,7 +38,6 @@ export function PricingPanel() {
       />
       {currentPlan && currentPlan.id !== "free" ? (
         <ManageSubscriptionDialog
-          getToken={getToken}
           onClose={() => setManagerOpen(false)}
           open={managerOpen}
           planDisplayName={currentPlan.displayName}

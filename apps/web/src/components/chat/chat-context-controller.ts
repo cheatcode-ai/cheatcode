@@ -8,8 +8,10 @@ import { type RefObject, useCallback, useEffect, useMemo, useRef, useState } fro
 import { toast } from "sonner";
 import { tabsWithCurrent } from "@/components/chat/chat-context-model";
 import { createChat } from "@/lib/api/project-thread";
+import { invalidateChatLists } from "@/lib/api/query-keys";
 import { useAppStore } from "@/lib/store/app-store";
 import { type ChatWorkspaceTab, useChatTabsStore } from "@/lib/store/chat-tabs-store";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 const EMPTY_TABS: ChatWorkspaceTab[] = [];
 
@@ -44,7 +46,11 @@ export function useChatContextController({
   const creation = useCreateProjectChat(project, setFolderChatsOpen);
   const closeActiveTab = useCloseActiveTab(project, tabs, threadId);
   const selectFolderChat = useSelectFolderChat(project, setFolderChatsOpen);
-  useDismissFolderChats(folderChatsOpen, contextRef, setFolderChatsOpen);
+  useDismissable({
+    isOpen: folderChatsOpen,
+    onDismiss: () => setFolderChatsOpen(false),
+    ref: contextRef,
+  });
   return {
     actions: {
       closeActiveTab,
@@ -93,8 +99,7 @@ function useCreateProjectChat(
         { id: thread.id, projectId: project.id, title: thread.title?.trim() || "New chat" },
         "start",
       );
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
-      void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+      void invalidateChatLists(queryClient);
       void queryClient.invalidateQueries({ queryKey: ["folder-chats", project.id] });
       router.push(`/chats/${encodeURIComponent(thread.id)}`);
     },
@@ -160,26 +165,4 @@ function useSelectFolderChat(
     },
     [openChatTab, project, router, setFolderChatsOpen, setPreviewPanelOpen],
   );
-}
-
-function useDismissFolderChats(
-  isOpen: boolean,
-  contextRef: RefObject<HTMLDivElement | null>,
-  setIsOpen: (open: boolean) => void,
-) {
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeOnPointer = (event: PointerEvent) => {
-      if (!contextRef.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnPointer);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("pointerdown", closeOnPointer);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [contextRef, isOpen, setIsOpen]);
 }
