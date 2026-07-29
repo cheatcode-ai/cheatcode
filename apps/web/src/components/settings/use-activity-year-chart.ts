@@ -1,6 +1,6 @@
 "use client";
 
-import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types";
+import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types/api";
 import {
   type Dispatch,
   type MutableRefObject,

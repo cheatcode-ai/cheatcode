@@ -1,4 +1,5 @@
-import type { SandboxExecResultBase, SandboxFileEntry } from "@cheatcode/types";
+import type { SandboxExecResultBase } from "@cheatcode/types";
+import type { SandboxFileEntry } from "@cheatcode/types/api";
 import type { ArtifactKind } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 

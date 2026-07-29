@@ -1,6 +1,7 @@
-import { createDb, getProject, getThread, withUserContext } from "@cheatcode/db";
+import { getProject, getThread, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { ProjectId, type SandboxFileEntry, ThreadId, UserId } from "@cheatcode/types";
+import { ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import type { SandboxFileEntry } from "@cheatcode/types/api";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
 
@@ -57,12 +58,8 @@ export async function terminalProjectForThread(
   threadId: string,
 ): Promise<{ id: string; name: string; workspaceSlug: string } | null> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, parsedUserId, async (tx) => {
+  return withUserDb(env, parsedUserId, async ({ transaction }) => {
+    return await transaction(async (tx) => {
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
       if (!thread) {
         throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
@@ -79,9 +76,7 @@ export async function terminalProjectForThread(
       }
       return { id: project.id, name: project.name, workspaceSlug: project.workspaceSlug };
     });
-  } finally {
-    await close();
-  }
+  });
 }
 
 export function selectInitialCodeServerFile(

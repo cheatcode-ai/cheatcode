@@ -1,25 +1,30 @@
 import {
   type AgentRunHandle,
+  type AgentRunThreadContext,
   createAgentRunForThread,
-  createDb,
   createThreadMessage,
-  getThread,
+  type Database,
+  loadAgentRunThreadContext,
   type RunPersonalization,
   reconcileAbsentAgentRunStart,
-  withUserContext,
+  type UserDatabaseSession,
+  withUserDb,
 } from "@cheatcode/db";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   type AgentRunId,
-  BrowserTakeoverResumeResultSchema,
-  BrowserTakeoverResumeSchema,
-  BrowserTakeoverStatusSchema,
-  type CreateRun,
   ThreadId,
   UserId as toUserId,
   type UIMessagePart,
   type UserId,
 } from "@cheatcode/types";
+import {
+  BrowserTakeoverResumeResultSchema,
+  BrowserTakeoverResumeSchema,
+  BrowserTakeoverStatusSchema,
+  type CreateRun,
+} from "@cheatcode/types/api";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -28,9 +33,10 @@ import {
   activeRunForThreadRoute,
   agentRunForRunId,
   callAgentRun,
+  enforceRunEntitlementPolicy,
   fetchAgentRun,
+  loadRunEntitlementPolicy,
   reconcileAgentRunAdmission,
-  runEntitlementPolicy,
   runForRoute,
   sandboxForUser,
   startAgentRun,
@@ -63,11 +69,24 @@ type RejectedRunResult = Exclude<
 
 export function registerAgentRunHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
   app.post("/v1/threads/:threadId/runs", createRun);
-  app.get("/v1/threads/:threadId/runs/stream", streamActiveRun);
-  app.post("/v1/runs/:runId/cancel", cancelRun);
-  app.get("/v1/threads/:threadId/browser-takeover", browserTakeoverStatus);
-  app.post("/v1/threads/:threadId/browser-takeover/start", startBrowserTakeover);
-  app.post("/v1/threads/:threadId/browser-takeover/resume", resumeBrowserTakeover);
+  const routes = AGENT_FORWARD_ROUTES.piped;
+  app.on(routes.streamRun.method, routes.streamRun.path, streamActiveRun);
+  app.on(routes.cancelRun.method, routes.cancelRun.path, cancelRun);
+  app.on(
+    routes.browserTakeoverStatus.method,
+    routes.browserTakeoverStatus.path,
+    browserTakeoverStatus,
+  );
+  app.on(
+    routes.browserTakeoverStart.method,
+    routes.browserTakeoverStart.path,
+    startBrowserTakeover,
+  );
+  app.on(
+    routes.browserTakeoverResume.method,
+    routes.browserTakeoverResume.path,
+    resumeBrowserTakeover,
+  );
 }
 
 async function createRun(c: AgentContext): Promise<Response> {
@@ -78,61 +97,56 @@ async function createRun(c: AgentContext): Promise<Response> {
     await readJsonRequest(c.req.raw, MAX_CREATE_RUN_BODY_BYTES, "Create run request"),
   );
   const requestIdentity = readRunRequestIdentity(c.req.raw.headers);
-  const personalization = await loadRequestPersonalization(c.env, parsedUserId, threadId, body);
-  const policy = await runEntitlementPolicy(c.env, userId);
-  const sandboxName = await userSandboxName(userId);
-  const sandbox = await sandboxForUser(c.env, userId);
-  await syncSandboxQuotaPeriod(sandbox, policy.quotaPeriodEnd);
-  const result = await persistRunRequest(c.env, {
-    body,
-    personalization,
-    requestIdentity,
-    threadId,
-    userId: parsedUserId,
-  });
-  if (result.type === "created") {
-    const outcome = await startAgentRun(c.env, {
-      body,
-      modelExplicit: result.modelExplicit,
-      personalization,
-      run: result.run,
-      sandboxName,
-      userId,
-    });
-    return resolveRunAdmission(c.env, parsedUserId, result.run, outcome);
-  }
-  if (result.type === "active-run-exists" || result.type === "idempotent-replay") {
-    const outcome = await reconcileAgentRunAdmission(c.env, userId, result.run.runId);
-    return resolveRunAdmission(c.env, parsedUserId, result.run, outcome);
-  }
-  throw rejectedRunError(result);
-}
-
-async function loadRequestPersonalization(
-  env: AgentEnv,
-  userId: UserId,
-  threadId: string,
-  body: CreateRun,
-): Promise<RunPersonalization> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, userId, async (tx) => {
-      const thread = await getThread(tx, { threadId: ThreadId(threadId), userId });
+  return withUserDb(c.env, parsedUserId, async ({ transaction }) => {
+    const prepared = await transaction(async (tx) => {
+      const thread = await loadAgentRunThreadContext(tx, {
+        threadId: ThreadId(threadId),
+        userId: parsedUserId,
+      });
       if (!thread) {
         throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
       }
-      return loadRunPersonalization(tx, userId, body.model);
+      return {
+        entitlement: await loadRunEntitlementPolicy(tx, parsedUserId),
+        personalization: await loadRunPersonalization(tx, parsedUserId, body.model),
+        thread,
+      };
     });
-  } finally {
-    await close();
-  }
+    const policy = await enforceRunEntitlementPolicy(c.env, userId, prepared.entitlement);
+    const sandboxName = await userSandboxName(userId);
+    const sandbox = await sandboxForUser(c.env, userId);
+    await syncSandboxQuotaPeriod(sandbox, policy.quotaPeriodEnd);
+    const result = await transaction((tx) =>
+      persistRunRequest(tx, prepared.thread, {
+        body,
+        personalization: prepared.personalization,
+        requestIdentity,
+        threadId,
+        userId: parsedUserId,
+      }),
+    );
+    if (result.type === "created") {
+      const outcome = await startAgentRun(c.env, {
+        body,
+        modelExplicit: result.modelExplicit,
+        personalization: prepared.personalization,
+        run: result.run,
+        sandboxName,
+        userId,
+      });
+      return resolveRunAdmission(parsedUserId, result.run, outcome, transaction);
+    }
+    if (result.type === "active-run-exists" || result.type === "idempotent-replay") {
+      const outcome = await reconcileAgentRunAdmission(c.env, userId, result.run.runId);
+      return resolveRunAdmission(parsedUserId, result.run, outcome, transaction);
+    }
+    throw rejectedRunError(result);
+  });
 }
 
 async function persistRunRequest(
-  env: AgentEnv,
+  tx: Database,
+  thread: AgentRunThreadContext,
   input: {
     body: CreateRun;
     personalization: RunPersonalization;
@@ -141,34 +155,28 @@ async function persistRunRequest(
     userId: UserId;
   },
 ): Promise<CreateRunResult> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, input.userId, async (tx) => {
-      const created = await createAgentRunForThread(tx, {
-        idempotencyKeyHash: input.requestIdentity.keyHash,
-        personalization: input.personalization,
-        requestBodyHash: input.requestIdentity.bodyHash,
-        threadId: ThreadId(input.threadId),
-        userId: input.userId,
-        ...(input.body.model === undefined ? {} : { modelId: input.body.model }),
-      });
-      if (created.type === "created") {
-        await createThreadMessage(tx, {
-          agentRunId: created.run.runId,
-          parts: persistedUserMessageParts(input.body),
-          role: "user",
-          threadId: created.run.threadId,
-          userId: input.userId,
-        });
-      }
-      return created;
+  const created = await createAgentRunForThread(
+    tx,
+    {
+      idempotencyKeyHash: input.requestIdentity.keyHash,
+      personalization: input.personalization,
+      requestBodyHash: input.requestIdentity.bodyHash,
+      threadId: ThreadId(input.threadId),
+      userId: input.userId,
+      ...(input.body.model === undefined ? {} : { modelId: input.body.model }),
+    },
+    thread,
+  );
+  if (created.type === "created") {
+    await createThreadMessage(tx, {
+      agentRunId: created.run.runId,
+      parts: persistedUserMessageParts(input.body),
+      role: "user",
+      threadId: created.run.threadId,
+      userId: input.userId,
     });
-  } finally {
-    await close();
   }
+  return created;
 }
 
 function persistedUserMessageParts(body: CreateRun): UIMessagePart[] {
@@ -209,10 +217,10 @@ function rejectedRunError(result: RejectedRunResult): APIError {
 }
 
 async function resolveRunAdmission(
-  env: AgentEnv,
   userId: UserId,
   run: AgentRunHandle,
   outcome: AgentRunAdmissionOutcome,
+  transaction: UserDatabaseSession["transaction"],
 ): Promise<Response> {
   if (outcome.type === "confirmed") {
     return withRunLocation(outcome.response, run.runId);
@@ -220,7 +228,7 @@ async function resolveRunAdmission(
   if (outcome.type === "ambiguous") {
     throw runAdmissionAmbiguousError(run.runId);
   }
-  const reconciliation = await reconcileAbsentRunRow(env, userId, run.runId);
+  const reconciliation = await reconcileAbsentRunRow(transaction, userId, run.runId);
   if (reconciliation === "not-found") {
     throw runAdmissionAmbiguousError(run.runId);
   }
@@ -228,21 +236,11 @@ async function resolveRunAdmission(
 }
 
 async function reconcileAbsentRunRow(
-  env: AgentEnv,
+  transaction: UserDatabaseSession["transaction"],
   userId: UserId,
   runId: AgentRunId,
 ): Promise<"failed" | "not-found" | "terminal"> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, userId, (tx) =>
-      reconcileAbsentAgentRunStart(tx, { runId, userId }),
-    );
-  } finally {
-    await close();
-  }
+  return transaction((tx) => reconcileAbsentAgentRunStart(tx, { runId, userId }));
 }
 
 function runAdmissionAbsentError(runId: AgentRunId): APIError {

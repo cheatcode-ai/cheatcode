@@ -1,12 +1,8 @@
 "use client";
 
 import { useChat } from "@ai-sdk/react";
-import {
-  CHEATCODE_DATA_SCHEMAS,
-  type CheatcodeUIMessage,
-  type ProjectSummary,
-  type Thread,
-} from "@cheatcode/types";
+import { CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage } from "@cheatcode/types";
+import type { ProjectSummary, Thread } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChatOnDataCallback, ChatStatus } from "ai";
@@ -45,7 +41,7 @@ export interface ChatPanelProps {
   autoSubmitPrompt?: null | string | undefined;
   hasOlderMessages: boolean;
   initialMessages?: CheatcodeUIMessage[] | undefined;
-  initialRunIntent?: import("@cheatcode/types").RunIntent | null | undefined;
+  initialRunIntent?: import("@cheatcode/types/api").RunIntent | null | undefined;
   isLoadingOlderMessages: boolean;
   latestModelId: null | string;
   onLoadOlderMessages: () => Promise<CheatcodeUIMessage[]>;

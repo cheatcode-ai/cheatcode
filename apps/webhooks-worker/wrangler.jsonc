@@ -20,7 +20,6 @@
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
-    "CLOUDFLARE_ACCOUNT_ID": "3df53222e2ab5e0b28b8394bfdcb23a9",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
     "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
   },
@@ -54,11 +53,6 @@
       "binding": "COMPOSIO_WEBHOOK_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "composio-webhook-secret"
-    },
-    {
-      "binding": "CLOUDFLARE_ANALYTICS_API_TOKEN",
-      "store_id": "ba25994718db4707ab99a498e22eb5a6",
-      "secret_name": "cloudflare-analytics-api-token"
     },
     {
       "binding": "POLAR_ACCESS_TOKEN",
@@ -112,9 +106,17 @@
       }
     },
     {
-      "name": "cheatcode-ops-maintenance",
-      "binding": "OPS_WORKFLOW",
-      "class_name": "OpsMaintenanceWorkflow",
+      "name": "cheatcode-daily-maintenance",
+      "binding": "DAILY_MAINTENANCE_WORKFLOW",
+      "class_name": "DailyMaintenanceWorkflow",
+      "limits": {
+        "steps": 25000
+      }
+    },
+    {
+      "name": "cheatcode-user-deletion",
+      "binding": "USER_DELETION_WORKFLOW",
+      "class_name": "UserDeletionWorkflow",
       "limits": {
         "steps": 25000
       }

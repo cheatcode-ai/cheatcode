@@ -1,4 +1,4 @@
-import { createDb, isUserAccountActive, withUserContext } from "@cheatcode/db";
+import { isUserAccountActive, withUserDb } from "@cheatcode/db";
 import { UserId } from "@cheatcode/types";
 import {
   accountSandboxDeletedError,
@@ -11,18 +11,12 @@ export async function assertProjectSandboxOwnerActive(
   userId: string,
 ): Promise<void> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const isActive = await withUserContext(db, parsedUserId, (transaction) =>
+  return withUserDb(env, parsedUserId, async ({ transaction }) => {
+    const isActive = await transaction((transaction) =>
       isUserAccountActive(transaction, parsedUserId),
     );
     if (!isActive) {
       throw accountSandboxDeletedError();
     }
-  } finally {
-    await close();
-  }
+  });
 }

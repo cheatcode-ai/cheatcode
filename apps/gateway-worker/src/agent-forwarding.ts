@@ -1,6 +1,7 @@
+import { type AgentForwardRoute, agentForwardRouteKey } from "@cheatcode/types/internal";
 import { authenticate } from "./authenticate";
 import type { GatewayContext } from "./gateway-env";
-import { rateLimit, withRateLimitHeaders } from "./rate-limit";
+import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
 
 const PUBLIC_CREDENTIAL_HEADERS = [
   "Authorization",
@@ -30,7 +31,7 @@ export function agentServiceHeaders(source: Headers, userId?: string): Headers {
   return headers;
 }
 
-export function agentServiceRequest(request: Request, userId?: string): Request {
+function agentServiceRequest(request: Request, userId?: string): Request {
   return new Request(request, { headers: agentServiceHeaders(request.headers, userId) });
 }
 
@@ -48,9 +49,24 @@ export function skillRuntimeServiceRequest(request: Request): Request {
   return new Request(request, { headers });
 }
 
-export async function forwardAgentRequest(c: GatewayContext, route: string): Promise<Response> {
+export async function forwardAgentRequest(
+  c: GatewayContext,
+  route: AgentForwardRoute,
+  validate?: (c: GatewayContext) => void,
+): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-  const headers = await rateLimit(c, userId, route);
+  const routeKey = agentForwardRouteKey(route);
+  const headers = await rateLimit(c, userId, routeKey, route.rateLimitCost);
+  validate?.(c);
   const forwarded = agentServiceRequest(c.req.raw, userId);
   return withRateLimitHeaders(await c.env.AGENT.fetch(forwarded), headers);
+}
+
+export async function forwardPublicAgentRequest(
+  c: GatewayContext,
+  route: AgentForwardRoute,
+): Promise<Response> {
+  const routeKey = agentForwardRouteKey(route);
+  const headers = await rateLimitPublic(c, routeKey, "publicRead", route.rateLimitCost);
+  return withRateLimitHeaders(await c.env.AGENT.fetch(agentServiceRequest(c.req.raw)), headers);
 }

@@ -1,8 +1,9 @@
-import type { Provider, UserId } from "@cheatcode/types";
+import type { UserId } from "@cheatcode/types";
 import { UserId as toUserId } from "@cheatcode/types";
+import type { Provider } from "@cheatcode/types/api";
 import { and, asc, eq, gt, gte, isNull, sql } from "drizzle-orm";
 import { clerkIdentityHash } from "./clerk-identity";
-import { type Database, withUserContext } from "./client";
+import { type Database, type UserContextDatabase, withUserContext } from "./client";
 import {
   agentRuns,
   artifactUploadIntents,
@@ -190,7 +191,7 @@ export async function archiveUserProjects(
 }
 
 export async function hardDeleteUserV2Data(
-  db: Database,
+  db: UserContextDatabase,
   userId: UserId,
   deletionFence: string,
   identityHash: string,

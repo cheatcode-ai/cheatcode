@@ -20,7 +20,7 @@ plan catalog, and resource-entitlement helpers.
   subpath owns quota storage, retention, and RPC input validation and is not
   re-exported from the Node-safe package root
 
-Current tiers are `free`, `pro`, `premium`, `ultra`, and `max`. Entitlements
+Current tiers are `free`, `pro`, and `premium`. Entitlements
 cover sandbox hours, active projects, BYOK provider slots, and Composio calls.
 Tier values, validation, and ordering come from the neutral
 `@cheatcode/types/billing` contract; this package owns only plan catalog and

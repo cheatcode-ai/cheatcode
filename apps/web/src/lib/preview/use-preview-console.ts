@@ -1,6 +1,6 @@
 "use client";
 
-import type { SandboxConsoleSnapshot } from "@cheatcode/types";
+import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { readSandboxConsole } from "@/lib/api/sandbox";

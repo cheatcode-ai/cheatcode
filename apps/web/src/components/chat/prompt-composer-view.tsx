@@ -1,6 +1,6 @@
 "use client";
 
-import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types";
+import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
 import { ArrowUp, Paperclip, Square } from "@cheatcode/ui";
 import type { PromptComposerController } from "@/components/chat/prompt-composer-controller";
 import { ComposerAttachmentStatus } from "@/components/composer/composer-attachment-status";

@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import {
   type ProjectPickerVariant,
   useProjectPickerController,

@@ -76,8 +76,6 @@ const TIER_LIMITS: Record<BillingTier, TierLimits> = {
   free: tierLimitsFromCatalog(PLAN_CATALOG.free),
   pro: tierLimitsFromCatalog(PLAN_CATALOG.pro),
   premium: tierLimitsFromCatalog(PLAN_CATALOG.premium),
-  ultra: tierLimitsFromCatalog(PLAN_CATALOG.ultra),
-  max: tierLimitsFromCatalog(PLAN_CATALOG.max),
 };
 
 const CheckoutResponseSchema = z

@@ -1,10 +1,7 @@
 "use client";
 
-import {
-  type IntegrationName,
-  type ProjectSummary,
-  USER_MESSAGE_MAX_CHARACTERS,
-} from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import { type ProjectSummary, USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
 import { ArrowUp, X } from "@cheatcode/ui";
 import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";

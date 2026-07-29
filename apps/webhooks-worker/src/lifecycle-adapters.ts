@@ -1,13 +1,13 @@
 import { ComposioClient, isComposioNotFoundError } from "@cheatcode/composio";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
+import type { UserId } from "@cheatcode/types";
 import {
   type AgentLifecycleServiceBinding,
   AgentLifecycleServiceResultSchema,
   type InternalAgentStateDeleteBody,
   InternalAgentStateDeleteBodySchema,
-  type UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 
 export interface AgentStateDeletionEnv {

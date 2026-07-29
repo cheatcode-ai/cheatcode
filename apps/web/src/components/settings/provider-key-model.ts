@@ -1,4 +1,4 @@
-import { type Provider, ProviderSchema } from "@cheatcode/types";
+import { type Provider, ProviderSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
 export const DEFAULT_PROVIDER: Provider = "anthropic";

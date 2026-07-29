@@ -1,5 +1,5 @@
 import { quotaPeriodEndFor, sandboxHoursWarnLevel } from "@cheatcode/billing";
-import type { Database } from "@cheatcode/db";
+import type { UserDatabaseSession } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
 import {
   type SandboxUsageSummaryResponse,
@@ -16,10 +16,10 @@ import { type LimitBindings, resolveEntitlement, syncQuotaLimits } from "./limit
  */
 export async function buildSandboxUsageSummary(
   env: LimitBindings,
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   userId: UserId,
 ): Promise<SandboxUsageSummaryResponse> {
-  const entitlement = await resolveEntitlement(env, db, userId);
+  const entitlement = await resolveEntitlement(env, transaction, userId);
   await syncQuotaLimits(env, userId, entitlement);
   const periodEnd = quotaPeriodEndFor(entitlement);
   const sandboxHoursUsed = round1(await peekSandboxHoursUsed(env, userId, periodEnd));

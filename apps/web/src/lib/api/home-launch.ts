@@ -1,4 +1,4 @@
-import type { RunIntent } from "@cheatcode/types";
+import type { RunIntent } from "@cheatcode/types/api";
 import { createChat, listProjectThreadsPage, threadTitle } from "@/lib/api/project-thread";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 

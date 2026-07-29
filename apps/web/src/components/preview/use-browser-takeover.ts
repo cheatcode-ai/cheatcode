@@ -1,6 +1,6 @@
 "use client";
 
-import type { BrowserTakeoverSession } from "@cheatcode/types";
+import type { BrowserTakeoverSession } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";

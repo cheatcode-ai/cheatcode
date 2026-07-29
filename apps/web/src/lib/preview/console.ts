@@ -1,4 +1,4 @@
-import type { SandboxConsoleLine } from "@cheatcode/types";
+import type { SandboxConsoleLine } from "@cheatcode/types/api";
 
 export type ConsoleSeverity = "error" | "info" | "warn";
 

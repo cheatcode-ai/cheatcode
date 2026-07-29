@@ -2,9 +2,8 @@ import {
   AGENT_MODEL_CATALOG,
   FALLBACK_MODEL_ID,
   INCLUDED_DEEPSEEK_MODEL_ID,
-  type Provider,
-  type ProviderKeySummary,
 } from "@cheatcode/types";
+import type { Provider, ProviderKeySummary } from "@cheatcode/types/api";
 
 export type CatalogModel = (typeof AGENT_MODEL_CATALOG)[number];
 export type ModelAccessState = "active" | "disabled" | "error" | "included" | "loading" | "missing";

@@ -1,16 +1,12 @@
-import {
-  createDb,
-  materializeThreadProject,
-  withUserContext,
-  workspacePathForSlug,
-} from "@cheatcode/db";
+import { entitlementValuesForTier } from "@cheatcode/billing";
+import { materializeThreadProject, withUserDb, workspacePathForSlug } from "@cheatcode/db";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import type {
   CodeRuntimeContext,
   WorkspaceBinding,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import { ThreadId, UserId } from "@cheatcode/types";
+import { BillingTierSchema, ThreadId, UserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -76,20 +72,20 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
 
 async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
   const userId = UserId(input.input.userId);
-  const { db, close } = createDb(input.env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: input.env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, userId, (tx) =>
-      materializeThreadProject(tx, {
-        threadId: ThreadId(input.input.threadId),
-        userId,
-      }),
+  return withUserDb(input.env, userId, async ({ transaction }) => {
+    return await transaction((tx) =>
+      materializeThreadProject(
+        tx,
+        {
+          threadId: ThreadId(input.input.threadId),
+          userId,
+        },
+        (entitlement) =>
+          entitlementValuesForTier(BillingTierSchema.parse(entitlement?.tier ?? "free"))
+            .maxProjects,
+      ),
     );
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function ensureWorkspaceDirectory(

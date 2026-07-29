@@ -10,7 +10,7 @@ import {
   InternalResourceDeletionRequestSchema,
   type ResourceDeletionServiceResult,
   ResourceDeletionServiceResultSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 import { z } from "zod";
 import {
   enqueueResourceDeletionWorkflow,

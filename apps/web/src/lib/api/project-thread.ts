@@ -1,9 +1,7 @@
 "use client";
 
+import { AgentRunId, CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage } from "@cheatcode/types";
 import {
-  AgentRunId,
-  CHEATCODE_DATA_SCHEMAS,
-  type CheatcodeUIMessage,
   Paginated,
   type ProjectMode,
   type ProjectSummary,
@@ -20,7 +18,7 @@ import {
   UIMessageRecordSchema,
   type UpdateProject,
   type UpdateThread,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { safeValidateUIMessages } from "ai";
 import {
   API_REQUEST_TIMEOUT_MS,

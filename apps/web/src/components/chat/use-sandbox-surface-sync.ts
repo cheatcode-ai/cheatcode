@@ -1,10 +1,10 @@
 import {
   CHEATCODE_DATA_SCHEMAS,
   type CheatcodeUIMessage,
-  type ProjectSummary,
   reconstructedTranscriptUIMessage,
   type SandboxState,
 } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import type { ChatStatus } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type PreviewTab, useAppStore } from "@/lib/store/app-store";

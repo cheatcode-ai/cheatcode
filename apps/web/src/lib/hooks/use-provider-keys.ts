@@ -1,6 +1,6 @@
 "use client";
 
-import { type ProviderKeySummary, ProviderKeySummarySchema } from "@cheatcode/types";
+import { type ProviderKeySummary, ProviderKeySummarySchema } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import {

@@ -1,5 +1,5 @@
 import { parseSkillRuntimeCapability, verifySkillRuntimeCapabilityDigest } from "@cheatcode/auth";
-import { authorizeSkillRuntimeCapability, createDb, withUserContext } from "@cheatcode/db";
+import { authorizeSkillRuntimeCapability, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
 import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
 import type { AgentEnv } from "./agent-env";
@@ -24,12 +24,8 @@ export async function requireSkillRuntimePrincipal(
     throw invalidCapability();
   }
   const userId = UserId(parsed.userId);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const authorization = await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const authorization = await transaction((tx) =>
       authorizeSkillRuntimeCapability(tx, {
         requiredScope,
         runId: AgentRunId(parsed.runId),
@@ -55,9 +51,7 @@ export async function requireSkillRuntimePrincipal(
       scope: authorization.capability.scope,
       userId,
     };
-  } finally {
-    await close();
-  }
+  });
 }
 
 function invalidCapability(): APIError {

@@ -14,7 +14,7 @@ import type {
   ProjectFile,
   ProjectFileUploadResponse,
   SandboxConsoleSnapshot,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { type ContentOps, createContentOps } from "./project-sandbox-content";
 import { type LeaseMethod, leaseKind, workspaceScope } from "./project-sandbox-lease-policy";
 import { createLifecycleOps, type LifecycleOps } from "./project-sandbox-lifecycle";

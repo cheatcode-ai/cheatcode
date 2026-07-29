@@ -1,7 +1,8 @@
 import { hmacSha256Base64, timingSafeEqual } from "@cheatcode/auth";
 import { type Database, expireComposioConnection } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { ComposioConnectionIdSchema, UserId } from "@cheatcode/types";
+import { UserId } from "@cheatcode/types";
+import { ComposioConnectionIdSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;

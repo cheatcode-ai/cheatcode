@@ -1,6 +1,12 @@
 import type { WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
-import { createDb, type Database, type HyperdriveConnection, withUserContext } from "@cheatcode/db";
+import {
+  type Database,
+  type HyperdriveConnection,
+  type UserContextDatabase,
+  withDatabase as withDatabaseHandle,
+  withUserDb,
+} from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
@@ -13,7 +19,6 @@ import type { UserId } from "@cheatcode/types";
 import { z } from "zod";
 
 const DELETION_ACTIONS_PER_INSTANCE = 8;
-export const MAX_TRANSIENT_DELETION_FAILURES = 8;
 const DB_STEP_OPTIONS = {
   retries: { limit: 3, delay: "20 seconds", backoff: "exponential" },
   timeout: "2 minutes",
@@ -311,21 +316,13 @@ export async function withDatabase<Result>(
   env: WebhooksDatabaseEnv,
   operation: (db: Database) => Promise<Result>,
 ): Promise<Result> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    return await operation(db);
-  } finally {
-    await close();
-  }
+  return withDatabaseHandle(env, ({ db }) => operation(db));
 }
 
 export function withUserDatabase<Result>(
   env: WebhooksDatabaseEnv,
   userId: UserId,
-  operation: (db: Database) => Promise<Result>,
+  operation: (db: UserContextDatabase) => Promise<Result>,
 ): Promise<Result> {
-  return withDatabase(env, (db) => withUserContext(db, userId, operation));
+  return withUserDb(env, userId, ({ transaction }) => transaction(operation));
 }

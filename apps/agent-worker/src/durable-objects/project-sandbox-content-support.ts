@@ -1,5 +1,5 @@
 import { APIError } from "@cheatcode/observability";
-import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types";
+import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types/api";
 import { shellQuote } from "./project-sandbox-process-support";
 import {
   type ProjectSearchFilesInput,

@@ -60,8 +60,6 @@ Cheatcode meters sandbox hours, maximum projects, and connected-app calls. It do
 | Free | $0 | 3 | 5 | 1,000 |
 | Pro | $25 | 25 | 60 | 20,000 |
 | Premium | $50 | 50 | 140 | 50,000 |
-| Ultra | $99 | 100 | 320 | 100,000 |
-| Max | $200 | Unlimited | 800 | Unlimited |
 
 Do not invent token allowances, deployment quotas, BYOK provider-slot limits, research-plan fan-out limits, or generated-output expiry. Generated outputs persist until project or account deletion; download links themselves are short-lived and can be refreshed.
 

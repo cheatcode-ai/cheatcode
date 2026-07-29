@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary, Thread } from "@cheatcode/types";
+import type { ProjectSummary, Thread } from "@cheatcode/types/api";
 import { useQueries, useQuery } from "@tanstack/react-query";
 import {
   getProject,

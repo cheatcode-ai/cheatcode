@@ -1,4 +1,5 @@
-import type { CheatcodeUIMessage, ProjectSummary, RunIntent } from "@cheatcode/types";
+import type { CheatcodeUIMessage } from "@cheatcode/types";
+import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
 import { useCallback } from "react";

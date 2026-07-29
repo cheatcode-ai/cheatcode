@@ -1,6 +1,6 @@
 "use client";
 
-import type { ToolkitCategory } from "@cheatcode/types";
+import type { ToolkitCategory } from "@cheatcode/types/api";
 import { MoreVertical, Search } from "@cheatcode/ui";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";

@@ -9,8 +9,6 @@ import {
 const TIERS = [
   { bullet: "60 sandbox hours / month", name: "Pro", price: "$25/mo", tier: "pro" },
   { bullet: "140 sandbox hours / month", name: "Premium", price: "$50/mo", tier: "premium" },
-  { bullet: "320 sandbox hours / month", name: "Ultra", price: "$99/mo", tier: "ultra" },
-  { bullet: "800 sandbox hours / month", name: "Max", price: "$200/mo", tier: "max" },
 ] as const satisfies readonly {
   bullet: string;
   name: string;

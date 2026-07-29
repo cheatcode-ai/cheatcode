@@ -26,6 +26,12 @@ module.exports = {
       to: { path: "^packages/tools-[^/]+/", pathNot: "^packages/$1/" },
     },
     {
+      name: "database-must-not-import-billing-policy",
+      severity: "error",
+      from: { path: "^packages/db/" },
+      to: { path: "^packages/billing/" },
+    },
+    {
       name: "vercel-web-must-not-import-worker-runtime-packages",
       severity: "error",
       from: { path: "^apps/web/" },
@@ -53,6 +59,6 @@ module.exports = {
     },
   ],
   options: {
-    doNotFollow: { path: "node_modules" },
+    doNotFollow: { path: "(^|/)(dist|node_modules)/" },
   },
 };

@@ -2,7 +2,7 @@ import {
   PROJECT_FILE_MAX_BATCH,
   PROJECT_FILE_MAX_BYTES,
   USER_MESSAGE_MAX_CHARACTERS,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 
 const PROMPT_ATTACHMENT_EXTENSIONS = [
   ".c",

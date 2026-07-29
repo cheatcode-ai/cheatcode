@@ -716,9 +716,6 @@ importers:
 
   packages/db:
     dependencies:
-      '@cheatcode/billing':
-        specifier: workspace:*
-        version: link:../billing
       '@cheatcode/env':
         specifier: workspace:*
         version: link:../env

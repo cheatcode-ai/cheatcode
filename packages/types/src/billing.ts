@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Billing tiers ordered from the least to the most capable plan. */
-export const BILLING_TIERS = ["free", "pro", "premium", "ultra", "max"] as const;
+export const BILLING_TIERS = ["free", "pro", "premium"] as const;
 
 export const BillingTierSchema = z.enum(BILLING_TIERS);
 export const PaidBillingTierSchema = BillingTierSchema.exclude(["free"]);

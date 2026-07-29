@@ -15,7 +15,9 @@ Every runtime Worker uses its own least-privilege login:
 - `app_agent` owns run, artifact, skill, and sandbox-related persistence.
 - `app_webhooks` owns provider reconciliation and lifecycle jobs.
 
-Runtime transactions enter a signed tenant context through `withUserContext`.
+Runtime transactions enter a signed tenant context through `withUserDb` or the
+handle-typed `withUserContext`. Nested transaction compositions accept only the
+branded transaction context supplied by those helpers.
 Administrative migration credentials are never exported by this package or
 loaded by an application process.
 
@@ -29,7 +31,7 @@ The schema modules under `src/schema/` define:
 - generated-output indexes and pending artifact-upload intents
 - entitlements and sandbox/run activity
 - user-authored skills
-- project, account, refund, and daily-maintenance workflow jobs
+- project, account, and refund workflow jobs
 - immutable Clerk deletion tombstones
 - security-sensitive audit records
 
@@ -66,20 +68,18 @@ jobs are removed; only quarantined failures remain for operator review.
 account deletion. Its immutable provider identity and idempotency key prevent a
 retry from issuing a second refund.
 
-`v2_daily_maintenance_jobs` coordinates daily activation aggregation, abandoned
-upload-intent cleanup, and retention work. Each phase is leased and advances by
-compare-and-swap.
-
 `v2_artifact_upload_intents` is the durable half of the Postgres/R2 commit
 protocol. An AgentRun reserves an output identity before writing R2 and
 atomically replaces the intent with `v2_generated_outputs` after the object is
-verified. Daily maintenance removes only quiesced, terminal, expired intents.
+verified. Tableless daily maintenance removes only quiesced, terminal, expired
+intents through exact identity-rechecked deletes after idempotent R2 cleanup.
 
 ## Queries
 
 Public exports include:
 
-- `createDb`
+- `withDatabase`
+- `withUserDb`
 - `withUserContext`
 - `assertDatabaseRuntimeReadiness`
 - `resolveInternalUserId`
@@ -87,8 +87,10 @@ Public exports include:
 - model-context suffix reads with logical-turn and byte bounds
 - BYOK and integration helpers
 - entitlement and usage helpers
-- user-skill helpers
+- caller-configured user-skill list primitives plus locked count/insert/update composition
+- entitlement-read/project-lock composition for billing-owned lazy-materialization limits
 - lifecycle job discovery, claim, renewal, progression, and completion helpers
+- locked refund-intent reads/writes that execute caller-owned transition policy in-transaction
 - audit and maintenance helpers
 - `schema/*`
 

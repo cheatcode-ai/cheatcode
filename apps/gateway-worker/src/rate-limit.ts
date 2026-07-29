@@ -58,7 +58,9 @@ export async function rateLimit(
   c: RateLimitContext,
   userId: UserId,
   route: string,
+  cost?: number,
 ): Promise<RateLimitHeaders | null> {
+  const policy = policyForRoute(route);
   return consumeRateLimit(
     c,
     {
@@ -66,7 +68,7 @@ export async function rateLimit(
       key: `user:${userId}:${route}`,
     },
     route,
-    policyForRoute(route),
+    withExplicitCost(policy, cost),
   );
 }
 
@@ -74,6 +76,7 @@ export async function rateLimitPublic(
   c: PublicRateLimitContext,
   route: string,
   policyName: PublicRateLimitPolicyName,
+  cost?: number,
 ): Promise<RateLimitHeaders | null> {
   const addressHash = await publicClientAddressHash(c.req.raw);
   return consumeRateLimit(
@@ -86,7 +89,7 @@ export async function rateLimitPublic(
       key: `public:${addressHash}:${route}`,
     },
     route,
-    RATE_LIMIT_POLICIES[policyName],
+    withExplicitCost(RATE_LIMIT_POLICIES[policyName], cost),
   );
 }
 
@@ -148,6 +151,10 @@ function policyForRoute(route: string): RateLimitPolicy {
     return RATE_LIMIT_POLICIES.readCheap;
   }
   return RATE_LIMIT_POLICIES.writeNormal;
+}
+
+function withExplicitCost(policy: RateLimitPolicy, cost: number | undefined): RateLimitPolicy {
+  return cost === undefined || cost === policy.cost ? policy : { ...policy, cost };
 }
 
 function isSandboxReadRoute(route: string): boolean {

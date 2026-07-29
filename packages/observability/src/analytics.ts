@@ -42,13 +42,16 @@ export type AgentMetric = AgentMetricFields & ModelAttribution;
 
 interface UserEvent {
   authMethod?: string;
+  // Blob 17 is reserved-unused; keep the member to preserve the locked blob order.
   cohortMonth?: string;
+  // Blob 16 is reserved-unused; keep the member to preserve the locked blob order.
   cohortWeek?: string;
   country?: string;
   device?: string;
   detector?: string;
   durationMs?: number;
   errorCode?: string;
+  // Blob 13 is reserved-unused; keep the member to preserve the locked blob order.
   eventDate?: string;
   eventId?: string;
   eventName: string;
@@ -153,11 +156,11 @@ export function emitUserEvent(env: AnalyticsBindings, event: UserEvent): void {
       event.errorCode,
       event.detector,
       event.runStatus,
-      event.eventDate,
+      event.eventDate, // Blob 13 is reserved-unused; keep this locked position.
       event.fromPlan,
       event.toPlan,
-      event.cohortWeek,
-      event.cohortMonth,
+      event.cohortWeek, // Blob 16 is reserved-unused; keep this locked position.
+      event.cohortMonth, // Blob 17 is reserved-unused; keep this locked position.
       event.stepType,
       event.toolName,
       event.skillName,

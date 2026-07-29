@@ -4,7 +4,7 @@ import {
   type BrowserTakeoverSession,
   BrowserTakeoverSessionSchema,
   BrowserTakeoverStatusSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import type { AgentRunEnv } from "./agent-run-env";
 import {
   deleteRunStateValues,

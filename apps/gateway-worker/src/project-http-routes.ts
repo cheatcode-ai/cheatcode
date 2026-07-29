@@ -1,3 +1,4 @@
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import { forwardAgentRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
 import type { GatewayApp } from "./gateway-env";
@@ -73,15 +74,9 @@ function registerProjectItemRoutes(app: GatewayApp): void {
 }
 
 function registerProjectRelatedRoutes(app: GatewayApp): void {
-  app.get("/v1/projects/:projectId/files", (c) =>
-    forwardAgentRequest(c, "GET /v1/projects/:projectId/files"),
-  );
-  app.post("/v1/projects/:projectId/files", (c) =>
-    forwardAgentRequest(c, "POST /v1/projects/:projectId/files"),
-  );
-  app.post("/v1/projects/:projectId/download", (c) =>
-    forwardAgentRequest(c, "POST /v1/projects/:projectId/download"),
-  );
+  for (const route of Object.values(AGENT_FORWARD_ROUTES.project)) {
+    app.on(route.method, route.path, (c) => forwardAgentRequest(c, route));
+  }
   app.get("/v1/projects/:projectId/threads", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/projects/:projectId/threads");

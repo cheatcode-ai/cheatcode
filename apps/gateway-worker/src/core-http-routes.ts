@@ -1,6 +1,7 @@
 import { APIError } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import { agentServiceRequest } from "./agent-forwarding";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
+import { forwardAgentRequest, forwardPublicAgentRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
 import type { GatewayApp, GatewayEnv } from "./gateway-env";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
@@ -64,18 +65,13 @@ function registerTelemetryRoutes(app: GatewayApp): void {
 }
 
 function registerOutputRoute(app: GatewayApp): void {
-  app.post("/v1/outputs/:outputId/download-url", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    const headers = await rateLimit(c, userId, "POST /v1/outputs/:outputId/download-url");
-    return withRateLimitHeaders(
-      await c.env.AGENT.fetch(agentServiceRequest(c.req.raw, userId)),
-      headers,
-    );
-  });
-  app.get("/v1/outputs/:outputId/download", async (c) => {
-    const headers = await rateLimitPublic(c, "GET /v1/outputs/:outputId/download", "publicRead");
-    return withRateLimitHeaders(await c.env.AGENT.fetch(agentServiceRequest(c.req.raw)), headers);
-  });
+  const { downloadOutput, mintOutputDownloadUrl } = AGENT_FORWARD_ROUTES.core;
+  app.on(mintOutputDownloadUrl.method, mintOutputDownloadUrl.path, (c) =>
+    forwardAgentRequest(c, mintOutputDownloadUrl),
+  );
+  app.on(downloadOutput.method, downloadOutput.path, (c) =>
+    forwardPublicAgentRequest(c, downloadOutput),
+  );
 }
 
 function registerSkillRoutes(app: GatewayApp): void {
@@ -84,14 +80,8 @@ function registerSkillRoutes(app: GatewayApp): void {
     await rateLimit(c, userId, "GET /v1/skills");
     return listUserSkillsRoute(c.env, c.executionCtx, userId);
   });
-  app.delete("/v1/skills/:skillId", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    const headers = await rateLimit(c, userId, "DELETE /v1/skills/:skillId");
-    return withRateLimitHeaders(
-      await c.env.AGENT.fetch(agentServiceRequest(c.req.raw, userId)),
-      headers,
-    );
-  });
+  const route = AGENT_FORWARD_ROUTES.core.deleteUserSkill;
+  app.on(route.method, route.path, (c) => forwardAgentRequest(c, route));
 }
 
 async function optionalTelemetryUser(

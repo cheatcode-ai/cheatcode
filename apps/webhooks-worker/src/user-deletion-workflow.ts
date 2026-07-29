@@ -1,4 +1,5 @@
-import type { WorkflowStep } from "cloudflare:workers";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import {
   advanceUserDeletionJob,
   archiveUserProjects,
@@ -13,6 +14,7 @@ import {
   quarantineUserDeletionJob,
   renewAndLoadUserDeletionJob,
   reserveUserDeletionContinuation,
+  type UserContextDatabase,
   type UserDeletionContext,
   type UserDeletionJobLease,
   type UserDeletionJobRecord,
@@ -29,10 +31,10 @@ import {
   type DeletionWorkflowOutcome,
   dbStep,
   deletionErrorClassifier,
-  MAX_TRANSIENT_DELETION_FAILURES,
   runDeletionActions,
   withUserDatabase,
 } from "./deletion-job-runner";
+import { DELETION_JOB_DEFER_POLICY } from "./lifecycle/deletion-job-policy";
 import {
   deleteUserAgentAccountState,
   deleteUserAgentRunStatePage,
@@ -43,8 +45,10 @@ import {
 } from "./lifecycle-adapters";
 import {
   createUserDeletionContinuation,
+  isUserDeletionWorkflowIdentity,
   type UserDeletionAdmissionEnv,
   type UserDeletionPayload,
+  UserDeletionPayloadSchema,
 } from "./user-deletion-admission";
 import {
   ARTIFACT_INTENT_PAGE_SIZE,
@@ -109,6 +113,26 @@ type ExternalStepOptions = typeof COMPOSIO_STEP_OPTIONS | typeof EXTERNAL_STEP_O
 
 export interface UserDeletionWorkflowEnv extends LifecycleEnv, UserDeletionAdmissionEnv {}
 
+export class UserDeletionWorkflow extends WorkflowEntrypoint<
+  UserDeletionWorkflowEnv,
+  UserDeletionPayload
+> {
+  public override async run(
+    event: Readonly<WorkflowEvent<UserDeletionPayload>>,
+    step: WorkflowStep,
+  ): Promise<{ kind: "user-deletion"; ok: true }> {
+    const payload = UserDeletionPayloadSchema.parse(event.payload);
+    if (!isUserDeletionWorkflowIdentity(event.instanceId, payload)) {
+      throw new NonRetryableError(
+        "User deletion Workflow identity is invalid",
+        "UserDeletionWorkflowIdentityInvalid",
+      );
+    }
+    await processUserDeletionChunk(this.env, payload, step);
+    return { kind: payload.kind, ok: true };
+  }
+}
+
 class UserDeletionInvariantError extends Error {
   public readonly retriable = false;
 }
@@ -128,11 +152,7 @@ const USER_DELETION_RUNNER = createDeletionJobRunner<
   defer: (env, step, lease, errorCode, label) =>
     dbStep(step, `${label} defer account deletion`, () =>
       withUserDatabase(env, lease.userId, (db) =>
-        deferUserDeletionJob(db, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferUserDeletionJob(db, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       ),
     ),
   onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {
@@ -162,7 +182,7 @@ const USER_DELETION_RUNNER = createDeletionJobRunner<
   },
 });
 
-export async function processUserDeletionChunk(
+async function processUserDeletionChunk(
   env: UserDeletionWorkflowEnv,
   payload: UserDeletionPayload,
   step: WorkflowStep,
@@ -554,7 +574,7 @@ async function guardedExternalStep<Result extends Rpc.Serializable<Result>>(
 async function guardedDatabaseAction<Result extends Rpc.Serializable<Result>>(
   env: UserDeletionWorkflowEnv,
   job: ActiveJob,
-  operation: (db: Database) => Promise<Result>,
+  operation: (db: UserContextDatabase) => Promise<Result>,
 ): Promise<Result | null> {
   return withUserDatabase(env, job.userId, async (db) =>
     (await isActionCurrentInDatabase(db, job)) ? operation(db) : null,

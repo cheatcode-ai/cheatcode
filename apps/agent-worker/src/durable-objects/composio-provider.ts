@@ -4,13 +4,7 @@ import type {
   ComposioQuotaResult,
 } from "@cheatcode/agent-core";
 import { entitlementCacheFromValues, quotaPeriodEndFor } from "@cheatcode/billing";
-import {
-  createDb,
-  type DatabaseHandle,
-  findAgentEntitlementByUserId,
-  listAgentIntegrations,
-  withUserContext,
-} from "@cheatcode/db";
+import { findAgentEntitlementByUserId, listAgentIntegrations, withUserDb } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import type { createLogger } from "@cheatcode/observability";
 import { IntegrationNameSchema, UserId } from "@cheatcode/types";
@@ -48,41 +42,45 @@ export async function resolveComposioRuntimeCredentials(
   logger: ReturnType<typeof createLogger>,
 ): Promise<ComposioRuntimeCredentials> {
   const apiKey = await readOptionalComposioApiKey(env, logger);
-  const dbHandle = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const userId = UserId(input.userId);
-    const state = await withUserContext(dbHandle.db, userId, async (db) => {
-      // A user-context transaction owns one pg client. Keep its queries sequential instead of
-      // pretending to parallelize them through the same connection.
-      const integrations = await listAgentIntegrations(db, userId);
-      const entitlement = await findAgentEntitlementByUserId(db, userId);
-      const resolvedEntitlement = entitlementCacheFromValues(entitlement ?? { tier: "free" });
-      return {
-        connectedAccounts: connectedAccountsFromRows(integrations),
-        quota: {
-          entitlementVersion: Date.parse(resolvedEntitlement.updatedAt),
-          limit: resolvedEntitlement.quotaComposioCalls,
-          periodEnd: quotaPeriodEndFor(resolvedEntitlement),
-        },
-      };
-    });
+  const userId = UserId(input.userId);
+  return withUserDb(
+    env,
+    userId,
+    async ({ transaction }) => {
+      const state = await transaction(async (db) => {
+        // A user-context transaction owns one pg client. Keep its queries sequential instead of
+        // pretending to parallelize them through the same connection.
+        const integrations = await listAgentIntegrations(db, userId);
+        const entitlement = await findAgentEntitlementByUserId(db, userId);
+        const resolvedEntitlement = entitlementCacheFromValues(entitlement ?? { tier: "free" });
+        return {
+          connectedAccounts: connectedAccountsFromRows(integrations),
+          quota: {
+            entitlementVersion: Date.parse(resolvedEntitlement.updatedAt),
+            limit: resolvedEntitlement.quotaComposioCalls,
+            periodEnd: quotaPeriodEndFor(resolvedEntitlement),
+          },
+        };
+      });
 
-    logger.info("composio_runtime_checked", {
-      activeIntegrations: Object.keys(state.connectedAccounts).length,
-      configured: Boolean(apiKey),
-    });
-    return {
-      ...(apiKey ? { composioApiKey: apiKey } : {}),
-      composioConnectedAccounts: state.connectedAccounts,
-      composioQuotaMeter: quotaMeter(env, userId, state.quota),
-      composioUserId: input.userId,
-    };
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
+      logger.info("composio_runtime_checked", {
+        activeIntegrations: Object.keys(state.connectedAccounts).length,
+        configured: Boolean(apiKey),
+      });
+      return {
+        ...(apiKey ? { composioApiKey: apiKey } : {}),
+        composioConnectedAccounts: state.connectedAccounts,
+        composioQuotaMeter: quotaMeter(env, userId, state.quota),
+        composioUserId: input.userId,
+      };
+    },
+    (dbHandle) =>
+      closeDatabaseBestEffort({
+        dbHandle,
+        logger,
+        operation: "resolve_composio_credentials",
+      }),
+  );
 }
 
 function connectedAccountsFromRows(
@@ -139,11 +137,4 @@ async function consumeComposioQuota(
   const stub = namespace.get(namespace.idFromName(`quota:${userId}`));
   await stub.setLimit(QUOTA_FEATURES.composioCalls, quota.limit, quota.entitlementVersion);
   return stub.tryConsume(QUOTA_FEATURES.composioCalls, 1, quota.periodEnd, eventId);
-}
-
-async function closeDatabase(
-  dbHandle: DatabaseHandle,
-  logger: ReturnType<typeof createLogger>,
-): Promise<void> {
-  await closeDatabaseBestEffort({ dbHandle, logger, operation: "resolve_composio_credentials" });
 }

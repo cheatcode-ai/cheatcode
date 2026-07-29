@@ -1,4 +1,4 @@
-import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types";
+import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types/api";
 
 export const DAY_WIDTH = 20;
 export const GRID_HEIGHT = 200;

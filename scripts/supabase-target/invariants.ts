@@ -91,15 +91,6 @@ const REQUIRED_INTEGRITY_CONSTRAINTS = [
   ["v2_user_deletion_refund_intents", "v2_user_deletion_refund_intents_order_check"],
   ["v2_user_deletion_refund_intents", "v2_user_deletion_refund_intents_identity_check"],
   ["v2_user_deletion_refund_intents", "v2_user_deletion_refund_intents_provider_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_day_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_phase_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_status_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_counter_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_error_code_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_activation_cursor_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_phase_cursor_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_lease_check"],
-  ["v2_daily_maintenance_jobs", "v2_daily_maintenance_jobs_terminal_phase_check"],
   ["v2_user_profiles", "v2_user_profiles_disabled_models_array_check"],
   ["v2_user_profiles", "v2_user_profiles_onboarding_state_object_check"],
   ["v2_user_skills", "v2_user_skills_tags_array_check"],
@@ -152,9 +143,6 @@ const REQUIRED_INTEGRITY_INDEXES = [
   "v2_user_deletion_refund_intents_idempotency_uidx",
   "v2_user_deletion_refund_intents_provider_uidx",
   "v2_user_deletion_refund_intents_unresolved_idx",
-  "v2_daily_maintenance_jobs_ready_idx",
-  "v2_daily_maintenance_jobs_lease_idx",
-  "v2_daily_maintenance_jobs_completed_idx",
 ] as const;
 
 export async function validateIntegrityConstraints(client: PgClient): Promise<string[]> {

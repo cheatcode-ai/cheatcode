@@ -4,7 +4,6 @@ import type { Database } from "./client";
 
 const LEASE_DURATION_MS = 2 * 60 * 60 * 1000;
 const MAX_CLAIMS = 25;
-const MAX_RETRY_DELAY_MS = 6 * 60 * 60 * 1000;
 
 type LeaseColumn<Data, NotNull extends boolean> = SQLWrapper & {
   _: { data: Data; notNull: NotNull };
@@ -35,15 +34,15 @@ interface DeferInput {
   errorCode: string;
 }
 
-interface QueueConfig<
-  Lease extends LeaseQueueLease,
-  Input extends DeferInput,
-  Status extends string,
-> {
-  deferredStatus(failureCount: number, input: Input): Status;
+export interface LeaseQueueDeferPolicy<Status extends string> {
+  deferredStatus(failureCount: number): Status;
+  normalizeErrorCode?(errorCode: string): string;
+  retryDelayMs(failureCount: number): number;
+}
+
+interface QueueConfig<Lease extends LeaseQueueLease> {
   identity(lease: Lease): readonly (SQL | undefined)[];
   leaseFromContinuation(continuation: number, input: Lease & { nextLeaseToken: string }): Lease;
-  normalizeErrorCode?(errorCode: string): string;
   table: LeaseQueueTable;
 }
 
@@ -61,8 +60,8 @@ const LeaseClaimSchema = z.object({
 
 type ParsedLeaseClaim = z.output<typeof LeaseClaimSchema>;
 
-class LeaseQueue<Lease extends LeaseQueueLease, Input extends DeferInput, Status extends string> {
-  public constructor(private readonly config: QueueConfig<Lease, Input, Status>) {}
+class LeaseQueue<Lease extends LeaseQueueLease> {
+  public constructor(private readonly config: QueueConfig<Lease>) {}
 
   public readonly expiryAt = leaseExpiry;
 
@@ -125,9 +124,10 @@ class LeaseQueue<Lease extends LeaseQueueLease, Input extends DeferInput, Status
     });
   }
 
-  public deferJob(
+  public deferJob<Input extends DeferInput, const Status extends string>(
     db: Database,
     input: Lease & Input,
+    policy: LeaseQueueDeferPolicy<Status>,
     extraAssignment?: SQL,
   ): Promise<DeferredLeaseQueueJob<Status> | null> {
     return db.transaction(async (tx) => {
@@ -140,9 +140,11 @@ class LeaseQueue<Lease extends LeaseQueueLease, Input extends DeferInput, Status
         return null;
       }
       const failureCount = previousFailures + 1;
-      const status = this.config.deferredStatus(failureCount, input);
-      const errorCode = this.config.normalizeErrorCode?.(input.errorCode) ?? input.errorCode;
-      const nextAttemptAt = new Date(Date.now() + retryDelayMs(failureCount));
+      const status = policy.deferredStatus(failureCount);
+      const errorCode = policy.normalizeErrorCode?.(input.errorCode) ?? input.errorCode;
+      const nextAttemptAt = new Date(
+        Date.now() + validRetryDelay(policy.retryDelayMs(failureCount)),
+      );
       const extra = extraAssignment ? sql`, ${extraAssignment}` : sql``;
       const updated = await tx.execute(sql`
         update ${this.config.table}
@@ -167,11 +169,7 @@ class LeaseQueue<Lease extends LeaseQueueLease, Input extends DeferInput, Status
   }
 }
 
-export function createLeaseQueue<
-  Lease extends LeaseQueueLease,
-  Input extends DeferInput,
-  const Status extends string,
->(config: QueueConfig<Lease, Input, Status>) {
+export function createLeaseQueue<Lease extends LeaseQueueLease>(config: QueueConfig<Lease>) {
   return new LeaseQueue(config);
 }
 
@@ -211,6 +209,9 @@ function leaseExpiry(now: Date): Date {
   return new Date(now.getTime() + LEASE_DURATION_MS);
 }
 
-function retryDelayMs(failureCount: number): number {
-  return Math.min(MAX_RETRY_DELAY_MS, 30_000 * 2 ** Math.min(failureCount - 1, 10));
+function validRetryDelay(delayMs: number): number {
+  if (!Number.isSafeInteger(delayMs) || delayMs < 0) {
+    throw new Error("Lease queue retry delay must be a nonnegative safe integer");
+  }
+  return delayMs;
 }

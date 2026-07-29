@@ -1,6 +1,7 @@
 "use client";
 
-import type { IntegrationName, ProjectSummary } from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import {

@@ -18,10 +18,7 @@ export const entitlements = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
-    check(
-      "v2_entitlements_tier_check",
-      sql`${table.tier} in ('free','pro','premium','ultra','max')`,
-    ),
+    check("v2_entitlements_tier_check", sql`${table.tier} in ('free','pro','premium')`),
     uniqueIndex("v2_entitlements_polar_subscription_uidx")
       .on(table.polarSubscriptionId)
       .where(sql`${table.polarSubscriptionId} is not null`),

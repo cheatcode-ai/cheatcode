@@ -1,4 +1,4 @@
-import type { Thread } from "@cheatcode/types";
+import type { Thread } from "@cheatcode/types/api";
 import type { ChatWorkspaceTab } from "@/lib/store/chat-tabs-store";
 
 export type FolderChatResultStatus = "error" | "loading" | "ready";

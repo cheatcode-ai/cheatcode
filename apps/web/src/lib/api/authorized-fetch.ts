@@ -1,6 +1,7 @@
 "use client";
 
-import { ErrorResponseSchema, PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types";
+import { ErrorResponseSchema } from "@cheatcode/types";
+import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types/api";
 import { gatewayRequestUrl } from "@/lib/api/gateway-url";
 
 const KIBIBYTE = 1024;

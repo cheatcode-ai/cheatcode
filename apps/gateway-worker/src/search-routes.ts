@@ -1,21 +1,20 @@
 import {
-  createDb,
   listRecentThreads,
   searchWorkspace,
   type WorkspaceSearchRecord,
   type WorkspaceThreadSearchRecord,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
+import type { UserId } from "@cheatcode/types";
 import {
   RecentThreadsQuerySchema,
   RecentThreadsResponseSchema,
   SearchQuerySchema,
   SearchResponseSchema,
   type SearchResult,
-  type UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import type { z } from "zod";
 import type { WaitUntilContext } from "./wait-until-context";
 
@@ -26,50 +25,38 @@ export interface SearchRouteEnv {
 
 export async function searchWorkspaceRoute(
   env: SearchRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const query = parseSearchQuery(request);
   const startedAt = performance.now();
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const records = await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const records = await transaction((tx) =>
       searchWorkspace(tx, userId, { limit: query.limit, q: query.q }),
     );
     const results = records.map(toSearchResult);
     const response = SearchResponseSchema.parse({ query: query.q, results });
     logSearchPerformed(request, query.q, results, performance.now() - startedAt);
     return Response.json(response);
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 /** `GET /v1/threads?limit=N` — the user's recent chats (threads) across all projects. */
 export async function listRecentThreadsRoute(
   env: SearchRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const limit = parseRecentThreadsLimit(request);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const records = await withUserContext(db, userId, (tx) => listRecentThreads(tx, userId, limit));
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const records = await transaction((tx) => listRecentThreads(tx, userId, limit));
     const response = RecentThreadsResponseSchema.parse({
       threads: records.map(toThreadResult),
     });
     return Response.json(response);
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 function toThreadResult(record: WorkspaceThreadSearchRecord): SearchResult {

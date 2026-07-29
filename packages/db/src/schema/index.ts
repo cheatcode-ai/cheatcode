@@ -4,11 +4,6 @@ export { auditLog } from "./audit";
 export { entitlements } from "./billing";
 /** Written only by plpgsql triggers; kept for drizzle-kit diff parity. */
 export { deletedClerkIdentities } from "./clerk-deletions";
-export type {
-  DailyMaintenanceJobPhase,
-  DailyMaintenanceJobStatus,
-} from "./daily-maintenance-jobs";
-export { dailyMaintenanceJobs } from "./daily-maintenance-jobs";
 export { providerKeys, userIntegrations } from "./keys";
 export type { StoredSkillRuntimeCapability } from "./messages";
 export { agentRuns, messages } from "./messages";

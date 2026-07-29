@@ -1,6 +1,6 @@
 "use client";
 
-import type { Provider } from "@cheatcode/types";
+import type { Provider } from "@cheatcode/types/api";
 import { ProviderKeysList } from "./provider-keys-list";
 import { useProviderKeysController } from "./use-provider-keys-controller";
 

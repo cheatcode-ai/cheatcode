@@ -2,11 +2,11 @@ import type {
   AgentRunId,
   LogicalModelId,
   ProjectId,
-  ProjectMode,
   ThreadId,
   UIMessagePart,
   UserId,
 } from "@cheatcode/types";
+import type { ProjectMode } from "@cheatcode/types/api";
 import type { ThreadLaunchIntent } from "./schema";
 
 export interface CreateProjectInput {

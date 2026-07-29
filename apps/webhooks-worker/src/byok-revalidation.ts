@@ -1,4 +1,3 @@
-import type { WorkflowStep } from "cloudflare:workers";
 import { getProviderKeyForRevalidation, validateProviderKey } from "@cheatcode/byok";
 import {
   claimProviderKeyRevalidationTargets,
@@ -6,13 +5,13 @@ import {
   disableCurrentProviderKey,
   type HyperdriveConnection,
   lockUserProviderKeyMutations,
-  withUserContext,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
-import { APIError, createLogger } from "@cheatcode/observability";
-import { type Provider, ProviderSchema, type UserId } from "@cheatcode/types";
+import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
+import type { UserId } from "@cheatcode/types";
+import { type Provider, ProviderSchema } from "@cheatcode/types/api";
 import { z } from "zod";
-import { withDatabase } from "./deletion-job-runner";
+import { withDatabase, withUserDatabase } from "./deletion-job-runner";
 
 interface ByokRevalidationEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
@@ -23,6 +22,7 @@ interface ByokRevalidationInventory {
   checked: number;
   claimed: number;
   disabled: number;
+  failed: number;
   invalid: number;
   providers: string[];
   skipped: number;
@@ -30,14 +30,6 @@ interface ByokRevalidationInventory {
 
 const REVALIDATION_PAGE_SIZE = 10;
 const REVALIDATION_PAGES_PER_INSTANCE = 20;
-const DB_STEP_OPTIONS = {
-  retries: { limit: 3, delay: "20 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
-} as const;
-const PROVIDER_STEP_OPTIONS = {
-  retries: { limit: 3, delay: "30 seconds", backoff: "exponential" },
-  timeout: "1 minute",
-} as const;
 const RevalidationTargetPageSchema = z
   .array(
     z
@@ -54,6 +46,7 @@ const RevalidationOutcomeSchema = z
   .object({
     checked: z.number().int().min(0).max(1),
     disabled: z.number().int().min(0).max(1),
+    failed: z.number().int().min(0).max(1),
     invalid: z.number().int().min(0).max(1),
     skipped: z.number().int().min(0).max(1),
   })
@@ -61,41 +54,44 @@ const RevalidationOutcomeSchema = z
 type RevalidationTarget = z.infer<typeof RevalidationTargetPageSchema>[number];
 type RevalidationOutcome = z.infer<typeof RevalidationOutcomeSchema>;
 
-export async function processByokRevalidation(
-  env: ByokRevalidationEnv,
-  step: WorkflowStep,
-): Promise<{ hasMore: boolean }> {
-  const result = await revalidateProviderKeys(env, step);
+export async function processByokRevalidation(env: ByokRevalidationEnv): Promise<void> {
+  const result = await revalidateProviderKeys(env);
   createLogger().info("byok_revalidation_inventory", {
     checked: result.checked,
     claimed: result.claimed,
     disabled: result.disabled,
+    failed: result.failed,
     invalid: result.invalid,
     providers: result.providers,
     skipped: result.skipped,
   });
-  return {
-    hasMore: result.claimed === REVALIDATION_PAGE_SIZE * REVALIDATION_PAGES_PER_INSTANCE,
-  };
 }
 
 async function revalidateProviderKeys(
   env: ByokRevalidationEnv,
-  step: WorkflowStep,
 ): Promise<ByokRevalidationInventory> {
   const providers = new Set<string>();
-  const totals = { checked: 0, claimed: 0, disabled: 0, invalid: 0, skipped: 0 };
-  let ordinal = 0;
+  const totals = { checked: 0, claimed: 0, disabled: 0, failed: 0, invalid: 0, skipped: 0 };
   for (let pageNumber = 1; pageNumber <= REVALIDATION_PAGES_PER_INSTANCE; pageNumber += 1) {
-    const targets = await claimRevalidationPage(env, step, pageNumber);
+    const targets = await claimRevalidationPage(env);
     if (targets.length === 0) {
       break;
     }
     totals.claimed += targets.length;
     for (const target of targets) {
-      ordinal += 1;
       providers.add(target.provider);
-      addOutcome(totals, await revalidateProviderKeyStep(env, step, target, ordinal));
+      let outcome: RevalidationOutcome;
+      try {
+        outcome = RevalidationOutcomeSchema.parse(await revalidateOneProviderKey(env, target));
+      } catch (error) {
+        createLogger().error("byok_revalidation_target_failed", {
+          errorCode: "byok_revalidation_target_failed",
+          provider: target.provider,
+          ...safeErrorTelemetry(error),
+        });
+        outcome = { checked: 0, disabled: 0, failed: 1, invalid: 0, skipped: 0 };
+      }
+      addOutcome(totals, outcome);
     }
     if (targets.length < REVALIDATION_PAGE_SIZE) {
       break;
@@ -104,27 +100,11 @@ async function revalidateProviderKeys(
   return { ...totals, providers: [...providers].sort() };
 }
 
-async function claimRevalidationPage(
-  env: ByokRevalidationEnv,
-  step: WorkflowStep,
-  pageNumber: number,
-): Promise<RevalidationTarget[]> {
-  const value = await step.do(`claim BYOK revalidation page ${pageNumber}`, DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) => claimProviderKeyRevalidationTargets(db, REVALIDATION_PAGE_SIZE)),
+async function claimRevalidationPage(env: ByokRevalidationEnv): Promise<RevalidationTarget[]> {
+  const value = await withDatabase(env, (db) =>
+    claimProviderKeyRevalidationTargets(db, REVALIDATION_PAGE_SIZE),
   );
   return RevalidationTargetPageSchema.parse(value);
-}
-
-async function revalidateProviderKeyStep(
-  env: ByokRevalidationEnv,
-  step: WorkflowStep,
-  target: RevalidationTarget,
-  ordinal: number,
-): Promise<RevalidationOutcome> {
-  const value = await step.do(`revalidate BYOK target ${ordinal}`, PROVIDER_STEP_OPTIONS, () =>
-    revalidateOneProviderKey(env, target),
-  );
-  return RevalidationOutcomeSchema.parse(value);
 }
 
 async function revalidateOneProviderKey(
@@ -134,14 +114,20 @@ async function revalidateOneProviderKey(
   const userId = target.userId as UserId;
   const validation = await validateClaimedProviderKey(env, userId, target);
   if (validation === "stale") {
-    return { checked: 0, disabled: 0, invalid: 0, skipped: 1 };
+    return { checked: 0, disabled: 0, failed: 0, invalid: 0, skipped: 1 };
   }
   if (validation === "valid") {
     const completed = await completeClaimedProviderKey(env, userId, target);
-    return { checked: 1, disabled: 0, invalid: 0, skipped: completed ? 0 : 1 };
+    return { checked: 1, disabled: 0, failed: 0, invalid: 0, skipped: completed ? 0 : 1 };
   }
   const disabled = await disableClaimedProviderKey(env, userId, target);
-  return { checked: 1, disabled: disabled ? 1 : 0, invalid: 1, skipped: disabled ? 0 : 1 };
+  return {
+    checked: 1,
+    disabled: disabled ? 1 : 0,
+    failed: 0,
+    invalid: 1,
+    skipped: disabled ? 0 : 1,
+  };
 }
 
 async function validateClaimedProviderKey(
@@ -149,10 +135,8 @@ async function validateClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<"invalid" | "stale" | "valid"> {
-  const key = await withDatabase(env, (db) =>
-    withUserContext(db, userId, (tx) =>
-      getProviderKeyForRevalidation(tx, target.provider, target.fingerprint, target.leaseToken),
-    ),
+  const key = await withUserDatabase(env, userId, (db) =>
+    getProviderKeyForRevalidation(db, target.provider, target.fingerprint, target.leaseToken),
   );
   if (!key) {
     return "stale";
@@ -165,17 +149,15 @@ async function completeClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<boolean> {
-  return withDatabase(env, (db) =>
-    withUserContext(db, userId, async (tx) => {
-      await lockUserProviderKeyMutations(tx, userId);
-      return completeCurrentProviderKeyRevalidation(tx, {
-        expectedFingerprint: target.fingerprint,
-        expectedLeaseToken: target.leaseToken,
-        provider: target.provider,
-        userId,
-      });
-    }),
-  );
+  return withUserDatabase(env, userId, async (db) => {
+    await lockUserProviderKeyMutations(db, userId);
+    return completeCurrentProviderKeyRevalidation(db, {
+      expectedFingerprint: target.fingerprint,
+      expectedLeaseToken: target.leaseToken,
+      provider: target.provider,
+      userId,
+    });
+  });
 }
 
 async function isProviderKeyInvalid(provider: Provider, key: string): Promise<boolean> {
@@ -195,18 +177,16 @@ async function disableClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<boolean> {
-  return withDatabase(env, (db) =>
-    withUserContext(db, userId, async (tx) => {
-      await lockUserProviderKeyMutations(tx, userId);
-      return disableCurrentProviderKey(tx, {
-        expectedFingerprint: target.fingerprint,
-        expectedLeaseToken: target.leaseToken,
-        provider: target.provider,
-        reason: "revalidation_invalid",
-        userId,
-      });
-    }),
-  );
+  return withUserDatabase(env, userId, async (db) => {
+    await lockUserProviderKeyMutations(db, userId);
+    return disableCurrentProviderKey(db, {
+      expectedFingerprint: target.fingerprint,
+      expectedLeaseToken: target.leaseToken,
+      provider: target.provider,
+      reason: "revalidation_invalid",
+      userId,
+    });
+  });
 }
 
 function addOutcome(
@@ -215,6 +195,7 @@ function addOutcome(
 ): void {
   totals.checked += outcome.checked;
   totals.disabled += outcome.disabled;
+  totals.failed += outcome.failed;
   totals.invalid += outcome.invalid;
   totals.skipped += outcome.skipped;
 }

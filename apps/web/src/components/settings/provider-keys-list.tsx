@@ -1,4 +1,4 @@
-import type { Provider, ProviderKeySummary } from "@cheatcode/types";
+import type { Provider, ProviderKeySummary } from "@cheatcode/types/api";
 import type { FormEventHandler } from "react";
 import type { FieldError, UseFormRegister, UseFormWatch } from "react-hook-form";
 import { cn } from "@/lib/ui/cn";

@@ -1,9 +1,5 @@
-import {
-  coalesceTranscriptSegmentParts,
-  ThreadId,
-  UIMessageRecordSchema,
-  type UserId,
-} from "@cheatcode/types";
+import { coalesceTranscriptSegmentParts, ThreadId, type UserId } from "@cheatcode/types";
+import { UIMessageRecordSchema } from "@cheatcode/types/api";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { messageFromRow, messageReturningColumns } from "./project-mappers";

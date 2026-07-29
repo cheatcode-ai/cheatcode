@@ -7,7 +7,6 @@ import {
   clearProjectDeletionRunPointers,
   clearThreadDeletionRunPointer,
   completeResourceDeletionJob,
-  createDb,
   deferResourceDeletionJob,
   deleteResourceDeletionOutputRecords,
   discoverResourceDeletionJobs,
@@ -25,17 +24,18 @@ import {
   registerResourceDeletionJob,
   renewAndLoadResourceDeletionJob,
   reserveResourceDeletionContinuation,
+  withDatabase as withDatabaseHandle,
   withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { type AnalyticsBindings, createLogger } from "@cheatcode/observability";
+import { AgentRunId, UserId } from "@cheatcode/types";
 import {
-  AgentRunId,
   type InternalResourceDeletionRequest,
   type ResourceDeletionWorkflowPayload,
   ResourceDeletionWorkflowPayloadSchema,
-  UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 import { z } from "zod";
 import {
   CREATE_STEP_OPTIONS,
@@ -43,9 +43,12 @@ import {
   type DeletionActionOutcome,
   type DeletionWorkflowOutcome,
   deletionErrorClassifier,
-  MAX_TRANSIENT_DELETION_FAILURES,
   runDeletionActions,
 } from "./deletion-job-runner";
+import {
+  DELETION_JOB_DEFER_POLICY,
+  MAX_TRANSIENT_DELETION_FAILURES,
+} from "./lifecycle/deletion-job-policy";
 import {
   type AgentStateDeletionEnv,
   deleteProjectAgentWorkspace,
@@ -64,7 +67,6 @@ import {
   requiredProjectId,
   requiredThreadId,
   threadGeneration,
-  withDatabase,
   withUserDatabase,
 } from "./resource-deletion-action-support";
 import {
@@ -118,11 +120,7 @@ const RESOURCE_DELETION_RUNNER = createDeletionJobRunner<
   defer: (env, step, lease, errorCode, label) =>
     dbStep(step, `${label} defer deletion`, () =>
       withUserDatabase(env, lease.userId, (db) =>
-        deferResourceDeletionJob(db, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferResourceDeletionJob(db, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       ),
     ),
   onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {
@@ -185,15 +183,9 @@ export async function enqueueResourceDeletionWorkflow(
   env: ResourceDeletionWorkflowEnv,
   request: InternalResourceDeletionRequest,
 ): Promise<string | null> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  let lease: ResourceDeletionJobLease | null = null;
-  let jobId: string | null = null;
-  try {
-    const userId = UserId(request.userId);
-    const registered = await withUserContext(db, userId, async (tx) => {
+  const userId = UserId(request.userId);
+  const registered = await withUserDb(env, userId, ({ transaction }) =>
+    transaction(async (tx) => {
       const job = await registerResourceDeletionJob(tx, request);
       const claimed = job
         ? await claimResourceDeletionJobById(tx, {
@@ -203,16 +195,12 @@ export async function enqueueResourceDeletionWorkflow(
           })
         : null;
       return { jobId: job?.id ?? null, lease: claimed };
-    });
-    jobId = registered.jobId;
-    lease = registered.lease;
-  } finally {
-    await close();
+    }),
+  );
+  if (registered.lease) {
+    await createClaimedInstancesOrDefer(env, [registered.lease]);
   }
-  if (lease) {
-    await createClaimedInstancesOrDefer(env, [lease]);
-  }
-  return jobId;
+  return registered.jobId;
 }
 
 export async function reconcileResourceDeletionWorkflows(
@@ -224,15 +212,11 @@ export async function reconcileResourceDeletionWorkflows(
   quarantined: number;
   threads: number;
 }> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
   let leases: ResourceDeletionJobLease[] = [];
   let projects = 0;
   let quarantinedJobIds: string[] = [];
   let threads = 0;
-  try {
+  await withDatabaseHandle(env, async ({ db }) => {
     const discovered = await discoverResourceDeletionJobs(db);
     projects = discovered.projects;
     threads = discovered.threads;
@@ -243,9 +227,7 @@ export async function reconcileResourceDeletionWorkflows(
     });
     leases = claimed.leases;
     quarantinedJobIds = claimed.quarantinedJobIds;
-  } finally {
-    await close();
-  }
+  });
   for (const jobId of quarantinedJobIds) {
     RESOURCE_DELETION_RUNNER.reportQuarantine(
       env,
@@ -655,14 +637,10 @@ async function deferFailedInstanceCreations(
 ): Promise<void> {
   const errorCode = RESOURCE_DELETION_RUNNER.errorCode(error);
   let quarantined = 0;
-  await withDatabase(env, async (db) => {
+  await withDatabaseHandle(env, async (db) => {
     for (const lease of leases) {
       const deferred = await withUserContext(db, lease.userId, (tx) =>
-        deferResourceDeletionJob(tx, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferResourceDeletionJob(tx, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       );
       if (deferred?.status === "quarantined") {
         quarantined += 1;

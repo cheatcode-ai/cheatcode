@@ -5,7 +5,7 @@ import {
 } from "@cheatcode/billing";
 import {
   type AgentRunHandle,
-  createDb,
+  type Database,
   findActiveAgentRunForThread,
   findAgentEntitlementByUserId,
   findAgentRunForUser,
@@ -13,17 +13,11 @@ import {
   getProjectWriteState,
   getThread,
   type RunPersonalization,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
-import {
-  AgentRunId,
-  type CreateRun,
-  ProjectId,
-  type ProjectSummary,
-  ThreadId,
-  UserId,
-} from "@cheatcode/types";
+import { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import type { CreateRun, ProjectSummary } from "@cheatcode/types/api";
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { AgentEnv } from "./agent-env";
 import type { AgentRun } from "./durable-objects/agent-run";
@@ -37,6 +31,11 @@ const DO_FREE_TIER_DURATION_ERROR = "Exceeded allowed duration in Durable Object
 
 export interface RunEntitlementPolicy {
   quotaPeriodEnd: string;
+}
+
+export interface RunEntitlementSnapshot {
+  entitlement: EntitlementCache;
+  periodEnd: Date;
 }
 
 export type AgentRunAdmissionOutcome =
@@ -76,12 +75,8 @@ export async function requireWritableThreadProject(
   threadId: string,
 ): Promise<void> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    await withUserContext(db, parsedUserId, async (tx) => {
+  return withUserDb(env, parsedUserId, async ({ transaction }) => {
+    await transaction(async (tx) => {
       const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
       if (!thread) {
         throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
@@ -113,9 +108,7 @@ export async function requireWritableThreadProject(
         );
       }
     });
-  } finally {
-    await close();
-  }
+  });
 }
 
 export async function requireProjectAccess(
@@ -125,12 +118,8 @@ export async function requireProjectAccess(
   writable: boolean,
 ): Promise<ProjectSummary & { workspaceSlug: string }> {
   const parsedUserId = UserId(userId);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, parsedUserId, async (tx) => {
+  return withUserDb(env, parsedUserId, async ({ transaction }) => {
+    return await transaction(async (tx) => {
       const project = await getProject(tx, {
         projectId: ProjectId(projectId),
         userId: parsedUserId,
@@ -160,9 +149,7 @@ export async function requireProjectAccess(
         updatedAt: project.updatedAt.toISOString(),
       };
     });
-  } finally {
-    await close();
-  }
+  });
 }
 
 export function agentRunForRunId(env: AgentEnv, runId: string): DurableObjectStub<AgentRun> {
@@ -291,32 +278,27 @@ async function discardResponse(response: Response): Promise<void> {
   await response.body?.cancel().catch(() => undefined);
 }
 
-export async function runEntitlementPolicy(
+export async function loadRunEntitlementPolicy(
+  db: Database,
+  userId: UserId,
+): Promise<RunEntitlementSnapshot> {
+  const entitlement = entitlementCacheFromValues(
+    (await findAgentEntitlementByUserId(db, userId)) ?? { tier: "free" },
+  );
+  return {
+    entitlement,
+    periodEnd: quotaPeriodEndFor(entitlement),
+  };
+}
+
+export async function enforceRunEntitlementPolicy(
   env: AgentEnv,
   userId: string,
+  snapshot: RunEntitlementSnapshot,
 ): Promise<RunEntitlementPolicy> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  let entitlement: EntitlementCache;
-  let periodEnd: Date;
-  try {
-    ({ entitlement, periodEnd } = await withUserContext(db, UserId(userId), async (tx) => {
-      const loadedEntitlement = entitlementCacheFromValues(
-        (await findAgentEntitlementByUserId(tx, UserId(userId))) ?? { tier: "free" },
-      );
-      return {
-        entitlement: loadedEntitlement,
-        periodEnd: quotaPeriodEndFor(loadedEntitlement),
-      };
-    }));
-  } finally {
-    await close();
-  }
-  await enforceSandboxHoursGate(env, userId, entitlement, periodEnd);
+  await enforceSandboxHoursGate(env, userId, snapshot.entitlement, snapshot.periodEnd);
   return {
-    quotaPeriodEnd: periodEnd.toISOString(),
+    quotaPeriodEnd: snapshot.periodEnd.toISOString(),
   };
 }
 
@@ -415,20 +397,14 @@ export async function activeRunForThreadRoute(
   userId: string,
   threadId: string,
 ): Promise<AgentRunHandle | null> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, UserId(userId), (tx) =>
+  return withUserDb(env, UserId(userId), async ({ transaction }) => {
+    return await transaction((tx) =>
       findActiveAgentRunForThread(tx, {
         threadId: ThreadId(threadId),
         userId: UserId(userId),
       }),
     );
-  } finally {
-    await close();
-  }
+  });
 }
 
 export async function runForRoute(
@@ -436,12 +412,8 @@ export async function runForRoute(
   userId: string,
   runId: string,
 ): Promise<AgentRunHandle> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const run = await withUserContext(db, UserId(userId), (tx) =>
+  return withUserDb(env, UserId(userId), async ({ transaction }) => {
+    const run = await transaction((tx) =>
       findAgentRunForUser(tx, {
         runId: AgentRunId(runId),
         userId: UserId(userId),
@@ -451,9 +423,7 @@ export async function runForRoute(
       throw new APIError(404, "not_found_run", "Run not found", { retriable: false });
     }
     return run;
-  } finally {
-    await close();
-  }
+  });
 }
 
 export function withRunLocation(response: Response, runId: string): Response {

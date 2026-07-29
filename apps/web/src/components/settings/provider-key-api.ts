@@ -1,6 +1,10 @@
 "use client";
 
-import { type Provider, type ProviderKeySummary, ProviderKeySummarySchema } from "@cheatcode/types";
+import {
+  type Provider,
+  type ProviderKeySummary,
+  ProviderKeySummarySchema,
+} from "@cheatcode/types/api";
 import { useMutation, type useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import {

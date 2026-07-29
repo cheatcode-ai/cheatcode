@@ -1,6 +1,7 @@
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
 import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/tools-code";
-import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema, ProjectId } from "@cheatcode/types";
+import { ProjectId } from "@cheatcode/types";
+import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
 const CommandArgvSchema = z.array(z.string().min(1).max(8_192)).min(1).max(128);

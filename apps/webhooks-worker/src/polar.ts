@@ -8,6 +8,7 @@ import {
   applyEntitlementResourceLimits,
   type BillingUserRecord,
   type Database,
+  type DatabaseHandle,
   findBillingUserById,
   findBillingUserByPolarCustomerId,
   findEntitlementByUserId,
@@ -18,6 +19,7 @@ import {
 import { APIError } from "@cheatcode/observability";
 import { type BillingTier, BillingTierSchema, billingTierRank, UserId } from "@cheatcode/types";
 import { z } from "zod";
+import { entitlementResourcePolicy } from "./lifecycle/entitlement-resource-policy";
 
 type PolarProductTierMap = Readonly<Record<string, BillingTier>>;
 
@@ -42,7 +44,7 @@ export interface PolarWebhookResult {
 }
 
 export async function handlePolarWebhookEvent(
-  db: Database,
+  dbHandle: DatabaseHandle,
   input: {
     accessToken: string;
     event: unknown;
@@ -51,10 +53,10 @@ export async function handlePolarWebhookEvent(
   },
 ): Promise<PolarWebhookResult> {
   const event = PolarEventSchema.parse(input.event);
-  const user = await resolvePolarUser(db, event.data);
+  const user = await resolvePolarUser(dbHandle, event.data);
 
   if (shouldReconcileCustomer(event.type) && user) {
-    const result = await reconcilePolarCustomer(db, {
+    const result = await reconcilePolarCustomer(dbHandle, {
       accessToken: input.accessToken,
       eventType: event.type,
       productTierById: input.productTierById,
@@ -72,7 +74,7 @@ export async function handlePolarWebhookEvent(
 }
 
 async function reconcilePolarCustomer(
-  db: Database,
+  dbHandle: DatabaseHandle,
   input: {
     accessToken: string;
     eventType: string;
@@ -86,7 +88,7 @@ async function reconcilePolarCustomer(
     externalCustomerId: input.user.id,
     ...(input.server ? { server: input.server } : {}),
   });
-  return withUserContext(db, input.user.id, async (tx) => {
+  return withUserContext(dbHandle, input.user.id, async (tx) => {
     await updateUserPolarCustomerId(tx, {
       polarCustomerId: state.customerId,
       userId: input.user.id,
@@ -147,12 +149,13 @@ function freeStatus(eventType: string): string {
 }
 
 async function resolvePolarUser(
-  db: Database,
+  dbHandle: DatabaseHandle,
   data: Record<string, unknown>,
 ): Promise<BillingUserRecord | null> {
+  const db = dbHandle.db;
   const externalUserId = internalUserIdFromData(data);
   if (externalUserId) {
-    const user = await withUserContext(db, externalUserId, (tx) =>
+    const user = await withUserContext(dbHandle, externalUserId, (tx) =>
       findBillingUserById(tx, externalUserId),
     );
     if (user) {
@@ -204,7 +207,7 @@ async function writeEntitlement(
     userId: input.userId,
   });
   await applyEntitlementResourceLimits(db, {
-    maxProjects: values.maxProjects,
+    ...entitlementResourcePolicy(values.maxProjects),
     userId: input.userId,
   });
   return previousTier;

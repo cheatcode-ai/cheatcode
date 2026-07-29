@@ -1,4 +1,4 @@
-import { createDb } from "@cheatcode/db";
+import { withUserDb } from "@cheatcode/db";
 import { authenticate } from "./authenticate";
 import type { GatewayApp } from "./gateway-env";
 import {
@@ -16,30 +16,18 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
   app.get("/v1/integrations", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/integrations");
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-    });
-    try {
-      const integrations = await listIntegrationSummaries(db, c.env, userId);
+    return withUserDb(c.env, userId, async ({ transaction }) => {
+      const integrations = await listIntegrationSummaries(transaction, c.env, userId);
       return c.json(integrations);
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
+    });
   });
   app.get("/v1/integrations/catalog", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/integrations/catalog");
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-    });
-    try {
-      const catalog = await getIntegrationCatalog(db, c.env, userId);
+    return withUserDb(c.env, userId, async ({ transaction }) => {
+      const catalog = await getIntegrationCatalog(transaction, c.env, userId);
       return c.json(catalog);
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
+    });
   });
   app.get("/v1/integrations/:name/tools", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
@@ -50,15 +38,9 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "POST /v1/integrations/:name/connect");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-    });
-    try {
-      return await connectIntegration({ db, env: c.env, integration, request: c.req.raw, userId });
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
+    return withUserDb(c.env, userId, ({ transaction }) =>
+      connectIntegration({ env: c.env, integration, request: c.req.raw, transaction, userId }),
+    );
   });
   registerIntegrationAccountRoutes(app);
 }
@@ -68,41 +50,29 @@ function registerIntegrationAccountRoutes(app: GatewayApp): void {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "POST /v1/integrations/:name/accounts/:connectionId/default");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-    });
-    try {
+    return withUserDb(c.env, userId, async ({ transaction }) => {
       await makeIntegrationAccountDefault({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),
-        db,
         integration,
+        transaction,
         userId,
       });
       return c.body(null, 204);
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
+    });
   });
   app.delete("/v1/integrations/:name/accounts/:connectionId", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "DELETE /v1/integrations/:name/accounts/:connectionId");
     const integration = parseIntegrationName(c.req.param("name"));
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-    });
-    try {
+    return withUserDb(c.env, userId, async ({ transaction }) => {
       await deleteIntegrationAccount({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),
-        db,
         env: c.env,
         integration,
+        transaction,
         userId,
       });
       return c.body(null, 204);
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
+    });
   });
 }

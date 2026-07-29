@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { Monitor, Smartphone } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { QRCodeSVG } from "qrcode.react";

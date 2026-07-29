@@ -1,4 +1,5 @@
-import type { IntegrationName, ToolkitCatalogEntry, UserSkill } from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types/api";
 import { Loader2, Sparkles } from "@cheatcode/ui";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
 import type { IntegrationDrawerHandlers } from "@/components/skills/integration-skill-drawer";

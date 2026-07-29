@@ -1,8 +1,6 @@
 "use client";
 
 import {
-  type ActivityHistoryResponse,
-  ActivityHistoryResponseSchema,
   type BillingCancel,
   type BillingCatalogResponse,
   BillingCatalogResponseSchema,
@@ -16,6 +14,7 @@ import {
   type SandboxUsageSummaryResponse,
   SandboxUsageSummaryResponseSchema,
 } from "@cheatcode/types";
+import { type ActivityHistoryResponse, ActivityHistoryResponseSchema } from "@cheatcode/types/api";
 import {
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,

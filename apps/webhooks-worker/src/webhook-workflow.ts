@@ -1,12 +1,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { updateCustomerProfile } from "@cheatcode/billing";
 import {
-  createDb,
   type Database,
+  type DatabaseHandle,
   type HyperdriveConnection,
   markClerkUserDeleted,
   syncClerkUser,
-  withUserContext,
+  withDatabase,
+  withUserDb,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import {
@@ -28,7 +29,6 @@ import { handleClerkWebhookEvent } from "./clerk";
 import { handleComposioWebhookEvent } from "./composio";
 import { DaytonaWebhookSchema } from "./daytona";
 import { refreshEntitlementCache } from "./entitlement-cache";
-import { recordInternalAlert, VerifiedInternalAlertSchema } from "./internal-alert";
 import { handlePolarWebhookEvent } from "./polar";
 import {
   completeWebhookEvent,
@@ -60,10 +60,8 @@ interface WebhookWorkflowEnv extends AnalyticsBindings, WebhookIdempotencyBindin
   ENTITLEMENTS_CACHE: KVNamespace;
   HYPERDRIVE: HyperdriveConnection;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
-  POLAR_PRODUCT_ID_MAX?: string;
   POLAR_PRODUCT_ID_PREMIUM?: string;
   POLAR_PRODUCT_ID_PRO?: string;
-  POLAR_PRODUCT_ID_ULTRA?: string;
   POLAR_SERVER?: "production" | "sandbox";
 }
 
@@ -160,16 +158,10 @@ async function processDatabaseWebhook(
   env: WebhookWorkflowEnv,
   payload: WebhookWorkflowPayload,
 ): Promise<WebhookActionResult> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
-  });
-  try {
-    const result = await processProviderWebhook(db, env, payload);
+  return withDatabase(env, async (handle) => {
+    const result = await processProviderWebhook(handle, env, payload);
     return WebhookActionResultSchema.parse(result);
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function applyDerivedWebhookEffects(
@@ -203,17 +195,9 @@ async function refreshWebhookEntitlementCache(
   env: WebhookWorkflowEnv,
   userId: UserId,
 ): Promise<void> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_webhooks",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    await transaction((tx) => refreshEntitlementCache(tx, env.ENTITLEMENTS_CACHE, userId));
   });
-  try {
-    await withUserContext(db, userId, (tx) =>
-      refreshEntitlementCache(tx, env.ENTITLEMENTS_CACHE, userId),
-    );
-  } finally {
-    await close();
-  }
 }
 
 function emitWebhookAnalytics(
@@ -250,19 +234,15 @@ async function processInfrastructureWebhook(
     });
     return { action: updated ? "state_cached" : "stale_event_ignored", eventType: event.event };
   }
-  if (payload.provider === "internal-alert") {
-    const alert = VerifiedInternalAlertSchema.parse(payload.event);
-    recordInternalAlert(env, alert);
-    return { action: "alert_recorded", eventType: alert.source };
-  }
   return null;
 }
 
 async function processProviderWebhook(
-  db: Database,
+  dbHandle: DatabaseHandle,
   env: WebhookWorkflowEnv,
   payload: WebhookWorkflowPayload,
 ) {
+  const db = dbHandle.db;
   if (payload.provider === "clerk") {
     return handleClerkWebhookEvent(
       {
@@ -274,7 +254,7 @@ async function processProviderWebhook(
     );
   }
   if (payload.provider === "polar") {
-    return handlePolarWebhookEvent(db, {
+    return handlePolarWebhookEvent(dbHandle, {
       accessToken: await polarAccessToken(env),
       event: payload.event,
       productTierById: polarProductTierById(env),
@@ -423,8 +403,6 @@ function polarProductTierById(env: WebhookWorkflowEnv): Readonly<Record<string, 
   const entries: Array<[string, BillingTier]> = [];
   appendProductTier(entries, env.POLAR_PRODUCT_ID_PRO, "pro");
   appendProductTier(entries, env.POLAR_PRODUCT_ID_PREMIUM, "premium");
-  appendProductTier(entries, env.POLAR_PRODUCT_ID_ULTRA, "ultra");
-  appendProductTier(entries, env.POLAR_PRODUCT_ID_MAX, "max");
   return Object.fromEntries(entries);
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import type { IntegrationName, ToolkitCatalogEntry } from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { ToolkitCatalogEntry } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useSearchParams } from "next/navigation";

@@ -5,7 +5,7 @@ import type {
   SandboxProcessResult,
   SandboxRunCodeResult,
 } from "@cheatcode/sandbox-contracts";
-import type { SandboxConsoleSnapshot } from "@cheatcode/types";
+import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";

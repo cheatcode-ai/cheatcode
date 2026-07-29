@@ -7,15 +7,14 @@ import type {
   UserSkillRuntime,
 } from "@cheatcode/agent-core";
 import {
-  createDb,
   getUserSkillByName,
   listUserSkillRecords,
   type UserSkillRecord,
-  upsertUserSkill,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { UserId } from "@cheatcode/types";
+import { MAX_USER_SKILLS } from "@cheatcode/types/api";
 import {
   resolveUserSkillMirror,
   serializeUserSkillMarkdown,
@@ -29,6 +28,7 @@ import {
   type UserSkillPackageFile,
   writeUserSkillPackageMirror,
 } from "../user-skill-packages";
+import { upsertUserSkill } from "../user-skill-policy";
 import type { AgentRunEnv } from "./agent-run-env";
 
 export interface ResolvedUserSkillContext {
@@ -85,12 +85,8 @@ async function saveUserSkillRecord(
   userId: UserId,
   input: UserSkillCreateInput,
 ): Promise<UserSkillRecord> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return await transaction((tx) =>
       upsertUserSkill(tx, {
         body: input.body,
         category: input.category,
@@ -100,9 +96,7 @@ async function saveUserSkillRecord(
         userId,
       }),
     );
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function loadUserSkill(
@@ -122,15 +116,9 @@ async function loadUserSkill(
 }
 
 async function readUserSkills(env: AgentRunEnv, userId: UserId): Promise<UserSkillRecord[]> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return await transaction((tx) => listUserSkillRecords(tx, userId, MAX_USER_SKILLS));
   });
-  try {
-    return await withUserContext(db, userId, (tx) => listUserSkillRecords(tx, userId));
-  } finally {
-    await close();
-  }
 }
 
 async function projectUserSkillPackages(
@@ -154,15 +142,9 @@ async function readUserSkill(
   userId: UserId,
   name: string,
 ): Promise<UserSkillRecord | null> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return await transaction((tx) => getUserSkillByName(tx, userId, name));
   });
-  try {
-    return await withUserContext(db, userId, (tx) => getUserSkillByName(tx, userId, name));
-  } finally {
-    await close();
-  }
 }
 
 async function promoteUserSkillMirror(
@@ -177,12 +159,8 @@ async function promoteUserSkillMirror(
     tags: string[];
   },
 ): Promise<UserSkillRecord> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const updated = await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const updated = await transaction((tx) =>
       upsertUserSkill(tx, {
         body: mirror.body,
         category: mirror.category,
@@ -198,9 +176,7 @@ async function promoteUserSkillMirror(
     const packageValue = await persistUserSkillPackage(env.R2_OUTPUTS, userId, updated.id, files);
     await writeUserSkillPackageMirror(sandbox, updated, packageValue);
     return updated;
-  } finally {
-    await close();
-  }
+  });
 }
 
 function canonicalSkillFiles(

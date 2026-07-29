@@ -6,23 +6,21 @@ import {
   findUserIntegrationByConnectionId,
   listUserIntegrations,
   setDefaultUserIntegration,
+  type UserDatabaseSession,
   type UserIntegrationRecord,
   upsertUserIntegration,
   upsertUserIntegrations,
-  withUserContext,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
+import { type IntegrationName, IntegrationNameSchema, type UserId } from "@cheatcode/types";
 import {
   ComposioConnectionIdSchema,
   type Integration,
   type IntegrationAccount,
   IntegrationConnectResponseSchema,
-  type IntegrationName,
-  IntegrationNameSchema,
   IntegrationSchema,
-  type UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { z } from "zod";
 import { resolveCorsOrigin } from "./cors";
 
@@ -33,21 +31,21 @@ export interface IntegrationEnv {
 }
 
 interface ConnectIntegrationInput {
-  db: Database;
   env: IntegrationEnv;
   integration: IntegrationName;
   request: Request;
+  transaction: UserDatabaseSession["transaction"];
   userId: UserId;
 }
 
 interface IntegrationAccountInput {
   composioConnectionId: string;
-  db: Database;
   integration: IntegrationName;
+  transaction: UserDatabaseSession["transaction"];
   userId: UserId;
 }
 
-type IntegrationAccountIdentity = Omit<IntegrationAccountInput, "db">;
+type IntegrationAccountIdentity = Omit<IntegrationAccountInput, "transaction">;
 
 interface DeleteIntegrationAccountInput extends IntegrationAccountInput {
   env: IntegrationEnv;
@@ -114,11 +112,11 @@ export function parseComposioConnectionId(value: string): string {
 }
 
 export async function listIntegrationSummaries(
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   env: IntegrationEnv,
   userId: UserId,
 ): Promise<Integration[]> {
-  const accountsByToolkit = await listIntegrationAccounts(db, env, userId);
+  const accountsByToolkit = await listIntegrationAccounts(transaction, env, userId);
   const names = new Set<IntegrationName>(SUPPORTED_INTEGRATIONS.map(({ name }) => name));
   for (const name of accountsByToolkit.keys()) {
     names.add(name);
@@ -136,12 +134,12 @@ export async function listIntegrationSummaries(
 }
 
 async function listIntegrationAccounts(
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   env: IntegrationEnv,
   userId: UserId,
 ): Promise<Map<IntegrationName, IntegrationAccount[]>> {
   const liveAccounts = await loadIntegrationAccountSnapshot(env, userId);
-  return reconcileIntegrationAccountSnapshot(db, userId, liveAccounts);
+  return reconcileIntegrationAccountSnapshot(transaction, userId, liveAccounts);
 }
 
 /** Provider-only phase; callers may safely parallelize it with other external reads. */
@@ -157,13 +155,11 @@ export async function loadIntegrationAccountSnapshot(
 
 /** Short RLS reconciliation phase; the provider snapshot must already be complete. */
 export async function reconcileIntegrationAccountSnapshot(
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   userId: UserId,
   liveAccounts: readonly LiveConnectedAccount[],
 ): Promise<Map<IntegrationName, IntegrationAccount[]>> {
-  return withUserContext(db, userId, (tx) =>
-    reconcileIntegrationAccounts(tx, userId, liveAccounts),
-  );
+  return transaction((tx) => reconcileIntegrationAccounts(tx, userId, liveAccounts));
 }
 
 async function reconcileIntegrationAccounts(
@@ -244,7 +240,7 @@ async function persistConnectionOrCompensate(
 ) {
   try {
     const response = IntegrationConnectResponseSchema.parse({ oauthUrl: connection.redirectUrl });
-    await withUserContext(input.db, input.userId, (tx) =>
+    await input.transaction((tx) =>
       upsertUserIntegration(tx, {
         composioConnectionId: connection.id,
         integration: input.integration,
@@ -263,17 +259,15 @@ export async function deleteIntegrationAccount(
   input: DeleteIntegrationAccountInput,
 ): Promise<void> {
   const identity = integrationAccountIdentity(input);
-  const record = await withUserContext(input.db, input.userId, (tx) =>
-    requireAccountRecord(tx, identity),
-  );
+  const record = await input.transaction((tx) => requireAccountRecord(tx, identity));
   const composio = await createComposio(input.env);
   await deleteConnectedAccount(composio, record.composioConnectionId);
-  await withUserContext(input.db, input.userId, (tx) => deleteUserIntegrationAccount(tx, identity));
+  await input.transaction((tx) => deleteUserIntegrationAccount(tx, identity));
 }
 
 export async function makeIntegrationAccountDefault(input: IntegrationAccountInput): Promise<void> {
   const identity = integrationAccountIdentity(input);
-  await withUserContext(input.db, input.userId, async (tx) => {
+  await input.transaction(async (tx) => {
     await requireAccountRecord(tx, identity);
     const updated = await setDefaultUserIntegration(tx, identity);
     if (!updated) {

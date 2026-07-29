@@ -1,4 +1,4 @@
-import { MAX_USER_SKILLS, UserId as toUserId, type UserId } from "@cheatcode/types";
+import { UserId as toUserId, type UserId } from "@cheatcode/types";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { userSkills } from "./schema";
@@ -17,13 +17,6 @@ export interface UserSkillRecord {
 }
 
 export type UserSkillSummaryRecord = Omit<UserSkillRecord, "body" | "userId">;
-
-class UserSkillLimitExceededError extends Error {
-  public constructor() {
-    super(`A user can store at most ${MAX_USER_SKILLS} live custom skills.`);
-    this.name = "UserSkillLimitExceededError";
-  }
-}
 
 const USER_SKILL_SUMMARY_COLUMNS = {
   category: userSkills.category,
@@ -69,13 +62,14 @@ function fromRow(row: {
 export async function listUserSkillSummaries(
   db: Database,
   userId: UserId,
+  limit: number,
 ): Promise<UserSkillSummaryRecord[]> {
   const rows = await db
     .select(USER_SKILL_SUMMARY_COLUMNS)
     .from(userSkills)
     .where(eq(userSkills.userId, userId))
     .orderBy(desc(userSkills.updatedAt), desc(userSkills.id))
-    .limit(MAX_USER_SKILLS);
+    .limit(limit);
   return rows;
 }
 
@@ -83,13 +77,14 @@ export async function listUserSkillSummaries(
 export async function listUserSkillRecords(
   db: Database,
   userId: UserId,
+  limit: number,
 ): Promise<UserSkillRecord[]> {
   const rows = await db
     .select(USER_SKILL_COLUMNS)
     .from(userSkills)
     .where(eq(userSkills.userId, userId))
     .orderBy(desc(userSkills.updatedAt), desc(userSkills.id))
-    .limit(MAX_USER_SKILLS);
+    .limit(limit);
   return rows.map(fromRow);
 }
 
@@ -132,27 +127,23 @@ export interface UpsertUserSkillInput {
   body: string;
 }
 
-/**
- * Create or update (by name) the caller's skill. The unique index keeps one
- * skill per (user, name), so re-creating the same name edits in place.
- */
-export async function upsertUserSkill(
+/** Hold the per-user catalog lock while the owning worker applies capacity policy and writes. */
+export async function withLockedUserSkillCatalog<Result>(
   db: Database,
-  input: UpsertUserSkillInput,
-): Promise<UserSkillRecord> {
+  userId: UserId,
+  operation: (
+    transaction: Database,
+    insert: (input: Omit<UpsertUserSkillInput, "userId">) => Promise<UserSkillRecord>,
+  ) => Promise<Result>,
+): Promise<Result> {
   return db.transaction(async (transaction) => {
     const tx = transaction as Database;
-    await lockUserSkillCatalog(tx, input.userId);
-    const existing = await getUserSkillByName(tx, input.userId, input.name);
-    if (existing) {
-      return updateExistingUserSkill(tx, existing.id, input);
-    }
-    await requireUserSkillCapacity(tx, input.userId);
-    return insertUserSkill(tx, input);
+    await lockUserSkillCatalog(tx, userId);
+    return operation(tx, (input) => insertUserSkill(tx, { ...input, userId }));
   });
 }
 
-async function updateExistingUserSkill(
+export async function updateUserSkill(
   db: Database,
   id: string,
   input: UpsertUserSkillInput,
@@ -205,14 +196,12 @@ async function lockUserSkillCatalog(db: Database, userId: UserId): Promise<void>
   );
 }
 
-async function requireUserSkillCapacity(db: Database, userId: UserId): Promise<void> {
+export async function countUserSkills(db: Database, userId: UserId): Promise<number> {
   const [row] = await db
     .select({ count: sql<number>`count(*)::int` })
     .from(userSkills)
     .where(eq(userSkills.userId, userId));
-  if ((row?.count ?? 0) >= MAX_USER_SKILLS) {
-    throw new UserSkillLimitExceededError();
-  }
+  return row?.count ?? 0;
 }
 
 /** Delete one of the caller's skills. Returns the deleted id, or null if not found. */

@@ -6,7 +6,7 @@ capability discovery contracts, error codes, and UI message types.
 ## Public exports
 
 - `ids.ts`: branded entity identifiers
-- `api.ts`: API request/response schemas
+- `@cheatcode/types/api`: public API request/response schemas and limits
 - `@cheatcode/types/artifacts`: canonical artifact kinds and output IDs plus the safe short-lived
   download-URL response trust-boundary schema
 - `@cheatcode/types/billing`: canonical billing-tier values, schemas, ordering, and rank helper
@@ -16,8 +16,8 @@ capability discovery contracts, error codes, and UI message types.
   response URL validation without loading the general API contract barrel
 - `errors.ts`: locked error code catalog
 - `@cheatcode/types/integrations`: canonical open Composio toolkit-slug schema and constraints
-- `internal-maintenance.ts`: strict deletion and workspace/sandbox-transition
-  evidence contracts
+- `@cheatcode/types/internal`: Worker-only Gateway-to-Agent route manifest,
+  service-binding deletion contracts, and workspace/sandbox-transition evidence
 - `models.ts`: catalog IDs plus the open provider-prefixed logical-model schema
 - `@cheatcode/types/quota`: strict cross-Worker QuotaTracker request/response
   contracts and canonical quota feature identifiers
@@ -27,7 +27,7 @@ capability discovery contracts, error codes, and UI message types.
 - `ui-message.ts`: the exact AI SDK UI message data-part contract persisted in
   Postgres and replayed to the web client
 
-`api.ts` also exports the canonical user-message character budget, project-file
+The `./api` subpath also exports the canonical user-message character budget, project-file
 upload/batch/namespace limits and schemas, and finalized project-archive byte
 limit so browser and Worker boundaries cannot drift.
 

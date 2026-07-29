@@ -6,7 +6,7 @@ import {
   resolveRequestedLlmTransport,
 } from "@cheatcode/agent-core";
 import { getProviderKey } from "@cheatcode/byok";
-import { createDb, type Database, type DatabaseHandle, withUserContext } from "@cheatcode/db";
+import { type Database, withUserDb } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import {
@@ -174,24 +174,28 @@ async function resolveProviderKey(
   logger: ReturnType<typeof createLogger>,
   platformFallback: PlatformFallbackContext,
 ): Promise<LlmCredential> {
-  const dbHandle = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
   const brandedUserId = UserId(userId);
-  try {
-    const resolved = await withUserContext(dbHandle.db, brandedUserId, (db) =>
-      resolveTransportKey(db, requestedModel, platformFallback),
-    );
-    logger.info("byok_provider_key_resolved", {
-      logicalModelId: resolved.logicalModelId,
-      transportModelId: resolved.transportModelId,
-      transportProvider: resolved.transportProvider,
-    });
-    return resolved;
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
+  return withUserDb(
+    env,
+    brandedUserId,
+    async ({ transaction }) => {
+      const resolved = await transaction((db) =>
+        resolveTransportKey(db, requestedModel, platformFallback),
+      );
+      logger.info("byok_provider_key_resolved", {
+        logicalModelId: resolved.logicalModelId,
+        transportModelId: resolved.transportModelId,
+        transportProvider: resolved.transportProvider,
+      });
+      return resolved;
+    },
+    (dbHandle) =>
+      closeDatabaseBestEffort({
+        dbHandle,
+        logger,
+        operation: "resolve_llm_credentials",
+      }),
+  );
 }
 
 /**
@@ -316,11 +320,4 @@ function readStatusCode(error: unknown): number | null {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-async function closeDatabase(
-  dbHandle: DatabaseHandle,
-  logger: ReturnType<typeof createLogger>,
-): Promise<void> {
-  await closeDatabaseBestEffort({ dbHandle, logger, operation: "resolve_llm_credentials" });
 }
