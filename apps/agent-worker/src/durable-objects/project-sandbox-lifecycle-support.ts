@@ -33,7 +33,7 @@ export const STALE_RUN_LEASE_MS = 20 * 60 * 1_000;
 export const STARTED_REVERIFY_MS = 30_000;
 export const ENSURE_STARTED_ATTEMPTS = 30;
 export const ENSURE_STARTED_DELAY_MS = 2_000;
-export const RunLeasesSchema = z
+const RunLeasesSchema = z
   .array(z.object({ runId: z.string(), startedMs: z.number() }).strict())
   .default([]);
 
@@ -68,4 +68,42 @@ export function parseSandboxJson(value: string | null | undefined): unknown {
   } catch {
     return null;
   }
+}
+
+export async function runLeases(
+  storage: DurableObjectStorage,
+): Promise<Array<{ runId: string; startedMs: number }>> {
+  return RunLeasesSchema.parse((await storage.get(RUN_LEASES_KEY)) ?? []);
+}
+
+export function toUpstreamError(error: unknown, fallback: string, sandboxId: string): APIError {
+  if (error instanceof APIError) {
+    return error;
+  }
+  const status = error instanceof DaytonaApiError ? error.status : 502;
+  const retriable = error instanceof DaytonaApiError ? error.retriable : true;
+  return new APIError(status >= 500 ? 502 : status, "upstream_sandbox_failed", fallback, {
+    cause: error,
+    details: { sandboxId },
+    hint: "Retry. If it persists, check Daytona sandbox lifecycle status.",
+    retriable,
+  });
+}
+
+export async function storedDaytonaId(storage: DurableObjectStorage): Promise<string | null> {
+  const value = await storage.get(DAYTONA_ID_KEY);
+  return typeof value === "string" ? value : null;
+}
+
+export function sandboxRuntimeUpdatePending(expectedSnapshot: string): APIError {
+  return new APIError(
+    503,
+    "unavailable_maintenance",
+    "This computer is updating to the current runtime.",
+    {
+      details: { expectedSnapshot },
+      hint: "Retry after the active operation finishes.",
+      retriable: true,
+    },
+  );
 }
