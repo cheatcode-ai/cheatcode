@@ -1,3 +1,4 @@
+import type { SandboxExecResultBase, SandboxFileEntry } from "@cheatcode/types";
 import type { ArtifactKind } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 
@@ -36,14 +37,7 @@ export interface SandboxExecInput {
   timeoutMs?: number;
 }
 
-export interface SandboxExecResult {
-  command: string;
-  durationMs?: number;
-  exitCode: number;
-  stderr: string;
-  stdout: string;
-  success: boolean;
-}
+export type SandboxExecResult = SandboxExecResultBase;
 
 export interface SandboxReadFileInput {
   encoding?: "utf8" | "base64";
@@ -66,15 +60,6 @@ export interface SandboxWriteFileInput {
 export interface SandboxWriteFileResult {
   path: string;
   success: boolean;
-}
-
-interface SandboxFileEntry {
-  modifiedAt: string;
-  name: string;
-  path: string;
-  relativePath: string;
-  size: number;
-  type: "file" | "directory" | "symlink" | "other";
 }
 
 export interface SandboxListFilesInput {

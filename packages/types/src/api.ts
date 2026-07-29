@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { IntegrationNameSchema } from "./integrations";
 import { LogicalModelIdSchema } from "./models";
+import { extendSandboxExecResultShape, sandboxFileEntryShape } from "./sandbox-wire";
 import { MessagePartsSchema } from "./ui-message";
 
 /** Canonical total character budget for one submitted user message, including inline attachments. */
@@ -319,16 +320,7 @@ export const SandboxFilePathSchema = z
     "Path must be canonical and stay under /workspace.",
   );
 
-const SandboxFileEntrySchema = z
-  .object({
-    modifiedAt: z.string(),
-    name: z.string(),
-    path: SandboxFilePathSchema,
-    relativePath: z.string(),
-    size: z.number().int().nonnegative(),
-    type: z.enum(["file", "directory", "symlink", "other"]),
-  })
-  .strict();
+const SandboxFileEntrySchema = z.object(sandboxFileEntryShape(SandboxFilePathSchema)).strict();
 
 export const SandboxTerminalCommandSchema = z
   .object({
@@ -339,15 +331,11 @@ export const SandboxTerminalCommandSchema = z
   .strict();
 
 export const SandboxTerminalResultSchema = z
-  .object({
-    command: z.string(),
-    cwd: SandboxFilePathSchema.optional(),
-    durationMs: z.number().int().nonnegative().optional(),
-    exitCode: z.number().int(),
-    stderr: z.string(),
-    stdout: z.string(),
-    success: z.boolean(),
-  })
+  .object(
+    extendSandboxExecResultShape({
+      cwd: SandboxFilePathSchema.optional(),
+    }),
+  )
   .strict();
 
 export const SandboxTerminalContextSchema = z

@@ -178,6 +178,8 @@ export {
   UserProfileSchema,
 } from "./profile";
 export { RunStatusSnapshotSchema } from "./run-control";
+export type { SandboxExecResultBase } from "./sandbox-wire";
+export { sandboxFileEntryShape } from "./sandbox-wire";
 export type { SkillRuntimeScope } from "./skill-runtime";
 export { SkillRuntimeScopeSchema } from "./skill-runtime";
 export {
