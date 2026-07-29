@@ -353,6 +353,14 @@ export abstract class ProjectSandboxLifecycle extends DurableObject<ProjectSandb
   }
 
   public async sandboxRuntimeState(): Promise<ProjectSandboxRuntimeState> {
+    return this.sandboxRuntimeStateRaw();
+  }
+
+  protected sandboxRuntimeStateWithLease(): Promise<ProjectSandboxRuntimeState> {
+    return this.withActiveSandboxOperation(() => this.sandboxRuntimeStateRaw());
+  }
+
+  protected async sandboxRuntimeStateRaw(): Promise<ProjectSandboxRuntimeState> {
     const existing = await this.existingSandboxId();
     if (!existing) {
       return { state: "none" };

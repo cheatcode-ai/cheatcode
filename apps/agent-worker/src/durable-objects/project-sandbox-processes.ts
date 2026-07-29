@@ -9,6 +9,7 @@ import type { DaytonaSessionExecResponse } from "@cheatcode/tools-code";
 import type { SandboxConsoleSnapshot } from "@cheatcode/types";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
+import { workspaceScope } from "./project-sandbox-lease-policy";
 import { ProjectSandboxLifecycle } from "./project-sandbox-lifecycle";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
 import {
@@ -72,7 +73,15 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   private readonly processMutations = new ProcessMutationQueue();
 
   public async ensureReady(): Promise<ProjectSandboxStatus> {
-    const result = await this.runCode({ code: "print('ready')", language: "python" });
+    return this.ensureReadyRaw();
+  }
+
+  protected ensureReadyWithLease(): Promise<ProjectSandboxStatus> {
+    return this.withActiveSandboxOperation(() => this.ensureReadyRaw());
+  }
+
+  protected async ensureReadyRaw(): Promise<ProjectSandboxStatus> {
+    const result = await this.runCodeWithLease({ code: "print('ready')", language: "python" });
     return {
       healthy: result.success,
       ping: result.stdout.trim(),
@@ -81,16 +90,26 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   }
 
   public async getStatus(): Promise<ProjectSandboxStatus> {
-    return this.ensureReady();
+    return this.ensureReadyWithLease();
   }
 
   public async runCode(input: ProjectRunCodeInput): Promise<SandboxRunCodeResult> {
+    return this.runCodeRaw(input);
+  }
+
+  protected runCodeWithLease(input: ProjectRunCodeInput): Promise<SandboxRunCodeResult> {
+    return this.withActiveProjectWorkspaceOperation(workspaceScope("runCode", input), () =>
+      this.runCodeRaw(input),
+    );
+  }
+
+  protected async runCodeRaw(input: ProjectRunCodeInput): Promise<SandboxRunCodeResult> {
     const parsed = ProjectRunCodeInputSchema.parse(input);
     const command =
       parsed.language === "python"
         ? ["python3", "-c", parsed.code]
         : ["node", "--input-type=module", "-e", parsed.code];
-    const result = await this.exec({
+    const result = await this.execWithLease({
       command,
       cwd: parsed.cwd ?? WORKSPACE_DIR,
       env: parsed.env,
@@ -105,6 +124,16 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   }
 
   public async exec(input: ProjectExecInput): Promise<SandboxExecResult> {
+    return this.execRaw(input);
+  }
+
+  protected execWithLease(input: ProjectExecInput): Promise<SandboxExecResult> {
+    return this.withActiveProjectWorkspaceOperation(workspaceScope("exec", input), () =>
+      this.execRaw(input),
+    );
+  }
+
+  protected async execRaw(input: ProjectExecInput): Promise<SandboxExecResult> {
     const parsed = ProjectExecInputSchema.parse(input);
     const id = await this.ensureSandbox();
     const startedAt = Date.now();
@@ -154,6 +183,16 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   }
 
   public async startProcess(input: ProjectStartProcessInput): Promise<SandboxProcessResult> {
+    return this.startProcessRaw(input);
+  }
+
+  protected startProcessWithLease(input: ProjectStartProcessInput): Promise<SandboxProcessResult> {
+    return this.withActiveProjectWorkspaceOperation(workspaceScope("startProcess", input), () =>
+      this.startProcessRaw(input),
+    );
+  }
+
+  protected async startProcessRaw(input: ProjectStartProcessInput): Promise<SandboxProcessResult> {
     return this.processMutations.run(() => this.startProcessExclusive(input));
   }
 
@@ -226,6 +265,17 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   }
 
   public async allocateProcessPort(input: ProjectAllocateProcessPortInput): Promise<number> {
+    return this.allocateProcessPortRaw(input);
+  }
+
+  protected allocateProcessPortWithLease(input: ProjectAllocateProcessPortInput): Promise<number> {
+    return this.withActiveProjectWorkspaceOperation(
+      workspaceScope("allocateProcessPort", input),
+      () => this.allocateProcessPortRaw(input),
+    );
+  }
+
+  protected async allocateProcessPortRaw(input: ProjectAllocateProcessPortInput): Promise<number> {
     const parsed = ProjectAllocateProcessPortInputSchema.parse(input);
     return this.ctx.storage.transaction(async (transaction) => {
       const now = Date.now();
@@ -288,6 +338,20 @@ export abstract class ProjectSandboxProcesses extends ProjectSandboxLifecycle {
   }
 
   public async killProcess(input: ProjectKillProcessInput): Promise<SandboxKillProcessResult> {
+    return this.killProcessRaw(input);
+  }
+
+  protected killProcessWithLease(
+    input: ProjectKillProcessInput,
+  ): Promise<SandboxKillProcessResult> {
+    return this.withActiveProjectWorkspaceOperation(workspaceScope("killProcess", input), () =>
+      this.killProcessRaw(input),
+    );
+  }
+
+  protected async killProcessRaw(
+    input: ProjectKillProcessInput,
+  ): Promise<SandboxKillProcessResult> {
     const parsed = ProjectKillProcessInputSchema.parse(input);
     return this.processMutations.run(() => this.killProcessExclusive(parsed.processId));
   }

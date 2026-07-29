@@ -93,7 +93,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
     const parsed = ProjectArchiveInputSchema.parse(input);
     const archivePath = `/tmp/cheatcode-project-${crypto.randomUUID()}.zip`;
     const workspacePath = `${WORKSPACE_DIR}/${parsed.workspaceSlug}`;
-    const result = await this.exec({
+    const result = await this.execWithLease({
       command: [
         "python3",
         "-c",
@@ -237,13 +237,13 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
       });
     }
     const processId = browserTakeoverProcessId(parsed.runId);
-    const port = await this.allocateProcessPort({
+    const port = await this.allocateProcessPortWithLease({
       maxPort: BROWSER_TAKEOVER_PORT_MAX,
       minPort: BROWSER_TAKEOVER_PORT_MIN,
       processId,
     });
     const password = crypto.randomUUID().replaceAll("-", "");
-    await this.startProcess({
+    await this.startProcessWithLease({
       command: ["sh", BROWSER_TAKEOVER_SCRIPT],
       env: { TAKEOVER_PASSWORD: password, TAKEOVER_PORT: String(port) },
       keepAliveTimeoutMs: parsed.expiresInSeconds * 1_000,
@@ -264,7 +264,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
 
   public async stopBrowserTakeover(input: ProjectBrowserTakeoverStopInput): Promise<void> {
     const parsed = ProjectBrowserTakeoverStopInputSchema.parse(input);
-    await this.killProcess({ processId: browserTakeoverProcessId(parsed.runId) });
+    await this.killProcessWithLease({ processId: browserTakeoverProcessId(parsed.runId) });
   }
 
   public async exposeCodeServer(input: ProjectCodeServerInput): Promise<{
@@ -347,7 +347,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
     input: ProjectPreviewStatusInput,
   ): Promise<{ running: boolean; state: string }> {
     const parsed = ProjectPreviewStatusInputSchema.parse(input);
-    const runtime = await this.sandboxRuntimeState();
+    const runtime = await this.sandboxRuntimeStateWithLease();
     if (runtime.state !== "started" || !runtime.sandboxId) {
       return { running: false, state: runtime.state };
     }
@@ -376,6 +376,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
     workspaceSlug: string,
   ): Promise<void> {
     const id = await this.ensureExistingSandboxStarted();
+    // Intentionally bypass the public lease wrapper after project cleanup has fenced and drained work.
     await super.killAllProcesses();
     if (id) {
       await this.terminateUntrackedSandboxProcesses(id);
@@ -454,7 +455,7 @@ export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
     await this.client()
       .execute(id, { command: "pkill -f code-server || true", timeout: 5 })
       .catch(() => null);
-    await this.startProcess({
+    await this.startProcessWithLease({
       command: ["bash", "-lc", codeServerStartCommand()],
       cwd: WORKSPACE_DIR,
       env: {

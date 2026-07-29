@@ -10,9 +10,13 @@ type MethodArgs<Method extends LeaseMethod> = ProjectSandboxContent[Method] exte
 /**
  * Public Durable Object facade. Every operational RPC takes its table-selected
  * in-memory lease before the first await so account deletion can drain safely.
+ * Control-kind methods ("account-deletion-control") are the deliberate
+ * exception: they coordinate the drain itself and must never hold a lease.
  */
 // biome-ignore format: Keep the explicit Durable Object RPC facade as an auditable one-line policy map.
 export class ProjectSandbox extends ProjectSandboxContent {
+  // Account deletion fences and drains active operations, so taking an operation lease would deadlock.
+  public override deleteAccountState(...args: MethodArgs<"deleteAccountState">) { return super.deleteAccountState(...args); }
   public override registerOwner(...args: MethodArgs<"registerOwner">) { return this.withLease("registerOwner", args[0], () => super.registerOwner(...args)); }
   public override setQuotaPeriod(...args: MethodArgs<"setQuotaPeriod">) { return this.withLease("setQuotaPeriod", args[0], () => super.setQuotaPeriod(...args)); }
   public override beginRun(...args: MethodArgs<"beginRun">) { return this.withLease("beginRun", args[0], () => super.beginRun(...args)); }
@@ -50,16 +54,22 @@ export class ProjectSandbox extends ProjectSandboxContent {
   public override cleanupProjectWorkspace(...args: MethodArgs<"cleanupProjectWorkspace">) { return this.withLease("cleanupProjectWorkspace", args[0], () => super.cleanupProjectWorkspace(...args)); }
 
   private withLease<Result>(
-    method: Exclude<LeaseMethod, "downloadProjectArchive">,
+    method: Exclude<LeaseMethod, "deleteAccountState" | "downloadProjectArchive">,
     input: unknown,
     operation: () => Promise<Result>,
   ): Promise<Result>;
   private withLease(
-    method: Exclude<LeaseMethod, "downloadProjectArchive">,
+    method: Exclude<LeaseMethod, "deleteAccountState" | "downloadProjectArchive">,
     input: unknown,
     operation: () => Promise<unknown>,
   ): Promise<unknown> {
     const kind = leaseKind(method);
+    if (kind === "account-deletion-control" || kind === "streaming") {
+      // Self-maintaining guard: the Exclude<> above blocks these at the type
+      // level, but a future entry must fail loudly here rather than fall
+      // through to the default sandbox lease (deadlock for deletion control).
+      throw new TypeError(`Lease kind "${kind}" must not route through withLease`);
+    }
     if (kind === "owner-registration") {
       if (typeof input !== "string") throw new TypeError("Expected string RPC argument");
       return this.withActiveOwnerRegistration(input, operation);
