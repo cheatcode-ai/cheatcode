@@ -29,11 +29,11 @@ export interface TerminalMutationInput {
 }
 
 export type ConsoleTerminalAction =
-  | { type: "add-tab"; cwd?: string }
-  | { type: "append-result"; input: TerminalMutationInput; result: SandboxTerminalResult }
-  | { type: "clear-command"; tabId: string }
-  | { type: "close-tab"; tabId: string }
-  | { type: "select-tab"; tabId: string }
-  | { type: "set-context-cwd"; cwd: string }
-  | { type: "set-pending"; command: PendingTerminalCommand | null }
-  | { type: "update-command"; command: string; tabId: string };
+  | { kind: "add-tab"; cwd?: string }
+  | { kind: "append-result"; input: TerminalMutationInput; result: SandboxTerminalResult }
+  | { kind: "clear-command"; tabId: string }
+  | { kind: "close-tab"; tabId: string }
+  | { kind: "select-tab"; tabId: string }
+  | { kind: "set-context-cwd"; cwd: string }
+  | { kind: "set-pending"; command: PendingTerminalCommand | null }
+  | { kind: "update-command"; command: string; tabId: string };

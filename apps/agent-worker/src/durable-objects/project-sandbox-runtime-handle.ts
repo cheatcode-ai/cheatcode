@@ -44,8 +44,8 @@ interface RuntimeCache {
 }
 
 interface RuntimeState {
-  accountDeletionCompleted: boolean;
-  accountDeletionInProgress: boolean;
+  isAccountDeletionCompleted: boolean;
+  isAccountDeletionInProgress: boolean;
   accountDeletionPromise: Promise<void> | undefined;
   activeOperationCount: number;
   activeOperationDrainWaiters: Set<() => void>;
@@ -55,7 +55,7 @@ interface RuntimeState {
   identity: ProjectSandboxIdentityState;
   provisioning: ProjectSandboxProvisioning;
   sandboxMutationTail: Promise<void>;
-  sandboxRuntimeUpdateInProgress: boolean;
+  isSandboxRuntimeUpdateInProgress: boolean;
   workspaceState: ProjectSandboxWorkspaceState | undefined;
 }
 
@@ -114,8 +114,8 @@ export function createSandboxRuntime(
   };
   const provisioning = createProvisioning(env, identity, cache, ctx);
   const state: RuntimeState = {
-    accountDeletionCompleted: false,
-    accountDeletionInProgress: false,
+    isAccountDeletionCompleted: false,
+    isAccountDeletionInProgress: false,
     accountDeletionPromise: undefined,
     activeOperationCount: 0,
     activeOperationDrainWaiters: new Set(),
@@ -125,7 +125,7 @@ export function createSandboxRuntime(
     identity,
     provisioning,
     sandboxMutationTail: Promise.resolve(),
-    sandboxRuntimeUpdateInProgress: false,
+    isSandboxRuntimeUpdateInProgress: false,
     workspaceState: openProjectSandboxWorkspaceState(ctx),
   };
   void ctx.blockConcurrencyWhile(() => initializeIdentityState(state));
@@ -189,19 +189,19 @@ function leaseRuntime(state: RuntimeState): SandboxLeaseRuntime {
 async function initializeIdentityState(state: RuntimeState): Promise<void> {
   const isDeleted = (await state.ctx.storage.get(ACCOUNT_DELETION_TOMBSTONE_KEY)) === true;
   if (isDeleted) {
-    state.accountDeletionInProgress = true;
+    state.isAccountDeletionInProgress = true;
   }
   await state.identity.initialize();
 }
 
 function deleteAccountState(state: RuntimeState): Promise<void> {
-  if (state.accountDeletionCompleted) {
+  if (state.isAccountDeletionCompleted) {
     return Promise.resolve();
   }
   if (state.accountDeletionPromise !== undefined) {
     return state.accountDeletionPromise;
   }
-  state.accountDeletionInProgress = true;
+  state.isAccountDeletionInProgress = true;
   const deletion = performAccountDeletion(state, {
     clearCachedSandbox: () => clearCachedSandbox(state),
     ensureClient: () => ensureClient(state),
@@ -230,9 +230,14 @@ async function ensureClient(state: RuntimeState): Promise<DaytonaClient> {
   }
   const apiKey = await resolveWorkerSecret(state.env.DAYTONA_API_KEY);
   if (!apiKey) {
-    throw new APIError(503, "unavailable_maintenance", "DAYTONA_API_KEY is not configured", {
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "DAYTONA_API_KEY is not configured",
+      {
+        retriable: false,
+      },
+    );
   }
   state.cache.client = new DaytonaClient({
     apiKey,
@@ -352,7 +357,7 @@ async function replaceSandboxRuntime(
   current: DaytonaSandbox,
   startingRunId?: string,
 ): Promise<DaytonaSandbox> {
-  state.sandboxRuntimeUpdateInProgress = true;
+  state.isSandboxRuntimeUpdateInProgress = true;
   try {
     await assertSandboxReplacementAllowed(state, startingRunId);
     state.provisioning.assertRuntimeReplacementSafe(current);
@@ -368,7 +373,7 @@ async function replaceSandboxRuntime(
     });
     return replacement;
   } finally {
-    state.sandboxRuntimeUpdateInProgress = false;
+    state.isSandboxRuntimeUpdateInProgress = false;
   }
 }
 
@@ -441,9 +446,14 @@ function meteringContext(state: RuntimeState): SandboxMeteringContext {
 async function previewSecret(state: RuntimeState): Promise<string> {
   const secret = await resolveWorkerSecret(state.env.PREVIEW_TOKEN_SECRET);
   if (!secret) {
-    throw new APIError(503, "unavailable_maintenance", "PREVIEW_TOKEN_SECRET is not configured", {
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "PREVIEW_TOKEN_SECRET is not configured",
+      {
+        retriable: false,
+      },
+    );
   }
   return secret;
 }
@@ -451,7 +461,7 @@ async function previewSecret(state: RuntimeState): Promise<string> {
 function ownerUserId(state: RuntimeState): string {
   const userId = state.identity.ownerUserId();
   if (!userId) {
-    throw new APIError(500, "internal_error", "ProjectSandbox owner is not registered", {
+    throw new APIError(500, "internal_service_error", "ProjectSandbox owner is not registered", {
       retriable: false,
     });
   }

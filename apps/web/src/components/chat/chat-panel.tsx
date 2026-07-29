@@ -1,14 +1,14 @@
 "use client";
 
 import { ChatContextRow } from "@/components/chat/chat-context-row";
+import {
+  type ChatPanelProps,
+  useChatPanelController,
+} from "@/components/chat/chat-panel-controller";
 import { MessageList } from "@/components/chat/message-list";
 import { usePromptComposerController } from "@/components/chat/prompt-composer-controller";
 import { PromptComposerView } from "@/components/chat/prompt-composer-view";
 import { StreamReconnectBanner } from "@/components/chat/stream-reconnect-banner";
-import {
-  type ChatPanelProps,
-  useChatPanelController,
-} from "@/components/chat/use-chat-panel-controller";
 
 export function ChatPanel(props: ChatPanelProps) {
   const controller = useChatPanelController(props);

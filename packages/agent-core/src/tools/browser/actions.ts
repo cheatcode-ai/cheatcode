@@ -29,7 +29,7 @@ interface BrowserDriverConnection {
 
 interface BrowserDriverHttpResult {
   body: unknown;
-  ok: boolean;
+  success: boolean;
   status: number;
 }
 
@@ -40,128 +40,98 @@ const BrowserUrlSchema = z
   .max(2_048)
   .refine(isHttpUrl, "Browser navigation only supports HTTP and HTTPS URLs.");
 
-export const BrowserOpenInputSchema = z
-  .object({
-    url: BrowserUrlSchema.describe("URL to open in the sandbox browser."),
-    waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
-  })
-  .strict();
+export const BrowserOpenInputSchema = z.strictObject({
+  url: BrowserUrlSchema.describe("URL to open in the sandbox browser."),
+  waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
+});
 
-export const BrowserActInputSchema = z
-  .object({
-    instruction: z.string().min(1).max(2_000).describe("Natural-language browser action."),
-    timeoutMs: z
-      .number()
-      .int()
-      .positive()
-      .max(120_000)
-      .default(10_000)
-      .describe("Maximum time for this browser action."),
-  })
-  .strict();
+export const BrowserActInputSchema = z.strictObject({
+  instruction: z.string().min(1).max(2_000).describe("Natural-language browser action."),
+  timeoutMs: z
+    .number()
+    .int()
+    .positive()
+    .max(120_000)
+    .default(10_000)
+    .describe("Maximum time for this browser action."),
+});
 
-const BrowserActGuardSchema = z
-  .object({
-    allowedOrigin: BrowserUrlSchema,
-    expectedUrl: BrowserUrlSchema,
-  })
-  .strict();
+const BrowserActGuardSchema = z.strictObject({
+  allowedOrigin: BrowserUrlSchema,
+  expectedUrl: BrowserUrlSchema,
+});
 
-export const BrowserObserveInputSchema = z
-  .object({
-    instruction: z.string().min(1).max(2_000).describe("What to observe on the current page."),
-  })
-  .strict();
+export const BrowserObserveInputSchema = z.strictObject({
+  instruction: z.string().min(1).max(2_000).describe("What to observe on the current page."),
+});
 
-export const BrowserExtractInputSchema = z
-  .object({
-    instruction: z
-      .string()
-      .min(1)
-      .max(2_000)
-      .describe("What information to extract from the current page."),
-  })
-  .strict();
+export const BrowserExtractInputSchema = z.strictObject({
+  instruction: z
+    .string()
+    .min(1)
+    .max(2_000)
+    .describe("What information to extract from the current page."),
+});
 
-export const BrowserScreenshotInputSchema = z
-  .object({
-    fullPage: z.boolean().default(false).describe("Capture the full page when true."),
-  })
-  .strict();
+export const BrowserScreenshotInputSchema = z.strictObject({
+  fullPage: z.boolean().default(false).describe("Capture the full page when true."),
+});
 
 const BrowserActionSchema = z.discriminatedUnion("type", [
-  z
-    .object({
-      type: z.literal("goto"),
-      url: BrowserUrlSchema,
-      waitUntil: WaitUntilSchema.default("domcontentloaded"),
-    })
-    .strict(),
-  z
-    .object({
-      allowedOrigin: BrowserUrlSchema,
-      expectedUrl: BrowserUrlSchema,
-      type: z.literal("act"),
-      instruction: z.string().min(1).max(2_000),
-      timeoutMs: z.number().int().positive().max(120_000).default(10_000),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("observe"),
-      instruction: z.string().min(1).max(2_000),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("extract"),
-      instruction: z.string().min(1).max(2_000),
-    })
-    .strict(),
-  z
-    .object({
-      type: z.literal("screenshot"),
-      fullPage: z.boolean().default(false),
-    })
-    .strict(),
+  z.strictObject({
+    type: z.literal("goto"),
+    url: BrowserUrlSchema,
+    waitUntil: WaitUntilSchema.default("domcontentloaded"),
+  }),
+  z.strictObject({
+    allowedOrigin: BrowserUrlSchema,
+    expectedUrl: BrowserUrlSchema,
+    type: z.literal("act"),
+    instruction: z.string().min(1).max(2_000),
+    timeoutMs: z.number().int().positive().max(120_000).default(10_000),
+  }),
+  z.strictObject({
+    type: z.literal("observe"),
+    instruction: z.string().min(1).max(2_000),
+  }),
+  z.strictObject({
+    type: z.literal("extract"),
+    instruction: z.string().min(1).max(2_000),
+  }),
+  z.strictObject({
+    type: z.literal("screenshot"),
+    fullPage: z.boolean().default(false),
+  }),
 ]);
 
-const BrowserActionsInputSchema = z
-  .object({
-    actions: z.array(BrowserActionSchema).min(1).max(10),
-  })
-  .strict();
+const BrowserActionsInputSchema = z.strictObject({
+  actions: z.array(BrowserActionSchema).min(1).max(10),
+});
 
-const BrowserArtifactSchema = z
-  .object({
-    filename: z.string().min(1).max(200),
-    kind: z.literal("image"),
-    mimeType: z.literal("image/png"),
-    outputId: z.string().min(1).max(500),
-    sizeBytes: z.number().int().nonnegative().max(MAX_BROWSER_SCREENSHOT_BYTES),
-  })
-  .strict();
+const BrowserArtifactSchema = z.strictObject({
+  filename: z.string().min(1).max(200),
+  kind: z.literal("image"),
+  mimeType: z.literal("image/png"),
+  outputId: z.string().min(1).max(500),
+  sizeBytes: z.number().int().nonnegative().max(MAX_BROWSER_SCREENSHOT_BYTES),
+});
 
-const BrowserActionResultSchema = z
-  .object({
-    artifact: BrowserArtifactSchema.optional(),
-    result: z
-      .unknown()
-      .refine((value) => serializedSizeWithin(value, MAX_BROWSER_RESULT_BYTES), {
-        message: "Browser action result is too large.",
-      })
-      .optional(),
-    type: z.enum(["goto", "act", "observe", "extract", "screenshot"]),
-    url: z.string().max(2_048).optional(),
-  })
-  .strict();
+const BrowserActionResultSchema = z.strictObject({
+  artifact: BrowserArtifactSchema.optional(),
+  result: z
+    .unknown()
+    .refine((value) => serializedSizeWithin(value, MAX_BROWSER_RESULT_BYTES), {
+      message: "Browser action result is too large.",
+    })
+    .optional(),
+  type: z.enum(["goto", "act", "observe", "extract", "screenshot"]),
+  url: z.string().max(2_048).optional(),
+});
 
-export const BrowserActionsOutputSchema = z
-  .object({
-    ok: z.literal(true),
-    results: z.array(BrowserActionResultSchema).max(10),
-  })
-  .strict();
+export const BrowserActionsOutputSchema = z.strictObject({
+  ok: z.literal(true),
+  results: z.array(BrowserActionResultSchema).max(10),
+});
 
 const BrowserDriverActionResultSchema = z
   .object({
@@ -245,7 +215,7 @@ export async function inspectBrowserPage(
     ready.connection,
     30_000,
   );
-  if (!result.ok) {
+  if (!result.success) {
     throw browserDriverRequestError(result);
   }
   const state = BrowserDriverStateSchema.parse(result.body);
@@ -321,7 +291,7 @@ async function requestBrowserDriver(
     throw driverResponseTooLargeError();
   }
   const body = parseBrowserDriverJson(await readBoundedDriverResponse(response));
-  return { body, ok: response.ok, status: response.status };
+  return { body, status: response.status, success: response.ok };
 }
 
 function browserDriverPayload(input: BrowserActionsInput | null): string {
@@ -359,7 +329,7 @@ async function fetchBrowserDriver(
       headers: {
         authorization: `Bearer ${connection.authToken}`,
         "content-type": "application/json",
-        "x-cheatcode-run-id": connection.runId,
+        "X-Cheatcode-Run-Id": connection.runId,
       },
       method: payload ? "POST" : "GET",
       signal: AbortSignal.timeout(timeoutMs),
@@ -473,7 +443,7 @@ async function browserDriverServerIsHealthy(
     const result = await requestBrowserDriver(null, "/health", runtimeContext, connection, 90_000);
     const parsed = BrowserDriverHealthSchema.safeParse(result.body);
     return (
-      result.ok &&
+      result.success &&
       parsed.success &&
       parsed.data.credentialFingerprint === connection.credentialFingerprint &&
       parsed.data.runId === connection.runId &&
@@ -505,7 +475,7 @@ async function postBrowserActions(
 }
 
 function requireBrowserDriverOutput(result: BrowserDriverHttpResult) {
-  if (!result.ok) {
+  if (!result.success) {
     throw browserDriverRequestError(result);
   }
   const parsedOutput = BrowserDriverActionsOutputSchema.safeParse(result.body);
@@ -589,7 +559,7 @@ async function normalizeBrowserActionResult(
     throw invalidDriverScreenshot();
   }
   if (!runtimeContext.artifacts) {
-    throw new APIError(500, "internal_error", "Browser artifact storage is unavailable", {
+    throw new APIError(500, "internal_service_error", "Browser artifact storage is unavailable", {
       retriable: false,
     });
   }
@@ -639,21 +609,17 @@ function invalidDriverScreenshot(): APIError {
   });
 }
 
-const BrowserDriverHealthSchema = z
-  .object({
-    credentialFingerprint: z.string().min(16),
-    model: z.string().min(1),
-    ok: z.literal(true),
-    runId: z.string().min(1),
-  })
-  .strict();
+const BrowserDriverHealthSchema = z.strictObject({
+  credentialFingerprint: z.string().min(16),
+  model: z.string().min(1),
+  ok: z.literal(true),
+  runId: z.string().min(1),
+});
 
-const BrowserDriverStateSchema = z
-  .object({
-    ok: z.literal(true),
-    url: BrowserUrlSchema,
-  })
-  .strict();
+const BrowserDriverStateSchema = z.strictObject({
+  ok: z.literal(true),
+  url: BrowserUrlSchema,
+});
 
 function stagehandModel(credential: BrowserRuntimeContext["credential"]): string {
   return `${credential.provider}/${credential.modelId}`;

@@ -5,6 +5,7 @@ import {
   type DaytonaVolume,
 } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
+import { sleep } from "../sandbox-support";
 import {
   canonicalSandboxLabels,
   isCanonicalSandbox,
@@ -22,7 +23,7 @@ import {
   NEVER_AUTO_DELETE,
   type ProjectSandboxEnv,
 } from "./project-sandbox-lifecycle-support";
-import { isDestroyed, isFailedState, sleep } from "./project-sandbox-process-support";
+import { isDestroyed, isFailedState } from "./project-sandbox-process-support";
 
 const WORKSPACE_MOUNT_PATH = "/workspace";
 const SANDBOX_DELETE_ATTEMPTS = 30;

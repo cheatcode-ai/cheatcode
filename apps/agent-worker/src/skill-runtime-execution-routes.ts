@@ -11,24 +11,20 @@ import { requireSkillRuntimePrincipal } from "./skill-runtime-auth";
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 const MAX_EXECUTION_REQUEST_BYTES = 256 * 1024;
 const COMPOSIO_TIMEOUT_MS = 30_000;
-const ToolRequestSchema = z
-  .object({
-    arguments: z.record(z.string(), z.unknown()).default({}),
-    projectId: z.string().uuid().optional(),
-    toolkitSlug: IntegrationNameSchema,
-    toolSlug: z.string().trim().min(1).max(200),
-  })
-  .strict();
-const ProxyRequestSchema = z
-  .object({
-    body: z.unknown().optional(),
-    endpoint: z.string().trim().min(1).max(500),
-    method: z.enum(["GET", "POST", "PATCH", "DELETE"]).default("POST"),
-    projectId: z.string().uuid().optional(),
-    toolkitSlug: IntegrationNameSchema,
-  })
-  .strict();
-const FrontendEventSchema = z.object({ event: z.unknown() }).passthrough();
+const ToolRequestSchema = z.strictObject({
+  arguments: z.record(z.string(), z.unknown()).default({}),
+  projectId: z.string().uuid().optional(),
+  toolkitSlug: IntegrationNameSchema,
+  toolSlug: z.string().trim().min(1).max(200),
+});
+const ProxyRequestSchema = z.strictObject({
+  body: z.unknown().optional(),
+  endpoint: z.string().trim().min(1).max(500),
+  method: z.enum(["GET", "POST", "PATCH", "DELETE"]).default("POST"),
+  projectId: z.string().uuid().optional(),
+  toolkitSlug: IntegrationNameSchema,
+});
+const FrontendEventSchema = z.looseObject({ event: z.unknown() });
 
 export function registerSkillRuntimeExecutionRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
   app.post("/skill-runtime/composio/tool", executeComposioTool);
@@ -133,7 +129,7 @@ async function startBrowserTakeover(c: AgentContext): Promise<Response> {
 }
 
 function failedTool(error: string) {
-  return { data: null, error, successful: false };
+  return { data: null, error, success: false };
 }
 
 function requireMatchingProject(

@@ -4,8 +4,8 @@ import {
   withUserDb,
 } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { type CheatcodeUIMessage, ThreadId, UserId } from "@cheatcode/types";
-import { UIMessageRecordSchema } from "@cheatcode/types/api";
+import { type CheatcodeUIMessage, toThreadId, toUserId } from "@cheatcode/types";
+import { ThreadMessageSchema } from "@cheatcode/types/api";
 import { convertToModelMessages, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { AgentRunEnv } from "./agent-run-env";
@@ -13,7 +13,7 @@ import type { StartRunInput } from "./agent-run-schemas";
 
 const THREAD_CONTEXT_MAX_MESSAGES = 33;
 const THREAD_CONTEXT_MAX_SERIALIZED_BYTES = 256 * 1024;
-const ConversationMessageSchema = UIMessageRecordSchema.extend({
+const ConversationMessageSchema = ThreadMessageSchema.extend({
   role: z.enum(["assistant", "user"]),
 });
 
@@ -55,13 +55,13 @@ async function readContextRows(
   env: AgentRunEnv,
   input: StartRunInput,
 ): Promise<ThreadContextMessageRecord[]> {
-  return withUserDb(env, UserId(input.userId), async ({ transaction }) => {
+  return withUserDb(env, toUserId(input.userId), async ({ transaction }) => {
     return await transaction((tx) =>
       listRecentThreadContextMessages(tx, {
         maxMessages: THREAD_CONTEXT_MAX_MESSAGES,
         maxSerializedBytes: THREAD_CONTEXT_MAX_SERIALIZED_BYTES,
-        threadId: ThreadId(input.threadId),
-        userId: UserId(input.userId),
+        threadId: toThreadId(input.threadId),
+        userId: toUserId(input.userId),
       }),
     );
   });

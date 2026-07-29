@@ -30,7 +30,7 @@ export function consoleTerminalReducer(
   state: ConsoleTerminalState,
   action: ConsoleTerminalAction,
 ): ConsoleTerminalState {
-  switch (action.type) {
+  switch (action.kind) {
     case "add-tab":
       return addConsoleTab(state, action.cwd);
     case "append-result":

@@ -21,18 +21,16 @@ const TEXT_ENCODER = new TextEncoder();
 export type PreviewCapabilityKind = "handoff" | "session";
 export type PreviewCapabilityErrorReason = "expired" | "invalid";
 
-const PreviewCapabilityPayloadSchema = z
-  .object({
-    aud: z.string().min(1).max(253),
-    exp: z.number().int().positive().safe(),
-    iat: z.number().int().positive().safe(),
-    kind: z.enum(["handoff", "session"]),
-    nonce: z.string().length(22).regex(BASE64_URL_PATTERN),
-    port: z.number().int().min(1).max(65_535),
-    sid: z.string().min(1).max(128).regex(SANDBOX_ID_PATTERN),
-    v: z.literal(PREVIEW_CAPABILITY_VERSION),
-  })
-  .strict();
+const PreviewCapabilityPayloadSchema = z.strictObject({
+  aud: z.string().min(1).max(253),
+  exp: z.number().int().positive().safe(),
+  iat: z.number().int().positive().safe(),
+  kind: z.enum(["handoff", "session"]),
+  nonce: z.string().length(22).regex(BASE64_URL_PATTERN),
+  port: z.number().int().min(1).max(65_535),
+  sid: z.string().min(1).max(128).regex(SANDBOX_ID_PATTERN),
+  v: z.literal(PREVIEW_CAPABILITY_VERSION),
+});
 
 interface PreviewCapabilityPayload extends z.infer<typeof PreviewCapabilityPayloadSchema> {}
 

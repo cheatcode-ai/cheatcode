@@ -13,7 +13,7 @@ import {
 } from "./worker-shared";
 
 export const GatewayWorkerEnvSchema = z
-  .object({
+  .strictObject({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT: FetcherBindingSchema,
@@ -35,7 +35,7 @@ export const GatewayWorkerEnvSchema = z
     RESOURCE_DELETION: FetcherBindingSchema,
     WEBHOOKS: FetcherBindingSchema,
   })
-  .strict()
+
   .superRefine(requireProductionReleaseSha)
   .superRefine((env, context) => {
     if (

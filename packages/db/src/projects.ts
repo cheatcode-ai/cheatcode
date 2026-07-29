@@ -1,4 +1,4 @@
-import { ProjectId, type ThreadId, type UserId } from "@cheatcode/types";
+import { type ProjectId, type ThreadId, toProjectId, type UserId } from "@cheatcode/types";
 import { and, desc, eq, isNotNull, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import {
@@ -12,11 +12,11 @@ import type {
   BeginProjectDeletionResult,
   BeginThreadDeletionResult,
   CreateProjectInput,
-  ProjectSummaryRecord,
+  ProjectRecord,
   ProjectWriteState,
   ThreadRecord,
   TimestampPageCursor,
-  TimestampPageRecord,
+  TimestampPageItem,
   UpdateProjectInput,
 } from "./project-types";
 import { type ProjectSettings, projects, type ThreadLaunchIntent, threads } from "./schema";
@@ -24,7 +24,7 @@ import { type ProjectSettings, projects, type ThreadLaunchIntent, threads } from
 export async function listProjects(
   db: Database,
   input: { cursor?: TimestampPageCursor; limit: number; userId: UserId },
-): Promise<TimestampPageRecord<ProjectSummaryRecord>[]> {
+): Promise<TimestampPageItem<ProjectRecord>[]> {
   const rows = await db
     .select(projectSummaryColumns())
     .from(projects)
@@ -88,7 +88,7 @@ export async function countActiveProjects(db: Database, userId: UserId): Promise
 export async function getProject(
   db: Database,
   input: { projectId: ProjectId; userId: UserId },
-): Promise<ProjectSummaryRecord | null> {
+): Promise<ProjectRecord | null> {
   const row = await db.query.projects.findFirst({
     columns: {
       archiveAfter: true,
@@ -134,10 +134,10 @@ function canonicalWorkspaceSlugForProject(name: string, projectId: ProjectId): s
 export async function createProject(
   db: Database,
   input: CreateProjectInput,
-): Promise<ProjectSummaryRecord> {
+): Promise<ProjectRecord> {
   await lockUserProjectMutations(db, input.userId);
   const settings = initialProjectSettings(input);
-  const projectId = ProjectId(crypto.randomUUID());
+  const projectId = toProjectId(crypto.randomUUID());
   return insertProjectRow(
     db,
     input,
@@ -153,7 +153,7 @@ async function insertProjectRow(
   settings: ProjectSettings | null,
   projectId: ProjectId,
   workspaceSlug: string,
-): Promise<ProjectSummaryRecord> {
+): Promise<ProjectRecord> {
   const rows = await db
     .insert(projects)
     .values({
@@ -185,7 +185,7 @@ async function insertProjectRow(
 export async function updateProject(
   db: Database,
   input: UpdateProjectInput,
-): Promise<ProjectSummaryRecord | null> {
+): Promise<ProjectRecord | null> {
   const settings = await updatedProjectSettings(db, input);
   const rows = await db
     .update(projects)
@@ -223,20 +223,20 @@ export async function beginProjectDeletion(
   await lockUserProjectMutations(db, input.userId);
   const project = await lockProjectForDeletion(db, input);
   if (!project) {
-    return { type: "not-found" };
+    return { kind: "not-found" };
   }
   if (project.deletedAt) {
     return {
       deletedAt: project.deletedAt,
-      type: "cleanup-required",
+      kind: "cleanup-required",
       workspaceSlug: project.workspaceSlug,
     };
   }
   if (await projectHasActiveRun(db, input)) {
-    return { type: "active-run" };
+    return { kind: "active-run" };
   }
   const deletedAt = await markProjectDeletionRequested(db, input);
-  return { deletedAt, type: "cleanup-required", workspaceSlug: project.workspaceSlug };
+  return { deletedAt, kind: "cleanup-required", workspaceSlug: project.workspaceSlug };
 }
 
 async function lockProjectForDeletion(
@@ -306,7 +306,7 @@ export async function listProjectThreads(
     projectId: ProjectId;
     userId: UserId;
   },
-): Promise<TimestampPageRecord<ThreadRecord>[]> {
+): Promise<TimestampPageItem<ThreadRecord>[]> {
   const rows = await db
     .select({
       ...threadReturningColumns(),
@@ -396,17 +396,17 @@ export async function beginThreadDeletion(
     .for("update")
     .limit(1);
   if (!thread) {
-    return { type: "not-found" };
+    return { kind: "not-found" };
   }
   if (thread.deletedAt) {
     return {
       deletedAt: thread.deletedAt,
-      projectId: thread.projectId ? ProjectId(thread.projectId) : null,
-      type: "cleanup-required",
+      projectId: thread.projectId ? toProjectId(thread.projectId) : null,
+      kind: "cleanup-required",
     };
   }
   if (thread.activeRunId) {
-    return { type: "active-run" };
+    return { kind: "active-run" };
   }
   const [deleted] = await db
     .update(threads)
@@ -421,8 +421,8 @@ export async function beginThreadDeletion(
   }
   return {
     deletedAt: deleted.deletedAt,
-    projectId: thread.projectId ? ProjectId(thread.projectId) : null,
-    type: "cleanup-required",
+    projectId: thread.projectId ? toProjectId(thread.projectId) : null,
+    kind: "cleanup-required",
   };
 }
 

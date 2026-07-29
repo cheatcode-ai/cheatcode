@@ -1,4 +1,4 @@
-import { UserId as toUserId, type UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { and, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import {

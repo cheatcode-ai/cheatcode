@@ -1,9 +1,9 @@
 import {
   type ProjectId,
   type ThreadId,
-  ProjectId as toProjectId,
-  ThreadId as toThreadId,
-  UserId as toUserId,
+  toProjectId,
+  toThreadId,
+  toUserId,
   type UserId,
 } from "@cheatcode/types";
 import type { InternalResourceDeletionRequest } from "@cheatcode/types/internal";

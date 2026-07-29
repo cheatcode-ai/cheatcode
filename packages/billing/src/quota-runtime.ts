@@ -21,36 +21,32 @@ const QuotaEventIdSchema = z.string().min(1).max(200);
 const QuotaLimitSchema = z.number().finite().nonnegative();
 const EntitlementVersionSchema = z.number().int().nonnegative();
 
-const FeatureAndPeriodSchema = z
-  .object({
-    feature: QuotaFeatureSchema,
-    periodEnd: QuotaDateSchema,
-  })
-  .strict();
+const FeatureAndPeriodSchema = z.strictObject({
+  feature: QuotaFeatureSchema,
+  periodEnd: QuotaDateSchema,
+});
 
-const QuotaOperationSchema = FeatureAndPeriodSchema.extend({
+const QuotaOperationSchema = z.strictObject({
+  ...FeatureAndPeriodSchema.shape,
   amount: QuotaAmountSchema,
   eventId: QuotaEventIdSchema,
-}).strict();
+});
 
-const QuotaRecordSchema = QuotaOperationSchema.extend({
+const QuotaRecordSchema = z.strictObject({
+  ...QuotaOperationSchema.shape,
   recordedAt: QuotaDateSchema,
-}).strict();
+});
 
-const QuotaHistorySchema = z
-  .object({
-    feature: QuotaFeatureSchema,
-    from: QuotaDateSchema,
-  })
-  .strict();
+const QuotaHistorySchema = z.strictObject({
+  feature: QuotaFeatureSchema,
+  from: QuotaDateSchema,
+});
 
-const QuotaLimitInputSchema = z
-  .object({
-    entitlementVersion: EntitlementVersionSchema,
-    feature: QuotaFeatureSchema,
-    limit: QuotaLimitSchema,
-  })
-  .strict();
+const QuotaLimitInputSchema = z.strictObject({
+  entitlementVersion: EntitlementVersionSchema,
+  feature: QuotaFeatureSchema,
+  limit: QuotaLimitSchema,
+});
 
 interface CounterRow {
   used: number;
@@ -248,7 +244,7 @@ export class QuotaTrackerRuntime {
 
   public async snapshot(periodEnd: Date): Promise<QuotaSnapshotResult> {
     const parsed = parseQuotaInput(
-      z.object({ periodEnd: QuotaDateSchema }).strict(),
+      z.strictObject({ periodEnd: QuotaDateSchema }),
       {
         periodEnd,
       },
@@ -446,7 +442,7 @@ function parseQuotaInput<T>(schema: z.ZodType<T>, value: unknown, method: string
   if (result.success) {
     return result.data;
   }
-  throw new APIError(400, "invalid_request_body", `Invalid QuotaTracker ${method} input`, {
+  throw new APIError(400, "request_body_invalid", `Invalid QuotaTracker ${method} input`, {
     details: {
       fields: result.error.issues.map((issue) => issue.path.map(String).join(".")),
     },

@@ -1,5 +1,5 @@
 import type { UserId } from "@cheatcode/types";
-import { UserId as toUserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { entitlements, users } from "./schema";

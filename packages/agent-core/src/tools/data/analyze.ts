@@ -4,7 +4,7 @@ import {
   AnalyzeCsvInputSchema,
   type AnalyzeCsvOutput,
   AnalyzeCsvOutputSchema,
-  type DataRecord,
+  type DataEntry,
 } from "./schemas";
 
 interface ProfileColumnResult {
@@ -42,7 +42,7 @@ export function executeAnalyzeCsv(input: AnalyzeCsvInput): AnalyzeCsvOutput {
   });
 }
 
-function profileColumn(name: string, rows: readonly DataRecord[]): ProfileColumnResult {
+function profileColumn(name: string, rows: readonly DataEntry[]): ProfileColumnResult {
   const values = rows.map((row) => row[name] ?? null);
   const nonEmpty = values.filter((value) => value !== null && value !== "");
   const numericValues = nonEmpty
@@ -61,7 +61,7 @@ function profileColumn(name: string, rows: readonly DataRecord[]): ProfileColumn
 }
 
 function inferKind(
-  values: readonly DataRecord[string][],
+  values: readonly DataEntry[string][],
   numericValues: readonly number[],
 ): ProfileColumnResult["kind"] {
   if (values.length === 0) {
@@ -111,7 +111,7 @@ function median(sortedValues: readonly number[]): number {
   return (left + right) / 2;
 }
 
-function topValueCounts(values: readonly DataRecord[string][]): { count: number; value: string }[] {
+function topValueCounts(values: readonly DataEntry[string][]): { count: number; value: string }[] {
   const counts = new Map<string, number>();
   for (const value of values) {
     const key = String(value);
@@ -130,8 +130,8 @@ function inferMetricColumns(columns: readonly ProfileColumnResult[]): string[] {
     .slice(0, 6);
 }
 
-function groupRows(rows: readonly DataRecord[], groupBy: string, metricColumns: readonly string[]) {
-  const groups = new Map<string, DataRecord[]>();
+function groupRows(rows: readonly DataEntry[], groupBy: string, metricColumns: readonly string[]) {
+  const groups = new Map<string, DataEntry[]>();
   for (const row of rows) {
     const key = String(row[groupBy] ?? "");
     if (!groups.has(key)) {

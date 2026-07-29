@@ -35,7 +35,7 @@ export function useTerminalContext(
 export function useContextCwd(dispatch: TerminalDispatch, cwd: string | undefined): void {
   useEffect(() => {
     if (cwd !== undefined) {
-      dispatch({ type: "set-context-cwd", cwd });
+      dispatch({ kind: "set-context-cwd", cwd });
     }
   }, [cwd, dispatch]);
 }
@@ -51,18 +51,18 @@ export function useTerminalMutation(
       dispatch({
         input,
         result: terminalErrorResult(input.command, error),
-        type: "append-result",
+        kind: "append-result",
       });
       toast.error(error instanceof Error ? error.message : "Terminal command failed");
     },
     onMutate: (input) => {
-      dispatch({ command: input, type: "set-pending" });
+      dispatch({ command: input, kind: "set-pending" });
     },
     onSettled: () => {
-      dispatch({ command: null, type: "set-pending" });
+      dispatch({ command: null, kind: "set-pending" });
     },
     onSuccess: (result, input) => {
-      dispatch({ input, result, type: "append-result" });
+      dispatch({ input, result, kind: "append-result" });
     },
   });
 }

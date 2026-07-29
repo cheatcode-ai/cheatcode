@@ -32,7 +32,7 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
     await readJsonRequest(c.req.raw, MAX_PROVIDER_KEY_REQUEST_BYTES, "Provider key request"),
   );
   if (!parsedInput.success) {
-    throw new APIError(400, "invalid_request_body", "Invalid provider key payload", {
+    throw new APIError(400, "request_body_invalid", "Invalid provider key payload", {
       details: { issues: parsedInput.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -51,7 +51,9 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
       return { summary, wasFirstProviderKey: existingKeys.length === 0 };
     });
     if (!result.summary) {
-      throw new APIError(500, "internal_error", "Provider key was not stored", { retriable: true });
+      throw new APIError(500, "internal_service_error", "Provider key was not stored", {
+        retriable: true,
+      });
     }
     if (result.wasFirstProviderKey) {
       emitUserEvent(c.env, { eventName: "first_byok_key_added", userId });
@@ -65,7 +67,7 @@ async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
   await rateLimit(c, userId);
   const parsedProvider = ProviderSchema.safeParse(c.req.param("provider"));
   if (!parsedProvider.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid provider", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid provider", {
       details: { issues: parsedProvider.error.issues.map((issue) => issue.message) },
       retriable: false,
     });

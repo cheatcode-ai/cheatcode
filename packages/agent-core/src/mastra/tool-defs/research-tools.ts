@@ -26,7 +26,7 @@ import {
   registerResearchSources,
 } from "../workflows/research-provenance";
 import { researchRuntimeFromContext } from "./tool-runtime-context";
-import { workflowResultSchema } from "./tool-schemas";
+import { WorkflowResultSchema } from "./tool-schemas";
 
 type RequestContextReader = { get(key: string): unknown };
 type MutableRequestContext = RequestContextReader & {
@@ -83,7 +83,7 @@ async function runResearchWorkflow({
       ...(requestContext ? { requestContext } : {}),
     });
     await cancellation.assertNotCanceled();
-    const result = workflowResultSchema.parse(workflowResult);
+    const result = WorkflowResultSchema.parse(workflowResult);
     if (result.status !== "success" || !result.result) {
       const message =
         result.error instanceof Error ? result.error.message : `${workflowName} workflow failed.`;
@@ -212,7 +212,7 @@ export const mastraSearchCompany = createTool({
 });
 
 export const mastraFirecrawlScrape = createTool({
-  id: "firecrawl_scrape",
+  id: "search_scrape",
   description:
     "Scrape a known URL with Firecrawl and return markdown, links, metadata, or screenshots.",
   inputSchema: FirecrawlScrapeInputSchema,
@@ -221,7 +221,7 @@ export const mastraFirecrawlScrape = createTool({
 });
 
 export const mastraFirecrawlSearch = createTool({
-  id: "firecrawl_search",
+  id: "search_web_content",
   description:
     "Search the web with Firecrawl, optionally scraping markdown for each returned result.",
   inputSchema: FirecrawlSearchInputSchema,
@@ -230,7 +230,7 @@ export const mastraFirecrawlSearch = createTool({
 });
 
 export const mastraFirecrawlExtract = createTool({
-  id: "firecrawl_extract",
+  id: "search_extract",
   description:
     "Extract structured JSON from one or more URLs with Firecrawl using a prompt and optional JSON schema.",
   inputSchema: FirecrawlExtractInputSchema,

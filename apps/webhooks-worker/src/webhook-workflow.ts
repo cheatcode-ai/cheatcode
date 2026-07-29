@@ -20,7 +20,7 @@ import {
   type BillingTier,
   BillingTierSchema,
   billingTierRank,
-  UserId as toUserId,
+  toUserId,
   type UserId,
 } from "@cheatcode/types";
 import type { WebhookEvent } from "@clerk/backend/webhooks";
@@ -264,7 +264,7 @@ async function processProviderWebhook(
   if (payload.provider === "composio") {
     return db.transaction((tx) => handleComposioWebhookEvent(tx as Database, payload.event));
   }
-  throw new APIError(400, "invalid_request_body", "Unsupported webhook provider", {
+  throw new APIError(400, "request_body_invalid", "Unsupported webhook provider", {
     retriable: false,
   });
 }
@@ -385,16 +385,26 @@ async function polarAccessToken(env: WebhookWorkflowEnv): Promise<string> {
   try {
     token = await resolveWorkerSecret(env.POLAR_ACCESS_TOKEN);
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "POLAR_ACCESS_TOKEN is unavailable", {
-      hint: "Verify the POLAR_ACCESS_TOKEN Cloudflare Secrets Store binding and secret value.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "POLAR_ACCESS_TOKEN is unavailable",
+      {
+        hint: "Verify the POLAR_ACCESS_TOKEN Cloudflare Secrets Store binding and secret value.",
+        retriable: false,
+      },
+    );
   }
   if (!token) {
-    throw new APIError(503, "unavailable_maintenance", "Polar access token is not configured", {
-      hint: "Set POLAR_ACCESS_TOKEN on the webhooks Worker.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Polar access token is not configured",
+      {
+        hint: "Set POLAR_ACCESS_TOKEN on the webhooks Worker.",
+        retriable: false,
+      },
+    );
   }
   return token;
 }

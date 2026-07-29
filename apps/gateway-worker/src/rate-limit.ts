@@ -249,10 +249,15 @@ function logRateLimitFailure(route: string, error: unknown): void {
 function handleRateLimitFailure(route: string, policy: RateLimitPolicy, error: unknown): null {
   logRateLimitFailure(route, error);
   if (policy.failClosed) {
-    throw new APIError(503, "unavailable_maintenance", "Request protection is unavailable", {
-      hint: "Retry shortly. If this persists, check the gateway RateLimiter Durable Object.",
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Request protection is unavailable",
+      {
+        hint: "Retry shortly. If this persists, check the gateway RateLimiter Durable Object.",
+        retriable: true,
+      },
+    );
   }
   return null;
 }

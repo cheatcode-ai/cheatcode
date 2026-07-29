@@ -7,6 +7,7 @@ import type {
   SandboxSearchFilesResult,
   SandboxWriteFileResult,
 } from "@cheatcode/sandbox-contracts";
+import { decodeBase64, dirname, encodeBase64, shellQuote } from "../sandbox-support";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   CODE_SERVER_DISPLAY_DIR,
@@ -22,9 +23,6 @@ import {
   assertDeletableWorkspacePath,
   assertMutableWorkspacePath,
   buildGrepCommand,
-  decodeBase64,
-  dirname,
-  encodeBase64,
   PROJECT_ARCHIVE_MAX_BYTES,
   PROJECT_ARCHIVE_MAX_FILES,
   PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
@@ -38,7 +36,6 @@ import {
   APP_PREVIEW_SLOT_PREFIX,
   type ProcessRecord,
   restartEnvironment,
-  shellQuote,
   timeoutSeconds,
 } from "./project-sandbox-process-support";
 import type { CoordinatedProcessOps, ProcessOps } from "./project-sandbox-processes";
@@ -602,7 +599,7 @@ async function ensureCodeServer(context: ContentContext, id: string): Promise<vo
     return;
   }
   if (!(await hasCodeServerRuntime(context.runtime, id))) {
-    throw new APIError(502, "sandbox_failed_to_start", "code-server is not installed", {
+    throw new APIError(502, "sandbox_start_failed", "code-server is not installed", {
       hint: "Start a new project sandbox from the current Daytona snapshot to use the Files viewer.",
       retriable: false,
     });
@@ -619,7 +616,7 @@ async function ensureCodeServer(context: ContentContext, id: string): Promise<vo
     .catch(() => null);
   await startCodeServer(context);
   if (!(await context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000))) {
-    throw new APIError(502, "sandbox_failed_to_start", "Unable to start code-server", {
+    throw new APIError(502, "sandbox_start_failed", "Unable to start code-server", {
       hint: "Rebuild the Daytona sandbox snapshot with code-server, then retry the Files tab.",
       retriable: true,
     });

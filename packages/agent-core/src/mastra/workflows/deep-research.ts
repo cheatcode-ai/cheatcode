@@ -1,5 +1,5 @@
 import { createDeepResearchWorkflow } from "./deep-research-workflow";
-import { buildDeepResearchQueries } from "./research-utils";
+import { buildDeepResearchQueries } from "./research-support";
 
 export const deepResearch = createDeepResearchWorkflow({
   buildQueries: (input) => buildDeepResearchQueries(input.topic, input.maxQueries),
@@ -11,7 +11,7 @@ export const deepResearch = createDeepResearchWorkflow({
 function deepResearchPrompt(query: string): string {
   return [
     "Run a focused research pass for the query below.",
-    "Use search_web_advanced for discovery and firecrawl_scrape for source pages that need extraction.",
+    "Use search_web_advanced for discovery and search_scrape for source pages that need extraction.",
     "Do not call research_deep or research_fanout from inside this workflow step.",
     "Return structured claims only from provider results. Cite every claim with the exact Exa result ID and URL or exact Firecrawl URL returned by the tools.",
     "Do not infer citation IDs from prose and do not cite a URL that no tool returned.",

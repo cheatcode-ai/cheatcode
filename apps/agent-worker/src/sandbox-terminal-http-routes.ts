@@ -21,7 +21,7 @@ import {
   terminalDisplayCwd,
   terminalProjectForThread,
   withTerminalCwdMarker,
-} from "./sandbox-route-helpers";
+} from "./sandbox-route-support";
 import { parseThreadRouteParam, readGatewayUserId } from "./tenancy";
 
 const AgentSandboxTerminalResultSchema = SandboxTerminalResultSchema.extend({

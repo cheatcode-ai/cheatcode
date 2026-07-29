@@ -2,7 +2,7 @@ import { getProviderKey } from "@cheatcode/byok";
 import { withUserDb } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import type { createLogger } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface ResearchProviderEnv {
@@ -26,7 +26,7 @@ export async function resolveResearchCredentials(
 ): Promise<ResearchCredentials> {
   return withUserDb(
     env,
-    UserId(input.userId),
+    toUserId(input.userId),
     async ({ transaction }) => {
       const credentials = await transaction(async (db) => {
         const exaApiKey = await getProviderKey(db, "exa");

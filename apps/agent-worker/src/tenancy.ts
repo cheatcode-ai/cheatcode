@@ -27,7 +27,7 @@ export function readGatewayUserId(headers: Headers): string {
 export function parseThreadRouteParam(value: string): string {
   const parsed = ThreadRouteParamSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid thread id", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid thread id", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -38,7 +38,7 @@ export function parseThreadRouteParam(value: string): string {
 export function parseRunRouteParam(value: string): string {
   const parsed = RunRouteParamSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid run id", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid run id", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
       retriable: false,
     });

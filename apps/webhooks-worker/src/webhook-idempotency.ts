@@ -354,16 +354,21 @@ export class WebhookIdempotencyStore extends DurableObject<WebhookIdempotencyEnv
 /**
  * Providers retry on 503 but treat 500 as terminal; a store outage must stay
  * retriable, so every stub failure is translated instead of leaking as
- * internal_error.
+ * internal_service_error.
  */
 async function callIdempotencyStore<Result>(operation: () => Promise<Result>): Promise<Result> {
   try {
     return await operation();
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "Webhook idempotency store is unavailable", {
-      hint: "Retry the provider callback after the WebhookIdempotencyStore Durable Object recovers.",
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Webhook idempotency store is unavailable",
+      {
+        hint: "Retry the provider callback after the WebhookIdempotencyStore Durable Object recovers.",
+        retriable: true,
+      },
+    );
   }
 }
 

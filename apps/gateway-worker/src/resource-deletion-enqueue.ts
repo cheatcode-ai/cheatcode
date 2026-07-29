@@ -21,13 +21,13 @@ export async function enqueueResourceDeletion(
       await env.RESOURCE_DELETION.enqueueResourceDeletion(request),
     );
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "Resource deletion enqueue failed", {
+    throw new APIError(503, "service_maintenance_unavailable", "Resource deletion enqueue failed", {
       cause: error,
       retriable: true,
     });
   }
   if (!result.ok) {
-    throw new APIError(503, "unavailable_maintenance", "Resource deletion enqueue failed", {
+    throw new APIError(503, "service_maintenance_unavailable", "Resource deletion enqueue failed", {
       details: { status: result.status },
       retriable: result.retriable,
     });

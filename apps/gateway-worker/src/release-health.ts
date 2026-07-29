@@ -3,14 +3,12 @@ import { z } from "zod";
 import type { GatewayEnv } from "./gateway-env";
 
 const MAX_RELEASE_HEALTH_RESPONSE_BYTES = 16 * 1024;
-const DownstreamReleaseHealthSchema = z
-  .object({
-    ok: z.literal(true),
-    releaseSha: z.string().min(1),
-    versionId: z.string().min(1).nullable(),
-    worker: z.enum(["agent", "webhooks"]),
-  })
-  .strict();
+const DownstreamReleaseHealthSchema = z.strictObject({
+  ok: z.literal(true),
+  releaseSha: z.string().min(1),
+  versionId: z.string().min(1).nullable(),
+  worker: z.enum(["agent", "webhooks"]),
+});
 
 export type DownstreamWorker = z.infer<typeof DownstreamReleaseHealthSchema>["worker"];
 type DownstreamReleaseHealth = z.infer<typeof DownstreamReleaseHealthSchema>;
@@ -44,7 +42,7 @@ export async function readDownstreamReleaseHealth(
   } catch {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       `${serviceLabel(worker)} health response is invalid`,
       { retriable: true },
     );
@@ -65,7 +63,7 @@ async function fetchHealth(
   } catch {
     throw new APIError(
       503,
-      "unavailable_maintenance",
+      "service_maintenance_unavailable",
       `${serviceLabel(worker)} service is unavailable`,
       { retriable: true },
     );
@@ -75,7 +73,7 @@ async function fetchHealth(
 function unhealthyService(worker: DownstreamWorker, status: number): APIError {
   return new APIError(
     503,
-    "unavailable_maintenance",
+    "service_maintenance_unavailable",
     `${serviceLabel(worker)} service is unhealthy`,
     { details: { status }, retriable: true },
   );

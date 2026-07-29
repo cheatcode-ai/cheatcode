@@ -110,11 +110,9 @@ export const PreviewHostnameSchema = z
     "Preview hostname must be localhost, localhost:8787, or a multi-label DNS hostname",
   );
 
-export const HyperdriveSchema = z
-  .object({
-    connectionString: z.string().min(1),
-  })
-  .passthrough();
+export const HyperdriveSchema = z.looseObject({
+  connectionString: z.string().min(1),
+});
 
 export const AnalyticsBindingsSchema = {
   AGENT_METRICS: AnalyticsDatasetBindingSchema.optional(),
@@ -125,12 +123,12 @@ export const AnalyticsBindingsSchema = {
 
 export const WorkerReleaseBindingsSchema = {
   CF_VERSION_METADATA: z
-    .object({
+    .looseObject({
       id: z.string().min(1),
       tag: z.string(),
       timestamp: z.string().min(1),
     })
-    .passthrough()
+
     .optional(),
   CHEATCODE_ENVIRONMENT: z.enum(["development", "production"]),
   CHEATCODE_RELEASE_SHA: z

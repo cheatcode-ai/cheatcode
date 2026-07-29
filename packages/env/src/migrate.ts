@@ -3,15 +3,13 @@ import { dirname, parse, resolve } from "node:path";
 import { z } from "zod";
 
 const DEFAULT_ENV_FILES = [".env.migrate"] as const;
-const MigrationEnvSchema = z
-  .object({
-    SUPABASE_MIGRATION_EXPECTED_DATABASE: z.string().trim().min(1).optional(),
-    SUPABASE_MIGRATION_EXPECTED_HOST: z.string().trim().min(1).optional(),
-    SUPABASE_MIGRATION_EXPECTED_ROLE: z.string().trim().min(1).optional(),
-    SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER: z.string().regex(/^\d+$/).optional(),
-    SUPABASE_MIGRATION_URL: z.string().url(),
-  })
-  .passthrough();
+const MigrationEnvSchema = z.looseObject({
+  SUPABASE_MIGRATION_EXPECTED_DATABASE: z.string().trim().min(1).optional(),
+  SUPABASE_MIGRATION_EXPECTED_HOST: z.string().trim().min(1).optional(),
+  SUPABASE_MIGRATION_EXPECTED_ROLE: z.string().trim().min(1).optional(),
+  SUPABASE_MIGRATION_EXPECTED_SYSTEM_IDENTIFIER: z.string().regex(/^\d+$/).optional(),
+  SUPABASE_MIGRATION_URL: z.string().url(),
+});
 
 export interface MigrationEnv {
   databaseUrl: string;

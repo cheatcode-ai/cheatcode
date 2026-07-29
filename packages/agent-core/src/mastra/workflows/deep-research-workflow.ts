@@ -19,9 +19,9 @@ import {
 } from "./research-schemas";
 
 const RESEARCH_CHILD_TOOLS = [
-  "firecrawl_extract",
-  "firecrawl_scrape",
-  "firecrawl_search",
+  "search_extract",
+  "search_scrape",
+  "search_web_content",
   "search_company",
   "search_web",
   "search_web_advanced",

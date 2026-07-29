@@ -61,7 +61,7 @@ async function handlePreviewRequest(request: Request, env: PreviewProxyEnv): Pro
     : undefined;
   if (url.pathname === PREVIEW_SESSION_PATH) {
     if (!setCookie) {
-      throw new APIError(400, "invalid_request_body", "Preview session refresh requires a token", {
+      throw new APIError(400, "request_body_invalid", "Preview session refresh requires a token", {
         retriable: false,
       });
     }
@@ -98,7 +98,7 @@ function assertNavigationHandoff(isFromQuery: boolean, method: string): void {
   if (isFromQuery && method !== "GET" && method !== "HEAD") {
     throw new APIError(
       400,
-      "invalid_request_body",
+      "request_body_invalid",
       "Preview handoff requires a navigation request",
       { retriable: false },
     );
@@ -117,7 +117,7 @@ function healthResponse(env: PreviewProxyEnv): Response {
 function requirePreviewTarget(hostname: string, previewHostname: string) {
   const target = parsePreviewHost(hostname, previewHostname);
   if (!target) {
-    throw new APIError(400, "invalid_request_body", "Malformed preview host", {
+    throw new APIError(400, "request_body_invalid", "Malformed preview host", {
       hint: `Preview hosts look like {sandboxId}--{port}.${previewHostname}.`,
       retriable: false,
     });
@@ -128,7 +128,7 @@ function requirePreviewTarget(hostname: string, previewHostname: string) {
 async function requirePreviewSecret(env: PreviewProxyEnv): Promise<string> {
   const secret = await resolveWorkerSecret(env.PREVIEW_TOKEN_SECRET);
   if (!secret) {
-    throw new APIError(500, "internal_error", "Preview token secret is not configured", {
+    throw new APIError(500, "internal_service_error", "Preview token secret is not configured", {
       retriable: false,
     });
   }
@@ -231,7 +231,7 @@ const previewProxyHandler = createWorkerRuntime<PreviewProxyRuntimeEnv, Executio
   errorCategory: WORKER_NAME,
   errorLogFields: ({ apiError, request }) => ({
     httpStatus: apiError.status,
-    ...(apiError.code === "permission_denied" ? requestContextTelemetry(request) : {}),
+    ...(apiError.code === "permission_access_denied" ? requestContextTelemetry(request) : {}),
   }),
   errorLogName: "preview_proxy_request_failed",
   fetch: async (request, env) => {

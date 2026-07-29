@@ -13,7 +13,7 @@ import {
   withUserDb,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
-import { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { MAX_USER_SKILLS } from "@cheatcode/types/api";
 import {
   resolveUserSkillMirror,
@@ -46,7 +46,7 @@ export async function resolveUserSkillContext(
   userIdRaw: string,
   sandbox: SandboxLike,
 ): Promise<ResolvedUserSkillContext> {
-  const userId = UserId(userIdRaw);
+  const userId = toUserId(userIdRaw);
   const skillRecords = await readUserSkills(env, userId);
   await projectUserSkillPackages(env, userId, sandbox, skillRecords);
   const userSkills = skillRecords.map(runtimeSkillSummary);

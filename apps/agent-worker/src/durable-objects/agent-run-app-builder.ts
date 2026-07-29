@@ -98,7 +98,7 @@ async function allocateAppPort(
 function appPortAllocationError(slug: string): APIError {
   return new APIError(
     502,
-    "sandbox_failed_to_start",
+    "sandbox_start_failed",
     "Could not allocate a per-project dev-server port.",
     {
       details: { slug },
@@ -115,7 +115,7 @@ async function resolveAppWorkspace(
 ): Promise<AppBuilderWorkspace> {
   const mobile = isMobileBuild(input);
   const dir = `/workspace/${input.workspaceSlug}`;
-  // Slot + port key off the project's workspaceSlug so the mobile path matches the start_dev_server
+  // Slot + port key off the project's workspaceSlug so the mobile path matches the code_start_dev_server
   // tool + wakePreview (all keyed by slug, not projectId).
   const slug = input.workspaceSlug;
   const slot = `app-preview:${slug}`;
@@ -472,7 +472,7 @@ function parseGitHubRepo(url: string): GitHubRepoRef | null {
 function importedContextNote(workspace: AppBuilderWorkspace, repoUrl?: string): string {
   const origin = repoUrl ? ` from ${repoUrl}` : "";
   const mobilePort = DEFAULT_MOBILE_PORT;
-  return `[context] This project was imported${origin} into ${workspace.dir}. Inspect it, complete any setup, and start the dev server on port ${workspace.port} with start_dev_server (Expo on ${mobilePort} for mobile).`;
+  return `[context] This project was imported${origin} into ${workspace.dir}. Inspect it, complete any setup, and start the dev server on port ${workspace.port} with code_start_dev_server (Expo on ${mobilePort} for mobile).`;
 }
 
 function repoImportError(message: string): APIError {

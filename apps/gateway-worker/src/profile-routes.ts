@@ -142,7 +142,7 @@ function profileResponse(record: UserProfileRecord | null): Record<string, unkno
 }
 
 function invalidRequestBody(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_request_body", message, {
+  return new APIError(400, "request_body_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });

@@ -47,13 +47,11 @@ if (AGENT_RUN_WORKFLOW_MAX_SUBREQUESTS > CLOUDFLARE_WORKFLOW_DEFAULT_SUBREQUEST_
 const Sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/u);
 const WorkflowGenerationSchema = z.number().int().nonnegative().safe();
 
-export const AgentRunWorkflowPayloadSchema = z
-  .object({
-    generation: WorkflowGenerationSchema,
-    input: StartRunInputSchema,
-    inputHash: Sha256HexSchema,
-  })
-  .strict();
+export const AgentRunWorkflowPayloadSchema = z.strictObject({
+  generation: WorkflowGenerationSchema,
+  input: StartRunInputSchema,
+  inputHash: Sha256HexSchema,
+});
 
 export type AgentRunWorkflowPayload = z.infer<typeof AgentRunWorkflowPayloadSchema>;
 
@@ -68,30 +66,24 @@ export interface AgentRunWorkflowFailureInput {
   workflowInstanceId: string;
 }
 
-export const AgentRunWorkflowEpochResultSchema = z
-  .object({
-    outcome: z.enum(["continue", "continued", "deleted", "terminal"]),
-    status: z.string().min(1).max(32),
-  })
-  .strict();
+export const AgentRunWorkflowEpochResultSchema = z.strictObject({
+  outcome: z.enum(["continue", "continued", "deleted", "terminal"]),
+  status: z.string().min(1).max(32),
+});
 
 export type AgentRunWorkflowEpochResult = z.infer<typeof AgentRunWorkflowEpochResultSchema>;
 
-const AgentRunWorkflowRolloverTerminalResultSchema = z
-  .object({
-    outcome: z.enum(["continued", "deleted", "terminal"]),
-    status: z.string().min(1).max(32),
-  })
-  .strict();
+const AgentRunWorkflowRolloverTerminalResultSchema = z.strictObject({
+  outcome: z.enum(["continued", "deleted", "terminal"]),
+  status: z.string().min(1).max(32),
+});
 
-const AgentRunWorkflowRolloverReservedResultSchema = z
-  .object({
-    outcome: z.literal("reserved"),
-    payload: AgentRunWorkflowPayloadSchema,
-    status: z.string().min(1).max(32),
-    workflowInstanceId: z.string().min(1).max(100),
-  })
-  .strict();
+const AgentRunWorkflowRolloverReservedResultSchema = z.strictObject({
+  outcome: z.literal("reserved"),
+  payload: AgentRunWorkflowPayloadSchema,
+  status: z.string().min(1).max(32),
+  workflowInstanceId: z.string().min(1).max(100),
+});
 
 export const AgentRunWorkflowRolloverResultSchema = z.union([
   AgentRunWorkflowRolloverTerminalResultSchema,

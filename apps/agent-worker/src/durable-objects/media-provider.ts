@@ -2,7 +2,7 @@ import { getProviderKey } from "@cheatcode/byok";
 import { withUserDb } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import type { createLogger } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import { closeDatabaseBestEffort } from "./db-close";
 
 interface MediaProviderEnv {
@@ -25,7 +25,7 @@ export async function resolveMediaCredentials(
 ): Promise<MediaCredentials> {
   return withUserDb(
     env,
-    UserId(input.userId),
+    toUserId(input.userId),
     async ({ transaction }) => {
       const googleMediaApiKey = await transaction((db) => getProviderKey(db, "google"));
       logger.info("byok_media_provider_key_checked", { google: Boolean(googleMediaApiKey) });

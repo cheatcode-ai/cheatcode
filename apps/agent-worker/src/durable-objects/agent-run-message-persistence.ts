@@ -1,13 +1,13 @@
 import { createThreadMessage, withUserDb } from "@cheatcode/db";
 import { createLogger, type Logger } from "@cheatcode/observability";
 import {
-  AgentRunId,
   fragmentMessagePart,
   serializedMessagePartsBytes,
-  ThreadId,
   TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES,
+  toAgentRunId,
+  toThreadId,
+  toUserId,
   type UIMessagePart,
-  UserId,
 } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { type MessagePartRow, parseSequencedChunk } from "../streaming/ui-message-stream";
@@ -92,20 +92,20 @@ async function persistAssistantMessage({
   const createdAt = transcriptCreatedAt(ctx);
   return withUserDb(
     env,
-    UserId(userId),
+    toUserId(userId),
     async ({ transaction }) => {
       try {
         const writer = new AssistantTranscriptWriter(async (parts, segment, isFinal) => {
           await transaction((tx) =>
             createThreadMessage(tx, {
-              agentRunId: AgentRunId(runId),
+              agentRunId: toAgentRunId(runId),
               agentRunSegment: segment,
               agentRunSegmentFinal: isFinal,
               createdAt,
               parts,
               role: "assistant",
-              threadId: ThreadId(threadId),
-              userId: UserId(userId),
+              threadId: toThreadId(threadId),
+              userId: toUserId(userId),
             }),
           );
         });

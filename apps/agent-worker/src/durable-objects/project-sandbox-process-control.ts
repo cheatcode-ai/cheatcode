@@ -1,5 +1,6 @@
 import type { DaytonaSessionExecResponse } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
+import { shellQuote, sleep } from "../sandbox-support";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { SANDBOX_PROCESS_TERMINATION_SCRIPT } from "./project-sandbox-process-cleanup";
 import {
@@ -14,8 +15,6 @@ import {
   type ProcessRecord,
   ProcessRecordSchema,
   restartEnvironment,
-  shellQuote,
-  sleep,
   supervisedProcessCommand,
   timeoutSeconds,
   withoutProcessReservation,
@@ -164,7 +163,7 @@ async function waitForPort(
     }
     await sleep(1_500);
   }
-  throw new APIError(504, "upstream_timeout_sandbox", "Sandbox process did not become ready.", {
+  throw new APIError(504, "upstream_sandbox_timeout", "Sandbox process did not become ready.", {
     details: { port, timeoutMs: timeoutMs ?? 120_000, url },
     hint: "Inspect the process command and logs, then retry.",
     retriable: true,

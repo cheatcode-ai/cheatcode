@@ -44,7 +44,7 @@ interface RunExecution {
   input: StartRunInput;
   logger: ReturnType<typeof createLogger>;
   runLeaseHeartbeat?: ReturnType<typeof setInterval>;
-  runLeaseOpened: boolean;
+  isRunLeaseOpened: boolean;
   sandbox: ProjectSandboxStub;
 }
 
@@ -76,7 +76,7 @@ function createRunExecution(
     deps,
     input,
     logger: createLogger({ threadId: input.threadId, userId: input.userId }),
-    runLeaseOpened: false,
+    isRunLeaseOpened: false,
     sandbox: deps.env.PROJECT_SANDBOX.get(deps.env.PROJECT_SANDBOX.idFromName(input.sandboxName)),
   };
 }
@@ -105,7 +105,7 @@ async function executeActiveRun(execution: RunExecution): Promise<void> {
 
 async function openRunLease(execution: RunExecution): Promise<void> {
   await execution.sandbox.beginRun(execution.input.runId);
-  execution.runLeaseOpened = true;
+  execution.isRunLeaseOpened = true;
   execution.runLeaseHeartbeat = setInterval(() => {
     void renewRunLease(execution);
   }, RUN_LEASE_RENEW_INTERVAL_MS);
@@ -196,7 +196,7 @@ async function cleanupRun(execution: RunExecution): Promise<void> {
       projectId: execution.input.projectId,
     });
   });
-  if (execution.runLeaseOpened) {
+  if (execution.isRunLeaseOpened) {
     await execution.sandbox.endRun(execution.input.runId).catch(() => undefined);
   }
 }

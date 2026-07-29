@@ -239,14 +239,12 @@ export const SandboxLikeSchema = z.custom<SandboxLike>(
   "Expected a complete sandbox runtime",
 );
 
-export const CodeRuntimeContextSchema = z
-  .object({
-    artifacts: ArtifactRuntimeSchema.optional(),
-    ensureWorkspace: z.custom<WorkspaceResolver>((value) => typeof value === "function").optional(),
-    sandbox: SandboxLikeSchema,
-    workspaceDir: z.string().optional(),
-  })
-  .strict();
+export const CodeRuntimeContextSchema = z.strictObject({
+  artifacts: ArtifactRuntimeSchema.optional(),
+  ensureWorkspace: z.custom<WorkspaceResolver>((value) => typeof value === "function").optional(),
+  sandbox: SandboxLikeSchema,
+  workspaceDir: z.string().optional(),
+});
 
 function isArtifactRuntime(value: unknown): value is ArtifactRuntime {
   return hasCallableMethod(value, "put");

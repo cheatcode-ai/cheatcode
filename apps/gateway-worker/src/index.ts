@@ -172,9 +172,14 @@ async function routeGatewayRequest(
   }
   if (localPreview?.kind === "proxy") {
     if (!env.PREVIEW_PROXY) {
-      throw new APIError(503, "unavailable_maintenance", "Local preview proxy is not configured", {
-        retriable: false,
-      });
+      throw new APIError(
+        503,
+        "service_maintenance_unavailable",
+        "Local preview proxy is not configured",
+        {
+          retriable: false,
+        },
+      );
     }
     return env.PREVIEW_PROXY.fetch(localPreview.request);
   }

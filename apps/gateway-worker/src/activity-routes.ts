@@ -68,7 +68,7 @@ async function listSandboxHourHistory(env: ActivityRouteEnv, userId: UserId, day
       new Date(Date.now() - days * MS_PER_DAY),
     );
   } catch (error) {
-    throw new APIError(503, "unavailable_maintenance", "Sandbox activity is unavailable", {
+    throw new APIError(503, "service_maintenance_unavailable", "Sandbox activity is unavailable", {
       cause: error,
       retriable: true,
     });
@@ -96,7 +96,7 @@ function parseActivityQuery(request: Request): { days: number } {
 }
 
 function invalidQueryParam(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_query_param", message, {
+  return new APIError(400, "request_query_param_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });

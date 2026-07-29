@@ -1,6 +1,6 @@
 import { APIError } from "@cheatcode/observability";
 import * as aq from "arquero";
-import type { DataRecord } from "./schemas";
+import type { DataEntry } from "./schemas";
 
 const DATA_CELL_MAX_CHARACTERS = 10_000;
 const DATA_COLUMN_NAME_MAX_CHARACTERS = 200;
@@ -21,7 +21,7 @@ export function csvToRecords(
 ): {
   columns: string[];
   rowCount: number;
-  rows: DataRecord[];
+  rows: DataEntry[];
 } {
   assertCsvLineCount(csv, limits.maxRows);
   const table = aq.fromCSV(csv, { autoType: true, delimiter }) as ArqueroTable;
@@ -34,11 +34,11 @@ export function csvToRecords(
   };
 }
 
-export function normalizeRows(rows: readonly unknown[]): DataRecord[] {
+export function normalizeRows(rows: readonly unknown[]): DataEntry[] {
   return rows.map((row) => normalizeRecord(row));
 }
 
-function normalizeRecord(row: unknown): DataRecord {
+function normalizeRecord(row: unknown): DataEntry {
   if (!isRecord(row)) {
     return {};
   }
@@ -52,7 +52,7 @@ function normalizeRecord(row: unknown): DataRecord {
   );
 }
 
-function normalizeCell(value: unknown): DataRecord[string] {
+function normalizeCell(value: unknown): DataEntry[string] {
   if (value === null || value === undefined) {
     return null;
   }
@@ -75,7 +75,7 @@ function normalizeCell(value: unknown): DataRecord[string] {
   return text;
 }
 
-export function inferColumns(rows: readonly DataRecord[], preferred: readonly string[]): string[] {
+export function inferColumns(rows: readonly DataEntry[], preferred: readonly string[]): string[] {
   if (preferred.length > 0) {
     return [...preferred];
   }
@@ -91,7 +91,7 @@ export function inferColumns(rows: readonly DataRecord[], preferred: readonly st
   return [...seen];
 }
 
-export function toCsv(rows: readonly DataRecord[], columns: readonly string[]): string {
+export function toCsv(rows: readonly DataEntry[], columns: readonly string[]): string {
   const header = columns.map(escapeCsvCell).join(",");
   const output = [header];
   let outputCharacters = header.length;
@@ -106,7 +106,7 @@ export function toCsv(rows: readonly DataRecord[], columns: readonly string[]): 
   return output.join("\n");
 }
 
-export function parseMarkdownTable(markdown: string): DataRecord[] {
+export function parseMarkdownTable(markdown: string): DataEntry[] {
   const rows = markdown
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -131,7 +131,7 @@ export function parseMarkdownTable(markdown: string): DataRecord[] {
   });
 }
 
-export function coerceNumber(value: DataRecord[string]): number | null {
+export function coerceNumber(value: DataEntry[string]): number | null {
   if (typeof value === "number" && Number.isFinite(value)) {
     return value;
   }
@@ -154,7 +154,7 @@ function isSeparatorRow(cells: readonly string[]): boolean {
   return cells.every((cell) => /^:?-{3,}:?$/.test(cell));
 }
 
-function escapeCsvCell(value: DataRecord[string]): string {
+function escapeCsvCell(value: DataEntry[string]): string {
   if (value === null) {
     return "";
   }

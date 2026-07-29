@@ -14,7 +14,7 @@ import {
 } from "./worker-shared";
 
 export const WebhooksWorkerEnvSchema = z
-  .object({
+  .strictObject({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT_LIFECYCLE: FetcherBindingSchema,
@@ -39,5 +39,5 @@ export const WebhooksWorkerEnvSchema = z
     WEBHOOK_IDEMPOTENCY: DurableObjectNamespaceBindingSchema,
     WEBHOOK_WORKFLOW: WorkflowBindingSchema,
   })
-  .strict()
+
   .superRefine(requireProductionReleaseSha);

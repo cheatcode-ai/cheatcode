@@ -263,10 +263,15 @@ async function requireComposioApiKey(secret: WorkerSecret | undefined): Promise<
     value = undefined;
   }
   if (!value) {
-    throw new APIError(503, "unavailable_maintenance", "COMPOSIO_API_KEY is not configured", {
-      hint: "Set COMPOSIO_API_KEY in the gateway Worker environment.",
-      retriable: false,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "COMPOSIO_API_KEY is not configured",
+      {
+        hint: "Set COMPOSIO_API_KEY in the gateway Worker environment.",
+        retriable: false,
+      },
+    );
   }
   return value;
 }

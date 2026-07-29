@@ -13,34 +13,28 @@ export const QuotaFeatureSchema = z.enum([
 export const QuotaPeriodEndSchema = z.string().datetime();
 const QuotaLimitSchema = z.number().finite().nonnegative();
 
-export const QuotaUsageResponseSchema = z
-  .object({
-    limit: QuotaLimitSchema,
-    remaining: z.number().finite().nonnegative(),
-    used: z.number().finite().nonnegative(),
-  })
-  .strict();
+export const QuotaUsageResponseSchema = z.strictObject({
+  limit: QuotaLimitSchema,
+  remaining: z.number().finite().nonnegative(),
+  used: z.number().finite().nonnegative(),
+});
 
-export const QuotaTryConsumeResponseSchema = z
-  .object({
-    allowed: z.boolean(),
-    limit: QuotaLimitSchema,
-    remaining: z.number().finite().nonnegative(),
-  })
-  .strict();
+export const QuotaTryConsumeResponseSchema = z.strictObject({
+  allowed: z.boolean(),
+  limit: QuotaLimitSchema,
+  remaining: z.number().finite().nonnegative(),
+});
 
 export const QuotaHistoryResultSchema = z.array(
-  z.object({ amount: z.number().positive(), recordedAt: z.number().int().nonnegative() }).strict(),
+  z.strictObject({ amount: z.number().positive(), recordedAt: z.number().int().nonnegative() }),
 );
 
 export const QuotaSnapshotResultSchema = z.partialRecord(
   QuotaFeatureSchema,
-  z
-    .object({
-      limit: QuotaLimitSchema,
-      used: z.number().finite().nonnegative(),
-    })
-    .strict(),
+  z.strictObject({
+    limit: QuotaLimitSchema,
+    used: z.number().finite().nonnegative(),
+  }),
 );
 
 export type QuotaFeature = z.infer<typeof QuotaFeatureSchema>;

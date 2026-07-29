@@ -189,7 +189,7 @@ export function parseToolExecution(value: unknown): ComposioToolExecution {
     data: execution.data,
     error: execution.error,
     ...(execution.log_id !== undefined ? { logId: execution.log_id } : {}),
-    successful: execution.successful,
+    success: execution.successful,
   };
 }
 

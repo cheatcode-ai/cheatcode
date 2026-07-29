@@ -11,13 +11,13 @@ import {
 } from "./project-sandbox-workspace-state";
 
 interface SandboxLeaseState {
-  accountDeletionInProgress: boolean;
+  isAccountDeletionInProgress: boolean;
   activeOperationCount: number;
   activeOperationDrainWaiters: Set<() => void>;
   ctx: DurableObjectState;
   env: ProjectSandboxEnv;
   identity: ProjectSandboxIdentityState;
-  sandboxRuntimeUpdateInProgress: boolean;
+  isSandboxRuntimeUpdateInProgress: boolean;
   workspaceState: ProjectSandboxWorkspaceState | undefined;
 }
 
@@ -53,11 +53,11 @@ async function runOwnerRegistrationPreflight<Result>(
   operation: () => Promise<Result>,
 ): Promise<Result> {
   await assertProjectSandboxOwnerActive(state.env, userId);
-  if (state.accountDeletionInProgress) {
+  if (state.isAccountDeletionInProgress) {
     throw accountSandboxDeletedError();
   }
   const result = await operation();
-  if (state.accountDeletionInProgress) {
+  if (state.isAccountDeletionInProgress) {
     throw accountSandboxDeletedError();
   }
   workspaceState(state);
@@ -125,7 +125,7 @@ export function withCleanupSignal<Result>(
   state: SandboxLeaseState,
   operation: () => Promise<Result>,
 ): Promise<Result | undefined> {
-  return state.accountDeletionInProgress || !state.identity.hasRegisteredOwner()
+  return state.isAccountDeletionInProgress || !state.identity.hasRegisteredOwner()
     ? Promise.resolve(undefined)
     : withActiveOperation(state, null, operation, false, false, true);
 }
@@ -172,10 +172,10 @@ function assertSandboxOperationAllowed(
   allowWorkspaceCleanup: boolean,
   allowRuntimeUpdate: boolean,
 ): void {
-  if (state.accountDeletionInProgress) {
+  if (state.isAccountDeletionInProgress) {
     throw accountSandboxDeletedError();
   }
-  if (state.sandboxRuntimeUpdateInProgress && !allowRuntimeUpdate) {
+  if (state.isSandboxRuntimeUpdateInProgress && !allowRuntimeUpdate) {
     throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
   }
   if (!allowUnregisteredOwner && !state.identity.hasRegisteredOwner()) {

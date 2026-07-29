@@ -27,16 +27,14 @@ const ReleaseVersionIdSchema = z.union([
   z.literal("development"),
 ]);
 
-export const UserDeletionPayloadSchema = z
-  .object({
-    continuation: z.number().int().nonnegative().max(2_147_483_647),
-    jobId: z.string().uuid(),
-    kind: z.literal("user-deletion"),
-    leaseToken: z.string().uuid(),
-    releaseVersionId: ReleaseVersionIdSchema,
-    userId: z.string().uuid(),
-  })
-  .strict();
+export const UserDeletionPayloadSchema = z.strictObject({
+  continuation: z.number().int().nonnegative().max(2_147_483_647),
+  jobId: z.string().uuid(),
+  kind: z.literal("user-deletion"),
+  leaseToken: z.string().uuid(),
+  releaseVersionId: ReleaseVersionIdSchema,
+  userId: z.string().uuid(),
+});
 export type UserDeletionPayload = z.infer<typeof UserDeletionPayloadSchema>;
 
 export interface UserDeletionWorkflowBindings {

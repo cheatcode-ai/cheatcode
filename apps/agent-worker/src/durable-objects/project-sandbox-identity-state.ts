@@ -30,14 +30,14 @@ export class ProjectSandboxIdentityState {
   public async registerOwner(userId: string, sandboxName?: string): Promise<void> {
     const resolvedSandboxName = this.sandboxName();
     if (sandboxName && resolvedSandboxName !== sandboxName) {
-      throw new APIError(403, "permission_denied", "Sandbox identity mismatch", {
+      throw new APIError(403, "permission_access_denied", "Sandbox identity mismatch", {
         retriable: false,
       });
     }
     const parsedUserId = OwnerUserIdSchema.parse(userId);
     const existingUserId = this.cachedOwnerUserId;
     if (existingUserId && existingUserId !== parsedUserId) {
-      throw new APIError(403, "permission_denied", "Sandbox ownership mismatch", {
+      throw new APIError(403, "permission_access_denied", "Sandbox ownership mismatch", {
         retriable: false,
       });
     }

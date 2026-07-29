@@ -62,7 +62,7 @@ function agentMetricFromRunSnapshot(
 
 function defaultErrorCode(status: PersistableRunStatus): string | undefined {
   if (status === "failed") {
-    return "internal_error";
+    return "internal_service_error";
   }
   if (status === "canceled") {
     return "run_canceled";

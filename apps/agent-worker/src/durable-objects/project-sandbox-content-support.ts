@@ -1,6 +1,6 @@
 import { APIError } from "@cheatcode/observability";
 import { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES } from "@cheatcode/types/api";
-import { shellQuote } from "./project-sandbox-process-support";
+import { shellQuote } from "../sandbox-support";
 import {
   type ProjectSearchFilesInput,
   ProjectSearchFilesInputSchema,
@@ -109,7 +109,7 @@ export function assertMutableWorkspacePath(path: string): void {
   if (!MANAGED_PROJECT_UPLOAD_PATH.test(path)) {
     return;
   }
-  throw new APIError(403, "permission_denied", "Uploaded project files are read-only", {
+  throw new APIError(403, "permission_access_denied", "Uploaded project files are read-only", {
     hint: "Read the uploaded file or copy it to another project path before editing it.",
     retriable: false,
   });
@@ -119,7 +119,7 @@ export function assertDeletableWorkspacePath(path: string): void {
   if (PROJECT_WORKSPACE_ROOT_PATH.test(path)) {
     throw new APIError(
       403,
-      "permission_denied",
+      "permission_access_denied",
       "Project roots cannot be deleted with file tools",
       {
         hint: "Delete individual generated files or use the project deletion action.",
@@ -161,28 +161,4 @@ export function parseGrepOutput(
     }
   }
   return matches;
-}
-
-export function dirname(path: string): string {
-  const index = path.lastIndexOf("/");
-  return index <= 0 ? "/" : path.slice(0, index);
-}
-
-export function encodeBase64(bytes: Uint8Array): string {
-  const chunkSize = 24 * 1024;
-  const encoded: string[] = [];
-  for (let offset = 0; offset < bytes.byteLength; offset += chunkSize) {
-    const chunk = bytes.subarray(offset, offset + chunkSize);
-    encoded.push(btoa(String.fromCharCode(...chunk)));
-  }
-  return encoded.join("");
-}
-
-export function decodeBase64(value: string): Uint8Array {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
 }

@@ -1,4 +1,4 @@
-import { UserId as toUserId, type UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { userSkills } from "./schema";
@@ -16,7 +16,7 @@ export interface UserSkillRecord {
   updatedAt: Date;
 }
 
-export type UserSkillSummaryRecord = Omit<UserSkillRecord, "body" | "userId">;
+export type UserSkillSummary = Omit<UserSkillRecord, "body" | "userId">;
 
 const USER_SKILL_SUMMARY_COLUMNS = {
   category: userSkills.category,
@@ -63,7 +63,7 @@ export async function listUserSkillSummaries(
   db: Database,
   userId: UserId,
   limit: number,
-): Promise<UserSkillSummaryRecord[]> {
+): Promise<UserSkillSummary[]> {
   const rows = await db
     .select(USER_SKILL_SUMMARY_COLUMNS)
     .from(userSkills)

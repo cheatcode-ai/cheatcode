@@ -1,5 +1,5 @@
 import { isUserAccountActive, withUserDb } from "@cheatcode/db";
-import { UserId } from "@cheatcode/types";
+import { toUserId } from "@cheatcode/types";
 import {
   accountSandboxDeletedError,
   type ProjectSandboxEnv,
@@ -10,7 +10,7 @@ export async function assertProjectSandboxOwnerActive(
   env: ProjectSandboxEnv,
   userId: string,
 ): Promise<void> {
-  const parsedUserId = UserId(userId);
+  const parsedUserId = toUserId(userId);
   return withUserDb(env, parsedUserId, async ({ transaction }) => {
     const isActive = await transaction((transaction) =>
       isUserAccountActive(transaction, parsedUserId),

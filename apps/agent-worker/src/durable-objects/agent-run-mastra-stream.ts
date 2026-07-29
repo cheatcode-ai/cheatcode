@@ -11,8 +11,8 @@ import { resolveWithAbortTimeout } from "./abort-timeout";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 import { SKILL_RUNTIME_CAPABILITY_ROTATION_MS } from "./agent-run-skill-runtime";
+import { readMastraChunk } from "./agent-run-support";
 import { resolveUserSkillContext } from "./agent-run-user-skills";
-import { readMastraChunk } from "./agent-run-utils";
 import { resolveAgentToolCredentials } from "./agent-tool-credentials";
 import type { LlmCredential } from "./llm-provider";
 
@@ -293,7 +293,7 @@ async function consumeOpenedMastraStream(options: ConsumeMastraStreamOptions): P
 }
 
 function modelStreamTimeoutError(): APIError {
-  return new APIError(504, "upstream_timeout_llm", "The model stream timed out.", {
+  return new APIError(504, "upstream_llm_timeout", "The model stream timed out.", {
     hint: "Retry the run. If the timeout persists, choose another configured model.",
     retriable: true,
   });

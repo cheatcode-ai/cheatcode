@@ -16,7 +16,7 @@ export function validateSandboxConsoleQuery(c: GatewayContext): void {
 }
 
 function invalidQueryParam(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_query_param", message, {
+  return new APIError(400, "request_query_param_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });

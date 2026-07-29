@@ -16,7 +16,7 @@ Answer complex questions with sourced synthesis. The output should read like an 
 1. Rewrite the user's ask into 3-6 research questions.
 2. Create a source matrix with question, claim, evidence, URL, date, and confidence columns.
 3. Search with `search_web_advanced`; use date/domain filters when appropriate.
-4. Scrape authoritative sources with `firecrawl_scrape`.
+4. Scrape authoritative sources with `search_scrape`.
 5. Synthesize with inline citations and explicit uncertainty.
 
 ## Fan-out Mode

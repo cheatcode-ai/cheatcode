@@ -614,7 +614,7 @@ function ownershipConflict(message: string): APIError {
 }
 
 function ownershipUnavailable(message: string): APIError {
-  return new APIError(503, "unavailable_maintenance", message, {
+  return new APIError(503, "service_maintenance_unavailable", message, {
     hint: "Retry the same run admission request.",
     retriable: true,
   });

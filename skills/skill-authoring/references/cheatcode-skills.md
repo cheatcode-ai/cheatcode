@@ -11,7 +11,7 @@ Exports currently available from `packages/cheatcode-skills/src/index.ts`:
 - `readProjectSkillRuntimeConfig()`: load `backendBaseUrl`, `cheatcodeApiKey`, and `projectId` from env/file runtime config.
 - `requestCheatcodeSkillJson(...)`: call a Cheatcode backend route with auth and JSON handling.
 - `requestCheatcodeComposioToolJson(...)`: low-level direct Composio tool execution helper.
-- `requestCheatcodeComposioToolData(...)`: preferred direct-tool helper that unwraps the standard Composio `successful/data/error` envelope.
+- `requestCheatcodeComposioToolData(...)`: preferred direct-tool helper that unwraps the standard Composio `success/data/error` envelope.
 - `createCheatcodeComposioToolDataRequester("<toolkit-slug>")`: preferred factory for Composio-backed skill-local tool clients.
 - `createCheatcodeComposioToolJsonRequester("<toolkit-slug>")`: low-level direct-tool factory when a skill genuinely needs the raw envelope.
 - `requestCheatcodeComposioProxyJson(...)`: low-level Composio thin-proxy request helper.

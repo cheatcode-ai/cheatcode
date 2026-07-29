@@ -4,12 +4,10 @@ import { z } from "zod";
 const ARTIFACT_INTENT_PAGE_SIZE = 50;
 const ArtifactIntentPageSchema = z
   .array(
-    z
-      .object({
-        id: z.string().uuid(),
-        r2Key: z.string().min(1),
-      })
-      .strict(),
+    z.strictObject({
+      id: z.string().uuid(),
+      r2Key: z.string().min(1),
+    }),
   )
   .max(ARTIFACT_INTENT_PAGE_SIZE);
 

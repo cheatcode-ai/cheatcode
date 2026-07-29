@@ -8,7 +8,7 @@ import {
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
-import type { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { type Provider, ProviderSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 import { withDatabase, withUserDatabase } from "./deletion-job-runner";
@@ -32,25 +32,21 @@ const REVALIDATION_PAGE_SIZE = 10;
 const REVALIDATION_PAGES_PER_INSTANCE = 20;
 const RevalidationTargetPageSchema = z
   .array(
-    z
-      .object({
-        fingerprint: z.string().regex(/^[0-9a-f]{12}$/u),
-        leaseToken: z.string().uuid(),
-        provider: ProviderSchema,
-        userId: z.string().uuid(),
-      })
-      .strict(),
+    z.strictObject({
+      fingerprint: z.string().regex(/^[0-9a-f]{12}$/u),
+      leaseToken: z.string().uuid(),
+      provider: ProviderSchema,
+      userId: z.string().uuid(),
+    }),
   )
   .max(REVALIDATION_PAGE_SIZE);
-const RevalidationOutcomeSchema = z
-  .object({
-    checked: z.number().int().min(0).max(1),
-    disabled: z.number().int().min(0).max(1),
-    failed: z.number().int().min(0).max(1),
-    invalid: z.number().int().min(0).max(1),
-    skipped: z.number().int().min(0).max(1),
-  })
-  .strict();
+const RevalidationOutcomeSchema = z.strictObject({
+  checked: z.number().int().min(0).max(1),
+  disabled: z.number().int().min(0).max(1),
+  failed: z.number().int().min(0).max(1),
+  invalid: z.number().int().min(0).max(1),
+  skipped: z.number().int().min(0).max(1),
+});
 type RevalidationTarget = z.infer<typeof RevalidationTargetPageSchema>[number];
 type RevalidationOutcome = z.infer<typeof RevalidationOutcomeSchema>;
 
@@ -111,7 +107,7 @@ async function revalidateOneProviderKey(
   env: ByokRevalidationEnv,
   target: RevalidationTarget,
 ): Promise<RevalidationOutcome> {
-  const userId = target.userId as UserId;
+  const userId = toUserId(target.userId);
   const validation = await validateClaimedProviderKey(env, userId, target);
   if (validation === "stale") {
     return { checked: 0, disabled: 0, failed: 0, invalid: 0, skipped: 1 };

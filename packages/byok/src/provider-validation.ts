@@ -115,7 +115,7 @@ export async function validateProviderKey(provider: Provider, key: string): Prom
       throw error;
     }
     if (error instanceof Error && error.name === "AbortError") {
-      throw new APIError(504, "upstream_timeout_llm", `Timed out validating ${spec.label} key.`, {
+      throw new APIError(504, "upstream_llm_timeout", `Timed out validating ${spec.label} key.`, {
         hint: `Retry after ${spec.label} API health recovers.`,
         retriable: true,
       });

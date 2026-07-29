@@ -6,12 +6,12 @@ import {
 } from "../user-skill-runtime";
 import { requestContextFromToolContext } from "./tool-runtime-context";
 import {
-  skillCreateInputSchema,
-  skillCreateOutputSchema,
-  skillInvokeInputSchema,
-  skillInvokeOutputSchema,
-  skillReadReferenceInputSchema,
-  skillReadReferenceOutputSchema,
+  SkillCreateInputSchema,
+  SkillCreateOutputSchema,
+  SkillInvokeInputSchema,
+  SkillInvokeOutputSchema,
+  SkillReadReferenceInputSchema,
+  SkillReadReferenceOutputSchema,
 } from "./tool-schemas";
 
 function requiredSkill(skillName: string): BundledSkill {
@@ -30,10 +30,10 @@ export const mastraSkillInvoke = createTool({
   id: "skill_invoke",
   description:
     "Load the full instructions and filesystem root for a complete Cheatcode skill package. Use rootPath as the working directory for the package's scripts, references, and assets.",
-  inputSchema: skillInvokeInputSchema,
-  outputSchema: skillInvokeOutputSchema,
+  inputSchema: SkillInvokeInputSchema,
+  outputSchema: SkillInvokeOutputSchema,
   execute: async (input, context) => {
-    const parsedInput = skillInvokeInputSchema.parse(input);
+    const parsedInput = SkillInvokeInputSchema.parse(input);
     const bundled = getSkillByName(parsedInput.skillName);
     if (bundled) {
       return {
@@ -67,10 +67,10 @@ export const mastraSkillCreate = createTool({
   id: "skill_create",
   description:
     "Persist a reusable custom skill. Use exactly once in Skill Creator mode after the complete package has been authored and validated.",
-  inputSchema: skillCreateInputSchema,
-  outputSchema: skillCreateOutputSchema,
+  inputSchema: SkillCreateInputSchema,
+  outputSchema: SkillCreateOutputSchema,
   execute: async (input, context) => {
-    const parsed = skillCreateInputSchema.parse(input);
+    const parsed = SkillCreateInputSchema.parse(input);
     const creator = userSkillCreatorFromRequestContext(requestContextFromToolContext(context));
     if (!creator) {
       throw new Error("Skill creation is available only in Skill Creator mode.");
@@ -91,10 +91,10 @@ export const mastraSkillReadReference = createTool({
   id: "skill_read_reference",
   description:
     "Read a reference file bundled with a Cheatcode skill after skill_invoke says it is available.",
-  inputSchema: skillReadReferenceInputSchema,
-  outputSchema: skillReadReferenceOutputSchema,
+  inputSchema: SkillReadReferenceInputSchema,
+  outputSchema: SkillReadReferenceOutputSchema,
   execute: async (input) => {
-    const parsedInput = skillReadReferenceInputSchema.parse(input);
+    const parsedInput = SkillReadReferenceInputSchema.parse(input);
     const skill = requiredSkill(parsedInput.skillName);
     return {
       content: skill.references[parsedInput.filename] ?? null,

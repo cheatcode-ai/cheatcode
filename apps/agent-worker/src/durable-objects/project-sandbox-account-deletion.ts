@@ -23,10 +23,10 @@ import {
 import type { ProjectSandboxProvisioning } from "./project-sandbox-provisioning";
 import type { ProjectSandboxWorkspaceState } from "./project-sandbox-workspace-state";
 
-const ClearWorkspaceEvidenceSchema = z.object({ cleared: z.literal(true) }).strict();
+const ClearWorkspaceEvidenceSchema = z.strictObject({ cleared: z.literal(true) });
 
 interface AccountDeletionState {
-  accountDeletionCompleted: boolean;
+  isAccountDeletionCompleted: boolean;
   activeOperationCount: number;
   activeOperationDrainWaiters: Set<() => void>;
   ctx: DurableObjectState;
@@ -54,7 +54,7 @@ export async function performAccountDeletion(
     await destroySandboxExclusive(state, runtime);
     await clearDurableStateForDeletedAccount(state, runtime);
   });
-  state.accountDeletionCompleted = true;
+  state.isAccountDeletionCompleted = true;
 }
 
 function waitForActiveSandboxOperations(state: AccountDeletionState): Promise<void> {

@@ -17,7 +17,7 @@ import {
 } from "./worker-shared";
 
 export const AgentWorkerEnvSchema = z
-  .object({
+  .strictObject({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     AGENT_RUN: DurableObjectNamespaceBindingSchema,
@@ -43,7 +43,7 @@ export const AgentWorkerEnvSchema = z
     R2_OUTPUTS: R2BucketBindingSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
   })
-  .strict()
+
   .superRefine(requireProductionReleaseSha)
   .superRefine(requireProductionDaytonaOrg)
   .superRefine(requireProductionPreviewHostname);

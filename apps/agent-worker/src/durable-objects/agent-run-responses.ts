@@ -1,7 +1,7 @@
 import { APIError } from "@cheatcode/observability";
 
 export function deletedAgentRunResponse(): Response {
-  return new APIError(410, "not_found_run", "Run state was permanently deleted", {
+  return new APIError(410, "resource_run_not_found", "Run state was permanently deleted", {
     retriable: false,
   }).toResponse(requestId());
 }

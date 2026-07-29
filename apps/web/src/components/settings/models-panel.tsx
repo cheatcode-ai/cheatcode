@@ -2,11 +2,11 @@
 
 import { Brain } from "@/components/ui";
 import { RecoveryCard } from "@/components/ui/recovery-card";
+import { useModelsPanelController } from "./models-panel-controller";
 import { ModelsCatalog } from "./models-panel-list";
 import { SETTINGS_KEY_PROVIDERS } from "./models-panel-model";
 import { ProviderKeysPanel } from "./provider-keys-panel";
 import { SettingsHeading } from "./settings-heading";
-import { useModelsPanelController } from "./use-models-panel-controller";
 
 export function ModelsPanel() {
   const controller = useModelsPanelController();

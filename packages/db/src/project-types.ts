@@ -17,7 +17,7 @@ export interface CreateProjectInput {
   userId: UserId;
 }
 
-export interface ProjectSummaryRecord {
+export interface ProjectRecord {
   archiveAfter: Date | null;
   createdAt: Date;
   defaultModel: LogicalModelId | null;
@@ -37,17 +37,17 @@ export interface TimestampPageCursor {
   segment?: number;
 }
 
-export type TimestampPageRecord<T> = T & { pageCursorAt: string };
+export type TimestampPageItem<T> = T & { pageCursorAt: string };
 
 export type BeginProjectDeletionResult =
-  | { type: "active-run" }
-  | { type: "not-found" }
-  | { deletedAt: Date; type: "cleanup-required"; workspaceSlug: string };
+  | { kind: "active-run" }
+  | { kind: "not-found" }
+  | { deletedAt: Date; kind: "cleanup-required"; workspaceSlug: string };
 
 export type BeginThreadDeletionResult =
-  | { type: "active-run" }
-  | { type: "not-found" }
-  | { deletedAt: Date; projectId: ProjectId | null; type: "cleanup-required" };
+  | { kind: "active-run" }
+  | { kind: "not-found" }
+  | { deletedAt: Date; projectId: ProjectId | null; kind: "cleanup-required" };
 
 export interface UpdateProjectInput {
   defaultModel?: LogicalModelId | null;

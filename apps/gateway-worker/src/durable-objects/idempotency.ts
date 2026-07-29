@@ -81,7 +81,7 @@ export class IdempotencyStore extends DurableObject {
         return IdempotencyBeginResultSchema.parse({ action: "proceed" });
       }
       return IdempotencyBeginResultSchema.parse({
-        action: "conflict_in_flight",
+        action: "conflict_request_in_flight",
         retryAfterMs: Math.max(1_000, row.expires_at - input.now),
       });
     }

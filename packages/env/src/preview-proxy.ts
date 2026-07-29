@@ -10,7 +10,7 @@ import {
 } from "./worker-shared";
 
 export const PreviewProxyEnvSchema = z
-  .object({
+  .strictObject({
     ...AnalyticsBindingsSchema,
     ...WorkerReleaseBindingsSchema,
     CHEATCODE_APP_ORIGIN: z.string().url().optional(),
@@ -20,7 +20,7 @@ export const PreviewProxyEnvSchema = z
     PREVIEW_HOSTNAME: PreviewHostnameSchema.optional(),
     PREVIEW_TOKEN_SECRET: WorkerSecretSchema,
   })
-  .strict()
+
   .transform((env, context) => {
     const appOrigin =
       env.CHEATCODE_APP_ORIGIN ??

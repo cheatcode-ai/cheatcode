@@ -2,32 +2,28 @@ import type { UserSkillRecord } from "@cheatcode/db";
 import { createLogger } from "@cheatcode/observability";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { SANDBOX_WORKSPACE_ROOT } from "./sandbox-route-helpers";
+import { SANDBOX_WORKSPACE_ROOT } from "./sandbox-route-support";
 
 const USER_SKILLS_DIRECTORY = `${SANDBOX_WORKSPACE_ROOT}/.cheatcode/skills`;
 
 const RevisionSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-const MirroredSkillSchema = z
-  .object({
-    body: z.string().trim().min(1).max(40_000),
-    category: z.string().trim().min(1).max(80),
-    description: z.string().trim().min(1).max(400),
-    name: z.string().trim().min(1).max(80),
-    registryRevision: RevisionSchema.nullable(),
-    skillId: z.string().uuid(),
-    tags: z.array(z.string().trim().min(1).max(40)).max(12),
-  })
-  .strict();
+const MirroredSkillSchema = z.strictObject({
+  body: z.string().trim().min(1).max(40_000),
+  category: z.string().trim().min(1).max(80),
+  description: z.string().trim().min(1).max(400),
+  name: z.string().trim().min(1).max(80),
+  registryRevision: RevisionSchema.nullable(),
+  skillId: z.string().uuid(),
+  tags: z.array(z.string().trim().min(1).max(40)).max(12),
+});
 
-const PortableSkillSchema = z
-  .object({
-    body: z.string().trim().min(1).max(40_000),
-    category: z.enum(["Builder & Apps", "Research & Docs", "Data & Media"]),
-    description: z.string().trim().min(1).max(400),
-    name: z.string().trim().min(1).max(80),
-    tags: z.array(z.string().trim().min(1).max(40)).max(12),
-  })
-  .strict();
+const PortableSkillSchema = z.strictObject({
+  body: z.string().trim().min(1).max(40_000),
+  category: z.enum(["Builder & Apps", "Research & Docs", "Data & Media"]),
+  description: z.string().trim().min(1).max(400),
+  name: z.string().trim().min(1).max(80),
+  tags: z.array(z.string().trim().min(1).max(40)).max(12),
+});
 
 type MirroredUserSkill = z.infer<typeof MirroredSkillSchema>;
 

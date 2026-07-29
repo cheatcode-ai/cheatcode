@@ -97,7 +97,12 @@ async function handleFallback(
   error: unknown,
 ): Promise<void> {
   if (
-    !shouldFallbackToOpenAI(params.input.modelExplicit, primaryCredential, hasVisibleOutput, error)
+    !shouldFallbackToOpenAI(
+      params.input.isModelExplicit,
+      primaryCredential,
+      hasVisibleOutput,
+      error,
+    )
   ) {
     throw error;
   }

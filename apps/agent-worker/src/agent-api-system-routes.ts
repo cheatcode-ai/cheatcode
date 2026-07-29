@@ -1,7 +1,13 @@
 import { findGeneratedOutput, getProject, withUserDb } from "@cheatcode/db";
 import { previewHostnameForWorker, resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
-import { OutputIdSchema, ProjectId, UserId } from "@cheatcode/types";
+import {
+  OutputIdSchema,
+  type ProjectId,
+  toProjectId,
+  toUserId,
+  type UserId,
+} from "@cheatcode/types";
 import {
   AGENT_FORWARD_ROUTES,
   InternalAgentStateDeleteBodySchema,
@@ -97,10 +103,15 @@ async function deleteRunStates(env: AgentEnv, userId: string, runIds: string[]):
       if (!response.ok) {
         const status = response.status;
         await response.body?.cancel().catch(() => undefined);
-        throw new APIError(503, "unavailable_maintenance", "Run durable state deletion failed", {
-          details: { status },
-          retriable: true,
-        });
+        throw new APIError(
+          503,
+          "service_maintenance_unavailable",
+          "Run durable state deletion failed",
+          {
+            details: { status },
+            retriable: true,
+          },
+        );
       }
       await response.body?.cancel().catch(() => undefined);
     }
@@ -116,10 +127,12 @@ function deletedStateResult(): InternalStateDeleteResponse {
 
 async function mintOutputDownloadUrl(c: AgentContext): Promise<Response> {
   const outputId = parseOutputId(c.req.param("outputId"));
-  const userId = UserId(readGatewayUserId(c.req.raw.headers));
+  const userId = toUserId(readGatewayUserId(c.req.raw.headers));
   const output = await findDownloadableOutput(c.env, outputId, userId);
   if (!(await c.env.R2_OUTPUTS.head(output.r2Key))) {
-    throw new APIError(404, "not_found_output", "Output object not found", { retriable: false });
+    throw new APIError(404, "resource_output_not_found", "Output object not found", {
+      retriable: false,
+    });
   }
   const capability = await createOutputDownloadCapability({
     baseUrl: outputDownloadBaseUrl(c.env),
@@ -144,14 +157,16 @@ async function downloadOutput(c: AgentContext): Promise<Response> {
     userId: query.userId,
   });
   if (!isValid) {
-    throw new APIError(403, "permission_denied", "Invalid or expired output download URL", {
+    throw new APIError(403, "permission_access_denied", "Invalid or expired output download URL", {
       retriable: false,
     });
   }
   const output = await findDownloadableOutput(c.env, outputId, query.userId);
   const object = await c.env.R2_OUTPUTS.get(output.r2Key);
   if (!object?.body) {
-    throw new APIError(404, "not_found_output", "Output object not found", { retriable: false });
+    throw new APIError(404, "resource_output_not_found", "Output object not found", {
+      retriable: false,
+    });
   }
   return new Response(object.body, {
     headers: {
@@ -167,7 +182,7 @@ async function downloadOutput(c: AgentContext): Promise<Response> {
 function parseOutputId(value: string | undefined): string {
   const parsed = OutputIdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid output id", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid output id", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -182,7 +197,7 @@ function parseOutputDownloadQuery(c: AgentContext): z.infer<typeof OutputDownloa
     userId: c.req.query("userId"),
   });
   if (!parsed.success) {
-    throw new APIError(400, "invalid_query_param", "Invalid output download signature", {
+    throw new APIError(400, "request_query_param_invalid", "Invalid output download signature", {
       details: { issues: parsed.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
@@ -194,7 +209,9 @@ async function findDownloadableOutput(env: AgentEnv, outputId: string, userId: U
   return withUserDb(env, userId, async ({ transaction }) => {
     const output = await transaction((tx) => findGeneratedOutput(tx, { outputId, userId }));
     if (!output) {
-      throw new APIError(404, "not_found_output", "Output not found", { retriable: false });
+      throw new APIError(404, "resource_output_not_found", "Output not found", {
+        retriable: false,
+      });
     }
     return output;
   });
@@ -204,9 +221,14 @@ async function resolveOutputSigningSecret(secret: WorkerSecret): Promise<string 
   try {
     return await resolveWorkerSecret(secret);
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "Output signing secret is unavailable", {
-      retriable: true,
-    });
+    throw new APIError(
+      503,
+      "service_maintenance_unavailable",
+      "Output signing secret is unavailable",
+      {
+        retriable: true,
+      },
+    );
   }
 }
 
@@ -221,15 +243,17 @@ function outputDownloadBaseUrl(env: AgentEnv): string | undefined {
 async function downloadProjectArchive(c: AgentContext): Promise<Response> {
   const parsedProjectId = z.string().uuid().safeParse(c.req.param("projectId"));
   if (!parsedProjectId.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid project id", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid project id", {
       details: { issues: parsedProjectId.error.issues.map((issue) => issue.message) },
       retriable: false,
     });
   }
-  const userId = UserId(readGatewayUserId(c.req.raw.headers));
-  const project = await loadProject(c.env, userId, ProjectId(parsedProjectId.data));
+  const userId = toUserId(readGatewayUserId(c.req.raw.headers));
+  const project = await loadProject(c.env, userId, toProjectId(parsedProjectId.data));
   if (!project) {
-    throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+    throw new APIError(404, "resource_project_not_found", "Project not found", {
+      retriable: false,
+    });
   }
   const sandbox = await sandboxForUser(c.env, userId);
   const archive = await sandbox.downloadProjectArchive({ workspaceSlug: project.workspaceSlug });

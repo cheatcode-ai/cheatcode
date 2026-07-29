@@ -2,86 +2,76 @@ import { z } from "zod";
 
 const TextValueSchema = z.string().trim().min(1).max(5_000);
 
-const ArtifactOutputSchema = z
-  .object({
-    filename: z.string().min(1),
-    kind: z.enum(["docx", "pdf", "slide", "xlsx"]),
-    mimeType: z.string().min(1),
-    outputId: z.string().min(1),
-    sizeBytes: z.number().int().nonnegative(),
-  })
-  .strict();
+const ArtifactOutputSchema = z.strictObject({
+  filename: z.string().min(1),
+  kind: z.enum(["docx", "pdf", "slide", "xlsx"]),
+  mimeType: z.string().min(1),
+  outputId: z.string().min(1),
+  sizeBytes: z.number().int().nonnegative(),
+});
 
-const SlideItemSchema = z
-  .object({
-    bullets: z.array(TextValueSchema).max(8).default([]),
-    heading: TextValueSchema,
-    notes: z.string().max(10_000).optional(),
-  })
-  .strict();
+const SlideItemSchema = z.strictObject({
+  bullets: z.array(TextValueSchema).max(8).default([]),
+  heading: TextValueSchema,
+  notes: z.string().max(10_000).optional(),
+});
 
-export const GenerateSlidesInputSchema = z
-  .object({
-    filename: z.string().trim().min(1).max(160).optional(),
-    slides: z.array(SlideItemSchema).min(1).max(40),
-    theme: z.enum(["minimal", "corporate", "creative"]).default("minimal"),
-    title: TextValueSchema,
-  })
-  .strict();
+export const GenerateSlidesInputSchema = z.strictObject({
+  filename: z.string().trim().min(1).max(160).optional(),
+  slides: z.array(SlideItemSchema).min(1).max(40),
+  theme: z.enum(["minimal", "corporate", "creative"]).default("minimal"),
+  title: TextValueSchema,
+});
 
-const DocumentSectionSchema = z
-  .object({
-    heading: TextValueSchema,
-    paragraphs: z.array(TextValueSchema).min(1).max(20),
-  })
-  .strict();
+const DocumentSectionSchema = z.strictObject({
+  heading: TextValueSchema,
+  paragraphs: z.array(TextValueSchema).min(1).max(20),
+});
 
-export const GenerateDocumentInputSchema = z
-  .object({
-    filename: z.string().trim().min(1).max(160).optional(),
-    sections: z.array(DocumentSectionSchema).min(1).max(80),
-    title: TextValueSchema,
-  })
-  .strict();
+export const GenerateDocumentInputSchema = z.strictObject({
+  filename: z.string().trim().min(1).max(160).optional(),
+  sections: z.array(DocumentSectionSchema).min(1).max(80),
+  title: TextValueSchema,
+});
 
 const SpreadsheetCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const SpreadsheetRowSchema = z.record(z.string().min(1).max(80), SpreadsheetCellSchema);
 
-const SpreadsheetSheetSchema = z
-  .object({
-    columns: z.array(z.string().trim().min(1).max(80)).min(1).max(50),
-    name: z.string().trim().min(1).max(31),
-    rows: z.array(SpreadsheetRowSchema).max(2_000),
-  })
-  .strict();
+const SpreadsheetSheetSchema = z.strictObject({
+  columns: z.array(z.string().trim().min(1).max(80)).min(1).max(50),
+  name: z.string().trim().min(1).max(31),
+  rows: z.array(SpreadsheetRowSchema).max(2_000),
+});
 
-export const GenerateSpreadsheetInputSchema = z
-  .object({
-    filename: z.string().trim().min(1).max(160).optional(),
-    sheets: z.array(SpreadsheetSheetSchema).min(1).max(12),
-    title: TextValueSchema,
-  })
-  .strict();
+export const GenerateSpreadsheetInputSchema = z.strictObject({
+  filename: z.string().trim().min(1).max(160).optional(),
+  sheets: z.array(SpreadsheetSheetSchema).min(1).max(12),
+  title: TextValueSchema,
+});
 
-export const GenerateDocxOutputSchema = ArtifactOutputSchema.extend({
+export const GenerateDocxOutputSchema = z.strictObject({
+  ...ArtifactOutputSchema.shape,
   kind: z.literal("docx"),
   sectionCount: z.number().int().positive(),
-}).strict();
+});
 
-export const GeneratePdfOutputSchema = ArtifactOutputSchema.extend({
+export const GeneratePdfOutputSchema = z.strictObject({
+  ...ArtifactOutputSchema.shape,
   kind: z.literal("pdf"),
   sectionCount: z.number().int().positive(),
-}).strict();
+});
 
-export const GenerateSlidesOutputSchema = ArtifactOutputSchema.extend({
+export const GenerateSlidesOutputSchema = z.strictObject({
+  ...ArtifactOutputSchema.shape,
   kind: z.literal("slide"),
   slideCount: z.number().int().positive(),
-}).strict();
+});
 
-export const GenerateXlsxOutputSchema = ArtifactOutputSchema.extend({
+export const GenerateXlsxOutputSchema = z.strictObject({
+  ...ArtifactOutputSchema.shape,
   kind: z.literal("xlsx"),
   sheetCount: z.number().int().positive(),
-}).strict();
+});
 
 export type GenerateDocumentInput = z.input<typeof GenerateDocumentInputSchema>;
 export type GenerateDocxOutput = z.output<typeof GenerateDocxOutputSchema>;

@@ -12,7 +12,7 @@ import {
   listThreadMessages,
   lockUserProjectMutations,
   type MessageRecord,
-  type ProjectSummaryRecord,
+  type ProjectRecord,
   type ThreadRecord,
   updateProject,
   updateThread,
@@ -21,10 +21,10 @@ import {
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
-  ProjectId,
   type ProjectId as ProjectIdType,
-  ThreadId,
   type ThreadId as ThreadIdType,
+  toProjectId,
+  toThreadId,
   type UserId,
 } from "@cheatcode/types";
 import {
@@ -34,8 +34,8 @@ import {
   Paginated,
   PaginationQuerySchema,
   ProjectSummarySchema,
+  ThreadMessageSchema,
   ThreadSchema,
-  UIMessageRecordSchema,
   UpdateProjectSchema,
   UpdateThreadSchema,
 } from "@cheatcode/types/api";
@@ -59,22 +59,17 @@ const CursorIdentitySchema = z.object({
   at: z.string().datetime(),
   id: z.string().uuid(),
 });
-const PageCursorSchema = z.discriminatedUnion("kind", [
-  CursorIdentitySchema.extend({
-    kind: z.literal("messages"),
+const PageCursorSchema = z.discriminatedUnion("type", [
+  z.strictObject({
+    ...CursorIdentitySchema.shape,
+    type: z.literal("messages"),
     segment: z.number().int().nonnegative(),
     v: z.literal(2),
-  }).strict(),
-  CursorIdentitySchema.extend({
-    kind: z.literal("projects"),
-    v: z.literal(1),
-  }).strict(),
-  CursorIdentitySchema.extend({
-    kind: z.literal("threads"),
-    v: z.literal(1),
-  }).strict(),
+  }),
+  z.strictObject({ ...CursorIdentitySchema.shape, type: z.literal("projects"), v: z.literal(1) }),
+  z.strictObject({ ...CursorIdentitySchema.shape, type: z.literal("threads"), v: z.literal(1) }),
 ]);
-type PageCursorKind = "messages" | "projects" | "threads";
+type PageCursorType = "messages" | "projects" | "threads";
 
 export async function listProjectsRoute(
   database: DatabaseHandle,
@@ -185,10 +180,10 @@ export async function deleteProjectRoute(
 ): Promise<Response> {
   return withUserDb(database, userId, async ({ transaction }) => {
     const deletion = await transaction((tx) => beginProjectDeletion(tx, { projectId, userId }));
-    if (deletion.type === "not-found") {
+    if (deletion.kind === "not-found") {
       throw projectNotFound();
     }
-    if (deletion.type === "active-run") {
+    if (deletion.kind === "active-run") {
       throw new APIError(409, "conflict_run_already_active", "Project has an active agent run", {
         hint: "Cancel or wait for every project run to finish, then retry deletion.",
         retriable: true,
@@ -264,7 +259,7 @@ async function createThreadForRequest(
   userId: UserId,
 ): Promise<ThreadRecord> {
   if (input.projectId) {
-    const projectId = ProjectId(input.projectId);
+    const projectId = toProjectId(input.projectId);
     await requireWritableProject(db, projectId, userId);
     return createThread(db, {
       projectId,
@@ -342,10 +337,10 @@ export async function deleteThreadRoute(
 ): Promise<Response> {
   return withUserDb(database, userId, async ({ transaction }) => {
     const deleted = await transaction((tx) => beginThreadDeletion(tx, { threadId, userId }));
-    if (deleted.type === "not-found") {
+    if (deleted.kind === "not-found") {
       throw threadNotFound();
     }
-    if (deleted.type === "active-run") {
+    if (deleted.kind === "active-run") {
       throw new APIError(409, "conflict_run_already_active", "Thread has an active agent run", {
         hint: "Cancel or wait for the run to finish, then retry deletion.",
         retriable: true,
@@ -382,7 +377,7 @@ export async function listThreadMessagesRoute(
     });
     const page = paginateRows(rows, pagination, "messages");
     return Response.json(
-      Paginated(UIMessageRecordSchema).parse({
+      Paginated(ThreadMessageSchema).parse({
         ...page,
         // The cursor walks newest -> older, while each page remains directly
         // renderable in chronological order.
@@ -400,7 +395,7 @@ export function parseProjectParam(value: string): ProjectIdType {
   if (!parsed.success) {
     throw invalidPathParam("Invalid project id", parsed.error);
   }
-  return ProjectId(parsed.data);
+  return toProjectId(parsed.data);
 }
 
 export function parseThreadParam(value: string): ThreadIdType {
@@ -408,7 +403,7 @@ export function parseThreadParam(value: string): ThreadIdType {
   if (!parsed.success) {
     throw invalidPathParam("Invalid thread id", parsed.error);
   }
-  return ThreadId(parsed.data);
+  return toThreadId(parsed.data);
 }
 
 async function requireProject(
@@ -449,7 +444,7 @@ async function updateWritableProject(
   projectId: ProjectIdType,
   userId: UserId,
   input: Omit<Parameters<typeof updateProject>[1], "projectId" | "userId">,
-): Promise<ProjectSummaryRecord | null> {
+): Promise<ProjectRecord | null> {
   await requireWritableProject(db, projectId, userId);
   return updateProject(db, { projectId, userId, ...input });
 }
@@ -465,7 +460,7 @@ async function requireThread(
   }
 }
 
-function projectResponse(project: ProjectSummaryRecord) {
+function projectResponse(project: ProjectRecord) {
   return {
     archiveAfter: project.archiveAfter?.toISOString() ?? null,
     createdAt: project.createdAt.toISOString(),
@@ -514,7 +509,7 @@ interface RoutePagination {
   limit: number;
 }
 
-function parsePagination(request: Request, kind: PageCursorKind): RoutePagination {
+function parsePagination(request: Request, cursorType: PageCursorType): RoutePagination {
   const url = new URL(request.url);
   const parsed = PaginationQuerySchema.safeParse({
     cursor: url.searchParams.get("cursor") ?? undefined,
@@ -526,12 +521,12 @@ function parsePagination(request: Request, kind: PageCursorKind): RoutePaginatio
   if (parsed.data.cursor === undefined) {
     return { limit: parsed.data.limit };
   }
-  const cursor = decodePageCursor(parsed.data.cursor, kind);
+  const cursor = decodePageCursor(parsed.data.cursor, cursorType);
   return {
     cursor: {
       at: cursor.at,
       id: cursor.id,
-      ...(cursor.kind === "messages" ? { segment: cursor.segment } : {}),
+      ...(cursor.type === "messages" ? { segment: cursor.segment } : {}),
     },
     limit: parsed.data.limit,
   };
@@ -540,7 +535,7 @@ function parsePagination(request: Request, kind: PageCursorKind): RoutePaginatio
 function paginateRows<T extends { agentRunSegment?: number; id: string; pageCursorAt: string }>(
   rows: T[],
   pagination: RoutePagination,
-  kind: PageCursorKind,
+  cursorType: PageCursorType,
 ): { data: T[]; has_more: boolean; next_cursor: string | null } {
   const hasMore = rows.length > pagination.limit;
   const data = hasMore ? rows.slice(0, pagination.limit) : rows;
@@ -548,25 +543,25 @@ function paginateRows<T extends { agentRunSegment?: number; id: string; pageCurs
   return {
     data,
     has_more: hasMore,
-    next_cursor: hasMore && last ? encodePageCursor(pageCursorFromRow(last, kind)) : null,
+    next_cursor: hasMore && last ? encodePageCursor(pageCursorFromRow(last, cursorType)) : null,
   };
 }
 
 function pageCursorFromRow(
   row: { agentRunSegment?: number; id: string; pageCursorAt: string },
-  kind: PageCursorKind,
+  cursorType: PageCursorType,
 ): z.infer<typeof PageCursorSchema> {
   const identity = { at: row.pageCursorAt, id: row.id };
-  if (kind === "messages") {
+  if (cursorType === "messages") {
     if (!Number.isSafeInteger(row.agentRunSegment) || Number(row.agentRunSegment) < 0) {
       throw new TypeError("Message page row is missing its transcript segment.");
     }
-    return { ...identity, kind, segment: Number(row.agentRunSegment), v: 2 };
+    return { ...identity, segment: Number(row.agentRunSegment), type: cursorType, v: 2 };
   }
-  return { ...identity, kind, v: 1 };
+  return { ...identity, type: cursorType, v: 1 };
 }
 
-function decodePageCursor(value: string, expectedKind: PageCursorKind) {
+function decodePageCursor(value: string, expectedType: PageCursorType) {
   try {
     if (!/^[A-Za-z0-9_-]+$/u.test(value)) {
       throw new Error("invalid base64url");
@@ -574,12 +569,12 @@ function decodePageCursor(value: string, expectedKind: PageCursorKind) {
     const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
     const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
     const parsed = PageCursorSchema.parse(JSON.parse(atob(padded)) as unknown);
-    if (parsed.kind !== expectedKind) {
-      throw new Error("cursor kind mismatch");
+    if (parsed.type !== expectedType) {
+      throw new Error("cursor type mismatch");
     }
     return parsed;
   } catch {
-    throw new APIError(400, "invalid_query_param", "Invalid pagination cursor", {
+    throw new APIError(400, "request_query_param_invalid", "Invalid pagination cursor", {
       hint: "Use next_cursor from the immediately preceding page of this collection.",
       retriable: false,
     });
@@ -594,30 +589,30 @@ function encodePageCursor(cursor: z.infer<typeof PageCursorSchema>): string {
 }
 
 function invalidRequestBody(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_request_body", message, {
+  return new APIError(400, "request_body_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });
 }
 
 function invalidPathParam(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_path_param", message, {
+  return new APIError(400, "request_path_param_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });
 }
 
 function invalidQueryParam(message: string, error: z.ZodError): APIError {
-  return new APIError(400, "invalid_query_param", message, {
+  return new APIError(400, "request_query_param_invalid", message, {
     details: { issues: error.issues.map((issue) => issue.message) },
     retriable: false,
   });
 }
 
 function projectNotFound(): APIError {
-  return new APIError(404, "not_found_project", "Project not found", { retriable: false });
+  return new APIError(404, "resource_project_not_found", "Project not found", { retriable: false });
 }
 
 function threadNotFound(): APIError {
-  return new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+  return new APIError(404, "resource_thread_not_found", "Thread not found", { retriable: false });
 }

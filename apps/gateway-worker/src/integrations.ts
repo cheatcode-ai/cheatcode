@@ -93,7 +93,7 @@ type LiveConnectedAccount = z.infer<typeof ComposioConnectedAccountsSchema>["ite
 export function parseIntegrationName(name: string): IntegrationName {
   const parsed = IntegrationNameSchema.safeParse(name);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Unsupported integration", {
+    throw new APIError(400, "request_path_param_invalid", "Unsupported integration", {
       details: { integration: name },
       retriable: false,
     });
@@ -104,7 +104,7 @@ export function parseIntegrationName(name: string): IntegrationName {
 export function parseComposioConnectionId(value: string): string {
   const parsed = ComposioConnectionIdSchema.safeParse(value);
   if (!parsed.success) {
-    throw new APIError(400, "invalid_path_param", "Invalid connected account ID", {
+    throw new APIError(400, "request_path_param_invalid", "Invalid connected account ID", {
       retriable: false,
     });
   }
@@ -459,7 +459,7 @@ async function readConfiguredAuthConfigId(
     }
     return ComposioAuthConfigMapSchema.parse(JSON.parse(raw) as unknown)[integration];
   } catch {
-    throw new APIError(503, "unavailable_maintenance", "COMPOSIO_AUTH_CONFIGS is invalid", {
+    throw new APIError(503, "service_maintenance_unavailable", "COMPOSIO_AUTH_CONFIGS is invalid", {
       hint: "Set COMPOSIO_AUTH_CONFIGS to a JSON object keyed by integration slug.",
       retriable: false,
     });
@@ -493,7 +493,7 @@ async function requireAccountRecord(
 ): Promise<UserIntegrationRecord> {
   const record = await findUserIntegrationByConnectionId(db, input);
   if (!record) {
-    throw new APIError(404, "not_found_tool", "Connected account not found", {
+    throw new APIError(404, "resource_tool_not_found", "Connected account not found", {
       retriable: false,
     });
   }
@@ -532,13 +532,13 @@ async function readRequiredSecret(secret: WorkerSecret | undefined, name: string
   try {
     value = await resolveWorkerSecret(secret);
   } catch {
-    throw new APIError(503, "unavailable_maintenance", `${name} is unavailable`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is unavailable`, {
       hint: `Verify the ${name} Cloudflare Secrets Store binding and secret value.`,
       retriable: false,
     });
   }
   if (!value) {
-    throw new APIError(503, "unavailable_maintenance", `${name} is not configured`, {
+    throw new APIError(503, "service_maintenance_unavailable", `${name} is not configured`, {
       hint: `Set ${name} in the gateway Worker environment.`,
       retriable: false,
     });

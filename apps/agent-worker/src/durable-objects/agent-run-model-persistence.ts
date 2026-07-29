@@ -1,6 +1,6 @@
 import { updateAgentRunLogicalModelId, withUserDb } from "@cheatcode/db";
 import type { Logger } from "@cheatcode/observability";
-import { AgentRunId, type LogicalModelId, UserId } from "@cheatcode/types";
+import { type LogicalModelId, toAgentRunId, toUserId } from "@cheatcode/types";
 import type { AgentRunEnv } from "./agent-run-env";
 import { updateRunRowLogicalModelId } from "./agent-run-storage";
 import { closeDatabaseBestEffort } from "./db-close";
@@ -23,13 +23,13 @@ export async function persistAgentRunLogicalModel(
 ): Promise<void> {
   await withUserDb(
     input.env,
-    UserId(input.userId),
+    toUserId(input.userId),
     async ({ transaction }) => {
       const updated = await transaction((db) =>
         updateAgentRunLogicalModelId(db, {
           logicalModelId: input.logicalModelId,
-          runId: AgentRunId(input.runId),
-          userId: UserId(input.userId),
+          runId: toAgentRunId(input.runId),
+          userId: toUserId(input.userId),
         }),
       );
       if (!updated) {

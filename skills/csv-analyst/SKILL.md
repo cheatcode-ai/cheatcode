@@ -14,7 +14,7 @@ Analyze tabular data reproducibly. Profile first, then answer the user's busines
 ## Quick Start
 
 1. Locate the file with `fs_list` or ask for it if missing.
-2. Use `data_analyze_csv` or focused Python via `runCode` to profile the file.
+2. Use `data_analyze_csv` or focused Python via `code_run` to profile the file.
 3. Inspect row count, columns, missingness, inferred types, and suspicious values.
 4. Write focused, reproducible analysis code in `/workspace/analysis/`.
 5. Generate charts only when they answer the question.

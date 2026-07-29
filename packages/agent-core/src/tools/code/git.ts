@@ -8,43 +8,35 @@ import {
   WorkspaceRelativePathSchema,
 } from "./workspace-paths";
 
-export const GitStatusInputSchema = z
-  .object({
-    cwd: WorkspacePathSchema.default("/workspace").describe("Repository under /workspace."),
-  })
-  .strict();
+export const GitStatusInputSchema = z.strictObject({
+  cwd: WorkspacePathSchema.default("/workspace").describe("Repository under /workspace."),
+});
 
-export const GitCloneInputSchema = z
-  .object({
-    repoUrl: z
-      .string()
-      .url()
-      .refine(isSafeCloneUrl, "Clone URL must be credential-free HTTPS without query data.")
-      .describe("Credential-free HTTPS Git repository URL to clone."),
-    targetDir: WorkspaceRelativePathSchema.describe("Relative directory name under /workspace."),
-    branch: z.string().min(1).max(200).optional().describe("Optional branch or tag to clone."),
-    depth: z.number().int().positive().max(1000).default(1).describe("Clone depth."),
-  })
-  .strict();
+export const GitCloneInputSchema = z.strictObject({
+  repoUrl: z
+    .string()
+    .url()
+    .refine(isSafeCloneUrl, "Clone URL must be credential-free HTTPS without query data.")
+    .describe("Credential-free HTTPS Git repository URL to clone."),
+  targetDir: WorkspaceRelativePathSchema.describe("Relative directory name under /workspace."),
+  branch: z.string().min(1).max(200).optional().describe("Optional branch or tag to clone."),
+  depth: z.number().int().positive().max(1000).default(1).describe("Clone depth."),
+});
 
-export const GitCommitInputSchema = z
-  .object({
-    cwd: WorkspacePathSchema.describe("Repository directory under /workspace."),
-    message: z.string().min(1).max(500).describe("Commit message."),
-  })
-  .strict();
+export const GitCommitInputSchema = z.strictObject({
+  cwd: WorkspacePathSchema.describe("Repository directory under /workspace."),
+  message: z.string().min(1).max(500).describe("Commit message."),
+});
 
-export const GitPushInputSchema = z
-  .object({
-    cwd: WorkspacePathSchema.describe("Repository directory under /workspace."),
-    remote: z
-      .string()
-      .regex(/^[A-Za-z\d][A-Za-z\d._-]{0,99}$/u)
-      .default("origin")
-      .describe("Remote name."),
-    branch: z.string().min(1).max(200).optional().describe("Local branch to push."),
-  })
-  .strict();
+export const GitPushInputSchema = z.strictObject({
+  cwd: WorkspacePathSchema.describe("Repository directory under /workspace."),
+  remote: z
+    .string()
+    .regex(/^[A-Za-z\d][A-Za-z\d._-]{0,99}$/u)
+    .default("origin")
+    .describe("Remote name."),
+  branch: z.string().min(1).max(200).optional().describe("Local branch to push."),
+});
 
 const GitOutputSchema = ShellExecOutputSchema;
 const PUSH_URL_REWRITE_KEY = /^url\..+\.(?:insteadof|pushinsteadof)$/iu;

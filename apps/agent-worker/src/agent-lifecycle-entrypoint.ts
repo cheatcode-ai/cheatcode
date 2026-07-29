@@ -15,12 +15,10 @@ import { z } from "zod";
 import { deleteAgentUserState } from "./agent-api-system-routes";
 import type { AgentEnv } from "./agent-env";
 
-const AgentLifecycleCallerSchema = z
-  .object({
-    caller: z.literal("webhooks"),
-    capability: z.literal("agent-lifecycle"),
-  })
-  .strict();
+const AgentLifecycleCallerSchema = z.strictObject({
+  caller: z.literal("webhooks"),
+  capability: z.literal("agent-lifecycle"),
+});
 
 type AgentLifecycleCaller = z.infer<typeof AgentLifecycleCallerSchema>;
 

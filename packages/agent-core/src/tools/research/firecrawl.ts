@@ -255,7 +255,7 @@ async function pollFirecrawlExtract(
     }
     await abortableDelay(Math.min(FIRECRAWL_EXTRACT_POLL_INTERVAL_MS, remainingMs), abortSignal);
   }
-  throw new APIError(504, "tool_timeout", "Firecrawl extraction timed out", {
+  throw new APIError(504, "tool_execution_timeout", "Firecrawl extraction timed out", {
     hint: "Retry with fewer URLs or a narrower extraction schema.",
     retriable: true,
   });

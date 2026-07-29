@@ -32,12 +32,8 @@ export {
 export type { AgentCapabilityName, ToolCapabilityName } from "./capabilities";
 export type { ErrorCode } from "./errors";
 export { ErrorResponseSchema } from "./errors";
-export {
-  AgentRunId,
-  ProjectId,
-  ThreadId,
-  UserId,
-} from "./ids";
+export type { AgentRunId, ProjectId, ThreadId, UserId } from "./ids";
+export { toAgentRunId, toProjectId, toThreadId, toUserId } from "./ids";
 export type { IntegrationName } from "./integrations";
 export { IntegrationNameSchema } from "./integrations";
 export type { CatalogModelId, LogicalModelId } from "./models";

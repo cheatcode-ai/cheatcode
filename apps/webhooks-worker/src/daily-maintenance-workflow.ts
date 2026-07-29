@@ -30,24 +30,22 @@ const DailyMaintenanceDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
 const ScheduledTimeSchema = z.number().int().nonnegative().max(8_640_000_000_000_000);
 const ArtifactIntentPageSchema = z
   .array(
-    z
-      .object({
-        cleanupNotBefore: z.string().datetime({ offset: true }),
-        id: z.string().uuid(),
-        quiescedAt: z.string().datetime({ offset: true }),
-        r2Key: z.string().min(1),
-      })
-      .strict(),
+    z.strictObject({
+      cleanupNotBefore: z.string().datetime({ offset: true }),
+      id: z.string().uuid(),
+      quiescedAt: z.string().datetime({ offset: true }),
+      r2Key: z.string().min(1),
+    }),
   )
   .max(ARTIFACT_INTENT_PAGE_SIZE);
 
 const DailyMaintenancePayloadSchema = z
-  .object({
+  .strictObject({
     cleanupCutoff: z.string().datetime({ offset: true }),
     day: DailyMaintenanceDaySchema,
     kind: z.literal("daily-maintenance"),
   })
-  .strict()
+
   .superRefine((payload, ctx) => {
     if (new Date(payload.cleanupCutoff).toISOString().slice(0, 10) !== payload.day) {
       ctx.addIssue({

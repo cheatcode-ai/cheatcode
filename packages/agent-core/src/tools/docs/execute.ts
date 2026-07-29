@@ -23,13 +23,11 @@ import {
 } from "./schemas";
 import { buildDocxScript, buildPdfScript, buildSlidesScript, buildXlsxScript } from "./scripts";
 
-const SandboxArtifactSchema = z
-  .object({
-    base64: z.string().min(1),
-    filename: z.string().min(1),
-    mimeType: z.string().min(1),
-  })
-  .strict();
+const SandboxArtifactSchema = z.strictObject({
+  base64: z.string().min(1),
+  filename: z.string().min(1),
+  mimeType: z.string().min(1),
+});
 
 type SandboxArtifact = z.infer<typeof SandboxArtifactSchema>;
 
@@ -110,7 +108,7 @@ async function runArtifactScript(
   kind: ArtifactKind,
 ): Promise<ArtifactUploadResult> {
   if (!runtimeContext.artifacts) {
-    throw new APIError(500, "internal_error", "Artifact storage is unavailable", {
+    throw new APIError(500, "internal_service_error", "Artifact storage is unavailable", {
       retriable: true,
     });
   }

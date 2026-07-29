@@ -172,7 +172,7 @@ export class AgentRunBrowserTakeover {
 
   private ownerError(userId: string): Response | null {
     if (this.deps.getOwnerUserId() === userId) return null;
-    return new APIError(403, "permission_denied", "Run ownership mismatch", {
+    return new APIError(403, "permission_access_denied", "Run ownership mismatch", {
       retriable: false,
     }).toResponse(requestId());
   }

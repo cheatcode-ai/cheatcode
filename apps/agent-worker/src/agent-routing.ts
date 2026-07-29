@@ -16,7 +16,7 @@ import {
   withUserDb,
 } from "@cheatcode/db";
 import { APIError, createLogger, emitUserEvent } from "@cheatcode/observability";
-import { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
+import { toAgentRunId, toProjectId, toThreadId, toUserId, type UserId } from "@cheatcode/types";
 import type { CreateRun, ProjectSummary } from "@cheatcode/types/api";
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { AgentEnv } from "./agent-env";
@@ -39,9 +39,9 @@ export interface RunEntitlementSnapshot {
 }
 
 export type AgentRunAdmissionOutcome =
-  | { response: Response; type: "confirmed" }
-  | { type: "absent" }
-  | { type: "ambiguous" };
+  | { response: Response; kind: "confirmed" }
+  | { kind: "absent" }
+  | { kind: "ambiguous" };
 
 /** Raw user-keyed stub for account maintenance that must bypass owner registration. */
 export async function sandboxStubForUser(
@@ -74,12 +74,14 @@ export async function requireWritableThreadProject(
   userId: string,
   threadId: string,
 ): Promise<void> {
-  const parsedUserId = UserId(userId);
+  const parsedUserId = toUserId(userId);
   return withUserDb(env, parsedUserId, async ({ transaction }) => {
     await transaction(async (tx) => {
-      const thread = await getThread(tx, { threadId: ThreadId(threadId), userId: parsedUserId });
+      const thread = await getThread(tx, { threadId: toThreadId(threadId), userId: parsedUserId });
       if (!thread) {
-        throw new APIError(404, "not_found_thread", "Thread not found", { retriable: false });
+        throw new APIError(404, "resource_thread_not_found", "Thread not found", {
+          retriable: false,
+        });
       }
       if (!thread.projectId) {
         // Project-less chats stay writable until a workspace-backed tool materializes a project.
@@ -90,7 +92,9 @@ export async function requireWritableThreadProject(
         userId: parsedUserId,
       });
       if (!state) {
-        throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+        throw new APIError(404, "resource_project_not_found", "Project not found", {
+          retriable: false,
+        });
       }
       if (state.readOnly) {
         throw new APIError(
@@ -117,15 +121,17 @@ export async function requireProjectAccess(
   projectId: string,
   writable: boolean,
 ): Promise<ProjectSummary & { workspaceSlug: string }> {
-  const parsedUserId = UserId(userId);
+  const parsedUserId = toUserId(userId);
   return withUserDb(env, parsedUserId, async ({ transaction }) => {
     return await transaction(async (tx) => {
       const project = await getProject(tx, {
-        projectId: ProjectId(projectId),
+        projectId: toProjectId(projectId),
         userId: parsedUserId,
       });
       if (!project) {
-        throw new APIError(404, "not_found_project", "Project not found", { retriable: false });
+        throw new APIError(404, "resource_project_not_found", "Project not found", {
+          retriable: false,
+        });
       }
       if (writable && project.readOnly) {
         throw new APIError(
@@ -158,7 +164,7 @@ export function agentRunForRunId(env: AgentEnv, runId: string): DurableObjectStu
 
 interface StartAgentRunInput {
   body: CreateRun;
-  modelExplicit: boolean;
+  isModelExplicit: boolean;
   personalization: RunPersonalization;
   run: AgentRunHandle;
   sandboxName: string;
@@ -169,7 +175,7 @@ export async function startAgentRun(
   env: AgentEnv,
   input: StartAgentRunInput,
 ): Promise<AgentRunAdmissionOutcome> {
-  const { body, modelExplicit, personalization, run, sandboxName, userId } = input;
+  const { body, isModelExplicit, personalization, run, sandboxName, userId } = input;
   const messageText = extractRunMessageText(body);
   const stub = agentRunForRunId(env, run.runId);
   const startInput = StartRunInputSchema.parse({
@@ -182,7 +188,7 @@ export async function startAgentRun(
     ...(run.importRepoUrl ? { importRepoUrl: run.importRepoUrl } : {}),
     messageText,
     model: run.modelId,
-    modelExplicit,
+    isModelExplicit,
     ...(body.intent ? { runIntent: body.intent } : {}),
     ...(run.projectId ? { projectId: run.projectId } : {}),
     ...(run.workspaceSlug ? { workspaceSlug: run.workspaceSlug } : {}),
@@ -193,7 +199,7 @@ export async function startAgentRun(
     userId,
   });
   const outcome = await attemptAgentRunStart(stub, userId, startInput);
-  if (outcome.type === "confirmed") {
+  if (outcome.kind === "confirmed") {
     emitRunStartEvents(env, { messageText, response: outcome.response, run, userId });
   }
   return outcome;
@@ -216,14 +222,14 @@ async function attemptAgentRunStart(
   try {
     const first = await stub.start(startInput);
     if (first.ok) {
-      return { response: first, type: "confirmed" };
+      return { response: first, kind: "confirmed" };
     }
     await discardResponse(first);
   } catch {
     try {
       const retry = await stub.start(startInput);
       if (retry.ok) {
-        return { response: retry, type: "confirmed" };
+        return { response: retry, kind: "confirmed" };
       }
       await discardResponse(retry);
     } catch {
@@ -242,15 +248,15 @@ async function probeAgentRunAdmission(
   try {
     statusResponse = await stub.status(userId);
   } catch {
-    return { type: "ambiguous" };
+    return { kind: "ambiguous" };
   }
   if (statusResponse.status === 204) {
     await discardResponse(statusResponse);
-    return { type: "absent" };
+    return { kind: "absent" };
   }
   if (!statusResponse.ok) {
     await discardResponse(statusResponse);
-    return { type: "ambiguous" };
+    return { kind: "ambiguous" };
   }
   await discardResponse(statusResponse);
   return reconnectAgentRunStream(stub, userId);
@@ -265,13 +271,13 @@ async function reconnectAgentRunStream(
       headers: { "X-Cheatcode-User-Id": userId },
     });
     if (response.ok) {
-      return { response, type: "confirmed" };
+      return { response, kind: "confirmed" };
     }
     await discardResponse(response);
   } catch {
-    return { type: "ambiguous" };
+    return { kind: "ambiguous" };
   }
-  return { type: "ambiguous" };
+  return { kind: "ambiguous" };
 }
 
 async function discardResponse(response: Response): Promise<void> {
@@ -352,7 +358,7 @@ async function peekSandboxHoursUsed(stub: QuotaTrackerStub, periodEnd: Date): Pr
 }
 
 function quotaTrackerUnavailableError(): APIError {
-  return new APIError(503, "unavailable_maintenance", "Quota tracker is unavailable", {
+  return new APIError(503, "service_maintenance_unavailable", "Quota tracker is unavailable", {
     hint: "Retry the request. If it persists, check the QuotaTracker Durable Object logs.",
     retriable: true,
   });
@@ -380,7 +386,7 @@ function sandboxHoursExhaustedError(
   resetAt: number,
   tier: string,
 ): APIError {
-  return new APIError(402, "quota_exhausted_sandbox_hours", "Monthly sandbox hours exhausted", {
+  return new APIError(402, "quota_sandbox_hours_exhausted", "Monthly sandbox hours exhausted", {
     details: {
       resetAt: new Date(resetAt).toISOString(),
       sandboxHoursTotal: allowanceHours,
@@ -397,11 +403,11 @@ export async function activeRunForThreadRoute(
   userId: string,
   threadId: string,
 ): Promise<AgentRunHandle | null> {
-  return withUserDb(env, UserId(userId), async ({ transaction }) => {
+  return withUserDb(env, toUserId(userId), async ({ transaction }) => {
     return await transaction((tx) =>
       findActiveAgentRunForThread(tx, {
-        threadId: ThreadId(threadId),
-        userId: UserId(userId),
+        threadId: toThreadId(threadId),
+        userId: toUserId(userId),
       }),
     );
   });
@@ -412,15 +418,15 @@ export async function runForRoute(
   userId: string,
   runId: string,
 ): Promise<AgentRunHandle> {
-  return withUserDb(env, UserId(userId), async ({ transaction }) => {
+  return withUserDb(env, toUserId(userId), async ({ transaction }) => {
     const run = await transaction((tx) =>
       findAgentRunForUser(tx, {
-        runId: AgentRunId(runId),
-        userId: UserId(userId),
+        runId: toAgentRunId(runId),
+        userId: toUserId(userId),
       }),
     );
     if (!run) {
-      throw new APIError(404, "not_found_run", "Run not found", { retriable: false });
+      throw new APIError(404, "resource_run_not_found", "Run not found", { retriable: false });
     }
     return run;
   });
@@ -454,7 +460,7 @@ export async function callAgentRun(operation: Promise<Response>): Promise<Respon
 
 function agentRunUnavailableError(error: unknown): APIError {
   const isFreeTierDuration = isDurableObjectFreeTierDurationError(error);
-  return new APIError(503, "unavailable_maintenance", "Agent run service is unavailable", {
+  return new APIError(503, "service_maintenance_unavailable", "Agent run service is unavailable", {
     details: {
       reason: isFreeTierDuration
         ? "durable_object_free_tier_duration_exceeded"

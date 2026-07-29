@@ -1,8 +1,8 @@
 "use client";
 
 import type { Provider } from "@cheatcode/types/api";
+import { useProviderKeysController } from "./provider-keys-controller";
 import { ProviderKeysList } from "./provider-keys-list";
-import { useProviderKeysController } from "./use-provider-keys-controller";
 
 export function ProviderKeysPanel({
   activeProvider,

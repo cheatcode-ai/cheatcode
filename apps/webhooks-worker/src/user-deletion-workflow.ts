@@ -21,7 +21,7 @@ import {
   type UserDeletionPage,
 } from "@cheatcode/db";
 import { createLogger } from "@cheatcode/observability";
-import { UserId } from "@cheatcode/types";
+import { toUserId, type UserId } from "@cheatcode/types";
 import { z } from "zod";
 import {
   CREATE_STEP_OPTIONS,
@@ -69,44 +69,39 @@ const COMPOSIO_STEP_OPTIONS = {
   timeout: "2 minutes",
 } as const;
 
-const ActiveJobSchema = z
-  .object({
-    continuation: z.number().int().nonnegative(),
-    cursor: z.string().nullable(),
-    deletionFence: z.string().regex(/^\d+$/u),
-    generation: z.string().datetime({ offset: true }),
-    jobId: z.string().uuid(),
-    leaseToken: z.string().uuid(),
-    phase: UserDeletionPhaseSchema,
-    userId: z.string().uuid(),
-  })
-  .strict();
+const ActiveJobSchema = z.strictObject({
+  continuation: z.number().int().nonnegative(),
+  cursor: z.string().nullable(),
+  deletionFence: z.string().regex(/^\d+$/u),
+  generation: z.string().datetime({ offset: true }),
+  jobId: z.string().uuid(),
+  leaseToken: z.string().uuid(),
+  phase: UserDeletionPhaseSchema,
+  userId: z.string().uuid(),
+});
 const ClaimedJobSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.enum(["lost", "stale"]) }).strict(),
-  z.object({ job: ActiveJobSchema, state: z.literal("active") }).strict(),
+  z.strictObject({ state: z.enum(["lost", "stale"]) }),
+  z.strictObject({ job: ActiveJobSchema, state: z.literal("active") }),
 ]);
-const DeletionContextSchema = z
-  .object({
-    clerkIdentityHash: z.string().regex(/^[0-9a-f]{64}$/u),
-    deletionFence: z.string().regex(/^\d+$/u),
-    polarCustomerId: z.string().nullable(),
-    polarCurrentPeriodEndMs: z.number().int().nullable(),
-    polarCurrentPeriodStartMs: z.number().int().nullable(),
-    polarSubscriptionId: z.string().nullable(),
-    userId: z.string().uuid(),
-  })
-  .strict();
-const DeletionPageSchema = z
-  .object({
-    items: z.array(z.string().min(1)).max(RUN_PAGE_SIZE),
-    nextCursor: z.string().min(1).nullable(),
-  })
-  .strict();
-const R2DeletionResultSchema = z
-  .object({ deleted: z.number().int().nonnegative().max(1_000), hasMore: z.boolean() })
-  .strict();
+const DeletionContextSchema = z.strictObject({
+  clerkIdentityHash: z.string().regex(/^[0-9a-f]{64}$/u),
+  deletionFence: z.string().regex(/^\d+$/u),
+  polarCustomerId: z.string().nullable(),
+  polarCurrentPeriodEndMs: z.number().int().nullable(),
+  polarCurrentPeriodStartMs: z.number().int().nullable(),
+  polarSubscriptionId: z.string().nullable(),
+  userId: z.string().uuid(),
+});
+const DeletionPageSchema = z.strictObject({
+  items: z.array(z.string().min(1)).max(RUN_PAGE_SIZE),
+  nextCursor: z.string().min(1).nullable(),
+});
+const R2DeletionResultSchema = z.strictObject({
+  deleted: z.number().int().nonnegative().max(1_000),
+  hasMore: z.boolean(),
+});
 
-type ActiveJob = z.infer<typeof ActiveJobSchema> & { userId: ReturnType<typeof UserId> };
+type ActiveJob = z.infer<typeof ActiveJobSchema> & { userId: UserId };
 type ActionOutcome = DeletionActionOutcome;
 type WorkflowOutcome = DeletionWorkflowOutcome;
 type ExternalStepOptions = typeof COMPOSIO_STEP_OPTIONS | typeof EXTERNAL_STEP_OPTIONS;
@@ -223,7 +218,9 @@ async function loadCurrentJob(
       : { state: claimed.state };
   });
   const claimed = ClaimedJobSchema.parse(value);
-  return claimed.state === "active" ? { ...claimed.job, userId: UserId(claimed.job.userId) } : null;
+  return claimed.state === "active"
+    ? { ...claimed.job, userId: toUserId(claimed.job.userId) }
+    : null;
 }
 
 function jobToWire(job: UserDeletionJobRecord): z.infer<typeof ActiveJobSchema> {
@@ -516,7 +513,7 @@ async function loadContext(
     ),
   );
   const parsed = DeletionContextSchema.parse(value);
-  return { ...parsed, userId: UserId(parsed.userId) };
+  return { ...parsed, userId: toUserId(parsed.userId) };
 }
 
 async function advanceJob(
@@ -624,7 +621,7 @@ function payloadLease(payload: UserDeletionPayload): UserDeletionJobLease {
     continuation: payload.continuation,
     jobId: payload.jobId,
     leaseToken: payload.leaseToken,
-    userId: UserId(payload.userId),
+    userId: toUserId(payload.userId),
   };
 }
 

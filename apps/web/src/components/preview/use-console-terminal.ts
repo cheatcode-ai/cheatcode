@@ -117,19 +117,19 @@ function createTerminalActions({
   return {
     addConsoleTab: () => {
       dispatch(
-        terminalCwd === undefined ? { type: "add-tab" } : { cwd: terminalCwd, type: "add-tab" },
+        terminalCwd === undefined ? { kind: "add-tab" } : { cwd: terminalCwd, kind: "add-tab" },
       );
       onOpen();
     },
-    closeConsoleTab: (tabId) => dispatch({ tabId, type: "close-tab" }),
+    closeConsoleTab: (tabId) => dispatch({ tabId, kind: "close-tab" }),
     selectConsoleTab: (tabId) => {
-      dispatch({ tabId, type: "select-tab" });
+      dispatch({ tabId, kind: "select-tab" });
       onOpen();
     },
     submitActiveCommand: () => submitCommand(activeConsole, isDisabled, dispatch, mutate),
     updateActiveCommand: (command) => {
       if (activeConsole) {
-        dispatch({ command, tabId: activeConsole.id, type: "update-command" });
+        dispatch({ command, tabId: activeConsole.id, kind: "update-command" });
       }
     },
   };
@@ -145,6 +145,6 @@ function submitCommand(
   if (!activeConsole || isDisabled || command.length === 0) {
     return;
   }
-  dispatch({ tabId: activeConsole.id, type: "clear-command" });
+  dispatch({ tabId: activeConsole.id, kind: "clear-command" });
   mutate({ command, cwd: activeConsole.cwd, tabId: activeConsole.id });
 }

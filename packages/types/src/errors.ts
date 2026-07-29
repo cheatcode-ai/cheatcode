@@ -4,64 +4,60 @@ export type ErrorCode =
   | "auth_token_missing"
   | "auth_token_invalid"
   | "auth_token_expired"
-  | "payment_required"
+  | "payment_method_required"
   | "payment_method_failed"
   | "subscription_past_due"
-  | "permission_denied"
+  | "permission_access_denied"
   | "permission_plan_required"
-  | "not_found_user"
-  | "not_found_project"
-  | "not_found_thread"
-  | "not_found_run"
-  | "not_found_output"
-  | "not_found_tool"
-  | "not_found_skill"
-  | "invalid_request_body"
-  | "invalid_query_param"
-  | "invalid_path_param"
+  | "resource_user_not_found"
+  | "resource_project_not_found"
+  | "resource_thread_not_found"
+  | "resource_run_not_found"
+  | "resource_output_not_found"
+  | "resource_tool_not_found"
+  | "resource_skill_not_found"
+  | "request_body_invalid"
+  | "request_query_param_invalid"
+  | "request_path_param_invalid"
   | "validation_model_unavailable"
   | "validation_tool_not_registered"
   | "idempotency_key_reused"
   | "validation_byok_required"
-  | "conflict_in_flight"
+  | "conflict_request_in_flight"
   | "conflict_run_already_active"
   | "conflict_state_invalid"
   | "rate_limit_exceeded"
-  | "quota_exhausted_sandbox_hours"
-  | "quota_exhausted_composio_calls"
+  | "quota_sandbox_hours_exhausted"
+  | "quota_composio_calls_exhausted"
   | "byok_key_missing"
   | "byok_key_invalid"
   | "byok_key_quota_exhausted"
   | "sandbox_disk_full"
   | "sandbox_cpu_exhausted"
-  | "sandbox_failed_to_start"
+  | "sandbox_start_failed"
   | "sandbox_command_failed"
   | "sandbox_process_limit_reached"
   | "tool_validation_failed"
   | "tool_execution_failed"
-  | "tool_timeout"
+  | "tool_execution_timeout"
   | "upstream_llm_overloaded"
   | "upstream_llm_failed"
-  | "upstream_timeout_llm"
+  | "upstream_llm_timeout"
   | "upstream_sandbox_failed"
-  | "upstream_timeout_sandbox"
+  | "upstream_sandbox_timeout"
   | "upstream_provider_outage"
   | "repo_import_failed"
-  | "internal_error"
-  | "unavailable_maintenance";
+  | "internal_service_error"
+  | "service_maintenance_unavailable";
 
-export const ErrorResponseSchema = z
-  .object({
-    error: z
-      .object({
-        code: z.string(),
-        message: z.string(),
-        hint: z.string().optional(),
-        retriable: z.boolean(),
-        request_id: z.string(),
-        doc_url: z.string().url(),
-        details: z.record(z.string(), z.unknown()).optional(),
-      })
-      .strict(),
-  })
-  .strict();
+export const ErrorResponseSchema = z.strictObject({
+  error: z.strictObject({
+    code: z.string(),
+    message: z.string(),
+    hint: z.string().optional(),
+    retriable: z.boolean(),
+    request_id: z.string(),
+    doc_url: z.string().url(),
+    details: z.record(z.string(), z.unknown()).optional(),
+  }),
+});

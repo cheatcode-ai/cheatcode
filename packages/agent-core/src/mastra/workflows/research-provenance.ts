@@ -10,51 +10,39 @@ import {
 const RESEARCH_EVIDENCE_CONTEXT_KEY = "researchEvidenceCollector";
 const COLLECTOR_BRAND = Symbol("research-evidence-collector");
 
-const httpUrlSchema = z.string().url();
+const HttpUrlSchema = z.string().url();
 
 const SourceReferenceSchema = z.discriminatedUnion("provider", [
-  z
-    .object({
-      provider: z.literal("exa"),
-      providerResultId: z.string().trim().min(1).max(500),
-      url: httpUrlSchema,
-    })
-    .strict(),
-  z
-    .object({
-      provider: z.literal("firecrawl"),
-      url: httpUrlSchema,
-    })
-    .strict(),
+  z.strictObject({
+    provider: z.literal("exa"),
+    providerResultId: z.string().trim().min(1).max(500),
+    url: HttpUrlSchema,
+  }),
+  z.strictObject({
+    provider: z.literal("firecrawl"),
+    url: HttpUrlSchema,
+  }),
 ]);
 
-export const ResearchPassDraftSchema = z
-  .object({
-    claims: z.array(
-      z
-        .object({
-          claim: z.string().trim().min(1),
-          sources: z.array(SourceReferenceSchema).min(1),
-        })
-        .strict(),
-    ),
-    summary: z.string().trim().min(1),
-  })
-  .strict();
+export const ResearchPassDraftSchema = z.strictObject({
+  claims: z.array(
+    z.strictObject({
+      claim: z.string().trim().min(1),
+      sources: z.array(SourceReferenceSchema).min(1),
+    }),
+  ),
+  summary: z.string().trim().min(1),
+});
 
-export const ResearchSynthesisDraftSchema = z
-  .object({
-    claims: z.array(
-      z
-        .object({
-          claim: z.string().trim().min(1),
-          sourceIds: z.array(z.string().trim().min(1).max(4_096)).min(1),
-        })
-        .strict(),
-    ),
-    report: z.string().trim().min(1),
-  })
-  .strict();
+export const ResearchSynthesisDraftSchema = z.strictObject({
+  claims: z.array(
+    z.strictObject({
+      claim: z.string().trim().min(1),
+      sourceIds: z.array(z.string().trim().min(1).max(4_096)).min(1),
+    }),
+  ),
+  report: z.string().trim().min(1),
+});
 
 type SourceReference = z.infer<typeof SourceReferenceSchema>;
 type ResearchPassDraft = z.infer<typeof ResearchPassDraftSchema>;

@@ -36,7 +36,7 @@ export async function requestResearchJson(input: ResearchJsonRequest): Promise<u
       throw error;
     }
     if (isTimeoutError(error)) {
-      throw new APIError(504, "tool_timeout", `${input.provider} request timed out`, {
+      throw new APIError(504, "tool_execution_timeout", `${input.provider} request timed out`, {
         hint: "Retry with a narrower research request.",
         retriable: true,
       });

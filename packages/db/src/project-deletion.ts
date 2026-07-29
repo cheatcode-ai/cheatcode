@@ -1,4 +1,10 @@
-import { AgentRunId, type ProjectId, type ThreadId, type UserId } from "@cheatcode/types";
+import {
+  type AgentRunId,
+  type ProjectId,
+  type ThreadId,
+  toAgentRunId,
+  type UserId,
+} from "@cheatcode/types";
 import { and, asc, eq, gt, isNotNull, isNull, or, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { lockUserProjectMutations } from "./projects";
@@ -135,7 +141,7 @@ export async function listProjectDeletionRunIds(
     )
     .orderBy(asc(agentRuns.id))
     .limit(deletionPageSize(input.limit));
-  return rows.map((row) => AgentRunId(row.id));
+  return rows.map((row) => toAgentRunId(row.id));
 }
 
 export async function listThreadDeletionRunIds(
@@ -154,7 +160,7 @@ export async function listThreadDeletionRunIds(
     )
     .orderBy(asc(agentRuns.id))
     .limit(deletionPageSize(input.limit));
-  return rows.map((row) => AgentRunId(row.id));
+  return rows.map((row) => toAgentRunId(row.id));
 }
 
 export async function isProjectDeletionGenerationCurrent(

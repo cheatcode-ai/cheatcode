@@ -11,12 +11,10 @@ const OutputDownloadUrlSchema = z
   .url()
   .refine(isSafeOutputDownloadUrl, "Output download URL must use HTTPS");
 
-export const OutputDownloadUrlResponseSchema = z
-  .object({
-    downloadUrl: OutputDownloadUrlSchema,
-    expiresAt: z.string().datetime({ offset: true }),
-  })
-  .strict();
+export const OutputDownloadUrlResponseSchema = z.strictObject({
+  downloadUrl: OutputDownloadUrlSchema,
+  expiresAt: z.string().datetime({ offset: true }),
+});
 
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
 export type OutputDownloadUrlResponse = z.infer<typeof OutputDownloadUrlResponseSchema>;

@@ -7,7 +7,7 @@ import { entitlementCacheFromValues, quotaPeriodEndFor } from "@cheatcode/billin
 import { findAgentEntitlementByUserId, listAgentIntegrations, withUserDb } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import type { createLogger } from "@cheatcode/observability";
-import { IntegrationNameSchema, UserId } from "@cheatcode/types";
+import { IntegrationNameSchema, toUserId, type UserId } from "@cheatcode/types";
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 import { closeDatabaseBestEffort } from "./db-close";
@@ -42,7 +42,7 @@ export async function resolveComposioRuntimeCredentials(
   logger: ReturnType<typeof createLogger>,
 ): Promise<ComposioRuntimeCredentials> {
   const apiKey = await readOptionalComposioApiKey(env, logger);
-  const userId = UserId(input.userId);
+  const userId = toUserId(input.userId);
   return withUserDb(
     env,
     userId,

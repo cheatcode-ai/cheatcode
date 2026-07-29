@@ -1,5 +1,10 @@
-import { coalesceTranscriptSegmentParts, ThreadId, type UserId } from "@cheatcode/types";
-import { UIMessageRecordSchema } from "@cheatcode/types/api";
+import {
+  coalesceTranscriptSegmentParts,
+  type ThreadId,
+  toThreadId,
+  type UserId,
+} from "@cheatcode/types";
+import { ThreadMessageSchema } from "@cheatcode/types/api";
 import { and, desc, eq, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import { messageFromRow, messageReturningColumns } from "./project-mappers";
@@ -8,7 +13,7 @@ import type {
   MessageRecord,
   ThreadContextMessageRecord,
   TimestampPageCursor,
-  TimestampPageRecord,
+  TimestampPageItem,
 } from "./project-types";
 import { messages, threads } from "./schema";
 
@@ -25,7 +30,7 @@ interface ThreadContextQueryInput {
 export async function listThreadMessages(
   db: Database,
   input: { cursor?: TimestampPageCursor; limit: number; threadId: ThreadId; userId: UserId },
-): Promise<TimestampPageRecord<MessageRecord>[]> {
+): Promise<TimestampPageItem<MessageRecord>[]> {
   const rows = await db
     .select({
       ...messageReturningColumns(),
@@ -144,7 +149,7 @@ function contextMessagesFromRows(rows: unknown[]): ThreadContextMessageRecord[] 
     if (!Number.isSafeInteger(serializedBytes) || Number(serializedBytes) < 0) {
       throw new TypeError("Thread context query returned an invalid serialized byte count");
     }
-    const parsed = UIMessageRecordSchema.parse({
+    const parsed = ThreadMessageSchema.parse({
       agentRunId: value["agent_run_id"],
       agentRunSegment: value["agent_run_segment"],
       agentRunSegmentFinal: value["agent_run_segment_final"],
@@ -158,7 +163,7 @@ function contextMessagesFromRows(rows: unknown[]): ThreadContextMessageRecord[] 
       ...parsed,
       createdAt: new Date(parsed.createdAt),
       serializedBytes: Number(serializedBytes),
-      threadId: ThreadId(parsed.threadId),
+      threadId: toThreadId(parsed.threadId),
     };
   });
 }
