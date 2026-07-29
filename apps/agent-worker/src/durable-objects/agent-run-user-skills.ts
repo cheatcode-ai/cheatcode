@@ -11,11 +11,10 @@ import {
   getUserSkillByName,
   listUserSkillRecords,
   type UserSkillRecord,
-  upsertUserSkill,
   withUserContext,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
-import { UserId } from "@cheatcode/types";
+import { MAX_USER_SKILLS, UserId } from "@cheatcode/types";
 import {
   resolveUserSkillMirror,
   serializeUserSkillMarkdown,
@@ -29,6 +28,7 @@ import {
   type UserSkillPackageFile,
   writeUserSkillPackageMirror,
 } from "../user-skill-packages";
+import { upsertUserSkill } from "../user-skill-policy";
 import type { AgentRunEnv } from "./agent-run-env";
 
 export interface ResolvedUserSkillContext {
@@ -127,7 +127,9 @@ async function readUserSkills(env: AgentRunEnv, userId: UserId): Promise<UserSki
     signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
   });
   try {
-    return await withUserContext(db, userId, (tx) => listUserSkillRecords(tx, userId));
+    return await withUserContext(db, userId, (tx) =>
+      listUserSkillRecords(tx, userId, MAX_USER_SKILLS),
+    );
   } finally {
     await close();
   }

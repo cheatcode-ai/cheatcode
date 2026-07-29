@@ -43,9 +43,12 @@ import {
   type DeletionActionOutcome,
   type DeletionWorkflowOutcome,
   deletionErrorClassifier,
-  MAX_TRANSIENT_DELETION_FAILURES,
   runDeletionActions,
 } from "./deletion-job-runner";
+import {
+  DELETION_JOB_DEFER_POLICY,
+  MAX_TRANSIENT_DELETION_FAILURES,
+} from "./lifecycle/deletion-job-policy";
 import {
   type AgentStateDeletionEnv,
   deleteProjectAgentWorkspace,
@@ -118,11 +121,7 @@ const RESOURCE_DELETION_RUNNER = createDeletionJobRunner<
   defer: (env, step, lease, errorCode, label) =>
     dbStep(step, `${label} defer deletion`, () =>
       withUserDatabase(env, lease.userId, (db) =>
-        deferResourceDeletionJob(db, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferResourceDeletionJob(db, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       ),
     ),
   onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {
@@ -658,11 +657,7 @@ async function deferFailedInstanceCreations(
   await withDatabase(env, async (db) => {
     for (const lease of leases) {
       const deferred = await withUserContext(db, lease.userId, (tx) =>
-        deferResourceDeletionJob(tx, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferResourceDeletionJob(tx, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       );
       if (deferred?.status === "quarantined") {
         quarantined += 1;

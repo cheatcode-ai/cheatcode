@@ -5,7 +5,12 @@ import {
   type QuiescedArtifactUploadIntentRecord,
 } from "./artifact-upload-intents";
 import type { Database } from "./client";
-import { boundedLeaseLimit, createLeaseQueue, type LeaseQueueLease } from "./lease-queue";
+import {
+  boundedLeaseLimit,
+  createLeaseQueue,
+  type LeaseQueueDeferPolicy,
+  type LeaseQueueLease,
+} from "./lease-queue";
 import { type DailyMaintenanceJobPhase, dailyMaintenanceJobs } from "./schema";
 
 type JobRow = typeof dailyMaintenanceJobs.$inferSelect;
@@ -16,7 +21,6 @@ export interface DailyMaintenanceJobLease extends LeaseQueueLease {
 }
 
 const dailyMaintenanceLeaseQueue = createLeaseQueue({
-  deferredStatus: () => "queued",
   identity: (lease: DailyMaintenanceJobLease) => [
     eq(dailyMaintenanceJobs.day, lease.day),
     eq(dailyMaintenanceJobs.releaseVersionId, lease.releaseVersionId),
@@ -27,7 +31,6 @@ const dailyMaintenanceLeaseQueue = createLeaseQueue({
     leaseToken: input.nextLeaseToken,
     releaseVersionId: input.releaseVersionId,
   }),
-  normalizeErrorCode: (errorCode) => errorCode.slice(0, 128),
   table: dailyMaintenanceJobs,
 });
 
@@ -221,10 +224,12 @@ export async function reserveDailyMaintenanceContinuation(
 export async function deferDailyMaintenanceJob(
   db: Database,
   input: DailyMaintenanceJobLease & { errorCode: string },
+  policy: LeaseQueueDeferPolicy<"queued">,
 ): Promise<{ continuation: number; failureCount: number } | null> {
   const deferred = await dailyMaintenanceLeaseQueue.deferJob(
     db,
     input,
+    policy,
     sql`release_version_id = null`,
   );
   return deferred

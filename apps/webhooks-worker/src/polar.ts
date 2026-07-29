@@ -18,6 +18,7 @@ import {
 import { APIError } from "@cheatcode/observability";
 import { type BillingTier, BillingTierSchema, billingTierRank, UserId } from "@cheatcode/types";
 import { z } from "zod";
+import { entitlementResourcePolicy } from "./lifecycle/entitlement-resource-policy";
 
 type PolarProductTierMap = Readonly<Record<string, BillingTier>>;
 
@@ -204,7 +205,7 @@ async function writeEntitlement(
     userId: input.userId,
   });
   await applyEntitlementResourceLimits(db, {
-    maxProjects: values.maxProjects,
+    ...entitlementResourcePolicy(values.maxProjects),
     userId: input.userId,
   });
   return previousTier;

@@ -2,7 +2,13 @@ export type { ActivationEventCursor } from "./activation";
 export { listDailyActivationEventPage } from "./activation";
 export type { AgentRunStartPointRange } from "./activity-runs";
 export { listAgentRunStartPoints } from "./activity-runs";
-export { isAgentStateDeletionAuthorized } from "./agent-state-deletion-authority";
+export {
+  countOwnedProjectRunTargets,
+  countOwnedThreadRunTargets,
+  countOwnedUserRunTargets,
+  isAccountDeletionFenceCurrent,
+  loadProjectWorkspaceDeletionState,
+} from "./agent-state-deletion-data";
 export type {
   ArtifactUploadIdentity,
   ArtifactUploadIntentRecord,
@@ -83,6 +89,8 @@ export {
   deleteResourceDeletionOutputRecords,
   finalizeProjectDeletion,
   finalizeThreadDeletion,
+  isProjectDeletionGenerationCurrent,
+  isThreadDeletionGenerationCurrent,
   listProjectDeletionOutputs,
   listProjectDeletionRunIds,
   listThreadDeletionOutputs,
@@ -156,16 +164,19 @@ export {
   rotateSkillRuntimeCapabilities,
 } from "./skill-runtime-capabilities";
 export type {
+  UpsertUserSkillInput,
   UserSkillRecord,
   UserSkillSummaryRecord,
 } from "./skills";
 export {
+  countUserSkills,
   deleteUserSkill,
   getUserSkillById,
   getUserSkillByName,
   listUserSkillRecords,
   listUserSkillSummaries,
-  upsertUserSkill,
+  updateUserSkill,
+  withLockedUserSkillCatalog,
 } from "./skills";
 export {
   createThreadMessage,

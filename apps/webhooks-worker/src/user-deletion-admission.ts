@@ -15,6 +15,10 @@ import {
 } from "@cheatcode/observability";
 import { z } from "zod";
 import { withDatabase } from "./deletion-job-runner";
+import {
+  DELETION_JOB_DEFER_POLICY,
+  MAX_TRANSIENT_DELETION_FAILURES,
+} from "./lifecycle/deletion-job-policy";
 import type { OpsWorkflowBindings } from "./ops-workflow";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
@@ -48,7 +52,6 @@ export interface UserDeletionAdmissionEnv extends AnalyticsBindings, OpsWorkflow
 const USER_DELETION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 const USER_DELETION_RECONCILIATION_LIMIT = 25;
 const USER_DELETION_CREATION_CONCURRENCY = 10;
-const MAX_TRANSIENT_FAILURES = 8;
 const CREATION_ERROR_CODE = "user_deletion_instance_creation_failed";
 
 export interface UserDeletionAdmissionSummary {
@@ -105,7 +108,7 @@ async function reconcileDeletionJobs(
     const claimed = await claimReadyUserDeletionJobs(db, {
       leaseToken: crypto.randomUUID(),
       limit: USER_DELETION_RECONCILIATION_LIMIT,
-      maxFailures: MAX_TRANSIENT_FAILURES,
+      maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
       now: new Date(scheduledTime),
     });
     return { discovered, ...claimed };
@@ -179,11 +182,11 @@ async function deferFailedCreation(
 ): Promise<"queued" | "quarantined" | null> {
   const deferred = await withDatabase(env, (db) =>
     withUserContext(db, lease.userId, (tx) =>
-      deferUserDeletionJob(tx, {
-        ...lease,
-        errorCode: CREATION_ERROR_CODE,
-        maxFailures: MAX_TRANSIENT_FAILURES,
-      }),
+      deferUserDeletionJob(
+        tx,
+        { ...lease, errorCode: CREATION_ERROR_CODE },
+        DELETION_JOB_DEFER_POLICY,
+      ),
     ),
   );
   createLogger().error("user_deletion_instance_creation_deferred", {

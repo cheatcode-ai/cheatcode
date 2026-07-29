@@ -38,6 +38,11 @@ export interface UserDeletionRefundEvidence {
   providerStatus: UserDeletionRefundProviderStatus;
 }
 
+export type UserDeletionRefundTransitionPolicy = (
+  current: UserDeletionRefundIntentRecord,
+  evidence: UserDeletionRefundEvidence,
+) => void;
+
 /** Load the immutable refund authority only while the exact billing lease is current. */
 export async function loadUserDeletionRefundIntent(
   db: Database,
@@ -57,7 +62,6 @@ export async function reserveUserDeletionRefundIntent(
   db: Database,
   input: UserDeletionRefundLease & UserDeletionRefundCandidate,
 ): Promise<UserDeletionRefundIntentRecord | null> {
-  validateCandidate(input);
   const result = await db.execute(sql`
     select * from public.webhooks_reserve_user_deletion_refund_intent(
       ${input.jobId}::uuid,
@@ -96,30 +100,38 @@ export async function recordUserDeletionRefundEvidence(
     evidence: UserDeletionRefundEvidence;
     intent: UserDeletionRefundIntentRecord;
   },
+  assertTransition: UserDeletionRefundTransitionPolicy,
 ): Promise<UserDeletionRefundIntentRecord | null> {
-  validateEvidence(input.evidence);
-  assertEvidenceIdentity(input.intent, input.evidence);
-  const result = await db.execute(sql`
-    select * from public.webhooks_record_user_deletion_refund_evidence(
-      ${input.jobId}::uuid,
-      ${input.generation},
-      ${input.continuation},
-      ${input.leaseToken}::uuid,
-      ${input.cursor}::text,
-      ${input.intent.orderId},
-      ${input.intent.amount},
-      ${input.intent.currency},
-      ${input.intent.idempotencyKey},
-      ${input.evidence.providerRefundId},
-      ${input.evidence.providerStatus}
-    )
-  `);
-  const recorded = intentFromFunctionRow(result.rows[0]);
-  if (recorded) {
-    assertSameIntent(recorded, input.intent);
-    assertProviderTransition(input.intent, input.evidence);
-  }
-  return recorded;
+  return db.transaction(async (transaction) => {
+    const tx = transaction as Database;
+    if (!(await lockExactBillingLease(tx, input))) {
+      return null;
+    }
+    const current = await lockRefundIntent(tx, input.jobId);
+    assertSameIntent(current, input.intent);
+    assertEvidenceIdentity(current, input.evidence);
+    assertTransition(current, input.evidence);
+    const result = await tx.execute(sql`
+      select * from public.webhooks_record_user_deletion_refund_evidence(
+        ${input.jobId}::uuid,
+        ${input.generation},
+        ${input.continuation},
+        ${input.leaseToken}::uuid,
+        ${input.cursor}::text,
+        ${current.orderId},
+        ${current.amount},
+        ${current.currency},
+        ${current.idempotencyKey},
+        ${input.evidence.providerRefundId},
+        ${input.evidence.providerStatus}
+      )
+    `);
+    const recorded = intentFromFunctionRow(result.rows[0]);
+    if (recorded) {
+      assertSameIntent(recorded, current);
+    }
+    return recorded;
+  });
 }
 
 function lockExactBillingLease(db: Database, lease: UserDeletionRefundLease): Promise<boolean> {
@@ -202,45 +214,6 @@ function assertEvidenceIdentity(
     evidence.currency !== intent.currency
   ) {
     throw new Error("Polar refund evidence does not match its immutable intent");
-  }
-}
-
-function assertProviderTransition(
-  current: UserDeletionRefundIntentRecord,
-  evidence: UserDeletionRefundEvidence,
-): void {
-  if (current.providerRefundId && current.providerRefundId !== evidence.providerRefundId) {
-    throw new Error("Polar refund identity changed during reconciliation");
-  }
-  if (current.providerStatus && !canTransition(current.providerStatus, evidence.providerStatus)) {
-    throw new Error("Polar refund status regressed after terminal reconciliation");
-  }
-}
-
-function canTransition(
-  current: UserDeletionRefundProviderStatus,
-  next: UserDeletionRefundProviderStatus,
-): boolean {
-  return current === "pending" || current === next;
-}
-
-function validateCandidate(candidate: UserDeletionRefundCandidate): void {
-  if (
-    !Number.isSafeInteger(candidate.amount) ||
-    candidate.amount < 1 ||
-    candidate.amount > 2_147_483_647
-  ) {
-    throw new Error("User-deletion refund amount must fit a positive Postgres integer");
-  }
-  if (!/^[a-z]{3}$/u.test(candidate.currency) || !candidate.orderId.trim()) {
-    throw new Error("User-deletion refund order identity is invalid");
-  }
-}
-
-function validateEvidence(evidence: UserDeletionRefundEvidence): void {
-  validateCandidate(evidence);
-  if (!evidence.providerRefundId.trim()) {
-    throw new Error("Polar refund evidence is missing its provider identity");
   }
 }
 

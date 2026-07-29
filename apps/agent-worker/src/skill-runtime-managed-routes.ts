@@ -6,11 +6,11 @@ import {
   setDefaultUserIntegration,
   type UserIntegrationRecord,
   type UserSkillRecord,
-  upsertUserSkill,
   withUserContext,
 } from "@cheatcode/db";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
+import { MAX_USER_SKILLS } from "@cheatcode/types";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -29,6 +29,7 @@ import {
   UserSkillPackageFileSchema,
   writeUserSkillPackageMirror,
 } from "./user-skill-packages";
+import { upsertUserSkill } from "./user-skill-policy";
 
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 type RuntimePrincipal = Awaited<ReturnType<typeof requireSkillRuntimePrincipal>>;
@@ -231,7 +232,7 @@ async function switchDefaultAccount(c: AgentContext): Promise<Response> {
 async function loadManagedState(env: AgentEnv, principal: RuntimePrincipal) {
   return withRuntimeDb(env, principal, async (db) => ({
     integrations: await listUserIntegrations(db, principal.userId),
-    skills: await listUserSkillRecords(db, principal.userId),
+    skills: await listUserSkillRecords(db, principal.userId, MAX_USER_SKILLS),
   }));
 }
 

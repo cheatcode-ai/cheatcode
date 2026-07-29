@@ -132,6 +132,8 @@ instructions, source, schemas, templates, and assets in Files. A hidden mirror
 manifest avoids rewriting unchanged packages and limits cleanup to files previously
 managed by that package, preserving local dependencies and generated output. Curated
 default skills are immutable snapshot files under `/home/node/.cheatcode/default-skills/`.
+Agent-worker owns the custom-skill capacity decision and applies it inside the database's
+per-user locked catalog transaction before inserting a new skill.
 
 Managed processes use required stable IDs and a maximum of 32 live metadata slots per user
 sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the

@@ -1,4 +1,3 @@
-import { entitlementValuesForTier } from "@cheatcode/billing";
 import type {
   AgentRunId,
   LogicalModelId,
@@ -9,7 +8,6 @@ import type {
 } from "@cheatcode/types";
 import {
   AGENT_MODEL_CATALOG,
-  BillingTierSchema,
   LogicalModelIdSchema,
   PRODUCTION_DEFAULT_MODEL_ID,
   ProjectModeSchema,
@@ -18,7 +16,11 @@ import {
   ThreadId as toThreadId,
 } from "@cheatcode/types";
 import { and, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
-import { findAgentEntitlementByUserId, lockUserEntitlementMutations } from "./billing";
+import {
+  type AgentEntitlementRecord,
+  findAgentEntitlementByUserId,
+  lockUserEntitlementMutations,
+} from "./billing";
 import type { Database } from "./client";
 import type { RunPersonalization } from "./profiles";
 import type { ProjectSummaryRecord } from "./project-types";
@@ -204,22 +206,22 @@ async function lockRunIdempotencyKey(db: Database, input: CreateAgentRunInput): 
 export async function materializeThreadProject(
   db: Database,
   input: { threadId: ThreadId; userId: UserId },
+  resolveMaxActiveProjects: (entitlement: AgentEntitlementRecord | null) => number,
 ): Promise<MaterializeThreadProjectResult> {
   return db.transaction(async (tx) => {
     const transaction = tx as Database;
     await lockUserEntitlementMutations(transaction, input.userId);
-    await lockUserProjectMutations(transaction, input.userId);
     const entitlement = await findAgentEntitlementByUserId(transaction, input.userId);
-    const tier = BillingTierSchema.parse(entitlement?.tier ?? "free");
-    return materializeThreadProjectLocked(
+    await lockUserProjectMutations(transaction, input.userId);
+    return materializeThreadProjectInLockedTx(
       transaction,
       input,
-      entitlementValuesForTier(tier).maxProjects,
+      resolveMaxActiveProjects(entitlement),
     );
   });
 }
 
-async function materializeThreadProjectLocked(
+async function materializeThreadProjectInLockedTx(
   db: Database,
   input: { threadId: ThreadId; userId: UserId },
   maxActiveProjects: number,

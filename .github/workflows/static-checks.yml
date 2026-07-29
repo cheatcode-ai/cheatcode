@@ -252,7 +252,7 @@ jobs:
           pnpm exec dependency-cruise \
             --config .dependency-cruiser.cjs \
             --ts-config tsconfig.base.json \
-            --exclude '(^|/)(dist|\.next|\.turbo|node_modules)/' \
+            --exclude '(^|/)(\.next|\.turbo|node_modules)/' \
             "${directories[@]}"
 
       - name: Check dead code

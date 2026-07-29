@@ -1,3 +1,4 @@
+import { entitlementValuesForTier } from "@cheatcode/billing";
 import {
   createDb,
   materializeThreadProject,
@@ -10,7 +11,7 @@ import type {
   WorkspaceBinding,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import { ThreadId, UserId } from "@cheatcode/types";
+import { BillingTierSchema, ThreadId, UserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -82,10 +83,16 @@ async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
   });
   try {
     return await withUserContext(db, userId, (tx) =>
-      materializeThreadProject(tx, {
-        threadId: ThreadId(input.input.threadId),
-        userId,
-      }),
+      materializeThreadProject(
+        tx,
+        {
+          threadId: ThreadId(input.input.threadId),
+          userId,
+        },
+        (entitlement) =>
+          entitlementValuesForTier(BillingTierSchema.parse(entitlement?.tier ?? "free"))
+            .maxProjects,
+      ),
     );
   } finally {
     await close();

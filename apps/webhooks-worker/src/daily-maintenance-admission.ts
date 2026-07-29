@@ -15,6 +15,7 @@ import {
   previousUtcDay,
 } from "./daily-maintenance-workflow";
 import { withDatabase } from "./deletion-job-runner";
+import { DAILY_MAINTENANCE_DEFER_POLICY } from "./lifecycle/deletion-job-policy";
 import type { DeterministicWorkflowResult } from "./workflow-instance";
 
 const MAINTENANCE_RECONCILIATION_LIMIT = 25;
@@ -183,7 +184,7 @@ async function tryDeferLease(
 ): Promise<boolean> {
   try {
     const deferred = await withDatabase(env, (db) =>
-      deferDailyMaintenanceJob(db, { ...lease, errorCode }),
+      deferDailyMaintenanceJob(db, { ...lease, errorCode }, DAILY_MAINTENANCE_DEFER_POLICY),
     );
     return deferred !== null;
   } catch (error) {

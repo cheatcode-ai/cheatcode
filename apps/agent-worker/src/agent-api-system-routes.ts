@@ -1,10 +1,4 @@
-import {
-  createDb,
-  findGeneratedOutput,
-  getProject,
-  isAgentStateDeletionAuthorized,
-  withUserContext,
-} from "@cheatcode/db";
+import { createDb, findGeneratedOutput, getProject, withUserContext } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import {
@@ -25,6 +19,7 @@ import {
   sandboxForUser,
   sandboxStubForUser,
 } from "./agent-routing";
+import { isAgentStateDeletionAuthorized } from "./agent-state-deletion-policy";
 import {
   createOutputDownloadCapability,
   OutputDownloadQuerySchema,

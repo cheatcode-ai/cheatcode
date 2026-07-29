@@ -13,6 +13,7 @@ import {
   boundedLeaseLimit,
   createLeaseQueue,
   type DeferredLeaseQueueJob,
+  type LeaseQueueDeferPolicy,
   type LeaseQueueLease,
   partitionLeaseClaims,
 } from "./lease-queue";
@@ -56,10 +57,6 @@ export interface ResourceDeletionJobLease extends LeaseQueueLease {
 }
 
 const resourceDeletionLeaseQueue = createLeaseQueue({
-  deferredStatus: (
-    failureCount,
-    input: { errorCode: string; maxFailures: number },
-  ): "queued" | "quarantined" => (failureCount >= input.maxFailures ? "quarantined" : "queued"),
   identity: (lease: ResourceDeletionJobLease) => [
     eq(resourceDeletionJobs.id, lease.jobId),
     eq(resourceDeletionJobs.userId, lease.userId),
@@ -283,11 +280,10 @@ export const reserveResourceDeletionContinuation = (
 
 export const deferResourceDeletionJob = (
   db: Database,
-  input: ResourceDeletionJobLease & {
-    errorCode: string;
-    maxFailures: number;
-  },
-): Promise<DeferredResourceDeletionJob | null> => resourceDeletionLeaseQueue.deferJob(db, input);
+  input: ResourceDeletionJobLease & { errorCode: string },
+  policy: LeaseQueueDeferPolicy<"queued" | "quarantined">,
+): Promise<DeferredResourceDeletionJob | null> =>
+  resourceDeletionLeaseQueue.deferJob(db, input, policy);
 
 export const quarantineResourceDeletionJob = (
   db: Database,

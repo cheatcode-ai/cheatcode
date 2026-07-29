@@ -27,6 +27,7 @@ import {
   createDeletionJobRunner,
   withDatabase,
 } from "./deletion-job-runner";
+import { DAILY_MAINTENANCE_DEFER_POLICY } from "./lifecycle/deletion-job-policy";
 import { processOrphanUploadCleanupGeneration } from "./orphan-upload-cleanup";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
@@ -92,7 +93,9 @@ const DAILY_MAINTENANCE_RUNNER = createDeletionJobRunner<
   classify: (error) => ({ errorCode: dailyMaintenanceErrorCode(error), permanent: false }),
   defer: (env, step, lease, errorCode, label) =>
     step.do(`${label} defer daily maintenance job`, DB_STEP_OPTIONS, () =>
-      withDatabase(env, (db) => deferDailyMaintenanceJob(db, { ...lease, errorCode })),
+      withDatabase(env, (db) =>
+        deferDailyMaintenanceJob(db, { ...lease, errorCode }, DAILY_MAINTENANCE_DEFER_POLICY),
+      ),
     ),
   onDeferred: (env, lease, error, errorCode, label, deferred) => {
     createLogger().warn("daily_maintenance_deferred", {

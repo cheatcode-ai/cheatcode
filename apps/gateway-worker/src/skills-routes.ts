@@ -4,7 +4,12 @@ import {
   type UserSkillSummaryRecord,
   withUserContext,
 } from "@cheatcode/db";
-import { type UserId, UserSkillSchema, UserSkillsResponseSchema } from "@cheatcode/types";
+import {
+  MAX_USER_SKILLS,
+  type UserId,
+  UserSkillSchema,
+  UserSkillsResponseSchema,
+} from "@cheatcode/types";
 import type { GatewayEnv } from "./gateway-env";
 import type { WaitUntilContext } from "./wait-until-context";
 
@@ -31,7 +36,9 @@ export async function listUserSkillsRoute(
     signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
   });
   try {
-    const rows = await withUserContext(db, userId, (tx) => listUserSkillSummaries(tx, userId));
+    const rows = await withUserContext(db, userId, (tx) =>
+      listUserSkillSummaries(tx, userId, MAX_USER_SKILLS),
+    );
     return Response.json(UserSkillsResponseSchema.parse({ skills: rows.map(skillSummary) }));
   } finally {
     ctx.waitUntil(close());

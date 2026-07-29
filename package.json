@@ -16,7 +16,7 @@
     "node": "24.18.0"
   },
   "scripts": {
-    "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(dist|\\.next|\\.turbo|node_modules)/' apps packages",
+    "architecture:check": "dependency-cruise --config .dependency-cruiser.cjs --ts-config tsconfig.base.json --exclude '(^|/)(\\.next|\\.turbo|node_modules)/' apps packages",
     "build": "turbo build",
     "db:migrate": "tsx scripts/migrate.ts",
     "db:generate": "turbo db:generate",

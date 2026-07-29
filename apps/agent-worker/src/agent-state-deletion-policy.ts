@@ -1,18 +1,22 @@
+/** Single authority for agent-state deletion authorization, enforced in the withUserContext transaction before any Agent durable-state mutation. */
+
+import {
+  countOwnedProjectRunTargets,
+  countOwnedThreadRunTargets,
+  countOwnedUserRunTargets,
+  type Database,
+  isAccountDeletionFenceCurrent,
+  isProjectDeletionGenerationCurrent,
+  isThreadDeletionGenerationCurrent,
+  loadProjectWorkspaceDeletionState,
+} from "@cheatcode/db";
 import {
   type InternalAgentStateDeleteBody,
   ProjectId,
   ThreadId,
   type UserId,
 } from "@cheatcode/types";
-import { and, eq, inArray, isNotNull } from "drizzle-orm";
-import type { Database } from "./client";
-import {
-  isProjectDeletionGenerationCurrent,
-  isThreadDeletionGenerationCurrent,
-} from "./project-deletion";
-import { agentRuns, projects, threads, users } from "./schema";
 
-/** Proves an exact live database deletion generation before Agent state can be destroyed. */
 export async function isAgentStateDeletionAuthorized(
   db: Database,
   userId: UserId,
@@ -35,15 +39,7 @@ async function isAccountDeletionCurrent(
   userId: UserId,
   deletionFence: string,
 ): Promise<boolean> {
-  const row = await db.query.users.findFirst({
-    columns: { id: true },
-    where: and(
-      eq(users.id, userId),
-      eq(users.deletionFence, deletionFence),
-      isNotNull(users.deletedAt),
-    ),
-  });
-  return row !== undefined;
+  return isAccountDeletionFenceCurrent(db, userId, deletionFence);
 }
 
 async function isProjectWorkspaceDeletionCurrent(
@@ -51,13 +47,13 @@ async function isProjectWorkspaceDeletionCurrent(
   userId: UserId,
   body: Extract<InternalAgentStateDeleteBody, { scope: "project" }>,
 ): Promise<boolean> {
-  const row = await db.query.projects.findFirst({
-    columns: { deletedAt: true, workspaceSlug: true },
-    where: and(eq(projects.id, body.projectId), eq(projects.userId, userId)),
+  const state = await loadProjectWorkspaceDeletionState(db, {
+    projectId: ProjectId(body.projectId),
+    userId,
   });
   return (
-    row?.workspaceSlug === body.workspaceSlug &&
-    row.deletedAt?.getTime() === new Date(body.deletedAt).getTime()
+    state?.workspaceSlug === body.workspaceSlug &&
+    state.deletedAt?.getTime() === new Date(body.deletedAt).getTime()
   );
 }
 
@@ -90,40 +86,19 @@ async function areRunDeletionTargetsOwned(
   if (body.runIds.length === 0) {
     return true;
   }
-  const rows =
+  const owned =
     body.authority.kind === "project"
-      ? await projectRunIds(db, userId, body.authority.projectId, body.runIds)
-      : await db
-          .select({ id: agentRuns.id })
-          .from(agentRuns)
-          .where(
-            and(
-              eq(agentRuns.userId, userId),
-              body.authority.kind === "thread"
-                ? eq(agentRuns.threadId, body.authority.threadId)
-                : undefined,
-              inArray(agentRuns.id, body.runIds),
-            ),
-          );
-  return rows.length === body.runIds.length;
-}
-
-function projectRunIds(
-  db: Database,
-  userId: UserId,
-  projectId: string,
-  runIds: string[],
-): Promise<Array<{ id: string }>> {
-  return db
-    .select({ id: agentRuns.id })
-    .from(agentRuns)
-    .innerJoin(threads, eq(threads.id, agentRuns.threadId))
-    .where(
-      and(
-        eq(agentRuns.userId, userId),
-        eq(threads.userId, userId),
-        eq(threads.projectId, projectId),
-        inArray(agentRuns.id, runIds),
-      ),
-    );
+      ? await countOwnedProjectRunTargets(db, {
+          projectId: ProjectId(body.authority.projectId),
+          runIds: body.runIds,
+          userId,
+        })
+      : body.authority.kind === "thread"
+        ? await countOwnedThreadRunTargets(db, {
+            runIds: body.runIds,
+            threadId: ThreadId(body.authority.threadId),
+            userId,
+          })
+        : await countOwnedUserRunTargets(db, { runIds: body.runIds, userId });
+  return owned === body.runIds.length;
 }

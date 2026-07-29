@@ -29,10 +29,10 @@ import {
   type DeletionWorkflowOutcome,
   dbStep,
   deletionErrorClassifier,
-  MAX_TRANSIENT_DELETION_FAILURES,
   runDeletionActions,
   withUserDatabase,
 } from "./deletion-job-runner";
+import { DELETION_JOB_DEFER_POLICY } from "./lifecycle/deletion-job-policy";
 import {
   deleteUserAgentAccountState,
   deleteUserAgentRunStatePage,
@@ -128,11 +128,7 @@ const USER_DELETION_RUNNER = createDeletionJobRunner<
   defer: (env, step, lease, errorCode, label) =>
     dbStep(step, `${label} defer account deletion`, () =>
       withUserDatabase(env, lease.userId, (db) =>
-        deferUserDeletionJob(db, {
-          ...lease,
-          errorCode,
-          maxFailures: MAX_TRANSIENT_DELETION_FAILURES,
-        }),
+        deferUserDeletionJob(db, { ...lease, errorCode }, DELETION_JOB_DEFER_POLICY),
       ),
     ),
   onDeferred: (_env, lease, _error, errorCode, _label, deferred) => {

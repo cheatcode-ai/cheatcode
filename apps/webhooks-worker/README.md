@@ -150,7 +150,9 @@ refunds and accepts only the complete three-field metadata identity; otherwise i
 [Polar idempotency key](https://polarsource-polar.mintlify.app/api-reference/introduction) on the
 [refund create](https://polar.sh/docs/api-reference/refunds/create) request. Polar SDK retries are
 disabled so Cloudflare Workflow owns the retry boundary. Exact provider ID/status evidence commits
-before customer deletion or phase advance. A pending refund defers the job; a failed, canceled,
+under the exact billing-lease and intent row locks; webhooks-owned transition policy executes
+inside that transaction, with SQL validation and CHECK constraints as persistence backstops.
+A pending refund defers the job; a failed, canceled,
 duplicate, partial, or mismatched identity quarantines it. The database trigger blocks leaving
 `billing` or deleting the job while any refund intent is unresolved, so finalization fails closed
 even after a provider commit, response loss, lease handoff, or Workflow-checkpoint loss.

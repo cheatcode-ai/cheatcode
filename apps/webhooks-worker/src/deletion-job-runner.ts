@@ -13,7 +13,6 @@ import type { UserId } from "@cheatcode/types";
 import { z } from "zod";
 
 const DELETION_ACTIONS_PER_INSTANCE = 8;
-export const MAX_TRANSIENT_DELETION_FAILURES = 8;
 const DB_STEP_OPTIONS = {
   retries: { limit: 3, delay: "20 seconds", backoff: "exponential" },
   timeout: "2 minutes",

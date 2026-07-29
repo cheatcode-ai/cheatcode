@@ -87,8 +87,10 @@ Public exports include:
 - model-context suffix reads with logical-turn and byte bounds
 - BYOK and integration helpers
 - entitlement and usage helpers
-- user-skill helpers
+- caller-configured user-skill list primitives plus locked count/insert/update composition
+- entitlement-read/project-lock composition for billing-owned lazy-materialization limits
 - lifecycle job discovery, claim, renewal, progression, and completion helpers
+- locked refund-intent reads/writes that execute caller-owned transition policy in-transaction
 - audit and maintenance helpers
 - `schema/*`
 

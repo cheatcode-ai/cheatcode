@@ -5,14 +5,13 @@ import type {
   UserDeletionRefundIntentRecord,
   UserDeletionRefundLease,
 } from "@cheatcode/db";
-import {
-  guardUserDeletionRefundIntent,
-  loadUserDeletionRefundIntent,
-  recordUserDeletionRefundEvidence,
-  reserveUserDeletionRefundIntent,
-} from "@cheatcode/db";
+import { guardUserDeletionRefundIntent, loadUserDeletionRefundIntent } from "@cheatcode/db";
 import type { UserId } from "@cheatcode/types";
 import { z } from "zod";
+import {
+  recordDeletionRefundEvidence,
+  reserveDeletionRefundIntent,
+} from "./lifecycle/refund-policy";
 import type { LifecycleEnv } from "./lifecycle-adapters";
 import {
   completeUserDeletionPolarBilling,
@@ -85,7 +84,7 @@ export async function processUserDeletionBilling(
       runtime.database(stepName("record"), (db) => recordIntent(db, lease, intent, evidence)),
     reserve: (candidate) =>
       runtime.database(stepName("reserve"), (db) =>
-        reserveUserDeletionRefundIntent(db, { ...lease, ...candidate }).then(nullableIntentToWire),
+        reserveDeletionRefundIntent(db, { ...lease, ...candidate }).then(nullableIntentToWire),
       ),
   });
 }
@@ -147,7 +146,7 @@ async function recordIntent(
   evidence: UserDeletionRefundEvidence,
 ): Promise<UserDeletionRefundIntentWire | null> {
   const intent = userDeletionRefundIntentFromWire(intentWire);
-  const recorded = await recordUserDeletionRefundEvidence(db, { evidence, intent, ...lease });
+  const recorded = await recordDeletionRefundEvidence(db, { evidence, intent, ...lease });
   return nullableIntentToWire(recorded);
 }
 
