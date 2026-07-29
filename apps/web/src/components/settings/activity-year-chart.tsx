@@ -1,6 +1,7 @@
 "use client";
 
 import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types/api";
+import { useAuth } from "@clerk/nextjs";
 import { useEffect, useMemo, useState } from "react";
 import { ChartNoAxesCombined } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
@@ -13,8 +14,8 @@ const QUERY_DAYS = 366;
 const EMPTY_RUNS: ActivityRunPoint[] = [];
 const EMPTY_SANDBOX_HOURS: SandboxHourPoint[] = [];
 
-export function ActivitySection({ getToken }: { getToken: () => Promise<null | string> }) {
-  const activity = useActivitySection(getToken);
+export function ActivitySection() {
+  const activity = useActivitySection();
   if (activity.query.isLoading) {
     return <ActivityLoading />;
   }
@@ -36,7 +37,8 @@ export function ActivitySection({ getToken }: { getToken: () => Promise<null | s
   );
 }
 
-function useActivitySection(getToken: () => Promise<null | string>) {
+function useActivitySection() {
+  const { getToken } = useAuth();
   const [currentYear] = useState(() => new Date().getFullYear());
   const [selectedYear, setSelectedYear] = useState(currentYear);
   const query = useActivityQuery(getToken, QUERY_DAYS);

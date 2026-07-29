@@ -1,11 +1,12 @@
 import { env } from "@cheatcode/env/web";
 import { PRODUCTION_APP_ORIGIN } from "@cheatcode/env/web-config";
 import { ClerkProvider } from "@clerk/nextjs";
+import { auth } from "@clerk/nextjs/server";
 import { ui } from "@clerk/ui";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
-import type { ReactNode } from "react";
+import { type ReactNode, Suspense } from "react";
 import "./globals.css";
 import "./effects.css";
 import { ClientObservability } from "@/components/observability/client-observability";
@@ -31,8 +32,9 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({ children }: { children: ReactNode }) {
+export default function RootLayout({ children }: { children: ReactNode }) {
   const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  const sessionPromise = auth().then(({ orgId, userId }) => ({ orgId: orgId ?? null, userId }));
 
   return (
     <html
@@ -54,10 +56,12 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
           signUpUrl="/sign-up"
           ui={ui}
         >
-          <Providers>
-            <ClientObservability />
-            {children}
-          </Providers>
+          <Suspense>
+            <Providers sessionPromise={sessionPromise}>
+              <ClientObservability />
+              {children}
+            </Providers>
+          </Suspense>
         </ClerkProvider>
       </body>
     </html>

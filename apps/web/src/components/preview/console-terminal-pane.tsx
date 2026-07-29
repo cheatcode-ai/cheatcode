@@ -2,9 +2,13 @@
 
 import type { ChangeEvent, KeyboardEvent, SyntheticEvent } from "react";
 import { useState } from "react";
+import type { ConsoleTerminalEntry } from "@/components/preview/console-terminal.types";
+import {
+  promptText,
+  severityClass,
+  terminalOutput,
+} from "@/components/preview/console-terminal-format";
 import type { ConsoleLine } from "@/lib/preview/console";
-import type { ConsoleTerminalEntry } from "@/lib/preview/console-terminal.types";
-import { promptText, severityClass, terminalOutput } from "@/lib/preview/console-terminal-format";
 import { cn } from "@/lib/ui/cn";
 
 interface ConsoleTerminalPaneModel {

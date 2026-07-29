@@ -1,4 +1,4 @@
-import { isToolPart } from "@/components/chat/message-activity";
+import { isToolPart } from "@/components/chat/message-activity-model";
 import type { MessagePart, TimelineItem } from "@/components/chat/message-parts.types";
 
 interface PendingActivity {

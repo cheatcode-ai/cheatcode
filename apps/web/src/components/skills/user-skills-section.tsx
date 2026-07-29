@@ -1,16 +1,19 @@
 "use client";
 
 import type { UserSkill } from "@cheatcode/types/api";
+import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KeyboardEvent, MouseEvent } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { toast } from "sonner";
 import { BookOpen, Loader2, MoreVertical, Trash2 } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { deleteUserSkill, listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
-export function useUserSkillsCatalog(getToken: () => Promise<null | string>) {
+export function useUserSkillsCatalog() {
+  const { getToken } = useAuth();
   const queryClient = useQueryClient();
   const query = useQuery({
     queryFn: ({ signal }) => listUserSkills(getToken, signal),
@@ -139,14 +142,7 @@ export function UserSkillCard({
 function useUserSkillMenu() {
   const [isOpen, setIsOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (!isOpen) return;
-    const closeOnOutsideClick = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    document.addEventListener("pointerdown", closeOnOutsideClick);
-    return () => document.removeEventListener("pointerdown", closeOnOutsideClick);
-  }, [isOpen]);
+  useDismissable({ isOpen, onDismiss: () => setIsOpen(false), ref });
   return {
     close: () => setIsOpen(false),
     isOpen,

@@ -12,10 +12,10 @@ import { toast } from "sonner";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
 import {
   ActivityDisclosure,
-  isToolPart,
   ProjectCreatedActivity,
   ToolGroup,
 } from "@/components/chat/message-activity";
+import { isToolPart } from "@/components/chat/message-activity-model";
 import { collectDeliverables } from "@/components/chat/message-deliverable-model";
 import { DeliverablesBlock } from "@/components/chat/message-deliverables";
 import {

@@ -1,11 +1,11 @@
 "use client";
 
-import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
 import type { PromptComposerController } from "@/components/chat/prompt-composer-controller";
 import { ComposerAttachmentStatus } from "@/components/composer/composer-attachment-status";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
-import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/composer-frame";
+import { ComposerFrame } from "@/components/composer/composer-frame";
 import { ComposerPopover } from "@/components/composer/composer-popover";
+import { ComposerTextarea } from "@/components/composer/composer-textarea";
 import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
 import { ArrowUp, Paperclip, Square } from "@/components/ui";
@@ -49,7 +49,6 @@ function ComposerSuggestions({ controller }: { controller: PromptComposerControl
 }
 
 function ComposerInput({ controller }: { controller: PromptComposerController }) {
-  const selectionHandler = controller.triggers.onTextareaSelect;
   return (
     <div className="flex min-h-[80px] flex-col gap-1 px-0">
       <ComposerContextChips
@@ -61,12 +60,8 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
       />
       <ComposerAttachmentStatus className="px-2 pt-3" status={controller.attachments.status} />
       <div className="flex items-start gap-2">
-        <label className="sr-only" htmlFor="prompt">
-          Message Cheatcode
-        </label>
-        <textarea
+        <ComposerTextarea
           className={cn(
-            COMPOSER_TEXTAREA_CLASS,
             controller.state.selectedSkill ||
               controller.state.selectedTool ||
               controller.attachments.status
@@ -74,15 +69,11 @@ function ComposerInput({ controller }: { controller: PromptComposerController })
               : "pt-4",
           )}
           id="prompt"
-          maxLength={USER_MESSAGE_MAX_CHARACTERS}
-          onChange={controller.triggers.onTextareaChange}
-          onClick={selectionHandler}
+          label="Message Cheatcode"
           onKeyDown={controller.actions.handleKeyDown}
-          onKeyUp={selectionHandler}
-          onSelect={selectionHandler}
           placeholder="Ask anything, @ for skills, / for files"
-          ref={controller.meta.textareaRef}
-          rows={1}
+          textareaRef={controller.meta.textareaRef}
+          triggers={controller.triggers}
           value={controller.state.value}
         />
       </div>

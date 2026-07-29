@@ -1,7 +1,7 @@
 "use client";
 
+import { buildPreviewIframeSrc } from "@/components/preview/url-bar";
 import { ChevronLeft, ChevronRight, ExternalLink, RefreshCw } from "@/components/ui";
-import { buildPreviewIframeSrc } from "@/lib/preview/url-bar";
 import { useAppStore } from "@/lib/store/app-store";
 
 const CONTROL_CLASS =

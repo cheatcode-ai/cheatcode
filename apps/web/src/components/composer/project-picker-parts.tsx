@@ -1,14 +1,7 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types/api";
-import {
-  type FocusEvent,
-  type KeyboardEvent,
-  type RefObject,
-  useEffect,
-  useRef,
-  useState,
-} from "react";
+import { type KeyboardEvent, type RefObject, useEffect, useRef } from "react";
 import type {
   ProjectPickerController,
   ProjectPickerVariant,
@@ -19,10 +12,17 @@ import {
   ProjectMoreIcon,
   ProjectTrashIcon,
 } from "@/components/composer/project-picker-icons";
-import { ConfirmDialog, ModalShell, Plus, Search, X } from "@/components/ui";
+import { Plus, Search } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
+import {
+  handleRovingMenuFocus,
+  moveRovingMenuFocus,
+  resetRovingMenuTabStop,
+  rovingMenuItems,
+  setRovingMenuTabStop,
+} from "@/lib/ui/roving-menu-focus";
 
 export function ProjectPickerTrigger({
   compact,
@@ -75,7 +75,7 @@ export function ProjectPickerMenu({ controller }: { controller: ProjectPickerCon
       <div
         className="flex w-[min(250px,calc(100vw-44px))] flex-col gap-1"
         id={controller.meta.optionsMenuId}
-        onFocus={(event) => handleMenuFocus(event, MAIN_MENU_ITEM_SELECTOR)}
+        onFocus={(event) => handleRovingMenuFocus(event, MAIN_MENU_ITEM_SELECTOR)}
         onKeyDown={(event) => handleMainMenuKeyDown(event, controller)}
         ref={controller.meta.optionsMenuRef}
         role="none"
@@ -107,7 +107,9 @@ function ProjectSearch({ controller }: { controller: ProjectPickerController }) 
         aria-label="Search projects"
         className="h-8 min-w-0 flex-1 bg-transparent text-foreground text-xs outline-none placeholder:text-muted-foreground"
         onChange={(event) => controller.actions.updateSearch(event.target.value)}
-        onFocus={() => resetMenuTabStop(controller.meta.optionsMenuRef)}
+        onFocus={() =>
+          resetRovingMenuTabStop(controller.meta.optionsMenuRef, MAIN_MENU_ITEM_SELECTOR)
+        }
         onKeyDown={(event) => handleSearchKeyDown(event, controller.meta.optionsMenuRef)}
         placeholder="Search projects"
         ref={controller.meta.searchInputRef}
@@ -325,7 +327,7 @@ function ProjectRowActions({
           aria-label={`${project.name} actions`}
           className="flex flex-col gap-0.5 p-0.5"
           id={projectActionMenuId(project.id)}
-          onFocus={(event) => handleMenuFocus(event, SUBMENU_ITEM_SELECTOR)}
+          onFocus={(event) => handleRovingMenuFocus(event, SUBMENU_ITEM_SELECTOR)}
           onKeyDown={(event) => handleSubmenuKeyDown(event, controller, menuButtonRef)}
           role="menu"
         >
@@ -413,10 +415,10 @@ function handleSearchKeyDown(
   if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
     return;
   }
-  const items = menuItems(optionsMenuRef.current, MAIN_MENU_ITEM_SELECTOR);
+  const items = rovingMenuItems(optionsMenuRef.current, MAIN_MENU_ITEM_SELECTOR);
   const index = event.key === "ArrowDown" ? 0 : items.length - 1;
   event.preventDefault();
-  setMenuTabStop(items, index, true);
+  setRovingMenuTabStop(items, index, true);
 }
 
 function handleMainMenuKeyDown(
@@ -432,7 +434,7 @@ function handleMainMenuKeyDown(
     target.click();
     return;
   }
-  if (moveMenuFocus(event, menuItems(event.currentTarget, MAIN_MENU_ITEM_SELECTOR))) {
+  if (moveRovingMenuFocus(event, MAIN_MENU_ITEM_SELECTOR)) {
     controller.actions.setOpenProjectMenuId(null);
   }
 }
@@ -449,235 +451,9 @@ function handleSubmenuKeyDown(
     menuButtonRef.current?.focus();
     return;
   }
-  moveMenuFocus(event, menuItems(event.currentTarget, SUBMENU_ITEM_SELECTOR));
-}
-
-function moveMenuFocus(
-  event: KeyboardEvent<HTMLElement>,
-  items: readonly HTMLButtonElement[],
-): boolean {
-  if (items.length === 0 || !["ArrowDown", "ArrowUp", "End", "Home"].includes(event.key)) {
-    return false;
-  }
-  const currentIndex = items.indexOf(event.target as HTMLButtonElement);
-  const lastIndex = items.length - 1;
-  const nextIndex = menuMoveIndex(event.key, currentIndex, lastIndex);
-  event.preventDefault();
-  event.stopPropagation();
-  setMenuTabStop(items, nextIndex, true);
-  return true;
-}
-
-function menuMoveIndex(key: string, currentIndex: number, lastIndex: number): number {
-  if (key === "Home" || (key === "ArrowDown" && currentIndex === lastIndex)) {
-    return 0;
-  }
-  if (key === "End" || (key === "ArrowUp" && currentIndex <= 0)) {
-    return lastIndex;
-  }
-  return key === "ArrowDown" ? currentIndex + 1 : currentIndex - 1;
-}
-
-function menuItems(container: HTMLElement | null, selector: string): HTMLButtonElement[] {
-  return container ? Array.from(container.querySelectorAll<HTMLButtonElement>(selector)) : [];
-}
-
-function handleMenuFocus(event: FocusEvent<HTMLDivElement>, selector: string) {
-  const target = event.target;
-  if (!(target instanceof HTMLButtonElement)) {
-    return;
-  }
-  const items = menuItems(event.currentTarget, selector);
-  const focusedIndex = items.indexOf(target);
-  if (focusedIndex >= 0) {
-    setMenuTabStop(items, focusedIndex, false);
-  }
-}
-
-function resetMenuTabStop(optionsMenuRef: RefObject<HTMLDivElement | null>) {
-  setMenuTabStop(menuItems(optionsMenuRef.current, MAIN_MENU_ITEM_SELECTOR), 0, false);
-}
-
-function setMenuTabStop(
-  items: readonly HTMLButtonElement[],
-  activeIndex: number,
-  shouldFocus: boolean,
-) {
-  for (const [index, item] of items.entries()) {
-    item.tabIndex = index === activeIndex ? 0 : -1;
-  }
-  if (shouldFocus) {
-    items[activeIndex]?.focus();
-  }
+  moveRovingMenuFocus(event, SUBMENU_ITEM_SELECTOR);
 }
 
 function projectActionMenuId(projectId: string): string {
   return `project-picker-actions-${projectId}`;
-}
-
-export function ProjectPickerDialogs({ controller }: { controller: ProjectPickerController }) {
-  return (
-    <>
-      <ProjectRenameDialog controller={controller} />
-      <ProjectDeleteDialog controller={controller} />
-    </>
-  );
-}
-
-function ProjectRenameDialog({ controller }: { controller: ProjectPickerController }) {
-  const [draft, setDraft] = useState("");
-  const project = controller.state.pendingRename;
-  useEffect(() => {
-    if (project) {
-      setDraft(project.name);
-    }
-  }, [project]);
-  const trimmed = draft.trim();
-  const canSubmit = project !== null && trimmed.length > 0 && trimmed !== project.name;
-  const submit = () => {
-    if (canSubmit && !controller.state.renameBusy) {
-      controller.actions.submitRename(trimmed);
-    }
-  };
-  return (
-    <ModalShell
-      className="relative max-w-md rounded-[10px]"
-      labelledBy="composer-rename-project-dialog-title"
-      onClose={controller.actions.cancelRename}
-      open={project !== null}
-    >
-      <RenameDialogContent
-        busy={controller.state.renameBusy}
-        canSubmit={canSubmit}
-        draft={draft}
-        onCancel={controller.actions.cancelRename}
-        onChange={setDraft}
-        onSubmit={submit}
-      />
-    </ModalShell>
-  );
-}
-
-function RenameDialogContent({
-  busy,
-  canSubmit,
-  draft,
-  onCancel,
-  onChange,
-  onSubmit,
-}: {
-  busy: boolean;
-  canSubmit: boolean;
-  draft: string;
-  onCancel: () => void;
-  onChange: (draft: string) => void;
-  onSubmit: () => void;
-}) {
-  const handleKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      onSubmit();
-    }
-  };
-  return (
-    <div className="flex flex-col gap-4 p-6">
-      <h2
-        className="font-semibold text-foreground text-lg leading-none"
-        id="composer-rename-project-dialog-title"
-      >
-        Rename project
-      </h2>
-      <button
-        aria-label="Close"
-        className="absolute top-3 right-3 flex size-6 items-center justify-center rounded-sm text-placeholder opacity-70 transition-opacity hover:opacity-100"
-        disabled={busy}
-        onClick={onCancel}
-        type="button"
-      >
-        <X aria-hidden="true" className="size-4" />
-      </button>
-      <RenameProjectInput busy={busy} draft={draft} onChange={onChange} onKeyDown={handleKeyDown} />
-      <RenameDialogActions
-        busy={busy}
-        canSubmit={canSubmit}
-        onCancel={onCancel}
-        onSubmit={onSubmit}
-      />
-    </div>
-  );
-}
-
-function RenameProjectInput({
-  busy,
-  draft,
-  onChange,
-  onKeyDown,
-}: {
-  busy: boolean;
-  draft: string;
-  onChange: (draft: string) => void;
-  onKeyDown: (event: KeyboardEvent<HTMLInputElement>) => void;
-}) {
-  return (
-    <input
-      aria-label="Project name"
-      className="h-8 w-full rounded-full border border-border bg-transparent px-3 font-medium text-foreground text-sm leading-5 outline-none transition-[border-color,box-shadow]"
-      disabled={busy}
-      maxLength={120}
-      onChange={(event) => onChange(event.target.value)}
-      onKeyDown={onKeyDown}
-      value={draft}
-    />
-  );
-}
-
-function RenameDialogActions({
-  busy,
-  canSubmit,
-  onCancel,
-  onSubmit,
-}: {
-  busy: boolean;
-  canSubmit: boolean;
-  onCancel: () => void;
-  onSubmit: () => void;
-}) {
-  return (
-    <div className="flex justify-end gap-2">
-      <button
-        className="h-8 rounded-full px-4 font-medium text-foreground text-sm transition-colors hover:bg-secondary active:scale-[0.99] disabled:opacity-50"
-        disabled={busy}
-        onClick={onCancel}
-        type="button"
-      >
-        Cancel
-      </button>
-      <button
-        className="inline-flex h-8 items-center gap-2 rounded-full bg-foreground px-4 font-medium text-background text-sm shadow-[inset_0_1px_0_rgba(255,255,255,0.15),0_1px_3px_rgba(0,0,0,0.2)] transition-colors hover:bg-foreground/90 active:scale-[0.99] disabled:opacity-50"
-        disabled={busy || !canSubmit}
-        onClick={onSubmit}
-        type="button"
-      >
-        {busy ? "Renaming..." : "Rename"}
-      </button>
-    </div>
-  );
-}
-
-function ProjectDeleteDialog({ controller }: { controller: ProjectPickerController }) {
-  const project = controller.state.pendingDelete;
-  return (
-    <ConfirmDialog
-      busy={controller.state.deleteBusy}
-      cancelLabel="Cancel"
-      confirmLabel="Delete project"
-      description="This removes the project, its workspace folder, and all generated files. Your cloud computer and other projects stay intact."
-      destructive
-      id="composer-delete-project-dialog"
-      onCancel={controller.actions.cancelDelete}
-      onConfirm={controller.actions.confirmDelete}
-      open={project !== null}
-      title={project ? `Delete ${project.name}?` : "Delete project?"}
-    />
-  );
 }

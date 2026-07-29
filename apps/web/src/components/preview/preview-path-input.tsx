@@ -1,7 +1,7 @@
 "use client";
 
 import { toast } from "sonner";
-import { normalizePreviewPath, previewOrigin } from "@/lib/preview/url-bar";
+import { normalizePreviewPath, previewOrigin } from "@/components/preview/url-bar";
 import { useAppStore } from "@/lib/store/app-store";
 
 export function PreviewPathInput({ previewUrl }: { previewUrl: string | null }) {

@@ -83,7 +83,6 @@ function ExpandedPanelContent({ identity, navigation, panel, pathname }: Sidebar
       activeThreadId={navigation.activeThreadId}
       chatsOpen={panel.chatsOpen}
       displayName={identity.displayName}
-      getToken={identity.getToken}
       isLoaded={identity.isLoaded}
       isOverlay={panel.isOverlay}
       isSignedIn={identity.isSignedIn}

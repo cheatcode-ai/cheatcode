@@ -3,18 +3,18 @@ import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { useEffect } from "react";
 import { toast } from "sonner";
+import type {
+  ConsoleTerminalAction,
+  GetToken,
+  TerminalMutationInput,
+} from "@/components/preview/console-terminal.types";
+import { terminalErrorResult } from "@/components/preview/console-terminal-state";
 import {
   readComputerTerminalContext,
   readSandboxTerminalContext,
   runComputerTerminal,
   runSandboxTerminal,
 } from "@/lib/api/sandbox";
-import type {
-  ConsoleTerminalAction,
-  GetToken,
-  TerminalMutationInput,
-} from "./console-terminal.types";
-import { terminalErrorResult } from "./console-terminal-state";
 
 type TerminalDispatch = Dispatch<ConsoleTerminalAction>;
 

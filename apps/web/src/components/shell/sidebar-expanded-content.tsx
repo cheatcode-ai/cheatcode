@@ -15,7 +15,6 @@ export function ExpandedSidebarContent(props: ExpandedSidebarContentProps) {
         <SidebarAccountSection
           displayName={props.displayName}
           email={props.primaryEmail}
-          getToken={props.getToken}
           imageUrl={props.profileImageUrl}
           isLoaded={props.isLoaded}
           isOpen={props.accountOpen}

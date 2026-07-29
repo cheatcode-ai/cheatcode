@@ -1,6 +1,6 @@
 import type { SandboxTerminalResult } from "@cheatcode/types/api";
-import type { ConsoleSeverity } from "./console";
-import { DEFAULT_TERMINAL_CWD } from "./console-terminal-state";
+import { DEFAULT_TERMINAL_CWD } from "@/components/preview/console-terminal-state";
+import type { ConsoleSeverity } from "@/lib/preview/console";
 
 export function severityClass(severity: ConsoleSeverity): string {
   if (severity === "error") {

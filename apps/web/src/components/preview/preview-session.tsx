@@ -8,10 +8,10 @@ const PREVIEW_TOKEN_QUERY = "__cc_pt";
 const PREVIEW_HOST_SUFFIX = `.${PREVIEW_HOSTNAME}`;
 const PREVIEW_HOST_LABEL = /^[a-z0-9]+(?:-[a-z0-9]+)*--\d{1,5}$/u;
 
-interface StablePreviewSource {
+type StablePreviewSource = {
   identity: string | null;
   source: string | null;
-}
+};
 
 /**
  * Keeps a live iframe mounted when only its short-lived access token rotates.

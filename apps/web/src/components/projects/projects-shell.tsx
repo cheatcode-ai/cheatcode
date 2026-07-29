@@ -23,6 +23,7 @@ import {
   getThread,
   listThreadMessagesPage,
 } from "@/lib/api/project-thread";
+import { projectKeys, threadKeys } from "@/lib/api/query-keys";
 import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
 
@@ -228,9 +229,9 @@ function useRefreshThreadProjectOnSandboxChange(input: {
     if (!threadId || sandboxStatus === "cold") {
       return;
     }
-    void queryClient.invalidateQueries({ exact: true, queryKey: ["threads", threadId] });
+    void queryClient.invalidateQueries({ exact: true, queryKey: threadKeys.detail(threadId) });
     if (projectId) {
-      void queryClient.invalidateQueries({ exact: true, queryKey: ["projects", projectId] });
+      void queryClient.invalidateQueries({ exact: true, queryKey: projectKeys.detail(projectId) });
     }
   }, [projectId, queryClient, sandboxStatus, threadId]);
 }
@@ -247,7 +248,7 @@ function useThreadQuery(getToken: () => Promise<null | string>, threadId: null |
   return useQuery<Thread>({
     enabled: Boolean(threadId),
     queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
-    queryKey: ["threads", threadId],
+    queryKey: threadKeys.detail(threadId),
     retry: false,
     staleTime: 5_000,
   });
@@ -257,7 +258,7 @@ function useProjectQuery(getToken: () => Promise<null | string>, projectId: null
   return useQuery<ProjectSummary>({
     enabled: Boolean(projectId),
     queryFn: ({ signal }) => getProject(getToken, String(projectId), signal),
-    queryKey: ["projects", projectId],
+    queryKey: projectKeys.detail(projectId),
     retry: false,
     staleTime: 5_000,
   });
@@ -272,7 +273,7 @@ function useThreadMessagesQuery(getToken: () => Promise<null | string>, threadId
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) =>
       listThreadMessagesPage(getToken, String(threadId), pageParam, signal),
-    queryKey: ["threads", threadId, "messages"],
+    queryKey: threadKeys.messages(threadId),
     retry: false,
     staleTime: 5_000,
   });

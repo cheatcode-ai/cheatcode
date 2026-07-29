@@ -33,7 +33,6 @@ function FullSidebar({ mode }: { mode: FullSidebarMode }) {
   const pathname = usePathname();
   const identity = useSidebarIdentity();
   const navigation = useSidebarNavigationData({
-    getToken: identity.getToken,
     isSignedIn: identity.isSignedIn,
     pathname,
   });

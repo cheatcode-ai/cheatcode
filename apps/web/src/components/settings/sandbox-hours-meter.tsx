@@ -1,12 +1,14 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { Clock3 } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { useSandboxUsageQuery } from "@/lib/hooks/use-billing";
 import { SandboxHoursMeterBody } from "./sandbox-hours-meter-body";
 
-export function SandboxHoursMeter({ getToken }: { getToken: () => Promise<null | string> }) {
+export function SandboxHoursMeter() {
+  const { getToken } = useAuth();
   const usageQuery = useSandboxUsageQuery(getToken);
   const usage = usageQuery.data;
   return (
@@ -17,7 +19,7 @@ export function SandboxHoursMeter({ getToken }: { getToken: () => Promise<null |
         ) : usageQuery.isError || !usage ? (
           <SandboxHoursLoadError query={usageQuery} />
         ) : (
-          <SandboxHoursMeterBody getToken={getToken} usage={usage} />
+          <SandboxHoursMeterBody usage={usage} />
         )}
       </div>
     </section>

@@ -4,12 +4,15 @@ import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import {
+  PreviewSessionRefresh,
+  useStablePreviewSource,
+} from "@/components/preview/preview-session";
 import { FolderOpen } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { openComputerIde, openSandboxIde } from "@/lib/api/sandbox";
-import { PreviewSessionRefresh, useStablePreviewSource } from "@/lib/preview/preview-session";
 import { cn } from "@/lib/ui/cn";
 
 const PREVIEW_SESSION_REFRESH_MS = 8 * 60 * 1000;

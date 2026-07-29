@@ -5,6 +5,7 @@ import { type AgentModelId, agentModelOption } from "@/components/composer/model
 import type { AgentModelOption } from "@/lib/agent-models";
 import { useProfileQuery } from "@/lib/hooks/use-profile";
 import { useAppStore } from "@/lib/store/app-store";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 export interface ModelMenuController {
   actions: {
@@ -49,7 +50,7 @@ export function useModelMenuController({
     agentModelId === "auto" && resolvedOption && resolvedOption.id !== "auto"
       ? resolvedOption
       : selectedOption;
-  useDismissModelMenu({ isOpen, menuRef, setIsOpen });
+  useDismissable({ isOpen, onDismiss: () => setIsOpen(false), ref: menuRef });
   return {
     actions: {
       close: () => setIsOpen(false),
@@ -75,30 +76,4 @@ function useMenuPresence(isOpen: boolean): boolean {
     return () => window.clearTimeout(timeoutId);
   }, [isOpen]);
   return shouldRender;
-}
-
-function useDismissModelMenu({
-  isOpen,
-  menuRef,
-  setIsOpen,
-}: {
-  isOpen: boolean;
-  menuRef: RefObject<HTMLDivElement | null>;
-  setIsOpen: (isOpen: boolean) => void;
-}) {
-  useEffect(() => {
-    if (!isOpen) return;
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!menuRef.current?.contains(event.target as Node)) setIsOpen(false);
-    };
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setIsOpen(false);
-    };
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen, menuRef, setIsOpen]);
 }

@@ -36,7 +36,6 @@ export function useIntegrationSkillsCatalog() {
     categories: controller.query.data?.categories ?? [],
     category,
     filteredToolkits,
-    getToken,
     handlers: controller.handlers,
     query: controller.query,
     search,

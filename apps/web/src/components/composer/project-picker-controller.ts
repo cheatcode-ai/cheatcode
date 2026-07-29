@@ -16,6 +16,8 @@ import {
   listProjectsPage,
   updateProject,
 } from "@/lib/api/project-thread";
+import { invalidateChatLists, sidebarKeys } from "@/lib/api/query-keys";
+import { useDismissable } from "@/lib/ui/use-dismissable";
 
 export type ProjectPickerVariant = "home" | "thread";
 
@@ -82,7 +84,7 @@ export function useProjectPickerController({
       page.has_more ? (page.next_cursor ?? undefined) : undefined,
     initialPageParam: null as string | null,
     queryFn: ({ pageParam, signal }) => listProjectsPage(getToken, pageParam, 25, signal),
-    queryKey: ["sidebar-projects", "picker"],
+    queryKey: sidebarKeys.projectPicker,
     retry: false,
     staleTime: 30_000,
   });
@@ -208,41 +210,16 @@ function usePickerFocus(isOpen: boolean, searchInputRef: RefObject<HTMLInputElem
 
 function usePickerDismiss(local: ProjectPickerLocalState) {
   const { isOpen, menuRef, setIsOpen, setOpenProjectMenuId, triggerRef } = local;
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-    function closePicker(shouldRestoreFocus: boolean) {
+  useDismissable({
+    closeOnFocusOut: true,
+    isOpen,
+    onDismiss: () => {
       setIsOpen(false);
       setOpenProjectMenuId(null);
-      if (shouldRestoreFocus) {
-        triggerRef.current?.focus();
-      }
-    }
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        closePicker(false);
-      }
-    }
-    function handleFocusIn(event: FocusEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        closePicker(false);
-      }
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        closePicker(true);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("focusin", handleFocusIn);
-    document.addEventListener("keydown", handleKeyDown);
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("focusin", handleFocusIn);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen, menuRef, setIsOpen, setOpenProjectMenuId, triggerRef]);
+    },
+    ref: menuRef,
+    triggerRef,
+  });
 }
 
 type ProjectPickerDependencies = {
@@ -372,9 +349,5 @@ function filterProjects(projects: readonly ProjectSummary[], search: string): Pr
 }
 
 async function invalidateProjectQueries(queryClient: QueryClient) {
-  await Promise.all([
-    queryClient.invalidateQueries({ queryKey: ["sidebar-projects"] }),
-    queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] }),
-    queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] }),
-  ]);
+  await invalidateChatLists(queryClient);
 }

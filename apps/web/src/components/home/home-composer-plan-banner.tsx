@@ -1,10 +1,12 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import { useState } from "react";
 import { UpgradeDialog } from "@/components/billing/upgrade-dialog";
 import { useSandboxUsageQuery } from "@/lib/hooks/use-billing";
 
-export function SandboxUsageBanner({ getToken }: { getToken: () => Promise<null | string> }) {
+export function SandboxUsageBanner() {
+  const { getToken } = useAuth();
   const usageQuery = useSandboxUsageQuery(getToken);
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -32,7 +34,7 @@ export function SandboxUsageBanner({ getToken }: { getToken: () => Promise<null 
           </div>
         </div>
       </div>
-      <UpgradeDialog getToken={getToken} onClose={() => setPickerOpen(false)} open={pickerOpen} />
+      <UpgradeDialog onClose={() => setPickerOpen(false)} open={pickerOpen} />
     </div>
   );
 }

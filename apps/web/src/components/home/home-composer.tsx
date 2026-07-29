@@ -1,7 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import { type ProjectSummary, USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AuthModal } from "@/components/auth/auth-modal";
@@ -11,8 +11,9 @@ import {
   type ComposerAttachmentStatusState,
 } from "@/components/composer/composer-attachment-status";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
-import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/composer-frame";
+import { ComposerFrame } from "@/components/composer/composer-frame";
 import { ComposerPopover } from "@/components/composer/composer-popover";
+import { ComposerTextarea } from "@/components/composer/composer-textarea";
 import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
 import type { ComposerTriggers } from "@/components/composer/use-composer-triggers";
@@ -59,7 +60,7 @@ function HomeComposerForm({ controller }: { controller: HomeComposerController }
   return (
     <form className="mt-8 w-full" onSubmit={controller.actions.submit}>
       <div className="relative z-10 mx-auto flex w-full max-w-[708px] flex-col gap-0">
-        <SandboxUsageBanner getToken={controller.meta.getToken} />
+        <SandboxUsageBanner />
         <HomeSlashPopover controller={controller} />
         <ComposerFrame fillClassName="min-h-[143px] sm:min-h-[124px]">
           <HomeComposerEditor {...homeEditorProps(controller)} />
@@ -127,26 +128,18 @@ function HomeComposerEditor(props: HomeComposerEditorProps) {
         tool={props.toolChip}
       />
       <ComposerAttachmentStatus className="px-2 pt-3" status={props.attachmentStatus} />
-      <label className="sr-only" htmlFor="home-prompt">
-        Message Cheatcode
-      </label>
-      <textarea
+      <ComposerTextarea
         className={cn(
-          COMPOSER_TEXTAREA_CLASS,
           props.skillChip || props.toolChip || props.skillCreatorMode || props.attachmentStatus
             ? "pt-2"
             : "pt-4",
         )}
         id="home-prompt"
-        maxLength={USER_MESSAGE_MAX_CHARACTERS}
-        onChange={props.triggers.onTextareaChange}
-        onClick={props.triggers.onTextareaSelect}
+        label="Message Cheatcode"
         onKeyDown={props.onKeyDown}
-        onKeyUp={props.triggers.onTextareaSelect}
-        onSelect={props.triggers.onTextareaSelect}
         placeholder={props.placeholder}
-        ref={props.textareaRef}
-        rows={1}
+        textareaRef={props.textareaRef}
+        triggers={props.triggers}
         value={props.value}
       />
     </div>

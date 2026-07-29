@@ -4,7 +4,7 @@ import type {
   ConsoleTerminalAction,
   PendingTerminalCommand,
   TerminalMutationInput,
-} from "./console-terminal.types";
+} from "@/components/preview/console-terminal.types";
 
 export const DEFAULT_TERMINAL_CWD = "/workspace";
 export const DEFAULT_TERMINAL_DISPLAY_WORKSPACE = "/workspace";

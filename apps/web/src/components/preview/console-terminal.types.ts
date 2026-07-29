@@ -1,6 +1,6 @@
 import type { SandboxTerminalResult } from "@cheatcode/types/api";
 
-export type GetToken = () => Promise<null | string>;
+export type GetToken = () => Promise<string | null>;
 
 export interface ConsoleTerminalEntry {
   command: string;

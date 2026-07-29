@@ -1,7 +1,7 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-import { Suspense, useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { HomeComposerFromSearchParams } from "@/components/home/home-composer-from-search-params";
 import { HomeComputerPane } from "@/components/home/home-computer-pane";
 import { HomeGreeting } from "@/components/home/home-greeting";
@@ -10,10 +10,10 @@ import { HomeSessionChrome } from "@/components/home/home-session-chrome";
 import { HomeSidebarOffset } from "@/components/home/home-sidebar-offset";
 import { AppSidebar } from "@/components/shell/app-sidebar";
 import { SidebarContentFrame } from "@/components/shell/sidebar-content-frame";
+import { useAutoCollapseSidebar } from "@/components/shell/use-auto-collapse-sidebar";
 import { CheatcodeCursorTrail } from "@/components/ui/cheatcode-cursor-field";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { WorkspaceRunLayout } from "@/components/workspace/workspace-run-layout";
-import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
 /**
@@ -29,7 +29,7 @@ export function HomeWorkspace() {
   const hasComputer = Boolean(isLoaded && isSignedIn);
   const computerVisible = hasComputer && computerOpen;
 
-  useHomeComputerSidebarCollapse(computerVisible);
+  useAutoCollapseSidebar(computerVisible);
 
   // Drop the open state if the signed-in surface goes away (e.g. sign-out).
   useEffect(() => {
@@ -112,34 +112,4 @@ function HomeContentPane({ computerOpen }: { computerOpen: boolean }) {
       </div>
     </div>
   );
-}
-
-/**
- * Collapse the sidebar rail while the home Computer pane is open (and restore the
- * user's previous rail state on close), mirroring the chat workspace behaviour in
- * `AppChrome`.
- */
-function useHomeComputerSidebarCollapse(active: boolean): void {
-  const sidebarCollapsed = useAppStore((state) => state.sidebarCollapsed);
-  const setSidebarCollapsed = useAppStore((state) => state.setSidebarCollapsed);
-  const previousSidebarCollapsedRef = useRef<boolean | null>(null);
-
-  useEffect(() => {
-    if (!active) {
-      if (previousSidebarCollapsedRef.current !== null) {
-        setSidebarCollapsed(previousSidebarCollapsedRef.current);
-        previousSidebarCollapsedRef.current = null;
-      }
-      return;
-    }
-    // Collapse the rail ONCE when the computer opens (saving the prior state to
-    // restore on close), but let the user re-expand it while the computer stays
-    // open — Cheatcode keeps the sidebar expandable in this state. Guarding on the ref
-    // (not re-collapsing on every sidebarCollapsed change) is what makes the
-    // Expand-sidebar button work here.
-    if (previousSidebarCollapsedRef.current === null) {
-      previousSidebarCollapsedRef.current = sidebarCollapsed;
-      setSidebarCollapsed(true);
-    }
-  }, [active, setSidebarCollapsed, sidebarCollapsed]);
 }

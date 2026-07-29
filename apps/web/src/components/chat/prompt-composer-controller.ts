@@ -3,7 +3,6 @@
 import type { IntegrationName } from "@cheatcode/types";
 import type { ProjectSummary } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
-import { useQuery } from "@tanstack/react-query";
 import {
   type FormEvent,
   type KeyboardEvent,
@@ -16,24 +15,16 @@ import {
 import type { RunStatus } from "@/components/chat/status-pill";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
-import { useProjectFileItems } from "@/components/composer/project-file-source";
-import { slashSkillItems } from "@/components/composer/slash-skill-source";
 import {
-  type ComposerTriggers,
-  type TriggerDetector,
-  useComposerTriggers,
-} from "@/components/composer/use-composer-triggers";
+  type ComposerMenuController,
+  useComposerMenu,
+} from "@/components/composer/use-composer-menu";
 import {
   type ProjectFileUploads,
   useProjectFileUploads,
 } from "@/components/composer/use-project-file-uploads";
-import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
-import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import { useAppStore } from "@/lib/store/app-store";
-import { emitComposerEvent } from "@/lib/telemetry/user-events";
 
-const SLASH_DETECTOR: TriggerDetector = { detect: detectSlashToken, kind: "slash" };
-const MENTION_DETECTOR: TriggerDetector = { detect: detectMentionToken, kind: "mention" };
 type ComposerControlMenu = "model";
 
 export interface PromptComposerProps {
@@ -76,7 +67,7 @@ export interface PromptComposerController {
   attachments: ProjectFileUploads;
   meta: { textareaRef: RefObject<HTMLTextAreaElement | null> };
   state: PromptComposerState;
-  triggers: ComposerTriggers;
+  triggers: ComposerMenuController["triggers"];
 }
 
 export function usePromptComposerController(props: PromptComposerProps): PromptComposerController {
@@ -86,9 +77,11 @@ export function usePromptComposerController(props: PromptComposerProps): PromptC
   const isRunning = props.status === "streaming" || props.status === "submitted";
   const computerOpen = useAppStore((state) => state.previewPanelOpen);
   const projectSelection = useProjectSelection(props.project);
-  const menu = usePromptComposerMenu({
+  const menu = useComposerMenu({
     getToken,
     onChange: publisher.publishValue,
+    onSelectSkill: projectSelection.setSelectedSkill,
+    onSelectTool: projectSelection.setSelectedTool,
     projectId: projectSelection.selectedProject?.id ?? null,
     textareaRef,
     value: props.value,
@@ -127,91 +120,6 @@ function usePublishedValue(value: string, onChange: (value: string) => void) {
   return { latestValueRef, publishValue };
 }
 
-function usePromptComposerMenu({
-  getToken,
-  onChange,
-  projectId,
-  textareaRef,
-  value,
-}: {
-  getToken: () => Promise<null | string>;
-  onChange: (value: string) => void;
-  projectId: string | null;
-  textareaRef: RefObject<HTMLTextAreaElement | null>;
-  value: string;
-}) {
-  const { data: userSkills } = useQuery({
-    queryFn: ({ signal }) => listUserSkills(getToken, signal),
-    queryKey: USER_SKILLS_QUERY,
-    staleTime: 60_000,
-  });
-  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<IntegrationName | null>(null);
-  const triggers = useComposerTriggers({
-    onChange,
-    onInsert: (kind, item) => {
-      if (kind === "mention") selectSkillItem(item, setSelectedSkill, setSelectedTool);
-      emitComposerEvent(
-        getToken,
-        kind === "mention" ? "composer_mention_inserted" : "composer_slash_inserted",
-      );
-    },
-    sources: [SLASH_DETECTOR, MENTION_DETECTOR],
-    textareaRef,
-    value,
-  });
-  const fileItems = useProjectFileItems({
-    enabled: triggers.kind === "slash",
-    projectId,
-    query: triggers.query,
-  });
-  const menuItems =
-    triggers.kind === "slash"
-      ? fileItems
-      : skillMenuItems({
-          isPending: userSkills === undefined,
-          query: triggers.query,
-          userSkills: userSkills ?? [],
-        });
-  return {
-    menuItems,
-    selectedSkill,
-    selectedTool,
-    setSelectedSkill,
-    setSelectedTool,
-    triggers,
-  };
-}
-
-function selectSkillItem(
-  item: ComposerMenuItem,
-  setSelectedSkill: (skill: string | null) => void,
-  setSelectedTool: (tool: IntegrationName | null) => void,
-) {
-  if (item.integrationName) {
-    setSelectedSkill(null);
-    setSelectedTool(item.integrationName);
-  } else if (item.skillName) {
-    setSelectedSkill(item.skillName);
-    setSelectedTool(null);
-  }
-}
-
-function skillMenuItems({
-  isPending,
-  query,
-  userSkills,
-}: {
-  isPending: boolean;
-  query: string;
-  userSkills: Parameters<typeof slashSkillItems>[1];
-}): ComposerMenuItem[] {
-  const items = slashSkillItems(query, userSkills);
-  if (items.length > 0) return items;
-  const label = isPending ? "Loading skills…" : "No matching skills";
-  return [{ disabled: true, id: `status:${label}`, insert: "", label, visual: "status" }];
-}
-
 function useProjectSelection(project: ProjectSummary | null) {
   const [override, setOverride] = useState<{
     contextProjectId: ProjectSummary["id"] | null;
@@ -220,16 +128,31 @@ function useProjectSelection(project: ProjectSummary | null) {
   const contextProjectId = project?.id ?? null;
   const selectedProject =
     override?.contextProjectId === contextProjectId ? override.project : project;
+  const [selectedSkill, setSelectedSkill] = useState<string | null>(null);
+  const [selectedTool, setSelectedTool] = useState<IntegrationName | null>(null);
   const selectProject = (nextProject: ProjectSummary | null) =>
     setOverride({ contextProjectId, project: nextProject });
-  return { selectProject, selectedProject };
+  return {
+    selectedProject,
+    selectedSkill,
+    selectedTool,
+    selectProject,
+    setSelectedSkill: (skill: string | null) => {
+      setSelectedSkill(skill);
+      if (skill) setSelectedTool(null);
+    },
+    setSelectedTool: (tool: IntegrationName | null) => {
+      setSelectedTool(tool);
+      if (tool) setSelectedSkill(null);
+    },
+  };
 }
 
 type PromptComposerAssemblyOptions = {
   attachments: ProjectFileUploads;
   computerOpen: boolean;
   isRunning: boolean;
-  menu: ReturnType<typeof usePromptComposerMenu>;
+  menu: ComposerMenuController;
   projectSelection: ReturnType<typeof useProjectSelection>;
   props: PromptComposerProps;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
@@ -246,12 +169,13 @@ function usePromptComposerAssembly(options: PromptComposerAssemblyOptions) {
     onStop: options.props.onStop,
     onSubmit: options.props.onSubmit,
     project: options.projectSelection.selectedProject,
+    selection: options.projectSelection,
     value: options.props.value,
   });
   return {
     actions: {
-      clearSkill: () => options.menu.setSelectedSkill(null),
-      clearTool: () => options.menu.setSelectedTool(null),
+      clearSkill: () => options.projectSelection.setSelectedSkill(null),
+      clearTool: () => options.projectSelection.setSelectedTool(null),
       handleKeyDown: submission.handleKeyDown,
       handleSubmit: submission.handleSubmit,
       selectProject: options.projectSelection.selectProject,
@@ -272,15 +196,15 @@ function createPromptComposerState(
   return {
     canSubmit,
     computerOpen: options.computerOpen,
-    isMenuOpen: options.menu.triggers.isActive && options.menu.menuItems.length > 0,
+    isMenuOpen: options.menu.isOpen,
     isRunning: options.isRunning,
-    menuAriaLabel: options.menu.triggers.kind === "slash" ? "Project files" : "Skills",
-    menuItems: options.menu.menuItems,
+    menuAriaLabel: options.menu.ariaLabel,
+    menuItems: options.menu.items,
     openControlMenu,
     resolvedModelId: options.props.resolvedModelId,
     selectedProject: options.projectSelection.selectedProject,
-    selectedSkill: options.menu.selectedSkill,
-    selectedTool: options.menu.selectedTool,
+    selectedSkill: options.projectSelection.selectedSkill,
+    selectedTool: options.projectSelection.selectedTool,
     value: options.props.value,
   };
 }
@@ -288,7 +212,8 @@ function createPromptComposerState(
 type ComposerSubmissionOptions = {
   canSubmit: boolean;
   isRunning: boolean;
-  menu: ReturnType<typeof usePromptComposerMenu>;
+  menu: ComposerMenuController;
+  selection: ReturnType<typeof useProjectSelection>;
   onStop: () => void;
   onSubmit: PromptComposerProps["onSubmit"];
   project: ProjectSummary | null;
@@ -302,20 +227,21 @@ function createComposerSubmission({
   onStop,
   onSubmit,
   project,
+  selection,
   value,
 }: ComposerSubmissionOptions) {
   function submitComposerValue() {
     const wasAccepted = onSubmit(
       composePromptWithComposerContext({
         prompt: value,
-        skill: menu.selectedSkill,
-        tool: menu.selectedTool,
+        skill: selection.selectedSkill,
+        tool: selection.selectedTool,
       }),
       project,
     );
     if (wasAccepted) {
-      menu.setSelectedSkill(null);
-      menu.setSelectedTool(null);
+      selection.setSelectedSkill(null);
+      selection.setSelectedTool(null);
     }
   }
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -327,7 +253,7 @@ function createComposerSubmission({
     }
   }
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
-    if (menu.triggers.handleMenuKeyDown(event, menu.menuItems)) {
+    if (menu.handleKeyDown(event)) {
       return;
     }
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {

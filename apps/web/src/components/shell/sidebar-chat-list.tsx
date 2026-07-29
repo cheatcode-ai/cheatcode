@@ -19,6 +19,7 @@ import {
 import { SidebarListLoading } from "@/components/shell/sidebar-list-loading";
 import { Loader2, MoreVertical, Pencil, Trash2 } from "@/components/ui";
 import { deleteThread, updateThread } from "@/lib/api/project-thread";
+import { sidebarKeys } from "@/lib/api/query-keys";
 import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
 import { cn } from "@/lib/ui/cn";
 
@@ -171,8 +172,8 @@ function useChatRenameMutation({
 }
 
 function invalidateChatQueries(queryClient: QueryClient) {
-  void queryClient.invalidateQueries({ queryKey: ["sidebar-chats"] });
-  void queryClient.invalidateQueries({ queryKey: ["sidebar-project-threads"] });
+  void queryClient.invalidateQueries({ queryKey: sidebarKeys.chats });
+  void queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads });
 }
 
 function ChatRow({

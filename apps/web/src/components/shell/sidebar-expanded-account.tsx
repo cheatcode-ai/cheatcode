@@ -1,5 +1,6 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthMode } from "@/components/auth/auth-modal";
@@ -33,7 +34,6 @@ interface SidebarSandboxUsage {
 interface SidebarAccountSectionProps {
   displayName: string;
   email: null | string;
-  getToken: () => Promise<null | string>;
   imageUrl: null | string;
   isLoaded: boolean;
   isOpen: boolean;
@@ -47,7 +47,8 @@ interface SidebarAccountSectionProps {
 }
 
 export function SidebarAccountSection(props: SidebarAccountSectionProps) {
-  const usage = useSidebarSandboxUsage(props.getToken, props.isSignedIn);
+  const { getToken } = useAuth();
+  const usage = useSidebarSandboxUsage(getToken, props.isSignedIn);
   return (
     <div className="flex shrink-0 items-center p-0.5">
       <div
