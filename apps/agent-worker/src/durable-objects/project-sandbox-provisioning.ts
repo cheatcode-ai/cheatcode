@@ -1,10 +1,10 @@
-import { APIError } from "@cheatcode/observability";
 import {
   DaytonaApiError,
   type DaytonaClient,
   type DaytonaSandbox,
   type DaytonaVolume,
-} from "@cheatcode/tools-code";
+} from "@cheatcode/agent-core/tools/code";
+import { APIError } from "@cheatcode/observability";
 import {
   canonicalSandboxLabels,
   isCanonicalSandbox,
@@ -14,6 +14,7 @@ import {
 import {
   AUTO_ARCHIVE_MIN,
   DEFAULT_IDLE_STOP_MIN,
+  daytonaTarget,
   ENSURE_STARTED_ATTEMPTS,
   ENSURE_STARTED_DELAY_MS,
   isDaytonaNameConflictError,
@@ -187,7 +188,7 @@ export class ProjectSandboxProvisioning {
     return isDesiredCanonicalSandbox(sandbox, {
       sandboxName: this.input.sandboxName(),
       snapshot: this.input.env.DAYTONA_SANDBOX_SNAPSHOT,
-      target: this.input.env.DAYTONA_TARGET,
+      target: daytonaTarget(this.input.env),
       volumeName: this.input.env.DAYTONA_WORKSPACE_VOLUME,
     });
   }
@@ -199,7 +200,7 @@ export class ProjectSandboxProvisioning {
       const created = await client.createSandbox({
         name,
         snapshot: this.input.env.DAYTONA_SANDBOX_SNAPSHOT,
-        target: this.input.env.DAYTONA_TARGET,
+        target: daytonaTarget(this.input.env),
         user: "node",
         labels: canonicalSandboxLabels({
           sandboxName: name,

@@ -1,4 +1,4 @@
-import type { DaytonaSandbox } from "@cheatcode/tools-code";
+import type { DaytonaSandbox } from "@cheatcode/agent-core/tools/code";
 
 const APP_LABEL = "cheatcode";
 

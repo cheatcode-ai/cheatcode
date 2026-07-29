@@ -1,12 +1,12 @@
 "use client";
 
-import { Puzzle, X } from "@cheatcode/ui";
 import {
   type ComposerIntent,
   type IntentId,
   QUICK_ACTION_PRIMARY_INTENTS,
   QUICK_ACTION_SECONDARY_INTENTS,
 } from "@/components/home/home-composer-intents";
+import { Puzzle, X } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 
 const SKILL_CREATOR_SUGGESTIONS = [

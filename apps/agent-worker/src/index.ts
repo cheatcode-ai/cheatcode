@@ -16,7 +16,9 @@ import { AgentRun } from "./durable-objects/agent-run";
 import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
 import { formatAgentRouteError, toAgentRouteError } from "./error-handling";
-import { registerSandboxHttpRoutes } from "./sandbox-http-routes";
+import { registerProjectFileHttpRoutes } from "./project-file-http-routes";
+import { registerSandboxPreviewHttpRoutes } from "./sandbox-preview-http-routes";
+import { registerSandboxTerminalHttpRoutes } from "./sandbox-terminal-http-routes";
 import { registerSkillRuntimeExecutionRoutes } from "./skill-runtime-execution-routes";
 import { registerSkillRuntimeManagedRoutes } from "./skill-runtime-managed-routes";
 import { registerUserSkillHttpRoutes } from "./user-skill-http-routes";
@@ -49,7 +51,9 @@ agentApp.get("/health", (c) =>
 
 registerAgentSystemHttpRoutes(agentApp);
 registerAgentRunHttpRoutes(agentApp);
-registerSandboxHttpRoutes(agentApp);
+registerProjectFileHttpRoutes(agentApp);
+registerSandboxPreviewHttpRoutes(agentApp);
+registerSandboxTerminalHttpRoutes(agentApp);
 registerUserSkillHttpRoutes(agentApp);
 registerSkillRuntimeManagedRoutes(agentApp);
 registerSkillRuntimeExecutionRoutes(agentApp);

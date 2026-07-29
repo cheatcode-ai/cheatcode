@@ -1,10 +1,10 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types/api";
-import { Monitor, Smartphone } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { QRCodeSVG } from "qrcode.react";
 import { Activity, type ReactNode, useEffect } from "react";
+import { Monitor, Smartphone } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";

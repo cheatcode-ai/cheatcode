@@ -1,25 +1,30 @@
-import type { WorkerSecret } from "@cheatcode/env";
+import { DaytonaApiError, type DaytonaSandbox } from "@cheatcode/agent-core/tools/code";
+import { DEFAULT_DAYTONA_TARGET, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
-import { DaytonaApiError, type DaytonaSandbox } from "@cheatcode/tools-code";
 import { z } from "zod";
 import type { QuotaTrackerNamespace } from "../quota-tracker-binding";
 
 export interface ProjectSandboxEnv {
+  CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   DAYTONA_API_KEY: WorkerSecret;
   DAYTONA_API_URL: string;
-  DAYTONA_TARGET: string;
+  DAYTONA_TARGET?: string;
   DAYTONA_SANDBOX_SNAPSHOT: string;
   DAYTONA_WORKSPACE_VOLUME: string;
   HYPERDRIVE: Hyperdrive;
   DAYTONA_ORG_ID?: string;
   DAYTONA_PREVIEW_HOST_SUFFIXES?: string;
   PREVIEW_TOKEN_SECRET: WorkerSecret;
-  PREVIEW_HOSTNAME: string;
+  PREVIEW_HOSTNAME?: string;
   QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_AUDIT: R2Bucket;
   R2_OUTPUTS: R2Bucket;
+}
+
+export function daytonaTarget(env: Pick<ProjectSandboxEnv, "DAYTONA_TARGET">): string {
+  return env.DAYTONA_TARGET ?? DEFAULT_DAYTONA_TARGET;
 }
 
 export const ACCOUNT_DELETION_TOMBSTONE_KEY = "account_deletion_tombstone";

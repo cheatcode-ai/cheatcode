@@ -15,7 +15,8 @@ artifact-stream routing derive from the catalog's exact runtime traits, so a
 tool's registry and stream behavior move together.
 Sandbox and artifact capabilities cross tool-domain boundaries only through
 `@cheatcode/sandbox-contracts`; concrete code-tool executors remain in
-`@cheatcode/tools-code`.
+`src/tools/code` and are available to deployables through the
+`@cheatcode/agent-core/tools/code` subpath.
 
 Single-consumer data, document, and media implementations live under
 `src/tools/`. Data tools profile and normalize bounded tabular inputs and render

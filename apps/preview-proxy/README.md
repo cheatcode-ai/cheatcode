@@ -167,21 +167,21 @@ non-namespaced browser cookie before the upstream request, removes upstream
 `Domain` attributes, uses a host-only partitioned session cookie, rejects sibling
 preview origins, and sends `Origin-Agent-Cluster: ?1`. The gateway authenticates
 API calls with bearer tokens rather than ambient cookies. DNS, the wildcard
-Worker route, and Worker-side `PREVIEW_HOSTNAME` must still be released together;
-the web app derives the owned production apex from its deployment identity.
+Worker route, and shared production-origin constant must still be released together;
+the Worker and web app derive the owned production apex from that constant.
 
 ## Env / secrets
 
 | Binding               | Type            | Source                                  |
 | --------------------- | --------------- | --------------------------------------- |
-| `CHEATCODE_APP_ORIGIN` | var            | exact trusted Vercel/local app origin   |
+| `CHEATCODE_APP_ORIGIN` | derived/local var | canonical production origin or explicit loopback origin |
 | `CHEATCODE_ENVIRONMENT` | var           | `wrangler.jsonc` (`production`)         |
 | `CHEATCODE_RELEASE_SHA` | release var   | Cloudflare deployment workflow          |
 | `CF_VERSION_METADATA` | version metadata | Cloudflare runtime                    |
 | `DAYTONA_API_URL`     | var             | `wrangler.jsonc` (`https://app.daytona.io/api`) |
-| `DAYTONA_PREVIEW_HOST_SUFFIXES` | var | allowlisted Daytona preview apexes |
+| `DAYTONA_PREVIEW_HOST_SUFFIXES` | optional local var | defaults to the built-in Daytona preview apexes |
 | `DAYTONA_API_KEY`     | Secrets Store   | `daytona-api-key`                       |
-| `PREVIEW_HOSTNAME`    | var             | preview apex shared with agent-worker   |
+| `PREVIEW_HOSTNAME`    | derived/local var | canonical production hostname or explicit local apex |
 | `PREVIEW_TOKEN_SECRET`| Secrets Store   | `preview-token-secret`                  |
 
 Secrets bind from store `ba25994718db4707ab99a498e22eb5a6` (shared with

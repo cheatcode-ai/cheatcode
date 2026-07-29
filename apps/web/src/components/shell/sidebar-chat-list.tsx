@@ -1,6 +1,5 @@
 "use client";
 
-import { Loader2, MoreVertical, Pencil, Trash2 } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -18,6 +17,7 @@ import {
   useSidebarInlineMenu,
 } from "@/components/shell/sidebar-list-controls";
 import { SidebarListLoading } from "@/components/shell/sidebar-list-loading";
+import { Loader2, MoreVertical, Pencil, Trash2 } from "@/components/ui";
 import { deleteThread, updateThread } from "@/lib/api/project-thread";
 import { useChatTabsStore } from "@/lib/store/chat-tabs-store";
 import { cn } from "@/lib/ui/cn";

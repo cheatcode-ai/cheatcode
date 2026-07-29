@@ -10,7 +10,7 @@ user header.
 
 The Worker implements the provider-neutral sandbox and artifact ports from
 `@cheatcode/sandbox-contracts`. Daytona control-plane and toolbox details remain
-behind `@cheatcode/tools-code` and do not leak into peer tool packages.
+behind `@cheatcode/agent-core/tools/code` and do not load the root Mastra surface.
 
 Generated artifacts use a crash-consistent Postgres/R2 protocol. Content determines the output
 UUID, object key, and SHA-256 metadata. The Worker durably reserves that identity,
@@ -278,15 +278,15 @@ pnpm --filter @cheatcode/agent-worker typecheck
   must match the `app_agent` Supabase Vault HMAC secret)
 - `DAYTONA_API_KEY`
 - `DAYTONA_API_URL`
-- `DAYTONA_TARGET`
+- `DAYTONA_TARGET` (development override; defaults to `us`)
 - `DAYTONA_SANDBOX_SNAPSHOT`
 - `DAYTONA_WORKSPACE_VOLUME` (one shared environment volume; each user mounts only its sandbox-name subpath)
 - `PREVIEW_TOKEN_SECRET`
 - `COMPOSIO_API_KEY`
 - `DEEPSEEK_PLATFORM_API_KEY`
 - `OUTPUT_DOWNLOAD_SIGNING_SECRET` (Secrets Store binding)
-- `OUTPUT_DOWNLOAD_BASE_URL`
-- `PREVIEW_HOSTNAME`
+- `OUTPUT_DOWNLOAD_BASE_URL` (development override; production defaults to the gateway origin)
+- `PREVIEW_HOSTNAME` (development override; production derives the canonical app hostname)
 - `QUOTA_TRACKER`
 - `R2_AUDIT`
 - `R2_OUTPUTS`

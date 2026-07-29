@@ -11,6 +11,7 @@ export type {
   ComposioQuotaMeter,
   ComposioQuotaResult,
 } from "./mastra/composio-context";
+export { createCodeRequestContext } from "./mastra/tool-defs/request-context";
 export type {
   UserSkillCreateInput,
   UserSkillCreateResult,
@@ -18,5 +19,4 @@ export type {
   UserSkillDefinition,
   UserSkillLoader,
   UserSkillRuntime,
-} from "./mastra/system-prompt";
-export { createCodeRequestContext } from "./mastra/tools/request-context";
+} from "./mastra/user-skill-runtime";

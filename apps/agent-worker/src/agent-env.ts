@@ -17,13 +17,13 @@ export interface AgentEnv extends AnalyticsBindings {
   DAYTONA_API_URL: string;
   DAYTONA_ORG_ID?: string;
   DAYTONA_PREVIEW_HOST_SUFFIXES?: string;
-  DAYTONA_TARGET: string;
+  DAYTONA_TARGET?: string;
   DAYTONA_WORKSPACE_VOLUME: string;
   HYPERDRIVE: Hyperdrive;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
   PREVIEW_TOKEN_SECRET: WorkerSecret;
-  PREVIEW_HOSTNAME: string;
+  PREVIEW_HOSTNAME?: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
   QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_AUDIT: R2Bucket;

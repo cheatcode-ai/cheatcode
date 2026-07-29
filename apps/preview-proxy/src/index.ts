@@ -1,6 +1,10 @@
-import { resolveWorkerSecret } from "@cheatcode/env";
-import { APIError, createWorkerRuntime, routeName } from "@cheatcode/observability";
-import { type PreviewProxyEnv, PreviewProxyEnvSchema } from "./env";
+import { type PreviewProxyEnv, PreviewProxyEnvSchema, resolveWorkerSecret } from "@cheatcode/env";
+import {
+  type AnalyticsBindings,
+  APIError,
+  createWorkerRuntime,
+  routeName,
+} from "@cheatcode/observability";
 import { type PreviewTarget, parsePreviewHost } from "./host";
 import {
   PREVIEW_SESSION_PATH,
@@ -221,7 +225,9 @@ function safeHeaderOrigin(value: string | null): string {
   }
 }
 
-const previewProxyHandler = createWorkerRuntime<PreviewProxyEnv, ExecutionContext>({
+type PreviewProxyRuntimeEnv = PreviewProxyEnv & AnalyticsBindings;
+
+const previewProxyHandler = createWorkerRuntime<PreviewProxyRuntimeEnv, ExecutionContext>({
   errorCategory: WORKER_NAME,
   errorLogFields: ({ apiError, request }) => ({
     httpStatus: apiError.status,
@@ -229,10 +235,10 @@ const previewProxyHandler = createWorkerRuntime<PreviewProxyEnv, ExecutionContex
   }),
   errorLogName: "preview_proxy_request_failed",
   fetch: async (request, env) => {
-    PreviewProxyEnvSchema.parse(env);
+    const parsedEnv = PreviewProxyEnvSchema.parse(env);
     return withPreviewSecurityHeaders(
-      await handlePreviewRequest(request, env),
-      env.CHEATCODE_APP_ORIGIN,
+      await handlePreviewRequest(request, parsedEnv),
+      parsedEnv.CHEATCODE_APP_ORIGIN,
     );
   },
   formatError: ({ apiError, env, requestId: id }) =>

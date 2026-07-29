@@ -1,7 +1,6 @@
 "use client";
 
 import type { CheatcodeUIMessage } from "@cheatcode/types";
-import { ArrowDown } from "@cheatcode/ui";
 import type { ReactVirtualizer } from "@tanstack/react-virtual";
 import { MessageParts } from "@/components/chat/message-parts";
 import type { MessageTurn } from "@/components/chat/message-turns";
@@ -11,6 +10,7 @@ import type {
   MessageScrollState,
   OlderMessagesLoadResult,
 } from "@/components/chat/use-message-list-scroll";
+import { ArrowDown } from "@/components/ui";
 import { useElapsedSeconds } from "@/lib/hooks/use-elapsed-seconds";
 import { cn } from "@/lib/ui/cn";
 

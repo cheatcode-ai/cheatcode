@@ -1,5 +1,4 @@
-import { sumWorkedMinutesToday, withUserDb } from "@cheatcode/db";
-import type { WorkerSecret } from "@cheatcode/env";
+import { type DatabaseHandle, sumWorkedMinutesToday, withUserDb } from "@cheatcode/db";
 import {
   createLogger,
   readBoundedResponseJson,
@@ -9,11 +8,6 @@ import type { UserId } from "@cheatcode/types";
 import { type GreetingResponse, GreetingResponseSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 import type { WaitUntilContext } from "./wait-until-context";
-
-export interface GreetingRouteEnv {
-  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
-  HYPERDRIVE: Hyperdrive;
-}
 
 const OPEN_METEO_FORECAST_URL = "https://api.open-meteo.com/v1/forecast";
 const WEATHER_FETCH_TIMEOUT_MS = 1_500;
@@ -57,14 +51,14 @@ interface ResolvedGeo {
  * falls back to a time-only greeting. Never returns a server clock.
  */
 export async function greetingRoute(
-  env: GreetingRouteEnv,
+  database: DatabaseHandle,
   ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const geo = resolveGeo(request);
   const weather = await resolveWeather(ctx, geo);
-  const workedMinutesToday = await resolveWorkedMinutesToday(env, ctx, userId, geo.timezone);
+  const workedMinutesToday = await resolveWorkedMinutesToday(database, userId, geo.timezone);
   const response: GreetingResponse = {
     city: geo.city,
     timezone: geo.timezone,
@@ -80,12 +74,11 @@ export async function greetingRoute(
  * failing the greeting — mirrors the weather path's resilience.
  */
 async function resolveWorkedMinutesToday(
-  env: GreetingRouteEnv,
-  _ctx: WaitUntilContext,
+  database: DatabaseHandle,
   userId: UserId,
   timezone: string | null,
 ): Promise<number> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     try {
       return await transaction((tx) => sumWorkedMinutesToday(tx, userId, timezone ?? "UTC"));
     } catch (error) {

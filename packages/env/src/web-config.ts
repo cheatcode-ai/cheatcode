@@ -1,8 +1,12 @@
 import { z } from "zod";
 
+/** Canonical public application origin for every production surface. */
+export const PRODUCTION_APP_ORIGIN = "https://trycheatcode.com";
+export const PRODUCTION_APP_HOSTNAME = new URL(PRODUCTION_APP_ORIGIN).hostname;
+export const PRODUCTION_CLERK_AUTHORIZED_PARTIES = [PRODUCTION_APP_ORIGIN] as const;
+
 const PRODUCTION_CLERK_FRONTEND_HOSTNAME = "clerk.trycheatcode.com";
 const PRODUCTION_GATEWAY_ORIGIN = "https://gateway.trycheatcode.com";
-const PRODUCTION_PREVIEW_HOSTNAME = "trycheatcode.com";
 const LOCAL_PREVIEW_HOSTNAME = "localhost";
 const VercelEnvironmentSchema = z.enum(["development", "preview", "production"]);
 const OptionalVercelEnvironmentSchema = VercelEnvironmentSchema.optional();
@@ -143,7 +147,7 @@ export function parseWebBuildEnvironment(input: WebBuildEnvironmentInput) {
 }
 
 export function previewHostnameForDeployment(deployment: WebDeployment): string {
-  return deployment.isVercelDeployment ? PRODUCTION_PREVIEW_HOSTNAME : LOCAL_PREVIEW_HOSTNAME;
+  return deployment.isVercelDeployment ? PRODUCTION_APP_HOSTNAME : LOCAL_PREVIEW_HOSTNAME;
 }
 
 function clerkPublishableConfigurationSchema(deployment: WebDeployment) {

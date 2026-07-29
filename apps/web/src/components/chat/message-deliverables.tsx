@@ -1,5 +1,10 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
+import { useState } from "react";
+import { toast } from "sonner";
+import { formatBytes } from "@/components/chat/message-deliverable-model";
+import type { ArtifactData } from "@/components/chat/message-parts.types";
 import {
   Code,
   Download,
@@ -8,12 +13,7 @@ import {
   Image as ImageIcon,
   Presentation,
   Video,
-} from "@cheatcode/ui";
-import { useAuth } from "@clerk/nextjs";
-import { useState } from "react";
-import { toast } from "sonner";
-import { formatBytes } from "@/components/chat/message-deliverable-model";
-import type { ArtifactData } from "@/components/chat/message-parts.types";
+} from "@/components/ui";
 import { createOutputDownloadUrl } from "@/lib/api/outputs";
 
 type GetToken = () => Promise<null | string>;

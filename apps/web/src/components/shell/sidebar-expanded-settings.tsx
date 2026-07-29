@@ -1,6 +1,5 @@
 "use client";
 
-import { LifeBuoy, MoreVertical } from "@cheatcode/ui";
 import Link from "next/link";
 import { isExternalHref } from "@/components/shell/sidebar-navigation-model";
 import {
@@ -11,6 +10,7 @@ import {
   SidebarUsageIcon,
 } from "@/components/shell/sidebar-settings-icons";
 import { useSidebarTheme } from "@/components/shell/sidebar-theme";
+import { LifeBuoy, MoreVertical } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 
 const SETTINGS_MENU_LINKS = [

@@ -1,5 +1,5 @@
+import type { DaytonaSessionExecResponse } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
-import type { DaytonaSessionExecResponse } from "@cheatcode/tools-code";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { SANDBOX_PROCESS_TERMINATION_SCRIPT } from "./project-sandbox-process-cleanup";
 import {

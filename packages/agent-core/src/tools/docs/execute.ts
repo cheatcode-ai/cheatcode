@@ -153,7 +153,7 @@ async function writeWorkspaceArtifact(
   try {
     // The run's own project folder is authoritative in the shared per-user sandbox — write the
     // live file there so it shows in THIS project's Files/Computer tab instead of leaking into a
-    // sibling project's /workspace/<slug> (matches resolveWorkspaceDir in tools-code).
+    // sibling project's /workspace/<slug> (matches the code tool's resolveWorkspaceDir).
     const directory = runtimeContext.workspaceDir ?? WORKSPACE_ROOT;
     await runtimeContext.sandbox.writeFile({
       content: artifact.base64,

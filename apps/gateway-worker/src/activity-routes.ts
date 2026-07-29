@@ -1,6 +1,7 @@
 import {
   type AgentRunStartPointRange,
   type Database,
+  type DatabaseHandle,
   listAgentRunStartPoints,
   withUserDb,
 } from "@cheatcode/db";
@@ -15,7 +16,6 @@ import {
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { z } from "zod";
 import type { QuotaTracker } from "./durable-objects/quota-tracker";
-import type { WaitUntilContext } from "./wait-until-context";
 
 export interface ActivityRouteEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
@@ -30,26 +30,18 @@ const RUN_POINT_DISPLAY_CAP = 2_000;
 const RUN_POINT_REQUEST_LIMIT = RUN_POINT_DISPLAY_CAP + 1;
 
 export async function getActivityHistoryRoute(
+  database: DatabaseHandle,
   env: ActivityRouteEnv,
-  ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const query = parseActivityQuery(request);
-  return withUserDb(
-    env,
-    userId,
-    async ({ transaction }) => {
-      const sandboxHours = await listSandboxHourHistory(env, userId, query.days);
-      const response = await transaction((tx) => buildActivityResponse(tx, userId, query.days));
-      response.sandboxHours = sandboxHours;
-      return Response.json(ActivityHistoryResponseSchema.parse(response));
-    },
-    (handle) => {
-      ctx.waitUntil(handle.close());
-      return Promise.resolve();
-    },
-  );
+  return withUserDb(database, userId, async ({ transaction }) => {
+    const sandboxHours = await listSandboxHourHistory(env, userId, query.days);
+    const response = await transaction((tx) => buildActivityResponse(tx, userId, query.days));
+    response.sandboxHours = sandboxHours;
+    return Response.json(ActivityHistoryResponseSchema.parse(response));
+  });
 }
 
 async function buildActivityResponse(

@@ -58,9 +58,6 @@ export async function writeUserSkillMirror(
   sandbox: SandboxLike,
   skill: UserSkillRecord,
 ): Promise<string> {
-  if (typeof sandbox.writeFile !== "function") {
-    throw new Error("Sandbox does not support custom skill mirrors.");
-  }
   const path = userSkillFilePath(skill.name);
   await sandbox.writeFile({
     content: await serializeUserSkillMarkdown(skill),
@@ -182,7 +179,6 @@ async function userSkillRevision(
 }
 
 async function readUserSkillMirror(sandbox: SandboxLike, name: string): Promise<string | null> {
-  if (typeof sandbox.readFile !== "function") return null;
   const file = await sandbox
     .readFile({ encoding: "utf8", path: userSkillFilePath(name) })
     .catch(() => null);

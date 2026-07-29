@@ -1,6 +1,5 @@
 "use client";
 
-import { CreditCard, LifeBuoy, type LucideIcon, MoreVertical, TrendingUp } from "@cheatcode/ui";
 import Link from "next/link";
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { FOOTER_NAV, isExternalHref } from "@/components/shell/sidebar-navigation-model";
@@ -11,6 +10,7 @@ import {
   SidebarSystemThemeIcon,
 } from "@/components/shell/sidebar-settings-icons";
 import { useSidebarTheme } from "@/components/shell/sidebar-theme";
+import { CreditCard, LifeBuoy, type LucideIcon, MoreVertical, TrendingUp } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
 

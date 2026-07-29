@@ -1,10 +1,10 @@
 "use client";
 
-import { FolderOpen } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { type RefObject, useEffect, useRef, useState } from "react";
+import { FolderOpen } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";

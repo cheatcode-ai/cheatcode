@@ -1,5 +1,8 @@
 "use client";
 
+import { useAuth } from "@clerk/nextjs";
+import { type CSSProperties, useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import {
   Download,
   Inbox,
@@ -8,10 +11,7 @@ import {
   Monitor,
   MoreHorizontal,
   Play,
-} from "@cheatcode/ui";
-import { useAuth } from "@clerk/nextjs";
-import { type CSSProperties, useEffect, useRef, useState } from "react";
-import { toast } from "sonner";
+} from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { downloadProjectArchive } from "@/lib/api/project-thread";
 import type { PreviewTab } from "@/lib/store/app-store";

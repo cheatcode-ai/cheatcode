@@ -1,10 +1,10 @@
 "use client";
 
-import { Monitor } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import { useSyncExternalStore } from "react";
 import { AuthModal, type AuthMode } from "@/components/auth/auth-modal";
+import { Monitor } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { safeLocalRedirect } from "@/lib/navigation/safe-local-redirect";
 

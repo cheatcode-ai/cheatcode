@@ -1,5 +1,5 @@
+import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/agent-core/tools/code";
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
-import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/tools-code";
 import { ProjectId } from "@cheatcode/types";
 import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema } from "@cheatcode/types/api";
 import { z } from "zod";

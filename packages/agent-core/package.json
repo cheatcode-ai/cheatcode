@@ -9,6 +9,18 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./tools/browser": {
+      "types": "./dist/tools/browser/index.d.ts",
+      "import": "./dist/tools/browser/index.js"
+    },
+    "./tools/code": {
+      "types": "./dist/tools/code/index.d.ts",
+      "import": "./dist/tools/code/index.js"
+    },
+    "./tools/research": {
+      "types": "./dist/tools/research/index.d.ts",
+      "import": "./dist/tools/research/index.js"
     }
   },
   "scripts": {
@@ -25,9 +37,6 @@
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/sandbox-contracts": "workspace:*",
     "@cheatcode/skills": "workspace:*",
-    "@cheatcode/tools-browser": "workspace:*",
-    "@cheatcode/tools-code": "workspace:*",
-    "@cheatcode/tools-research": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "@google/genai": "catalog:",
     "@mastra/core": "catalog:",

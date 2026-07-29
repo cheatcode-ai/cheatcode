@@ -27,8 +27,8 @@ export function registerAgentHttpRoutes(app: GatewayApp): void {
 }
 
 async function createRunRoute(c: GatewayContext): Promise<Response> {
-  const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-  const rateLimitHeaders = await rateLimit(c, userId, "POST /v1/threads/:threadId/runs");
+  const userId = await authenticate(c);
+  const rateLimitHeaders = await rateLimit(c, userId);
   await requireVerifiedClerkEmail(c.req.raw, c.env);
   const prepared = await prepareIdempotentRunRequest(c.env, c.req.raw, userId);
   if (prepared.replay) {

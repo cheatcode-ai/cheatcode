@@ -1,5 +1,7 @@
+import { PRODUCTION_APP_ORIGIN } from "@cheatcode/env";
+
 // Supported production web origins.
-const PRODUCTION_ORIGINS = new Set(["https://trycheatcode.com"]);
+const PRODUCTION_ORIGINS = new Set([PRODUCTION_APP_ORIGIN]);
 const LOCAL_ORIGIN = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\]):\d+$/;
 
 export function resolveCorsOrigin(

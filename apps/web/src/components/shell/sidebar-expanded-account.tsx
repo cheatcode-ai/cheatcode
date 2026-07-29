@@ -1,12 +1,12 @@
 "use client";
 
-import { Search } from "@cheatcode/ui";
 import Image from "next/image";
 import Link from "next/link";
 import type { AuthMode } from "@/components/auth/auth-modal";
 import { OPEN_COMMAND_PALETTE_EVENT } from "@/components/search/command-palette-event";
 import { SidebarPanelToggleIcon } from "@/components/shell/sidebar-nav-icons";
 import { isExternalHref } from "@/components/shell/sidebar-navigation-model";
+import { Search } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { formatHoursUsed, useSandboxUsageQuery } from "@/lib/hooks/use-billing";

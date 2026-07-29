@@ -7,6 +7,10 @@ when webhooks have not run yet, rate-limits requests, and forwards agent work to
 The bootstrap reads one canonical Clerk identity snapshot including `updated_at`;
 the database compare-and-swap prevents a slower Backend API response or delayed webhook
 from regressing a newer email, display name, or avatar.
+One database handle is created lazily on first access and reused for the whole
+`/v1` request, then closed after the response handler completes. Liveness and
+public forwarding paths that do not resolve user or route state never open
+Hyperdrive.
 
 Provider key writes validate each supported BYOK provider through
 `packages/byok` before calling the Vault-backed RPC. Invalid keys are rejected
@@ -30,6 +34,9 @@ soft `record` metering for sandbox-hours. Limit synchronization carries the
 entitlement row's `updatedAt` version, and the Durable Object ignores older
 writes so a stale KV or Worker request cannot overwrite a newer plan. Request
 rate-limit headers remain the canonical live rate-limit state.
+Gateway-native buckets use Hono's registered route path; the resulting key
+format replaces the former duplicated literals and old Durable Object buckets
+age out naturally. Forwarded-route costs remain owned by the shared manifest.
 
 Billing routes create Polar checkout/portal sessions and manage end-of-period
 cancellation/reactivation through `/v1/billing/state`, `/v1/billing/cancel`,
@@ -43,7 +50,8 @@ Run creation requires the current Clerk primary email to be verified before the
 request is forwarded to `agent-worker`, so authenticated but unverified users do
 not spawn Daytona sandbox work.
 JWT verification also requires `azp` to match one of the exact HTTP(S) origins in
-`CLERK_AUTHORIZED_PARTIES`; production is pinned to `https://trycheatcode.com`.
+`CLERK_AUTHORIZED_PARTIES`; production derives that party from the canonical
+Cheatcode application origin.
 Resolved Clerk Backend API keys fail closed unless they are `sk_live_` in
 production or `sk_test_` in laptop development.
 
@@ -92,10 +100,12 @@ Production deploys bind an immutable `CHEATCODE_RELEASE_SHA` into every affected
 Worker. Each Durable Object initializes one current SQLite contract and validates
 that exact contract before using existing storage.
 
-The gateway health response exposes its own release SHA and the release SHAs
-reported by its agent and webhook service bindings. Deployments publish the
-gateway last so public traffic observes only a backend set built from the same
-reviewed revision. SQLite schema validation remains synchronous.
+`GET /health/live` is a cheap gateway-only liveness response.
+`GET /health/release` exposes the gateway release SHA plus the release SHAs
+reported by its agent and webhook service bindings, and returns 503 while they
+converge. Deployments publish the gateway last so public traffic observes only a
+backend set built from the same reviewed revision. SQLite schema validation
+remains synchronous.
 
 `IdempotencyStore`, `RateLimiter`, and `QuotaTracker` each own one exact SQLite
 schema. New objects initialize that schema directly; existing objects must
@@ -138,8 +148,9 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `HYPERDRIVE` (dedicated config whose database login is exactly `app_gateway`)
 - `DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY` (role-specific Secrets Store binding;
   must match the `app_gateway` Supabase Vault HMAC secret)
-- `CLERK_SECRET_KEY` or `CLERK_JWT_KEY`
-- `CLERK_AUTHORIZED_PARTIES` (comma-separated exact HTTP(S) origins)
+- `CLERK_SECRET_KEY`
+- `CLERK_AUTHORIZED_PARTIES` (generated development-only comma-separated exact
+  HTTP(S) origins; production derives the canonical application origin)
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_SERVER` (`production` by default; set `sandbox` only with sandbox credentials/products)
 - `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`

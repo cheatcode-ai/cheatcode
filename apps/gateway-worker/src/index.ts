@@ -1,4 +1,5 @@
-import { GatewayWorkerEnvSchema } from "@cheatcode/env";
+import { createDatabaseHandle, type DatabaseHandle } from "@cheatcode/db";
+import { GatewayWorkerEnvSchema, PRODUCTION_APP_ORIGIN } from "@cheatcode/env";
 import {
   APIError,
   createPerformanceMetricMiddleware,
@@ -11,7 +12,7 @@ import { Hono } from "hono";
 import { cors } from "hono/cors";
 import { routePath } from "hono/route";
 import { secureHeaders } from "hono/secure-headers";
-import { registerAccountHttpRoutes } from "./account-http-routes";
+import { registerActivityHttpRoutes } from "./activity-http-routes";
 import { registerAgentHttpRoutes } from "./agent-http-routes";
 import { registerBillingHttpRoutes } from "./billing-http-routes";
 import { registerCoreHttpRoutes } from "./core-http-routes";
@@ -20,12 +21,15 @@ import { IdempotencyStore } from "./durable-objects/idempotency";
 import { QuotaTracker } from "./durable-objects/quota-tracker";
 import { RateLimiter } from "./durable-objects/rate-limiter";
 import { formatGatewayRouteError } from "./error-handling";
-import type { GatewayContext, GatewayEnv } from "./gateway-env";
+import type { GatewayContext, GatewayEnv, GatewayHonoEnv } from "./gateway-env";
+import { registerGreetingHttpRoutes } from "./greeting-http-routes";
 import { registerIntegrationHttpRoutes } from "./integration-http-routes";
 import { resolveLocalPreviewRoute } from "./local-preview-routing";
+import { registerProfileHttpRoutes } from "./profile-http-routes";
 import { registerProjectHttpRoutes } from "./project-http-routes";
 import { registerProviderHttpRoutes } from "./provider-http-routes";
 import { withRateLimitErrorHeaders } from "./rate-limit";
+import { registerSearchHttpRoutes } from "./search-http-routes";
 
 export { IdempotencyStore, QuotaTracker, RateLimiter };
 
@@ -44,7 +48,7 @@ const GATEWAY_SECURITY_HEADERS = {
     connectSrc: [
       "'self'",
       "https://gateway.trycheatcode.com",
-      "https://trycheatcode.com",
+      PRODUCTION_APP_ORIGIN,
       "http://localhost:3001",
       "http://localhost:8787",
       "ws://localhost:8787",
@@ -66,7 +70,7 @@ const GATEWAY_SECURITY_HEADERS = {
   xFrameOptions: "DENY",
 };
 
-const gatewayApp = new Hono<{ Bindings: GatewayEnv }>();
+const gatewayApp = new Hono<GatewayHonoEnv>();
 
 // Answer route errors in-band: cors() stages its headers on the context before
 // the route runs and secureHeaders() applies after it, so the error response
@@ -85,6 +89,18 @@ gatewayApp.onError((error, context) => {
 });
 
 gatewayApp.use("*", secureHeaders(GATEWAY_SECURITY_HEADERS));
+gatewayApp.use("/v1/*", async (c, next) => {
+  let handle: DatabaseHandle | undefined;
+  c.set("database", () => {
+    handle ??= createDatabaseHandle(c.env);
+    return handle;
+  });
+  try {
+    await next();
+  } finally {
+    await handle?.close();
+  }
+});
 gatewayApp.use(
   "/v1/*",
   cors({
@@ -108,7 +124,10 @@ gatewayApp.use(
 );
 
 registerCoreHttpRoutes(gatewayApp);
-registerAccountHttpRoutes(gatewayApp);
+registerActivityHttpRoutes(gatewayApp);
+registerProfileHttpRoutes(gatewayApp);
+registerSearchHttpRoutes(gatewayApp);
+registerGreetingHttpRoutes(gatewayApp);
 registerProjectHttpRoutes(gatewayApp);
 registerProviderHttpRoutes(gatewayApp);
 registerIntegrationHttpRoutes(gatewayApp);

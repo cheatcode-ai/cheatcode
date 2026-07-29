@@ -39,7 +39,7 @@ export type {
   UserContextDatabase,
   UserDatabaseSession,
 } from "./client";
-export { withDatabase, withUserContext, withUserDb } from "./client";
+export { createDatabaseHandle, withDatabase, withUserContext, withUserDb } from "./client";
 export type { UserIntegrationRecord } from "./integrations";
 export {
   deleteUserIntegrationAccount,

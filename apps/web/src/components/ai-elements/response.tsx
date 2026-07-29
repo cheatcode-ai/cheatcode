@@ -1,3 +1,3 @@
 "use client";
 
-export { Response } from "@cheatcode/ui";
+export { Response } from "@/components/ui";

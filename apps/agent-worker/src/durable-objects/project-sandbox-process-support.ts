@@ -1,5 +1,5 @@
+import { type DaytonaSandbox, WorkspacePathSchema } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
-import { type DaytonaSandbox, WorkspacePathSchema } from "@cheatcode/tools-code";
 import { z } from "zod";
 import type { ProjectStartProcessInputSchema } from "./project-sandbox-runtime";
 

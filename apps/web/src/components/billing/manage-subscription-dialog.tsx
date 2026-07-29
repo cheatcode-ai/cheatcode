@@ -6,10 +6,10 @@ import type {
   BillingStateResponse,
   BillingSubscriptionActionResponse,
 } from "@cheatcode/types";
-import { ChevronDown, CreditCard, Loader2, ModalShell } from "@cheatcode/ui";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { toast } from "sonner";
+import { ChevronDown, CreditCard, Loader2, ModalShell } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import {

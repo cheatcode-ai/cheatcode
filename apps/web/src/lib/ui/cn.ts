@@ -1,1 +1,1 @@
-export { cn } from "@cheatcode/ui";
+export { cn } from "@/components/ui";

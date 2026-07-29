@@ -14,17 +14,10 @@ import {
   type UserId,
   WebVitalsBodySchema,
 } from "@cheatcode/types";
-import type { Context } from "hono";
 import type { z } from "zod";
-import type { GatewayEnv } from "./gateway-env";
-import type { WaitUntilContext } from "./wait-until-context";
+import type { GatewayContext } from "./gateway-env";
 
-type GatewayContext = Context<{ Bindings: GatewayEnv }>;
-type TelemetryUserResolver = (
-  request: Request,
-  env: GatewayEnv,
-  ctx: WaitUntilContext,
-) => Promise<UserId | "anonymous">;
+type TelemetryUserResolver = (c: GatewayContext) => Promise<UserId | "anonymous">;
 
 const MAX_TELEMETRY_BODY_CHARS = 16 * 1024;
 const MAX_TELEMETRY_BODY_BYTES = 64 * 1024;
@@ -38,7 +31,7 @@ export async function clientErrorRoute(
   if (!parsed.success) {
     throw invalidTelemetryPayload(parsed.error);
   }
-  const userId = await resolveTelemetryUser(c.req.raw, c.env, c.executionCtx);
+  const userId = await resolveTelemetryUser(c);
   const route = pathFromUrl(parsed.data.url) ?? "/v1/client-error";
   const telemetry = safeErrorTelemetry({ name: parsed.data.type ?? "FrontendError" });
   createLogger({
@@ -85,7 +78,7 @@ export async function clientUserEventRoute(
   if (!parsed.success) {
     throw invalidTelemetryPayload(parsed.error);
   }
-  const userId = await resolveTelemetryUser(c.req.raw, c.env, c.executionCtx);
+  const userId = await resolveTelemetryUser(c);
   if (userId === "anonymous") {
     throw new APIError(401, "permission_denied", "Authentication is required for user events", {
       retriable: false,

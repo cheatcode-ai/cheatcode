@@ -23,7 +23,6 @@
     "@cheatcode/preview-bridge": "workspace:*",
     "@cheatcode/sandbox-contracts": "workspace:*",
     "@cheatcode/skills": "workspace:*",
-    "@cheatcode/tools-code": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "ai": "catalog:",
     "hono": "catalog:",

@@ -42,8 +42,8 @@ pnpm --filter @cheatcode/auth lint
 
 ## Env
 
-Callers pass `CLERK_SECRET_KEY`, `CLERK_JWT_KEY`, or
-`PREVIEW_TOKEN_SECRET` from their validated Worker env. Sandbox skill-runtime
+Callers pass `CLERK_SECRET_KEY` or `PREVIEW_TOKEN_SECRET` from their validated
+Worker env. Sandbox skill-runtime
 access uses random per-run opaque capabilities whose digests and exact scopes
 live on the tenant-scoped agent-run row shared by local and production Workers;
 this package owns their strict token format, generation, parsing, and

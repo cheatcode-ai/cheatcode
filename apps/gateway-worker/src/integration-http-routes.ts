@@ -1,6 +1,6 @@
 import { withUserDb } from "@cheatcode/db";
 import { authenticate } from "./authenticate";
-import type { GatewayApp } from "./gateway-env";
+import { type GatewayApp, requestDatabase } from "./gateway-env";
 import {
   connectIntegration,
   deleteIntegrationAccount,
@@ -14,31 +14,31 @@ import { rateLimit } from "./rate-limit";
 
 export function registerIntegrationHttpRoutes(app: GatewayApp): void {
   app.get("/v1/integrations", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/integrations");
-    return withUserDb(c.env, userId, async ({ transaction }) => {
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
+    return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
       const integrations = await listIntegrationSummaries(transaction, c.env, userId);
       return c.json(integrations);
     });
   });
   app.get("/v1/integrations/catalog", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/integrations/catalog");
-    return withUserDb(c.env, userId, async ({ transaction }) => {
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
+    return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
       const catalog = await getIntegrationCatalog(transaction, c.env, userId);
       return c.json(catalog);
     });
   });
   app.get("/v1/integrations/:name/tools", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/integrations/:name/tools");
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
     return c.json(await listToolkitActions(c.env, parseIntegrationName(c.req.param("name"))));
   });
   app.post("/v1/integrations/:name/connect", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/integrations/:name/connect");
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
     const integration = parseIntegrationName(c.req.param("name"));
-    return withUserDb(c.env, userId, ({ transaction }) =>
+    return withUserDb(requestDatabase(c), userId, ({ transaction }) =>
       connectIntegration({ env: c.env, integration, request: c.req.raw, transaction, userId }),
     );
   });
@@ -47,10 +47,10 @@ export function registerIntegrationHttpRoutes(app: GatewayApp): void {
 
 function registerIntegrationAccountRoutes(app: GatewayApp): void {
   app.post("/v1/integrations/:name/accounts/:connectionId/default", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/integrations/:name/accounts/:connectionId/default");
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
     const integration = parseIntegrationName(c.req.param("name"));
-    return withUserDb(c.env, userId, async ({ transaction }) => {
+    return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
       await makeIntegrationAccountDefault({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),
         integration,
@@ -61,10 +61,10 @@ function registerIntegrationAccountRoutes(app: GatewayApp): void {
     });
   });
   app.delete("/v1/integrations/:name/accounts/:connectionId", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "DELETE /v1/integrations/:name/accounts/:connectionId");
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
     const integration = parseIntegrationName(c.req.param("name"));
-    return withUserDb(c.env, userId, async ({ transaction }) => {
+    return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
       await deleteIntegrationAccount({
         composioConnectionId: parseComposioConnectionId(c.req.param("connectionId")),
         env: c.env,

@@ -11,7 +11,6 @@
   },
   "vars": {
     "CHEATCODE_ENVIRONMENT": "production",
-    "CLERK_AUTHORIZED_PARTIES": "https://trycheatcode.com",
     "POLAR_PRODUCT_ID_PRO": "c76a8fa5-ac08-4333-9cee-aa7a8a3d959c",
     "POLAR_PRODUCT_ID_PREMIUM": "11e9b294-73e0-47f6-943c-314e53b63e6e"
   },

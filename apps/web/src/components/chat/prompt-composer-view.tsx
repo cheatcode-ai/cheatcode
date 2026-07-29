@@ -1,7 +1,6 @@
 "use client";
 
 import { USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
-import { ArrowUp, Paperclip, Square } from "@cheatcode/ui";
 import type { PromptComposerController } from "@/components/chat/prompt-composer-controller";
 import { ComposerAttachmentStatus } from "@/components/composer/composer-attachment-status";
 import { ComposerContextChips } from "@/components/composer/composer-context-chips";
@@ -9,6 +8,7 @@ import { COMPOSER_TEXTAREA_CLASS, ComposerFrame } from "@/components/composer/co
 import { ComposerPopover } from "@/components/composer/composer-popover";
 import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
+import { ArrowUp, Paperclip, Square } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";
 import { cn } from "@/lib/ui/cn";

@@ -1,9 +1,9 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import { FileArchive, FileText, Folder } from "@cheatcode/ui";
 import { useId } from "react";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
+import { FileArchive, FileText, Folder } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { cn } from "@/lib/ui/cn";
 

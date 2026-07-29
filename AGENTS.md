@@ -39,15 +39,13 @@ apps/                    Deployable services
   webhooks-worker/       Polar/Clerk/Composio webhooks + internal ops workflows
 
 packages/                Shared libraries
-  agent-core/            Mastra instance, workflows, and data/document/media tools
-  tools-{browser,code,research}/  Multi-consumer and isolated tool-domain packages
+  agent-core/            Mastra plus code/browser/research/data/document/media tools
   db/                    Drizzle schema (per-domain) + queries + migrations
   byok/                  Vault-backed BYOK key store
   skills/                Build-time skill bundler
   observability/         Structured logger + error handler + Analytics Engine emitters
   env/                   t3-env + Zod
   types/                 Zod schemas + branded IDs + InferAgentUIMessage
-  ui/                    Shared Cheatcode UI primitives, icon barrel, AI response renderer
 
 skills/                  19 curated skills; _shared/office is vendored and not bundled
 infra/                   Container images and Dockerfiles for local development and Daytona sandboxes

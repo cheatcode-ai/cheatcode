@@ -122,12 +122,13 @@ Expected local endpoints:
 
 - Web app: `http://localhost:3001`
 - Gateway and chained Workers: `http://127.0.0.1:8787`
-- Gateway health: `http://127.0.0.1:8787/health`
+- Gateway liveness: `http://127.0.0.1:8787/health/live`
+- Gateway release convergence: `http://127.0.0.1:8787/health/release`
 - Wrangler inspector: `http://127.0.0.1:9239`
 
-The Compose health check verifies both the web app's Cheatcode symbol asset and
-the gateway's JSON health response. A healthy gateway also proves that the
-service-bound agent and webhooks Workers are reachable.
+The Compose health check uses cheap gateway liveness. Release verification uses
+the convergence endpoint, which also proves that the service-bound agent and
+webhooks Workers report the same SHA.
 
 ### Stop or reset the stack
 

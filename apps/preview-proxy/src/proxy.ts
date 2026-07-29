@@ -1,3 +1,4 @@
+import type { PreviewProxyEnv } from "@cheatcode/env";
 import { readBoundedResponseText } from "@cheatcode/observability";
 import {
   CODE_SERVER_PORT,
@@ -5,7 +6,6 @@ import {
   isCodeServerWorkbenchHtml,
   MAX_CODE_SERVER_HTML_BYTES,
 } from "@cheatcode/preview-bridge";
-import type { PreviewProxyEnv } from "./env";
 import type { PreviewTarget } from "./host";
 import {
   type PreviewOrigin,

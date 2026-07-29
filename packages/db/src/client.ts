@@ -71,6 +71,11 @@ function createDb(
   return { db, close: () => closeDatabase(db, pool) };
 }
 
+/** Creates a request-scoped database handle that the caller must close. */
+export function createDatabaseHandle(env: DatabaseEnvironment): DatabaseHandle {
+  return createDb(env.HYPERDRIVE, databaseContextConfig(env));
+}
+
 export async function withUserContext<T>(
   source: UserContextSource,
   internalUserId: UserId,
@@ -99,7 +104,7 @@ export async function withDatabase<T>(
   fn: (handle: DatabaseHandle) => Promise<T>,
   closeHandle: CloseDatabaseHandle = closeDatabaseHandle,
 ): Promise<T> {
-  const handle = createDb(env.HYPERDRIVE, databaseContextConfig(env));
+  const handle = createDatabaseHandle(env);
   try {
     return await fn(handle);
   } finally {
@@ -108,13 +113,19 @@ export async function withDatabase<T>(
 }
 
 export async function withUserDb<T>(
-  env: DatabaseEnvironment,
+  source: DatabaseEnvironment | DatabaseHandle,
   userId: UserId,
   fn: (session: UserDatabaseSession) => Promise<T>,
   closeHandle?: CloseDatabaseHandle,
 ): Promise<T> {
+  if (isDatabaseHandle(source)) {
+    return fn({
+      handle: source,
+      transaction: (operation) => withUserContext(source, userId, operation),
+    });
+  }
   return withDatabase(
-    env,
+    source,
     (handle) =>
       fn({
         handle,
@@ -122,6 +133,10 @@ export async function withUserDb<T>(
       }),
     closeHandle,
   );
+}
+
+function isDatabaseHandle(source: DatabaseEnvironment | DatabaseHandle): source is DatabaseHandle {
+  return "db" in source && "close" in source;
 }
 
 function databaseContextConfig(env: DatabaseEnvironment): DatabaseContextConfig {

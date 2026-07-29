@@ -1,6 +1,10 @@
+import {
+  executeShellExec,
+  executeShellTerminal,
+  executeWriteFile,
+} from "@cheatcode/agent-core/tools/code";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
-import { executeShellExec, executeShellTerminal, executeWriteFile } from "@cheatcode/tools-code";
 import {
   appBuilderGlobalStylesSource,
   appBuilderLayoutSource,

@@ -1,11 +1,11 @@
 "use client";
 
 import type { UserSkill } from "@cheatcode/types/api";
-import { BookOpen, Loader2, MoreVertical, Trash2 } from "@cheatcode/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KeyboardEvent, MouseEvent } from "react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { BookOpen, Loader2, MoreVertical, Trash2 } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { deleteUserSkill, listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";

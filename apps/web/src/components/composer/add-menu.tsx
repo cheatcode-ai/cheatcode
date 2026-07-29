@@ -1,8 +1,8 @@
 "use client";
 
-import { Paperclip, Plus } from "@cheatcode/ui";
 import { useAddMenuController } from "@/components/composer/add-menu-controller";
 import { RepoImportControl } from "@/components/composer/repo-import-control";
+import { Paperclip, Plus } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
 
