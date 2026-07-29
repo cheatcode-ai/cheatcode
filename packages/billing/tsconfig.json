@@ -3,7 +3,8 @@
   "compilerOptions": {
     "lib": ["ES2023", "DOM"],
     "outDir": "dist",
-    "rootDir": "src"
+    "rootDir": "src",
+    "types": ["@cloudflare/workers-types"]
   },
   "include": ["src/**/*"]
 }

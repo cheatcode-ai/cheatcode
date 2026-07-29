@@ -9,6 +9,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./quota-runtime": {
+      "types": "./dist/quota-runtime.d.ts",
+      "import": "./dist/quota-runtime.js"
     }
   },
   "scripts": {
@@ -17,6 +21,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@cheatcode/durable-storage": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/types": "workspace:*",
     "@polar-sh/sdk": "catalog:",
@@ -24,6 +29,7 @@
   },
   "devDependencies": {
     "@cheatcode/tsconfig": "workspace:*",
+    "@cloudflare/workers-types": "catalog:",
     "typescript": "catalog:"
   }
 }

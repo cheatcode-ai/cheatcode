@@ -647,6 +647,9 @@ importers:
 
   packages/billing:
     dependencies:
+      '@cheatcode/durable-storage':
+        specifier: workspace:*
+        version: link:../durable-storage
       '@cheatcode/observability':
         specifier: workspace:*
         version: link:../observability
@@ -663,6 +666,9 @@ importers:
       '@cheatcode/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20260716.1
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

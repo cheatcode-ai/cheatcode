@@ -16,6 +16,9 @@ plan catalog, and resource-entitlement helpers.
 - `entitlementValuesForTier`
 - `PLAN_CATALOG`
 - sandbox-hour quota helpers
+- `@cheatcode/billing/quota-runtime`: worker-only `QuotaTrackerRuntime`; this
+  subpath owns quota storage, retention, and RPC input validation and is not
+  re-exported from the Node-safe package root
 
 Current tiers are `free`, `pro`, `premium`, `ultra`, and `max`. Entitlements
 cover sandbox hours, active projects, BYOK provider slots, and Composio calls.
