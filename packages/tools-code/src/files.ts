@@ -1,5 +1,6 @@
 import { APIError } from "@cheatcode/observability";
 import { callSandboxMethod, type getCodeRuntimeContext } from "@cheatcode/sandbox-contracts";
+import { sandboxFileEntryShape } from "@cheatcode/types";
 import { z } from "zod";
 import {
   resolveProjectWorkspacePath,
@@ -53,16 +54,7 @@ export const ListFilesInputSchema = z
   })
   .strict();
 
-const FileEntrySchema = z
-  .object({
-    name: z.string(),
-    path: z.string(),
-    relativePath: z.string(),
-    type: z.enum(["file", "directory", "symlink", "other"]),
-    size: z.number().int().nonnegative(),
-    modifiedAt: z.string(),
-  })
-  .strict();
+const FileEntrySchema = z.object(sandboxFileEntryShape(z.string(), "list-files")).strict();
 
 export const ListFilesOutputSchema = z
   .object({

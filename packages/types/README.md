@@ -21,6 +21,8 @@ capability discovery contracts, error codes, and UI message types.
 - `models.ts`: catalog IDs plus the open provider-prefixed logical-model schema
 - `@cheatcode/types/quota`: strict cross-Worker QuotaTracker request/response
   contracts and canonical quota feature identifiers
+- `sandbox-wire.ts`: canonical sandbox file-entry fields and exec-result base
+  used by API, runtime-port, and code-tool schemas
 - `skill-runtime.ts`: canonical skill-runtime capability scopes and schema
 - `ui-message.ts`: the exact AI SDK UI message data-part contract persisted in
   Postgres and replayed to the web client

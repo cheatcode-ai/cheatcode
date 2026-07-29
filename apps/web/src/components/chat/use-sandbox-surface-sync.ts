@@ -1,11 +1,12 @@
 import {
+  CHEATCODE_DATA_SCHEMAS,
   type CheatcodeUIMessage,
   type ProjectSummary,
   reconstructedTranscriptUIMessage,
   type SandboxState,
 } from "@cheatcode/types";
 import type { ChatStatus } from "ai";
-import { useEffect, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
 
 type SandboxStatusData = Extract<
@@ -28,14 +29,63 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
   setExpoUrl: (url: null | string) => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setPreviewUrl: (url: null | string) => void;
+  surfaceApplier: WorkspaceSurfaceApplier;
+}
+
+export type SurfaceCommand =
+  | { status: SandboxStatusData["status"]; type: "status" }
+  | { toolCallId: string; type: "open-browser-preview" };
+
+export interface WorkspaceSurfaceApplier {
+  apply: (command: SurfaceCommand) => void;
+  reset: () => void;
+}
+
+interface WorkspaceSurfaceApplierInput extends SandboxStatusActions {
+  projectId: string | null;
+  threadId: string;
+}
+
+interface SurfaceCommandState {
+  openedBrowserToolKeys: Set<string>;
+  scopeKey: string;
+}
+
+interface HydratedSurfaceCommands {
+  browser: SurfaceCommand | null;
+  status: SurfaceCommand | null;
+}
+
+export function useWorkspaceSurfaceApplier(
+  input: WorkspaceSurfaceApplierInput,
+): WorkspaceSurfaceApplier {
+  const scopeKey = `${input.threadId}:${input.projectId ?? ""}`;
+  const stateRef = useRef<SurfaceCommandState>(createSurfaceCommandState(scopeKey));
+  if (stateRef.current.scopeKey !== scopeKey) {
+    stateRef.current = createSurfaceCommandState(scopeKey);
+  }
+  const actions = useMemo(
+    () => ({
+      setActivePreviewTab: input.setActivePreviewTab,
+      setPreviewPanelOpen: input.setPreviewPanelOpen,
+      setSandboxStatus: input.setSandboxStatus,
+    }),
+    [input.setActivePreviewTab, input.setPreviewPanelOpen, input.setSandboxStatus],
+  );
+  const apply = useCallback(
+    (command: SurfaceCommand) =>
+      applyWorkspaceSurfaceCommand(command, input.threadId, stateRef.current, actions),
+    [actions, input.threadId],
+  );
+  const reset = useCallback(() => {
+    stateRef.current = createSurfaceCommandState(scopeKey);
+  }, [scopeKey]);
+  return useMemo(() => ({ apply, reset }), [apply, reset]);
 }
 
 export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
-  const latestStatus = latestSandboxStatusFromMessages(input.messages);
-  const browserActivityKey = latestBrowserActivityKeyFromMessages(input.messages);
-  const status = latestStatus?.status ?? null;
-  const appliedSnapshotRef = useRef<string | null | undefined>(undefined);
-  const openedBrowserActivityRef = useRef<string | null>(null);
+  const commands = useMemo(() => hydratedSurfaceCommands(input.messages), [input.messages]);
+  const status = commands.status?.type === "status" ? commands.status.status : null;
   const defaultedProjectFilesRef = useRef<string | null>(null);
   const previousStatusRef = useRef(input.chatStatus);
   const actions = useMemo(
@@ -48,58 +98,58 @@ export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
   );
 
   useResetSandboxSurface(input);
-  useMessageStatusSync(status, actions, appliedSnapshotRef);
+  useHydratedSurfaceCommand(commands.status, input.surfaceApplier);
   useProjectFilesDefault(input.project, status, actions, defaultedProjectFilesRef);
-  useBrowserActivityDefault(browserActivityKey, actions, openedBrowserActivityRef);
+  useHydratedSurfaceCommand(commands.browser, input.surfaceApplier);
   useCompletionPreview(input.chatStatus, previousStatusRef);
 }
 
-export function applySandboxStatus(data: SandboxStatusData, actions: SandboxStatusActions): void {
-  actions.setSandboxStatus(data.status);
-}
-
-export function isBrowserToolName(toolName: string): boolean {
-  return (
-    toolName === "browser_act" ||
-    toolName === "browser_extract" ||
-    toolName === "browser_observe" ||
-    toolName === "browser_open" ||
-    toolName === "browser_screenshot"
-  );
+export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
+  if (!isRecord(part)) {
+    return null;
+  }
+  if (part["type"] === "data-sandbox-status") {
+    const parsed = CHEATCODE_DATA_SCHEMAS["sandbox-status"].safeParse(part["data"]);
+    return parsed.success ? { status: parsed.data.status, type: "status" } : null;
+  }
+  if (part["type"] !== "data-tool") {
+    return null;
+  }
+  const parsed = CHEATCODE_DATA_SCHEMAS.tool.safeParse(part["data"]);
+  return parsed.success && isBrowserToolName(parsed.data.toolName)
+    ? { toolCallId: parsed.data.toolCallId, type: "open-browser-preview" }
+    : null;
 }
 
 function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
   useEffect(() => {
+    input.surfaceApplier.reset();
     input.resetConsole();
     input.resetPreviewNavigation();
     input.setPreviewUrl(null);
     input.setExpoUrl(null);
     input.setPreviewPanelOpen(false);
+    input.setSandboxStatus("cold");
   }, [
     input.resetConsole,
     input.resetPreviewNavigation,
     input.setExpoUrl,
     input.setPreviewPanelOpen,
     input.setPreviewUrl,
+    input.setSandboxStatus,
+    input.surfaceApplier,
   ]);
 }
 
-function useMessageStatusSync(
-  status: null | SandboxStatusData["status"],
-  actions: SandboxStatusActions,
-  appliedSnapshotRef: { current: string | null | undefined },
+function useHydratedSurfaceCommand(
+  command: SurfaceCommand | null,
+  applier: WorkspaceSurfaceApplier,
 ): void {
   useEffect(() => {
-    if (appliedSnapshotRef.current === status) {
-      return;
+    if (command) {
+      applier.apply(command);
     }
-    appliedSnapshotRef.current = status;
-    if (!status) {
-      actions.setSandboxStatus("cold");
-      return;
-    }
-    applySandboxStatus({ v: 1, status }, actions);
-  }, [actions, appliedSnapshotRef, status]);
+  }, [applier, command]);
 }
 
 function useProjectFilesDefault(
@@ -115,21 +165,6 @@ function useProjectFilesDefault(
     defaultedProjectFilesRef.current = project.id;
     actions.setActivePreviewTab("files");
   }, [actions, defaultedProjectFilesRef, project, status]);
-}
-
-function useBrowserActivityDefault(
-  activityKey: string | null,
-  actions: SandboxStatusActions,
-  openedBrowserActivityRef: { current: string | null },
-): void {
-  useEffect(() => {
-    if (!activityKey || openedBrowserActivityRef.current === activityKey) {
-      return;
-    }
-    openedBrowserActivityRef.current = activityKey;
-    actions.setActivePreviewTab("app");
-    actions.setPreviewPanelOpen(true);
-  }, [actions, activityKey, openedBrowserActivityRef]);
 }
 
 function useCompletionPreview(
@@ -150,40 +185,66 @@ function useCompletionPreview(
   }, [previousStatusRef, status]);
 }
 
-function latestSandboxStatusFromMessages(
-  messages: readonly CheatcodeUIMessage[],
-): SandboxStatusData | null {
-  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
+function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): HydratedSurfaceCommands {
+  let browser: SurfaceCommand | null = null;
+  let status: SurfaceCommand | null = null;
+  for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
     const message = messages[messageIndex];
     if (!message) {
       continue;
     }
     const parts = reconstructedTranscriptUIMessage(message).parts;
-    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
+    for (let partIndex = 0; partIndex < parts.length; partIndex += 1) {
       const part = parts[partIndex];
-      if (part?.type === "data-sandbox-status") {
-        return part.data;
+      if (!part) {
+        continue;
+      }
+      const command = workspaceSurfaceEffect(part);
+      if (command?.type === "status") {
+        status = command;
+      } else if (command?.type === "open-browser-preview") {
+        browser = command;
       }
     }
   }
-  return null;
+  return { browser, status };
 }
 
-function latestBrowserActivityKeyFromMessages(
-  messages: readonly CheatcodeUIMessage[],
-): string | null {
-  for (let messageIndex = messages.length - 1; messageIndex >= 0; messageIndex -= 1) {
-    const message = messages[messageIndex];
-    if (!message) {
-      continue;
+function applyWorkspaceSurfaceCommand(
+  command: SurfaceCommand,
+  threadId: string,
+  state: SurfaceCommandState,
+  actions: SandboxStatusActions,
+): void {
+  if (command.type === "status") {
+    if (useAppStore.getState().sandboxStatus !== command.status) {
+      actions.setSandboxStatus(command.status);
     }
-    const parts = reconstructedTranscriptUIMessage(message).parts;
-    for (let partIndex = parts.length - 1; partIndex >= 0; partIndex -= 1) {
-      const part = parts[partIndex];
-      if (part?.type === "data-tool" && isBrowserToolName(part.data.toolName)) {
-        return `${message.id}:${part.data.toolCallId}`;
-      }
-    }
+    return;
   }
-  return null;
+  const onceKey = `${threadId}:${command.toolCallId}`;
+  if (state.openedBrowserToolKeys.has(onceKey)) {
+    return;
+  }
+  state.openedBrowserToolKeys.add(onceKey);
+  actions.setActivePreviewTab("app");
+  actions.setPreviewPanelOpen(true);
+}
+
+function createSurfaceCommandState(scopeKey: string): SurfaceCommandState {
+  return { openedBrowserToolKeys: new Set<string>(), scopeKey };
+}
+
+function isBrowserToolName(toolName: string): boolean {
+  return (
+    toolName === "browser_act" ||
+    toolName === "browser_extract" ||
+    toolName === "browser_observe" ||
+    toolName === "browser_open" ||
+    toolName === "browser_screenshot"
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }

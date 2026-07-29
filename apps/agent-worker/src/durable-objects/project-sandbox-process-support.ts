@@ -32,7 +32,6 @@ export const ProcessRecordSchema = z
   })
   .strict();
 export type ProcessRecord = z.infer<typeof ProcessRecordSchema>;
-export type NamedProcessRecord = { name: string; record: ProcessRecord };
 export type ParsedProcessStartInput = z.infer<typeof ProjectStartProcessInputSchema>;
 export type ProcessPolicy = Pick<
   ProcessRecord,

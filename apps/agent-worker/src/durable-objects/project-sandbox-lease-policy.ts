@@ -3,6 +3,7 @@ import { ProjectWorkspaceSlugSchema, workspaceSlugFromPath } from "./project-san
 
 type LeasePolicy = readonly [
   kind:
+    | "account-deletion-control"
     | "cleanup-signal"
     | "owner-registration"
     | "project-cleanup"
@@ -15,6 +16,7 @@ type LeasePolicy = readonly [
 
 // biome-ignore format: Group the complete RPC policy surface by lease behavior for compact auditing.
 const LEASE_POLICIES = {
+  deleteAccountState: ["account-deletion-control"],
   registerOwner: ["owner-registration"],
   setQuotaPeriod: ["sandbox"], beginRun: ["sandbox"],
   renewRun: ["cleanup-signal"], endRun: ["cleanup-signal"], alarm: ["cleanup-signal"],

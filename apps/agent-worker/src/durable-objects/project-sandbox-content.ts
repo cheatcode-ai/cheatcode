@@ -41,7 +41,8 @@ import {
   shellQuote,
   timeoutSeconds,
 } from "./project-sandbox-process-support";
-import { ProjectSandboxProjectFiles } from "./project-sandbox-project-files";
+import type { CoordinatedProcessOps, ProcessOps } from "./project-sandbox-processes";
+import type { FileOps } from "./project-sandbox-project-files";
 import {
   type ProjectArchiveInput,
   ProjectArchiveInputSchema,
@@ -62,6 +63,7 @@ import {
   ProjectPreviewStatusInputSchema,
   type ProjectReadFileInput,
   ProjectReadFileInputSchema,
+  type ProjectSandboxRuntimeState,
   type ProjectSearchFilesInput,
   ProjectSearchFilesInputSchema,
   type ProjectSignedPreviewUrlInput,
@@ -72,6 +74,7 @@ import {
   type ProjectWriteFileInput,
   ProjectWriteFileInputSchema,
 } from "./project-sandbox-runtime";
+import type { SandboxRuntime } from "./project-sandbox-runtime-handle";
 
 const PREVIEW_STATUS_PROBE_TIMEOUT_MS = 3_000;
 const PREVIEW_WAKE_TIMEOUT_MS = 90_000;
@@ -81,439 +84,613 @@ const BROWSER_TAKEOVER_PORT_MIN = 60_000;
 const BROWSER_TAKEOVER_PORT_MAX = 60_999;
 const BROWSER_TAKEOVER_SCRIPT = "/opt/cheatcode/start-browser-takeover.sh";
 
-export abstract class ProjectSandboxContent extends ProjectSandboxProjectFiles {
-  public downloadProjectArchive(input: ProjectArchiveInput): Promise<Response> {
-    return this.downloadProjectArchiveForRpc(input, () => undefined);
-  }
-
-  protected async downloadProjectArchiveForRpc(
-    input: ProjectArchiveInput,
-    onFinished: () => void,
-  ): Promise<Response> {
-    const parsed = ProjectArchiveInputSchema.parse(input);
-    const archivePath = `/tmp/cheatcode-project-${crypto.randomUUID()}.zip`;
-    const workspacePath = `${WORKSPACE_DIR}/${parsed.workspaceSlug}`;
-    const result = await this.exec({
-      command: [
-        "python3",
-        "-c",
-        PROJECT_ARCHIVE_SCRIPT,
-        workspacePath,
-        archivePath,
-        String(PROJECT_ARCHIVE_MAX_BYTES),
-        String(PROJECT_ARCHIVE_MAX_FILES),
-        String(PROJECT_ARCHIVE_MAX_OUTPUT_BYTES),
-      ],
-      cwd: workspacePath,
-      timeoutMs: 300_000,
-    });
-    const id = await this.ensureSandbox();
-    if (!result.success) {
-      await this.client()
-        .deleteFilePath(id, archivePath, false)
-        .catch(() => undefined);
-      throw new APIError(422, "sandbox_command_failed", "Unable to prepare this project download", {
-        hint: result.stdout.trim().slice(-300) || "Check the project files and try again.",
-        retriable: true,
-      });
-    }
-    const client = this.client();
-    const cleanup = async (): Promise<void> => {
-      try {
-        await client.deleteFilePath(id, archivePath, false).catch(() => undefined);
-      } finally {
-        onFinished();
-      }
-    };
-    try {
-      const upstream = await client.downloadFileResponse(id, archivePath);
-      return await projectArchiveResponse(upstream, cleanup);
-    } catch (error) {
-      await cleanup();
-      throw error;
-    }
-  }
-
-  public async readFile(input: ProjectReadFileInput): Promise<SandboxReadFileResult> {
-    const parsed = ProjectReadFileInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    let bytes: Uint8Array;
-    try {
-      bytes = await this.client().downloadFile(id, parsed.path, SANDBOX_READ_FILE_MAX_BYTES);
-    } catch (error) {
-      if (isDaytonaResponseTooLarge(error)) {
-        throw new APIError(422, "sandbox_command_failed", "File is too large to read inline", {
-          hint: "Use file search or a shell command to inspect a smaller range.",
-          retriable: false,
-        });
-      }
-      throw error;
-    }
-    if (parsed.encoding === "base64") {
-      return {
-        content: encodeBase64(bytes),
-        encoding: "base64",
-        path: parsed.path,
-        size: bytes.byteLength,
-      };
-    }
-    return {
-      content: new TextDecoder().decode(bytes),
-      encoding: "utf8",
-      path: parsed.path,
-      size: bytes.byteLength,
-    };
-  }
-
-  public async writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
-    const parsed = ProjectWriteFileInputSchema.parse(input);
-    assertMutableWorkspacePath(parsed.path);
-    const id = await this.ensureSandbox();
-    await this.client().createFolder(id, dirname(parsed.path));
-    const bytes =
-      parsed.encoding === "base64"
-        ? decodeBase64(parsed.content)
-        : new TextEncoder().encode(parsed.content);
-    await this.client().uploadFile(id, parsed.path, bytes);
-    return { path: parsed.path, success: true };
-  }
-
-  public async listFiles(input: ProjectListFilesInput): Promise<SandboxListFilesResult> {
-    const parsed = ProjectListFilesInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    const files = await listSandboxFiles({
-      client: this.client(),
-      includeHidden: parsed.includeHidden,
-      path: parsed.path,
-      recursive: parsed.recursive,
-      sandboxId: id,
-    });
-    return { files, path: parsed.path };
-  }
-
-  public async searchFiles(input: ProjectSearchFilesInput): Promise<SandboxSearchFilesResult> {
-    const parsed = ProjectSearchFilesInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    const completed = await this.client().execute(id, {
-      command: buildGrepCommand(parsed),
-      cwd: WORKSPACE_DIR,
-      timeout: timeoutSeconds(60_000),
-    });
-    const matches = parseGrepOutput(completed.result ?? "", parsed.maxResults);
-    return {
-      matches,
-      query: parsed.query,
-      total: matches.length,
-      truncated: matches.length >= parsed.maxResults,
-    };
-  }
-
-  public async deleteFile(input: ProjectDeleteFileInput): Promise<SandboxDeleteFileResult> {
-    const parsed = ProjectDeleteFileInputSchema.parse(input);
-    assertDeletableWorkspacePath(parsed.path);
-    const id = await this.ensureSandbox();
-    await this.client().deleteFilePath(id, parsed.path, parsed.recursive);
-    return { path: parsed.path, success: true };
-  }
-
-  public async getSignedPreviewUrl(
-    input: ProjectSignedPreviewUrlInput,
-  ): Promise<{ token: string; url: string }> {
-    const parsed = ProjectSignedPreviewUrlInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    const link = await this.client().getSignedPreviewUrl(id, parsed.port, parsed.expiresInSeconds);
-    return { token: link.token, url: link.url };
-  }
-
-  public async exposeBrowserTakeover(
+export interface ContentOps {
+  cleanupProjectWorkspace: (input: ProjectCleanupWorkspaceInput) => Promise<void>;
+  deleteFile: (input: ProjectDeleteFileInput) => Promise<SandboxDeleteFileResult>;
+  downloadProjectArchive: (input: ProjectArchiveInput, onFinished: () => void) => Promise<Response>;
+  exposeBrowserTakeover: (
     input: ProjectBrowserTakeoverInput,
-  ): Promise<ProjectBrowserTakeoverResult> {
-    const parsed = ProjectBrowserTakeoverInputSchema.parse(input);
-    const browserDriver = await this.processRecord(browserDriverProcessId(parsed.runId));
-    if (!browserDriver) {
-      throw new APIError(409, "conflict_state_invalid", "No live browser session is available", {
-        hint: "Let Cheatcode open a website before taking over the browser.",
-        retriable: true,
-      });
-    }
-    const processId = browserTakeoverProcessId(parsed.runId);
-    const port = await this.allocateProcessPort({
-      maxPort: BROWSER_TAKEOVER_PORT_MAX,
-      minPort: BROWSER_TAKEOVER_PORT_MIN,
-      processId,
-    });
-    const password = crypto.randomUUID().replaceAll("-", "");
-    await this.startProcess({
-      command: ["sh", BROWSER_TAKEOVER_SCRIPT],
-      env: { TAKEOVER_PASSWORD: password, TAKEOVER_PORT: String(port) },
-      keepAliveTimeoutMs: parsed.expiresInSeconds * 1_000,
-      maxRestarts: 0,
-      processId,
-      restartOnFailure: false,
-      waitForPort: { path: "/vnc.html", port, timeoutMs: 30_000 },
-    });
-    const id = await this.ensureSandbox();
-    const signed = await this.client().getSignedPreviewUrl(id, port, parsed.expiresInSeconds);
-    const url = noVncSessionUrl(signed.url, password);
-    return {
-      expiresAt: new Date(Date.now() + parsed.expiresInSeconds * 1_000).toISOString(),
-      takeoverId: parsed.takeoverId,
-      url,
-    };
-  }
-
-  public async stopBrowserTakeover(input: ProjectBrowserTakeoverStopInput): Promise<void> {
-    const parsed = ProjectBrowserTakeoverStopInputSchema.parse(input);
-    await this.killProcess({ processId: browserTakeoverProcessId(parsed.runId) });
-  }
-
-  public async exposeCodeServer(input: ProjectCodeServerInput): Promise<{
+  ) => Promise<ProjectBrowserTakeoverResult>;
+  exposeCodeServer: (input: ProjectCodeServerInput) => Promise<{
     expiresAt: string;
     port: number;
     url: string;
     workspacePath: string;
-  }> {
-    const parsed = ProjectCodeServerInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    await this.ensureCodeServer(id);
-    const displayFolder =
-      parsed.workspacePath === WORKSPACE_DIR
-        ? await this.ensureCodeServerDisplayFolder(id, parsed.workspacePath)
-        : parsed.workspacePath;
-    await this.client()
-      .getPreviewLink(id, CODE_SERVER_PORT)
-      .catch(() => undefined);
-    const built = await buildPreviewUrl({
-      hostname: this.previewHostname(),
-      port: CODE_SERVER_PORT,
-      sandboxId: id,
-      secret: await this.previewSecret(),
-      useSubdomain: true,
-    });
-    return {
-      expiresAt: built.expiresAt,
-      port: CODE_SERVER_PORT,
-      url: codeServerFolderUrl(built.url, displayFolder, parsed.initialFilePath),
-      workspacePath: parsed.workspacePath,
-    };
-  }
-
-  public async wakePreview(input: ProjectWakePreviewInput): Promise<ProjectWakePreviewResult> {
-    const parsed = ProjectWakePreviewInputSchema.parse(input);
-    const id = await this.ensureSandbox();
-    const slot = parsed.workspaceSlug
-      ? `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`
-      : "app-preview";
-    const record = await this.processRecord(slot);
-    if (!record?.port) {
-      return { running: false, state: "started" };
-    }
-    const mobile = await this.mobileExpoProxy(id, record);
-    const repairedMobileConfig = record.isMobile
-      ? await this.ensureMobileMetroForwardedHostConfig(id, record.cwd)
-      : false;
-    let running = await this.isPortAlive(id, record.port);
-    if (!running || repairedMobileConfig) {
-      await this.relaunchDevServer(
-        id,
-        slot,
-        record,
-        mobile?.restartEnv ?? restartEnvironment(slot, record),
-      );
-      await this.waitForPort(id, record.port, "/", PREVIEW_WAKE_TIMEOUT_MS).catch(() => undefined);
-      running = await this.isPortAlive(id, record.port);
-    }
-    await this.client()
-      .getPreviewLink(id, record.port)
-      .catch(() => undefined);
-    const built = await buildPreviewUrl({
-      hostname: this.previewHostname(),
-      isMobile: record.isMobile === true,
-      port: record.port,
-      sandboxId: id,
-      secret: await this.previewSecret(),
-    });
-    return {
-      expiresAt: built.expiresAt,
-      port: record.port,
-      running,
-      state: "started",
-      url: built.url,
-      ...(mobile?.expoUrl ? { expoUrl: mobile.expoUrl } : {}),
-    };
-  }
-
-  public async projectPreviewStatus(
+  }>;
+  getSignedPreviewUrl: (
+    input: ProjectSignedPreviewUrlInput,
+  ) => Promise<{ token: string; url: string }>;
+  listFiles: (input: ProjectListFilesInput) => Promise<SandboxListFilesResult>;
+  projectPreviewStatus: (
     input: ProjectPreviewStatusInput,
-  ): Promise<{ running: boolean; state: string }> {
-    const parsed = ProjectPreviewStatusInputSchema.parse(input);
-    const runtime = await this.sandboxRuntimeState();
-    if (runtime.state !== "started" || !runtime.sandboxId) {
-      return { running: false, state: runtime.state };
-    }
-    const record = await this.processRecord(`${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`);
-    if (!record?.port) {
-      return { running: false, state: runtime.state };
-    }
-    const running = await this.httpPortReady(
-      runtime.sandboxId,
-      record.port,
-      "/",
-      PREVIEW_STATUS_PROBE_TIMEOUT_MS,
-    );
-    return { running, state: runtime.state };
-  }
+  ) => Promise<{ running: boolean; state: string }>;
+  readFile: (input: ProjectReadFileInput) => Promise<SandboxReadFileResult>;
+  searchFiles: (input: ProjectSearchFilesInput) => Promise<SandboxSearchFilesResult>;
+  stopBrowserTakeover: (input: ProjectBrowserTakeoverStopInput) => Promise<void>;
+  wakePreview: (input: ProjectWakePreviewInput) => Promise<ProjectWakePreviewResult>;
+  writeFile: (input: ProjectWriteFileInput) => Promise<SandboxWriteFileResult>;
+}
 
-  public cleanupProjectWorkspace(input: ProjectCleanupWorkspaceInput): Promise<void> {
-    const parsed = ProjectCleanupWorkspaceInputSchema.parse(input);
-    return this.deleteProjectWorkspace(parsed, () =>
-      this.performProjectWorkspaceCleanup(parsed.projectId, parsed.workspaceSlug),
-    );
-  }
+type ContentRuntime = Pick<
+  SandboxRuntime,
+  | "client"
+  | "deleteProjectWorkspace"
+  | "ensureExistingSandboxStarted"
+  | "ensureSandbox"
+  | "previewHostname"
+  | "previewSecret"
+  | "toUpstreamError"
+>;
 
-  private async performProjectWorkspaceCleanup(
-    projectId: string,
-    workspaceSlug: string,
-  ): Promise<void> {
-    const id = await this.ensureExistingSandboxStarted();
-    await super.killAllProcesses();
-    if (id) {
-      await this.terminateUntrackedSandboxProcesses(id);
-      await this.removeWorkspaceFolder(id, workspaceSlug);
-    }
-    await this.freeProjectPort(workspaceSlug);
-    await this.deleteUploadedFileMetadata(projectId);
-  }
+type ContentProcessOps = Pick<
+  ProcessOps,
+  | "deleteProcessRecord"
+  | "deleteProcessesOnPort"
+  | "freeProjectPort"
+  | "httpPortReady"
+  | "isPortAlive"
+  | "killAllProcesses"
+  | "processRecord"
+  | "relaunchDevServer"
+  | "terminateUntrackedSandboxProcesses"
+  | "waitForPort"
+>;
 
-  private async mobileExpoProxy(
-    id: string,
-    record: ProcessRecord,
-  ): Promise<{ expoUrl: string; restartEnv: Record<string, string> } | null> {
-    if (!record.isMobile || record.port === undefined) {
-      return null;
-    }
-    const signed = await this.client()
-      .getSignedPreviewUrl(id, record.port, SIGNED_PREVIEW_TTL_SECONDS)
-      .catch(() => null);
-    if (!signed) {
-      return null;
-    }
-    return {
-      expoUrl: signedUrlToExpo(signed.url),
-      restartEnv: {
-        CI: "1",
-        EXPO_NO_TELEMETRY: "1",
-        EXPO_PACKAGER_PROXY_URL: signed.url,
-        PORT: String(record.port),
-      },
-    };
-  }
+type ContentCoordinatedProcessOps = Pick<
+  CoordinatedProcessOps,
+  "allocateProcessPort" | "exec" | "killProcess" | "startProcess"
+>;
 
-  private async ensureMobileMetroForwardedHostConfig(id: string, cwd: string): Promise<boolean> {
-    const current = await this.client()
-      .execute(id, {
-        command: 'test -f metro.config.js && grep -q "x-forwarded-host" metro.config.js',
-        cwd,
-        timeout: 5,
-      })
-      .catch(() => null);
-    if (current?.exitCode === 0) {
-      return false;
-    }
-    const repair = await this.client().execute(id, {
-      command: `bash -lc ${shellQuote(metroForwardedHostFixScript())}`,
-      cwd,
-      timeout: 15,
+interface ContentDependencies {
+  coordinatedProcess: ContentCoordinatedProcessOps;
+  deleteUploadedFileMetadata: FileOps["deleteUploadedFileMetadata"];
+  process: ContentProcessOps;
+  sandboxRuntimeState: () => Promise<ProjectSandboxRuntimeState>;
+}
+
+interface ContentContext {
+  dependencies: ContentDependencies;
+  runtime: ContentRuntime;
+}
+
+export function createContentOps(
+  runtime: ContentRuntime,
+  dependencies: ContentDependencies,
+): ContentOps {
+  const context = { dependencies, runtime };
+  return {
+    cleanupProjectWorkspace: (input) => cleanupProjectWorkspace(context, input),
+    deleteFile: (input) => deleteFile(runtime, input),
+    downloadProjectArchive: (input, onFinished) =>
+      downloadProjectArchive(context, input, onFinished),
+    exposeBrowserTakeover: (input) => exposeBrowserTakeover(context, input),
+    exposeCodeServer: (input) => exposeCodeServer(context, input),
+    getSignedPreviewUrl: (input) => getSignedPreviewUrl(runtime, input),
+    listFiles: (input) => listFiles(runtime, input),
+    projectPreviewStatus: (input) => projectPreviewStatus(context, input),
+    readFile: (input) => readFile(runtime, input),
+    searchFiles: (input) => searchFiles(runtime, input),
+    stopBrowserTakeover: (input) => stopBrowserTakeover(context, input),
+    wakePreview: (input) => wakePreview(context, input),
+    writeFile: (input) => writeFile(runtime, input),
+  };
+}
+
+async function downloadProjectArchive(
+  context: ContentContext,
+  input: ProjectArchiveInput,
+  onFinished: () => void,
+): Promise<Response> {
+  const parsed = ProjectArchiveInputSchema.parse(input);
+  const archivePath = `/tmp/cheatcode-project-${crypto.randomUUID()}.zip`;
+  const workspacePath = `${WORKSPACE_DIR}/${parsed.workspaceSlug}`;
+  const result = await context.dependencies.coordinatedProcess.exec({
+    command: [
+      "python3",
+      "-c",
+      PROJECT_ARCHIVE_SCRIPT,
+      workspacePath,
+      archivePath,
+      String(PROJECT_ARCHIVE_MAX_BYTES),
+      String(PROJECT_ARCHIVE_MAX_FILES),
+      String(PROJECT_ARCHIVE_MAX_OUTPUT_BYTES),
+    ],
+    cwd: workspacePath,
+    timeoutMs: 300_000,
+  });
+  const id = await context.runtime.ensureSandbox();
+  if (!result.success) {
+    await context.runtime
+      .client()
+      .deleteFilePath(id, archivePath, false)
+      .catch(() => undefined);
+    throw new APIError(422, "sandbox_command_failed", "Unable to prepare this project download", {
+      hint: result.stdout.trim().slice(-300) || "Check the project files and try again.",
+      retriable: true,
     });
-    if (repair.exitCode !== 0) {
-      throw new APIError(
-        502,
-        "upstream_sandbox_failed",
-        "Could not repair the mobile preview proxy configuration.",
-        { retriable: true },
-      );
-    }
-    return true;
   }
+  return streamProjectArchive(context.runtime.client(), id, archivePath, onFinished);
+}
 
-  private async ensureCodeServer(id: string): Promise<void> {
-    if (
-      (await this.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000)) &&
-      (await this.hasCodeServerSettingsMarker(id))
-    ) {
-      return;
+async function streamProjectArchive(
+  client: ReturnType<ContentRuntime["client"]>,
+  sandboxId: string,
+  archivePath: string,
+  onFinished: () => void,
+): Promise<Response> {
+  const cleanup = async (): Promise<void> => {
+    try {
+      await client.deleteFilePath(sandboxId, archivePath, false).catch(() => undefined);
+    } finally {
+      onFinished();
     }
-    if (!(await this.hasCodeServerRuntime(id))) {
-      throw new APIError(502, "sandbox_failed_to_start", "code-server is not installed", {
-        hint: "Start a new project sandbox from the current Daytona snapshot to use the Files viewer.",
+  };
+  try {
+    const upstream = await client.downloadFileResponse(sandboxId, archivePath);
+    return await projectArchiveResponse(upstream, cleanup);
+  } catch (error) {
+    await cleanup();
+    throw error;
+  }
+}
+
+async function readFile(
+  runtime: ContentRuntime,
+  input: ProjectReadFileInput,
+): Promise<SandboxReadFileResult> {
+  const parsed = ProjectReadFileInputSchema.parse(input);
+  const id = await runtime.ensureSandbox();
+  let bytes: Uint8Array;
+  try {
+    bytes = await runtime.client().downloadFile(id, parsed.path, SANDBOX_READ_FILE_MAX_BYTES);
+  } catch (error) {
+    if (isDaytonaResponseTooLarge(error)) {
+      throw new APIError(422, "sandbox_command_failed", "File is too large to read inline", {
+        hint: "Use file search or a shell command to inspect a smaller range.",
         retriable: false,
       });
     }
-    await this.deleteProcessRecord(id, CODE_SERVER_PROCESS_ID);
-    await this.deleteProcessesOnPort(id, CODE_SERVER_PORT, CODE_SERVER_PROCESS_ID);
-    await this.client()
-      .execute(id, { command: "pkill -f code-server || true", timeout: 5 })
-      .catch(() => null);
-    await this.startProcess({
-      command: ["bash", "-lc", codeServerStartCommand()],
-      cwd: WORKSPACE_DIR,
-      env: {
-        CODE_SERVER_PORT: String(CODE_SERVER_PORT),
-        CODE_SERVER_TRUSTED_ORIGINS: codeServerTrustedOrigins(this.previewHostname()),
-        CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
-      },
-      keepAliveTimeoutMs: 0,
-      maxRestarts: 3,
-      processId: CODE_SERVER_PROCESS_ID,
-      restartOnFailure: true,
-      timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
-      waitForPort: {
-        path: "/",
-        port: CODE_SERVER_PORT,
-        timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
-      },
+    throw error;
+  }
+  if (parsed.encoding === "base64") {
+    return {
+      content: encodeBase64(bytes),
+      encoding: "base64",
+      path: parsed.path,
+      size: bytes.byteLength,
+    };
+  }
+  return {
+    content: new TextDecoder().decode(bytes),
+    encoding: "utf8",
+    path: parsed.path,
+    size: bytes.byteLength,
+  };
+}
+
+async function writeFile(
+  runtime: ContentRuntime,
+  input: ProjectWriteFileInput,
+): Promise<SandboxWriteFileResult> {
+  const parsed = ProjectWriteFileInputSchema.parse(input);
+  assertMutableWorkspacePath(parsed.path);
+  const id = await runtime.ensureSandbox();
+  await runtime.client().createFolder(id, dirname(parsed.path));
+  const bytes =
+    parsed.encoding === "base64"
+      ? decodeBase64(parsed.content)
+      : new TextEncoder().encode(parsed.content);
+  await runtime.client().uploadFile(id, parsed.path, bytes);
+  return { path: parsed.path, success: true };
+}
+
+async function listFiles(
+  runtime: ContentRuntime,
+  input: ProjectListFilesInput,
+): Promise<SandboxListFilesResult> {
+  const parsed = ProjectListFilesInputSchema.parse(input);
+  const id = await runtime.ensureSandbox();
+  const files = await listSandboxFiles({
+    client: runtime.client(),
+    includeHidden: parsed.includeHidden,
+    path: parsed.path,
+    recursive: parsed.recursive,
+    sandboxId: id,
+  });
+  return { files, path: parsed.path };
+}
+
+async function searchFiles(
+  runtime: ContentRuntime,
+  input: ProjectSearchFilesInput,
+): Promise<SandboxSearchFilesResult> {
+  const parsed = ProjectSearchFilesInputSchema.parse(input);
+  const id = await runtime.ensureSandbox();
+  const completed = await runtime.client().execute(id, {
+    command: buildGrepCommand(parsed),
+    cwd: WORKSPACE_DIR,
+    timeout: timeoutSeconds(60_000),
+  });
+  const matches = parseGrepOutput(completed.result ?? "", parsed.maxResults);
+  return {
+    matches,
+    query: parsed.query,
+    total: matches.length,
+    truncated: matches.length >= parsed.maxResults,
+  };
+}
+
+async function deleteFile(
+  runtime: ContentRuntime,
+  input: ProjectDeleteFileInput,
+): Promise<SandboxDeleteFileResult> {
+  const parsed = ProjectDeleteFileInputSchema.parse(input);
+  assertDeletableWorkspacePath(parsed.path);
+  const id = await runtime.ensureSandbox();
+  await runtime.client().deleteFilePath(id, parsed.path, parsed.recursive);
+  return { path: parsed.path, success: true };
+}
+
+async function getSignedPreviewUrl(
+  runtime: ContentRuntime,
+  input: ProjectSignedPreviewUrlInput,
+): Promise<{ token: string; url: string }> {
+  const parsed = ProjectSignedPreviewUrlInputSchema.parse(input);
+  const id = await runtime.ensureSandbox();
+  const link = await runtime.client().getSignedPreviewUrl(id, parsed.port, parsed.expiresInSeconds);
+  return { token: link.token, url: link.url };
+}
+
+async function exposeBrowserTakeover(
+  context: ContentContext,
+  input: ProjectBrowserTakeoverInput,
+): Promise<ProjectBrowserTakeoverResult> {
+  const parsed = ProjectBrowserTakeoverInputSchema.parse(input);
+  const browserDriver = await context.dependencies.process.processRecord(
+    browserDriverProcessId(parsed.runId),
+  );
+  if (!browserDriver) {
+    throw new APIError(409, "conflict_state_invalid", "No live browser session is available", {
+      hint: "Let Cheatcode open a website before taking over the browser.",
+      retriable: true,
     });
-    if (!(await this.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000))) {
-      throw new APIError(502, "sandbox_failed_to_start", "Unable to start code-server", {
-        hint: "Rebuild the Daytona sandbox snapshot with code-server, then retry the Files tab.",
-        retriable: true,
-      });
-    }
   }
+  const processId = browserTakeoverProcessId(parsed.runId);
+  const port = await context.dependencies.coordinatedProcess.allocateProcessPort({
+    maxPort: BROWSER_TAKEOVER_PORT_MAX,
+    minPort: BROWSER_TAKEOVER_PORT_MIN,
+    processId,
+  });
+  const password = crypto.randomUUID().replaceAll("-", "");
+  await context.dependencies.coordinatedProcess.startProcess({
+    command: ["sh", BROWSER_TAKEOVER_SCRIPT],
+    env: { TAKEOVER_PASSWORD: password, TAKEOVER_PORT: String(port) },
+    keepAliveTimeoutMs: parsed.expiresInSeconds * 1_000,
+    maxRestarts: 0,
+    processId,
+    restartOnFailure: false,
+    waitForPort: { path: "/vnc.html", port, timeoutMs: 30_000 },
+  });
+  return browserTakeoverResult(context.runtime, parsed, port, password);
+}
 
-  private async hasCodeServerRuntime(id: string): Promise<boolean> {
-    const probe = await this.client()
-      .execute(id, { command: "command -v code-server >/dev/null", timeout: 5 })
-      .catch(() => null);
-    return probe?.exitCode === 0;
+async function browserTakeoverResult(
+  runtime: ContentRuntime,
+  input: ReturnType<typeof ProjectBrowserTakeoverInputSchema.parse>,
+  port: number,
+  password: string,
+): Promise<ProjectBrowserTakeoverResult> {
+  const id = await runtime.ensureSandbox();
+  const signed = await runtime.client().getSignedPreviewUrl(id, port, input.expiresInSeconds);
+  return {
+    expiresAt: new Date(Date.now() + input.expiresInSeconds * 1_000).toISOString(),
+    takeoverId: input.takeoverId,
+    url: noVncSessionUrl(signed.url, password),
+  };
+}
+
+async function stopBrowserTakeover(
+  context: ContentContext,
+  input: ProjectBrowserTakeoverStopInput,
+): Promise<void> {
+  const parsed = ProjectBrowserTakeoverStopInputSchema.parse(input);
+  await context.dependencies.coordinatedProcess.killProcess({
+    processId: browserTakeoverProcessId(parsed.runId),
+  });
+}
+
+async function exposeCodeServer(
+  context: ContentContext,
+  input: ProjectCodeServerInput,
+): Promise<{
+  expiresAt: string;
+  port: number;
+  url: string;
+  workspacePath: string;
+}> {
+  const parsed = ProjectCodeServerInputSchema.parse(input);
+  const id = await context.runtime.ensureSandbox();
+  await ensureCodeServer(context, id);
+  const displayFolder =
+    parsed.workspacePath === WORKSPACE_DIR
+      ? await ensureCodeServerDisplayFolder(context.runtime, id, parsed.workspacePath)
+      : parsed.workspacePath;
+  await context.runtime
+    .client()
+    .getPreviewLink(id, CODE_SERVER_PORT)
+    .catch(() => undefined);
+  const built = await buildPreviewUrl({
+    hostname: context.runtime.previewHostname(),
+    port: CODE_SERVER_PORT,
+    sandboxId: id,
+    secret: await context.runtime.previewSecret(),
+    useSubdomain: true,
+  });
+  return {
+    expiresAt: built.expiresAt,
+    port: CODE_SERVER_PORT,
+    url: codeServerFolderUrl(built.url, displayFolder, parsed.initialFilePath),
+    workspacePath: parsed.workspacePath,
+  };
+}
+
+async function wakePreview(
+  context: ContentContext,
+  input: ProjectWakePreviewInput,
+): Promise<ProjectWakePreviewResult> {
+  const parsed = ProjectWakePreviewInputSchema.parse(input);
+  const id = await context.runtime.ensureSandbox();
+  const slot = parsed.workspaceSlug
+    ? `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`
+    : "app-preview";
+  const record = await context.dependencies.process.processRecord(slot);
+  if (!record?.port) return { running: false, state: "started" };
+  const mobile = await mobileExpoProxy(context.runtime, id, record);
+  const repaired = record.isMobile
+    ? await ensureMobileMetroForwardedHostConfig(context.runtime, id, record.cwd)
+    : false;
+  let running = await context.dependencies.process.isPortAlive(id, record.port);
+  if (!running || repaired) {
+    await context.dependencies.process.relaunchDevServer(
+      id,
+      slot,
+      record,
+      mobile?.restartEnv ?? restartEnvironment(slot, record),
+    );
+    await context.dependencies.process
+      .waitForPort(id, record.port, "/", PREVIEW_WAKE_TIMEOUT_MS)
+      .catch(() => undefined);
+    running = await context.dependencies.process.isPortAlive(id, record.port);
   }
+  return wakePreviewResult(context.runtime, id, record, record.port, running, mobile?.expoUrl);
+}
 
-  private async hasCodeServerSettingsMarker(id: string): Promise<boolean> {
-    const probe = await this.client()
-      .execute(id, {
-        command: `test -f ${shellQuote(CODE_SERVER_SETTINGS_MARKER)}`,
-        timeout: 5,
-      })
-      .catch(() => null);
-    return probe?.exitCode === 0;
+async function wakePreviewResult(
+  runtime: ContentRuntime,
+  sandboxId: string,
+  record: ProcessRecord,
+  port: number,
+  running: boolean,
+  expoUrl: string | undefined,
+): Promise<ProjectWakePreviewResult> {
+  await runtime
+    .client()
+    .getPreviewLink(sandboxId, port)
+    .catch(() => undefined);
+  const built = await buildPreviewUrl({
+    hostname: runtime.previewHostname(),
+    isMobile: record.isMobile === true,
+    port,
+    sandboxId,
+    secret: await runtime.previewSecret(),
+  });
+  return {
+    expiresAt: built.expiresAt,
+    port,
+    running,
+    state: "started",
+    url: built.url,
+    ...(expoUrl ? { expoUrl } : {}),
+  };
+}
+
+async function projectPreviewStatus(
+  context: ContentContext,
+  input: ProjectPreviewStatusInput,
+): Promise<{ running: boolean; state: string }> {
+  const parsed = ProjectPreviewStatusInputSchema.parse(input);
+  const runtimeState = await context.dependencies.sandboxRuntimeState();
+  if (runtimeState.state !== "started" || !runtimeState.sandboxId) {
+    return { running: false, state: runtimeState.state };
   }
+  const record = await context.dependencies.process.processRecord(
+    `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`,
+  );
+  if (!record?.port) return { running: false, state: runtimeState.state };
+  const running = await context.dependencies.process.httpPortReady(
+    runtimeState.sandboxId,
+    record.port,
+    "/",
+    PREVIEW_STATUS_PROBE_TIMEOUT_MS,
+  );
+  return { running, state: runtimeState.state };
+}
 
-  private async ensureCodeServerDisplayFolder(id: string, workspacePath: string): Promise<string> {
-    const probe = await this.client()
-      .execute(id, {
-        command: `ln -sfn ${shellQuote(workspacePath)} ${shellQuote(CODE_SERVER_DISPLAY_DIR)} && test -d ${shellQuote(CODE_SERVER_DISPLAY_DIR)}`,
-        timeout: 10,
-      })
-      .catch(() => null);
-    return probe?.exitCode === 0 ? CODE_SERVER_DISPLAY_DIR : workspacePath;
+function cleanupProjectWorkspace(
+  context: ContentContext,
+  input: ProjectCleanupWorkspaceInput,
+): Promise<void> {
+  const parsed = ProjectCleanupWorkspaceInputSchema.parse(input);
+  return context.runtime.deleteProjectWorkspace(parsed, () =>
+    performProjectWorkspaceCleanup(context, parsed.projectId, parsed.workspaceSlug),
+  );
+}
+
+async function performProjectWorkspaceCleanup(
+  context: ContentContext,
+  projectId: string,
+  workspaceSlug: string,
+): Promise<void> {
+  const id = await context.runtime.ensureExistingSandboxStarted();
+  // Explicit raw bypass: cleanup has already fenced and drained workspace operations.
+  await context.dependencies.process.killAllProcesses();
+  if (id) {
+    await context.dependencies.process.terminateUntrackedSandboxProcesses(id);
+    await removeWorkspaceFolder(context.runtime, id, workspaceSlug);
   }
+  await context.dependencies.process.freeProjectPort(workspaceSlug);
+  await context.dependencies.deleteUploadedFileMetadata(projectId);
+}
 
-  private async removeWorkspaceFolder(id: string, workspaceSlug: string): Promise<void> {
-    try {
-      await this.client().deleteFilePath(id, `${WORKSPACE_DIR}/${workspaceSlug}`, true);
-    } catch (error) {
-      throw this.toUpstreamError(error, "Project workspace removal failed.");
-    }
+async function mobileExpoProxy(
+  runtime: ContentRuntime,
+  id: string,
+  record: ProcessRecord,
+): Promise<{ expoUrl: string; restartEnv: Record<string, string> } | null> {
+  if (!record.isMobile || record.port === undefined) return null;
+  const signed = await runtime
+    .client()
+    .getSignedPreviewUrl(id, record.port, SIGNED_PREVIEW_TTL_SECONDS)
+    .catch(() => null);
+  if (!signed) return null;
+  return {
+    expoUrl: signedUrlToExpo(signed.url),
+    restartEnv: {
+      CI: "1",
+      EXPO_NO_TELEMETRY: "1",
+      EXPO_PACKAGER_PROXY_URL: signed.url,
+      PORT: String(record.port),
+    },
+  };
+}
+
+async function ensureMobileMetroForwardedHostConfig(
+  runtime: ContentRuntime,
+  id: string,
+  cwd: string,
+): Promise<boolean> {
+  const current = await runtime
+    .client()
+    .execute(id, {
+      command: 'test -f metro.config.js && grep -q "x-forwarded-host" metro.config.js',
+      cwd,
+      timeout: 5,
+    })
+    .catch(() => null);
+  if (current?.exitCode === 0) return false;
+  const repair = await runtime.client().execute(id, {
+    command: `bash -lc ${shellQuote(metroForwardedHostFixScript())}`,
+    cwd,
+    timeout: 15,
+  });
+  if (repair.exitCode !== 0) {
+    throw new APIError(
+      502,
+      "upstream_sandbox_failed",
+      "Could not repair the mobile preview proxy configuration.",
+      { retriable: true },
+    );
+  }
+  return true;
+}
+
+async function ensureCodeServer(context: ContentContext, id: string): Promise<void> {
+  if (
+    (await context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000)) &&
+    (await hasCodeServerSettingsMarker(context.runtime, id))
+  ) {
+    return;
+  }
+  if (!(await hasCodeServerRuntime(context.runtime, id))) {
+    throw new APIError(502, "sandbox_failed_to_start", "code-server is not installed", {
+      hint: "Start a new project sandbox from the current Daytona snapshot to use the Files viewer.",
+      retriable: false,
+    });
+  }
+  await context.dependencies.process.deleteProcessRecord(id, CODE_SERVER_PROCESS_ID);
+  await context.dependencies.process.deleteProcessesOnPort(
+    id,
+    CODE_SERVER_PORT,
+    CODE_SERVER_PROCESS_ID,
+  );
+  await context.runtime
+    .client()
+    .execute(id, { command: "pkill -f code-server || true", timeout: 5 })
+    .catch(() => null);
+  await startCodeServer(context);
+  if (!(await context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000))) {
+    throw new APIError(502, "sandbox_failed_to_start", "Unable to start code-server", {
+      hint: "Rebuild the Daytona sandbox snapshot with code-server, then retry the Files tab.",
+      retriable: true,
+    });
+  }
+}
+
+async function startCodeServer(context: ContentContext): Promise<void> {
+  await context.dependencies.coordinatedProcess.startProcess({
+    command: ["bash", "-lc", codeServerStartCommand()],
+    cwd: WORKSPACE_DIR,
+    env: {
+      CODE_SERVER_PORT: String(CODE_SERVER_PORT),
+      CODE_SERVER_TRUSTED_ORIGINS: codeServerTrustedOrigins(context.runtime.previewHostname()),
+      CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
+    },
+    keepAliveTimeoutMs: 0,
+    maxRestarts: 3,
+    processId: CODE_SERVER_PROCESS_ID,
+    restartOnFailure: true,
+    timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
+    waitForPort: {
+      path: "/",
+      port: CODE_SERVER_PORT,
+      timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
+    },
+  });
+}
+
+async function hasCodeServerRuntime(runtime: ContentRuntime, id: string): Promise<boolean> {
+  const probe = await runtime
+    .client()
+    .execute(id, { command: "command -v code-server >/dev/null", timeout: 5 })
+    .catch(() => null);
+  return probe?.exitCode === 0;
+}
+
+async function hasCodeServerSettingsMarker(runtime: ContentRuntime, id: string): Promise<boolean> {
+  const probe = await runtime
+    .client()
+    .execute(id, {
+      command: `test -f ${shellQuote(CODE_SERVER_SETTINGS_MARKER)}`,
+      timeout: 5,
+    })
+    .catch(() => null);
+  return probe?.exitCode === 0;
+}
+
+async function ensureCodeServerDisplayFolder(
+  runtime: ContentRuntime,
+  id: string,
+  workspacePath: string,
+): Promise<string> {
+  const probe = await runtime
+    .client()
+    .execute(id, {
+      command: `ln -sfn ${shellQuote(workspacePath)} ${shellQuote(CODE_SERVER_DISPLAY_DIR)} && test -d ${shellQuote(CODE_SERVER_DISPLAY_DIR)}`,
+      timeout: 10,
+    })
+    .catch(() => null);
+  return probe?.exitCode === 0 ? CODE_SERVER_DISPLAY_DIR : workspacePath;
+}
+
+async function removeWorkspaceFolder(
+  runtime: ContentRuntime,
+  id: string,
+  workspaceSlug: string,
+): Promise<void> {
+  try {
+    await runtime.client().deleteFilePath(id, `${WORKSPACE_DIR}/${workspaceSlug}`, true);
+  } catch (error) {
+    throw runtime.toUpstreamError(error, "Project workspace removal failed.");
   }
 }
 
@@ -556,9 +733,7 @@ async function projectArchiveResponse(
     throw archiveDownloadError("The sandbox returned an oversized project archive.");
   }
   const headers = new Headers({ "Content-Type": "application/zip" });
-  if (declaredLength !== null) {
-    headers.set("Content-Length", String(declaredLength));
-  }
+  if (declaredLength !== null) headers.set("Content-Length", String(declaredLength));
   return new Response(
     archiveStreamWithCleanup(upstream.body, PROJECT_ARCHIVE_MAX_OUTPUT_BYTES, cleanup),
     { headers },
@@ -606,9 +781,7 @@ function archiveStreamWithCleanup(
 }
 
 function boundedArchiveContentLength(value: string | null): number | null | "too-large" {
-  if (!value || !/^\d+$/u.test(value)) {
-    return null;
-  }
+  if (!value || !/^\d+$/u.test(value)) return null;
   const length = Number(value);
   if (!Number.isSafeInteger(length) || length > PROJECT_ARCHIVE_MAX_OUTPUT_BYTES) {
     return "too-large";

@@ -26,10 +26,11 @@ import {
 import { useChatSubmission } from "@/components/chat/use-chat-submission";
 import type { OlderMessagesLoadResult } from "@/components/chat/use-message-list-scroll";
 import {
-  applySandboxStatus,
-  isBrowserToolName,
   type SandboxStatusActions,
   useSandboxSurfaceSync,
+  useWorkspaceSurfaceApplier,
+  type WorkspaceSurfaceApplier,
+  workspaceSurfaceEffect,
 } from "@/components/chat/use-sandbox-surface-sync";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
@@ -66,7 +67,14 @@ export function useChatPanelController(input: ChatPanelProps) {
 
 function useChatPanelRuntime(input: ChatPanelProps) {
   const store = useChatPanelStore(input.threadId);
-  const runtime = useChatRuntimeBase(input, store);
+  const surfaceApplier = useWorkspaceSurfaceApplier({
+    projectId: input.project?.id ?? null,
+    setActivePreviewTab: store.setActivePreviewTab,
+    setPreviewPanelOpen: store.setPreviewPanelOpen,
+    setSandboxStatus: store.setSandboxStatus,
+    threadId: input.threadId,
+  });
+  const runtime = useChatRuntimeBase(input, store, surfaceApplier);
   const resumeStream = useSerializedResume(runtime.chat.resumeStream);
   const messages = useDeferredValue(runtime.chat.messages);
   const loadOlderMessages = useOlderMessageLoader(
@@ -80,11 +88,16 @@ function useChatPanelRuntime(input: ChatPanelProps) {
     pendingSubmissionRef: runtime.pendingSubmissionRef,
     queryClient: runtime.queryClient,
     resumeStream,
+    surfaceApplier,
   });
   return { ...runtime, loadOlderMessages, messages, store };
 }
 
-function useChatRuntimeBase(input: ChatPanelProps, store: ReturnType<typeof useChatPanelStore>) {
+function useChatRuntimeBase(
+  input: ChatPanelProps,
+  store: ReturnType<typeof useChatPanelStore>,
+  surfaceApplier: WorkspaceSurfaceApplier,
+) {
   const { getToken } = useAuth();
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -105,6 +118,7 @@ function useChatRuntimeBase(input: ChatPanelProps, store: ReturnType<typeof useC
     pendingSubmissionRef,
     queryClient,
     sandboxActions: store,
+    surfaceApplier,
     threadId: input.threadId,
     transport,
   });
@@ -275,6 +289,7 @@ function useChatSession(input: {
   pendingSubmissionRef: { current: PendingSubmission | null };
   queryClient: ReturnType<typeof useQueryClient>;
   sandboxActions: SandboxStatusActions;
+  surfaceApplier: WorkspaceSurfaceApplier;
   threadId: string;
   transport: ReturnType<typeof createChatTransport>;
 }) {
@@ -319,11 +334,9 @@ function handleStreamData(
   if (part.type === "data-seq") {
     handleSequenceData(part.data, input.threadId);
   }
-  if (part.type === "data-sandbox-status") {
-    handleSandboxStatusData(part.data, input.sandboxActions);
-  }
-  if (part.type === "data-tool") {
-    handleToolData(part.data, input.sandboxActions);
+  const surfaceCommand = workspaceSurfaceEffect(part);
+  if (surfaceCommand) {
+    input.surfaceApplier.apply(surfaceCommand);
   }
   if (part.type === "data-project-created") {
     handleProjectCreatedData(part.data, input);
@@ -337,21 +350,6 @@ function handleSequenceData(data: unknown, threadId: string): void {
   const parsed = CHEATCODE_DATA_SCHEMAS.seq.safeParse(data);
   if (parsed.success) {
     rememberStreamSeq(threadId, parsed.data.seq);
-  }
-}
-
-function handleSandboxStatusData(data: unknown, actions: SandboxStatusActions): void {
-  const parsed = CHEATCODE_DATA_SCHEMAS["sandbox-status"].safeParse(data);
-  if (parsed.success) {
-    applySandboxStatus(parsed.data, actions);
-  }
-}
-
-function handleToolData(data: unknown, actions: SandboxStatusActions): void {
-  const parsed = CHEATCODE_DATA_SCHEMAS.tool.safeParse(data);
-  if (parsed.success && isBrowserToolName(parsed.data.toolName)) {
-    actions.setActivePreviewTab("app");
-    actions.setPreviewPanelOpen(true);
   }
 }
 
@@ -460,6 +458,7 @@ function useChatPanelEffects(
     pendingSubmissionRef: { current: PendingSubmission | null };
     queryClient: ReturnType<typeof useQueryClient>;
     resumeStream: () => Promise<void>;
+    surfaceApplier: WorkspaceSurfaceApplier;
   },
 ): void {
   useSandboxSurfaceSync({
@@ -473,6 +472,7 @@ function useChatPanelEffects(
     setPreviewPanelOpen: store.setPreviewPanelOpen,
     setPreviewUrl: store.setPreviewUrl,
     setSandboxStatus: store.setSandboxStatus,
+    surfaceApplier: shared.surfaceApplier,
   });
   useConnectionStateSync();
   useVisibleStreamResume({
