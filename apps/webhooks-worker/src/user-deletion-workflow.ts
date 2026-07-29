@@ -1,4 +1,5 @@
-import type { WorkflowStep } from "cloudflare:workers";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
+import { NonRetryableError } from "cloudflare:workflows";
 import {
   advanceUserDeletionJob,
   archiveUserProjects,
@@ -44,8 +45,10 @@ import {
 } from "./lifecycle-adapters";
 import {
   createUserDeletionContinuation,
+  isUserDeletionWorkflowIdentity,
   type UserDeletionAdmissionEnv,
   type UserDeletionPayload,
+  UserDeletionPayloadSchema,
 } from "./user-deletion-admission";
 import {
   ARTIFACT_INTENT_PAGE_SIZE,
@@ -110,6 +113,26 @@ type ExternalStepOptions = typeof COMPOSIO_STEP_OPTIONS | typeof EXTERNAL_STEP_O
 
 export interface UserDeletionWorkflowEnv extends LifecycleEnv, UserDeletionAdmissionEnv {}
 
+export class UserDeletionWorkflow extends WorkflowEntrypoint<
+  UserDeletionWorkflowEnv,
+  UserDeletionPayload
+> {
+  public override async run(
+    event: Readonly<WorkflowEvent<UserDeletionPayload>>,
+    step: WorkflowStep,
+  ): Promise<{ kind: "user-deletion"; ok: true }> {
+    const payload = UserDeletionPayloadSchema.parse(event.payload);
+    if (!isUserDeletionWorkflowIdentity(event.instanceId, payload)) {
+      throw new NonRetryableError(
+        "User deletion Workflow identity is invalid",
+        "UserDeletionWorkflowIdentityInvalid",
+      );
+    }
+    await processUserDeletionChunk(this.env, payload, step);
+    return { kind: payload.kind, ok: true };
+  }
+}
+
 class UserDeletionInvariantError extends Error {
   public readonly retriable = false;
 }
@@ -159,7 +182,7 @@ const USER_DELETION_RUNNER = createDeletionJobRunner<
   },
 });
 
-export async function processUserDeletionChunk(
+async function processUserDeletionChunk(
   env: UserDeletionWorkflowEnv,
   payload: UserDeletionPayload,
   step: WorkflowStep,

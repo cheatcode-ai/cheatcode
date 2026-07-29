@@ -1,9 +1,4 @@
 import {
-  type InternalAlertPayload,
-  internalAlertEventId,
-  prepareInternalAlert,
-} from "./internal-alert";
-import {
   acceptWebhookEvent,
   completeWebhookEvent,
   releaseWebhookEvent,
@@ -26,21 +21,6 @@ type VerifiedWebhookInput = Pick<WebhookWorkflowPayload, "event" | "eventId" | "
 export interface EnqueuedWebhookResponse {
   duplicate: boolean;
   workflowId?: string;
-}
-
-/** Persist a Worker-owned alert through the same durable path as provider webhooks. */
-export async function enqueueInternalAlert(
-  env: WebhookIngressBindings,
-  input: InternalAlertPayload,
-): Promise<EnqueuedWebhookResponse> {
-  const alert = prepareInternalAlert(input);
-  const rawBody = JSON.stringify(input);
-  return acceptAndEnqueueWebhook(env, {
-    event: alert,
-    eventId: await internalAlertEventId(rawBody),
-    provider: "internal-alert",
-    rawBody,
-  });
 }
 
 /** Claim an already verified event and deterministically enqueue its durable Workflow. */

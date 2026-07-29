@@ -18,7 +18,6 @@ import {
   DELETION_JOB_DEFER_POLICY,
   MAX_TRANSIENT_DELETION_FAILURES,
 } from "./lifecycle/deletion-job-policy";
-import type { OpsWorkflowBindings } from "./ops-workflow";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
 const ProductionReleaseShaSchema = z.string().regex(/^[0-9a-f]{40}$/u);
@@ -40,7 +39,11 @@ export const UserDeletionPayloadSchema = z
   .strict();
 export type UserDeletionPayload = z.infer<typeof UserDeletionPayloadSchema>;
 
-export interface UserDeletionAdmissionEnv extends AnalyticsBindings, OpsWorkflowBindings {
+export interface UserDeletionWorkflowBindings {
+  USER_DELETION_WORKFLOW: Workflow<UserDeletionPayload>;
+}
+
+export interface UserDeletionAdmissionEnv extends AnalyticsBindings, UserDeletionWorkflowBindings {
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
@@ -221,7 +224,7 @@ function createUserDeletionInstance(
     releaseVersionId,
     userId: lease.userId,
   };
-  return createDeterministicWorkflow(env.OPS_WORKFLOW, {
+  return createDeterministicWorkflow(env.USER_DELETION_WORKFLOW, {
     id: userDeletionWorkflowId(payload),
     params: payload,
     retention: { errorRetention: "30 days", successRetention: "30 days" },

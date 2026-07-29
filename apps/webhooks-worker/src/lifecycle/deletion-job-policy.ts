@@ -11,12 +11,6 @@ export const DELETION_JOB_DEFER_POLICY = {
   retryDelayMs,
 };
 
-export const DAILY_MAINTENANCE_DEFER_POLICY = {
-  deferredStatus: (): "queued" => "queued",
-  normalizeErrorCode: (errorCode: string): string => errorCode.slice(0, 128),
-  retryDelayMs,
-};
-
 function retryDelayMs(failureCount: number): number {
   return Math.min(MAX_RETRY_DELAY_MS, BASE_RETRY_DELAY_MS * 2 ** Math.min(failureCount - 1, 10));
 }

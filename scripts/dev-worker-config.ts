@@ -304,15 +304,7 @@ function productionVarsRemovedForLocal(configPath: WorkerConfig, vars: ConfigRec
     } = vars;
     return localVars;
   }
-  const {
-    POLAR_PRODUCT_ID_PREMIUM: _premium,
-    POLAR_PRODUCT_ID_PRO: _pro,
-    ...withoutProductionProducts
-  } = vars;
-  if (configPath === "wrangler.jsonc") {
-    return withoutProductionProducts;
-  }
-  const { CLOUDFLARE_ACCOUNT_ID: _accountId, ...localVars } = withoutProductionProducts;
+  const { POLAR_PRODUCT_ID_PREMIUM: _premium, POLAR_PRODUCT_ID_PRO: _pro, ...localVars } = vars;
   return localVars;
 }
 

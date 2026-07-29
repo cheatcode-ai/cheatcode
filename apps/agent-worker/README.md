@@ -170,7 +170,7 @@ and it does not apply per-run or daily dollar caps. Provider usage remains an
 opaque SDK concern.
 
 AgentRun writes Workers Analytics Engine agent-run metrics on terminal statuses and emits
-a first-visible-chunk TTFT performance metric for the analytics watchdog. Run
+a first-visible-chunk TTFT performance metric. Run
 admission events carry the planned logical model, while stream-attempt/completion events carry
 the resolved logical model. A failure before any stream attempt keeps planned attribution instead;
 provider-local transport IDs remain structured-log context. R2-backed artifact
@@ -194,7 +194,7 @@ truncation, and there is no transcript-length, step, token, or cost ceiling.
 Mastra tool-call chunks also emit `step_started`, `step_completed`,
 `tool_invoked`, and `skill_invoked` events when those chunks are present in the
 live stream. If the last stream subscriber disconnects while a run is still
-running, AgentRun emits `run_abandoned` for the watchdog/funnel trail.
+running, AgentRun emits `run_abandoned` for the funnel trail.
 
 Project deletion first fences project/thread mutations, refuses an active run, records a
 durable cleanup request, then removes that project's workspace folder. The database marks

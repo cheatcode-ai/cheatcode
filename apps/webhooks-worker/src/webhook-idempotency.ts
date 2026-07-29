@@ -14,13 +14,7 @@ const WEBHOOK_LEASE_MS = 15 * 60 * 1000;
 const SANDBOX_STATE_TTL_SECONDS = 24 * 60 * 60;
 const SANDBOX_STATE_TTL_MS = SANDBOX_STATE_TTL_SECONDS * 1000;
 
-export const WebhookProviderSchema = z.enum([
-  "clerk",
-  "polar",
-  "composio",
-  "daytona",
-  "internal-alert",
-]);
+export const WebhookProviderSchema = z.enum(["clerk", "polar", "composio", "daytona"]);
 
 export type WebhookProvider = z.infer<typeof WebhookProviderSchema>;
 type BeginWebhookResult =

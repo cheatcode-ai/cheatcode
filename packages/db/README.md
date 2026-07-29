@@ -31,7 +31,7 @@ The schema modules under `src/schema/` define:
 - generated-output indexes and pending artifact-upload intents
 - entitlements and sandbox/run activity
 - user-authored skills
-- project, account, refund, and daily-maintenance workflow jobs
+- project, account, and refund workflow jobs
 - immutable Clerk deletion tombstones
 - security-sensitive audit records
 
@@ -68,14 +68,11 @@ jobs are removed; only quarantined failures remain for operator review.
 account deletion. Its immutable provider identity and idempotency key prevent a
 retry from issuing a second refund.
 
-`v2_daily_maintenance_jobs` coordinates daily activation aggregation, abandoned
-upload-intent cleanup, and retention work. Each phase is leased and advances by
-compare-and-swap.
-
 `v2_artifact_upload_intents` is the durable half of the Postgres/R2 commit
 protocol. An AgentRun reserves an output identity before writing R2 and
 atomically replaces the intent with `v2_generated_outputs` after the object is
-verified. Daily maintenance removes only quiesced, terminal, expired intents.
+verified. Tableless daily maintenance removes only quiesced, terminal, expired
+intents through exact identity-rechecked deletes after idempotent R2 cleanup.
 
 ## Queries
 

@@ -1,5 +1,3 @@
-export type { ActivationEventCursor } from "./activation";
-export { listDailyActivationEventPage } from "./activation";
 export type { AgentRunStartPointRange } from "./activity-runs";
 export { listAgentRunStartPoints } from "./activity-runs";
 export {
@@ -15,6 +13,7 @@ export type {
   QuiescedArtifactUploadIntentRecord,
 } from "./artifact-upload-intents";
 export {
+  deleteQuiescedArtifactUploadIntents,
   deleteUserArtifactUploadIntents,
   finalizeArtifactUpload,
   guardArtifactUpload,
@@ -41,24 +40,6 @@ export type {
   UserDatabaseSession,
 } from "./client";
 export { withDatabase, withUserContext, withUserDb } from "./client";
-export type {
-  DailyMaintenanceJobLease,
-  DailyMaintenanceJobProgress,
-  DailyMaintenanceJobRecord,
-} from "./daily-maintenance-jobs";
-export {
-  advanceDailyMaintenanceJob,
-  claimReadyDailyMaintenanceJobs,
-  completeDailyMaintenanceJob,
-  deferDailyMaintenanceJob,
-  deleteQuiescedArtifactIntentsAndAdvanceDailyMaintenanceJob,
-  guardDailyMaintenanceJobProgress,
-  listLiveDailyMaintenanceJobLeases,
-  purgeCompletedDailyMaintenanceJobs,
-  registerDailyMaintenanceJob,
-  renewAndLoadDailyMaintenanceJob,
-  reserveDailyMaintenanceContinuation,
-} from "./daily-maintenance-jobs";
 export type { UserIntegrationRecord } from "./integrations";
 export {
   deleteUserIntegrationAccount,

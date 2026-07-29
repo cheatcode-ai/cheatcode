@@ -11,25 +11,23 @@ import {
   createLogger,
   createPerformanceMetricMiddleware,
   createWorkerRuntime,
+  emitErrorEvent,
   readBoundedRequestText,
   routeName,
+  safeErrorTelemetry,
 } from "@cheatcode/observability";
 import type { AgentLifecycleServiceBinding } from "@cheatcode/types/internal";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { type Context, Hono } from "hono";
+import { processByokRevalidation } from "./byok-revalidation";
 import { verifyComposioWebhook } from "./composio";
 import {
+  DailyMaintenanceWorkflow,
+  type DailyMaintenanceWorkflowBindings,
   enqueueDailyMaintenance,
-  reconcileDailyMaintenanceWorkflows,
-} from "./daily-maintenance-admission";
+} from "./daily-maintenance-workflow";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
-import {
-  enqueueAnalyticsWatchdog,
-  enqueueByokRevalidation,
-  OpsMaintenanceWorkflow,
-  type OpsWorkflowBindings,
-} from "./ops-workflow";
 import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 import { ResourceDeletionEntrypoint } from "./resource-deletion-entrypoint";
 import {
@@ -37,15 +35,20 @@ import {
   type ResourceDeletionWorkflowBindings,
   reconcileResourceDeletionWorkflows,
 } from "./resource-deletion-workflow";
-import { admitDueUserDeletionWorkflows } from "./user-deletion-admission";
+import {
+  admitDueUserDeletionWorkflows,
+  type UserDeletionWorkflowBindings,
+} from "./user-deletion-admission";
+import { UserDeletionWorkflow } from "./user-deletion-workflow";
 import { type WebhookIdempotencyBindings, WebhookIdempotencyStore } from "./webhook-idempotency";
 import { acceptAndEnqueueWebhook } from "./webhook-ingress";
 import { WebhookWorkflow, type WebhookWorkflowBindings } from "./webhook-workflow";
 
 export {
-  OpsMaintenanceWorkflow,
+  DailyMaintenanceWorkflow,
   ResourceDeletionEntrypoint,
   ResourceDeletionWorkflow,
+  UserDeletionWorkflow,
   WebhookIdempotencyStore,
   WebhookWorkflow,
 };
@@ -55,17 +58,16 @@ const MAX_INTERNAL_WEBHOOK_BODY_BYTES = 64 * 1024;
 
 export interface WebhooksEnv
   extends AnalyticsBindings,
+    DailyMaintenanceWorkflowBindings,
     WebhookIdempotencyBindings,
-    OpsWorkflowBindings,
     ResourceDeletionWorkflowBindings,
+    UserDeletionWorkflowBindings,
     WebhookWorkflowBindings {
   AGENT_LIFECYCLE: AgentLifecycleServiceBinding;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
   CLERK_WEBHOOK_SIGNING_SECRET?: WorkerSecret;
-  CLOUDFLARE_ACCOUNT_ID?: string;
-  CLOUDFLARE_ANALYTICS_API_TOKEN?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;
   COMPOSIO_WEBHOOK_SECRET?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
@@ -322,6 +324,24 @@ const webhooksRuntime = createWorkerRuntime<WebhooksEnv, ExecutionContext>({
   workerName: "webhooks",
 });
 
+function rethrowScheduledFailure(
+  env: AnalyticsBindings,
+  error: unknown,
+  errorCode: string,
+  route: string,
+): never {
+  const telemetry = safeErrorTelemetry(error);
+  createLogger().error(errorCode, { errorCode, ...telemetry });
+  emitErrorEvent(env, {
+    errorCategory: "workflow",
+    errorCode,
+    route,
+    workerName: "webhooks",
+    ...telemetry,
+  });
+  throw error;
+}
+
 const webhooksHandler = {
   ...webhooksRuntime,
   async scheduled(
@@ -331,12 +351,24 @@ const webhooksHandler = {
   ): Promise<void> {
     WebhooksWorkerEnvSchema.parse(env);
     if (controller.cron === DAILY_MAINTENANCE_CRON) {
-      ctx.waitUntil(enqueueDailyMaintenance(env, controller.scheduledTime));
+      ctx.waitUntil(
+        enqueueDailyMaintenance(env, controller.scheduledTime).catch((error: unknown) =>
+          rethrowScheduledFailure(
+            env,
+            error,
+            "daily_maintenance_enqueue_failed",
+            "daily-maintenance",
+          ),
+        ),
+      );
       return;
     }
-    if (controller.cron === ANALYTICS_WATCHDOG_CRON) {
-      ctx.waitUntil(enqueueAnalyticsWatchdog(env, controller.scheduledTime));
-      ctx.waitUntil(enqueueByokRevalidation(env, controller.scheduledTime));
+    if (controller.cron === PERIODIC_MAINTENANCE_CRON) {
+      ctx.waitUntil(
+        processByokRevalidation(env).catch((error: unknown) =>
+          rethrowScheduledFailure(env, error, "byok_revalidation_pass_failed", "byok-revalidation"),
+        ),
+      );
       ctx.waitUntil(
         admitDueUserDeletionWorkflows(env, controller.scheduledTime).then((result) => {
           if (
@@ -362,26 +394,12 @@ const webhooksHandler = {
           }
         }),
       );
-      ctx.waitUntil(
-        reconcileDailyMaintenanceWorkflows(env).then((result) => {
-          if (
-            result.claimed > 0 ||
-            result.created > 0 ||
-            result.deferred > 0 ||
-            result.purged > 0 ||
-            result.restarted > 0 ||
-            result.staleRelease > 0
-          ) {
-            createLogger().info("daily_maintenance_workflows_reconciled", { ...result });
-          }
-        }),
-      );
       return;
     }
   },
 };
 
-const ANALYTICS_WATCHDOG_CRON = "*/5 * * * *";
+const PERIODIC_MAINTENANCE_CRON = "*/5 * * * *";
 const DAILY_MAINTENANCE_CRON = "20 0 * * *";
 
 export default webhooksHandler;

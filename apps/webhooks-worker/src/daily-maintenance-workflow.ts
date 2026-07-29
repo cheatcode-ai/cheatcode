@@ -1,428 +1,256 @@
-import type { WorkflowStep } from "cloudflare:workers";
+import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
-  type ActivationEventCursor,
-  advanceDailyMaintenanceJob,
-  completeDailyMaintenanceJob,
-  type DailyMaintenanceJobLease,
-  type DailyMaintenanceJobProgress,
-  type DailyMaintenanceJobRecord,
-  deferDailyMaintenanceJob,
+  deleteQuiescedArtifactUploadIntents,
   type HyperdriveConnection,
-  listDailyActivationEventPage,
-  renewAndLoadDailyMaintenanceJob,
-  reserveDailyMaintenanceContinuation,
+  listQuiescedArtifactUploadIntents,
+  type QuiescedArtifactUploadIntentRecord,
 } from "@cheatcode/db";
-import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
+import type { WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   createLogger,
   emitErrorEvent,
-  emitUserEvent,
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import { z } from "zod";
-import {
-  continuationLeaseToken as createContinuationLeaseToken,
-  createDeletionJobRunner,
-  withDatabase,
-} from "./deletion-job-runner";
-import { DAILY_MAINTENANCE_DEFER_POLICY } from "./lifecycle/deletion-job-policy";
-import { processOrphanUploadCleanupGeneration } from "./orphan-upload-cleanup";
+import { withDatabase } from "./deletion-job-runner";
 import { createDeterministicWorkflow, type DeterministicWorkflowResult } from "./workflow-instance";
 
-const ACTIVATION_EVENT_PAGE_SIZE = 200;
-const ACTIVATION_PAGES_PER_GENERATION = 4;
-const DEVELOPMENT_RELEASE_VERSION_ID = "00000000-0000-4000-8000-000000000001";
-
+const ARTIFACT_INTENT_PAGE_SIZE = 500;
 const DB_STEP_OPTIONS = {
   retries: { limit: 2, delay: "15 seconds", backoff: "exponential" },
   timeout: "90 seconds",
 } as const;
-const CREATE_STEP_OPTIONS = {
+const R2_STEP_OPTIONS = {
   retries: { limit: 3, delay: "15 seconds", backoff: "exponential" },
-  timeout: "2 minutes",
+  timeout: "3 minutes",
 } as const;
-
 const DailyMaintenanceDaySchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/u);
-const DailyMaintenancePayloadBase = {
-  day: DailyMaintenanceDaySchema,
-  kind: z.literal("daily-maintenance"),
-  leaseToken: z.string().uuid(),
-  releaseVersionId: z.string().uuid(),
-} as const;
+const ScheduledTimeSchema = z.number().int().nonnegative().max(8_640_000_000_000_000);
+const ArtifactIntentPageSchema = z
+  .array(
+    z
+      .object({
+        cleanupNotBefore: z.string().datetime({ offset: true }),
+        id: z.string().uuid(),
+        quiescedAt: z.string().datetime({ offset: true }),
+        r2Key: z.string().min(1),
+      })
+      .strict(),
+  )
+  .max(ARTIFACT_INTENT_PAGE_SIZE);
 
-export const DailyMaintenancePayloadSchema = z.discriminatedUnion("mode", [
-  z
-    .object({
-      ...DailyMaintenancePayloadBase,
-      continuation: z.literal(0),
-      mode: z.literal("initial"),
-    })
-    .strict(),
-  z
-    .object({
-      ...DailyMaintenancePayloadBase,
-      continuation: z.number().int().positive().max(2_147_483_647),
-      mode: z.literal("continuation"),
-    })
-    .strict(),
-]);
+const DailyMaintenancePayloadSchema = z
+  .object({
+    cleanupCutoff: z.string().datetime({ offset: true }),
+    day: DailyMaintenanceDaySchema,
+    kind: z.literal("daily-maintenance"),
+  })
+  .strict()
+  .superRefine((payload, ctx) => {
+    if (new Date(payload.cleanupCutoff).toISOString().slice(0, 10) !== payload.day) {
+      ctx.addIssue({
+        code: "custom",
+        message: "Daily maintenance cutoff must belong to its UTC instance day",
+        path: ["cleanupCutoff"],
+      });
+    }
+  });
 
 export type DailyMaintenancePayload = z.infer<typeof DailyMaintenancePayloadSchema>;
+type ArtifactIntentWireRecord = z.infer<typeof ArtifactIntentPageSchema>[number];
 
-interface DailyMaintenanceWorkflowBindings {
-  OPS_WORKFLOW: Workflow<DailyMaintenancePayload>;
+export interface DailyMaintenanceWorkflowBindings {
+  DAILY_MAINTENANCE_WORKFLOW: Workflow<DailyMaintenancePayload>;
 }
 
 export interface DailyMaintenanceEnv extends AnalyticsBindings, DailyMaintenanceWorkflowBindings {
-  CF_VERSION_METADATA?: CloudflareVersionMetadata;
-  CHEATCODE_ENVIRONMENT: "development" | "production";
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
   HYPERDRIVE: HyperdriveConnection;
   R2_OUTPUTS: R2Bucket;
 }
 
-type DeferredDailyMaintenance = NonNullable<Awaited<ReturnType<typeof deferDailyMaintenanceJob>>>;
-
-const DAILY_MAINTENANCE_RUNNER = createDeletionJobRunner<
+export class DailyMaintenanceWorkflow extends WorkflowEntrypoint<
   DailyMaintenanceEnv,
-  DailyMaintenanceJobLease,
-  DeferredDailyMaintenance
->({
-  classify: (error) => ({ errorCode: dailyMaintenanceErrorCode(error), permanent: false }),
-  defer: (env, step, lease, errorCode, label) =>
-    step.do(`${label} defer daily maintenance job`, DB_STEP_OPTIONS, () =>
-      withDatabase(env, (db) =>
-        deferDailyMaintenanceJob(db, { ...lease, errorCode }, DAILY_MAINTENANCE_DEFER_POLICY),
-      ),
-    ),
-  onDeferred: (env, lease, error, errorCode, label, deferred) => {
-    createLogger().warn("daily_maintenance_deferred", {
-      continuation: lease.continuation,
-      day: lease.day,
-      errorCode,
-      failureCount: deferred?.failureCount,
-      label,
-      ...safeErrorTelemetry(error),
-    });
-    emitErrorEvent(env, {
-      errorCategory: "workflow",
-      errorCode: "daily_maintenance_deferred",
-      route: "daily-maintenance",
-      workerName: "webhooks",
-    });
-  },
-});
-
-const ActivationEventCursorSchema = z
-  .object({
-    eventName: z.enum(["retention_d7", "retention_d28", "first_week_mau"]),
-    userId: z.string().uuid(),
-  })
-  .strict();
-const ActivationEventPageItemsSchema = z
-  .array(
-    z
-      .object({
-        cohortMonth: z.string().optional(),
-        cohortWeek: z.string().optional(),
-        eventName: ActivationEventCursorSchema.shape.eventName,
-        userId: ActivationEventCursorSchema.shape.userId,
-      })
-      .strict(),
-  )
-  .max(ACTIVATION_EVENT_PAGE_SIZE);
-const ActivationPageResultSchema = z
-  .object({
-    emitted: z.number().int().min(0).max(ACTIVATION_EVENT_PAGE_SIZE),
-    nextCursor: ActivationEventCursorSchema.nullable(),
-  })
-  .strict();
-const ActiveDailyMaintenanceJobSchema = z
-  .object({
-    activationCursor: ActivationEventCursorSchema.nullable(),
-    continuation: z.number().int().nonnegative(),
-    day: DailyMaintenanceDaySchema,
-    leaseToken: z.string().uuid(),
-    phase: z.enum(["activation", "orphan-upload-cleanup"]),
-    releaseVersionId: z.string().uuid(),
-    scheduledAt: z.string().datetime({ offset: true }),
-  })
-  .strict();
-const ClaimedDailyMaintenanceJobSchema = z.discriminatedUnion("state", [
-  z.object({ state: z.literal("lost") }).strict(),
-  z.object({ job: ActiveDailyMaintenanceJobSchema, state: z.literal("active") }).strict(),
-]);
-type ActivationEventPageItem = z.infer<typeof ActivationEventPageItemsSchema>[number];
-type GenerationOutcome = { job: DailyMaintenanceJobRecord; state: "continue" } | { state: "done" };
-export async function processDailyMaintenance(
-  env: DailyMaintenanceEnv,
-  instanceId: string,
-  payloadInput: DailyMaintenancePayload,
-  step: WorkflowStep,
-): Promise<void> {
-  const payload = DailyMaintenancePayloadSchema.parse(payloadInput);
-  assertDailyMaintenanceWorkflowIdentity(instanceId, payload);
-  assertDailyMaintenanceRelease(env, payload);
-  const lease = payloadLease(payload);
-  try {
-    const job = await loadCurrentJob(env, step, lease);
-    if (!job) {
-      return;
-    }
-    const outcome = await processDailyMaintenanceGeneration(env, step, job);
-    if (outcome.state === "continue") {
-      await continueDailyMaintenance(env, step, outcome.job);
-    }
-  } catch (error) {
-    await DAILY_MAINTENANCE_RUNNER.handleFailure(env, step, lease, error, "execution");
-  }
-}
-
-async function processDailyMaintenanceGeneration(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  job: DailyMaintenanceJobRecord,
-): Promise<GenerationOutcome> {
-  if (job.phase === "activation") {
-    return processActivationGeneration(env, step, job);
-  }
-  const intents = await processOrphanUploadCleanupGeneration(env, step, job);
-  if (intents.state !== "ready") {
-    return intents;
-  }
-  await completeMaintenance(env, step, job, 1);
-  return { state: "done" };
-}
-
-async function loadCurrentJob(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  lease: DailyMaintenanceJobLease,
-): Promise<DailyMaintenanceJobRecord | null> {
-  const value = await step.do(
-    "load daily maintenance generation lease",
-    DB_STEP_OPTIONS,
-    async () => {
-      const claimed = await withDatabase(env, (db) => renewAndLoadDailyMaintenanceJob(db, lease));
-      return claimed.state === "active"
-        ? { job: jobToWire(claimed.job), state: "active" as const }
-        : { state: "lost" as const };
-    },
-  );
-  const claimed = ClaimedDailyMaintenanceJobSchema.parse(value);
-  return claimed.state === "active" ? jobFromWire(claimed.job) : null;
-}
-
-async function processActivationGeneration(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  initialJob: DailyMaintenanceJobRecord,
-): Promise<GenerationOutcome> {
-  let job = initialJob;
-  for (let action = 1; action <= ACTIVATION_PAGES_PER_GENERATION; action += 1) {
-    const page = await emitActivationPage(env, step, job, action);
-    const next = page.nextCursor
-      ? activationProgress(page.nextCursor)
-      : orphanUploadCleanupProgress();
-    const advanced = await persistProgress(env, step, job, next, action);
-    if (!advanced) {
-      return { state: "done" };
-    }
-    job = jobWithProgress(job, next);
-    if (next.phase === "orphan-upload-cleanup") {
-      return { job, state: "continue" };
+  DailyMaintenancePayload
+> {
+  public override async run(
+    event: Readonly<WorkflowEvent<DailyMaintenancePayload>>,
+    step: WorkflowStep,
+  ): Promise<{ deleted: number; ok: true }> {
+    try {
+      const payload = DailyMaintenancePayloadSchema.parse(event.payload);
+      assertDailyMaintenanceWorkflowIdentity(event.instanceId, payload);
+      const deleted = await processDailyMaintenance(this.env, payload, step);
+      return { deleted, ok: true };
+    } catch (error) {
+      const telemetry = safeErrorTelemetry(error);
+      createLogger().error("daily_maintenance_failed", {
+        errorCode: "daily_maintenance_failed",
+        instanceId: event.instanceId,
+        ...telemetry,
+      });
+      emitErrorEvent(this.env, {
+        errorCategory: "workflow",
+        errorCode: "daily_maintenance_failed",
+        route: "daily-maintenance",
+        runId: event.instanceId,
+        workerName: "webhooks",
+        ...telemetry,
+      });
+      throw error;
     }
   }
-  return { job, state: "continue" };
 }
 
-async function emitActivationPage(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  job: DailyMaintenanceJobRecord,
-  action: number,
-): Promise<z.infer<typeof ActivationPageResultSchema>> {
-  const value = await step.do(`emit activation page ${action}`, DB_STEP_OPTIONS, async () => {
-    const page = await withDatabase(env, (db) =>
-      listDailyActivationEventPage(db, {
-        ...(job.activationCursor ? { cursor: job.activationCursor } : {}),
-        day: job.day,
-        limit: ACTIVATION_EVENT_PAGE_SIZE,
-      }),
-    );
-    const items = ActivationEventPageItemsSchema.parse(page.items);
-    const result = ActivationPageResultSchema.parse({
-      emitted: items.length,
-      nextCursor: page.nextCursor,
-    });
-    assertActivationPageConsistent(job.activationCursor, items, result.nextCursor);
-    emitActivationEvents(env, items, job.day);
-    return result;
-  });
-  const result = ActivationPageResultSchema.parse(value);
-  assertActivationCursorAdvanced(job.activationCursor, result.nextCursor);
-  return result;
-}
-
-async function persistProgress(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  job: DailyMaintenanceJobRecord,
-  next: DailyMaintenanceJobProgress,
-  action: number,
-): Promise<boolean> {
-  return step.do(`persist daily maintenance progress ${action}`, DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) =>
-      advanceDailyMaintenanceJob(db, {
-        ...jobLease(job),
-        expected: jobProgress(job),
-        next,
-      }),
-    ),
-  );
-}
-
-async function completeMaintenance(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  job: DailyMaintenanceJobRecord,
-  action: number,
-): Promise<void> {
-  const completed = await step.do(`complete daily maintenance ${action}`, DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) =>
-      completeDailyMaintenanceJob(db, { ...jobLease(job), expected: jobProgress(job) }),
-    ),
-  );
-  if (completed) {
-    createLogger().info("daily_maintenance_completed", {
-      continuation: job.continuation,
-      day: job.day,
-    });
-  }
-}
-
-async function continueDailyMaintenance(
-  env: DailyMaintenanceEnv,
-  step: WorkflowStep,
-  job: DailyMaintenanceJobRecord,
-): Promise<void> {
-  const nextLeaseToken = await continuationLeaseToken(jobLease(job));
-  const next = await step.do("reserve daily maintenance continuation", DB_STEP_OPTIONS, () =>
-    withDatabase(env, (db) =>
-      reserveDailyMaintenanceContinuation(db, {
-        ...jobLease(job),
-        expected: jobProgress(job),
-        nextLeaseToken,
-      }),
-    ),
-  );
-  if (!next) {
-    return;
-  }
-  try {
-    await step.do("create daily maintenance continuation", CREATE_STEP_OPTIONS, () =>
-      createDailyMaintenanceInstance(env, next),
-    );
-  } catch (error) {
-    await DAILY_MAINTENANCE_RUNNER.handleFailure(env, step, next, error, "continuation");
-  }
-}
-
-export function createDailyMaintenanceInstance(
-  env: DailyMaintenanceEnv,
-  lease: DailyMaintenanceJobLease,
+export function enqueueDailyMaintenance(
+  env: DailyMaintenanceWorkflowBindings,
+  scheduledTimeInput: number,
 ): Promise<DeterministicWorkflowResult> {
-  const payload = dailyMaintenancePayload(lease);
-  return createDeterministicWorkflow(env.OPS_WORKFLOW, {
+  const scheduledAt = new Date(ScheduledTimeSchema.parse(scheduledTimeInput));
+  const payload = DailyMaintenancePayloadSchema.parse({
+    cleanupCutoff: scheduledAt.toISOString(),
+    day: scheduledAt.toISOString().slice(0, 10),
+    kind: "daily-maintenance",
+  });
+  return createDeterministicWorkflow(env.DAILY_MAINTENANCE_WORKFLOW, {
     id: dailyMaintenanceWorkflowIdentity(payload),
     params: payload,
     retention: { errorRetention: "30 days", successRetention: "7 days" },
   });
 }
 
-function dailyMaintenancePayload(lease: DailyMaintenanceJobLease): DailyMaintenancePayload {
-  return DailyMaintenancePayloadSchema.parse({
-    ...lease,
-    kind: "daily-maintenance",
-    mode: lease.continuation === 0 ? "initial" : "continuation",
-  });
+async function processDailyMaintenance(
+  env: DailyMaintenanceEnv,
+  payload: DailyMaintenancePayload,
+  step: WorkflowStep,
+): Promise<number> {
+  const cutoff = new Date(payload.cleanupCutoff);
+  let deleted = 0;
+  for (let pageNumber = 1; ; pageNumber += 1) {
+    const page = await listIntentPage(env, step, cutoff, pageNumber);
+    if (page.length === 0) {
+      createLogger().info("daily_maintenance_completed", {
+        cleanupCutoff: payload.cleanupCutoff,
+        day: payload.day,
+        deleted,
+        pages: pageNumber - 1,
+      });
+      return deleted;
+    }
+    await deleteIntentObjects(env, step, page, pageNumber);
+    const deletedRows = await deleteIntentRows(env, step, cutoff, page, pageNumber);
+    if (deletedRows === 0) {
+      throw new Error("Daily maintenance page returned rows but deleted zero intent rows");
+    }
+    deleted += deletedRows;
+  }
 }
 
-function payloadLease(payload: DailyMaintenancePayload): DailyMaintenanceJobLease {
+async function listIntentPage(
+  env: DailyMaintenanceEnv,
+  step: WorkflowStep,
+  cutoff: Date,
+  pageNumber: number,
+): Promise<ArtifactIntentWireRecord[]> {
+  const value = await step.do(
+    `list quiesced artifact intents page ${pageNumber}`,
+    DB_STEP_OPTIONS,
+    () =>
+      withDatabase(env, async (db) => {
+        const rows = await listQuiescedArtifactUploadIntents(db, {
+          before: cutoff,
+          limit: ARTIFACT_INTENT_PAGE_SIZE,
+        });
+        return ArtifactIntentPageSchema.parse(rows.map(intentToWire));
+      }),
+  );
+  const page = ArtifactIntentPageSchema.parse(value);
+  assertIntentPage(page, cutoff);
+  return page;
+}
+
+async function deleteIntentObjects(
+  env: DailyMaintenanceEnv,
+  step: WorkflowStep,
+  page: ArtifactIntentWireRecord[],
+  pageNumber: number,
+): Promise<void> {
+  await step.do(
+    `delete quiesced artifact objects page ${pageNumber}`,
+    R2_STEP_OPTIONS,
+    async () => {
+      await env.R2_OUTPUTS.delete([...new Set(page.map(({ r2Key }) => r2Key))]);
+      return { deleted: page.length };
+    },
+  );
+}
+
+async function deleteIntentRows(
+  env: DailyMaintenanceEnv,
+  step: WorkflowStep,
+  cutoff: Date,
+  page: ArtifactIntentWireRecord[],
+  pageNumber: number,
+): Promise<number> {
+  const value = await step.do(
+    `delete quiesced artifact intents page ${pageNumber}`,
+    DB_STEP_OPTIONS,
+    () =>
+      withDatabase(env, (db) =>
+        deleteQuiescedArtifactUploadIntents(db, {
+          before: cutoff,
+          intents: page.map(intentFromWire),
+        }),
+      ),
+  );
+  return z.number().int().min(0).max(page.length).parse(value);
+}
+
+function intentToWire(intent: QuiescedArtifactUploadIntentRecord): ArtifactIntentWireRecord {
   return {
-    continuation: payload.continuation,
-    day: payload.day,
-    leaseToken: payload.leaseToken,
-    releaseVersionId: payload.releaseVersionId,
+    ...intent,
+    cleanupNotBefore: intent.cleanupNotBefore.toISOString(),
+    quiescedAt: intent.quiescedAt.toISOString(),
   };
 }
 
-function jobLease(job: DailyMaintenanceJobRecord): DailyMaintenanceJobLease {
+function intentFromWire(intent: ArtifactIntentWireRecord): QuiescedArtifactUploadIntentRecord {
   return {
-    continuation: job.continuation,
-    day: job.day,
-    leaseToken: job.leaseToken,
-    releaseVersionId: job.releaseVersionId,
+    ...intent,
+    cleanupNotBefore: new Date(intent.cleanupNotBefore),
+    quiescedAt: new Date(intent.quiescedAt),
   };
 }
 
-function jobProgress(job: DailyMaintenanceJobRecord): DailyMaintenanceJobProgress {
-  return {
-    activationCursor: job.activationCursor,
-    phase: job.phase,
-  };
+function assertIntentPage(page: ArtifactIntentWireRecord[], cutoff: Date): void {
+  let previous: ArtifactIntentWireRecord | undefined;
+  for (const intent of page) {
+    const cleanupNotBefore = Date.parse(intent.cleanupNotBefore);
+    const quiescedAt = Date.parse(intent.quiescedAt);
+    if (cleanupNotBefore > cutoff.getTime() || quiescedAt > cutoff.getTime()) {
+      throw new Error("Artifact-intent cleanup page crossed its fixed safety cutoff");
+    }
+    if (previous && compareIntents(intent, previous) <= 0) {
+      throw new Error("Artifact-intent cleanup page is not in database key order");
+    }
+    previous = intent;
+  }
 }
 
-function activationProgress(cursor: ActivationEventCursor): DailyMaintenanceJobProgress {
-  return { activationCursor: cursor, phase: "activation" };
-}
-
-function orphanUploadCleanupProgress(): DailyMaintenanceJobProgress {
-  return { activationCursor: null, phase: "orphan-upload-cleanup" };
-}
-
-function jobWithProgress(
-  job: DailyMaintenanceJobRecord,
-  progress: DailyMaintenanceJobProgress,
-): DailyMaintenanceJobRecord {
-  return { ...job, ...progress };
-}
-
-function jobToWire(
-  job: DailyMaintenanceJobRecord,
-): z.infer<typeof ActiveDailyMaintenanceJobSchema> {
-  return {
-    ...job,
-    scheduledAt: job.scheduledAt.toISOString(),
-  };
-}
-
-function jobFromWire(
-  job: z.infer<typeof ActiveDailyMaintenanceJobSchema>,
-): DailyMaintenanceJobRecord {
-  return {
-    ...job,
-    scheduledAt: new Date(job.scheduledAt),
-  };
+function compareIntents(left: ArtifactIntentWireRecord, right: ArtifactIntentWireRecord): number {
+  const cleanupOrder = Date.parse(left.cleanupNotBefore) - Date.parse(right.cleanupNotBefore);
+  if (cleanupOrder !== 0) {
+    return cleanupOrder;
+  }
+  const quiescenceOrder = Date.parse(left.quiescedAt) - Date.parse(right.quiescedAt);
+  return quiescenceOrder === 0 ? left.id.localeCompare(right.id) : quiescenceOrder;
 }
 
 function dailyMaintenanceWorkflowIdentity(payloadInput: DailyMaintenancePayload): string {
   const payload = DailyMaintenancePayloadSchema.parse(payloadInput);
-  const id = [
-    "dm",
-    payload.day,
-    payload.continuation,
-    payload.releaseVersionId.replaceAll("-", ""),
-    payload.leaseToken.replaceAll("-", ""),
-  ].join("-");
-  if (id.length > 100) {
-    throw new Error(
-      "Daily maintenance Workflow identity exceeded Cloudflare's 100-character limit",
-    );
-  }
-  return id;
+  return `daily-maintenance-${payload.day}`;
 }
 
 function assertDailyMaintenanceWorkflowIdentity(
@@ -431,115 +259,8 @@ function assertDailyMaintenanceWorkflowIdentity(
 ): void {
   if (instanceId !== dailyMaintenanceWorkflowIdentity(payload)) {
     throw new NonRetryableError(
-      "Daily maintenance Workflow identity does not match its immutable lease payload",
+      "Daily maintenance Workflow identity does not match its immutable payload",
       "DailyMaintenanceWorkflowIdentityInvalid",
     );
   }
-}
-
-function assertDailyMaintenanceRelease(
-  env: DailyMaintenanceEnv,
-  payload: DailyMaintenancePayload,
-): void {
-  if (payload.releaseVersionId !== activeDailyMaintenanceReleaseVersion(env)) {
-    throw new NonRetryableError(
-      "Daily maintenance Workflow lease belongs to a different Worker release",
-      "DailyMaintenanceWorkflowReleaseInvalid",
-    );
-  }
-}
-
-export function activeDailyMaintenanceReleaseVersion(env: DailyMaintenanceEnv): string {
-  if (env.CHEATCODE_ENVIRONMENT !== "production") {
-    return DEVELOPMENT_RELEASE_VERSION_ID;
-  }
-  return z.string().uuid().parse(env.CF_VERSION_METADATA?.id);
-}
-
-async function continuationLeaseToken(lease: DailyMaintenanceJobLease): Promise<string> {
-  return createContinuationLeaseToken(
-    `daily-maintenance:${lease.day}:${lease.continuation + 1}:${lease.releaseVersionId}`,
-    () => new Error("Daily maintenance continuation digest was incomplete"),
-  );
-}
-
-function assertActivationPageConsistent(
-  previous: ActivationEventCursor | null,
-  items: ActivationEventPageItem[],
-  next: ActivationEventCursor | null,
-): void {
-  assertActivationCursorAdvanced(previous, next);
-  if (!next) {
-    return;
-  }
-  const last = items.at(-1);
-  if (!last || last.eventName !== next.eventName || last.userId !== next.userId) {
-    throw dailyMaintenanceInvariant(
-      "Activation continuation cursor does not identify the page tail",
-    );
-  }
-  if (items.length !== ACTIVATION_EVENT_PAGE_SIZE) {
-    throw dailyMaintenanceInvariant("A continuing activation page must be full");
-  }
-}
-
-function assertActivationCursorAdvanced(
-  previous: ActivationEventCursor | null,
-  next: ActivationEventCursor | null,
-): void {
-  if (!previous || !next) {
-    return;
-  }
-  const previousOrder = activationEventOrder(previous.eventName);
-  const nextOrder = activationEventOrder(next.eventName);
-  if (
-    nextOrder < previousOrder ||
-    (nextOrder === previousOrder && next.userId <= previous.userId)
-  ) {
-    throw dailyMaintenanceInvariant("Activation cursor did not advance in database key order");
-  }
-}
-
-function activationEventOrder(eventName: ActivationEventPageItem["eventName"]): number {
-  if (eventName === "retention_d7") {
-    return 1;
-  }
-  if (eventName === "retention_d28") {
-    return 2;
-  }
-  return 3;
-}
-
-function emitActivationEvents(
-  env: AnalyticsBindings,
-  rows: ActivationEventPageItem[],
-  day: string,
-): void {
-  for (const row of rows) {
-    emitUserEvent(env, {
-      ...(row.cohortMonth ? { cohortMonth: row.cohortMonth } : {}),
-      ...(row.cohortWeek ? { cohortWeek: row.cohortWeek } : {}),
-      eventDate: day,
-      eventId: `activation:${day}:${row.eventName}:${row.userId}`,
-      eventName: row.eventName,
-      userId: row.userId,
-    });
-  }
-}
-
-function dailyMaintenanceErrorCode(error: unknown): string {
-  const name = error instanceof Error ? error.name : "UnknownError";
-  return /^[A-Za-z][A-Za-z0-9_.:$-]{0,127}$/u.test(name) ? name : "UnknownError";
-}
-
-function dailyMaintenanceInvariant(message: string): NonRetryableError {
-  return new NonRetryableError(message, "DailyMaintenanceInvariantViolation");
-}
-
-export function previousUtcDay(now: Date): string {
-  const startOfToday = new Date(
-    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
-  );
-  startOfToday.setUTCDate(startOfToday.getUTCDate() - 1);
-  return startOfToday.toISOString().slice(0, 10);
 }

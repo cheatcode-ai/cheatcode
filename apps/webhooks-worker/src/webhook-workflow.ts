@@ -29,7 +29,6 @@ import { handleClerkWebhookEvent } from "./clerk";
 import { handleComposioWebhookEvent } from "./composio";
 import { DaytonaWebhookSchema } from "./daytona";
 import { refreshEntitlementCache } from "./entitlement-cache";
-import { recordInternalAlert, VerifiedInternalAlertSchema } from "./internal-alert";
 import { handlePolarWebhookEvent } from "./polar";
 import {
   completeWebhookEvent,
@@ -234,11 +233,6 @@ async function processInfrastructureWebhook(
       updatedAt: Date.parse(event.updatedAt),
     });
     return { action: updated ? "state_cached" : "stale_event_ignored", eventType: event.event };
-  }
-  if (payload.provider === "internal-alert") {
-    const alert = VerifiedInternalAlertSchema.parse(payload.event);
-    recordInternalAlert(env, alert);
-    return { action: "alert_recorded", eventType: alert.source };
   }
   return null;
 }
