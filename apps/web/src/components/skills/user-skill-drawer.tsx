@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserSkill } from "@cheatcode/types";
+import type { UserSkill } from "@cheatcode/types/api";
 import { Loader2, ModalShell, Trash2 } from "@cheatcode/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 

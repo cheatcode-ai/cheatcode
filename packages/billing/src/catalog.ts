@@ -46,22 +46,6 @@ export const PLAN_CATALOG = {
     quotaComposioCalls: 50_000,
     sandboxHours: 140,
   },
-  ultra: {
-    displayName: "Ultra",
-    id: "ultra",
-    maxProjects: 100,
-    priceUsdMonthly: 99,
-    quotaComposioCalls: 100_000,
-    sandboxHours: 320,
-  },
-  max: {
-    displayName: "Max",
-    id: "max",
-    maxProjects: null,
-    priceUsdMonthly: 200,
-    quotaComposioCalls: null,
-    sandboxHours: 800,
-  },
 } as const satisfies Record<BillingTier, PlanCatalogEntry>;
 
 /** Map used/total sandbox hours onto the warn ladder (>=1 exhausted, >=0.95, >=0.8). */

@@ -1,9 +1,10 @@
-import type { LogicalModelId, ProjectMode, UIMessagePart } from "@cheatcode/types";
+import type { LogicalModelId, UIMessagePart } from "@cheatcode/types";
 import {
   LogicalModelIdSchema,
   ProjectId as toProjectId,
   ThreadId as toThreadId,
 } from "@cheatcode/types";
+import type { ProjectMode } from "@cheatcode/types/api";
 import { and, eq, isNull } from "drizzle-orm";
 import type { Database } from "./client";
 import type {

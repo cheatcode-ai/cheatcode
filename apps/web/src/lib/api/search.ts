@@ -1,6 +1,6 @@
 "use client";
 
-import { type SearchResponse, SearchResponseSchema } from "@cheatcode/types";
+import { type SearchResponse, SearchResponseSchema } from "@cheatcode/types/api";
 import {
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,

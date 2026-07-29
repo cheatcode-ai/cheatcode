@@ -1,6 +1,6 @@
 "use client";
 
-import { type GreetingResponse, GreetingResponseSchema } from "@cheatcode/types";
+import { type GreetingResponse, GreetingResponseSchema } from "@cheatcode/types/api";
 import {
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,

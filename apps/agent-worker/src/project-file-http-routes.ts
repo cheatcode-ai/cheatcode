@@ -3,7 +3,8 @@ import {
   PROJECT_FILE_MAX_BYTES,
   ProjectFileListSchema,
   ProjectFileUploadResponseSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -72,8 +73,9 @@ type AgentContext = Context<{ Bindings: AgentEnv }>;
 type BinarySignature = "gif" | "jpeg" | "pdf" | "png" | "webp" | "zip";
 
 export function registerProjectFileHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.get("/v1/projects/:projectId/files", listProjectFiles);
-  app.post("/v1/projects/:projectId/files", uploadProjectFile);
+  const routes = AGENT_FORWARD_ROUTES.project;
+  app.on(routes.listProjectFiles.method, routes.listProjectFiles.path, listProjectFiles);
+  app.on(routes.uploadProjectFile.method, routes.uploadProjectFile.path, uploadProjectFile);
 }
 
 async function listProjectFiles(c: AgentContext): Promise<Response> {

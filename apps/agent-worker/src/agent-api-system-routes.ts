@@ -1,15 +1,14 @@
-import { createDb, findGeneratedOutput, getProject, withUserContext } from "@cheatcode/db";
+import { findGeneratedOutput, getProject, withUserDb } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
+import { OutputIdSchema, ProjectId, UserId } from "@cheatcode/types";
 import {
+  AGENT_FORWARD_ROUTES,
   InternalAgentStateDeleteBodySchema,
   type InternalAgentStateDeleteRequest,
   type InternalStateDeleteResponse,
   InternalStateDeleteResponseSchema,
-  OutputIdSchema,
-  ProjectId,
-  UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -31,9 +30,15 @@ const RUN_STATE_DELETE_CONCURRENCY = 16;
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerAgentSystemHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.post("/v1/outputs/:outputId/download-url", mintOutputDownloadUrl);
-  app.get("/v1/outputs/:outputId/download", downloadOutput);
-  app.post("/v1/projects/:projectId/download", downloadProjectArchive);
+  const coreRoutes = AGENT_FORWARD_ROUTES.core;
+  const projectRoute = AGENT_FORWARD_ROUTES.project.downloadProject;
+  app.on(
+    coreRoutes.mintOutputDownloadUrl.method,
+    coreRoutes.mintOutputDownloadUrl.path,
+    mintOutputDownloadUrl,
+  );
+  app.on(coreRoutes.downloadOutput.method, coreRoutes.downloadOutput.path, downloadOutput);
+  app.on(projectRoute.method, projectRoute.path, downloadProjectArchive);
 }
 
 export async function deleteAgentUserState(
@@ -64,12 +69,8 @@ async function assertAgentStateDeletionAuthority(
   userId: UserId,
   body: z.infer<typeof InternalAgentStateDeleteBodySchema>,
 ): Promise<void> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const isAuthorized = await withUserContext(db, userId, (transaction) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const isAuthorized = await transaction((transaction) =>
       isAgentStateDeletionAuthorized(transaction, userId, body),
     );
     if (!isAuthorized) {
@@ -80,9 +81,7 @@ async function assertAgentStateDeletionAuthority(
         { retriable: false },
       );
     }
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function deleteRunStates(env: AgentEnv, userId: string, runIds: string[]): Promise<void> {
@@ -192,21 +191,13 @@ function parseOutputDownloadQuery(c: AgentContext): z.infer<typeof OutputDownloa
 }
 
 async function findDownloadableOutput(env: AgentEnv, outputId: string, userId: UserId) {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const output = await withUserContext(db, userId, (tx) =>
-      findGeneratedOutput(tx, { outputId, userId }),
-    );
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const output = await transaction((tx) => findGeneratedOutput(tx, { outputId, userId }));
     if (!output) {
       throw new APIError(404, "not_found_output", "Output not found", { retriable: false });
     }
     return output;
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function resolveOutputSigningSecret(secret: WorkerSecret): Promise<string | undefined> {
@@ -255,15 +246,9 @@ async function downloadProjectArchive(c: AgentContext): Promise<Response> {
 }
 
 async function loadProject(env: AgentEnv, userId: UserId, projectId: ProjectId) {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return await transaction((tx) => getProject(tx, { projectId, userId }));
   });
-  try {
-    return await withUserContext(db, userId, (tx) => getProject(tx, { projectId, userId }));
-  } finally {
-    await close();
-  }
 }
 
 function downloadContentDisposition(filename: string): string {

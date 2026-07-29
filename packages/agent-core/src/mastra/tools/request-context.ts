@@ -1,5 +1,5 @@
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
-import type { RunIntent } from "@cheatcode/types";
+import type { RunIntent } from "@cheatcode/types/api";
 import { RequestContext } from "@mastra/core/request-context";
 import {
   COMPOSIO_API_KEY_CONTEXT_KEY,

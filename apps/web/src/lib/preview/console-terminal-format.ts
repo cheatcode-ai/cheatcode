@@ -1,4 +1,4 @@
-import type { SandboxTerminalResult } from "@cheatcode/types";
+import type { SandboxTerminalResult } from "@cheatcode/types/api";
 import type { ConsoleSeverity } from "./console";
 import { DEFAULT_TERMINAL_CWD } from "./console-terminal-state";
 

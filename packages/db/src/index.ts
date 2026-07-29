@@ -33,8 +33,14 @@ export {
   updateUserPolarCustomerId,
   upsertEntitlement,
 } from "./billing";
-export type { Database, DatabaseHandle, HyperdriveConnection } from "./client";
-export { createDb, withUserContext } from "./client";
+export type {
+  Database,
+  DatabaseHandle,
+  HyperdriveConnection,
+  UserContextDatabase,
+  UserDatabaseSession,
+} from "./client";
+export { withDatabase, withUserContext, withUserDb } from "./client";
 export type {
   DailyMaintenanceJobLease,
   DailyMaintenanceJobProgress,
@@ -142,11 +148,12 @@ export {
   applyEntitlementResourceLimits,
   lockUserProviderKeyMutations,
 } from "./resource-limits";
-export type { AgentRunHandle } from "./runs";
+export type { AgentRunHandle, AgentRunThreadContext } from "./runs";
 export {
   createAgentRunForThread,
   findActiveAgentRunForThread,
   findAgentRunForUser,
+  loadAgentRunThreadContext,
   materializeThreadProject,
   reconcileAbsentAgentRunStart,
   sumWorkedMinutesToday,

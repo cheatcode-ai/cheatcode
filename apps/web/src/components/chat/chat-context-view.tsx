@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { Clock3, Loader2, Plus, X } from "@cheatcode/ui";
 import type { ChatContextController } from "@/components/chat/chat-context-controller";
 import { FolderChatsSearch } from "@/components/chat/folder-chats-search";

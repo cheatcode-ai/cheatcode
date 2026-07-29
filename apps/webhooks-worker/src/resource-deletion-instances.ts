@@ -1,5 +1,5 @@
 import type { ResourceDeletionJobLease } from "@cheatcode/db";
-import type { ResourceDeletionWorkflowPayload } from "@cheatcode/types";
+import type { ResourceDeletionWorkflowPayload } from "@cheatcode/types/internal";
 import { continuationLeaseToken as createContinuationLeaseToken } from "./deletion-job-runner";
 
 export interface ResourceDeletionWorkflowBindings {

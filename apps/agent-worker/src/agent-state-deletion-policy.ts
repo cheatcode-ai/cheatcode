@@ -10,12 +10,8 @@ import {
   isThreadDeletionGenerationCurrent,
   loadProjectWorkspaceDeletionState,
 } from "@cheatcode/db";
-import {
-  type InternalAgentStateDeleteBody,
-  ProjectId,
-  ThreadId,
-  type UserId,
-} from "@cheatcode/types";
+import { ProjectId, ThreadId, type UserId } from "@cheatcode/types";
+import type { InternalAgentStateDeleteBody } from "@cheatcode/types/internal";
 
 export async function isAgentStateDeletionAuthorized(
   db: Database,

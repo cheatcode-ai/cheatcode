@@ -1,6 +1,6 @@
 "use client";
 
-import type { RunIntent } from "@cheatcode/types";
+import type { RunIntent } from "@cheatcode/types/api";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 
 export function buildLaunchParams(input: {

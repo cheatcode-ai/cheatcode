@@ -9,7 +9,7 @@ import {
   findEntitlementByUserId,
   lockUserEntitlementMutations,
   lockUserProjectMutations,
-  withUserContext,
+  type UserDatabaseSession,
 } from "@cheatcode/db";
 import { APIError, createLogger } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
@@ -43,16 +43,14 @@ export async function enforceActiveProjectLimit(db: Database, userId: UserId): P
 
 export async function resolveEntitlement(
   env: LimitBindings,
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   userId: UserId,
 ): Promise<EntitlementCache> {
   const cached = await readCachedEntitlement(env.ENTITLEMENTS_CACHE, userId);
   if (cached) {
     return cached;
   }
-  const entitlement = await withUserContext(db, userId, (tx) =>
-    resolveDatabaseEntitlement(tx, userId),
-  );
+  const entitlement = await transaction((tx) => resolveDatabaseEntitlement(tx, userId));
   await writeEntitlementCache(env.ENTITLEMENTS_CACHE, userId, entitlement);
   return entitlement;
 }

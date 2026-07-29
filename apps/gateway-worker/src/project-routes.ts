@@ -1,7 +1,6 @@
 import {
   beginProjectDeletion,
   beginThreadDeletion,
-  createDb,
   createProject,
   createThread,
   getProject,
@@ -16,27 +15,29 @@ import {
   type ThreadRecord,
   updateProject,
   updateThread,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
+import {
+  ProjectId,
+  type ProjectId as ProjectIdType,
+  ThreadId,
+  type ThreadId as ThreadIdType,
+  type UserId,
+} from "@cheatcode/types";
 import {
   CreateProjectSchema,
   type CreateThread,
   CreateThreadSchema,
   Paginated,
   PaginationQuerySchema,
-  ProjectId,
-  type ProjectId as ProjectIdType,
   ProjectSummarySchema,
-  ThreadId,
-  type ThreadId as ThreadIdType,
   ThreadSchema,
   UIMessageRecordSchema,
   UpdateProjectSchema,
   UpdateThreadSchema,
-  type UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { z } from "zod";
 import { enforceActiveProjectLimit, type LimitBindings } from "./limits";
 import {
@@ -76,17 +77,13 @@ type PageCursorKind = "messages" | "projects" | "threads";
 
 export async function listProjectsRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "projects");
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const projects = await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const projects = await transaction((tx) =>
       listProjects(tx, {
         ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
         limit: pagination.limit + 1,
@@ -100,14 +97,12 @@ export async function listProjectsRoute(
         data: page.data.map(projectResponse),
       }),
     );
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function createProjectRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
@@ -117,12 +112,8 @@ export async function createProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const project = await withUserContext(db, userId, async (tx) => {
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const project = await transaction(async (tx) => {
       await enforceActiveProjectLimit(tx, userId);
       return createProject(tx, {
         ...(parsedInput.data.importRepoUrl
@@ -137,37 +128,27 @@ export async function createProjectRoute(
       });
     });
     return Response.json(ProjectSummarySchema.parse(projectResponse(project)), { status: 201 });
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function getProjectRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const project = await withUserContext(db, userId, (tx) =>
-      getProject(tx, { projectId, userId }),
-    );
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const project = await transaction((tx) => getProject(tx, { projectId, userId }));
     if (!project) {
       throw projectNotFound();
     }
     return Response.json(ProjectSummarySchema.parse(projectResponse(project)));
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function updateProjectRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
   userId: UserId,
@@ -178,13 +159,9 @@ export async function updateProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project update payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
+  return withUserDb(env, userId, async ({ transaction }) => {
     const input = parsedInput.data;
-    const project = await withUserContext(db, userId, (tx) =>
+    const project = await transaction((tx) =>
       updateWritableProject(tx, projectId, userId, {
         ...(input.importRepoUrl === undefined ? {} : { importRepoUrl: input.importRepoUrl }),
         ...(input.defaultModel === undefined ? {} : { defaultModel: input.defaultModel }),
@@ -195,25 +172,17 @@ export async function updateProjectRoute(
       throw projectNotFound();
     }
     return Response.json(ProjectSummarySchema.parse(projectResponse(project)));
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function deleteProjectRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const deletion = await withUserContext(db, userId, (tx) =>
-      beginProjectDeletion(tx, { projectId, userId }),
-    );
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const deletion = await transaction((tx) => beginProjectDeletion(tx, { projectId, userId }));
     if (deletion.type === "not-found") {
       throw projectNotFound();
     }
@@ -231,25 +200,19 @@ export async function deleteProjectRoute(
       workspaceSlug: deletion.workspaceSlug,
     });
     return new Response(null, { status: 202 });
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function listProjectThreadsRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "threads");
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const threadRows = await withUserContext(db, userId, async (tx) => {
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const threadRows = await transaction(async (tx) => {
       await requireProject(tx, projectId, userId);
       return listProjectThreads(tx, {
         ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
@@ -262,9 +225,7 @@ export async function listProjectThreadsRoute(
     return Response.json(
       Paginated(ThreadSchema).parse({ ...page, data: page.data.map(threadResponse) }),
     );
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 /**
@@ -275,7 +236,7 @@ export async function listProjectThreadsRoute(
  */
 export async function createChatRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
@@ -286,18 +247,10 @@ export async function createChatRoute(
     throw invalidRequestBody("Invalid thread payload", parsedInput.error);
   }
   const input = parsedInput.data;
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const thread = await withUserContext(db, userId, (tx) =>
-      createThreadForRequest(tx, input, userId),
-    );
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const thread = await transaction((tx) => createThreadForRequest(tx, input, userId));
     return Response.json(ThreadSchema.parse(threadResponse(thread)), { status: 201 });
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 type CreateThreadDb = Parameters<typeof createThread>[0];
@@ -341,28 +294,22 @@ function hasLaunchIntent(launchIntent: NonNullable<CreateThreadInsert["launchInt
 
 export async function getThreadRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const thread = await withUserContext(db, userId, (tx) => getThread(tx, { threadId, userId }));
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const thread = await transaction((tx) => getThread(tx, { threadId, userId }));
     if (!thread) {
       throw threadNotFound();
     }
     return Response.json(ThreadSchema.parse(threadResponse(thread)));
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function updateThreadRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
   userId: UserId,
@@ -373,37 +320,25 @@ export async function updateThreadRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread update payload", parsedInput.error);
   }
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const thread = await withUserContext(db, userId, (tx) =>
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const thread = await transaction((tx) =>
       updateThread(tx, { threadId, title: parsedInput.data.title, userId }),
     );
     if (!thread) {
       throw threadNotFound();
     }
     return Response.json(ThreadSchema.parse(threadResponse(thread)));
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function deleteThreadRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const deleted = await withUserContext(db, userId, (tx) =>
-      beginThreadDeletion(tx, { threadId, userId }),
-    );
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const deleted = await transaction((tx) => beginThreadDeletion(tx, { threadId, userId }));
     if (deleted.type === "not-found") {
       throw threadNotFound();
     }
@@ -421,25 +356,19 @@ export async function deleteThreadRoute(
       userId,
     });
     return new Response(null, { status: 202 });
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function listThreadMessagesRoute(
   env: ProjectRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "messages");
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const rows = await withUserContext(db, userId, async (tx) => {
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const rows = await transaction(async (tx) => {
       await requireThread(tx, threadId, userId);
       return listThreadMessages(tx, {
         ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
@@ -460,9 +389,7 @@ export async function listThreadMessagesRoute(
         headers: { "Cache-Control": "private, no-store" },
       },
     );
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export function parseProjectParam(value: string): ProjectIdType {

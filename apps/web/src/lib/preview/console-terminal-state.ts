@@ -1,4 +1,4 @@
-import type { SandboxTerminalResult } from "@cheatcode/types";
+import type { SandboxTerminalResult } from "@cheatcode/types/api";
 import type {
   ConsoleTab,
   ConsoleTerminalAction,

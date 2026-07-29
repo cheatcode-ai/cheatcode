@@ -1,9 +1,10 @@
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import {
   agentServiceHeaders,
   forwardAgentRequest,
   skillRuntimeServiceRequest,
 } from "./agent-forwarding";
-import { readSandboxConsoleRoute } from "./agent-proxy-routes";
+import { validateSandboxConsoleQuery } from "./agent-proxy-routes";
 import { authenticate, requireVerifiedClerkEmail } from "./authenticate";
 import type { GatewayApp, GatewayContext } from "./gateway-env";
 import { completeIdempotentRunRequest, prepareIdempotentRunRequest } from "./idempotency";
@@ -12,46 +13,18 @@ import { rateLimit, withRateLimitHeaders } from "./rate-limit";
 export function registerAgentHttpRoutes(app: GatewayApp): void {
   app.all("/skill-runtime/*", (c) => c.env.AGENT.fetch(skillRuntimeServiceRequest(c.req.raw)));
   app.post("/v1/threads/:threadId/runs", async (c) => createRunRoute(c));
-  for (const [path, route] of GET_AGENT_ROUTES) {
-    app.get(path, (c) => forwardAgentRequest(c, route));
+  for (const route of Object.values(AGENT_FORWARD_ROUTES.piped)) {
+    app.on(route.method, route.path, (c) =>
+      forwardAgentRequest(
+        c,
+        route,
+        route.path === AGENT_FORWARD_ROUTES.piped.sandboxConsole.path
+          ? validateSandboxConsoleQuery
+          : undefined,
+      ),
+    );
   }
-  for (const [path, route] of POST_AGENT_ROUTES) {
-    app.post(path, (c) => forwardAgentRequest(c, route));
-  }
-  app.get("/v1/threads/:threadId/sandbox/console", (c) => readSandboxConsoleRoute(c));
 }
-
-const GET_AGENT_ROUTES = [
-  ["/v1/threads/:threadId/runs/stream", "GET /v1/threads/:threadId/runs/stream"],
-  ["/v1/threads/:threadId/browser-takeover", "GET /v1/threads/:threadId/browser-takeover"],
-  ["/v1/computer/ide", "GET /v1/computer/ide"],
-  ["/v1/computer/terminal/context", "GET /v1/computer/terminal/context"],
-  ["/v1/threads/:threadId/sandbox/ide", "GET /v1/threads/:threadId/sandbox/ide"],
-  [
-    "/v1/threads/:threadId/sandbox/preview/status",
-    "GET /v1/threads/:threadId/sandbox/preview/status",
-  ],
-  [
-    "/v1/threads/:threadId/sandbox/terminal/context",
-    "GET /v1/threads/:threadId/sandbox/terminal/context",
-  ],
-] as const;
-
-const POST_AGENT_ROUTES = [
-  ["/v1/runs/:runId/cancel", "POST /v1/runs/:runId/cancel"],
-  ["/v1/skills/:skillId/open", "POST /v1/skills/:skillId/open"],
-  [
-    "/v1/threads/:threadId/browser-takeover/start",
-    "POST /v1/threads/:threadId/browser-takeover/start",
-  ],
-  [
-    "/v1/threads/:threadId/browser-takeover/resume",
-    "POST /v1/threads/:threadId/browser-takeover/resume",
-  ],
-  ["/v1/computer/terminal", "POST /v1/computer/terminal"],
-  ["/v1/threads/:threadId/sandbox/preview/wake", "POST /v1/threads/:threadId/sandbox/preview/wake"],
-  ["/v1/threads/:threadId/sandbox/terminal", "POST /v1/threads/:threadId/sandbox/terminal"],
-] as const;
 
 async function createRunRoute(c: GatewayContext): Promise<Response> {
   const userId = await authenticate(c.req.raw, c.env, c.executionCtx);

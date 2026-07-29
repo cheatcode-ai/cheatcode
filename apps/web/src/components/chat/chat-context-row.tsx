@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { useChatContextController } from "@/components/chat/chat-context-controller";
 import { ChatContextView } from "@/components/chat/chat-context-view";
 

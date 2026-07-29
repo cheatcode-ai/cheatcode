@@ -1,4 +1,4 @@
-import type { SearchResult } from "@cheatcode/types";
+import type { SearchResult } from "@cheatcode/types/api";
 import { Command } from "cmdk";
 import type { useCommandPalette } from "./use-command-palette";
 

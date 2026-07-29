@@ -1,5 +1,5 @@
 import { buildSystemPromptSection, getSkillByName, SKILLS } from "@cheatcode/skills";
-import { MAX_USER_SKILLS, type RunIntent } from "@cheatcode/types";
+import { MAX_USER_SKILLS, type RunIntent } from "@cheatcode/types/api";
 
 export const AGENT_DISPLAY_NAME_CONTEXT_KEY = "agentDisplayName";
 export const GLOBAL_MEMORY_CONTEXT_KEY = "globalMemory";

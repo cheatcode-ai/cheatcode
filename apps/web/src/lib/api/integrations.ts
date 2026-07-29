@@ -1,15 +1,15 @@
 "use client";
 
+import type { IntegrationName } from "@cheatcode/types";
 import {
   type Integration,
   type IntegrationCatalog,
   IntegrationCatalogSchema,
   IntegrationConnectResponseSchema,
-  type IntegrationName,
   IntegrationSchema,
   type ToolkitAction,
   ToolkitActionsResponseSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import {
   API_RESPONSE_LIMIT_BYTES,
   authorizedFetch,

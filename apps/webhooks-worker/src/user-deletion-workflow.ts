@@ -13,6 +13,7 @@ import {
   quarantineUserDeletionJob,
   renewAndLoadUserDeletionJob,
   reserveUserDeletionContinuation,
+  type UserContextDatabase,
   type UserDeletionContext,
   type UserDeletionJobLease,
   type UserDeletionJobRecord,
@@ -550,7 +551,7 @@ async function guardedExternalStep<Result extends Rpc.Serializable<Result>>(
 async function guardedDatabaseAction<Result extends Rpc.Serializable<Result>>(
   env: UserDeletionWorkflowEnv,
   job: ActiveJob,
-  operation: (db: Database) => Promise<Result>,
+  operation: (db: UserContextDatabase) => Promise<Result>,
 ): Promise<Result | null> {
   return withUserDatabase(env, job.userId, async (db) =>
     (await isActionCurrentInDatabase(db, job)) ? operation(db) : null,

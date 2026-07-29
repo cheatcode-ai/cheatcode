@@ -15,7 +15,9 @@ Every runtime Worker uses its own least-privilege login:
 - `app_agent` owns run, artifact, skill, and sandbox-related persistence.
 - `app_webhooks` owns provider reconciliation and lifecycle jobs.
 
-Runtime transactions enter a signed tenant context through `withUserContext`.
+Runtime transactions enter a signed tenant context through `withUserDb` or the
+handle-typed `withUserContext`. Nested transaction compositions accept only the
+branded transaction context supplied by those helpers.
 Administrative migration credentials are never exported by this package or
 loaded by an application process.
 
@@ -79,7 +81,8 @@ verified. Daily maintenance removes only quiesced, terminal, expired intents.
 
 Public exports include:
 
-- `createDb`
+- `withDatabase`
+- `withUserDb`
 - `withUserContext`
 - `assertDatabaseRuntimeReadiness`
 - `resolveInternalUserId`

@@ -1,6 +1,7 @@
 "use client";
 
-import type { IntegrationName, ProjectSummary } from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { useCallback, useState } from "react";
 import { COMPOSER_INTENTS, type IntentId } from "@/components/home/home-composer-intents";
 import { resolveInitialSkill } from "@/components/home/use-initial-skill";

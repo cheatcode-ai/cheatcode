@@ -8,7 +8,8 @@ import {
   SandboxTerminalCommandSchema,
   SandboxTerminalContextSchema,
   SandboxTerminalResultSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import type { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -31,11 +32,24 @@ type AgentContext = Context<{ Bindings: AgentEnv }>;
 type TerminalCommand = z.infer<typeof SandboxTerminalCommandSchema>;
 
 export function registerSandboxTerminalHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.get("/v1/threads/:threadId/sandbox/terminal/context", threadTerminalContext);
-  app.get("/v1/computer/terminal/context", computerTerminalContext);
-  app.post("/v1/threads/:threadId/sandbox/terminal", executeThreadTerminalCommand);
-  app.post("/v1/computer/terminal", executeComputerTerminalCommand);
-  app.get("/v1/threads/:threadId/sandbox/console", readThreadConsole);
+  const routes = AGENT_FORWARD_ROUTES.piped;
+  app.on(
+    routes.sandboxTerminalContext.method,
+    routes.sandboxTerminalContext.path,
+    threadTerminalContext,
+  );
+  app.on(
+    routes.computerTerminalContext.method,
+    routes.computerTerminalContext.path,
+    computerTerminalContext,
+  );
+  app.on(routes.sandboxTerminal.method, routes.sandboxTerminal.path, executeThreadTerminalCommand);
+  app.on(
+    routes.computerTerminal.method,
+    routes.computerTerminal.path,
+    executeComputerTerminalCommand,
+  );
+  app.on(routes.sandboxConsole.method, routes.sandboxConsole.path, readThreadConsole);
 }
 
 async function threadTerminalContext(c: AgentContext): Promise<Response> {

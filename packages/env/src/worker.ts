@@ -192,8 +192,6 @@ export const GatewayWorkerEnvSchema = z
     // (not secrets). Optional so a tier without a Polar product simply 503s on checkout.
     POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
     POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
-    POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
-    POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     PREVIEW_PROXY: FetcherBindingSchema.optional(),
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
@@ -258,8 +256,6 @@ export const WebhooksWorkerEnvSchema = z
     POLAR_ACCESS_TOKEN: OptionalWorkerSecretSchema,
     POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
     POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
-    POLAR_PRODUCT_ID_ULTRA: z.string().min(1).optional(),
-    POLAR_PRODUCT_ID_MAX: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     POLAR_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
     QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,

@@ -1,5 +1,5 @@
 import type { Database } from "@cheatcode/db";
-import { type Provider, type ProviderKeySummary, ProviderSchema } from "@cheatcode/types";
+import { type Provider, type ProviderKeySummary, ProviderSchema } from "@cheatcode/types/api";
 import { sql } from "drizzle-orm";
 
 export { validateProviderKey } from "./provider-validation";

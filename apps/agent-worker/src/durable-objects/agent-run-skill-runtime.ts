@@ -1,9 +1,8 @@
 import { mintSkillRuntimeCapability } from "@cheatcode/auth";
 import {
-  createDb,
   rotateSkillRuntimeCapabilities,
   type StoredSkillRuntimeCapability,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { AgentRunId, type SkillRuntimeScope, UserId } from "@cheatcode/types";
@@ -85,12 +84,8 @@ async function persistCapabilities(
   capabilities: StoredSkillRuntimeCapability[],
 ): Promise<void> {
   const userId = UserId(input.run.userId);
-  const { db, close } = createDb(input.env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: input.env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const rotated = await withUserContext(db, userId, (tx) =>
+  return withUserDb(input.env, userId, async ({ transaction }) => {
+    const rotated = await transaction((tx) =>
       rotateSkillRuntimeCapabilities(tx, {
         capabilities,
         now: Date.now(),
@@ -101,7 +96,5 @@ async function persistCapabilities(
     if (!rotated) {
       throw new Error("Cannot project skill runtime capabilities for an inactive run.");
     }
-  } finally {
-    await close();
-  }
+  });
 }

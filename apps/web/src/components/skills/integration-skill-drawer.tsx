@@ -1,11 +1,7 @@
 "use client";
 
-import type {
-  IntegrationAccount,
-  IntegrationName,
-  ToolkitAction,
-  ToolkitCatalogEntry,
-} from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { IntegrationAccount, ToolkitAction, ToolkitCatalogEntry } from "@cheatcode/types/api";
 import { FileText, Loader2, ModalShell, Pencil, Plus, Search, Trash2, X } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";

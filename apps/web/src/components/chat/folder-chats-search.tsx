@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary, Thread } from "@cheatcode/types";
+import type { ProjectSummary, Thread } from "@cheatcode/types/api";
 import { Search } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery } from "@tanstack/react-query";

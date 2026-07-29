@@ -1,20 +1,14 @@
-import type {
-  AgentRunId,
-  LogicalModelId,
-  ProjectId,
-  ProjectMode,
-  ThreadId,
-  UserId,
-} from "@cheatcode/types";
+import type { AgentRunId, LogicalModelId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
 import {
   AGENT_MODEL_CATALOG,
   LogicalModelIdSchema,
   PRODUCTION_DEFAULT_MODEL_ID,
-  ProjectModeSchema,
   AgentRunId as toAgentRunId,
   ProjectId as toProjectId,
   ThreadId as toThreadId,
 } from "@cheatcode/types";
+import type { ProjectMode } from "@cheatcode/types/api";
+import { ProjectModeSchema } from "@cheatcode/types/api";
 import { and, eq, isNotNull, isNull, notInArray, or, sql } from "drizzle-orm";
 import {
   type AgentEntitlementRecord,
@@ -118,7 +112,7 @@ export interface UpdateAgentRunLogicalModelInput {
   userId: UserId;
 }
 
-interface ThreadForRunRow {
+export interface AgentRunThreadContext {
   activeRunId: string | null;
   archiveAfter: Date | null;
   id: string;
@@ -143,24 +137,26 @@ interface RunModelPlan {
 export async function createAgentRunForThread(
   db: Database,
   input: CreateAgentRunInput,
+  thread: AgentRunThreadContext,
 ): Promise<CreateAgentRunResult> {
-  return db.transaction((tx) => createAgentRunTransaction(tx as Database, input));
+  return db.transaction((tx) => createAgentRunTransaction(tx as Database, input, thread));
 }
 
 async function createAgentRunTransaction(
   db: Database,
   input: CreateAgentRunInput,
+  thread: AgentRunThreadContext,
 ): Promise<CreateAgentRunResult> {
   await lockRunIdempotencyKey(db, input);
   const replay = await idempotentRunCreationResult(db, input);
   if (replay) {
     return replay;
   }
-  const thread = await findThreadForRun(db, input);
-  if (!thread) {
+  const currentThread = await loadAgentRunThreadContext(db, input);
+  if (!currentThread) {
     return { type: "thread-not-found" };
   }
-  const blockedResult = await blockedRunCreationResult(db, input, thread);
+  const blockedResult = await blockedRunCreationResult(db, input, currentThread);
   if (blockedResult) {
     return blockedResult;
   }
@@ -170,7 +166,7 @@ async function createAgentRunTransaction(
 async function createAndActivateRun(
   db: Database,
   input: CreateAgentRunInput,
-  thread: ThreadForRunRow,
+  thread: AgentRunThreadContext,
 ): Promise<CreateAgentRunResult> {
   const modelPlan = resolveRunModelPlan(
     input.modelId,
@@ -192,6 +188,13 @@ async function createAndActivateRun(
     userId: input.userId,
   });
   if (!active) {
+    const currentThread = await loadAgentRunThreadContext(db, input);
+    if (!currentThread) {
+      return { type: "thread-not-found" };
+    }
+    if (currentThread.overQuota) {
+      return { archiveAfter: currentThread.archiveAfter, type: "project-read-only" };
+    }
     throw new Error("Thread active run changed but could not be resolved");
   }
   return { run: active, type: "active-run-exists" };
@@ -300,7 +303,7 @@ function projectNameFromTitle(title: string | null): string {
 async function blockedRunCreationResult(
   db: Database,
   input: CreateAgentRunInput,
-  thread: ThreadForRunRow,
+  thread: AgentRunThreadContext,
 ): Promise<CreateAgentRunResult | null> {
   if (thread.activeRunId) {
     return {
@@ -318,7 +321,7 @@ async function blockedRunCreationResult(
 }
 
 function createdRunHandle(
-  thread: ThreadForRunRow,
+  thread: AgentRunThreadContext,
   modelId: LogicalModelId,
   created: CreatedRunRow,
   isFirstRun: boolean,
@@ -344,10 +347,10 @@ async function isFirstAgentRunForUser(db: Database, userId: UserId): Promise<boo
   return Number(rows[0]?.count ?? 0) === 0;
 }
 
-async function findThreadForRun(
+export async function loadAgentRunThreadContext(
   db: Database,
-  input: CreateAgentRunInput,
-): Promise<ThreadForRunRow | null> {
+  input: Pick<CreateAgentRunInput, "threadId" | "userId">,
+): Promise<AgentRunThreadContext | null> {
   const [thread] = await db
     .select({
       activeRunId: threads.activeRunId,

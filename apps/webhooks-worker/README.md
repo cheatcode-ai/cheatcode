@@ -199,7 +199,7 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_SERVER` (`production` by default; set `sandbox` only with a sandbox token)
 - `POLAR_WEBHOOK_SECRET`
-- `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`, `POLAR_PRODUCT_ID_ULTRA`, `POLAR_PRODUCT_ID_MAX`
+- `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`
   form the environment-scoped product-to-tier catalog used when reconciling Polar Customer State.
 - `COMPOSIO_WEBHOOK_SECRET`
 - `CLOUDFLARE_ACCOUNT_ID`

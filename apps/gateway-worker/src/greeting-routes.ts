@@ -1,11 +1,12 @@
-import { createDb, sumWorkedMinutesToday, withUserContext } from "@cheatcode/db";
+import { sumWorkedMinutesToday, withUserDb } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import {
   createLogger,
   readBoundedResponseJson,
   safeErrorTelemetry,
 } from "@cheatcode/observability";
-import { type GreetingResponse, GreetingResponseSchema, type UserId } from "@cheatcode/types";
+import type { UserId } from "@cheatcode/types";
+import { type GreetingResponse, GreetingResponseSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 import type { WaitUntilContext } from "./wait-until-context";
 
@@ -80,26 +81,20 @@ export async function greetingRoute(
  */
 async function resolveWorkedMinutesToday(
   env: GreetingRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   userId: UserId,
   timezone: string | null,
 ): Promise<number> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    try {
+      return await transaction((tx) => sumWorkedMinutesToday(tx, userId, timezone ?? "UTC"));
+    } catch (error) {
+      createLogger().warn("greeting_worked_minutes_failed", {
+        ...safeErrorTelemetry(error),
+      });
+      return 0;
+    }
   });
-  try {
-    return await withUserContext(db, userId, (tx) =>
-      sumWorkedMinutesToday(tx, userId, timezone ?? "UTC"),
-    );
-  } catch (error) {
-    createLogger().warn("greeting_worked_minutes_failed", {
-      ...safeErrorTelemetry(error),
-    });
-    return 0;
-  } finally {
-    ctx.waitUntil(close());
-  }
 }
 
 function resolveGeo(request: Request): ResolvedGeo {

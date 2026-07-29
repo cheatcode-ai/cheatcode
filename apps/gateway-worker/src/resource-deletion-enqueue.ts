@@ -4,7 +4,7 @@ import {
   InternalResourceDeletionRequestSchema,
   type ResourceDeletionServiceBinding,
   ResourceDeletionServiceResultSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 
 export interface ResourceDeletionEnqueueEnv {
   RESOURCE_DELETION: ResourceDeletionServiceBinding;

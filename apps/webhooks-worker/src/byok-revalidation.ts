@@ -6,13 +6,13 @@ import {
   disableCurrentProviderKey,
   type HyperdriveConnection,
   lockUserProviderKeyMutations,
-  withUserContext,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
-import { type Provider, ProviderSchema, type UserId } from "@cheatcode/types";
+import type { UserId } from "@cheatcode/types";
+import { type Provider, ProviderSchema } from "@cheatcode/types/api";
 import { z } from "zod";
-import { withDatabase } from "./deletion-job-runner";
+import { withDatabase, withUserDatabase } from "./deletion-job-runner";
 
 interface ByokRevalidationEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
@@ -149,10 +149,8 @@ async function validateClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<"invalid" | "stale" | "valid"> {
-  const key = await withDatabase(env, (db) =>
-    withUserContext(db, userId, (tx) =>
-      getProviderKeyForRevalidation(tx, target.provider, target.fingerprint, target.leaseToken),
-    ),
+  const key = await withUserDatabase(env, userId, (db) =>
+    getProviderKeyForRevalidation(db, target.provider, target.fingerprint, target.leaseToken),
   );
   if (!key) {
     return "stale";
@@ -165,17 +163,15 @@ async function completeClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<boolean> {
-  return withDatabase(env, (db) =>
-    withUserContext(db, userId, async (tx) => {
-      await lockUserProviderKeyMutations(tx, userId);
-      return completeCurrentProviderKeyRevalidation(tx, {
-        expectedFingerprint: target.fingerprint,
-        expectedLeaseToken: target.leaseToken,
-        provider: target.provider,
-        userId,
-      });
-    }),
-  );
+  return withUserDatabase(env, userId, async (db) => {
+    await lockUserProviderKeyMutations(db, userId);
+    return completeCurrentProviderKeyRevalidation(db, {
+      expectedFingerprint: target.fingerprint,
+      expectedLeaseToken: target.leaseToken,
+      provider: target.provider,
+      userId,
+    });
+  });
 }
 
 async function isProviderKeyInvalid(provider: Provider, key: string): Promise<boolean> {
@@ -195,18 +191,16 @@ async function disableClaimedProviderKey(
   userId: UserId,
   target: RevalidationTarget,
 ): Promise<boolean> {
-  return withDatabase(env, (db) =>
-    withUserContext(db, userId, async (tx) => {
-      await lockUserProviderKeyMutations(tx, userId);
-      return disableCurrentProviderKey(tx, {
-        expectedFingerprint: target.fingerprint,
-        expectedLeaseToken: target.leaseToken,
-        provider: target.provider,
-        reason: "revalidation_invalid",
-        userId,
-      });
-    }),
-  );
+  return withUserDatabase(env, userId, async (db) => {
+    await lockUserProviderKeyMutations(db, userId);
+    return disableCurrentProviderKey(db, {
+      expectedFingerprint: target.fingerprint,
+      expectedLeaseToken: target.leaseToken,
+      provider: target.provider,
+      reason: "revalidation_invalid",
+      userId,
+    });
+  });
 }
 
 function addOutcome(

@@ -1,10 +1,5 @@
 import { entitlementValuesForTier } from "@cheatcode/billing";
-import {
-  createDb,
-  materializeThreadProject,
-  withUserContext,
-  workspacePathForSlug,
-} from "@cheatcode/db";
+import { materializeThreadProject, withUserDb, workspacePathForSlug } from "@cheatcode/db";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import type {
   CodeRuntimeContext,
@@ -77,12 +72,8 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
 
 async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
   const userId = UserId(input.input.userId);
-  const { db, close } = createDb(input.env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: input.env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, userId, (tx) =>
+  return withUserDb(input.env, userId, async ({ transaction }) => {
+    return await transaction((tx) =>
       materializeThreadProject(
         tx,
         {
@@ -94,9 +85,7 @@ async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
             .maxProjects,
       ),
     );
-  } finally {
-    await close();
-  }
+  });
 }
 
 async function ensureWorkspaceDirectory(

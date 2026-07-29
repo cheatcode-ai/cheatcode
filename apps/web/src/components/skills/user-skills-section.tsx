@@ -1,6 +1,6 @@
 "use client";
 
-import type { UserSkill } from "@cheatcode/types";
+import type { UserSkill } from "@cheatcode/types/api";
 import { BookOpen, Loader2, MoreVertical, Trash2 } from "@cheatcode/ui";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import type { KeyboardEvent, MouseEvent } from "react";

@@ -1,4 +1,5 @@
-import type { LogicalModelId, ProjectMode } from "@cheatcode/types";
+import type { LogicalModelId } from "@cheatcode/types";
+import type { ProjectMode } from "@cheatcode/types/api";
 import { sql } from "drizzle-orm";
 import {
   boolean,

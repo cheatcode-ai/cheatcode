@@ -4,7 +4,6 @@ import {
   discoverUserDeletionJobs,
   type HyperdriveConnection,
   type UserDeletionJobLease,
-  withUserContext,
 } from "@cheatcode/db";
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import {
@@ -14,7 +13,7 @@ import {
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import { z } from "zod";
-import { withDatabase } from "./deletion-job-runner";
+import { withDatabase, withUserDatabase } from "./deletion-job-runner";
 import {
   DELETION_JOB_DEFER_POLICY,
   MAX_TRANSIENT_DELETION_FAILURES,
@@ -180,13 +179,11 @@ async function deferFailedCreation(
   lease: UserDeletionJobLease,
   error: unknown,
 ): Promise<"queued" | "quarantined" | null> {
-  const deferred = await withDatabase(env, (db) =>
-    withUserContext(db, lease.userId, (tx) =>
-      deferUserDeletionJob(
-        tx,
-        { ...lease, errorCode: CREATION_ERROR_CODE },
-        DELETION_JOB_DEFER_POLICY,
-      ),
+  const deferred = await withUserDatabase(env, lease.userId, (db) =>
+    deferUserDeletionJob(
+      db,
+      { ...lease, errorCode: CREATION_ERROR_CODE },
+      DELETION_JOB_DEFER_POLICY,
     ),
   );
   createLogger().error("user_deletion_instance_creation_deferred", {

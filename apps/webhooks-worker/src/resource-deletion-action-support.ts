@@ -8,9 +8,9 @@ import {
   type ResourceDeletionScope,
   runResourceDeletionJobDatabaseAction,
 } from "@cheatcode/db";
-import { dbStep, withDatabase, withUserDatabase } from "./deletion-job-runner";
+import { dbStep, type withDatabase, withUserDatabase } from "./deletion-job-runner";
 
-export { dbStep, withDatabase, withUserDatabase };
+export { dbStep, withUserDatabase };
 
 const EXTERNAL_STEP_OPTIONS = {
   retries: { limit: 5, delay: "30 seconds", backoff: "exponential" },

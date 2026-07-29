@@ -4,9 +4,9 @@ import {
   setProviderKey,
   validateProviderKey,
 } from "@cheatcode/byok";
-import { createDb, lockUserProviderKeyMutations, withUserContext } from "@cheatcode/db";
+import { lockUserProviderKeyMutations, withUserDb } from "@cheatcode/db";
 import { APIError, emitUserEvent, readJsonRequest } from "@cheatcode/observability";
-import { ProviderSchema, UpsertProviderKeySchema } from "@cheatcode/types";
+import { ProviderSchema, UpsertProviderKeySchema } from "@cheatcode/types/api";
 import { authenticate } from "./authenticate";
 import type { GatewayApp, GatewayContext } from "./gateway-env";
 import { rateLimit } from "./rate-limit";
@@ -17,15 +17,9 @@ export function registerProviderHttpRoutes(app: GatewayApp): void {
   app.get("/v1/provider-keys", async (c) => {
     const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
     await rateLimit(c, userId, "GET /v1/provider-keys");
-    const { db, close } = createDb(c.env.HYPERDRIVE, {
-      audience: "app_gateway",
-      signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    return withUserDb(c.env, userId, async ({ transaction }) => {
+      return c.json(await transaction((tx) => listProviderKeys(tx)));
     });
-    try {
-      return c.json(await withUserContext(db, userId, (tx) => listProviderKeys(tx)));
-    } finally {
-      c.executionCtx.waitUntil(close());
-    }
   });
   app.post("/v1/provider-keys", async (c) => upsertProviderKey(c));
   app.delete("/v1/provider-keys/:provider", async (c) => deleteProviderKeyRoute(c));
@@ -45,12 +39,8 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
   }
   const input = parsedInput.data;
   await validateProviderKey(input.provider, input.key);
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const result = await withUserContext(db, userId, async (tx) => {
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const result = await transaction(async (tx) => {
       await lockUserProviderKeyMutations(tx, userId);
       const existingKeys = await listProviderKeys(tx);
       await setProviderKey(tx, input.provider, input.key);
@@ -67,9 +57,7 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
       emitUserEvent(c.env, { eventName: "first_byok_key_added", userId });
     }
     return c.json(result.summary, 201);
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
@@ -82,17 +70,11 @@ async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
       retriable: false,
     });
   }
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    await withUserContext(db, userId, async (tx) => {
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    await transaction(async (tx) => {
       await lockUserProviderKeyMutations(tx, userId);
       await deleteProviderKey(tx, parsedProvider.data);
     });
     return c.body(null, 204);
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }

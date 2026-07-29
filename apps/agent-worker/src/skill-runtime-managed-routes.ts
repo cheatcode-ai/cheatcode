@@ -1,16 +1,15 @@
 import {
-  createDb,
   getUserSkillByName,
   listUserIntegrations,
   listUserSkillRecords,
   setDefaultUserIntegration,
   type UserIntegrationRecord,
   type UserSkillRecord,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
-import { MAX_USER_SKILLS } from "@cheatcode/types";
+import { MAX_USER_SKILLS } from "@cheatcode/types/api";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -279,15 +278,9 @@ async function withRuntimeDb<T>(
   principal: RuntimePrincipal,
   operation: (db: Parameters<typeof listUserSkillRecords>[0]) => Promise<T>,
 ): Promise<T> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  return withUserDb(env, principal.userId, async ({ transaction }) => {
+    return await transaction(operation);
   });
-  try {
-    return await withUserContext(db, principal.userId, operation);
-  } finally {
-    await close();
-  }
 }
 
 function managedSkillItems(

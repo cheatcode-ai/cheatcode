@@ -14,7 +14,7 @@ import {
   readBoundedRequestText,
   routeName,
 } from "@cheatcode/observability";
-import type { AgentLifecycleServiceBinding } from "@cheatcode/types";
+import type { AgentLifecycleServiceBinding } from "@cheatcode/types/internal";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { type Context, Hono } from "hono";
@@ -73,10 +73,8 @@ export interface WebhooksEnv
   ENTITLEMENTS_CACHE: KVNamespace;
   HYPERDRIVE: HyperdriveConnection;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
-  POLAR_PRODUCT_ID_MAX?: string;
   POLAR_PRODUCT_ID_PREMIUM?: string;
   POLAR_PRODUCT_ID_PRO?: string;
-  POLAR_PRODUCT_ID_ULTRA?: string;
   POLAR_SERVER?: "production" | "sandbox";
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
   QUOTA_TRACKER: QuotaTrackerNamespace;

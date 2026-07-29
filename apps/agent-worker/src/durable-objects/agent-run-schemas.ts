@@ -1,9 +1,5 @@
-import {
-  CatalogModelIdSchema,
-  LogicalModelIdSchema,
-  ProjectModeSchema,
-  RunIntentSchema,
-} from "@cheatcode/types";
+import { CatalogModelIdSchema, LogicalModelIdSchema } from "@cheatcode/types";
+import { ProjectModeSchema, RunIntentSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
 export const StartRunInputSchema = z

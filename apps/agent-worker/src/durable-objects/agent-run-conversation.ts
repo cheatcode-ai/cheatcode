@@ -1,11 +1,11 @@
 import {
-  createDb,
   listRecentThreadContextMessages,
   type ThreadContextMessageRecord,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { type CheatcodeUIMessage, ThreadId, UIMessageRecordSchema, UserId } from "@cheatcode/types";
+import { type CheatcodeUIMessage, ThreadId, UserId } from "@cheatcode/types";
+import { UIMessageRecordSchema } from "@cheatcode/types/api";
 import { convertToModelMessages, type ModelMessage } from "ai";
 import { z } from "zod";
 import type { AgentRunEnv } from "./agent-run-env";
@@ -55,12 +55,8 @@ async function readContextRows(
   env: AgentRunEnv,
   input: StartRunInput,
 ): Promise<ThreadContextMessageRecord[]> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    return await withUserContext(db, UserId(input.userId), (tx) =>
+  return withUserDb(env, UserId(input.userId), async ({ transaction }) => {
+    return await transaction((tx) =>
       listRecentThreadContextMessages(tx, {
         maxMessages: THREAD_CONTEXT_MAX_MESSAGES,
         maxSerializedBytes: THREAD_CONTEXT_MAX_SERIALIZED_BYTES,
@@ -68,9 +64,7 @@ async function readContextRows(
         userId: UserId(input.userId),
       }),
     );
-  } finally {
-    await close();
-  }
+  });
 }
 
 function parseConversationMessage(row: ThreadContextMessageRecord): ConversationMessage {

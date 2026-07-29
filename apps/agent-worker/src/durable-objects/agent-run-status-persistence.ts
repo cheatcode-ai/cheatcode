@@ -1,4 +1,4 @@
-import { createDb, updateAgentRunStatus, withUserContext } from "@cheatcode/db";
+import { updateAgentRunStatus, withUserDb } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { createLogger } from "@cheatcode/observability";
 import { AgentRunId, UserId } from "@cheatcode/types";
@@ -12,6 +12,7 @@ import {
   isAgentRunDeleted,
   setRunStateValue,
 } from "./agent-run-storage";
+import { closeDatabaseBestEffort } from "./db-close";
 
 export type PersistableRunStatus = "running" | "completed" | "failed" | "canceled";
 
@@ -81,42 +82,39 @@ async function persistAgentRunStatus(
   env: AgentRunStatusPersistenceEnv,
   input: PersistAgentRunStatusInput,
 ): Promise<boolean> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const updated = await withUserContext(db, UserId(input.userId), (tx) =>
-      updateAgentRunStatus(tx, {
-        artifactsQuiesced: input.artifactsQuiesced,
-        runId: AgentRunId(input.runId),
-        status: input.status,
-        userId: UserId(input.userId),
+  const logger = createLogger({ runId: input.runId, userId: input.userId });
+  return withUserDb(
+    env,
+    UserId(input.userId),
+    async ({ transaction }) => {
+      try {
+        const updated = await transaction((tx) =>
+          updateAgentRunStatus(tx, {
+            artifactsQuiesced: input.artifactsQuiesced,
+            runId: AgentRunId(input.runId),
+            status: input.status,
+            userId: UserId(input.userId),
+          }),
+        );
+        if (!updated) {
+          logger.warn("agent_run_status_not_updated", { status: input.status });
+        }
+        return true;
+      } catch (error) {
+        logger.warn("agent_run_status_persist_failed", {
+          error,
+          status: input.status,
+        });
+        return false;
+      }
+    },
+    (dbHandle) =>
+      closeDatabaseBestEffort({
+        dbHandle,
+        logger,
+        operation: "persist_agent_run_status",
       }),
-    );
-    if (!updated) {
-      createLogger({ runId: input.runId, userId: input.userId }).warn(
-        "agent_run_status_not_updated",
-        { status: input.status },
-      );
-    }
-    return true;
-  } catch (error) {
-    createLogger({ runId: input.runId, userId: input.userId }).warn(
-      "agent_run_status_persist_failed",
-      {
-        error,
-        status: input.status,
-      },
-    );
-    return false;
-  } finally {
-    await close().catch((error: unknown) => {
-      createLogger({ runId: input.runId, userId: input.userId }).warn("db_close_failed", {
-        error,
-      });
-    });
-  }
+  );
 }
 
 async function persistOrQueueAgentRunStatus(

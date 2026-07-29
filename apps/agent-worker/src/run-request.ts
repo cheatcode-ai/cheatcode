@@ -1,5 +1,5 @@
 import { APIError } from "@cheatcode/observability";
-import { type CreateRun, CreateRunSchema } from "@cheatcode/types";
+import { type CreateRun, CreateRunSchema } from "@cheatcode/types/api";
 
 export function parseCreateRunRequestBody(value: unknown): CreateRun {
   const parsed = CreateRunSchema.safeParse(value);

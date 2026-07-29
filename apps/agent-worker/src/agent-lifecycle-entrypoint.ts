@@ -10,7 +10,7 @@ import {
   type AgentLifecycleServiceResult,
   InternalAgentStateDeleteRequestSchema,
   InternalStateDeleteResponseSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/internal";
 import { z } from "zod";
 import { deleteAgentUserState } from "./agent-api-system-routes";
 import type { AgentEnv } from "./agent-env";

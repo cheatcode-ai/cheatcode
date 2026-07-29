@@ -1,5 +1,5 @@
 import { APIError, readBoundedResponseJson } from "@cheatcode/observability";
-import type { Provider } from "@cheatcode/types";
+import type { Provider } from "@cheatcode/types/api";
 import { z } from "zod";
 
 const VALIDATION_TIMEOUT_MS = 10_000;

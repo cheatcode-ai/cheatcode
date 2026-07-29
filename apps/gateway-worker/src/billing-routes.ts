@@ -8,13 +8,12 @@ import {
   reactivateSubscription,
 } from "@cheatcode/billing";
 import {
-  createDb,
-  type Database,
   findBillingUserById,
   findEntitlementByUserId,
+  type UserDatabaseSession,
   updateEntitlementSubscriptionState,
   updateUserPolarCustomerId,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
@@ -42,10 +41,8 @@ import { buildSandboxUsageSummary } from "./usage-summary";
 import type { WaitUntilContext } from "./wait-until-context";
 
 const POLAR_PRODUCT_ID_ENV = {
-  max: "POLAR_PRODUCT_ID_MAX",
   premium: "POLAR_PRODUCT_ID_PREMIUM",
   pro: "POLAR_PRODUCT_ID_PRO",
-  ultra: "POLAR_PRODUCT_ID_ULTRA",
 } as const satisfies Record<PaidBillingTier, keyof GatewayEnv>;
 
 const BILLING_REQUEST_MAX_BYTES = 8 * 1024;
@@ -65,18 +62,10 @@ export async function billingStateRoute(
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/billing/state");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const entitlement = await withUserContext(db, userId, (tx) =>
-      findEntitlementByUserId(tx, userId),
-    );
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const entitlement = await transaction((tx) => findEntitlementByUserId(tx, userId));
     return c.json(BillingStateResponseSchema.parse(billingStateFromEntitlement(entitlement)));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 export async function billingCheckoutRoute(
@@ -96,12 +85,8 @@ export async function billingCheckoutRoute(
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
   const productId = polarProductIdForTier(c.env, parsedInput.data.tier);
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const user = await requireBillingUser(db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const user = await requireBillingUser(transaction, userId);
     const redirect = checkoutRedirectUrls(c, parsedInput.data.returnPath);
     const url = await createCheckoutUrl({
       accessToken,
@@ -113,9 +98,7 @@ export async function billingCheckoutRoute(
       userId,
     });
     return c.json(BillingUrlResponseSchema.parse({ url }));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 function checkoutRedirectUrls(
@@ -142,31 +125,19 @@ export async function billingCatalogRoute(
 ): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/billing/catalog");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const entitlement = await resolveEntitlement(c.env, db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const entitlement = await resolveEntitlement(c.env, transaction, userId);
     return c.json(BillingCatalogResponseSchema.parse(buildBillingCatalog(c.env, entitlement.tier)));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 export async function myUsageRoute(c: BillingContext, deps: BillingRouteDeps): Promise<Response> {
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "GET /v1/me/usage");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const summary = await buildSandboxUsageSummary(c.env, db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const summary = await buildSandboxUsageSummary(c.env, transaction, userId);
     return c.json(SandboxUsageSummaryResponseSchema.parse(summary));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 export async function billingPortalRoute(
@@ -176,15 +147,11 @@ export async function billingPortalRoute(
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/portal");
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const user = await requireBillingUser(db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const user = await requireBillingUser(transaction, userId);
     const customerId =
       user.polarCustomerId ??
-      (await ensureAndStorePolarCustomer(db, accessToken, user, c.env.POLAR_SERVER));
+      (await ensureAndStorePolarCustomer(transaction, accessToken, user, c.env.POLAR_SERVER));
     const url = await createCustomerPortalUrl({
       accessToken,
       customerId,
@@ -192,13 +159,11 @@ export async function billingPortalRoute(
       ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
     });
     return c.json(BillingUrlResponseSchema.parse({ url }));
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 async function ensureAndStorePolarCustomer(
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   accessToken: string,
   user: Awaited<ReturnType<typeof requireBillingUser>>,
   server?: PolarServer,
@@ -209,9 +174,7 @@ async function ensureAndStorePolarCustomer(
     externalCustomerId: user.id,
     ...(server ? { server } : {}),
   });
-  await withUserContext(db, user.id, (tx) =>
-    updateUserPolarCustomerId(tx, { polarCustomerId, userId: user.id }),
-  );
+  await transaction((tx) => updateUserPolarCustomerId(tx, { polarCustomerId, userId: user.id }));
   return polarCustomerId;
 }
 
@@ -231,12 +194,8 @@ export async function billingCancelRoute(
     });
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const entitlement = await loadSubscriptionEntitlement(db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const entitlement = await loadSubscriptionEntitlement(transaction, userId);
     const result = await cancelSubscriptionAtPeriodEnd({
       accessToken,
       ...(parsedInput.data.comment ? { comment: parsedInput.data.comment } : {}),
@@ -244,13 +203,11 @@ export async function billingCancelRoute(
       ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
       subscriptionId: entitlement.polarSubscriptionId,
     });
-    await syncSubscriptionState(c, db, userId, result);
+    await syncSubscriptionState(c, transaction, userId, result);
     return c.json(
       BillingSubscriptionActionResponseSchema.parse(subscriptionActionResponse(result)),
     );
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
 export async function billingReactivateRoute(
@@ -260,28 +217,22 @@ export async function billingReactivateRoute(
   const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
   await rateLimit(c, userId, "POST /v1/billing/reactivate");
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  const { db, close } = createDb(c.env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: c.env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const entitlement = await loadSubscriptionEntitlement(db, userId);
+  return withUserDb(c.env, userId, async ({ transaction }) => {
+    const entitlement = await loadSubscriptionEntitlement(transaction, userId);
     const result = await reactivateSubscription({
       accessToken,
       ...(c.env.POLAR_SERVER ? { server: c.env.POLAR_SERVER } : {}),
       subscriptionId: entitlement.polarSubscriptionId,
     });
-    await syncSubscriptionState(c, db, userId, result);
+    await syncSubscriptionState(c, transaction, userId, result);
     return c.json(
       BillingSubscriptionActionResponseSchema.parse(subscriptionActionResponse(result)),
     );
-  } finally {
-    c.executionCtx.waitUntil(close());
-  }
+  });
 }
 
-async function requireBillingUser(db: Database, userId: UserId) {
-  const user = await withUserContext(db, userId, (tx) => findBillingUserById(tx, userId));
+async function requireBillingUser(transaction: UserDatabaseSession["transaction"], userId: UserId) {
+  const user = await transaction((tx) => findBillingUserById(tx, userId));
   if (!user) {
     throw new APIError(404, "not_found_user", "Billing user is not synced", {
       hint: "Sign out and sign back in so Clerk can resync your account.",
@@ -291,10 +242,11 @@ async function requireBillingUser(db: Database, userId: UserId) {
   return user;
 }
 
-async function loadSubscriptionEntitlement(db: Database, userId: UserId) {
-  const entitlement = await withUserContext(db, userId, (tx) =>
-    findEntitlementByUserId(tx, userId),
-  );
+async function loadSubscriptionEntitlement(
+  transaction: UserDatabaseSession["transaction"],
+  userId: UserId,
+) {
+  const entitlement = await transaction((tx) => findEntitlementByUserId(tx, userId));
   if (!entitlement?.polarSubscriptionId || entitlement.tier === "free") {
     throw new APIError(409, "conflict_state_invalid", "No active Polar subscription is linked", {
       hint: "Start checkout before managing subscription cancellation.",
@@ -306,7 +258,7 @@ async function loadSubscriptionEntitlement(db: Database, userId: UserId) {
 
 async function syncSubscriptionState(
   c: BillingContext,
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   userId: UserId,
   result: {
     cancelAtPeriodEnd: boolean;
@@ -316,7 +268,7 @@ async function syncSubscriptionState(
     status: string;
   },
 ): Promise<void> {
-  await withUserContext(db, userId, (tx) =>
+  await transaction((tx) =>
     updateEntitlementSubscriptionState(tx, {
       cancelAtPeriodEnd: result.cancelAtPeriodEnd,
       currentPeriodEnd: dateFromIso(result.currentPeriodEnd),

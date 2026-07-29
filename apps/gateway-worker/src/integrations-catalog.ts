@@ -1,16 +1,15 @@
 import { ComposioClient } from "@cheatcode/composio";
-import type { Database } from "@cheatcode/db";
+import type { UserDatabaseSession } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
+import { IntegrationNameSchema, type UserId } from "@cheatcode/types";
 import {
   type IntegrationCatalog,
   IntegrationCatalogSchema,
-  IntegrationNameSchema,
   type ToolkitActionsResponse,
   type ToolkitCatalogEntry,
   type ToolkitCategory,
-  type UserId,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { z } from "zod";
 import {
   loadIntegrationAccountSnapshot,
@@ -75,7 +74,7 @@ const CachedCatalogSchema = z.object({
 });
 
 export async function getIntegrationCatalog(
-  db: Database,
+  transaction: UserDatabaseSession["transaction"],
   env: IntegrationCatalogEnv,
   userId: UserId,
 ): Promise<IntegrationCatalog> {
@@ -85,7 +84,7 @@ export async function getIntegrationCatalog(
       loadIntegrationAccountSnapshot(env, userId),
     ]);
     const accountsByToolkit = await reconcileIntegrationAccountSnapshot(
-      db,
+      transaction,
       userId,
       accountSnapshot,
     );

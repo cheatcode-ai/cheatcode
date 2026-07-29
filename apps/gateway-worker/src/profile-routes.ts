@@ -1,11 +1,10 @@
 import { updateClerkUserPublicMetadata, verifyClerkBearerToken } from "@cheatcode/auth";
 import {
-  createDb,
   getUserProfile,
   type UpsertUserProfileInput,
   type UserProfileRecord,
   upsertUserProfile,
-  withUserContext,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import {
@@ -36,24 +35,18 @@ const MAX_PROFILE_REQUEST_BYTES = 32 * 1024;
 
 export async function getMyProfileRoute(
   env: ProfileRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    const record = await withUserContext(db, userId, (tx) => getUserProfile(tx, userId));
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const record = await transaction((tx) => getUserProfile(tx, userId));
     return Response.json(UserProfileSchema.parse(profileResponse(record)));
-  } finally {
-    ctx.waitUntil(close());
-  }
+  });
 }
 
 export async function updateMyProfileRoute(
   env: ProfileRouteEnv,
-  ctx: WaitUntilContext,
+  _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
@@ -64,18 +57,9 @@ export async function updateMyProfileRoute(
     throw invalidRequestBody("Invalid profile payload", parsed.error);
   }
   const body = parsed.data;
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  let result: UserProfileRecord;
-  try {
-    result = await withUserContext(db, userId, (tx) =>
-      upsertUserProfile(tx, buildProfilePatch(userId, body)),
-    );
-  } finally {
-    ctx.waitUntil(close());
-  }
+  const result = await withUserDb(env, userId, ({ transaction }) =>
+    transaction((tx) => upsertUserProfile(tx, buildProfilePatch(userId, body))),
+  );
   if (body.onboardingCompleted === true) {
     await mirrorOnboardingClaim(env, request, userId);
   }

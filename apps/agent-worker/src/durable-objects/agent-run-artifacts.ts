@@ -1,30 +1,27 @@
 import {
   type ArtifactUploadIdentity,
-  createDb,
-  type DatabaseHandle,
   finalizeArtifactUpload,
   guardArtifactUpload,
   reserveArtifactUpload,
-  withUserContext,
+  type UserDatabaseSession,
+  withUserDb,
 } from "@cheatcode/db";
 import type { WorkerSecret } from "@cheatcode/env";
 import {
   type AnalyticsBindings,
   APIError,
-  type createLogger,
-  createLogger as createRunLogger,
+  createLogger,
   emitUserEvent,
 } from "@cheatcode/observability";
 import type { ArtifactUploadInput, ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
 import type { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
 import { ArtifactKindSchema } from "@cheatcode/types/artifacts";
+import { closeDatabaseBestEffort } from "./db-close";
 
 const ARTIFACT_DIGEST_DOMAIN = "cheatcode:artifact-upload:v2";
 const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
 const MAX_CONTENT_TYPE_LENGTH = 255;
 const VALID_CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/iu;
-
-type AgentRunLogger = ReturnType<typeof createLogger>;
 
 interface ArtifactEnv extends AnalyticsBindings {
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
@@ -60,14 +57,21 @@ export async function storeAgentArtifact({
 }: StoreAgentArtifactOptions): Promise<ArtifactUploadResult> {
   assertArtifactUpload(artifact);
   const prepared = await prepareArtifact(artifact, input);
-  const logger = createRunLogger({ threadId: input.threadId, userId: input.userId });
-  const dbHandle = artifactDatabase(env);
-  try {
-    await persistPreparedArtifact(dbHandle, env, artifact, input, prepared);
-    return artifactUploadResult(artifact, prepared);
-  } finally {
-    await closeDatabase(dbHandle, logger);
-  }
+  const logger = createLogger({ threadId: input.threadId, userId: input.userId });
+  return withUserDb(
+    env,
+    input.userId,
+    async ({ transaction }) => {
+      await persistPreparedArtifact(transaction, env, artifact, input, prepared);
+      return artifactUploadResult(artifact, prepared);
+    },
+    (dbHandle) =>
+      closeDatabaseBestEffort({
+        dbHandle,
+        logger,
+        operation: "store_agent_artifact",
+      }),
+  );
 }
 
 async function prepareArtifact(
@@ -100,15 +104,13 @@ async function prepareArtifact(
 }
 
 async function persistPreparedArtifact(
-  dbHandle: DatabaseHandle,
+  transaction: UserDatabaseSession["transaction"],
   env: ArtifactEnv,
   artifact: ArtifactUploadInput,
   input: ArtifactRunInput,
   prepared: PreparedArtifact,
 ): Promise<void> {
-  const reservation = await withUserContext(dbHandle.db, input.userId, (db) =>
-    reserveArtifactUpload(db, prepared.identity),
-  );
+  const reservation = await transaction((db) => reserveArtifactUpload(db, prepared.identity));
   if (reservation.state === "committed") {
     await verifyCommittedArtifactObject(env, artifact, prepared);
     return;
@@ -116,9 +118,7 @@ async function persistPreparedArtifact(
   if (reservation.state === "fenced") {
     throw unavailableArtifactOwnership();
   }
-  const guard = await withUserContext(dbHandle.db, input.userId, (db) =>
-    guardArtifactUpload(db, prepared.identity),
-  );
+  const guard = await transaction((db) => guardArtifactUpload(db, prepared.identity));
   if (guard.state === "committed") {
     await verifyCommittedArtifactObject(env, artifact, prepared);
     return;
@@ -129,11 +129,11 @@ async function persistPreparedArtifact(
   if (guard.state === "reservation-lost") {
     throw lostArtifactReservation();
   }
-  await putAndFinalize(dbHandle, env, artifact, input, prepared);
+  await putAndFinalize(transaction, env, artifact, input, prepared);
 }
 
 async function putAndFinalize(
-  dbHandle: DatabaseHandle,
+  transaction: UserDatabaseSession["transaction"],
   env: ArtifactEnv,
   artifact: ArtifactUploadInput,
   input: ArtifactRunInput,
@@ -141,7 +141,7 @@ async function putAndFinalize(
 ): Promise<void> {
   await writeArtifactObject(env, artifact, prepared);
   const createdAt = new Date();
-  const finalized = await withUserContext(dbHandle.db, input.userId, (db) =>
+  const finalized = await transaction((db) =>
     finalizeArtifactUpload(db, {
       ...prepared.identity,
       createdAt,
@@ -331,21 +331,6 @@ function invalidStoredArtifact(): APIError {
     "Artifact object identity does not match its durable upload intent",
     { retriable: false },
   );
-}
-
-function artifactDatabase(env: ArtifactEnv): DatabaseHandle {
-  return createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-}
-
-async function closeDatabase(dbHandle: DatabaseHandle, logger: AgentRunLogger): Promise<void> {
-  try {
-    await dbHandle.close();
-  } catch (error) {
-    logger.warn("db_close_failed", { error });
-  }
 }
 
 function sanitizeFilename(filename: string): string {

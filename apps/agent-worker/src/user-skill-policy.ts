@@ -9,7 +9,7 @@ import {
   updateUserSkill,
   withLockedUserSkillCatalog,
 } from "@cheatcode/db";
-import { MAX_USER_SKILLS } from "@cheatcode/types";
+import { MAX_USER_SKILLS } from "@cheatcode/types/api";
 
 class UserSkillLimitExceededError extends Error {
   public constructor() {

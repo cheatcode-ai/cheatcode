@@ -1,5 +1,4 @@
 import {
-  type InternalResourceDeletionRequest,
   type ProjectId,
   type ThreadId,
   ProjectId as toProjectId,
@@ -7,6 +6,7 @@ import {
   UserId as toUserId,
   type UserId,
 } from "@cheatcode/types";
+import type { InternalResourceDeletionRequest } from "@cheatcode/types/internal";
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
 import type { Database } from "./client";
 import {

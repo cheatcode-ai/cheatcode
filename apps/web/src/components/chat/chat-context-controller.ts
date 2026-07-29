@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary, Thread } from "@cheatcode/types";
+import type { ProjectSummary, Thread } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRouter } from "next/navigation";

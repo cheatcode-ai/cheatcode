@@ -1,6 +1,6 @@
 "use client";
 
-import type { Provider } from "@cheatcode/types";
+import type { Provider } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { standardSchemaResolver } from "@hookform/resolvers/standard-schema";
 import { useQueryClient } from "@tanstack/react-query";

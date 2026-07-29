@@ -5,11 +5,11 @@ import {
   verifyClerkBearerToken,
 } from "@cheatcode/auth";
 import {
-  createDb,
   type Database,
   resolveInternalUserId,
   syncClerkUser,
   UserDeletionBlockedError,
+  withDatabase,
 } from "@cheatcode/db";
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
@@ -36,15 +36,14 @@ export async function authenticate(
 ): Promise<UserId> {
   const { secretKey, verificationOptions } = await clerkVerification(env);
   const session = await verifyClerkBearerToken(request, verificationOptions);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_gateway",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
-  });
-  try {
-    return await resolveOrSyncClerkUser(db, session.clerkUserId, secretKey);
-  } finally {
-    ctx.waitUntil(close());
-  }
+  return withDatabase(
+    env,
+    ({ db }) => resolveOrSyncClerkUser(db, session.clerkUserId, secretKey),
+    (handle) => {
+      ctx.waitUntil(handle.close());
+      return Promise.resolve();
+    },
+  );
 }
 
 async function clerkVerification(env: AuthEnv) {

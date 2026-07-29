@@ -1,4 +1,4 @@
-import type { SandboxConsoleLine, SandboxConsoleSnapshot } from "@cheatcode/types";
+import type { SandboxConsoleLine, SandboxConsoleSnapshot } from "@cheatcode/types/api";
 
 const LINE_MAX = 2_000;
 

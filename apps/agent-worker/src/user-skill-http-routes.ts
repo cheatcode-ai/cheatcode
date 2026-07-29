@@ -1,12 +1,8 @@
-import {
-  createDb,
-  deleteUserSkill,
-  getUserSkillById,
-  type UserSkillRecord,
-  withUserContext,
-} from "@cheatcode/db";
+import { deleteUserSkill, getUserSkillById, type UserSkillRecord, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { SandboxIdeSessionSchema, UserId } from "@cheatcode/types";
+import { UserId } from "@cheatcode/types";
+import { SandboxIdeSessionSchema } from "@cheatcode/types/api";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
@@ -24,8 +20,10 @@ const IdSchema = z.string().uuid();
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerUserSkillHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.post("/v1/skills/:skillId/open", openUserSkill);
-  app.delete("/v1/skills/:skillId", deleteSavedUserSkill);
+  const { deleteUserSkill: deleteUserSkillRoute } = AGENT_FORWARD_ROUTES.core;
+  const { openUserSkill: openUserSkillRoute } = AGENT_FORWARD_ROUTES.piped;
+  app.on(openUserSkillRoute.method, openUserSkillRoute.path, openUserSkill);
+  app.on(deleteUserSkillRoute.method, deleteUserSkillRoute.path, deleteSavedUserSkill);
 }
 
 async function deleteSavedUserSkill(c: AgentContext): Promise<Response> {
@@ -78,15 +76,9 @@ async function readSkill(
   userId: UserId,
   skillId: string,
 ): Promise<UserSkillRecord | null> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return await transaction((tx) => getUserSkillById(tx, userId, skillId));
   });
-  try {
-    return await withUserContext(db, userId, (tx) => getUserSkillById(tx, userId, skillId));
-  } finally {
-    await close();
-  }
 }
 
 async function removeSkillPackageFiles(
@@ -110,18 +102,12 @@ async function removeSkillPackageFiles(
 }
 
 async function deleteSkillRecord(env: AgentEnv, userId: UserId, skillId: string): Promise<void> {
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const deleted = await withUserContext(db, userId, (tx) => deleteUserSkill(tx, userId, skillId));
+  return withUserDb(env, userId, async ({ transaction }) => {
+    const deleted = await transaction((tx) => deleteUserSkill(tx, userId, skillId));
     if (!deleted) {
       throw new APIError(404, "not_found_skill", "Skill not found", { retriable: false });
     }
-  } finally {
-    await close();
-  }
+  });
 }
 
 function parsedId(value: string | undefined, label: string): string {

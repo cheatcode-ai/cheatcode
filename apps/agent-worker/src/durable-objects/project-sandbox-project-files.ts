@@ -9,7 +9,7 @@ import {
   ProjectFileSchema,
   type ProjectFileUploadResponse,
   ProjectFileUploadResponseSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import { z } from "zod";
 import { sleep } from "./project-sandbox-process-support";
 import {

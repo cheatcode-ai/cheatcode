@@ -1,6 +1,6 @@
 "use client";
 
-import { GitHubRepoUrlSchema } from "@cheatcode/types";
+import { GitHubRepoUrlSchema } from "@cheatcode/types/api";
 import { type KeyboardEvent, type RefObject, useEffect, useId, useRef, useState } from "react";
 
 interface RepoImportController {

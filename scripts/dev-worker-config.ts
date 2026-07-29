@@ -66,13 +66,7 @@ const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
 };
 
 const LOCAL_WORKER_VAR_BINDINGS: Record<WorkerConfig, readonly string[]> = {
-  "wrangler.jsonc": [
-    "POLAR_PRODUCT_ID_MAX",
-    "POLAR_PRODUCT_ID_PREMIUM",
-    "POLAR_PRODUCT_ID_PRO",
-    "POLAR_PRODUCT_ID_ULTRA",
-    "POLAR_SERVER",
-  ],
+  "wrangler.jsonc": ["POLAR_PRODUCT_ID_PREMIUM", "POLAR_PRODUCT_ID_PRO", "POLAR_SERVER"],
   "../agent-worker/wrangler.jsonc": [
     "DAYTONA_API_URL",
     "DAYTONA_ORG_ID",
@@ -82,10 +76,8 @@ const LOCAL_WORKER_VAR_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "DAYTONA_WORKSPACE_VOLUME",
   ],
   "../webhooks-worker/wrangler.jsonc": [
-    "POLAR_PRODUCT_ID_MAX",
     "POLAR_PRODUCT_ID_PREMIUM",
     "POLAR_PRODUCT_ID_PRO",
-    "POLAR_PRODUCT_ID_ULTRA",
     "POLAR_SERVER",
   ],
   "../preview-proxy/wrangler.jsonc": ["DAYTONA_API_URL", "DAYTONA_PREVIEW_HOST_SUFFIXES"],
@@ -313,10 +305,8 @@ function productionVarsRemovedForLocal(configPath: WorkerConfig, vars: ConfigRec
     return localVars;
   }
   const {
-    POLAR_PRODUCT_ID_MAX: _max,
     POLAR_PRODUCT_ID_PREMIUM: _premium,
     POLAR_PRODUCT_ID_PRO: _pro,
-    POLAR_PRODUCT_ID_ULTRA: _ultra,
     ...withoutProductionProducts
   } = vars;
   if (configPath === "wrangler.jsonc") {

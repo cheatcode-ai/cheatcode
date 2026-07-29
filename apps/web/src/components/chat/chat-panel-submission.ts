@@ -1,4 +1,5 @@
-import type { CheatcodeUIMessage, ProjectSummary, UIMessageRecord } from "@cheatcode/types";
+import type { CheatcodeUIMessage } from "@cheatcode/types";
+import type { ProjectSummary, UIMessageRecord } from "@cheatcode/types/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";

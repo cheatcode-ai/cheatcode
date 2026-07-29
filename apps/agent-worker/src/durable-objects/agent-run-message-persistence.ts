@@ -1,4 +1,4 @@
-import { createDb, createThreadMessage, withUserContext } from "@cheatcode/db";
+import { createThreadMessage, withUserDb } from "@cheatcode/db";
 import { createLogger, type Logger } from "@cheatcode/observability";
 import {
   AgentRunId,
@@ -20,6 +20,7 @@ import {
   setRunStateValue,
 } from "./agent-run-storage";
 import { transcriptPartFromChunk } from "./agent-run-transcript-chunks";
+import { closeDatabaseBestEffort } from "./db-close";
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -89,40 +90,42 @@ async function persistAssistantMessage({
     return true;
   }
   const createdAt = transcriptCreatedAt(ctx);
-  const { db, close } = createDb(env.HYPERDRIVE, {
-    audience: "app_agent",
-    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
-  });
-  try {
-    const writer = new AssistantTranscriptWriter(async (parts, segment, isFinal) => {
-      await withUserContext(db, UserId(userId), (tx) =>
-        createThreadMessage(tx, {
-          agentRunId: AgentRunId(runId),
-          agentRunSegment: segment,
-          agentRunSegmentFinal: isFinal,
-          createdAt,
-          parts,
-          role: "assistant",
-          threadId: ThreadId(threadId),
-          userId: UserId(userId),
-        }),
-      );
-    });
-    await writeAssistantTranscript(writer, (lastSeq) => readRowsPage(ctx, lastSeq));
-    return true;
-  } catch (error) {
-    logger.error("assistant_message_persist_failed", {
-      error,
-      runId,
-    });
-    return false;
-  } finally {
-    await close().catch((error: unknown) => {
-      logger.warn("assistant_message_db_close_failed", {
-        error,
-      });
-    });
-  }
+  return withUserDb(
+    env,
+    UserId(userId),
+    async ({ transaction }) => {
+      try {
+        const writer = new AssistantTranscriptWriter(async (parts, segment, isFinal) => {
+          await transaction((tx) =>
+            createThreadMessage(tx, {
+              agentRunId: AgentRunId(runId),
+              agentRunSegment: segment,
+              agentRunSegmentFinal: isFinal,
+              createdAt,
+              parts,
+              role: "assistant",
+              threadId: ThreadId(threadId),
+              userId: UserId(userId),
+            }),
+          );
+        });
+        await writeAssistantTranscript(writer, (lastSeq) => readRowsPage(ctx, lastSeq));
+        return true;
+      } catch (error) {
+        logger.error("assistant_message_persist_failed", {
+          error,
+          runId,
+        });
+        return false;
+      }
+    },
+    (dbHandle) =>
+      closeDatabaseBestEffort({
+        dbHandle,
+        logger,
+        operation: "persist_assistant_message",
+      }),
+  );
 }
 
 function readRowsPage(ctx: DurableObjectState, lastSeq: number): MessagePartRow[] {

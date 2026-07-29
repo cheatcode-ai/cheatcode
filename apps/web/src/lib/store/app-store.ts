@@ -1,6 +1,7 @@
 "use client";
 
-import type { SandboxConsoleProcess, SandboxState } from "@cheatcode/types";
+import type { SandboxState } from "@cheatcode/types";
+import type { SandboxConsoleProcess } from "@cheatcode/types/api";
 import { create, type StateCreator } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { type AgentModelId, DEFAULT_AGENT_MODEL_ID, isAgentModelId } from "@/lib/agent-models";

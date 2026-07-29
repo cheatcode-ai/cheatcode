@@ -1,4 +1,4 @@
-import type { SandboxTerminalContext } from "@cheatcode/types";
+import type { SandboxTerminalContext } from "@cheatcode/types/api";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import type { Dispatch } from "react";
 import { useEffect } from "react";

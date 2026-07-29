@@ -1,6 +1,6 @@
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import type { AnalyticsBindings } from "@cheatcode/observability";
-import type { ResourceDeletionServiceBinding } from "@cheatcode/types";
+import type { ResourceDeletionServiceBinding } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import type { IdempotencyStore } from "./durable-objects/idempotency";
 import type { QuotaTracker } from "./durable-objects/quota-tracker";
@@ -22,10 +22,8 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   HYPERDRIVE: Hyperdrive;
   IDEMPOTENCY: DurableObjectNamespace<IdempotencyStore>;
   POLAR_ACCESS_TOKEN?: WorkerSecret;
-  POLAR_PRODUCT_ID_MAX?: string;
   POLAR_PRODUCT_ID_PREMIUM?: string;
   POLAR_PRODUCT_ID_PRO?: string;
-  POLAR_PRODUCT_ID_ULTRA?: string;
   POLAR_SERVER?: "production" | "sandbox";
   PREVIEW_PROXY?: Fetcher;
   QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;

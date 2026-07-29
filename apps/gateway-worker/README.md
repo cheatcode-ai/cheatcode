@@ -142,7 +142,7 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `CLERK_AUTHORIZED_PARTIES` (comma-separated exact HTTP(S) origins)
 - `POLAR_ACCESS_TOKEN`
 - `POLAR_SERVER` (`production` by default; set `sandbox` only with sandbox credentials/products)
-- `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`, `POLAR_PRODUCT_ID_ULTRA`, `POLAR_PRODUCT_ID_MAX`
+- `POLAR_PRODUCT_ID_PRO`, `POLAR_PRODUCT_ID_PREMIUM`
 - `COMPOSIO_API_KEY`
 - `COMPOSIO_AUTH_CONFIGS`
 - `USER_EVENTS`, `ERROR_EVENTS`, `PERFORMANCE_METRICS`

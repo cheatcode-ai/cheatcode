@@ -1,6 +1,7 @@
 "use client";
 
-import type { IntegrationName, ProjectSummary, RunIntent } from "@cheatcode/types";
+import type { IntegrationName } from "@cheatcode/types";
+import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";

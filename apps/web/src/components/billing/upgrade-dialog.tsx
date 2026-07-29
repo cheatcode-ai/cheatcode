@@ -14,9 +14,8 @@ import { useBillingCatalogQuery } from "@/lib/hooks/use-billing";
 /**
  * Plan picker for upgrading. Lists every PAID tier from the billing catalog; a tier
  * is purchasable only when the catalog marks it `available` (i.e. its Polar product
- * id is configured), so Pro/Premium check out while Ultra/Max show "Coming soon"
- * until the owner creates their products. Checkout passes the tier the user picked
- * — no surface hardcodes a single tier.
+ * id is configured). Checkout passes the tier the user picked — no surface hardcodes
+ * a single tier.
  */
 export function UpgradeDialog({
   getToken,

@@ -10,7 +10,7 @@ import {
   executeShellTerminal,
   executeStartDevServer,
 } from "@cheatcode/tools-code";
-import type { ProjectMode } from "@cheatcode/types";
+import type { ProjectMode } from "@cheatcode/types/api";
 import type { UIMessageChunk } from "ai";
 import {
   ensureExpoWebSupport,

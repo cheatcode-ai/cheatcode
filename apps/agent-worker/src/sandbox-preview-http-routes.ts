@@ -3,7 +3,8 @@ import {
   SandboxIdeSessionSchema,
   SandboxPreviewStatusSchema,
   SandboxPreviewWakeSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
+import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
 import type { AgentEnv } from "./agent-env";
 import { requireWritableThreadProject, sandboxForUser } from "./agent-routing";
@@ -20,10 +21,11 @@ const PRIVATE_CAPABILITY_CACHE_CONTROL = "private, no-store";
 type AgentContext = Context<{ Bindings: AgentEnv }>;
 
 export function registerSandboxPreviewHttpRoutes(app: Hono<{ Bindings: AgentEnv }>): void {
-  app.get("/v1/computer/ide", openComputerIde);
-  app.get("/v1/threads/:threadId/sandbox/ide", openThreadIde);
-  app.post("/v1/threads/:threadId/sandbox/preview/wake", wakeThreadPreview);
-  app.get("/v1/threads/:threadId/sandbox/preview/status", threadPreviewStatus);
+  const routes = AGENT_FORWARD_ROUTES.piped;
+  app.on(routes.computerIde.method, routes.computerIde.path, openComputerIde);
+  app.on(routes.sandboxIde.method, routes.sandboxIde.path, openThreadIde);
+  app.on(routes.sandboxPreviewWake.method, routes.sandboxPreviewWake.path, wakeThreadPreview);
+  app.on(routes.sandboxPreviewStatus.method, routes.sandboxPreviewStatus.path, threadPreviewStatus);
 }
 
 async function openComputerIde(c: AgentContext): Promise<Response> {

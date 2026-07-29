@@ -1,3 +1,4 @@
+import type { WorkerSecret } from "@cheatcode/env";
 import type { UserId } from "@cheatcode/types";
 import { sql } from "drizzle-orm";
 import { drizzle, type NodePgDatabase } from "drizzle-orm/node-postgres";
@@ -15,16 +16,45 @@ export interface HyperdriveConnection {
 
 export type Database = NodePgDatabase<typeof schema>;
 
+declare const USER_CONTEXT_DATABASE: unique symbol;
+
+/** A transaction-pinned database that already carries a signed user context. */
+export type UserContextDatabase = Database & {
+  readonly [USER_CONTEXT_DATABASE]: true;
+};
+
 export interface DatabaseHandle {
   db: Database;
   close: () => Promise<void>;
 }
 
+export type UserContextSource = DatabaseHandle | UserContextDatabase;
+
+type DatabaseEnvironment =
+  | {
+      DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
+      HYPERDRIVE: HyperdriveConnection;
+    }
+  | {
+      DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
+      HYPERDRIVE: HyperdriveConnection;
+    }
+  | {
+      DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS: WorkerSecret;
+      HYPERDRIVE: HyperdriveConnection;
+    };
+
+export interface UserDatabaseSession {
+  handle: DatabaseHandle;
+  transaction: <T>(fn: (tx: UserContextDatabase) => Promise<T>) => Promise<T>;
+}
+
 type ContextSigner = ReturnType<typeof createDatabaseContextSigner>;
+type CloseDatabaseHandle = (handle: DatabaseHandle) => Promise<void>;
 
 const DATABASE_CONTEXT_SIGNERS = new WeakMap<Database, ContextSigner>();
 
-export function createDb(
+function createDb(
   hyperdrive: HyperdriveConnection,
   contextConfig: DatabaseContextConfig,
 ): DatabaseHandle {
@@ -42,17 +72,18 @@ export function createDb(
 }
 
 export async function withUserContext<T>(
-  db: Database,
+  source: UserContextSource,
   internalUserId: UserId,
-  fn: (tx: Database) => Promise<T>,
+  fn: (tx: UserContextDatabase) => Promise<T>,
 ): Promise<T> {
+  const db = databaseForUserContext(source);
   const signer = DATABASE_CONTEXT_SIGNERS.get(db);
   if (!signer) {
     throw new Error("Database handle is missing its signed tenant-context configuration");
   }
   const context = await signer.sign(internalUserId);
   return db.transaction(async (tx) => {
-    const transaction = tx as Database;
+    const transaction = tx as unknown as UserContextDatabase;
     DATABASE_CONTEXT_SIGNERS.set(transaction, signer);
     try {
       await setSignedContext(transaction, context);
@@ -61,6 +92,63 @@ export async function withUserContext<T>(
       DATABASE_CONTEXT_SIGNERS.delete(transaction);
     }
   });
+}
+
+export async function withDatabase<T>(
+  env: DatabaseEnvironment,
+  fn: (handle: DatabaseHandle) => Promise<T>,
+  closeHandle: CloseDatabaseHandle = closeDatabaseHandle,
+): Promise<T> {
+  const handle = createDb(env.HYPERDRIVE, databaseContextConfig(env));
+  try {
+    return await fn(handle);
+  } finally {
+    await closeHandle(handle);
+  }
+}
+
+export async function withUserDb<T>(
+  env: DatabaseEnvironment,
+  userId: UserId,
+  fn: (session: UserDatabaseSession) => Promise<T>,
+  closeHandle?: CloseDatabaseHandle,
+): Promise<T> {
+  return withDatabase(
+    env,
+    (handle) =>
+      fn({
+        handle,
+        transaction: (operation) => withUserContext(handle, userId, operation),
+      }),
+    closeHandle,
+  );
+}
+
+function databaseContextConfig(env: DatabaseEnvironment): DatabaseContextConfig {
+  if ("DATABASE_CONTEXT_SIGNING_SECRET_AGENT" in env) {
+    return {
+      audience: "app_agent",
+      signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_AGENT,
+    };
+  }
+  if ("DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY" in env) {
+    return {
+      audience: "app_gateway",
+      signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY,
+    };
+  }
+  return {
+    audience: "app_webhooks",
+    signingSecret: env.DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS,
+  };
+}
+
+function databaseForUserContext(source: UserContextSource): Database {
+  return "db" in source && "close" in source ? source.db : source;
+}
+
+function closeDatabaseHandle(handle: DatabaseHandle): Promise<void> {
+  return handle.close();
 }
 
 async function setSignedContext(db: Database, context: SignedDatabaseContext): Promise<void> {

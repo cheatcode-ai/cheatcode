@@ -4,10 +4,8 @@ import {
   type CheatcodeUIMessage,
   coalesceTranscriptUIMessages,
   hasIncompleteTranscriptUIMessages,
-  type ProjectSummary,
-  type RunIntent,
-  type Thread,
 } from "@cheatcode/types";
+import type { ProjectSummary, RunIntent, Thread } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";

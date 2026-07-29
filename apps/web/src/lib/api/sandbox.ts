@@ -16,7 +16,7 @@ import {
   SandboxTerminalContextSchema,
   type SandboxTerminalResult,
   SandboxTerminalResultSchema,
-} from "@cheatcode/types";
+} from "@cheatcode/types/api";
 import {
   API_REQUEST_TIMEOUT_MS,
   API_RESPONSE_LIMIT_BYTES,

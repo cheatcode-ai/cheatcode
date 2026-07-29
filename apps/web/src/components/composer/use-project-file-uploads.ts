@@ -1,6 +1,6 @@
 "use client";
 
-import type { ProjectSummary } from "@cheatcode/types";
+import type { ProjectSummary } from "@cheatcode/types/api";
 import { useQueryClient } from "@tanstack/react-query";
 import { type ChangeEvent, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 import type { ComposerAttachmentStatusState } from "@/components/composer/composer-attachment-status";

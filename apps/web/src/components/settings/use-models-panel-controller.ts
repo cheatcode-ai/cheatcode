@@ -1,6 +1,7 @@
 "use client";
 
-import type { Provider, ProviderKeySummary, UserProfile } from "@cheatcode/types";
+import type { UserProfile } from "@cheatcode/types";
+import type { Provider, ProviderKeySummary } from "@cheatcode/types/api";
 import { useState } from "react";
 import { toast } from "sonner";
 import { useProfileQuery, useUpdateProfileMutation } from "@/lib/hooks/use-profile";

@@ -1,4 +1,4 @@
-import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types";
+import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types/api";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 
 const MAX_SLASH_ITEMS = 200;

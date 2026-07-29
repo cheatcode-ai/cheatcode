@@ -10,6 +10,10 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./api": {
+      "types": "./dist/api.d.ts",
+      "import": "./dist/api.js"
+    },
     "./artifacts": {
       "types": "./dist/artifacts.d.ts",
       "import": "./dist/artifacts.js"
@@ -29,6 +33,10 @@
     "./integrations": {
       "types": "./dist/integrations.d.ts",
       "import": "./dist/integrations.js"
+    },
+    "./internal": {
+      "types": "./dist/internal.d.ts",
+      "import": "./dist/internal.js"
     },
     "./quota": {
       "types": "./dist/quota.d.ts",
