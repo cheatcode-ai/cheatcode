@@ -289,9 +289,6 @@ importers:
       '@cheatcode/skills':
         specifier: workspace:*
         version: link:../../packages/skills
-      '@cheatcode/tools-code':
-        specifier: workspace:*
-        version: link:../../packages/tools-code
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../../packages/types
@@ -384,9 +381,6 @@ importers:
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../../packages/types
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
     devDependencies:
       '@cheatcode/tsconfig':
         specifier: workspace:*
@@ -415,9 +409,6 @@ importers:
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../../packages/types
-      '@cheatcode/ui':
-        specifier: workspace:*
-        version: link:../../packages/ui
       '@clerk/nextjs':
         specifier: 'catalog:'
         version: 7.5.19(next@16.2.11(@babel/core@7.29.7(supports-color@10.2.2))(@opentelemetry/api@1.9.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7))(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -430,6 +421,15 @@ importers:
       '@next/env':
         specifier: 'catalog:'
         version: 16.2.11
+      '@streamdown/code':
+        specifier: 'catalog:'
+        version: 1.1.1(react@19.2.7)
+      '@streamdown/math':
+        specifier: 'catalog:'
+        version: 1.0.2(react@19.2.7)(supports-color@10.2.2)
+      '@streamdown/mermaid':
+        specifier: 'catalog:'
+        version: 1.0.2(react@19.2.7)
       '@tanstack/react-query':
         specifier: 'catalog:'
         version: 5.101.2(react@19.2.7)
@@ -448,6 +448,9 @@ importers:
       katex:
         specifier: 'catalog:'
         version: 0.17.0
+      lucide-react:
+        specifier: 'catalog:'
+        version: 1.24.0(react@19.2.7)
       next:
         specifier: 'catalog:'
         version: 16.2.11(@babel/core@7.29.7(supports-color@10.2.2))(@opentelemetry/api@1.9.1)(babel-plugin-macros@3.1.0)(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
@@ -472,6 +475,9 @@ importers:
       sonner:
         specifier: 'catalog:'
         version: 2.0.7(react-dom@19.2.7(react@19.2.7))(react@19.2.7)
+      streamdown:
+        specifier: 'catalog:'
+        version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
       web-vitals:
         specifier: 'catalog:'
         version: 5.3.0
@@ -588,15 +594,6 @@ importers:
       '@cheatcode/skills':
         specifier: workspace:*
         version: link:../skills
-      '@cheatcode/tools-browser':
-        specifier: workspace:*
-        version: link:../tools-browser
-      '@cheatcode/tools-code':
-        specifier: workspace:*
-        version: link:../tools-code
-      '@cheatcode/tools-research':
-        specifier: workspace:*
-        version: link:../tools-research
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../types
@@ -806,9 +803,6 @@ importers:
 
   packages/sandbox-contracts:
     dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
       '@cheatcode/types':
         specifier: workspace:*
         version: link:../types
@@ -838,63 +832,6 @@ importers:
         specifier: 'catalog:'
         version: 6.0.3
 
-  packages/tools-browser:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@cheatcode/sandbox-contracts':
-        specifier: workspace:*
-        version: link:../sandbox-contracts
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/tools-code:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      '@cheatcode/sandbox-contracts':
-        specifier: workspace:*
-        version: link:../sandbox-contracts
-      '@cheatcode/types':
-        specifier: workspace:*
-        version: link:../types
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/tools-research:
-    dependencies:
-      '@cheatcode/observability':
-        specifier: workspace:*
-        version: link:../observability
-      zod:
-        specifier: 'catalog:'
-        version: 4.4.3
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
   packages/tsconfig:
     devDependencies:
       next:
@@ -913,37 +850,6 @@ importers:
       '@cheatcode/tsconfig':
         specifier: workspace:*
         version: link:../tsconfig
-      typescript:
-        specifier: 'catalog:'
-        version: 6.0.3
-
-  packages/ui:
-    dependencies:
-      '@streamdown/code':
-        specifier: 'catalog:'
-        version: 1.1.1(react@19.2.7)
-      '@streamdown/math':
-        specifier: 'catalog:'
-        version: 1.0.2(react@19.2.7)(supports-color@10.2.2)
-      '@streamdown/mermaid':
-        specifier: 'catalog:'
-        version: 1.0.2(react@19.2.7)
-      lucide-react:
-        specifier: 'catalog:'
-        version: 1.24.0(react@19.2.7)
-      streamdown:
-        specifier: 'catalog:'
-        version: 2.5.0(react-dom@19.2.7(react@19.2.7))(react@19.2.7)(supports-color@10.2.2)
-    devDependencies:
-      '@cheatcode/tsconfig':
-        specifier: workspace:*
-        version: link:../tsconfig
-      '@types/react':
-        specifier: 'catalog:'
-        version: 19.2.17
-      react:
-        specifier: 'catalog:'
-        version: 19.2.7
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

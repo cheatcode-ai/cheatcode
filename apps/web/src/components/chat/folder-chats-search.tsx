@@ -1,7 +1,6 @@
 "use client";
 
 import type { ProjectSummary, Thread } from "@cheatcode/types/api";
-import { Search } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
@@ -10,6 +9,7 @@ import {
   filterFolderThreads,
   folderChatResultStatus,
 } from "@/components/chat/chat-context-model";
+import { Search } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { type CursorPage, listProjectThreadsPage } from "@/lib/api/project-thread";
 import { cn } from "@/lib/ui/cn";

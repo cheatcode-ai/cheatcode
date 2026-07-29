@@ -1,8 +1,8 @@
 "use client";
 
 import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types/api";
-import { ChevronDown } from "@cheatcode/ui";
 import type { ReactNode } from "react";
+import { ChevronDown } from "@/components/ui";
 import { ActivityHourAxis, ActivitySvg, ActivityTooltip } from "./activity-year-graphics";
 import {
   formatRunCount,

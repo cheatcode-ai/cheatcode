@@ -87,14 +87,6 @@ async function removeSkillPackageFiles(
   skill: UserSkillRecord,
 ): Promise<void> {
   const sandbox = await sandboxForUser(env, userId);
-  if (!sandbox.deleteFile) {
-    throw new APIError(
-      503,
-      "unavailable_maintenance",
-      "The skill workspace cannot be cleaned up right now",
-      { retriable: true },
-    );
-  }
   await Promise.all([
     deleteUserSkillPackage(env.R2_OUTPUTS, userId, skill.id),
     sandbox.deleteFile({ path: userSkillDirectoryPath(skill.name), recursive: true }),

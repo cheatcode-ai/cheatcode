@@ -9,6 +9,7 @@ read raw `process.env` values only to pass them into the pure `./web-config` val
 - `./web-config`: pure Vercel target and public web build validators used by both
   `next.config.ts` and `./web`
 - `./worker`: Cloudflare Worker binding schemas and Secrets Store resolution helpers
+- `./preview-proxy`: the strict preview-proxy schema
 - `./migrate`: administrative database identity pins
 
 ## Code Checks
@@ -29,8 +30,9 @@ Gateway, release-SHA, deployment-target, and Clerk publishable-key validation
 has one canonical implementation in `./web-config`. The framework config
 reads the raw build environment and delegates every parse and invariant to that module;
 missing public build values fail instead of receiving compatibility defaults.
-The preview apex is not an environment variable: it is `localhost` for local
-builds and the owned `trycheatcode.com` apex for Vercel builds.
+The canonical production app origin is exported from the shared config layer.
+Production preview hostname, preview app origin, and Clerk authorized parties
+derive from it; local development supplies explicit loopback overrides.
 Because Next runs from `apps/web`, its config uses Next's official `@next/env`
 loader to read the repository-root `.env.local`, then immediately removes every
 loaded value outside the explicit web allowlist. Local builds therefore keep one
@@ -43,9 +45,9 @@ remote Vercel targets so local development and optimized local QA can reach Wran
 `VERCEL_TARGET_ENV` selects the remote build-time validation branch for prebuilt
 artifacts. `VERCEL_URL` remains optional during that build and becomes mandatory
 only when the actual `VERCEL_ENV` is `production` or `preview` at runtime.
-`PREVIEW_HOSTNAME` is required by both preview-producing Workers, normalized to a
-multi-label DNS hostname (or `localhost:8787` in development), and production rejects a
-port-bearing value. Moving previews to a different registrable site requires an atomic
+`PREVIEW_HOSTNAME` is an explicit local override normalized to a multi-label DNS
+hostname (or `localhost:8787` in development); production derives the canonical
+hostname and rejects a port-bearing or different value. Moving previews to a different registrable site requires an atomic
 DNS/Worker/web-release change; there is no browser environment override or legacy
 hostname fallback.
 

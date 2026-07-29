@@ -1,4 +1,4 @@
-import { MessageCircle } from "@cheatcode/ui";
+import { MessageCircle } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 

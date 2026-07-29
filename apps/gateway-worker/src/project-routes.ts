@@ -3,6 +3,7 @@ import {
   beginThreadDeletion,
   createProject,
   createThread,
+  type DatabaseHandle,
   getProject,
   getProjectWriteState,
   getThread,
@@ -76,13 +77,13 @@ const PageCursorSchema = z.discriminatedUnion("kind", [
 type PageCursorKind = "messages" | "projects" | "threads";
 
 export async function listProjectsRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "projects");
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const projects = await transaction((tx) =>
       listProjects(tx, {
         ...(pagination.cursor ? { cursor: pagination.cursor } : {}),
@@ -101,7 +102,7 @@ export async function listProjectsRoute(
 }
 
 export async function createProjectRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
@@ -112,7 +113,7 @@ export async function createProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project payload", parsedInput.error);
   }
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const project = await transaction(async (tx) => {
       await enforceActiveProjectLimit(tx, userId);
       return createProject(tx, {
@@ -132,12 +133,12 @@ export async function createProjectRoute(
 }
 
 export async function getProjectRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const project = await transaction((tx) => getProject(tx, { projectId, userId }));
     if (!project) {
       throw projectNotFound();
@@ -147,7 +148,7 @@ export async function getProjectRoute(
 }
 
 export async function updateProjectRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
@@ -159,7 +160,7 @@ export async function updateProjectRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid project update payload", parsedInput.error);
   }
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const input = parsedInput.data;
     const project = await transaction((tx) =>
       updateWritableProject(tx, projectId, userId, {
@@ -177,11 +178,12 @@ export async function updateProjectRoute(
 
 export async function deleteProjectRoute(
   env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const deletion = await transaction((tx) => beginProjectDeletion(tx, { projectId, userId }));
     if (deletion.type === "not-found") {
       throw projectNotFound();
@@ -204,14 +206,14 @@ export async function deleteProjectRoute(
 }
 
 export async function listProjectThreadsRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   projectId: ProjectIdType,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "threads");
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const threadRows = await transaction(async (tx) => {
       await requireProject(tx, projectId, userId);
       return listProjectThreads(tx, {
@@ -235,7 +237,7 @@ export async function listProjectThreadsRoute(
  * `projectId` set it's the deliberate "add a chat to an existing project" grouping.
  */
 export async function createChatRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   userId: UserId,
@@ -247,7 +249,7 @@ export async function createChatRoute(
     throw invalidRequestBody("Invalid thread payload", parsedInput.error);
   }
   const input = parsedInput.data;
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const thread = await transaction((tx) => createThreadForRequest(tx, input, userId));
     return Response.json(ThreadSchema.parse(threadResponse(thread)), { status: 201 });
   });
@@ -293,12 +295,12 @@ function hasLaunchIntent(launchIntent: NonNullable<CreateThreadInsert["launchInt
 }
 
 export async function getThreadRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const thread = await transaction((tx) => getThread(tx, { threadId, userId }));
     if (!thread) {
       throw threadNotFound();
@@ -308,7 +310,7 @@ export async function getThreadRoute(
 }
 
 export async function updateThreadRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
@@ -320,7 +322,7 @@ export async function updateThreadRoute(
   if (!parsedInput.success) {
     throw invalidRequestBody("Invalid thread update payload", parsedInput.error);
   }
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const thread = await transaction((tx) =>
       updateThread(tx, { threadId, title: parsedInput.data.title, userId }),
     );
@@ -333,11 +335,12 @@ export async function updateThreadRoute(
 
 export async function deleteThreadRoute(
   env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const deleted = await transaction((tx) => beginThreadDeletion(tx, { threadId, userId }));
     if (deleted.type === "not-found") {
       throw threadNotFound();
@@ -360,14 +363,14 @@ export async function deleteThreadRoute(
 }
 
 export async function listThreadMessagesRoute(
-  env: ProjectRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   request: Request,
   threadId: ThreadIdType,
   userId: UserId,
 ): Promise<Response> {
   const pagination = parsePagination(request, "messages");
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const rows = await transaction(async (tx) => {
       await requireThread(tx, threadId, userId);
       return listThreadMessages(tx, {

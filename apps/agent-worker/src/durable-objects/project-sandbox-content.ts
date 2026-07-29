@@ -1,3 +1,4 @@
+import { DaytonaApiError } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
 import type {
   SandboxDeleteFileResult,
@@ -6,7 +7,6 @@ import type {
   SandboxSearchFilesResult,
   SandboxWriteFileResult,
 } from "@cheatcode/sandbox-contracts";
-import { DaytonaApiError } from "@cheatcode/tools-code";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   CODE_SERVER_DISPLAY_DIR,

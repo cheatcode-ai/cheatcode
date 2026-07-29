@@ -1,9 +1,9 @@
 import { env } from "@cheatcode/env/web";
+import { PRODUCTION_APP_ORIGIN } from "@cheatcode/env/web-config";
 import { clerkMiddleware } from "@clerk/nextjs/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { safeLocalRedirect } from "@/lib/navigation/safe-local-redirect";
 
-const PRODUCTION_WEB_ORIGIN = "https://trycheatcode.com";
 const REJECTED_AUTHORIZED_PARTY = "https://invalid.invalid";
 const AUTH_PATH_PATTERN = /^\/sign-(?:in|up)(?:\/|$)/u;
 const PROTECTED_PATH_PATTERN =
@@ -57,7 +57,7 @@ function authorizedParty(request: NextRequest): string | null {
   const { hostname, origin, protocol } = request.nextUrl;
   if (env.VERCEL_ENV === "production") {
     const deploymentOrigin = env.VERCEL_URL ? `https://${env.VERCEL_URL}` : null;
-    return origin === PRODUCTION_WEB_ORIGIN || origin === deploymentOrigin ? origin : null;
+    return origin === PRODUCTION_APP_ORIGIN || origin === deploymentOrigin ? origin : null;
   }
   if (env.VERCEL_ENV === "preview") {
     const deploymentOrigin = env.VERCEL_URL ? `https://${env.VERCEL_URL}` : null;

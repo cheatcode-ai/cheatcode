@@ -24,7 +24,7 @@ import {
   OPENROUTER_API_KEY_CONTEXT_KEY,
 } from "../llm-context";
 import { buildSystemPrompt, promptRuntimeContextFromRequestContext } from "../system-prompt";
-import { cheatcodeTools } from "../tools/tool-set";
+import { cheatcodeTools } from "../tool-defs/tool-set";
 import { boundedProviderFetch } from "./provider-fetch";
 
 export type { LlmProvider, LlmTransportSelection } from "../llm-context";

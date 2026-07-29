@@ -1,5 +1,6 @@
 import { updateClerkUserPublicMetadata, verifyClerkBearerToken } from "@cheatcode/auth";
 import {
+  type DatabaseHandle,
   getUserProfile,
   type UpsertUserProfileInput,
   type UserProfileRecord,
@@ -34,17 +35,18 @@ export interface ProfileRouteEnv {
 const MAX_PROFILE_REQUEST_BYTES = 32 * 1024;
 
 export async function getMyProfileRoute(
-  env: ProfileRouteEnv,
+  database: DatabaseHandle,
   _ctx: WaitUntilContext,
   userId: UserId,
 ): Promise<Response> {
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const record = await transaction((tx) => getUserProfile(tx, userId));
     return Response.json(UserProfileSchema.parse(profileResponse(record)));
   });
 }
 
 export async function updateMyProfileRoute(
+  database: DatabaseHandle,
   env: ProfileRouteEnv,
   _ctx: WaitUntilContext,
   request: Request,
@@ -57,7 +59,7 @@ export async function updateMyProfileRoute(
     throw invalidRequestBody("Invalid profile payload", parsed.error);
   }
   const body = parsed.data;
-  const result = await withUserDb(env, userId, ({ transaction }) =>
+  const result = await withUserDb(database, userId, ({ transaction }) =>
     transaction((tx) => upsertUserProfile(tx, buildProfilePatch(userId, body))),
   );
   if (body.onboardingCompleted === true) {

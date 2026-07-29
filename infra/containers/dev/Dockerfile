@@ -30,12 +30,8 @@ COPY packages/observability/package.json packages/observability/package.json
 COPY packages/preview-bridge/package.json packages/preview-bridge/package.json
 COPY packages/sandbox-contracts/package.json packages/sandbox-contracts/package.json
 COPY packages/skills/package.json packages/skills/package.json
-COPY packages/tools-browser/package.json packages/tools-browser/package.json
-COPY packages/tools-code/package.json packages/tools-code/package.json
-COPY packages/tools-research/package.json packages/tools-research/package.json
 COPY packages/tsconfig/package.json packages/tsconfig/package.json
 COPY packages/types/package.json packages/types/package.json
-COPY packages/ui/package.json packages/ui/package.json
 
 RUN --mount=type=cache,id=cheatcode-pnpm-store,target=/pnpm/store \
   pnpm install --frozen-lockfile --ignore-scripts \

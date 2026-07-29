@@ -1,6 +1,6 @@
-import { PreviewHostnameSchema, resolveWorkerSecret } from "@cheatcode/env";
+import { DaytonaClient, type DaytonaSandbox } from "@cheatcode/agent-core/tools/code";
+import { previewHostnameForWorker, resolveWorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
-import { DaytonaClient, type DaytonaSandbox } from "@cheatcode/tools-code";
 import { performAccountDeletion } from "./project-sandbox-account-deletion";
 import { type SandboxExecAuditEntry, writeExecAudit } from "./project-sandbox-audit";
 import { ProjectSandboxIdentityState } from "./project-sandbox-identity-state";
@@ -16,6 +16,7 @@ import {
 import {
   ACCOUNT_DELETION_TOMBSTONE_KEY,
   DAYTONA_ID_KEY,
+  daytonaTarget,
   type ProjectSandboxEnv,
   RUN_LEASES_KEY,
   runLeases,
@@ -158,7 +159,8 @@ function runtimeHandle(state: RuntimeState): SandboxRuntime {
     meteringContext: () => Promise.resolve(meteringContext(state)),
     outputBucket: state.env.R2_OUTPUTS,
     ownerUserId: () => ownerUserId(state),
-    previewHostname: () => PreviewHostnameSchema.parse(state.env.PREVIEW_HOSTNAME),
+    previewHostname: () =>
+      previewHostnameForWorker(state.env.CHEATCODE_ENVIRONMENT, state.env.PREVIEW_HOSTNAME),
     previewSecret: () => previewSecret(state),
     registerOwner: (userId, sandboxName) => state.identity.registerOwner(userId, sandboxName),
     restartSandboxForWorkspaceRecovery: (sandboxId) =>
@@ -235,7 +237,7 @@ async function ensureClient(state: RuntimeState): Promise<DaytonaClient> {
   state.cache.client = new DaytonaClient({
     apiKey,
     apiUrl: state.env.DAYTONA_API_URL,
-    target: state.env.DAYTONA_TARGET,
+    target: daytonaTarget(state.env),
     ...(state.env.DAYTONA_ORG_ID ? { organizationId: state.env.DAYTONA_ORG_ID } : {}),
     ...(state.env.DAYTONA_PREVIEW_HOST_SUFFIXES
       ? { previewHostSuffixes: state.env.DAYTONA_PREVIEW_HOST_SUFFIXES }

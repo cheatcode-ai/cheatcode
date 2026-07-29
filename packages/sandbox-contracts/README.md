@@ -2,11 +2,11 @@
 
 Provider-neutral ports shared by sandbox consumers and implementations. This
 package owns only structural runtime contracts, their trust-boundary validators,
-and the generic sandbox method dispatcher. Daytona lifecycle and REST client
-types remain in `@cheatcode/tools-code`.
+and narrowed tool-facing method sets. Daytona REST client types live behind
+`@cheatcode/agent-core/tools/code`.
 
 `ArtifactRuntimeSchema` requires an object with a callable `put` method, while
-`SandboxLikeSchema` requires a callable `runCode` method. Both schemas preserve
+`SandboxLikeSchema` requires the complete callable sandbox surface. Both schemas preserve
 the original object identity so Durable Object stubs and request-scoped runtime
 objects are not cloned or stripped during validation.
 
@@ -16,9 +16,8 @@ objects are not cloned or stripped during validation.
 - `ArtifactRuntime`, artifact upload types, `ArtifactRuntimeSchema`, and the canonical
   `ArtifactKind` type re-exported from `@cheatcode/types/artifacts`; upload results expose durable
   output identity and presentation metadata, not R2 locators or expiring capabilities
-- `CodeRuntimeContext`, `CodeRuntimeContextSchema`, and `getCodeRuntimeContext`
+- `CodeRuntimeContext`, `CodeRuntimeContextFor`, and `CodeRuntimeContextSchema`
 - `EnvironmentVariablesSchema`
-- `callSandboxMethod`
 
 Long-running processes require a caller-owned stable `processId`. The sandbox uses that identity
 as an idempotency slot for replacement, inspection, cleanup, and bounded record reaping; anonymous

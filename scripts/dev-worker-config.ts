@@ -38,7 +38,6 @@ const PRODUCTION_SUPABASE_TARGET = {
 
 const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
   "wrangler.jsonc": [
-    "CLERK_JWT_KEY",
     "CLERK_SECRET_KEY",
     "COMPOSIO_API_KEY",
     "COMPOSIO_AUTH_CONFIGS",

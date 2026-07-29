@@ -1,7 +1,6 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import { Check } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type ReactNode, useState } from "react";
@@ -13,6 +12,7 @@ import {
   SlackLogo,
   Sparkle,
 } from "@/components/onboarding/onboarding-icons";
+import { Check } from "@/components/ui";
 import { connectIntegration, INTEGRATIONS_QUERY, listIntegrations } from "@/lib/api/integrations";
 import {
   OnboardingActions,

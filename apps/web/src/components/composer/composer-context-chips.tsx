@@ -1,7 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import { Link as LinkIcon, X } from "@cheatcode/ui";
+import { Link as LinkIcon, X } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { cn } from "@/lib/ui/cn";
 

@@ -175,7 +175,6 @@ export async function collectUserSkillPackageFromSandbox(
     encoding: "utf8",
     path: "SKILL.md",
   };
-  if (!sandbox.listFiles || !sandbox.readFile) return [fallback];
   const directory = sourceSlug
     ? `/workspace/.cheatcode/skills/${sourceSlug}`
     : userSkillDirectoryPath(skill.name);
@@ -194,7 +193,6 @@ export async function writeUserSkillPackageMirror(
   skill: Pick<UserSkillRecord, "name">,
   packageValue: UserSkillPackage,
 ): Promise<string> {
-  if (!sandbox.writeFile) throw new Error("Sandbox does not support custom skill packages.");
   const directory = userSkillDirectoryPath(skill.name);
   const previous = await readMirrorManifest(sandbox, directory);
   if (previous?.revision === packageValue.revision) return userSkillFilePath(skill.name);
@@ -332,7 +330,6 @@ async function readPackageCandidates(
   sandbox: SandboxLike,
   candidates: Array<{ absolutePath: string; path: string }>,
 ): Promise<UserSkillPackageFile[]> {
-  if (!sandbox.readFile) return [];
   const files: UserSkillPackageFile[] = [];
   for (const candidate of candidates) {
     const encoding = packageFileEncoding(candidate.path);
@@ -353,7 +350,6 @@ async function readMirrorManifest(
   sandbox: SandboxLike,
   directory: string,
 ): Promise<z.infer<typeof MirrorManifestSchema> | null> {
-  if (!sandbox.readFile) return null;
   const file = await sandbox
     .readFile({ encoding: "utf8", path: `${directory}/${MIRROR_MANIFEST_FILE}` })
     .catch(() => null);
@@ -374,7 +370,7 @@ async function deleteStalePackageFiles(
   previous: z.infer<typeof MirrorManifestSchema> | null,
   next: UserSkillPackage,
 ): Promise<void> {
-  if (!sandbox.deleteFile || !previous) return;
+  if (!previous) return;
   const nextPaths = new Set(next.files.map((file) => file.path));
   for (const path of previous.files) {
     if (!nextPaths.has(path)) {
@@ -388,7 +384,6 @@ async function writeMirrorManifest(
   directory: string,
   packageValue: UserSkillPackage,
 ): Promise<void> {
-  if (!sandbox.writeFile) return;
   await sandbox.writeFile({
     content: `${JSON.stringify(
       {

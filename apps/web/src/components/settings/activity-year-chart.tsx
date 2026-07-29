@@ -1,8 +1,8 @@
 "use client";
 
 import type { ActivityRunPoint, SandboxHourPoint } from "@cheatcode/types/api";
-import { ChartNoAxesCombined } from "@cheatcode/ui";
 import { useEffect, useMemo, useState } from "react";
+import { ChartNoAxesCombined } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { useActivityQuery } from "@/lib/hooks/use-billing";

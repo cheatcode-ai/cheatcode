@@ -18,7 +18,7 @@ type SandboxFileEntryShapeWithPath<PathSchema extends z.ZodType<string>> = Omit<
 
 /**
  * Builds every sandbox file-entry schema from one field definition. The list
- * order option preserves the existing tools-code JSON Schema serialization.
+ * order option preserves the existing code-tool JSON Schema serialization.
  */
 export function sandboxFileEntryShape<PathSchema extends z.ZodType<string>>(
   path: PathSchema,

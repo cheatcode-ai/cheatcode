@@ -16,7 +16,7 @@ Direct competitors: Manus (generalist async agent), HappyCapy (GUI workstation +
 | Backend runtime | **Cloudflare Workers + Durable Objects + Workflows** |
 | Frontend | **Next.js 16.2.11 + React 19.2.7 + Tailwind 4.3.2 + shadcn CLI 4.6.0 + AI Elements + Streamdown** on Vercel |
 | Agent framework | **Mastra 1.51.0** on top of **Vercel AI SDK v6.0.205** |
-| Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/tools-code/src/daytona-client.ts`) — one persistent sandbox per user with isolated project folders |
+| Sandbox | **Daytona Sandboxes** via REST-over-fetch (no SDK in Workers; `packages/agent-core/src/tools/code/daytona-client.ts`) — one persistent sandbox per user with isolated project folders |
 | Browser automation | **Stagehand v3.7.0 LOCAL mode** inside the Daytona sandbox image |
 | Database | **Supabase Postgres via Cloudflare Hyperdrive** + **Drizzle 0.45.2** (separate `app_gateway`, `app_agent`, and `app_webhooks` roles; no `service_role`) |
 | Auth | **Clerk 7.5.19** (Workers JWT verify) |
@@ -37,10 +37,7 @@ apps/
   webhooks-worker/        Clerk, Polar, Composio webhooks + internal ops workflows
 
 packages/
-  agent-core/             Mastra agent, workflows, contexts, and data/document/media tools
-  tools-code/             Sandbox shell/file/git/runCode tools
-  tools-browser/          Stagehand LOCAL browser automation
-  tools-research/         Exa + Firecrawl
+  agent-core/             Mastra, workflows, contexts, and code/browser/research/data/docs/media tools
   db/                     Drizzle schema (per-domain) + queries + migrations
   byok/                   Vault-backed BYOK with provider validation
   skills/                 Build-time skill bundler + runtime loader
@@ -49,7 +46,6 @@ packages/
   types/                  Zod schemas + InferAgentUIMessage + branded IDs
   auth/                   Clerk verifyToken helpers
   billing/                Polar SDK wrappers + entitlement checks
-  ui/                     shared UI primitives, icon barrel, AI response renderer
   tsconfig/               Shared base/nextjs/worker/library configs
 
 skills/                   19 curated skills; _shared/office is vendored and not bundled
@@ -109,7 +105,7 @@ removed V1 tree must not be restored or copied back as a testing surface.
 
 | Need | File |
 |---|---|
-| Add a new tool | `packages/agent-core/src/tools/<domain>/<tool>.ts` for data/docs/media; `packages/tools-<domain>/src/<tool>.ts` for browser/code/research |
+| Add a new tool | `packages/agent-core/src/tools/<domain>/<tool>.ts`; expose cross-package domains through a dedicated `@cheatcode/agent-core/tools/<domain>` subpath |
 | Add a new agent | `packages/agent-core/src/mastra/agents/<name>.ts` |
 | Add a new workflow | `packages/agent-core/src/mastra/workflows/<name>.ts` |
 | Add a new skill | `skills/<name>/SKILL.md` (+ optional `references/` / `assets/`) |
@@ -158,7 +154,7 @@ The deleted `plan.md` is not authoritative and must not be restored. Use live so
 
 ## When stuck
 
-- Sandbox not working? Start with `apps/agent-worker/src/durable-objects/project-sandbox-lifecycle.ts`, `apps/agent-worker/src/durable-objects/project-sandbox-runtime.ts`, and `packages/tools-code/src/daytona-client.ts`; check Daytona auth (`DAYTONA_API_KEY`), the configured snapshot and target, and toolbox/session requests.
+- Sandbox not working? Start with `apps/agent-worker/src/durable-objects/project-sandbox-lifecycle.ts`, `apps/agent-worker/src/durable-objects/project-sandbox-runtime-handle.ts`, and `packages/agent-core/src/tools/code/daytona-client.ts`; check Daytona auth (`DAYTONA_API_KEY`), the configured snapshot and target, and toolbox/session requests.
 - Auth broken? `packages/auth/` — Clerk JWT verify pattern with `@clerk/backend`.
 - Skill not triggering? Inspect the bundled skill `description` first — it is
   the activation field, not the body. Use manual fixture review plus final UI

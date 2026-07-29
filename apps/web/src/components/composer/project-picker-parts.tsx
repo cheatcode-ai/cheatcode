@@ -1,7 +1,6 @@
 "use client";
 
 import type { ProjectSummary } from "@cheatcode/types/api";
-import { ConfirmDialog, ModalShell, Plus, Search, X } from "@cheatcode/ui";
 import {
   type FocusEvent,
   type KeyboardEvent,
@@ -20,6 +19,7 @@ import {
   ProjectMoreIcon,
   ProjectTrashIcon,
 } from "@/components/composer/project-picker-icons";
+import { ConfirmDialog, ModalShell, Plus, Search, X } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";

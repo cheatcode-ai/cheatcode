@@ -1,84 +1,7 @@
 import { buildSystemPromptSection, getSkillByName, SKILLS } from "@cheatcode/skills";
 import { MAX_USER_SKILLS, type RunIntent } from "@cheatcode/types/api";
-
-export const AGENT_DISPLAY_NAME_CONTEXT_KEY = "agentDisplayName";
-export const GLOBAL_MEMORY_CONTEXT_KEY = "globalMemory";
-/** Run's project mode (app-builder / app-builder-mobile / general) — picks the domain prompt module. */
-export const PROMPT_PROJECT_MODE_CONTEXT_KEY = "promptProjectMode";
-/** Explicit UI-selected one-run mode; never inferred from user wording. */
-export const RUN_INTENT_CONTEXT_KEY = "runIntent";
-/** The user's message — classified to pick domain prompt modules on the general path. */
-export const PROMPT_TASK_MESSAGE_CONTEXT_KEY = "promptTaskMessage";
-/** The run's project folder (/workspace/<slug>) — told to the agent as its working directory. */
-export const PROMPT_WORKSPACE_DIR_CONTEXT_KEY = "promptWorkspaceDir";
-/** Bounded custom-skill metadata used to advertise skills in the system prompt. */
-export const USER_SKILLS_CONTEXT_KEY = "userSkills";
-/** Request-scoped capability that loads one custom skill body on demand. */
-export const USER_SKILL_LOADER_CONTEXT_KEY = "userSkillLoader";
-/** Request-scoped capability that atomically persists a Skill Creator package. */
-export const USER_SKILL_CREATOR_CONTEXT_KEY = "userSkillCreator";
-
-/** Body-less custom-skill metadata carried on every run. */
-export interface UserSkillRuntime {
-  name: string;
-  description: string;
-  category?: string;
-}
-
-/** A custom skill definition loaded only when `skill_invoke` selects it. */
-export interface UserSkillDefinition extends UserSkillRuntime {
-  body: string;
-  rootPath: string;
-}
-
-/** Loads a single custom skill body from the request's user-scoped store. */
-export interface UserSkillLoader {
-  load(name: string): Promise<UserSkillDefinition | null>;
-}
-
-/** Validated metadata passed to the user-scoped Skill Creator persistence boundary. */
-export interface UserSkillCreateInput {
-  body: string;
-  category: string;
-  description: string;
-  name: string;
-  sourceSlug: string;
-  tags: string[];
-}
-
-/** Client-safe identity returned only after the complete skill package is durable. */
-export interface UserSkillCreateResult {
-  description: string;
-  filePath: string;
-  id: string;
-  name: string;
-  slug: string;
-}
-
-/** Persists one authored skill package within the active user's run context. */
-export interface UserSkillCreator {
-  create(input: UserSkillCreateInput): Promise<UserSkillCreateResult>;
-}
-
-export function userSkillLoaderFromRequestContext(
-  requestContext: { get(key: string): unknown } | undefined,
-): UserSkillLoader | null {
-  const value = requestContext?.get(USER_SKILL_LOADER_CONTEXT_KEY);
-  if (value && typeof (value as UserSkillLoader).load === "function") {
-    return value as UserSkillLoader;
-  }
-  return null;
-}
-
-export function userSkillCreatorFromRequestContext(
-  requestContext: { get(key: string): unknown } | undefined,
-): UserSkillCreator | null {
-  const value = requestContext?.get(USER_SKILL_CREATOR_CONTEXT_KEY);
-  if (value && typeof (value as UserSkillCreator).create === "function") {
-    return value as UserSkillCreator;
-  }
-  return null;
-}
+import { CONTEXT } from "./context";
+import type { UserSkillRuntime } from "./user-skill-runtime";
 
 interface RequestContextReader {
   get(key: string): unknown;
@@ -101,7 +24,7 @@ export interface PromptRuntimeContext {
 function userSkillsFromRequestContext(
   requestContext: RequestContextReader | undefined,
 ): UserSkillRuntime[] {
-  const raw = requestContext?.get(USER_SKILLS_CONTEXT_KEY);
+  const raw = requestContext?.get(CONTEXT.userSkills);
   if (!Array.isArray(raw)) {
     return [];
   }
@@ -128,11 +51,11 @@ export function promptRuntimeContextFromRequestContext(
   requestContext: RequestContextReader | undefined,
 ): PromptRuntimeContext {
   const context: PromptRuntimeContext = {};
-  const agentDisplayName = trimmedContextValue(requestContext, AGENT_DISPLAY_NAME_CONTEXT_KEY);
+  const agentDisplayName = trimmedContextValue(requestContext, CONTEXT.agentDisplayName);
   if (agentDisplayName) {
     context.agentDisplayName = agentDisplayName;
   }
-  const globalMemory = trimmedContextValue(requestContext, GLOBAL_MEMORY_CONTEXT_KEY);
+  const globalMemory = trimmedContextValue(requestContext, CONTEXT.globalMemory);
   if (globalMemory) {
     context.globalMemory = globalMemory;
   }
@@ -140,19 +63,19 @@ export function promptRuntimeContextFromRequestContext(
   if (userSkills.length > 0) {
     context.userSkills = userSkills;
   }
-  const projectMode = trimmedContextValue(requestContext, PROMPT_PROJECT_MODE_CONTEXT_KEY);
+  const projectMode = trimmedContextValue(requestContext, CONTEXT.promptProjectMode);
   if (projectMode) {
     context.projectMode = projectMode;
   }
-  const runIntent = trimmedContextValue(requestContext, RUN_INTENT_CONTEXT_KEY);
+  const runIntent = trimmedContextValue(requestContext, CONTEXT.runIntent);
   if (runIntent === "skill-creator") {
     context.runIntent = runIntent;
   }
-  const taskMessage = trimmedContextValue(requestContext, PROMPT_TASK_MESSAGE_CONTEXT_KEY);
+  const taskMessage = trimmedContextValue(requestContext, CONTEXT.promptTaskMessage);
   if (taskMessage) {
     context.taskMessage = taskMessage;
   }
-  const workspaceDir = trimmedContextValue(requestContext, PROMPT_WORKSPACE_DIR_CONTEXT_KEY);
+  const workspaceDir = trimmedContextValue(requestContext, CONTEXT.promptWorkspaceDir);
   if (workspaceDir) {
     context.workspaceDir = workspaceDir;
   }

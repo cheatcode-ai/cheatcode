@@ -11,7 +11,7 @@ import {
   upsertUserIntegration,
   upsertUserIntegrations,
 } from "@cheatcode/db";
-import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import { PRODUCTION_APP_ORIGIN, resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
 import { type IntegrationName, IntegrationNameSchema, type UserId } from "@cheatcode/types";
 import {
@@ -569,7 +569,7 @@ function resolveCallbackUrl(
   const origin =
     trustedAppOrigin(request.headers.get("Origin"), environment) ??
     trustedAppOrigin(request.headers.get("Referer"), environment) ??
-    "https://trycheatcode.com";
+    PRODUCTION_APP_ORIGIN;
   const callback = new URL("/skills", origin);
   callback.searchParams.set("toolkit", integration);
   return callback.toString();

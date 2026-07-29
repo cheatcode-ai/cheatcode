@@ -2,7 +2,6 @@
 
 import type { IntegrationName } from "@cheatcode/types";
 import { type ProjectSummary, USER_MESSAGE_MAX_CHARACTERS } from "@cheatcode/types/api";
-import { ArrowUp, X } from "@cheatcode/ui";
 import type { ChangeEvent, KeyboardEvent, RefObject } from "react";
 import { createPortal } from "react-dom";
 import { AuthModal } from "@/components/auth/auth-modal";
@@ -29,6 +28,7 @@ import {
   type HomeComposerProps,
   useHomeComposerController,
 } from "@/components/home/use-home-composer-controller";
+import { ArrowUp, X } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { PROMPT_ATTACHMENT_ACCEPT } from "@/lib/input/prompt-attachments";
 import { cn } from "@/lib/ui/cn";

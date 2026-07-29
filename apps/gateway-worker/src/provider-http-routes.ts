@@ -8,16 +8,16 @@ import { lockUserProviderKeyMutations, withUserDb } from "@cheatcode/db";
 import { APIError, emitUserEvent, readJsonRequest } from "@cheatcode/observability";
 import { ProviderSchema, UpsertProviderKeySchema } from "@cheatcode/types/api";
 import { authenticate } from "./authenticate";
-import type { GatewayApp, GatewayContext } from "./gateway-env";
+import { type GatewayApp, type GatewayContext, requestDatabase } from "./gateway-env";
 import { rateLimit } from "./rate-limit";
 
 const MAX_PROVIDER_KEY_REQUEST_BYTES = 32 * 1024;
 
 export function registerProviderHttpRoutes(app: GatewayApp): void {
   app.get("/v1/provider-keys", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/provider-keys");
-    return withUserDb(c.env, userId, async ({ transaction }) => {
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
+    return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
       return c.json(await transaction((tx) => listProviderKeys(tx)));
     });
   });
@@ -26,8 +26,8 @@ export function registerProviderHttpRoutes(app: GatewayApp): void {
 }
 
 async function upsertProviderKey(c: GatewayContext): Promise<Response> {
-  const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "POST /v1/provider-keys");
+  const userId = await authenticate(c);
+  await rateLimit(c, userId);
   const parsedInput = UpsertProviderKeySchema.safeParse(
     await readJsonRequest(c.req.raw, MAX_PROVIDER_KEY_REQUEST_BYTES, "Provider key request"),
   );
@@ -39,7 +39,7 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
   }
   const input = parsedInput.data;
   await validateProviderKey(input.provider, input.key);
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const result = await transaction(async (tx) => {
       await lockUserProviderKeyMutations(tx, userId);
       const existingKeys = await listProviderKeys(tx);
@@ -61,8 +61,8 @@ async function upsertProviderKey(c: GatewayContext): Promise<Response> {
 }
 
 async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
-  const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "DELETE /v1/provider-keys/:provider");
+  const userId = await authenticate(c);
+  await rateLimit(c, userId);
   const parsedProvider = ProviderSchema.safeParse(c.req.param("provider"));
   if (!parsedProvider.success) {
     throw new APIError(400, "invalid_path_param", "Invalid provider", {
@@ -70,7 +70,7 @@ async function deleteProviderKeyRoute(c: GatewayContext): Promise<Response> {
       retriable: false,
     });
   }
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     await transaction(async (tx) => {
       await lockUserProviderKeyMutations(tx, userId);
       await deleteProviderKey(tx, parsedProvider.data);

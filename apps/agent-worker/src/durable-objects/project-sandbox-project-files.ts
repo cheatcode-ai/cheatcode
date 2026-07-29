@@ -1,6 +1,6 @@
+import { DaytonaApiError } from "@cheatcode/agent-core/tools/code";
 import { workspacePathForSlug } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
-import { DaytonaApiError } from "@cheatcode/tools-code";
 import {
   PROJECT_FILE_MAX_CURRENT_FILES,
   type ProjectFile,

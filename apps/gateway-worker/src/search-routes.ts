@@ -1,11 +1,11 @@
 import {
+  type DatabaseHandle,
   listRecentThreads,
   searchWorkspace,
   type WorkspaceSearchRecord,
   type WorkspaceThreadSearchRecord,
   withUserDb,
 } from "@cheatcode/db";
-import type { WorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import {
@@ -16,22 +16,15 @@ import {
   type SearchResult,
 } from "@cheatcode/types/api";
 import type { z } from "zod";
-import type { WaitUntilContext } from "./wait-until-context";
-
-export interface SearchRouteEnv {
-  DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
-  HYPERDRIVE: Hyperdrive;
-}
 
 export async function searchWorkspaceRoute(
-  env: SearchRouteEnv,
-  _ctx: WaitUntilContext,
+  database: DatabaseHandle,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const query = parseSearchQuery(request);
   const startedAt = performance.now();
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const records = await transaction((tx) =>
       searchWorkspace(tx, userId, { limit: query.limit, q: query.q }),
     );
@@ -44,13 +37,12 @@ export async function searchWorkspaceRoute(
 
 /** `GET /v1/threads?limit=N` — the user's recent chats (threads) across all projects. */
 export async function listRecentThreadsRoute(
-  env: SearchRouteEnv,
-  _ctx: WaitUntilContext,
+  database: DatabaseHandle,
   request: Request,
   userId: UserId,
 ): Promise<Response> {
   const limit = parseRecentThreadsLimit(request);
-  return withUserDb(env, userId, async ({ transaction }) => {
+  return withUserDb(database, userId, async ({ transaction }) => {
     const records = await transaction((tx) => listRecentThreads(tx, userId, limit));
     const response = RecentThreadsResponseSchema.parse({
       threads: records.map(toThreadResult),

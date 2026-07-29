@@ -1,7 +1,7 @@
 "use client";
 
 import type { UserSkill } from "@cheatcode/types/api";
-import { Loader2, ModalShell, Trash2 } from "@cheatcode/ui";
+import { Loader2, ModalShell, Trash2 } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 
 export function UserSkillDrawer({

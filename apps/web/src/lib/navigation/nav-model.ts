@@ -1,4 +1,3 @@
-import { SlidersHorizontal } from "@cheatcode/ui";
 import type { ComponentType } from "react";
 import {
   SidebarModelsIcon,
@@ -7,6 +6,7 @@ import {
   SidebarProjectsIcon,
   SidebarSkillsIcon,
 } from "@/components/shell/sidebar-nav-icons";
+import { SlidersHorizontal } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 
 type NavItemId =

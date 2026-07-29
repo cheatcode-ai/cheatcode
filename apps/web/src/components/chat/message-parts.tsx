@@ -5,7 +5,6 @@ import {
   type ModelFallbackData,
   reconstructedTranscriptUIMessage,
 } from "@cheatcode/types";
-import { FileText, Loader2, Puzzle } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
@@ -30,6 +29,7 @@ import {
   formatUnknown,
   isHiddenTranscriptPart,
 } from "@/components/chat/message-timeline";
+import { FileText, Loader2, Puzzle } from "@/components/ui";
 import { openUserSkill } from "@/lib/api/skills";
 import { useAppStore } from "@/lib/store/app-store";
 

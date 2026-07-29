@@ -2,11 +2,11 @@
 
 import type { IntegrationName } from "@cheatcode/types";
 import type { IntegrationAccount, ToolkitAction, ToolkitCatalogEntry } from "@cheatcode/types/api";
-import { FileText, Loader2, ModalShell, Pencil, Plus, Search, Trash2, X } from "@cheatcode/ui";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { PromptLaunchButton } from "@/components/navigation/prompt-launch-button";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
+import { FileText, Loader2, ModalShell, Pencil, Plus, Search, Trash2, X } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { fetchToolkitActions } from "@/lib/api/integrations";
 import { cn } from "@/lib/ui/cn";

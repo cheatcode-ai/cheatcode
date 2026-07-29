@@ -1,6 +1,6 @@
 "use client";
 
-import { Loader2, Paperclip } from "@cheatcode/ui";
+import { Loader2, Paperclip } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 
 export interface ComposerAttachmentStatusState {

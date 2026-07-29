@@ -1,5 +1,7 @@
 import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
+import type { Context } from "hono";
+import { routePath } from "hono/route";
 import type { RateLimitResult } from "./durable-objects/rate-limit-contract";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
 
@@ -57,8 +59,25 @@ const RATE_LIMIT_POLICIES = {
 export async function rateLimit(
   c: RateLimitContext,
   userId: UserId,
+): Promise<RateLimitHeaders | null> {
+  const route = nativeRoutePath(c);
+  const policy = policyForRoute(route);
+  return consumeRateLimit(
+    c,
+    {
+      durableObjectName: `ratelimit:${userId.slice(0, 8)}`,
+      key: `user:${userId}:${route}`,
+    },
+    route,
+    policy,
+  );
+}
+
+export async function rateLimitForwarded(
+  c: RateLimitContext,
+  userId: UserId,
   route: string,
-  cost?: number,
+  cost: number,
 ): Promise<RateLimitHeaders | null> {
   const policy = policyForRoute(route);
   return consumeRateLimit(
@@ -74,9 +93,29 @@ export async function rateLimit(
 
 export async function rateLimitPublic(
   c: PublicRateLimitContext,
+  policyName: PublicRateLimitPolicyName,
+): Promise<RateLimitHeaders | null> {
+  const route = nativeRoutePath(c);
+  const addressHash = await publicClientAddressHash(c.req.raw);
+  return consumeRateLimit(
+    c,
+    {
+      durableObjectName: `ratelimit:public:${addressHash.slice(
+        0,
+        PUBLIC_RATE_LIMIT_SHARD_PREFIX_LENGTH,
+      )}`,
+      key: `public:${addressHash}:${route}`,
+    },
+    route,
+    RATE_LIMIT_POLICIES[policyName],
+  );
+}
+
+export async function rateLimitPublicForwarded(
+  c: PublicRateLimitContext,
   route: string,
   policyName: PublicRateLimitPolicyName,
-  cost?: number,
+  cost: number,
 ): Promise<RateLimitHeaders | null> {
   const addressHash = await publicClientAddressHash(c.req.raw);
   return consumeRateLimit(
@@ -91,6 +130,11 @@ export async function rateLimitPublic(
     route,
     withExplicitCost(RATE_LIMIT_POLICIES[policyName], cost),
   );
+}
+
+function nativeRoutePath(c: RateLimitContext): string {
+  const context = c as Context;
+  return `${context.req.method} ${routePath(context, -1)}`;
 }
 
 async function consumeRateLimit(

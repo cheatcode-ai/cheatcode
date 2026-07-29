@@ -1,5 +1,9 @@
+import type {
+  DaytonaClient,
+  DaytonaSandbox,
+  SandboxDestroyResult,
+} from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
-import type { DaytonaClient, DaytonaSandbox, SandboxDestroyResult } from "@cheatcode/tools-code";
 import { z } from "zod";
 import { clearWorkspaceCommand } from "./project-sandbox-cleanup-script";
 import type { ProjectSandboxIdentityState } from "./project-sandbox-identity-state";

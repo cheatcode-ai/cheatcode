@@ -14,11 +14,8 @@
     }
   ],
   "vars": {
-    "CHEATCODE_APP_ORIGIN": "https://trycheatcode.com",
     "CHEATCODE_ENVIRONMENT": "production",
-    "DAYTONA_API_URL": "https://app.daytona.io/api",
-    "DAYTONA_PREVIEW_HOST_SUFFIXES": "daytonaproxy01.net,proxy.daytona.work",
-    "PREVIEW_HOSTNAME": "trycheatcode.com"
+    "DAYTONA_API_URL": "https://app.daytona.io/api"
   },
   "secrets_store_secrets": [
     {

@@ -16,7 +16,7 @@ export const EnvironmentVariablesSchema = z
     `At most ${MAX_ENVIRONMENT_VARIABLES} environment variables are allowed.`,
   );
 
-export interface SandboxRunCodeInput {
+interface SandboxRunCodeInput {
   code: string;
   cwd?: string;
   env?: Record<string, string>;
@@ -31,7 +31,7 @@ export interface SandboxRunCodeResult {
   success: boolean;
 }
 
-export interface SandboxExecInput {
+interface SandboxExecInput {
   command: string[];
   cwd?: string;
   env?: Record<string, string>;
@@ -40,7 +40,7 @@ export interface SandboxExecInput {
 
 export type SandboxExecResult = SandboxExecResultBase;
 
-export interface SandboxReadFileInput {
+interface SandboxReadFileInput {
   encoding?: "utf8" | "base64";
   path: string;
 }
@@ -52,7 +52,7 @@ export interface SandboxReadFileResult {
   size?: number;
 }
 
-export interface SandboxWriteFileInput {
+interface SandboxWriteFileInput {
   content: string;
   encoding?: "utf8" | "base64";
   path: string;
@@ -63,7 +63,7 @@ export interface SandboxWriteFileResult {
   success: boolean;
 }
 
-export interface SandboxListFilesInput {
+interface SandboxListFilesInput {
   includeHidden?: boolean;
   path: string;
   recursive?: boolean;
@@ -74,7 +74,7 @@ export interface SandboxListFilesResult {
   path: string;
 }
 
-export interface SandboxSearchFilesInput {
+interface SandboxSearchFilesInput {
   caseSensitive?: boolean;
   contextLines?: number;
   excludeDirs?: string[];
@@ -99,7 +99,7 @@ export interface SandboxSearchFilesResult {
   truncated?: boolean;
 }
 
-export interface SandboxDeleteFileInput {
+interface SandboxDeleteFileInput {
   path: string;
   recursive?: boolean;
 }
@@ -132,7 +132,7 @@ export interface SandboxProcessResult {
   status: string;
 }
 
-export interface SandboxKillProcessInput {
+interface SandboxKillProcessInput {
   processId: string;
 }
 
@@ -170,20 +170,20 @@ interface SandboxAllocateProcessPortInput {
 }
 
 export interface SandboxLike {
-  allocateProjectPort?(input: SandboxAllocateProjectPortInput): Promise<number>;
-  allocateProcessPort?(input: SandboxAllocateProcessPortInput): Promise<number>;
-  deleteFile?(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
-  ensureReady?(): Promise<SandboxStatus>;
-  exec?(input: SandboxExecInput): Promise<SandboxExecResult>;
-  getSignedPreviewUrl?(input: SandboxSignedPreviewUrlInput): Promise<SandboxSignedPreviewUrlResult>;
-  killAllProcesses?(): Promise<number>;
-  killProcess?(input: SandboxKillProcessInput): Promise<SandboxKillProcessResult>;
-  listFiles?(input: SandboxListFilesInput): Promise<SandboxListFilesResult>;
-  readFile?(input: SandboxReadFileInput): Promise<SandboxReadFileResult>;
+  allocateProjectPort(input: SandboxAllocateProjectPortInput): Promise<number>;
+  allocateProcessPort(input: SandboxAllocateProcessPortInput): Promise<number>;
+  deleteFile(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
+  ensureReady(): Promise<SandboxStatus>;
+  exec(input: SandboxExecInput): Promise<SandboxExecResult>;
+  getSignedPreviewUrl(input: SandboxSignedPreviewUrlInput): Promise<SandboxSignedPreviewUrlResult>;
+  killAllProcesses(): Promise<number>;
+  killProcess(input: SandboxKillProcessInput): Promise<SandboxKillProcessResult>;
+  listFiles(input: SandboxListFilesInput): Promise<SandboxListFilesResult>;
+  readFile(input: SandboxReadFileInput): Promise<SandboxReadFileResult>;
   runCode(input: SandboxRunCodeInput): Promise<SandboxRunCodeResult>;
-  searchFiles?(input: SandboxSearchFilesInput): Promise<SandboxSearchFilesResult>;
-  startProcess?(input: SandboxStartProcessInput): Promise<SandboxProcessResult>;
-  writeFile?(input: SandboxWriteFileInput): Promise<SandboxWriteFileResult>;
+  searchFiles(input: SandboxSearchFilesInput): Promise<SandboxSearchFilesResult>;
+  startProcess(input: SandboxStartProcessInput): Promise<SandboxProcessResult>;
+  writeFile(input: SandboxWriteFileInput): Promise<SandboxWriteFileResult>;
 }
 
 export interface ArtifactUploadInput {
@@ -213,6 +213,14 @@ export interface CodeRuntimeContext {
   workspaceDir?: string | undefined;
 }
 
+/** Narrows a tool's sandbox dependency to only the methods it invokes. */
+export type CodeRuntimeContextFor<Methods extends keyof SandboxLike> = Omit<
+  CodeRuntimeContext,
+  "sandbox"
+> & {
+  sandbox: Pick<SandboxLike, Methods>;
+};
+
 export interface WorkspaceBinding {
   projectId: string;
   workspaceDir: string;
@@ -228,7 +236,7 @@ export const ArtifactRuntimeSchema = z.custom<ArtifactRuntime>(
 
 export const SandboxLikeSchema = z.custom<SandboxLike>(
   isSandboxLike,
-  "Expected a sandbox runtime with a callable runCode method",
+  "Expected a complete sandbox runtime",
 );
 
 export const CodeRuntimeContextSchema = z
@@ -240,22 +248,27 @@ export const CodeRuntimeContextSchema = z
   })
   .strict();
 
-const ObjectWithRuntimeContextSchema = z
-  .object({
-    runtimeContext: CodeRuntimeContextSchema,
-  })
-  .passthrough();
-
-export function getCodeRuntimeContext(options: unknown): CodeRuntimeContext {
-  return ObjectWithRuntimeContextSchema.parse(options).runtimeContext;
-}
-
 function isArtifactRuntime(value: unknown): value is ArtifactRuntime {
   return hasCallableMethod(value, "put");
 }
 
 function isSandboxLike(value: unknown): value is SandboxLike {
-  return hasCallableMethod(value, "runCode");
+  return [
+    "allocateProjectPort",
+    "allocateProcessPort",
+    "deleteFile",
+    "ensureReady",
+    "exec",
+    "getSignedPreviewUrl",
+    "killAllProcesses",
+    "killProcess",
+    "listFiles",
+    "readFile",
+    "runCode",
+    "searchFiles",
+    "startProcess",
+    "writeFile",
+  ].every((method) => hasCallableMethod(value, method));
 }
 
 function hasCallableMethod(value: unknown, method: string): boolean {

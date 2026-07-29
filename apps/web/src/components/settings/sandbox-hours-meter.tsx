@@ -1,6 +1,6 @@
 "use client";
 
-import { Clock3 } from "@cheatcode/ui";
+import { Clock3 } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { useSandboxUsageQuery } from "@/lib/hooks/use-billing";

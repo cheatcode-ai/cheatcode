@@ -15,7 +15,7 @@ import {
   updateUserPolarCustomerId,
   withUserDb,
 } from "@cheatcode/db";
-import type { WorkerSecret } from "@cheatcode/env";
+import { PRODUCTION_APP_ORIGIN, type WorkerSecret } from "@cheatcode/env";
 import { APIError, readJsonRequest } from "@cheatcode/observability";
 import {
   BILLING_TIERS,
@@ -32,13 +32,11 @@ import {
   SandboxUsageSummaryResponseSchema,
   type UserId,
 } from "@cheatcode/types";
-import type { Context } from "hono";
 import { resolveCorsOrigin } from "./cors";
-import type { GatewayEnv } from "./gateway-env";
+import { type GatewayContext, type GatewayEnv, requestDatabase } from "./gateway-env";
 import { resolveEntitlement } from "./limits";
 import { rateLimit } from "./rate-limit";
 import { buildSandboxUsageSummary } from "./usage-summary";
-import type { WaitUntilContext } from "./wait-until-context";
 
 const POLAR_PRODUCT_ID_ENV = {
   premium: "POLAR_PRODUCT_ID_PREMIUM",
@@ -46,13 +44,12 @@ const POLAR_PRODUCT_ID_ENV = {
 } as const satisfies Record<PaidBillingTier, keyof GatewayEnv>;
 
 const BILLING_REQUEST_MAX_BYTES = 8 * 1024;
-const PRODUCTION_WEB_ORIGIN = "https://trycheatcode.com";
 const LOCAL_WEB_ORIGIN = "http://localhost:3001";
 
-type BillingContext = Context<{ Bindings: GatewayEnv }>;
+type BillingContext = GatewayContext;
 
 export interface BillingRouteDeps {
-  authenticate: (request: Request, env: GatewayEnv, ctx: WaitUntilContext) => Promise<UserId>;
+  authenticate: (c: GatewayContext) => Promise<UserId>;
   readRequiredSecret: (secret: WorkerSecret | undefined, name: string) => Promise<string>;
 }
 
@@ -60,9 +57,9 @@ export async function billingStateRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "GET /v1/billing/state");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const entitlement = await transaction((tx) => findEntitlementByUserId(tx, userId));
     return c.json(BillingStateResponseSchema.parse(billingStateFromEntitlement(entitlement)));
   });
@@ -72,8 +69,8 @@ export async function billingCheckoutRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "POST /v1/billing/checkout");
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
   const parsedInput = BillingCheckoutSchema.safeParse(
     await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
   );
@@ -85,7 +82,7 @@ export async function billingCheckoutRoute(
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
   const productId = polarProductIdForTier(c.env, parsedInput.data.tier);
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const user = await requireBillingUser(transaction, userId);
     const redirect = checkoutRedirectUrls(c, parsedInput.data.returnPath);
     const url = await createCheckoutUrl({
@@ -113,7 +110,7 @@ function checkoutRedirectUrls(
 
 function billingWebOrigin(c: BillingContext): string {
   if (c.env.CHEATCODE_ENVIRONMENT === "production") {
-    return PRODUCTION_WEB_ORIGIN;
+    return PRODUCTION_APP_ORIGIN;
   }
   const requestOrigin = c.req.header("Origin");
   return resolveCorsOrigin(requestOrigin, "development") ?? LOCAL_WEB_ORIGIN;
@@ -123,18 +120,18 @@ export async function billingCatalogRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "GET /v1/billing/catalog");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const entitlement = await resolveEntitlement(c.env, transaction, userId);
     return c.json(BillingCatalogResponseSchema.parse(buildBillingCatalog(c.env, entitlement.tier)));
   });
 }
 
 export async function myUsageRoute(c: BillingContext, deps: BillingRouteDeps): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "GET /v1/me/usage");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const summary = await buildSandboxUsageSummary(c.env, transaction, userId);
     return c.json(SandboxUsageSummaryResponseSchema.parse(summary));
   });
@@ -144,10 +141,10 @@ export async function billingPortalRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "POST /v1/billing/portal");
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const user = await requireBillingUser(transaction, userId);
     const customerId =
       user.polarCustomerId ??
@@ -182,8 +179,8 @@ export async function billingCancelRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "POST /v1/billing/cancel");
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
   const parsedInput = BillingCancelSchema.safeParse(
     await readJsonRequest(c.req.raw, BILLING_REQUEST_MAX_BYTES, "Billing payload"),
   );
@@ -194,7 +191,7 @@ export async function billingCancelRoute(
     });
   }
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const entitlement = await loadSubscriptionEntitlement(transaction, userId);
     const result = await cancelSubscriptionAtPeriodEnd({
       accessToken,
@@ -214,10 +211,10 @@ export async function billingReactivateRoute(
   c: BillingContext,
   deps: BillingRouteDeps,
 ): Promise<Response> {
-  const userId = await deps.authenticate(c.req.raw, c.env, c.executionCtx);
-  await rateLimit(c, userId, "POST /v1/billing/reactivate");
+  const userId = await deps.authenticate(c);
+  await rateLimit(c, userId);
   const accessToken = await deps.readRequiredSecret(c.env.POLAR_ACCESS_TOKEN, "POLAR_ACCESS_TOKEN");
-  return withUserDb(c.env, userId, async ({ transaction }) => {
+  return withUserDb(requestDatabase(c), userId, async ({ transaction }) => {
     const entitlement = await loadSubscriptionEntitlement(transaction, userId);
     const result = await reactivateSubscription({
       accessToken,

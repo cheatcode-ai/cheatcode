@@ -1,15 +1,15 @@
 import {
+  executeShellExec,
+  executeShellTerminal,
+  executeStartDevServer,
+} from "@cheatcode/agent-core/tools/code";
+import {
   type AnalyticsBindings,
   APIError,
   type createLogger,
   emitUserEvent,
 } from "@cheatcode/observability";
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
-import {
-  executeShellExec,
-  executeShellTerminal,
-  executeStartDevServer,
-} from "@cheatcode/tools-code";
 import type { ProjectMode } from "@cheatcode/types/api";
 import type { UIMessageChunk } from "ai";
 import {
@@ -78,11 +78,7 @@ async function allocateAppPort(
 ): Promise<number> {
   // Per-user sandbox: never fall back to a fixed shared port — two projects on the same fixed port
   // would fight over it (a rebuild's deleteProcessesOnPort would kill the other's dev server). If
-  // the allocator is unavailable, fail the dev-server start loudly instead of sharing a port.
-  if (!sandbox.allocateProjectPort) {
-    logger.error("app_port_alloc_missing_method", { slug });
-    throw appPortAllocationError(slug);
-  }
+  // allocation fails, fail the dev-server start loudly instead of sharing a port.
   try {
     const port = await sandbox.allocateProjectPort({
       projectId: slug,
@@ -554,10 +550,6 @@ async function getSignedMetroUrl(
   logger: AgentRunLogger,
   port: number,
 ): Promise<string | null> {
-  if (!sandbox.getSignedPreviewUrl) {
-    logger.warn("expo_signed_preview_unavailable");
-    return null;
-  }
   try {
     const signed = await sandbox.getSignedPreviewUrl({
       expiresInSeconds: SIGNED_PREVIEW_TTL_SECONDS,
@@ -697,7 +689,7 @@ async function stopProjectPreview(
   slot: string,
 ): Promise<void> {
   try {
-    await sandbox.killProcess?.({ processId: slot });
+    await sandbox.killProcess({ processId: slot });
     logger.info("sandbox_project_preview_stopped", { slot });
   } catch (error) {
     logger.warn("sandbox_process_stop_failed", {

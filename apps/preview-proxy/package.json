@@ -15,8 +15,7 @@
     "@cheatcode/env": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/preview-bridge": "workspace:*",
-    "@cheatcode/types": "workspace:*",
-    "zod": "catalog:"
+    "@cheatcode/types": "workspace:*"
   },
   "devDependencies": {
     "@cheatcode/tsconfig": "workspace:*",

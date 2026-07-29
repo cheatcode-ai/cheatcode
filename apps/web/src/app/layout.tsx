@@ -1,4 +1,5 @@
 import { env } from "@cheatcode/env/web";
+import { PRODUCTION_APP_ORIGIN } from "@cheatcode/env/web-config";
 import { ClerkProvider } from "@clerk/nextjs";
 import { ui } from "@clerk/ui";
 import { GeistMono } from "geist/font/mono";
@@ -13,14 +14,14 @@ import { Providers } from "./providers";
 export const metadata: Metadata = {
   title: "Cheatcode",
   description: "AI agents that build, research, and ship.",
-  metadataBase: new URL("https://trycheatcode.com"),
+  metadataBase: new URL(PRODUCTION_APP_ORIGIN),
   openGraph: {
     description: "Your keys. Your models. Your sandbox.",
     images: [{ alt: "Cheatcode", height: 630, url: "/opengraph-image", width: 1200 }],
     siteName: "Cheatcode",
     title: "Cheatcode",
     type: "website",
-    url: "https://trycheatcode.com",
+    url: PRODUCTION_APP_ORIGIN,
   },
   twitter: {
     card: "summary_large_image",

@@ -20,10 +20,20 @@ module.exports = {
       to: { path: "^apps/", pathNot: "^apps/$1/" },
     },
     {
-      name: "tool-domains-must-not-import-peer-tool-domains",
+      name: "exa-firecrawl-clients-only-in-research-tools",
       severity: "error",
-      from: { path: "^packages/(tools-[^/]+)/" },
-      to: { path: "^packages/tools-[^/]+/", pathNot: "^packages/$1/" },
+      from: { pathNot: "^packages/agent-core/src/tools/research/" },
+      to: {
+        path: "^packages/agent-core/src/tools/research/(exa|firecrawl|provider-http)\\.ts$",
+      },
+    },
+    {
+      name: "browser-driver-only-in-browser-tools",
+      severity: "error",
+      from: { pathNot: "^packages/agent-core/src/tools/browser/" },
+      to: {
+        path: "^packages/agent-core/src/tools/browser/(actions|runtime)\\.ts$",
+      },
     },
     {
       name: "database-must-not-import-billing-policy",
@@ -37,7 +47,7 @@ module.exports = {
       from: { path: "^apps/web/" },
       to: {
         // Dependency Cruiser evaluates resolved file paths, not package specifiers.
-        path: "^packages/(agent-core|auth|billing|byok|db|observability|tools-[^/]+)(/|$)",
+        path: "^packages/(agent-core|auth|billing|byok|db|observability)(/|$)",
       },
     },
     {

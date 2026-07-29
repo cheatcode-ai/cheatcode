@@ -4,6 +4,7 @@ export type {
   ArtifactUploadInput,
   ArtifactUploadResult,
   CodeRuntimeContext,
+  CodeRuntimeContextFor,
   SandboxDeleteFileResult,
   SandboxExecResult,
   SandboxKillProcessResult,
@@ -22,7 +23,5 @@ export {
   ArtifactRuntimeSchema,
   CodeRuntimeContextSchema,
   EnvironmentVariablesSchema,
-  getCodeRuntimeContext,
   SandboxLikeSchema,
 } from "./runtime";
-export { callSandboxMethod } from "./sandbox-methods";

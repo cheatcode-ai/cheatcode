@@ -2,9 +2,9 @@
 
 import type { PlanSummary } from "@cheatcode/types";
 import { PaidBillingTierSchema } from "@cheatcode/types";
-import { CreditCard, Loader2, ModalShell } from "@cheatcode/ui";
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
+import { CreditCard, Loader2, ModalShell } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { requestCheckout } from "@/lib/api/billing";

@@ -1,9 +1,9 @@
 "use client";
 
-import { Check, ChevronDown, SlidersHorizontal } from "@cheatcode/ui";
 import Link from "next/link";
 import type { ModelMenuController } from "@/components/composer/model-menu-controller";
 import { modelMenuLabel, providerIconClassName } from "@/components/composer/model-menu-model";
+import { Check, ChevronDown, SlidersHorizontal } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { ProviderMark } from "@/components/ui/provider-mark";
 import type { AgentModelOption } from "@/lib/agent-models";

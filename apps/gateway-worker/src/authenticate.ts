@@ -9,12 +9,15 @@ import {
   resolveInternalUserId,
   syncClerkUser,
   UserDeletionBlockedError,
-  withDatabase,
 } from "@cheatcode/db";
-import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import {
+  PRODUCTION_CLERK_AUTHORIZED_PARTIES,
+  resolveWorkerSecret,
+  type WorkerSecret,
+} from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import type { WaitUntilContext } from "./wait-until-context";
+import { type GatewayContext, requestDatabase } from "./gateway-env";
 
 /**
  * Narrow env surface the auth helpers depend on. `GatewayEnv` structurally
@@ -23,49 +26,29 @@ import type { WaitUntilContext } from "./wait-until-context";
 export interface AuthEnv {
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CLERK_AUTHORIZED_PARTIES?: string;
-  CLERK_JWT_KEY?: WorkerSecret;
   CLERK_SECRET_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
 }
 
-export async function authenticate(
-  request: Request,
-  env: AuthEnv,
-  ctx: WaitUntilContext,
-): Promise<UserId> {
-  const { secretKey, verificationOptions } = await clerkVerification(env);
-  const session = await verifyClerkBearerToken(request, verificationOptions);
-  return withDatabase(
-    env,
-    ({ db }) => resolveOrSyncClerkUser(db, session.clerkUserId, secretKey),
-    (handle) => {
-      ctx.waitUntil(handle.close());
-      return Promise.resolve();
-    },
-  );
+export async function authenticate(c: GatewayContext): Promise<UserId> {
+  const { secretKey, verificationOptions } = await clerkVerification(c.env);
+  const session = await verifyClerkBearerToken(c.req.raw, verificationOptions);
+  return resolveOrSyncClerkUser(requestDatabase(c).db, session.clerkUserId, secretKey);
 }
 
 async function clerkVerification(env: AuthEnv) {
-  const jwtKey = await readOptionalSecret(env.CLERK_JWT_KEY, "CLERK_JWT_KEY");
   const secretKey = await readOptionalClerkSecret(env);
-  if (!jwtKey && !secretKey) {
+  if (!secretKey) {
     throw new APIError(503, "unavailable_maintenance", "Clerk verification is not configured", {
-      hint: "Set CLERK_JWT_KEY or CLERK_SECRET_KEY in the gateway Worker environment.",
+      hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
       retriable: false,
     });
   }
-  const verificationOptions: {
-    authorizedParties: string[];
-    jwtKey?: string;
-    secretKey?: string;
-  } = { authorizedParties: clerkAuthorizedParties(env) };
-  if (jwtKey) {
-    verificationOptions.jwtKey = jwtKey;
-  }
-  if (secretKey) {
-    verificationOptions.secretKey = secretKey;
-  }
+  const verificationOptions = {
+    authorizedParties: clerkAuthorizedParties(env),
+    secretKey,
+  };
   return { secretKey, verificationOptions };
 }
 
@@ -156,15 +139,13 @@ export async function requireVerifiedClerkEmail(request: Request, env: AuthEnv):
 export function clerkAuthorizedParties(
   env: Pick<AuthEnv, "CHEATCODE_ENVIRONMENT" | "CLERK_AUTHORIZED_PARTIES">,
 ): string[] {
+  if (env.CHEATCODE_ENVIRONMENT === "production") {
+    return [...PRODUCTION_CLERK_AUTHORIZED_PARTIES];
+  }
   const configured = env.CLERK_AUTHORIZED_PARTIES?.split(",")
     .map((value) => value.trim())
     .filter(Boolean);
-  const parties =
-    configured && configured.length > 0
-      ? configured
-      : env.CHEATCODE_ENVIRONMENT === "production"
-        ? ["https://trycheatcode.com"]
-        : ["http://localhost:3001"];
+  const parties = configured && configured.length > 0 ? configured : ["http://localhost:3001"];
   if (parties.length > 16 || parties.some((value) => !isExactHttpOrigin(value))) {
     throw new APIError(503, "unavailable_maintenance", "Clerk authorized parties are invalid", {
       hint: "Configure CLERK_AUTHORIZED_PARTIES as comma-separated exact HTTP(S) origins.",

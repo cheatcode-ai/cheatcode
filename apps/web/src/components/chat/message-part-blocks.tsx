@@ -1,4 +1,4 @@
-import { RotateCw } from "@cheatcode/ui";
+import { RotateCw } from "@/components/ui";
 
 export function ErrorRecoveryBlock({
   message,

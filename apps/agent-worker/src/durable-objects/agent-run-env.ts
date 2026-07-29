@@ -6,6 +6,7 @@ import type { ProjectSandbox } from "./project-sandbox";
 
 export interface AgentRunEnv extends AnalyticsBindings {
   AGENT_RUN_WORKFLOW: Workflow<AgentRunWorkflowPayload>;
+  CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
   COMPOSIO_API_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
@@ -13,7 +14,7 @@ export interface AgentRunEnv extends AnalyticsBindings {
   HYPERDRIVE: Hyperdrive;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
-  PREVIEW_HOSTNAME: string;
+  PREVIEW_HOSTNAME?: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
   QUOTA_TRACKER: QuotaTrackerNamespace;
   R2_OUTPUTS: R2Bucket;

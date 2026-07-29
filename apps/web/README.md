@@ -26,6 +26,9 @@ does not create or wake Daytona merely because the user opens it.
 
 Framework app only.
 
+Web-owned UI primitives, the icon barrel file, confirm dialog, and AI response
+renderer live in `src/components/ui/`.
+
 ## Code Checks
 
 ```bash

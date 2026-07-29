@@ -54,7 +54,7 @@ services:
         - CMD
         - node
         - -e
-        - Promise.all([fetch('http://127.0.0.1:3001/cheatcode-symbol.png'),fetch('http://127.0.0.1:8787/health')]).then(async([web,gateway])=>{if(!web.ok||!web.headers.get('content-type')?.startsWith('image/png')||!gateway.ok||(await gateway.json()).ok!==true)process.exit(1)}).catch(()=>process.exit(1))
+        - Promise.all([fetch('http://127.0.0.1:3001/cheatcode-symbol.png'),fetch('http://127.0.0.1:8787/health/live')]).then(async([web,gateway])=>{if(!web.ok||!web.headers.get('content-type')?.startsWith('image/png')||!gateway.ok||(await gateway.json()).ok!==true)process.exit(1)}).catch(()=>process.exit(1))
       interval: 5s
       timeout: 5s
       retries: 24

@@ -1,3 +1,4 @@
+import type { DatabaseHandle } from "@cheatcode/db";
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import type { AnalyticsBindings } from "@cheatcode/observability";
 import type { ResourceDeletionServiceBinding } from "@cheatcode/types/internal";
@@ -13,7 +14,6 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
   CLERK_AUTHORIZED_PARTIES?: string;
-  CLERK_JWT_KEY?: WorkerSecret;
   CLERK_SECRET_KEY?: WorkerSecret;
   COMPOSIO_API_KEY?: WorkerSecret;
   COMPOSIO_AUTH_CONFIGS?: WorkerSecret;
@@ -32,5 +32,14 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   WEBHOOKS: Fetcher;
 }
 
-export type GatewayApp = Hono<{ Bindings: GatewayEnv }>;
-export type GatewayContext = Context<{ Bindings: GatewayEnv }>;
+interface GatewayVariables {
+  database: () => DatabaseHandle;
+}
+
+export type GatewayHonoEnv = { Bindings: GatewayEnv; Variables: GatewayVariables };
+export type GatewayApp = Hono<GatewayHonoEnv>;
+export type GatewayContext = Context<GatewayHonoEnv>;
+
+export function requestDatabase(c: GatewayContext): DatabaseHandle {
+  return c.get("database")();
+}

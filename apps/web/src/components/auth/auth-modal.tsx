@@ -1,8 +1,8 @@
 "use client";
 
-import { ModalShell, X } from "@cheatcode/ui";
 import { SignIn, SignUp } from "@clerk/nextjs";
 import { useSyncExternalStore } from "react";
+import { ModalShell, X } from "@/components/ui";
 import { clerkAuthAppearance } from "./clerk-auth-appearance";
 
 export type AuthMode = "sign-in" | "sign-up";

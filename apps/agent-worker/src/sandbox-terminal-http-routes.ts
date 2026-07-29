@@ -1,6 +1,6 @@
+import { resolveProjectWorkspacePath } from "@cheatcode/agent-core/tools/code";
 import { workspacePathForSlug } from "@cheatcode/db";
 import { readJsonRequest } from "@cheatcode/observability";
-import { resolveProjectWorkspacePath } from "@cheatcode/tools-code";
 import {
   SandboxConsoleQuerySchema,
   SandboxConsoleSnapshotSchema,

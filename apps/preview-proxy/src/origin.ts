@@ -1,10 +1,9 @@
-import { resolveWorkerSecret } from "@cheatcode/env";
+import { type PreviewProxyEnv, resolveWorkerSecret } from "@cheatcode/env";
 import { APIError, readBoundedResponseText } from "@cheatcode/observability";
 import {
   parseDaytonaPreviewHostSuffixes,
   parseDaytonaPreviewLink,
 } from "@cheatcode/types/daytona-preview";
-import type { PreviewProxyEnv } from "./env";
 import type { PreviewTarget } from "./host";
 
 /**

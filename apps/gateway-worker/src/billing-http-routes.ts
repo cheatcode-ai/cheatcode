@@ -6,6 +6,7 @@ import {
   billingPortalRoute,
   billingReactivateRoute,
   billingStateRoute,
+  myUsageRoute,
 } from "./billing-routes";
 import type { GatewayApp } from "./gateway-env";
 
@@ -18,4 +19,5 @@ export function registerBillingHttpRoutes(app: GatewayApp): void {
   app.get("/v1/billing/state", (c) => billingStateRoute(c, billingDependencies));
   app.post("/v1/billing/cancel", (c) => billingCancelRoute(c, billingDependencies));
   app.post("/v1/billing/reactivate", (c) => billingReactivateRoute(c, billingDependencies));
+  app.get("/v1/me/usage", (c) => myUsageRoute(c, billingDependencies));
 }

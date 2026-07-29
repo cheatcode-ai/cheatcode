@@ -1,9 +1,9 @@
 "use client";
 
 import type { CheatcodeUIMessage } from "@cheatcode/types";
-import { ChevronDown } from "@cheatcode/ui";
 import { useState } from "react";
 import { Response as MarkdownResponse } from "@/components/ai-elements/response";
+import { ChevronDown } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 
 const MAX_TOOL_STRING_LENGTH = 600;

@@ -3,12 +3,11 @@ import type { UserId } from "@cheatcode/types";
 import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import { forwardAgentRequest, forwardPublicAgentRequest } from "./agent-forwarding";
 import { authenticate } from "./authenticate";
-import type { GatewayApp, GatewayEnv } from "./gateway-env";
+import { type GatewayApp, type GatewayContext, requestDatabase } from "./gateway-env";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
 import { readDownstreamReleaseHealth } from "./release-health";
 import { listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
-import type { WaitUntilContext } from "./wait-until-context";
 
 export function registerCoreHttpRoutes(app: GatewayApp): void {
   registerHealthRoute(app);
@@ -18,8 +17,16 @@ export function registerCoreHttpRoutes(app: GatewayApp): void {
 }
 
 function registerHealthRoute(app: GatewayApp): void {
-  app.get("/health", async (c) => {
-    const headers = await rateLimitPublic(c, "GET /health", "publicRead");
+  app.get("/health/live", (c) =>
+    c.json({
+      ok: true,
+      releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
+      versionId: c.env.CF_VERSION_METADATA?.id ?? null,
+      worker: "gateway",
+    }),
+  );
+  app.get("/health/release", async (c) => {
+    const headers = await rateLimitPublic(c, "publicRead");
     const releaseSha = c.env.CHEATCODE_RELEASE_SHA ?? "development";
     const [{ health: agent }, { health: webhooks }] = await Promise.all([
       readDownstreamReleaseHealth(c.env, "agent"),
@@ -50,16 +57,16 @@ function registerHealthRoute(app: GatewayApp): void {
 
 function registerTelemetryRoutes(app: GatewayApp): void {
   app.post("/v1/client-error", async (c) => {
-    await rateLimitPublic(c, "POST /v1/client-error", "publicWrite");
+    await rateLimitPublic(c, "publicWrite");
     return clientErrorRoute(c, optionalTelemetryUser);
   });
   app.post("/v1/vitals", async (c) => {
-    await rateLimitPublic(c, "POST /v1/vitals", "publicWrite");
+    await rateLimitPublic(c, "publicWrite");
     return vitalsRoute(c);
   });
   app.post("/v1/user-events", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "POST /v1/user-events");
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
     return clientUserEventRoute(c, async () => userId);
   });
 }
@@ -76,24 +83,20 @@ function registerOutputRoute(app: GatewayApp): void {
 
 function registerSkillRoutes(app: GatewayApp): void {
   app.get("/v1/skills", async (c) => {
-    const userId = await authenticate(c.req.raw, c.env, c.executionCtx);
-    await rateLimit(c, userId, "GET /v1/skills");
-    return listUserSkillsRoute(c.env, c.executionCtx, userId);
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
+    return listUserSkillsRoute(requestDatabase(c), userId);
   });
   const route = AGENT_FORWARD_ROUTES.core.deleteUserSkill;
   app.on(route.method, route.path, (c) => forwardAgentRequest(c, route));
 }
 
-async function optionalTelemetryUser(
-  request: Request,
-  env: GatewayEnv,
-  ctx: WaitUntilContext,
-): Promise<UserId | "anonymous"> {
-  if (!request.headers.has("Authorization")) {
+async function optionalTelemetryUser(c: GatewayContext): Promise<UserId | "anonymous"> {
+  if (!c.req.raw.headers.has("Authorization")) {
     return "anonymous";
   }
   try {
-    return await authenticate(request, env, ctx);
+    return await authenticate(c);
   } catch {
     return "anonymous";
   }

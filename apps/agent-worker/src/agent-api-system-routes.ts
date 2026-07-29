@@ -1,5 +1,5 @@
 import { findGeneratedOutput, getProject, withUserDb } from "@cheatcode/db";
-import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
+import { previewHostnameForWorker, resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import { OutputIdSchema, ProjectId, UserId } from "@cheatcode/types";
 import {
@@ -211,7 +211,7 @@ async function resolveOutputSigningSecret(secret: WorkerSecret): Promise<string 
 }
 
 function outputDownloadBaseUrl(env: AgentEnv): string | undefined {
-  const previewHostname = env.PREVIEW_HOSTNAME.trim();
+  const previewHostname = previewHostnameForWorker(env.CHEATCODE_ENVIRONMENT, env.PREVIEW_HOSTNAME);
   if (previewHostname === "localhost:8787" || previewHostname === "127.0.0.1:8787") {
     return `http://${previewHostname}`;
   }

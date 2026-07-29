@@ -1,9 +1,9 @@
 import type { IntegrationName } from "@cheatcode/types";
 import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types/api";
-import { Loader2, Sparkles } from "@cheatcode/ui";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
 import type { IntegrationDrawerHandlers } from "@/components/skills/integration-skill-drawer";
 import { UserSkillCard, type UserSkillsCatalog } from "@/components/skills/user-skills-section";
+import { Loader2, Sparkles } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { cn } from "@/lib/ui/cn";
