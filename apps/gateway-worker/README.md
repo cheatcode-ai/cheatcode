@@ -29,11 +29,13 @@ entitlement cache outside Postgres, while project and BYOK writes read the
 authoritative entitlement row under the same per-user advisory-lock order as
 entitlement reconciliation.
 
-`QuotaTracker` supports hard `try-consume` gates for connected-tool calls and
-soft `record` metering for sandbox-hours. Limit synchronization carries the
-entitlement row's `updatedAt` version, and the Durable Object ignores older
-writes so a stale KV or Worker request cannot overwrite a newer plan. Request
-rate-limit headers remain the canonical live rate-limit state.
+The agent Worker owns `QuotaTracker`. Gateway usage, activity, and limit-sync
+routes hold a named `GatewayQuotaEntrypoint` Service Binding that exposes only
+`peek`, `history`, and `setLimit`; the gateway has no Durable Object namespace
+or destructive quota capability. Limit synchronization carries the entitlement
+row's `updatedAt` version, and the Durable Object ignores older writes so a
+stale KV or Worker request cannot overwrite a newer plan. Request rate-limit
+headers remain the canonical live rate-limit state.
 Gateway-native buckets use Hono's registered route path; the resulting key
 format replaces the former duplicated literals and old Durable Object buckets
 age out naturally. Forwarded-route costs remain owned by the shared manifest.
@@ -107,10 +109,10 @@ converge. Deployments publish the gateway last so public traffic observes only a
 backend set built from the same reviewed revision. SQLite schema validation
 remains synchronous.
 
-`IdempotencyStore`, `RateLimiter`, and `QuotaTracker` each own one exact SQLite
-schema. New objects initialize that schema directly; existing objects must
-already match it before an operation is admitted. Run creation is also durably
-idempotent in Postgres, so request-cache state cannot create a duplicate run.
+`IdempotencyStore` and `RateLimiter` each own one exact SQLite schema. New
+objects initialize that schema directly; existing objects must already match it
+before an operation is admitted. Run creation is also durably idempotent in
+Postgres, so request-cache state cannot create a duplicate run.
 
 The shared framework-free tool capability catalog in `@cheatcode/types`
 statically constrains the Mastra tool registry to the same exact names. Each
@@ -121,7 +123,6 @@ same traits instead of maintaining parallel tool-name lists.
 ## Public exports
 
 - `IdempotencyStore`
-- `QuotaTracker`
 - `RateLimiter`
 
 ## Code Checks
@@ -142,7 +143,8 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `PREVIEW_PROXY` (generated local-only Service Binding; production preview
   traffic reaches the preview Worker through its wildcard route)
 - `RATE_LIMITER`
-- `QUOTA_TRACKER`
+- `QUOTA_TRACKER` (named `GatewayQuotaEntrypoint` Service Binding to
+  agent-worker; grants only `peek`, `history`, and `setLimit`)
 - `IDEMPOTENCY`
 - `ENTITLEMENTS_CACHE`
 - `HYPERDRIVE` (dedicated config whose database login is exactly `app_gateway`)

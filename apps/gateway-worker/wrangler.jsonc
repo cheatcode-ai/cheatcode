@@ -30,6 +30,15 @@
       "service": "cheatcode-webhooks"
     },
     {
+      "binding": "QUOTA_TRACKER",
+      "service": "cheatcode-agent",
+      "entrypoint": "GatewayQuotaEntrypoint",
+      "props": {
+        "caller": "gateway",
+        "capability": "gateway-quota"
+      }
+    },
+    {
       "binding": "RESOURCE_DELETION",
       "service": "cheatcode-webhooks",
       "entrypoint": "ResourceDeletionEntrypoint",
@@ -73,10 +82,6 @@
         "class_name": "RateLimiter"
       },
       {
-        "name": "QUOTA_TRACKER",
-        "class_name": "QuotaTracker"
-      },
-      {
         "name": "IDEMPOTENCY",
         "class_name": "IdempotencyStore"
       }
@@ -107,6 +112,10 @@
     {
       "tag": "v3",
       "new_sqlite_classes": ["IdempotencyStore"]
+    },
+    {
+      "tag": "v4",
+      "deleted_classes": ["QuotaTracker"]
     }
   ],
   "analytics_engine_datasets": [

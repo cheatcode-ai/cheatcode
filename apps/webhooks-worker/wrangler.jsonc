@@ -75,6 +75,15 @@
         "caller": "webhooks",
         "capability": "agent-lifecycle"
       }
+    },
+    {
+      "binding": "QUOTA_DELETION",
+      "service": "cheatcode-agent",
+      "entrypoint": "QuotaDeletionEntrypoint",
+      "props": {
+        "caller": "webhooks",
+        "capability": "quota-deletion"
+      }
     }
   ],
   "durable_objects": {
@@ -82,11 +91,6 @@
       {
         "name": "WEBHOOK_IDEMPOTENCY",
         "class_name": "WebhookIdempotencyStore"
-      },
-      {
-        "name": "QUOTA_TRACKER",
-        "class_name": "QuotaTracker",
-        "script_name": "cheatcode-gateway"
       }
     ]
   },

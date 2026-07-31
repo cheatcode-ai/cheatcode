@@ -38,9 +38,8 @@ async function peekSandboxHoursUsed(
   userId: UserId,
   periodEnd: Date,
 ): Promise<number> {
-  const stub = env.QUOTA_TRACKER.get(env.QUOTA_TRACKER.idFromName(`quota:${userId}`));
   try {
-    return (await stub.peek(QUOTA_FEATURES.sandboxHours, periodEnd)).used;
+    return (await env.QUOTA_TRACKER.peek(userId, QUOTA_FEATURES.sandboxHours, periodEnd)).used;
   } catch (error) {
     throw new APIError(503, "service_maintenance_unavailable", "Quota tracker is unavailable", {
       cause: error,

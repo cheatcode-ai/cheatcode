@@ -57,11 +57,10 @@ module.exports = {
       to: { path: "^packages/db/(src|dist)/schema(/|$)" },
     },
     {
-      name: "gateway-quota-runtime-only-through-do-shell",
+      name: "quota-runtime-only-through-agent-do-shell",
       severity: "error",
       from: {
-        path: "^apps/gateway-worker/src/",
-        pathNot: "^apps/gateway-worker/src/durable-objects/quota-tracker\\.ts$",
+        pathNot: "^apps/agent-worker/src/durable-objects/quota-tracker\\.ts$",
       },
       to: {
         path: "^(@cheatcode/billing/quota-runtime|packages/billing/(src|dist)/quota-runtime\\.(js|ts|d\\.ts))$",

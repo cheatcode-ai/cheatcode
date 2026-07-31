@@ -15,15 +15,26 @@ import { AgentLifecycleEntrypoint } from "./agent-lifecycle-entrypoint";
 import { AgentRun } from "./durable-objects/agent-run";
 import { AgentRunWorkflow } from "./durable-objects/agent-run-workflow";
 import { ProjectSandbox } from "./durable-objects/project-sandbox";
+import { QuotaTracker } from "./durable-objects/quota-tracker";
 import { formatAgentRouteError, toAgentRouteError } from "./error-handling";
+import { GatewayQuotaEntrypoint } from "./gateway-quota-entrypoint";
 import { registerProjectFileHttpRoutes } from "./project-file-http-routes";
+import { QuotaDeletionEntrypoint } from "./quota-deletion-entrypoint";
 import { registerSandboxPreviewHttpRoutes } from "./sandbox-preview-http-routes";
 import { registerSandboxTerminalHttpRoutes } from "./sandbox-terminal-http-routes";
 import { registerSkillRuntimeExecutionRoutes } from "./skill-runtime-execution-routes";
 import { registerSkillRuntimeManagedRoutes } from "./skill-runtime-managed-routes";
 import { registerUserSkillHttpRoutes } from "./user-skill-http-routes";
 
-export { AgentLifecycleEntrypoint, AgentRun, AgentRunWorkflow, ProjectSandbox };
+export {
+  AgentLifecycleEntrypoint,
+  AgentRun,
+  AgentRunWorkflow,
+  GatewayQuotaEntrypoint,
+  ProjectSandbox,
+  QuotaDeletionEntrypoint,
+  QuotaTracker,
+};
 
 export const agentApp = new Hono<{ Bindings: AgentEnv }>();
 

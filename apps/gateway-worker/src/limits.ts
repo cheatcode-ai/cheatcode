@@ -13,12 +13,15 @@ import {
 } from "@cheatcode/db";
 import { APIError, createLogger } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import { QUOTA_FEATURES, type QuotaFeature } from "@cheatcode/types/quota";
-import type { QuotaTracker } from "./durable-objects/quota-tracker";
+import {
+  type GatewayQuotaServiceBinding,
+  QUOTA_FEATURES,
+  type QuotaFeature,
+} from "@cheatcode/types/quota";
 
 export interface LimitBindings {
   ENTITLEMENTS_CACHE: KVNamespace;
-  QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
+  QUOTA_TRACKER: GatewayQuotaServiceBinding;
 }
 
 const ENTITLEMENT_CACHE_TTL_SECONDS = 300;
@@ -76,17 +79,18 @@ export async function syncQuotaLimits(
   userId: UserId,
   entitlement: EntitlementCache,
 ): Promise<void> {
-  const stub = quotaStub(env, userId);
   const entitlementVersion = Date.parse(entitlement.updatedAt);
   await Promise.all([
     setQuotaLimit(
-      stub,
+      env.QUOTA_TRACKER,
+      userId,
       QUOTA_FEATURES.sandboxHours,
       entitlement.quotaSandboxHours,
       entitlementVersion,
     ),
     setQuotaLimit(
-      stub,
+      env.QUOTA_TRACKER,
+      userId,
       QUOTA_FEATURES.composioCalls,
       entitlement.quotaComposioCalls,
       entitlementVersion,
@@ -95,13 +99,14 @@ export async function syncQuotaLimits(
 }
 
 async function setQuotaLimit(
-  stub: DurableObjectStub<QuotaTracker>,
+  quota: GatewayQuotaServiceBinding,
+  userId: UserId,
   feature: QuotaFeature,
   limit: number,
   entitlementVersion: number,
 ): Promise<void> {
   try {
-    await stub.setLimit(feature, limit, entitlementVersion);
+    await quota.setLimit(userId, feature, limit, entitlementVersion);
   } catch (error) {
     throw new APIError(503, "service_maintenance_unavailable", "Quota tracker is unavailable", {
       cause: error,
@@ -132,10 +137,6 @@ async function readCachedEntitlement(
   }
   createLogger({ userId }).warn("entitlement_cache_invalid", {});
   return null;
-}
-
-function quotaStub(env: LimitBindings, userId: UserId): DurableObjectStub<QuotaTracker> {
-  return env.QUOTA_TRACKER.get(env.QUOTA_TRACKER.idFromName(`quota:${userId}`));
 }
 
 function entitlementCacheKey(userId: UserId): string {

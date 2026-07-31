@@ -19,8 +19,9 @@ capability discovery contracts, error codes, and UI message types.
 - `@cheatcode/types/internal`: Worker-only Gateway-to-Agent route manifest,
   service-binding deletion contracts, and workspace/sandbox-transition evidence
 - `models.ts`: catalog IDs plus the open provider-prefixed logical-model schema
-- `@cheatcode/types/quota`: strict cross-Worker QuotaTracker request/response
-  contracts and canonical quota feature identifiers
+- `@cheatcode/types/quota`: the single QuotaTracker RPC contract, typed
+  capability-scoped WorkerEntrypoint projections, strict request/response
+  contracts, and canonical quota feature identifiers
 - `sandbox-wire.ts`: canonical sandbox file-entry fields and exec-result base
   used by API, runtime-port, and code-tool schemas
 - `skill-runtime.ts`: canonical skill-runtime capability scopes and schema

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { UserId } from "./ids";
 
 export const QUOTA_FEATURES = {
   composioCalls: "composio_calls",
@@ -43,7 +44,7 @@ export type QuotaSnapshotResult = z.infer<typeof QuotaSnapshotResultSchema>;
 export type QuotaUsageResponse = z.infer<typeof QuotaUsageResponseSchema>;
 export type QuotaTryConsumeResponse = z.infer<typeof QuotaTryConsumeResponseSchema>;
 
-/** Cross-script public surface of the gateway-owned QuotaTracker Durable Object. */
+/** Public RPC surface of the agent-owned QuotaTracker Durable Object. */
 export interface QuotaTrackerRpc {
   deleteAllState(): Promise<void>;
   history(feature: QuotaFeature, from: Date): Promise<QuotaHistoryResult>;
@@ -64,3 +65,21 @@ export interface QuotaTrackerRpc {
     eventId: string,
   ): Promise<QuotaTryConsumeResponse>;
 }
+
+type UserScopedQuotaTrackerMethod<Method extends keyof QuotaTrackerRpc> =
+  QuotaTrackerRpc[Method] extends (...args: infer Args) => infer Result
+    ? (userId: UserId, ...args: Args) => Result
+    : never;
+
+/**
+ * A capability-scoped WorkerEntrypoint projection of selected QuotaTracker
+ * methods. The user id selects the owning Durable Object; method arguments and
+ * results remain derived from the single QuotaTrackerRpc contract.
+ */
+type UserScopedQuotaTrackerRpc<Methods extends keyof QuotaTrackerRpc> = {
+  [Method in Methods]: UserScopedQuotaTrackerMethod<Method>;
+};
+
+export type GatewayQuotaServiceBinding = UserScopedQuotaTrackerRpc<"history" | "peek" | "setLimit">;
+
+export type QuotaDeletionServiceBinding = UserScopedQuotaTrackerRpc<"deleteAllState">;
