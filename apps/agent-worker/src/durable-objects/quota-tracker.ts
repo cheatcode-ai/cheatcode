@@ -4,12 +4,13 @@ import type {
   QuotaFeature,
   QuotaHistoryResult,
   QuotaSnapshotResult,
+  QuotaTrackerRpc,
   QuotaTryConsumeResponse,
   QuotaUsageResponse,
 } from "@cheatcode/types/quota";
 
-/** Gateway-owned Durable Object facade over the worker-only billing runtime. */
-export class QuotaTracker extends DurableObject<unknown> {
+/** Agent-owned Durable Object facade over the worker-only billing runtime. */
+export class QuotaTracker extends DurableObject<unknown> implements QuotaTrackerRpc {
   private readonly runtime: QuotaTrackerRuntime;
 
   public constructor(ctx: DurableObjectState, env: unknown) {

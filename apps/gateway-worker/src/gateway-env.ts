@@ -2,9 +2,9 @@ import type { DatabaseHandle } from "@cheatcode/db";
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
 import type { AnalyticsBindings } from "@cheatcode/observability";
 import type { ResourceDeletionServiceBinding } from "@cheatcode/types/internal";
+import type { GatewayQuotaServiceBinding } from "@cheatcode/types/quota";
 import type { Context, Hono } from "hono";
 import type { IdempotencyStore } from "./durable-objects/idempotency";
-import type { QuotaTracker } from "./durable-objects/quota-tracker";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
 import type { IdempotencyBindings } from "./idempotency";
 
@@ -26,7 +26,7 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   POLAR_PRODUCT_ID_PRO?: string;
   POLAR_SERVER?: "production" | "sandbox";
   PREVIEW_PROXY?: Fetcher;
-  QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
+  QUOTA_TRACKER: GatewayQuotaServiceBinding;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   RESOURCE_DELETION: ResourceDeletionServiceBinding;
   WEBHOOKS: Fetcher;

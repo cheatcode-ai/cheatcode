@@ -1,7 +1,8 @@
 # @cheatcode/agent-worker
 
 Agent loop Worker with `AgentRun`, its durable `AgentRunWorkflow` owner,
-user-scoped `ProjectSandbox`, and the Daytona sandbox adapter.
+user-scoped `ProjectSandbox`, agent-owned `QuotaTracker`, and the Daytona
+sandbox adapter.
 
 Each run Durable Object is keyed by run UUID. Each sandbox Durable Object is keyed by a
 one-way digest of the internal user UUID, so every project for that user shares one isolated
@@ -118,12 +119,20 @@ losslessly normalized to at most 64 KiB, and SQLite reads return at most 32 rows
 its persisted sequence cursor instead of growing isolate memory.
 
 Composio actions use the app-level `COMPOSIO_API_KEY`, active rows in
-`v2_user_integrations`, and the gateway-owned `QuotaTracker` Durable Object before
-executing against a user-connected OAuth account.
+`v2_user_integrations`, and the local agent-owned `QuotaTracker` Durable Object
+before executing against a user-connected OAuth account.
 
 ProjectSandbox records elapsed sandbox-hours to the same `QuotaTracker` as a soft
 meter so Settings can show real monthly sandbox consumption without blocking
 sandbox file/process work.
+
+Agent code reaches `QuotaTracker` through its local namespace. External quota
+access is split across named, property-validated WorkerEntrypoints:
+`GatewayQuotaEntrypoint` exposes only `peek`, `history`, and `setLimit` to the
+gateway, while `QuotaDeletionEntrypoint` exposes only `deleteAllState` to the
+webhooks account-deletion workflow. The Durable Object shell composes
+`@cheatcode/billing/quota-runtime`, which owns RPC input validation, SQLite
+storage, retention, and alarm behavior.
 
 Postgres is authoritative for user-authored skill metadata and R2 is authoritative
 for each versioned skill package. ProjectSandbox mirrors the complete selected
@@ -257,7 +266,10 @@ the same bound while streaming.
 - `AgentLifecycleEntrypoint`
 - `AgentRun`
 - `AgentRunWorkflow`
+- `GatewayQuotaEntrypoint`
 - `ProjectSandbox`
+- `QuotaDeletionEntrypoint`
+- `QuotaTracker`
 
 ## Code Checks
 
@@ -287,7 +299,7 @@ pnpm --filter @cheatcode/agent-worker typecheck
 - `OUTPUT_DOWNLOAD_SIGNING_SECRET` (Secrets Store binding)
 - `OUTPUT_DOWNLOAD_BASE_URL` (development override; production defaults to the gateway origin)
 - `PREVIEW_HOSTNAME` (development override; production derives the canonical app hostname)
-- `QUOTA_TRACKER`
+- `QUOTA_TRACKER` (local agent-owned Durable Object namespace)
 - `R2_AUDIT`
 - `R2_OUTPUTS`
 - `SANDBOX_STATE`

@@ -18,7 +18,6 @@ import { registerBillingHttpRoutes } from "./billing-http-routes";
 import { registerCoreHttpRoutes } from "./core-http-routes";
 import { resolveCorsOrigin } from "./cors";
 import { IdempotencyStore } from "./durable-objects/idempotency";
-import { QuotaTracker } from "./durable-objects/quota-tracker";
 import { RateLimiter } from "./durable-objects/rate-limiter";
 import { formatGatewayRouteError } from "./error-handling";
 import type { GatewayContext, GatewayEnv, GatewayHonoEnv } from "./gateway-env";
@@ -31,7 +30,7 @@ import { registerProviderHttpRoutes } from "./provider-http-routes";
 import { withRateLimitErrorHeaders } from "./rate-limit";
 import { registerSearchHttpRoutes } from "./search-http-routes";
 
-export { IdempotencyStore, QuotaTracker, RateLimiter };
+export { IdempotencyStore, RateLimiter };
 
 const CORS_EXPOSED_HEADERS = [
   "Content-Disposition",

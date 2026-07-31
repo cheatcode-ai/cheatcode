@@ -13,14 +13,13 @@ import {
   ActivityHistoryResponseSchema,
   ActivityQuerySchema,
 } from "@cheatcode/types/api";
-import { QUOTA_FEATURES } from "@cheatcode/types/quota";
+import { type GatewayQuotaServiceBinding, QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { z } from "zod";
-import type { QuotaTracker } from "./durable-objects/quota-tracker";
 
 export interface ActivityRouteEnv {
   DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
-  QUOTA_TRACKER: DurableObjectNamespace<QuotaTracker>;
+  QUOTA_TRACKER: GatewayQuotaServiceBinding;
 }
 
 const MS_PER_DAY = 86_400_000;
@@ -60,10 +59,10 @@ async function buildActivityResponse(
 }
 
 async function listSandboxHourHistory(env: ActivityRouteEnv, userId: UserId, days: number) {
-  const stub = env.QUOTA_TRACKER.get(env.QUOTA_TRACKER.idFromName(`quota:${userId}`));
-  let history: Awaited<ReturnType<typeof stub.history>>;
+  let history: Awaited<ReturnType<GatewayQuotaServiceBinding["history"]>>;
   try {
-    history = await stub.history(
+    history = await env.QUOTA_TRACKER.history(
+      userId,
       QUOTA_FEATURES.sandboxHours,
       new Date(Date.now() - days * MS_PER_DAY),
     );

@@ -17,6 +17,7 @@ import {
   safeErrorTelemetry,
 } from "@cheatcode/observability";
 import type { AgentLifecycleServiceBinding } from "@cheatcode/types/internal";
+import type { QuotaDeletionServiceBinding } from "@cheatcode/types/quota";
 import { verifyWebhook } from "@clerk/backend/webhooks";
 import { validateEvent, WebhookVerificationError } from "@polar-sh/sdk/webhooks";
 import { type Context, Hono } from "hono";
@@ -28,7 +29,6 @@ import {
   enqueueDailyMaintenance,
 } from "./daily-maintenance-workflow";
 import { DaytonaWebhookSchema, verifyDaytonaWebhook } from "./daytona";
-import type { QuotaTrackerNamespace } from "./quota-tracker-binding";
 import { ResourceDeletionEntrypoint } from "./resource-deletion-entrypoint";
 import {
   ResourceDeletionWorkflow,
@@ -79,7 +79,7 @@ export interface WebhooksEnv
   POLAR_PRODUCT_ID_PRO?: string;
   POLAR_SERVER?: "production" | "sandbox";
   POLAR_WEBHOOK_SECRET?: WorkerSecret;
-  QUOTA_TRACKER: QuotaTrackerNamespace;
+  QUOTA_DELETION: QuotaDeletionServiceBinding;
   R2_OUTPUTS: R2Bucket;
   // Webhook-fed sandbox lifecycle cache (Daytona sandbox.state.updated), read by agent-worker's
   // preview-status endpoint. Optional so the endpoint falls back to a live read when unbound.

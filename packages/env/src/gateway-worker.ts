@@ -30,7 +30,7 @@ export const GatewayWorkerEnvSchema = z
     POLAR_PRODUCT_ID_PREMIUM: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     PREVIEW_PROXY: FetcherBindingSchema.optional(),
-    QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
+    QUOTA_TRACKER: FetcherBindingSchema,
     RATE_LIMITER: DurableObjectNamespaceBindingSchema,
     RESOURCE_DELETION: FetcherBindingSchema,
     WEBHOOKS: FetcherBindingSchema,

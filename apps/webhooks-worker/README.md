@@ -22,14 +22,14 @@ sets). Legacy payload versions and field aliases are rejected at ingress.
 `DailyMaintenanceWorkflow` removes abandoned uploads, while `UserDeletionWorkflow`
 owns Clerk-driven GDPR deletion lifecycle jobs. BYOK inventory runs directly from
 the five-minute scheduled handler because its database UUID leases provide retry
-and continuation state. Account deletion jobs call the agent Worker through a
-Service Binding and clear quota state through a direct cross-Worker Durable Object
-binding before removing R2 and Postgres rows. These destructive agent calls use
-the named `AgentLifecycleEntrypoint` Service Binding. The
-binding itself grants the capability, while Cloudflare-authenticated properties
-pin the `webhooks` caller and `agent-lifecycle` permission. The Agent Worker
+and continuation state. Account deletion jobs call the agent Worker through
+named Service Bindings before removing R2 and Postgres rows.
+`AgentLifecycleEntrypoint` grants destructive agent-state operations, while the
+separate `QuotaDeletionEntrypoint` grants only `deleteAllState` on the
+agent-owned quota Durable Object. Cloudflare-authenticated properties pin both
+bindings to the `webhooks` caller and their exact capabilities. The Agent Worker
 revalidates the authoritative database deletion generation before changing
-state.
+agent state.
 
 The gateway-only `ResourceDeletionEntrypoint` registers project and thread
 deletion jobs in `v2_resource_deletion_jobs`; the default HTTP handler exposes no
@@ -160,7 +160,8 @@ pnpm --filter @cheatcode/webhooks-worker typecheck
 - `COMPOSIO_API_KEY`
 - `ENTITLEMENTS_CACHE`
 - `SANDBOX_STATE`
-- `QUOTA_TRACKER`
+- `QUOTA_DELETION` (named `QuotaDeletionEntrypoint` Service Binding to
+  agent-worker; grants only `deleteAllState`)
 - `HYPERDRIVE` (dedicated config whose database login is exactly `app_webhooks`)
 - `DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS` (role-specific Secrets Store binding;
   must match the `app_webhooks` Supabase Vault HMAC secret)

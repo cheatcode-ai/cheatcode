@@ -31,7 +31,7 @@ export const WebhooksWorkerEnvSchema = z
     POLAR_PRODUCT_ID_PRO: z.string().min(1).optional(),
     POLAR_SERVER: z.enum(["production", "sandbox"]).optional(),
     POLAR_WEBHOOK_SECRET: OptionalWorkerSecretSchema,
-    QUOTA_TRACKER: DurableObjectNamespaceBindingSchema,
+    QUOTA_DELETION: FetcherBindingSchema,
     R2_OUTPUTS: R2BucketBindingSchema,
     RESOURCE_DELETION_WORKFLOW: WorkflowBindingSchema,
     SANDBOX_STATE: KvNamespaceBindingSchema.optional(),
