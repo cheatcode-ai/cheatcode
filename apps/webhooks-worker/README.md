@@ -137,7 +137,9 @@ The handler therefore resolves that Composio-project-global ID through the datab
 primary key; ownership and toolkit assignment are immutable after insertion,
 and terminal status changes atomically reconcile the user's active default.
 
-Production binds one immutable `CHEATCODE_RELEASE_SHA`, exposed by `/health`.
+Production binds one immutable `CHEATCODE_RELEASE_SHA`, exposed by `/health`
+only to the gateway's service-binding probe (`https://webhooks.internal/health`);
+on the public webhook host the route answers as not found.
 HTTP, cron, idempotency, deletion, and workflow continuation paths use their
 normal durable ownership and idempotency contracts; database migrations retain
 their separate target, role, lock, and schema validation.
