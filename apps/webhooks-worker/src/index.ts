@@ -165,14 +165,20 @@ webhooksApp.use(
   }),
 );
 
-webhooksApp.get("/health", (c) =>
-  c.json({
+webhooksApp.get("/health", (c) => {
+  // Service-binding-only surface: the gateway probes https://webhooks.internal/health
+  // for release aggregation. The public webhook host must answer like the route does
+  // not exist so release metadata never leaks on an unauthenticated endpoint.
+  if (new URL(c.req.url).hostname !== "webhooks.internal") {
+    return c.notFound();
+  }
+  return c.json({
     ok: true,
     releaseSha: c.env.CHEATCODE_RELEASE_SHA ?? "development",
     versionId: c.env.CF_VERSION_METADATA?.id ?? null,
     worker: "webhooks",
-  }),
-);
+  });
+});
 
 webhooksApp.post("/clerk", async (c) => {
   const signingSecret = await clerkWebhookSigningSecret(c.env);
