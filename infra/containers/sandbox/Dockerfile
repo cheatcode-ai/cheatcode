@@ -35,6 +35,7 @@ COPY package-manager/package.json package-manager/package-lock.json /opt/cheatco
 COPY doc-runtime/package.json doc-runtime/package-lock.json /opt/cheatcode-doc-runtime/
 # npm, pnpm, and code-server ship their own dependency trees, so ordinary
 # top-level overrides cannot replace vulnerable packages inside those bundles.
+# Dependabot alerts #9 (brace-expansion) and #8 (tar) are lockfile-metadata findings mitigated by this overlay because npm has not re-bundled the fixed versions.
 COPY runtime-security-overrides/package.json runtime-security-overrides/package-lock.json /opt/cheatcode-runtime-security-overrides/
 COPY skill-runtime/package.json skill-runtime/package-lock.json skill-runtime/tsconfig.json /opt/cheatcode-skill-runtime/
 COPY skill-runtime/bin/ /opt/cheatcode-skill-runtime/bin/
