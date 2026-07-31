@@ -80,5 +80,5 @@ Production additionally admits only Vercel's exact immutable deployment origin.
 Vercel's Git integration deploys `apps/web` from the repository using the
 checked-in build command. Production public environment values select the live
 Clerk instance and canonical gateway; deployment identity selects the owned
-preview apex. Verify `/api/health` and the deployed revision after Vercel
-finishes.
+preview apex. Verify the deployed revision in the Vercel dashboard after the
+build finishes; worker liveness is `gateway.trycheatcode.com/health/live`.
