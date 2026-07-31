@@ -200,7 +200,20 @@ async function validateRoleMemberships(client: PgClient): Promise<string[]> {
       where member.rolname = any($1::text[]) or granted.rolname = any($1::text[])`,
     [[...RUNTIME_DATABASE_ROLES]],
   );
-  return result.rows.map(
+  // Supabase's supautils grants every role that `postgres` creates back to
+  // `postgres` (grantor supabase_admin) so the platform admin can manage it.
+  // That membership is platform-managed and appears on every project the
+  // moment the runtime roles are created; only memberships beyond it are
+  // divergences.
+  const runtimeRoles: readonly string[] = RUNTIME_DATABASE_ROLES;
+  const rows = result.rows.filter(
+    (row) =>
+      !(
+        stringField(row, "member_role") === "postgres" &&
+        runtimeRoles.includes(stringField(row, "granted_role") ?? "")
+      ),
+  );
+  return rows.map(
     (row) =>
       `Runtime role membership ${stringField(row, "granted_role")} -> ${stringField(row, "member_role")} must be revoked.`,
   );
@@ -391,7 +404,7 @@ async function validateDataApiDefaultAcl(client: PgClient): Promise<string[]> {
 
 function runtimeAclQuery(): string {
   return `select grantee.rolname as role_name, 'table' as object_kind,
-                 relation.relname as object_name,
+                 relation.relname::text as object_name,
                  (entry).privilege_type as privilege, (entry).is_grantable
             from pg_class relation
             join pg_namespace namespace on namespace.oid = relation.relnamespace
