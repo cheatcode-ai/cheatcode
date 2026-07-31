@@ -1,6 +1,7 @@
 {
   "name": "@cheatcode/sandbox-runtime-security-overrides",
   "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
   "version": "0.0.0",
   "engines": {
     "node": "24.18.0"

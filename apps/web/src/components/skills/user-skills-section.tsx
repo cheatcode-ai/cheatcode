@@ -79,7 +79,7 @@ export function UserSkillCard({
     deleteMutation.mutate(skill.id);
   };
   return (
-    // biome-ignore lint/a11y/useSemanticElements: Bud's card pattern needs a nested overflow button, which a native button cannot contain.
+    // biome-ignore lint/a11y/useSemanticElements: the skill card needs a nested overflow button, which a native button cannot contain.
     <div
       className="relative cursor-pointer rounded-[23px] border-2 border-secondary bg-background p-0.5 text-left transition-colors hover:border-border"
       onClick={openCard}

@@ -3,7 +3,7 @@ name: pitch-deck
 description: Generates investor-ready pitch decks from a one-line startup idea or written brief. Use when the user asks for a pitch deck, investor deck, fundraising deck, demo day deck, seed deck, or fundraising-focused .pptx deck.
 category: Research & Docs
 tags: slides, fundraising, investor
-license: MIT
+license: PolyForm-Noncommercial-1.0.0
 compatibility: Requires docs tools, research tools, and sandbox file output.
 ---
 

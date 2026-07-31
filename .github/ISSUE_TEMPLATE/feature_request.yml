@@ -1,0 +1,45 @@
+name: Feature request
+description: Suggest an improvement for Cheatcode
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Cheatcode. Explain the user need before proposing implementation details.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or opportunity
+      description: What user need, limitation, or opportunity should this change address?
+      placeholder: Describe who is affected and why the current experience is insufficient.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed outcome
+      description: Describe the behavior or outcome you would like to see.
+      placeholder: A clear, concise description of the desired result.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Share workarounds or alternative approaches you considered.
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add mockups, examples, or related links. Do not include credentials or sensitive data.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues for a similar request.
+          required: true
+        - label: I agree to follow this repository's Code of Conduct.
+          required: true
