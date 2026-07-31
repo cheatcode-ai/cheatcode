@@ -57,7 +57,6 @@ export const ErrorResponseSchema = z.strictObject({
     hint: z.string().optional(),
     retriable: z.boolean(),
     request_id: z.string(),
-    doc_url: z.string().url(),
     details: z.record(z.string(), z.unknown()).optional(),
   }),
 });
