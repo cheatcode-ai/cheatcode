@@ -38,21 +38,24 @@ jobs:
       - name: Validate pull request title
         if: github.event_name == 'pull_request'
         env:
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
           PR_TITLE: ${{ github.event.pull_request.title }}
         run: |
           python3 - <<'PY'
           import os
           import re
 
+          author = os.environ["PR_AUTHOR"]
           title = os.environ["PR_TITLE"]
           pattern = re.compile(
               r"(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)"
               r"(?:\([a-z0-9][a-z0-9._/-]*\))?!?: \S.*"
           )
-          if len(title) > 72 or pattern.fullmatch(title) is None:
-              raise SystemExit(
-                  "Pull request titles must use Conventional Commits and be at most 72 characters."
-              )
+          if pattern.fullmatch(title) is None:
+              raise SystemExit("Pull request titles must use Conventional Commits.")
+          # Dependabot titles are machine-generated from group/directory names, grow past 72 chars, and are not configurable; commitlint's own ceiling is 100.
+          if len(title) > 72 and author != "dependabot[bot]":
+              raise SystemExit("Pull request titles must be at most 72 characters.")
           PY
 
       - name: Classify changed files

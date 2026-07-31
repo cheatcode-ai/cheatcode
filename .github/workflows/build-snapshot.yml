@@ -24,7 +24,7 @@ jobs:
   build-snapshot:
     runs-on: ubuntu-24.04
     timeout-minutes: 60
-    environment: production
+    environment: Production
     steps:
       - name: Authorize snapshot publication
         env:
