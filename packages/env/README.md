@@ -20,11 +20,13 @@ pnpm --filter @cheatcode/env typecheck
 
 ## Env
 
-See root `.env.example` for the local application contract. Its database URLs
-use the production Supabase session pooler with the three least-privilege runtime
-roles. Administrative migration values live separately in git-ignored
-`.env.migrate` (template: `.env.migrate.example`) or protected automation
-environment variables and are never loaded by the app or copied into a Worker.
+See root `.env.example` for the local application contract. `pnpm dev:setup`
+assembles project-agnostic URLs for a dedicated Supabase project's public
+session pooler on port 5432, using the three least-privilege runtime roles.
+Direct endpoints and transaction pooling are rejected for runtime connections.
+Administrative migration values live separately in git-ignored `.env.migrate`
+(template: `.env.migrate.example`) or protected automation environment
+variables and are never loaded by the app or copied into a Worker.
 
 Gateway, release-SHA, deployment-target, and Clerk publishable-key validation
 has one canonical implementation in `./web-config`. The framework config
@@ -63,6 +65,11 @@ Database-backed Workers require exactly one role-specific tenant-context binding
 `.env.local`; production values live only in the matching Cloudflare Secrets Store
 entry and matching Supabase Vault secret. The three values are distinct and at least
 32 bytes; there is no shared or compatibility binding.
+
+The root setup wizard and `scripts/dev.ts` share one scalar local-environment
+contract for required keys, forbidden cloud credentials, development value
+pins, secret distinctness, and Supabase pooler topology. `pnpm dev:setup --check`
+uses that same surface without mutating files or database state.
 
 Destructive Worker-to-Worker calls use named Cloudflare RPC entrypoints with
 static authenticated caller/capability properties. The gateway receives only

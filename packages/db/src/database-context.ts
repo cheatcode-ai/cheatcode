@@ -1,10 +1,12 @@
 import { resolveWorkerSecret, type WorkerSecret } from "@cheatcode/env";
 import type { UserId } from "@cheatcode/types";
-
-type DatabaseRuntimeAudience = "app_agent" | "app_gateway" | "app_webhooks";
+import {
+  createRawDatabaseContextSigner,
+  type DatabaseContextAudience,
+} from "./database-context-signer";
 
 export interface DatabaseContextConfig {
-  audience: DatabaseRuntimeAudience;
+  audience: DatabaseContextAudience;
   signingSecret: WorkerSecret;
 }
 
@@ -19,55 +21,15 @@ interface DatabaseContextSigner {
   sign(userId: UserId): Promise<SignedDatabaseContext>;
 }
 
-const CONTEXT_DOMAIN = "cheatcode-database-context-v1";
-const MINIMUM_SECRET_BYTES = 32;
-
 export function createDatabaseContextSigner(config: DatabaseContextConfig): DatabaseContextSigner {
-  let keyPromise: ReturnType<typeof crypto.subtle.importKey> | undefined;
-  const key = () => {
-    keyPromise ??= importSigningKey(config.signingSecret);
-    return keyPromise;
-  };
+  const signer = createRawDatabaseContextSigner({
+    audience: config.audience,
+    loadSecret: () => resolveWorkerSecret(config.signingSecret),
+  });
   return {
     async sign(userId) {
-      const issuedAt = String(Date.now());
-      const nonce = crypto.randomUUID();
-      const payload = contextPayload(config.audience, userId, issuedAt, nonce);
-      const signature = await crypto.subtle.sign(
-        "HMAC",
-        await key(),
-        new TextEncoder().encode(payload),
-      );
-      return { issuedAt, nonce, signature: bytesToHex(signature), userId };
+      const signed = await signer.sign(userId);
+      return { ...signed, userId };
     },
   };
-}
-
-function contextPayload(
-  audience: DatabaseRuntimeAudience,
-  userId: UserId,
-  issuedAt: string,
-  nonce: string,
-): string {
-  return [CONTEXT_DOMAIN, audience, userId, issuedAt, nonce].join("\n");
-}
-
-async function importSigningKey(
-  secretBinding: WorkerSecret,
-): ReturnType<typeof crypto.subtle.importKey> {
-  const secret = await resolveWorkerSecret(secretBinding);
-  if (!secret || new TextEncoder().encode(secret).byteLength < MINIMUM_SECRET_BYTES) {
-    throw new Error("Database context signing secret must contain at least 32 bytes");
-  }
-  return crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    { hash: "SHA-256", name: "HMAC" },
-    false,
-    ["sign"],
-  );
-}
-
-function bytesToHex(value: ArrayBuffer): string {
-  return Array.from(new Uint8Array(value), (byte) => byte.toString(16).padStart(2, "0")).join("");
 }

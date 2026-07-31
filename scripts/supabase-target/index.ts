@@ -285,6 +285,16 @@ function validateRelationAcl(
 }
 
 async function validateDataApiIsolation(client: PgClient): Promise<string[]> {
+  const checks = await Promise.all([
+    validateDataApiRelationAccess(client),
+    validateDataApiFunctionAccess(client),
+    validateDataApiSchemaAccess(client),
+    validateDataApiDefaultAcl(client),
+  ]);
+  return checks.flat();
+}
+
+async function validateDataApiRelationAccess(client: PgClient): Promise<string[]> {
   const result = await client.query(
     `select role.rolname, relation.relname, 'table' as access_kind, privilege.name
        from pg_roles role
@@ -304,7 +314,14 @@ async function validateDataApiIsolation(client: PgClient): Promise<string[]> {
         and has_any_column_privilege(role.oid, relation.oid, privilege.name)`,
     [[...DATA_API_ROLES]],
   );
-  const functionResult = await client.query(
+  return result.rows.map(
+    (row) =>
+      `Data API role ${stringField(row, "rolname")} retains ${stringField(row, "name")} ${stringField(row, "access_kind")} access on public.${stringField(row, "relname")}.`,
+  );
+}
+
+async function validateDataApiFunctionAccess(client: PgClient): Promise<string[]> {
+  const result = await client.query(
     `select role.rolname, procedure.oid::regprocedure::text as identity
        from pg_roles role
        join pg_proc procedure on true
@@ -316,16 +333,60 @@ async function validateDataApiIsolation(client: PgClient): Promise<string[]> {
         and has_function_privilege(role.oid, procedure.oid, 'EXECUTE')`,
     [[...DATA_API_ROLES]],
   );
-  return [
-    ...result.rows.map(
-      (row) =>
-        `Data API role ${stringField(row, "rolname")} retains ${stringField(row, "name")} ${stringField(row, "access_kind")} access on public.${stringField(row, "relname")}.`,
-    ),
-    ...functionResult.rows.map(
-      (row) =>
-        `Data API role ${stringField(row, "rolname")} retains EXECUTE on ${stringField(row, "identity")}.`,
-    ),
-  ];
+  return result.rows.map(
+    (row) =>
+      `Data API role ${stringField(row, "rolname")} retains EXECUTE on ${stringField(row, "identity")}.`,
+  );
+}
+
+async function validateDataApiSchemaAccess(client: PgClient): Promise<string[]> {
+  const result = await client.query(
+    `select role.rolname,
+            has_schema_privilege(role.oid, 'public', 'USAGE') as can_use,
+            has_schema_privilege(role.oid, 'public', 'CREATE') as can_create
+       from pg_roles role
+      where role.rolname = any($1::text[])`,
+    [[...DATA_API_ROLES]],
+  );
+  return result.rows
+    .filter((row) => row["can_use"] === true || row["can_create"] === true)
+    .map(
+      (row) => `Data API role ${stringField(row, "rolname")} retains privileges on schema public.`,
+    );
+}
+
+async function validateDataApiDefaultAcl(client: PgClient): Promise<string[]> {
+  const result = await client.query(
+    `select owner.rolname as owner_name,
+            case object_type.value
+              when 'r' then 'table'
+              when 'S' then 'sequence'
+              when 'f' then 'function'
+              else object_type.value::text
+            end as object_kind,
+            coalesce(grantee.rolname, 'PUBLIC') as grantee_name,
+            (entry).privilege_type as privilege
+       from pg_roles owner
+      cross join (values ('r'::"char"), ('S'::"char"), ('f'::"char")) object_type(value)
+       join pg_namespace namespace on namespace.nspname = 'public'
+       left join pg_default_acl defaults
+         on defaults.defaclrole = owner.oid
+        and defaults.defaclnamespace = namespace.oid
+        and defaults.defaclobjtype = object_type.value
+      cross join lateral aclexplode(
+        coalesce(defaults.defaclacl, acldefault(object_type.value, owner.oid))
+      ) entry
+       left join pg_roles grantee on grantee.oid = (entry).grantee
+      -- supabase_admin's default ACLs are Supabase-managed platform state and
+      -- apply only to supabase_admin-created objects, which this schema never creates.
+      where owner.rolname = 'postgres'
+        and ((entry).grantee = 0 or grantee.rolname = any($1::text[]))`,
+    [[...DATA_API_ROLES]],
+  );
+  return result.rows.map(
+    (row) =>
+      `Default privileges for ${stringField(row, "owner_name")} grant ${stringField(row, "privilege")} on future public ${stringField(row, "object_kind")} objects to ${stringField(row, "grantee_name")}.`,
+  );
 }
 
 function runtimeAclQuery(): string {

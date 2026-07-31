@@ -2,6 +2,10 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ConfigRecord, isRecord, parseJsoncObject } from "./jsonc";
+import {
+  validateSupabaseRuntimeDatabaseUrls,
+  validateSupabaseSessionPoolerUrl,
+} from "./local-env-contract";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const GATEWAY_WORKER_DIR = join(ROOT, "apps/gateway-worker");
@@ -28,13 +32,6 @@ const PRODUCTION_DATABASE_URL_BINDINGS: Partial<
     role: "app_webhooks",
   },
 };
-
-const PRODUCTION_SUPABASE_TARGET = {
-  database: "postgres",
-  hostname: "aws-0-ap-south-1.pooler.supabase.com",
-  port: "5432",
-  projectRef: "snqtclnmhcaupqynjyux",
-} as const;
 
 const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
   "wrangler.jsonc": [
@@ -83,6 +80,7 @@ const LOCAL_WORKER_VAR_BINDINGS: Record<WorkerConfig, readonly string[]> = {
 };
 
 export function localWorkerConfigs(webPort: string, values: Record<string, string>): string[] {
+  validateSupabaseRuntimeDatabaseUrls(values);
   return WORKER_CONFIGS.map((config) => createLocalWorkerConfig(config, webPort, values));
 }
 
@@ -238,33 +236,7 @@ function productionDatabaseConnectionString(
   if (!raw) {
     throw new Error(`.env.local is missing ${expected.envKey}.`);
   }
-  let url: URL;
-  try {
-    url = new URL(raw);
-  } catch {
-    throw new Error(`${expected.envKey} must be a PostgreSQL connection URL.`);
-  }
-  const expectedUsername = `${expected.role}.${PRODUCTION_SUPABASE_TARGET.projectRef}`;
-  const hasExpectedTarget =
-    url.hostname === PRODUCTION_SUPABASE_TARGET.hostname &&
-    url.port === PRODUCTION_SUPABASE_TARGET.port &&
-    url.pathname === `/${PRODUCTION_SUPABASE_TARGET.database}`;
-  const hasRequiredTls =
-    url.searchParams.size === 2 &&
-    url.searchParams.get("sslmode") === "require" &&
-    url.searchParams.get("uselibpqcompat") === "true";
-  if (
-    (url.protocol !== "postgres:" && url.protocol !== "postgresql:") ||
-    decodeURIComponent(url.username) !== expectedUsername ||
-    !url.password ||
-    !hasExpectedTarget ||
-    !hasRequiredTls ||
-    url.hash
-  ) {
-    throw new Error(
-      `${expected.envKey} must use ${expectedUsername} on the production Supabase session pooler with sslmode=require and uselibpqcompat=true.`,
-    );
-  }
+  validateSupabaseSessionPoolerUrl(raw, expected.envKey, expected.role);
   return raw;
 }
 

@@ -21,6 +21,11 @@ branded transaction context supplied by those helpers.
 Administrative migration credentials are never exported by this package or
 loaded by an application process.
 
+Self-hosted and local environments use a dedicated Supabase project. The three
+runtime URLs target that project's shared session pooler on port 5432 with
+role-qualified usernames (`app_<role>.<project-ref>`). There is no local
+Postgres mode and runtime code never receives the Supabase admin connection.
+
 ## Current schema
 
 The schema modules under `src/schema/` define:
@@ -105,6 +110,21 @@ The repository keeps a single current-schema Drizzle baseline at
 Future schema changes append ordinary forward Drizzle migrations. The
 pre-launch historical migration archive is intentionally absent.
 
+The baseline's checksum was intentionally revised on 2026-07-31 to remove
+unrunnable `supabase_admin` default-ACL recreations (platform-managed state the
+`postgres` migration role is denied on every Supabase project). Databases that
+recorded the pre-revision baseline fail ledger verification with "Migration
+ledger diverges from source at position 0." The one-time remedy, run once as
+the migration admin against that database only:
+
+```sql
+update drizzle.__drizzle_migrations
+   set hash = '<sha256 of the current drizzle/0000_current_schema.sql>'
+ where created_at = 1784981026716;
+```
+
+Compute the hash with `shasum -a 256 packages/db/drizzle/0000_current_schema.sql`.
+
 ```bash
 pnpm --filter @cheatcode/db db:generate
 pnpm db:migrate -- --dry-run
@@ -121,9 +141,17 @@ The migration runner:
 6. validates the complete current table, column, constraint, index, function,
    RLS, grant, role, and data-integrity contract.
 
-The laptop application environment contains only the three runtime-role URLs.
-Administrative migration credentials stay in `.env.migrate` or a protected
-operations environment.
+The target-parity migration also installs the required Supabase extensions and
+removes the `anon`, `authenticated`, and `service_role` access and default ACLs
+from `public`. This schema-USAGE revoke is deliberate because Cheatcode does
+not use the Supabase Data API. Supabase-managed Vault-schema grants remain
+untouched.
+
+`pnpm dev:setup` supplies the role passwords and signed-context Vault rows that a
+schema migration cannot safely embed, then proves real logins and signed tenant
+context through each runtime URL. The laptop application environment contains
+only those three runtime-role URLs. Administrative migration credentials stay
+in `.env.migrate` or a protected operations environment.
 
 ## Code checks
 
