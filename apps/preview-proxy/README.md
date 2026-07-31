@@ -209,9 +209,9 @@ the shared `@cheatcode/observability` emitters.
   gateway and webhooks routes override it.
 - Exact no-script routes for `clerk.trycheatcode.com/*`,
   `docs.trycheatcode.com/*`, and `www.trycheatcode.com/*` negate the wildcard
-  for Clerk, documentation, and the Vercel frontend hostname.
-  `preview.trycheatcode.com` deliberately has no exact route and inherits the
-  preview wildcard for release health checks.
+  for Clerk, documentation, and the Vercel frontend hostname. The preview
+  wildcard accepts only well-formed `{sandboxId}--{port}` hostnames; arbitrary
+  wildcard labels are rejected by the normal preview-host validation.
 - The wildcard route is declared in
   [`apps/preview-proxy/wrangler.jsonc`](./wrangler.jsonc) and deployed directly
   by [`.github/workflows/deploy-cloudflare.yml`](../../.github/workflows/deploy-cloudflare.yml).

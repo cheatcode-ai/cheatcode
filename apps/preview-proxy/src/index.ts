@@ -31,9 +31,6 @@ const SECURITY_VARY_HEADERS = [
 async function handlePreviewRequest(request: Request, env: PreviewProxyEnv): Promise<Response> {
   const url = new URL(request.url);
   const originalHost = url.host;
-  if (request.method === "GET" && url.pathname === "/health") {
-    return healthResponse(env);
-  }
   const target = requirePreviewTarget(url.hostname, env.PREVIEW_HOSTNAME);
   const secret = await requirePreviewSecret(env);
   const authorized = await authorizePreviewRequest({
@@ -103,15 +100,6 @@ function assertNavigationHandoff(isFromQuery: boolean, method: string): void {
       { retriable: false },
     );
   }
-}
-
-function healthResponse(env: PreviewProxyEnv): Response {
-  return Response.json({
-    ok: true,
-    releaseSha: env.CHEATCODE_RELEASE_SHA ?? "development",
-    versionId: env.CF_VERSION_METADATA?.id ?? null,
-    worker: WORKER_NAME,
-  });
 }
 
 function requirePreviewTarget(hostname: string, previewHostname: string) {
