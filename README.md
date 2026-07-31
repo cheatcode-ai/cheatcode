@@ -1,270 +1,155 @@
-# Cheatcode V2
+# Cheatcode
 
-Cheatcode is a TypeScript-first generalist AI agent platform with a Vercel-hosted Next.js frontend, Cloudflare Workers, Durable Objects, Workflows, Daytona Sandboxes, Supabase Postgres, Clerk, and Polar.
+Cheatcode is a source-available generalist AI agent platform. Give it an
+outcome—not a sequence of tool calls—and it can build applications, create
+documents and media, research the live web, and operate browser workflows in an
+isolated workspace.
 
-The live source, package READMEs, migrations, and deployment configuration define the current system. The deleted `plan.md` is intentionally not authoritative and must not be restored.
+The project is built for people who want an inspectable, self-hostable agent
+stack without surrendering provider choice. Users bring their own model keys;
+the platform keeps long-running work, browser execution, files, generated
+outputs, and tenant data behind explicit boundaries.
 
-## Run Cheatcode locally
+![Cheatcode home screen](.github/assets/cheatcode-home.png)
 
-`pnpm dev` is the only supported full-stack local entrypoint. It builds a
-reproducible Docker image and starts:
+## Architecture
 
-- the Next.js web app;
-- the gateway, agent, webhooks, and preview-proxy Workers in one chained local
-  Wrangler process;
-- local Durable Object, KV, R2, Workflow, and Wrangler state; and
-- the shared package build watcher.
+```mermaid
+flowchart LR
+  Browser[Next.js web app] --> Gateway[Cloudflare gateway Worker]
+  Gateway --> Agent[Agent Worker + Workflows]
+  Gateway --> Webhooks[Webhooks Worker]
+  Gateway --> Preview[Preview proxy]
+  Agent --> Sandbox[Daytona sandbox]
+  Gateway --> DB[(Supabase Postgres)]
+  Agent --> DB
+  Webhooks --> DB
+  Agent --> R2[(Cloudflare R2)]
+  Agent --> DO[Durable Objects]
+```
 
-The application processes run locally, but a fully functional stack still uses
-real remote services. In particular, local Workers connect to the production
-Supabase database through its public session pooler and three isolated runtime
-roles, and agents create development sandboxes in Daytona. Local startup never
-starts Postgres, applies migrations, or deploys anything to Cloudflare or
-Vercel.
+- Next.js 16 and React 19 provide the product UI.
+- Cloudflare Workers, Workflows, and Durable Objects own admission, execution,
+  webhooks, and streaming.
+- Daytona supplies one isolated workspace and browser runtime per project.
+- Supabase Postgres stores metadata and durable workflow state through three
+  least-privilege roles. Generated files live in R2, not Postgres.
+- Clerk provides authentication; Polar and Composio are optional local groups.
 
-### Prerequisites
+Package and application READMEs document the detailed ownership boundaries.
 
-Install:
+## Quickstart
 
-- Docker Desktop or Docker Engine with a recent Docker Compose release that
-  supports `docker compose up --watch`;
-- NVM (or another version manager capable of selecting the exact Node version
-  in `.nvmrc`); and
-- Corepack, which supplies the exact pnpm version declared in `package.json`.
+You need:
 
-Prepare and verify the host toolchain:
+- Node `24.18.0` and pnpm `11.15.0` (the exact versions in `package.json`);
+- Docker with Docker Compose;
+- a dedicated Supabase project—the free tier is sufficient;
+- Clerk development keys; and
+- a Daytona API key plus an immutable Cheatcode sandbox snapshot.
+
+Install and launch the guided setup:
 
 ```bash
 nvm install
 nvm use
 corepack enable
-corepack prepare pnpm@11.15.0 --activate
-
-node --version
-pnpm --version
-docker compose version
-docker info
+CI=true pnpm install
+pnpm dev:setup
 ```
 
-The expected Node and pnpm versions are `v24.18.0` and `11.15.0`. Do not ignore
-an engine warning: select or install Node 24.18.0 before installing packages or
-running repository commands. Docker must be running before `pnpm dev`.
+The wizard checks the toolchain and local ports, collects masked credentials,
+generates signing secrets and database-role passwords, writes `.env.local` and
+`.env.migrate` atomically with mode `0600`, confirms the Supabase target, applies
+the migration journal, provisions the runtime logins and Vault secrets, runs
+end-to-end database probes, and can start the Compose stack.
 
-### Configure local credentials
+It deliberately expects a dedicated Supabase project. The wizard stays simple:
+you supply the project ref, session-pooler host, and direct or session-pooler
+admin connection string from the Supabase dashboard. Runtime URLs are assembled
+for you and always use port `5432`; transaction pooling on `6543` is rejected.
 
-Create the one local application environment file:
+Verify an existing setup without changing files or database state:
 
 ```bash
-cp .env.example .env.local
-chmod 600 .env.local
+pnpm dev:setup --check
 ```
 
-Fill every required value in `.env.local`. Keep the following boundaries:
+Local endpoints:
 
-- `SUPABASE_GATEWAY_DATABASE_URL`, `SUPABASE_AGENT_DATABASE_URL`, and
-  `SUPABASE_WEBHOOKS_DATABASE_URL` are the production Supabase session-pooler
-  URLs for `app_gateway`, `app_agent`, and `app_webhooks`. Do not use a direct
-  database URL, an administrative role, `service_role`, or one role's password
-  for another role.
-- `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` and `CLERK_SECRET_KEY` must come from the
-  Clerk development instance and must begin with `pk_test_` and `sk_test_`.
-  Production Clerk keys are intentionally rejected locally.
-- `DAYTONA_API_KEY`, `DAYTONA_SANDBOX_SNAPSHOT`, `DAYTONA_TARGET`, and
-  `DAYTONA_WORKSPACE_VOLUME` select the development Daytona environment.
-  `DAYTONA_WORKSPACE_VOLUME` must remain
-  `cheatcode-workspaces-development`; never point local runs at the production
-  workspace volume.
-- `POLAR_SERVER` must remain `sandbox`. Add the Polar sandbox access token,
-  webhook secret, and sandbox product IDs to exercise billing locally.
-- Each signing secret group in `.env.example` must contain non-placeholder
-  values of at least 32 UTF-8 bytes. Secrets within a group must be distinct.
-  The startup runner checks these requirements before launching a Worker.
-- Keep `NEXT_PUBLIC_GATEWAY_URL=http://127.0.0.1:8787` for the standard local
-  topology. The web app derives `localhost` previews locally and the owned
-  `trycheatcode.com` preview apex in Vercel. Release identity is derived
-  automatically from Git in deployments and uses `development` locally.
-- `COMPOSIO_API_KEY`, `COMPOSIO_AUTH_CONFIGS`, and
-  `COMPOSIO_WEBHOOK_SECRET` are required for connected-tool flows.
-  `COMPOSIO_AUTH_CONFIGS` is the JSON object that maps each supported toolkit
-  name to its Composio auth-config ID.
-- `DEEPSEEK_PLATFORM_API_KEY` is optional because users may rely entirely on
-  BYOK. `DAYTONA_ORG_ID` and Clerk webhook verification are optional only when
-  the corresponding account or callback flow is not being exercised.
+- Web: <http://localhost:3001>
+- Gateway: <http://127.0.0.1:8787>
+- Gateway liveness: <http://127.0.0.1:8787/health/live>
+- Wrangler inspector: <http://127.0.0.1:9239>
 
-Do not copy `.env.production` into `.env.local`. Do not put database migration
-credentials in this file; authorized operators keep those only in the ignored
-`.env.migrate` file. The full variable list and safe local defaults live in
-[`.env.example`](./.env.example).
+Use `127.0.0.1` consistently for gateway cookies; browsers treat it as a
+different cookie site from `localhost`.
 
-### Start the stack
+## Self-hosting
 
-From the repository root:
+Supabase is the only supported Postgres topology. Cheatcode does not start a
+local database, use Supabase Storage or Realtime, or expose runtime Workers to
+an administrative credential. Each Worker connects through the shared Supabase
+session pooler with its own `app_gateway`, `app_agent`, or `app_webhooks` login.
 
-```bash
-pnpm dev
-```
-
-The first run builds the pinned Node 24.18.0/pnpm 11.15.0 image, installs the
-locked workspace dependencies inside it, builds shared packages, validates
-`.env.local`, generates permission-restricted local Wrangler configs, and then
-starts the watchers. Subsequent source edits are synchronized into the
-container. Changes to package manifests or the lockfile trigger an image
-rebuild.
-
-Wait for the Compose service to report `healthy`. In another terminal:
-
-```bash
-docker compose --env-file .env.local ps
-docker compose --env-file .env.local logs -f app
-```
-
-Expected local endpoints:
-
-- Web app: `http://localhost:3001`
-- Gateway and chained Workers: `http://127.0.0.1:8787`
-- Gateway liveness: `http://127.0.0.1:8787/health/live`
-- Gateway release convergence: `http://127.0.0.1:8787/health/release`
-- Wrangler inspector: `http://127.0.0.1:9239`
-
-The Compose health check uses cheap gateway liveness. Release verification uses
-the convergence endpoint, which also proves that the service-bound agent and
-webhooks Workers report the same SHA.
-
-### Stop or reset the stack
-
-Stop all local services cleanly:
-
-```bash
-pnpm dev:down
-```
-
-The normal shutdown keeps the local Next and Wrangler cache volumes so the next
-start is faster. If those generated caches become corrupt, remove only those
-local volumes and rebuild:
-
-```bash
-docker compose --env-file .env.local down --volumes --remove-orphans
-pnpm dev
-```
-
-This does not delete production Supabase data or Daytona workspaces. Project and
-account deletion must still go through the application so its durable cleanup
-workflow can remove remote resources correctly.
-
-### Troubleshooting
-
-- **Node engine mismatch:** run `nvm install 24.18.0 && nvm use 24.18.0`, then
-  confirm `node --version` before retrying.
-- **Docker cannot connect:** start Docker Desktop or the Docker daemon and
-  confirm `docker info` succeeds.
-- **A required environment value is missing:** read the startup error, update
-  the named value in `.env.local`, and rerun `pnpm dev`. The runner also rejects
-  production Clerk keys, unsafe database targets, reused signing secrets, and
-  cloud-only credentials in the local file.
-- **Port already in use:** release ports `3001`, `8787`, and `9239`; the
-  supported Compose topology binds all three to loopback.
-- **A dependency changed but the image did not rebuild:** run
-  `docker compose --env-file .env.local build --no-cache app`, then
-  `pnpm dev`.
-- **The UI loads but an external feature fails:** confirm the relevant remote
-  service credential is populated and active. Supabase, Clerk, Daytona, Polar,
-  Composio, and provider APIs are not emulated by Compose.
-- **A provider webhook is being tested:** the provider must be configured to
-  reach the local webhooks Worker through a trusted public ingress, and its
-  signing secret must match `.env.local`. Loopback URLs cannot receive
-  internet-originated callbacks by themselves.
-
-### Verify the product
-
-Product QA is direct browser operation only:
-
-```bash
-agent-browser --auto-connect --session cheatcode-debug open http://localhost:3001
-agent-browser --auto-connect --session cheatcode-debug snapshot -i
-```
-
-Use the snapshot-ref workflow directly, re-snapshot after DOM changes, capture
-screenshots, inspect console and resource output, and review the running app
-logs. Do not add product-flow test scripts, browser wrappers, prompt drivers,
-temporary validators, or package aliases that simulate product QA. Typecheck,
-lint, and build are code-health gates, not product acceptance tests.
-
-## Code checks
-
-```bash
-pnpm skills:build
-pnpm typecheck
-pnpm lint
-pnpm build
-pnpm architecture:check
-pnpm deadcode
-```
-
-## Database migrations
-
-`scripts/migrate.ts` owns migration planning and execution. The repository keeps
-one current-schema baseline plus future forward migrations in the Drizzle
-journal; it does not retain the pre-launch migration archive.
-
-```bash
-pnpm db:migrate -- --dry-run
-pnpm db:migrate -- --apply
-```
-
-The migration command loads `.env.migrate` on an authorized operator
-workstation, validates the administrative connection target and pinned database
-identity before applying changes, and accepts protected process environment
-values in automation. Migration credentials are never loaded by the app or
-bound to a Worker. The runner verifies the exact source journal and final
-production contract through the same pinned administrative session.
-
-The three production Worker configs commit their dedicated Hyperdrive binding
-IDs. Infrastructure changes update those reviewed configs directly; there is no
-runtime or local helper that mutates production bindings.
-
-## Production deployment
-
-The required `static-checks` workflow classifies each change before allocating
-the heavier runners. It runs dependency-aware lint, typecheck, build,
-architecture, dead-code, workflow, and lockfile checks only for affected
-surfaces and their workspace dependents. Root build configuration changes still
-run the complete suite.
-
-Vercel's Git integration deploys `apps/web` from the repository. Its native
-monorepo dependency graph skips builds when neither the web app nor one of its
-declared workspace dependencies changed. Dispatch `Deploy Cloudflare` from
-`main` when a reviewed backend release should move to production:
-
-```bash
-gh workflow run deploy-cloudflare.yml --ref main
-```
-
-The job runs under the protected `Production` environment, rejects non-`main`
-dispatches before checkout, and requires a successful `Static Checks` push run
-for the exact release commit before installing dependencies or accessing
-deployment credentials.
-
-The workflow builds the four Workers once, binds the reviewed commit SHA into
-each deployment, and publishes agent, webhooks, preview proxy, then gateway.
-Gateway goes last so public traffic sees the new backend only after its service
-dependencies are available. The explicit workflow avoids a second, fallible
-change-detection layer at deploy time; ordinary CI and Vercel remain
-dependency-aware.
-
-Schema migrations, Worker deployment, and Vercel deployment are explicit
-operations. Verify Worker health and the production web revision whenever a
-release moves more than one surface.
-
-Publish a new immutable Daytona snapshot after changing
-`infra/containers/sandbox/` by dispatching the protected workflow from `main`:
+Before setup, publish an immutable Daytona snapshot from
+[`infra/containers/sandbox`](infra/containers/sandbox). The protected workflow
+used by the hosted project is `.github/workflows/build-snapshot.yml`:
 
 ```bash
 gh workflow run build-snapshot.yml --ref main -f confirmation=BUILD_SNAPSHOT
 ```
 
-Review the emitted immutable snapshot name and commit it in the agent Worker
-configuration. Production Daytona credentials and snapshot publication remain
-inside that workflow.
+If you operate a fork, configure that workflow's required Daytona credentials,
+or follow the container README to build the same sandbox image in your own
+Daytona environment. Enter the resulting immutable snapshot name in
+`DAYTONA_SANDBOX_SNAPSHOT`; setup will not inherit the hosted project's value.
 
-The repository contains only the active V2 implementation. The legacy V1 source
-tree was permanently removed on July 13, 2026 after explicit user authorization.
+Production deployments use Vercel for `apps/web` and Cloudflare for the four
+Workers. Review each app's `wrangler.jsonc`, `apps/web/vercel.json`, and the
+deployment workflows before changing that topology. Runtime provider keys are
+BYOK and must continue through `packages/byok`.
+
+## Development
+
+After setup, start or stop the stack with:
+
+```bash
+pnpm dev
+pnpm dev:down
+```
+
+The normal stop preserves the local Next and Wrangler caches. If either cache
+is corrupt, remove only the two cache volumes—there is no local database volume:
+
+```bash
+docker compose --env-file .env.local down --remove-orphans
+docker volume rm cheatcode-local_app-next cheatcode-local_app-wrangler
+pnpm dev
+```
+
+Do not use `docker compose down --volumes`: a broad volume reset obscures which
+state is disposable. Remote Supabase data and Daytona workspaces are never
+deleted by these commands.
+
+The complete verification chain is:
+
+```bash
+pnpm lint
+pnpm typecheck
+pnpm turbo build --force
+pnpm deadcode
+pnpm architecture:check
+pnpm turbo skills:build
+```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for workflow and verification-note
+expectations. Report security issues through [SECURITY.md](SECURITY.md), not a
+public issue.
+
+## License
+
+Repository-owned code is source-available under the
+[PolyForm Noncommercial License 1.0.0](LICENSE). Commercial use is not granted.
+The Cheatcode name, logos, specified first-party assets, and bundled third-party
+materials are excluded or separately governed as described in [NOTICE](NOTICE).

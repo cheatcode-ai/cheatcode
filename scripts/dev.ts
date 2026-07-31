@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { localWorkerConfigs, removeLocalWorkerConfigs } from "./dev-worker-config";
+import { parseEnvFile, validateLocalEnvironment } from "./local-env-contract";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const LOCAL_ENV_FILE = join(ROOT, ".env.local");
@@ -47,54 +48,10 @@ interface CommandSpec {
 
 type BooleanOption = "dryRun" | "skipInitialBuild" | "webOnly" | "workersOnly";
 
-const REQUIRED_WORKER_ENV = [
-  "CLERK_SECRET_KEY",
-  "DAYTONA_API_KEY",
-  "DAYTONA_API_URL",
-  "DAYTONA_SANDBOX_SNAPSHOT",
-  "DAYTONA_TARGET",
-  "DAYTONA_WORKSPACE_VOLUME",
-  "DAYTONA_WEBHOOK_SIGNING_SECRET",
-  "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
-  "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
-  "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
-  "PREVIEW_TOKEN_SECRET",
-  "SUPABASE_AGENT_DATABASE_URL",
-  "SUPABASE_GATEWAY_DATABASE_URL",
-  "SUPABASE_WEBHOOKS_DATABASE_URL",
-  "OUTPUT_DOWNLOAD_SIGNING_SECRET",
-] as const;
-
-const DISTINCT_LOCAL_SECRET_GROUPS = [
-  [
-    "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
-    "DATABASE_CONTEXT_SIGNING_SECRET_GATEWAY",
-    "DATABASE_CONTEXT_SIGNING_SECRET_WEBHOOKS",
-  ],
-  ["PREVIEW_TOKEN_SECRET", "OUTPUT_DOWNLOAD_SIGNING_SECRET"],
-] as const;
-
-const REQUIRED_WEB_ENV = [
-  "CLERK_SECRET_KEY",
-  "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
-  "NEXT_PUBLIC_GATEWAY_URL",
-] as const;
-
 const WEB_CHILD_ENV_KEYS = [
   "CLERK_SECRET_KEY",
   "NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY",
   "NEXT_PUBLIC_GATEWAY_URL",
-] as const;
-
-const FORBIDDEN_LOCAL_ENV = [
-  "ANTHROPIC_API_KEY",
-  "CLOUDFLARE_API_TOKEN",
-  "CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE",
-  "DATABASE_URL",
-  "GOOGLE_API_KEY",
-  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
-  "NEXT_PUBLIC_SUPABASE_URL",
-  "VERCEL_TOKEN",
 ] as const;
 
 const BOOLEAN_FLAGS: ReadonlyMap<string, BooleanOption> = new Map([
@@ -140,105 +97,11 @@ function readOptionValue(argv: string[], index: number, flag: string): string {
   return value;
 }
 
-function unquoteEnvValue(value: string): string {
-  const trimmed = value.trim();
-  if (trimmed.length < 2) {
-    return trimmed;
-  }
-  const quote = trimmed[0];
-  const last = trimmed.at(-1);
-  if ((quote !== '"' && quote !== "'") || quote !== last) {
-    return trimmed;
-  }
-  return trimmed.slice(1, -1);
-}
-
 function readEnvFileValues(filePath: string): Record<string, string> {
-  const values: Record<string, string> = {};
-  let content: string;
   try {
-    content = readFileSync(filePath, "utf8").replace(/^\uFEFF/, "");
+    return parseEnvFile(readFileSync(filePath, "utf8"));
   } catch {
-    throw new Error(`Missing ${relative(ROOT, filePath)}. Copy .env.example to .env.local.`);
-  }
-
-  for (const rawLine of content.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) {
-      continue;
-    }
-    const delimiterIndex = line.indexOf("=");
-    if (delimiterIndex === -1) {
-      continue;
-    }
-    const key = line.slice(0, delimiterIndex).trim();
-    if (/^[A-Z0-9_]+$/.test(key)) {
-      values[key] = unquoteEnvValue(line.slice(delimiterIndex + 1));
-    }
-  }
-  return values;
-}
-
-function validateLocalClerkSecrets(values: Record<string, string>): void {
-  const publishableKey = values["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY"];
-  const secretKey = values["CLERK_SECRET_KEY"];
-  if (publishableKey && !publishableKey.startsWith("pk_test_")) {
-    throw new Error(".env.local must use a Clerk pk_test_ publishable key.");
-  }
-  if (secretKey && !secretKey.startsWith("sk_test_")) {
-    throw new Error(".env.local must use a Clerk sk_test_ secret key.");
-  }
-}
-
-function validateDistinctLocalSecretGroups(values: Record<string, string>): void {
-  for (const names of DISTINCT_LOCAL_SECRET_GROUPS) {
-    const secrets = names.map((name) => values[name] ?? "");
-    if (secrets.some((secret) => new TextEncoder().encode(secret).byteLength < 32)) {
-      throw new Error(
-        `Local HMAC secrets must contain at least 32 UTF-8 bytes: ${names.join(", ")}.`,
-      );
-    }
-    if (new Set(secrets).size !== secrets.length) {
-      throw new Error(`Local HMAC secrets must be distinct: ${names.join(", ")}.`);
-    }
-  }
-}
-
-export function missingLocalEnvValues(
-  values: Record<string, string>,
-  required: readonly string[],
-): string[] {
-  return required.filter((key) => !values[key]);
-}
-
-function validateLocalEnv(values: Record<string, string>, options: DevOptions): void {
-  const forbidden = FORBIDDEN_LOCAL_ENV.filter((key) => values[key]);
-  if (forbidden.length > 0) {
-    throw new Error(`Remove cloud-only or unused values from .env.local: ${forbidden.join(", ")}.`);
-  }
-
-  validateLocalClerkSecrets(values);
-  const required = [
-    ...(options.workersOnly ? [] : REQUIRED_WEB_ENV),
-    ...(options.webOnly ? [] : REQUIRED_WORKER_ENV),
-  ];
-  const missing = missingLocalEnvValues(values, required);
-  if (missing.length > 0) {
-    throw new Error(`.env.local is missing required local values: ${missing.join(", ")}.`);
-  }
-  if (!options.webOnly) {
-    validateDistinctLocalSecretGroups(values);
-  }
-  if (!options.webOnly && values["POLAR_SERVER"] !== "sandbox") {
-    throw new Error(".env.local must set POLAR_SERVER=sandbox for local development.");
-  }
-  if (
-    !options.webOnly &&
-    values["DAYTONA_WORKSPACE_VOLUME"] !== "cheatcode-workspaces-development"
-  ) {
-    throw new Error(
-      ".env.local must set DAYTONA_WORKSPACE_VOLUME=cheatcode-workspaces-development.",
-    );
+    throw new Error(`Missing ${relative(ROOT, filePath)}. Run pnpm dev:setup.`);
   }
 }
 
@@ -473,7 +336,7 @@ function waitForChildren(children: ChildProcess[]): Promise<void> {
 async function main(): Promise<void> {
   const options = parseArgs(process.argv.slice(2));
   const values = readEnvFileValues(LOCAL_ENV_FILE);
-  validateLocalEnv(values, options);
+  validateLocalEnvironment(values, options);
   try {
     const commands = commandsFor(options, values);
     if (!options.skipInitialBuild) {

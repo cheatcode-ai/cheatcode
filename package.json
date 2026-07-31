@@ -25,6 +25,7 @@
     "dev": "docker compose --env-file .env.local up --build --watch --remove-orphans",
     "dev:down": "docker compose --env-file .env.local down --remove-orphans",
     "dev:services": "tsx scripts/dev.ts",
+    "dev:setup": "tsx scripts/setup.ts",
     "lint": "biome check --error-on-warnings .",
     "prepare": "lefthook install",
     "skills:build": "turbo skills:build",
@@ -33,6 +34,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",
+    "@clack/prompts": "catalog:",
     "@commitlint/cli": "catalog:",
     "@commitlint/config-conventional": "catalog:",
     "@types/node": "catalog:",
