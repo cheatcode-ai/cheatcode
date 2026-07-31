@@ -1,0 +1,33 @@
+Cheatcode Notices
+
+FIRST-PARTY EXCLUDED ASSETS
+===========================
+
+The following first-party assets are excluded from the repository license:
+
+- apps/web/public/cheatcode-symbol.png
+- apps/web/public/assets/cheatcode/**
+- apps/web/src/app/favicon.ico
+- the "Cheatcode" name and logo
+
+All rights reserved. No permission is granted to copy or redistribute these
+assets.
+
+THIRD-PARTY MATERIALS
+=====================
+
+The following third-party materials are not licensed by this repository:
+
+- apps/web/public/fonts/** (Lineto Circular)
+- skills/docx/**, skills/pdf/**, skills/pptx/**, and skills/xlsx/**, each
+  governed by its embedded LICENSE.txt
+- skills/_shared/office/**
+
+These materials remain governed by their respective owners' terms. This notice
+does not restate, alter, or replace those terms.
+
+Third-party provider names, logos, and marks are used only to identify
+compatible products and services. This nominative use does not imply
+affiliation, sponsorship, or endorsement by their respective owners.
+
+Commercial licensing: contact Cheatcode at https://trycheatcode.com.

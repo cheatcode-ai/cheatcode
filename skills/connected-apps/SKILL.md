@@ -3,7 +3,7 @@ name: connected-apps
 description: Uses the user's connected Gmail, GitHub, Notion, Google Workspace, Slack, and other supported accounts for explicit on-demand actions. Use when the user asks Cheatcode to read, search, create, or update something in a connected service.
 category: Builder & Apps
 tags: integrations, composio, oauth, connected apps
-license: MIT
+license: PolyForm-Noncommercial-1.0.0
 compatibility: Requires an account connected from the Cheatcode Skills screen and the Composio runtime tools.
 ---
 

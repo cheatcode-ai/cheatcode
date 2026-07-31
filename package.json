@@ -1,7 +1,8 @@
 {
   "name": "cheatcode",
   "private": true,
-  "description": "An open-source generalist AI agent platform built on Cloudflare.",
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "description": "A source-available generalist AI agent platform built on Cloudflare.",
   "homepage": "https://github.com/cheatcode-ai/cheatcode#readme",
   "bugs": {
     "url": "https://github.com/cheatcode-ai/cheatcode/issues"
