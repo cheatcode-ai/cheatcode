@@ -17,7 +17,6 @@ export class APIError extends Error {
     hint?: string;
     retriable?: boolean;
     details?: Record<string, unknown>;
-    doc_url?: string;
   };
 
   public constructor(
@@ -29,7 +28,6 @@ export class APIError extends Error {
       hint?: string;
       retriable?: boolean;
       details?: Record<string, unknown>;
-      doc_url?: string;
     } = {},
   ) {
     super(message, opts.cause === undefined ? undefined : { cause: opts.cause });
@@ -47,7 +45,6 @@ export class APIError extends Error {
           hint: this.opts.hint,
           retriable: this.retriable,
           request_id: requestId,
-          doc_url: this.opts.doc_url ?? `https://docs.trycheatcode.com/errors/${this.code}`,
           details: this.opts.details,
         },
       },
