@@ -106,7 +106,7 @@ async function setRolePassword(
   password: string,
 ): Promise<void> {
   const formatted = await client.query(
-    "select pg_catalog.format('ALTER ROLE %I WITH PASSWORD %L', $1, $2) as statement",
+    "select pg_catalog.format('ALTER ROLE %I WITH PASSWORD %L', $1::text, $2::text) as statement",
     [role, password],
   );
   const statement = requiredString(formatted.rows[0], "statement", `${role} password statement`);
