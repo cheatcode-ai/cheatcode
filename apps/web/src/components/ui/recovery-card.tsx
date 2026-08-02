@@ -1,7 +1,10 @@
 import Link from "next/link";
+import type { ReactNode } from "react";
 import type { LucideIcon } from "@/components/ui";
 import { Loader2, RefreshCw } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
+
+type RecoveryVisual = (props: { "aria-hidden": true; className: string }) => ReactNode;
 
 type RecoveryActionBase = {
   icon?: LucideIcon | undefined;
@@ -31,7 +34,7 @@ type RecoveryCardProps = {
   description: string;
   detail?: string | undefined;
   headingLevel?: 1 | 2 | 3 | undefined;
-  icon: LucideIcon;
+  icon: RecoveryVisual;
   size?: "compact" | "default" | undefined;
   title: string;
   variant?: "inline" | "stacked" | undefined;
@@ -42,7 +45,7 @@ type RecoveryContentProps = Pick<
   "action" | "description" | "detail" | "size" | "title"
 > & {
   headingTag: "h1" | "h2" | "h3";
-  icon: LucideIcon;
+  icon: RecoveryVisual;
 };
 
 /** Recovery surface for blocking failures and compact section-level failures. */
@@ -107,7 +110,7 @@ function InlineRecoveryContent({
     <div className="flex flex-col gap-3 px-4 py-3.5 min-[540px]:flex-row min-[540px]:items-center">
       <div className="flex min-w-0 flex-1 items-center gap-3.5">
         <span className="flex size-10 shrink-0 items-center justify-center rounded-[12px] bg-secondary text-fg-secondary ring-1 ring-border/50">
-          <Icon aria-hidden="true" className="size-[17px]" strokeWidth={1.7} />
+          <Icon aria-hidden className="size-[17px] [stroke-width:1.7]" />
         </span>
         <div className="min-w-0">
           <Heading className="font-semibold text-[13px] text-foreground leading-5">{title}</Heading>
@@ -141,7 +144,7 @@ function StackedRecoveryContent({
       )}
     >
       <span className="flex size-11 items-center justify-center rounded-[14px] bg-bg-secondary text-fg-secondary ring-1 ring-border/70">
-        <Icon aria-hidden="true" className="size-[18px]" strokeWidth={1.7} />
+        <Icon aria-hidden className="size-[18px] [stroke-width:1.7]" />
       </span>
       <Heading className="mt-4 font-semibold text-[14px] text-foreground leading-5">
         {title}
