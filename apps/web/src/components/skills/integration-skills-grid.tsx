@@ -3,8 +3,9 @@ import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types/api";
 import { IntegrationBrandLogo } from "@/components/skills/integration-brand-logo";
 import type { IntegrationDrawerHandlers } from "@/components/skills/integration-skill-drawer";
 import { UserSkillCard, type UserSkillsCatalog } from "@/components/skills/user-skills-section";
-import { Loader2, Sparkles } from "@/components/ui";
+import { Loader2 } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { cn } from "@/lib/ui/cn";
 
@@ -80,7 +81,7 @@ function InlineToolsError({ isRetrying, onRetry }: { isRetrying: boolean; onRetr
           pendingLabel: "Loading skills…",
         }}
         description="Cheatcode couldn't reach the skills catalog. Check your connection and try again."
-        icon={Sparkles}
+        icon={CheatcodeMark}
         size="compact"
         title="Skills couldn't load"
       />
@@ -156,7 +157,7 @@ function ToolsError({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () 
           pendingLabel: "Loading skills…",
         }}
         description="Cheatcode couldn't reach the skills catalog. Check your connection and try again."
-        icon={Sparkles}
+        icon={CheatcodeMark}
         size="compact"
         title="Skills couldn't load"
       />
