@@ -1,7 +1,7 @@
 "use client";
 
-import { Sparkles as SparklesIcon } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
+import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { createOnboardingStepProps, renderOnboardingStep } from "./onboarding-step-router";
 import { STEP_ORDER, useOnboardingFlow } from "./use-onboarding-flow";
@@ -52,7 +52,7 @@ function RetryCard({ isPending, onRetry }: { isPending: boolean; onRetry: () => 
         pendingLabel: "Finishing setup…",
       }}
       description="Your progress is saved. Try again to finish setting up your session."
-      icon={SparklesIcon}
+      icon={CheatcodeMark}
       title="Setup needs one more step"
     />
   );
@@ -69,7 +69,7 @@ function LoadErrorCard({ isPending, onRetry }: { isPending: boolean; onRetry: ()
       }}
       announce="assertive"
       description="Cheatcode couldn't reach your profile. Check your connection and try again."
-      icon={SparklesIcon}
+      icon={CheatcodeMark}
       title="Setup couldn't load"
     />
   );
