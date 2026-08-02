@@ -181,7 +181,15 @@ export async function validateIntegrityConstraints(client: PgClient): Promise<st
     CANONICAL_PROVIDER_KEY_CONSTRAINT,
   ]) {
     const row = result.rows.find((candidate) => candidate["conname"] === contract.name);
-    if (row && normalizedSqlDefinition(row["definition"]) !== contract.definition) {
+    // pg_get_constraintdef's AND-chain grouping changed between Postgres
+    // minors (17.4 prints left-associated parentheses, 17.6 flattens), so the
+    // comparison ignores parentheses. Operator, literal, and regex changes
+    // still surface, which is what this drift check exists to catch.
+    if (
+      row &&
+      parenInsensitiveSqlDefinition(row["definition"]) !==
+        parenInsensitiveSqlDefinition(contract.definition)
+    ) {
       issues.push(`Security check public.${contract.tableName}.${contract.name} has drifted.`);
     }
   }
@@ -260,4 +268,8 @@ function stringField(row: Record<string, unknown>, key: string): string | undefi
 
 function normalizedSqlDefinition(value: unknown): string {
   return typeof value === "string" ? value.replaceAll(/\s+/g, " ").trim() : "";
+}
+
+function parenInsensitiveSqlDefinition(value: unknown): string {
+  return normalizedSqlDefinition(value).replaceAll(/[()]/g, "").replaceAll(/\s+/g, " ").trim();
 }
