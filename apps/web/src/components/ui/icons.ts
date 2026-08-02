@@ -44,7 +44,6 @@ export {
   Search,
   SlidersHorizontal,
   Smartphone,
-  Sparkles,
   Square,
   SquareAsterisk,
   Star,
