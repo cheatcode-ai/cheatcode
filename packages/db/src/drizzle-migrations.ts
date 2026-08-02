@@ -42,6 +42,11 @@ async function applyDrizzleMigration(
 ): Promise<void> {
   await client.query("begin");
   try {
+    // Migration files share one session, and the pg_dump baseline empties the
+    // session search_path for correctness of its own qualified statements.
+    // Give every file a deterministic search_path scoped to its transaction so
+    // no file inherits another file's session mutations.
+    await client.query("set local search_path = public, pg_catalog");
     for (const statement of migration.statements) {
       if (statement.trim()) {
         await client.query(statement);
