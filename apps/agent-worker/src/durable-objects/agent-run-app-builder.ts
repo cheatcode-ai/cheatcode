@@ -587,6 +587,7 @@ async function startAppBuilderDevServer(
       cwd: workspace.dir,
       env: {
         CHEATCODE_APP_RUNTIME: "next",
+        CHEATCODE_NEXT_DIST_DIR: "../cache/next",
         CHOKIDAR_USEPOLLING: "true",
         WATCHPACK_POLLING: "1000",
       },

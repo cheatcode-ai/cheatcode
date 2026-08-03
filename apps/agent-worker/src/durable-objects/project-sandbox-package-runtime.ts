@@ -54,11 +54,13 @@ export function projectPackageEnvironment(
   if (!workspaceSlug) return requested;
   const modulesDir = projectLocalModulesDir(workspaceSlug);
   const requestedNodePath = requested?.["NODE_PATH"];
+  const requestedNextDistDir = requested?.["CHEATCODE_NEXT_DIST_DIR"];
   const preferredRuntime = requested?.["CHEATCODE_APP_RUNTIME"] === "expo" ? "expo" : "next";
   const fallbackRuntime = preferredRuntime === "expo" ? "next" : "expo";
   return {
     ...requested,
-    CHEATCODE_NEXT_DIST_DIR: `${projectLocalCacheDir(workspaceSlug)}/next`,
+    CHEATCODE_NEXT_DIST_DIR:
+      requestedNextDistDir ?? `../../home/node/.cheatcode/projects/${workspaceSlug}/cache/next`,
     NODE_PATH: [
       modulesDir,
       `${APP_RUNTIME_ROOT}/${preferredRuntime}/node_modules`,
