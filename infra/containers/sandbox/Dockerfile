@@ -2,7 +2,7 @@ FROM node:24.18.0-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd3
 
 ARG CODE_SERVER_VERSION=4.128.0
 ARG CODE_SERVER_SHA256=79ba26bf186e5268a22b7c17b30a5f288a16c37791f0b86c27859e8fef103188
-ARG DEBIAN_SNAPSHOT=20260722T000000Z
+ARG DEBIAN_SNAPSHOT=20260801T000000Z
 
 # Daytona injects its own daemon (host-mounted, PID 1) and overrides ENTRYPOINT,
 # so we do NOT bake a sandbox daemon. Headed Chromium uses Xvfb, which the
