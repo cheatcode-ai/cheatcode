@@ -7,6 +7,6 @@
     "node": "24.18.0"
   },
   "dependencies": {
-    "create-next-app": "16.2.11"
+    "create-next-app": "16.2.12"
   }
 }
