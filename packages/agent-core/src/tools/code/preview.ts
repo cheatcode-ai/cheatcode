@@ -5,7 +5,11 @@ import {
   type SandboxStartProcessInput,
 } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
+import {
+  remapProjectWorkspaceReferences,
+  resolveProjectWorkspacePath,
+  WorkspacePathSchema,
+} from "./workspace-paths";
 
 const StartDevServerInputSchema = z.strictObject({
   command: z.array(z.string().min(1).max(8_192)).min(1).max(128),
@@ -76,7 +80,10 @@ export async function prepareStartDevServer(
   const isExpo = isExpoStartCommand(parsedInput.command);
   const isMobile = isExpo || parsedInput.isMobile;
   const port = await allocateDevServerPort(runtimeContext, slug, isMobile);
-  const command = remapRequestedDevServerPort(parsedInput.command, parsedInput.port, port);
+  const workspaceCommand = parsedInput.command.map((argument) =>
+    remapProjectWorkspaceReferences(argument, runtimeContext.workspaceDir),
+  );
+  const command = remapRequestedDevServerPort(workspaceCommand, parsedInput.port, port);
   return {
     mayUseNetwork: isExpo,
     port,

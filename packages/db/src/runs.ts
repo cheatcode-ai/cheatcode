@@ -208,7 +208,7 @@ async function lockRunIdempotencyKey(db: Database, input: CreateAgentRunInput): 
 /** Materialize a project atomically when a workspace-backed tool first needs it. */
 export async function materializeThreadProject(
   db: Database,
-  input: { threadId: ThreadId; userId: UserId },
+  input: { projectMode?: ProjectMode; threadId: ThreadId; userId: UserId },
   resolveMaxActiveProjects: (entitlement: AgentEntitlementRecord | null) => number,
 ): Promise<MaterializeThreadProjectResult> {
   return db.transaction(async (tx) => {
@@ -226,7 +226,7 @@ export async function materializeThreadProject(
 
 async function materializeThreadProjectInLockedTx(
   db: Database,
-  input: { threadId: ThreadId; userId: UserId },
+  input: { projectMode?: ProjectMode; threadId: ThreadId; userId: UserId },
   maxActiveProjects: number,
 ): Promise<MaterializeThreadProjectResult> {
   const [locked] = await db
@@ -267,7 +267,7 @@ async function materializeThreadProjectInLockedTx(
   }
   const intent: ThreadLaunchIntent = locked.launchIntent ?? {};
   const project = await createProject(db, {
-    mode: intent.mode ?? "general",
+    mode: input.projectMode ?? intent.mode ?? "general",
     name: projectNameFromTitle(locked.title),
     userId: input.userId,
     ...(intent.defaultModel ? { defaultModel: intent.defaultModel } : {}),

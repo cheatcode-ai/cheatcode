@@ -33,7 +33,7 @@ export const GitHubRepoUrlSchema = z
 const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
 export const ProjectModeSchema = z.enum(PROJECT_MODES);
 
-/** Explicit one-run product modes. These are UI intent, never inferred from prompt text. */
+/** Product modes selected by UI intent or a high-confidence first-run build imperative. */
 const RUN_INTENTS = ["skill-creator"] as const;
 export const RunIntentSchema = z.enum(RUN_INTENTS);
 

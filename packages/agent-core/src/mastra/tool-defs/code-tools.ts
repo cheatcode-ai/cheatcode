@@ -42,6 +42,7 @@ import {
   WriteFileInputSchema,
   WriteFileOutputSchema,
 } from "../../tools/code";
+import { containsWorkspaceReference } from "../../tools/code/workspace-paths";
 import { codeRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 import { StartDevServerInputSchema, StartDevServerOutputSchema } from "./tool-schemas";
 
@@ -52,8 +53,12 @@ export const mastraRunCode = createTool({
   inputSchema: RunCodeInputSchema,
   outputSchema: RunCodeOutputSchema,
   execute: async (input, context) => {
-    const runtimeContext = codeRuntimeFromContext(context);
     const parsedInput = RunCodeInputSchema.parse(input);
+    const baseRuntime = codeRuntimeFromContext(context);
+    const runtimeContext =
+      baseRuntime.workspaceDir || containsWorkspaceReference(parsedInput.code)
+        ? await workspaceRuntimeFromContext(context)
+        : baseRuntime;
     const output = await executeRunCode(parsedInput, runtimeContext);
     return RunCodeOutputSchema.parse(output);
   },
@@ -69,9 +74,11 @@ export const mastraShellExec = createTool({
     const parsedInput = ShellExecInputSchema.parse(input);
     const baseRuntime = codeRuntimeFromContext(context);
     const runtimeContext =
-      baseRuntime.workspaceDir || parsedInput.cwd
+      baseRuntime.workspaceDir ||
+      parsedInput.cwd ||
+      parsedInput.command.some(containsWorkspaceReference)
         ? await workspaceRuntimeFromContext(context)
-        : { ...baseRuntime, workspaceDir: "/workspace" };
+        : baseRuntime;
     return executeShellExec(parsedInput, runtimeContext);
   },
 });

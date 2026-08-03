@@ -77,6 +77,9 @@ async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
       materializeThreadProject(
         tx,
         {
+          ...(input.input.projectMode === "general"
+            ? {}
+            : { projectMode: input.input.projectMode }),
           threadId: toThreadId(input.input.threadId),
           userId,
         },

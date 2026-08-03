@@ -36,7 +36,10 @@ project's allocated port when necessary, and is distinct from generic background
 process tools so idle recovery always has a canonical process record.
 Browser-only runs use the account sandbox without materializing a persistent project;
 workspace-backed file, shell, document, chart, or artifact work resolves the thread's
-project lazily when durable project storage is actually needed.
+project lazily when durable project storage is actually needed. Code tools expose `/workspace`
+as a virtual project root and remap path references inside argv, shell payloads, and inline code
+to the canonical project folder. Projectless calculations and environment probes run from `/tmp`,
+so a weaker model cannot accidentally leave durable files outside a project.
 
 ## Code Checks
 

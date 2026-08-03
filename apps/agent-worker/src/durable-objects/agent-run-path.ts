@@ -33,7 +33,9 @@ type ProjectBoundAgentRunPathOptions = AgentRunPathOptions & {
 export async function executeAgentRunPath(
   options: AgentRunPathOptions,
 ): Promise<"completed" | "continue"> {
-  if (isAppBuilderMode(options.input.projectMode)) {
+  const appBuilderMode = appBuilderModeForRun(options.input);
+  if (appBuilderMode) {
+    options.input.projectMode = appBuilderMode;
     await options.workspaceResolver();
     return executeAppBuilderPath({
       ...options,
@@ -92,6 +94,27 @@ function requireProjectBinding(input: StartRunInput): ProjectBoundStartRunInput 
   return input as ProjectBoundStartRunInput;
 }
 
-function isAppBuilderMode(mode: StartRunInput["projectMode"]): boolean {
+function isAppBuilderMode(
+  mode: StartRunInput["projectMode"],
+): mode is "app-builder" | "app-builder-mobile" {
   return mode === "app-builder" || mode === "app-builder-mobile";
+}
+
+const IMPERATIVE_BUILD_PATTERN =
+  /^(?:please\s+)?(?:(?:can|could|would)\s+you\s+)?(?:build|create|make|design|develop|implement|code|scaffold|redesign|clone)\b/iu;
+const MOBILE_APP_PATTERN = /\b(?:mobile app|expo|react native|ios app|android app|iphone app)\b/iu;
+const WEB_APP_PATTERN =
+  /\b(?:web ?app|website|web ?site|landing ?page|home ?page|web ?page|dashboard|next\.?js|frontend|front-end|saas)\b/iu;
+
+function appBuilderModeForRun(input: StartRunInput): "app-builder" | "app-builder-mobile" | null {
+  if (isAppBuilderMode(input.projectMode)) {
+    return input.projectMode;
+  }
+  if (!input.isFirstRun || input.projectId || !IMPERATIVE_BUILD_PATTERN.test(input.messageText)) {
+    return null;
+  }
+  if (MOBILE_APP_PATTERN.test(input.messageText)) {
+    return "app-builder-mobile";
+  }
+  return WEB_APP_PATTERN.test(input.messageText) ? "app-builder" : null;
 }

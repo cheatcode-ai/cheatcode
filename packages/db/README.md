@@ -93,7 +93,8 @@ Public exports include:
 - BYOK and integration helpers
 - entitlement and usage helpers
 - caller-configured user-skill list primitives plus locked count/insert/update composition
-- entitlement-read/project-lock composition for billing-owned lazy-materialization limits
+- entitlement-read/project-lock composition for billing-owned lazy-materialization limits and
+  the run's resolved project mode
 - lifecycle job discovery, claim, renewal, progression, and completion helpers
 - locked refund-intent reads/writes that execute caller-owned transition policy in-transaction
 - audit and maintenance helpers
