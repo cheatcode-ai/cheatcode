@@ -110,7 +110,7 @@ function appBuilderModeForRun(input: StartRunInput): "app-builder" | "app-builde
   if (isAppBuilderMode(input.projectMode)) {
     return input.projectMode;
   }
-  if (!input.isFirstRun || input.projectId || !IMPERATIVE_BUILD_PATTERN.test(input.messageText)) {
+  if (input.projectId || !IMPERATIVE_BUILD_PATTERN.test(input.messageText)) {
     return null;
   }
   if (MOBILE_APP_PATTERN.test(input.messageText)) {

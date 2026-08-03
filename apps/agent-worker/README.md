@@ -109,7 +109,7 @@ answer segmentation. The Workflow controller owns admission, execution identity,
 at-most-once fence, and ownership leases. The shell retains only Durable Object identity,
 cancellation, status, and dependency wiring.
 
-An explicit app-builder mode remains authoritative. On a projectless first run, a narrowly
+An explicit app-builder mode remains authoritative. In a projectless chat, a narrowly
 matched imperative such as “build a website” or “create a mobile app” also enters the matching
 app-builder path before model execution. That high-confidence fallback materializes the project,
 scaffolds its canonical workspace, and registers the managed preview even when the selected model
