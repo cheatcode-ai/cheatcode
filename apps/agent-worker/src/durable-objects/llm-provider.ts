@@ -200,7 +200,7 @@ async function resolveProviderKey(
 
 /**
  * Transport rule: (a) the user's direct provider key
- * always wins. The platform DeepSeek key then serves the `deepseek-v4-flash` SKU —
+ * always wins. The platform DeepSeek key then serves the `deepseek-v4-pro` SKU —
  * before OpenRouter when the user explicitly picked it, or after OpenRouter as the last
  * resort for an Auto/implicit run with no usable key. (c) Otherwise a non-OpenRouter
  * selection routes through OpenRouter when a key is present. Runs inside the caller's
@@ -219,12 +219,12 @@ async function resolveTransportKey(
     return transportCredential(directKey, logicalModelId, selection);
   }
 
-  const wantsPlatformFlash =
+  const wantsPlatformPro =
     selection.provider === "deepseek" && selection.modelId === DEFAULT_DEEPSEEK_MODEL_ID;
   const platformKey = allowedPlatformKey(platformFallback);
 
   // (b) Explicit platform-model pick → platform key before OpenRouter.
-  if (wantsPlatformFlash && platformKey) {
+  if (wantsPlatformPro && platformKey) {
     return platformTransport(platformKey);
   }
 

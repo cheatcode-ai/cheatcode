@@ -84,7 +84,7 @@ export async function scaffoldExpoApp(
   logger: AgentRunLogger,
   dir: string,
 ): Promise<void> {
-  // Copy the template CONTENTS (`src/.` → `dst/`), never `cp -a src dst`: the latter nests as
+  // Copy the template CONTENTS (`src/.` → `dst/`), never `cp -R src dst`: the latter nests as
   // `dst/cheatcode-expo-template/` when `dst` already exists (the run-start `mkdir -p` of the
   // workspace dir can win the race), silently yielding a project with no package.json at its root.
   // `test -f` verifies the baked, lockfile-backed layout. A missing template means the immutable
@@ -102,7 +102,7 @@ export async function scaffoldAppBuilder(
   logger: AgentRunLogger,
   dir: string,
 ): Promise<void> {
-  // Copy template CONTENTS into the project dir (see scaffoldExpoApp): `cp -a src dst` nests as
+  // Copy template CONTENTS into the project dir (see scaffoldExpoApp): `cp -R src dst` nests as
   // `dst/cheatcode-next-template/` when `dst` already exists, leaving no package.json at the root.
   if (await copyTemplateContents(sandbox, NEXT_TEMPLATE_DIR, dir)) {
     logger.info("sandbox_next_template_copied", { targetDir: dir });
@@ -216,9 +216,12 @@ export async function ensureExpoWebSupport(
 }
 
 // Populate `dir` with the CONTENTS of a baked template (`src/.` copies dotfiles too), then verify a
-// package.json landed at the root. Returns false instead of throwing so callers fall back to a
-// generator only on a genuine failure. `dir` is a filesystem-safe /workspace/<slug> path (no shell
-// metacharacters), so the interpolation is safe; the whole script is shell-quoted by the exec layer.
+// package.json landed at the root. `/workspace` is Daytona's object-store FUSE mount: recursive copy
+// is intentional because archive mode tries to preserve ownership, modes, and timestamps that the
+// mount does not support, making a tiny source-only scaffold hang until its timeout. Immutable
+// dependencies remain on the snapshot-local filesystem. `dir` is a filesystem-safe
+// /workspace/<slug> path (no shell metacharacters), so interpolation is safe; the whole script is
+// shell-quoted by the exec layer.
 async function copyTemplateContents(
   sandbox: ProjectSandboxStub,
   templateDir: string,
@@ -226,9 +229,9 @@ async function copyTemplateContents(
 ): Promise<boolean> {
   const copied = await executeShellTerminal(
     {
-      command: `mkdir -p ${dir} && cp -a ${templateDir}/. ${dir}/ && test -f ${dir}/package.json`,
+      command: `mkdir -p ${dir} && cp -R -- ${templateDir}/. ${dir}/ && test -f ${dir}/package.json`,
       cwd: "/workspace",
-      timeoutMs: 30_000,
+      timeoutMs: 60_000,
     },
     { sandbox },
   );

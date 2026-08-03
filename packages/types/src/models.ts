@@ -21,7 +21,7 @@ function logicalModelId<const Value extends string>(value: Value): Value & Logic
 const RAW_CATALOG_MODEL_IDS = {
   claudeOpus: "anthropic/claude-opus-4-8",
   claudeSonnet: "anthropic/claude-sonnet-4-6",
-  deepseekFlash: "deepseek/deepseek-v4-flash",
+  deepseekPro: "deepseek/deepseek-v4-pro",
   gptMini: "openai/gpt-5.4-mini",
   gptThinking: "openai/gpt-5.4-thinking",
 } as const;
@@ -31,14 +31,14 @@ const RAW_CATALOG_MODEL_ID_VALUES = [
   RAW_CATALOG_MODEL_IDS.claudeOpus,
   RAW_CATALOG_MODEL_IDS.gptThinking,
   RAW_CATALOG_MODEL_IDS.gptMini,
-  RAW_CATALOG_MODEL_IDS.deepseekFlash,
+  RAW_CATALOG_MODEL_IDS.deepseekPro,
 ] as const;
 
 /**
  * The single source of truth for the agent model catalog shown in the picker.
  *
  * Curated to the live Models list: Claude Sonnet 4.6, Claude Opus 4.8,
- * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 model. Gemini 2.5
+ * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 Pro model. Gemini 2.5
  * Flash and the standalone OpenRouter-Auto row stay reachable as provider-prefixed
  * request ids routed through OpenRouter, but are not drawn in the picker.
  *
@@ -71,8 +71,8 @@ export const AGENT_MODEL_CATALOG = [
     description: "Fast fallback model for lower-cost utility runs.",
   },
   {
-    id: logicalModelId(RAW_CATALOG_MODEL_IDS.deepseekFlash),
-    label: "DeepSeek V4",
+    id: logicalModelId(RAW_CATALOG_MODEL_IDS.deepseekPro),
+    label: "DeepSeek V4 Pro",
     provider: "deepseek",
     description: "Included by Cheatcode with no provider key required.",
   },
@@ -92,7 +92,7 @@ export const FALLBACK_MODEL_ID = logicalModelId(
  * without a provider key and the only model served by Cheatcode's DeepSeek key.
  */
 export const INCLUDED_DEEPSEEK_MODEL_ID = logicalModelId(
-  RAW_CATALOG_MODEL_IDS.deepseekFlash,
+  RAW_CATALOG_MODEL_IDS.deepseekPro,
 ) satisfies CatalogModelId;
 
 /** Validate against raw literals first; Zod enums cannot retain branded string tuples. */
