@@ -21,10 +21,10 @@ import {
   writeAppBuilderFiles,
   writeExpoRuntimeFiles,
 } from "./agent-run-app-builder-scaffold";
+import { localNextPreviewCommand } from "./app-builder-local-preview";
 import {
   EXPO_RUNTIME_BIN,
   EXPO_TEMPLATE_DIR,
-  NEXT_RUNTIME_BIN,
   NEXT_TEMPLATE_DIR,
   projectLocalCacheDir,
   projectLocalModulesDir,
@@ -579,15 +579,11 @@ async function startAppBuilderDevServer(
 ): Promise<void> {
   await executeStartDevServer(
     {
-      command: [
-        NEXT_RUNTIME_BIN,
-        "dev",
-        "--webpack",
-        "--hostname",
-        "0.0.0.0",
-        "--port",
-        String(workspace.port),
-      ],
+      command: localNextPreviewCommand({
+        port: workspace.port,
+        sourceDir: workspace.dir,
+        workspaceSlug: workspace.slug,
+      }),
       cwd: workspace.dir,
       env: {
         CHEATCODE_APP_RUNTIME: "next",

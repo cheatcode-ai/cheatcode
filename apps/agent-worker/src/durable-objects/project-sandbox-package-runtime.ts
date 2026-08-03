@@ -19,6 +19,10 @@ export function projectLocalModulesDir(workspaceSlug: string): string {
   return `${projectLocalRuntimeDir(workspaceSlug)}/node_modules`;
 }
 
+export function projectLocalSourceDir(workspaceSlug: string): string {
+  return `${projectLocalRuntimeDir(workspaceSlug)}/source`;
+}
+
 export function projectLocalCacheDir(workspaceSlug: string): string {
   return `${projectLocalRuntimeDir(workspaceSlug)}/cache`;
 }
@@ -54,7 +58,7 @@ export function projectPackageEnvironment(
   const fallbackRuntime = preferredRuntime === "expo" ? "next" : "expo";
   return {
     ...requested,
-    CHEATCODE_NEXT_DIST_DIR: `../../home/node/.cheatcode/projects/${workspaceSlug}/cache/next`,
+    CHEATCODE_NEXT_DIST_DIR: `${projectLocalCacheDir(workspaceSlug)}/next`,
     NODE_PATH: [
       modulesDir,
       `${APP_RUNTIME_ROOT}/${preferredRuntime}/node_modules`,
