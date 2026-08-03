@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { parseWebBuildEnvironment, WEB_APPLICATION_ENV_KEYS } from "@cheatcode/env/web-config";
 import type { NextConfig } from "next";
+import { INTEGRATION_LOGO_ORIGIN } from "./src/lib/integration-logo";
 
 const REPOSITORY_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 const { loadEnvConfig } = createRequire(import.meta.url)("@next/env") as typeof import("@next/env");
@@ -50,7 +51,7 @@ const CONTENT_SECURITY_POLICY = [
   "frame-ancestors 'none'",
   `script-src 'self' 'unsafe-inline' ${CLERK_FRONTEND_ORIGIN} https://challenges.cloudflare.com`,
   "style-src 'self' 'unsafe-inline'",
-  "img-src 'self' data: blob: https://img.clerk.com",
+  `img-src 'self' data: blob: https://img.clerk.com ${INTEGRATION_LOGO_ORIGIN}`,
   "font-src 'self' data:",
   "media-src 'self' data: blob:",
   `connect-src 'self' ${GATEWAY_ORIGIN} ${PREVIEW_HTTPS_ORIGIN} ${PREVIEW_WSS_ORIGIN} ${CLERK_FRONTEND_ORIGIN} ${CLERK_WEBSOCKET_ORIGIN}`,
@@ -87,7 +88,6 @@ const nextConfig = {
   images: {
     qualities: [75],
     minimumCacheTTL: 14_400,
-    remotePatterns: [{ hostname: "logos.composio.dev", protocol: "https" }],
   },
 } satisfies NextConfig;
 

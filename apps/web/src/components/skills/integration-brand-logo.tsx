@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useState } from "react";
+import { integrationLogoUrl } from "@/lib/integration-logo";
 import { cn } from "@/lib/ui/cn";
 
 const DARK_INVERT_LOGOS = new Set(["dub", "github", "notion"]);
@@ -36,7 +37,7 @@ export function IntegrationBrandLogo({
           height={size === "menu" ? 16 : 20}
           loading="eager"
           onError={() => setHasFailed(true)}
-          src={`https://logos.composio.dev/api/${slug}`}
+          src={integrationLogoUrl(slug)}
           unoptimized
           width={size === "menu" ? 16 : 20}
         />
