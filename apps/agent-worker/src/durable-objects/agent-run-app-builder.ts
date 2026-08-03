@@ -13,12 +13,23 @@ import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import type { ProjectMode } from "@cheatcode/types/api";
 import type { UIMessageChunk } from "ai";
 import {
+  ensureAppBuilderRuntime,
   ensureExpoWebSupport,
   installAppBuilderDependencies,
   scaffoldAppBuilder,
   scaffoldExpoApp,
   writeAppBuilderFiles,
+  writeExpoRuntimeFiles,
 } from "./agent-run-app-builder-scaffold";
+import {
+  EXPO_RUNTIME_BIN,
+  EXPO_TEMPLATE_DIR,
+  NEXT_RUNTIME_BIN,
+  NEXT_TEMPLATE_DIR,
+  projectLocalCacheDir,
+  projectLocalModulesDir,
+  projectLocalRuntimeDir,
+} from "./project-sandbox-package-runtime";
 
 export type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 export type AgentRunLogger = ReturnType<typeof createLogger>;
@@ -182,7 +193,7 @@ function templateContextNote(workspace: AppBuilderWorkspace): string {
   const mobile = workspace.mobile
     ? " For this mobile build, that internal address renders the react-native-web preview."
     : "";
-  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir}, and its managed dev server is running internally at http://localhost:${workspace.port}. Build the user's app by editing files under ${workspace.dir}; it hot-reloads on save. Verify it with the sandbox's headed browser at that internal localhost address.${mobile} Never request or paste an external preview or Expo URL.`;
+  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir}, and its managed dev server is running internally at http://localhost:${workspace.port}. Build the user's app by editing files under ${workspace.dir}; it hot-reloads on save. Use pnpm for dependency changes. Verify it with the sandbox's headed browser at that internal localhost address.${mobile} Never request or paste an external preview or Expo URL.`;
 }
 
 async function prepareTemplateWorkspace(
@@ -191,9 +202,10 @@ async function prepareTemplateWorkspace(
   const { input, logger, sandbox, setRunStage, shouldBootstrap, workspace } = options;
   const mobile = workspace.mobile;
   setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
+  await ensureAppBuilderRuntime(sandbox, mobile);
   if (!shouldBootstrap) {
     setRunStage("Restoring the app workspace.");
-    if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace.dir, mobile))) {
+    if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace))) {
       await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     }
     if (mobile) {
@@ -205,10 +217,10 @@ async function prepareTemplateWorkspace(
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
     await scaffoldExpoApp(sandbox, logger, workspace.dir);
+    await writeExpoRuntimeFiles(sandbox, workspace.dir, workspace.slug);
   } else {
     await scaffoldAppBuilder(sandbox, logger, workspace.dir);
   }
-  await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
     await ensureExpoWebSupport(sandbox, workspace.dir);
@@ -403,10 +415,7 @@ async function installImportedDependencies(
   if (!(await pathExists(sandbox, `${dir}/package.json`))) {
     return false;
   }
-  const usesNpm = await pathExists(sandbox, `${dir}/package-lock.json`);
-  const command = usesNpm
-    ? ["npm", "install", "--no-audit", "--no-fund"]
-    : ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"];
+  const command = ["pnpm", "install", "--prefer-offline", "--network-concurrency", "4"];
   try {
     await executeShellExec({ command, cwd: dir, timeoutMs: 300_000 }, { sandbox });
     return true;
@@ -473,7 +482,7 @@ function parseGitHubRepo(url: string): GitHubRepoRef | null {
 function importedContextNote(workspace: AppBuilderWorkspace, repoUrl?: string): string {
   const origin = repoUrl ? ` from ${repoUrl}` : "";
   const mobilePort = DEFAULT_MOBILE_PORT;
-  return `[context] This project was imported${origin} into ${workspace.dir}. Inspect it, complete any setup, and start the dev server on port ${workspace.port} with code_start_dev_server (Expo on ${mobilePort} for mobile).`;
+  return `[context] This project was imported${origin} into ${workspace.dir}. Inspect it, use pnpm for dependency changes, complete any setup, and start the dev server on port ${workspace.port} with code_start_dev_server (Expo on ${mobilePort} for mobile).`;
 }
 
 function repoImportError(message: string): APIError {
@@ -517,9 +526,7 @@ async function startExpoDevServer(
       // independent among the other flags): harmless on the initial boot, and what
       // makes the post-edit restart (restartMobilePreview) re-crawl from a clean slate.
       command: [
-        "pnpm",
-        "exec",
-        "expo",
+        EXPO_RUNTIME_BIN,
         "start",
         "-c",
         "--web",
@@ -530,6 +537,7 @@ async function startExpoDevServer(
       ],
       cwd: workspace.dir,
       env: {
+        CHEATCODE_APP_RUNTIME: "expo",
         CI: "1",
         EXPO_NO_TELEMETRY: "1",
         ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
@@ -572,9 +580,7 @@ async function startAppBuilderDevServer(
   await executeStartDevServer(
     {
       command: [
-        "pnpm",
-        "exec",
-        "next",
+        NEXT_RUNTIME_BIN,
         "dev",
         "--webpack",
         "--hostname",
@@ -584,6 +590,7 @@ async function startAppBuilderDevServer(
       ],
       cwd: workspace.dir,
       env: {
+        CHEATCODE_APP_RUNTIME: "next",
         CHOKIDAR_USEPOLLING: "true",
         WATCHPACK_POLLING: "1000",
       },
@@ -616,20 +623,29 @@ async function hasExistingAppBuilderWorkspace(
 
 async function hasInstalledAppBuilderDependencies(
   sandbox: ProjectSandboxStub,
-  dir: string,
-  mobile: boolean,
+  workspace: AppBuilderWorkspace,
 ): Promise<boolean> {
-  const requiredPaths = mobile
+  const templateDir = workspace.mobile ? EXPO_TEMPLATE_DIR : NEXT_TEMPLATE_DIR;
+  const modulesDir = projectLocalModulesDir(workspace.slug);
+  const requiredPaths = workspace.mobile
     ? [
-        "node_modules/.pnpm",
-        "node_modules/@expo/metro-runtime",
-        "node_modules/react-dom",
-        "node_modules/react-native-web",
+        `${modulesDir}/.pnpm`,
+        `${modulesDir}/@expo/metro-runtime`,
+        `${modulesDir}/react-dom`,
+        `${modulesDir}/react-native-web`,
       ]
-    : ["node_modules/.pnpm", "node_modules/next", "node_modules/react", "node_modules/react-dom"];
+    : [
+        `${modulesDir}/.pnpm`,
+        `${modulesDir}/next`,
+        `${modulesDir}/react`,
+        `${modulesDir}/react-dom`,
+      ];
   const result = await executeShellTerminal(
     {
-      command: requiredPaths.map((path) => `test -d ${dir}/${path}`).join(" && "),
+      command:
+        `(cmp -s ${workspace.dir}/package.json ${templateDir}/package.json && ` +
+        `cmp -s ${workspace.dir}/pnpm-lock.yaml ${templateDir}/pnpm-lock.yaml) || ` +
+        `(${requiredPaths.map((path) => `test -d ${path}`).join(" && ")})`,
       cwd: "/workspace",
       timeoutMs: 10_000,
     },
@@ -642,6 +658,15 @@ async function resetTemplateAppBuilderDirectory(
   sandbox: ProjectSandboxStub,
   dir: string,
 ): Promise<void> {
+  const workspaceSlug = dir.slice(dir.lastIndexOf("/") + 1);
+  await executeShellExec(
+    {
+      command: ["rm", "-rf", projectLocalRuntimeDir(workspaceSlug)],
+      cwd: "/workspace",
+      timeoutMs: 30_000,
+    },
+    { sandbox },
+  );
   await executeShellExec(
     {
       command: [
@@ -673,10 +698,11 @@ async function clearBuildCache(
   dir: string,
   mobile: boolean,
 ): Promise<void> {
-  const cacheDir = mobile ? ".expo" : ".next";
+  const workspaceSlug = dir.slice(dir.lastIndexOf("/") + 1);
+  const cacheDir = mobile ? `${dir}/.expo` : `${projectLocalCacheDir(workspaceSlug)}/next`;
   await executeShellExec(
     {
-      command: ["rm", "-rf", `${dir}/${cacheDir}`],
+      command: ["rm", "-rf", cacheDir],
       cwd: "/workspace",
       timeoutMs: 120_000,
     },

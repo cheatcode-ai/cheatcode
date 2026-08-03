@@ -9,14 +9,23 @@ import {
   appBuilderGlobalStylesSource,
   appBuilderLayoutSource,
   appBuilderPageSource,
+  appBuilderTypeScriptConfigSource,
+  expoTypeScriptConfigSource,
 } from "./app-builder-template";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
+import {
+  EXPO_RUNTIME_BIN,
+  EXPO_TEMPLATE_DIR,
+  NEXT_RUNTIME_BIN,
+  NEXT_TEMPLATE_DIR,
+} from "./project-sandbox-package-runtime";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 type AgentRunLogger = ReturnType<typeof createLogger>;
 
 interface AppBuilderSeedInput {
   messageText: string;
+  workspaceSlug: string;
 }
 
 export function writeAppBuilderFiles(
@@ -46,7 +55,28 @@ export function writeAppBuilderFiles(
       },
       { sandbox },
     ),
+    executeWriteFile(
+      {
+        path: `${dir}/tsconfig.json`,
+        content: appBuilderTypeScriptConfigSource(input.workspaceSlug),
+      },
+      { sandbox },
+    ),
   ]).then(() => undefined);
+}
+
+export function writeExpoRuntimeFiles(
+  sandbox: ProjectSandboxStub,
+  dir: string,
+  workspaceSlug: string,
+): Promise<void> {
+  return executeWriteFile(
+    {
+      path: `${dir}/tsconfig.json`,
+      content: expoTypeScriptConfigSource(workspaceSlug),
+    },
+    { sandbox },
+  ).then(() => undefined);
 }
 
 export async function scaffoldExpoApp(
@@ -59,7 +89,7 @@ export async function scaffoldExpoApp(
   // workspace dir can win the race), silently yielding a project with no package.json at its root.
   // `test -f` verifies the baked, lockfile-backed layout. A missing template means the immutable
   // snapshot is corrupt and must fail explicitly instead of fetching a mutable generator output.
-  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-expo-template", dir)) {
+  if (await copyTemplateContents(sandbox, EXPO_TEMPLATE_DIR, dir)) {
     logger.info("sandbox_expo_template_copied", { targetDir: dir });
     return;
   }
@@ -74,7 +104,7 @@ export async function scaffoldAppBuilder(
 ): Promise<void> {
   // Copy template CONTENTS into the project dir (see scaffoldExpoApp): `cp -a src dst` nests as
   // `dst/cheatcode-next-template/` when `dst` already exists, leaving no package.json at the root.
-  if (await copyTemplateContents(sandbox, "/home/node/cheatcode-next-template", dir)) {
+  if (await copyTemplateContents(sandbox, NEXT_TEMPLATE_DIR, dir)) {
     logger.info("sandbox_next_template_copied", { targetDir: dir });
     return;
   }
@@ -121,6 +151,23 @@ export async function installAppBuilderDependencies(
   );
 }
 
+export async function ensureAppBuilderRuntime(
+  sandbox: ProjectSandboxStub,
+  mobile: boolean,
+): Promise<void> {
+  const runtimeBin = mobile ? EXPO_RUNTIME_BIN : NEXT_RUNTIME_BIN;
+  const checked = await executeShellTerminal(
+    {
+      command: `test -x ${runtimeBin}`,
+      cwd: "/workspace",
+      timeoutMs: 10_000,
+    },
+    { sandbox },
+  );
+  if (checked.success) return;
+  throw missingBakedRuntimeError(mobile ? "Expo" : "Next.js");
+}
+
 // Expo web (react-native-web) is what makes `expo start --web` render a real page in
 // the Computer panel iframe. The default template ships react-dom + react-native-web
 // but NOT @expo/metro-runtime, and the Metro web bundler must be selected — so ensure
@@ -130,25 +177,22 @@ export async function ensureExpoWebSupport(
   sandbox: ProjectSandboxStub,
   dir: string,
 ): Promise<void> {
-  const alreadyInstalled = await executeShellTerminal(
-    {
-      command:
-        "test -d node_modules/react-native-web && test -d node_modules/react-dom && test -d node_modules/@expo/metro-runtime",
-      cwd: dir,
-      timeoutMs: 10_000,
-    },
-    { sandbox },
-  );
-  if (!alreadyInstalled.success) {
-    throw new APIError(
-      503,
-      "service_maintenance_unavailable",
-      "Expo web dependencies are unavailable",
+  try {
+    await executeShellExec(
       {
-        hint: "Rebuild the pinned Daytona snapshot and its offline Expo package store.",
-        retriable: false,
+        command: [
+          "node",
+          "-e",
+          'for(const name of ["react-native-web","react-dom","@expo/metro-runtime"])require.resolve(name)',
+        ],
+        cwd: dir,
+        env: { CHEATCODE_APP_RUNTIME: "expo" },
+        timeoutMs: 10_000,
       },
+      { sandbox },
     );
+  } catch {
+    throw missingBakedRuntimeError("Expo");
   }
   // Force the Metro web bundler + single-page output for Expo Router web. `output:"single"`
   // serves a client-rendered SPA (one index.html) instead of per-request server rendering,
@@ -184,7 +228,7 @@ async function copyTemplateContents(
     {
       command: `mkdir -p ${dir} && cp -a ${templateDir}/. ${dir}/ && test -f ${dir}/package.json`,
       cwd: "/workspace",
-      timeoutMs: 120_000,
+      timeoutMs: 30_000,
     },
     { sandbox },
   );
@@ -217,6 +261,18 @@ function missingBakedTemplateError(template: "Expo" | "Next.js"): APIError {
     503,
     "service_maintenance_unavailable",
     `${template} sandbox template is unavailable`,
+    {
+      hint: "Rebuild and publish the pinned Daytona snapshot before accepting app-builder runs.",
+      retriable: false,
+    },
+  );
+}
+
+function missingBakedRuntimeError(runtime: "Expo" | "Next.js"): APIError {
+  return new APIError(
+    503,
+    "service_maintenance_unavailable",
+    `${runtime} sandbox runtime is unavailable`,
     {
       hint: "Rebuild and publish the pinned Daytona snapshot before accepting app-builder runs.",
       retriable: false,

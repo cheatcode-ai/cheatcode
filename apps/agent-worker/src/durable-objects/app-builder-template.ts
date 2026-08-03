@@ -76,6 +76,59 @@ export default function Home() {
 `;
 }
 
+export function appBuilderTypeScriptConfigSource(workspaceSlug: string): string {
+  const localModules = `/home/node/.cheatcode/projects/${workspaceSlug}/node_modules`;
+  const runtimeModules = "/home/node/.cheatcode/app-runtimes/next/node_modules";
+  return `${JSON.stringify(
+    {
+      compilerOptions: {
+        allowJs: true,
+        esModuleInterop: true,
+        incremental: true,
+        isolatedModules: true,
+        jsx: "react-jsx",
+        lib: ["dom", "dom.iterable", "esnext"],
+        module: "esnext",
+        moduleResolution: "bundler",
+        noEmit: true,
+        paths: {
+          "@/*": ["./src/*"],
+          "*": [`${localModules}/*`, `${runtimeModules}/*`],
+        },
+        plugins: [{ name: "next" }],
+        resolveJsonModule: true,
+        skipLibCheck: true,
+        strict: true,
+        target: "ES2017",
+      },
+      exclude: ["node_modules"],
+      include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "**/*.mts"],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
+export function expoTypeScriptConfigSource(workspaceSlug: string): string {
+  const localModules = `/home/node/.cheatcode/projects/${workspaceSlug}/node_modules`;
+  const runtimeModules = "/home/node/.cheatcode/app-runtimes/expo/node_modules";
+  return `${JSON.stringify(
+    {
+      extends: `${runtimeModules}/expo/tsconfig.base`,
+      compilerOptions: {
+        paths: {
+          "@/*": ["./*"],
+          "*": [`${localModules}/*`, `${runtimeModules}/*`],
+        },
+        strict: true,
+      },
+      include: ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
+    },
+    null,
+    2,
+  )}\n`;
+}
+
 function escapeForTsxText(value: string): string {
   return value.replace(/[<>{}]/g, "");
 }
