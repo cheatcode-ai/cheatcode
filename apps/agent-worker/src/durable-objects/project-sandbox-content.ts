@@ -378,11 +378,16 @@ async function browserTakeoverResult(
   password: string,
 ): Promise<ProjectBrowserTakeoverResult> {
   const id = await runtime.ensureSandbox();
-  const signed = await runtime.client().getSignedPreviewUrl(id, port, input.expiresInSeconds);
+  const preview = await buildPreviewUrl({
+    hostname: runtime.previewHostname(),
+    port,
+    sandboxId: id,
+    secret: await runtime.previewSecret(),
+  });
   return {
     expiresAt: new Date(Date.now() + input.expiresInSeconds * 1_000).toISOString(),
     takeoverId: input.takeoverId,
-    url: noVncSessionUrl(signed.url, password),
+    url: noVncSessionUrl(preview.url, password),
   };
 }
 
