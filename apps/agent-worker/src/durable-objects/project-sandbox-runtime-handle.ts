@@ -257,15 +257,17 @@ function setCachedSandboxId(state: RuntimeState, sandboxId: string): void {
 }
 
 async function ensureSandbox(state: RuntimeState, startingRunId?: string): Promise<string> {
-  return withSandboxMutation(state, async () => {
-    if (
-      state.cache.sandboxId &&
-      Date.now() - state.cache.startedVerifiedAtMs < STARTED_REVERIFY_MS
-    ) {
-      return state.cache.sandboxId;
-    }
-    return resolveStartedSandbox(state, startingRunId);
-  });
+  if (state.isSandboxRuntimeUpdateInProgress) {
+    throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
+  }
+  if (state.cache.sandboxId && Date.now() - state.cache.startedVerifiedAtMs < STARTED_REVERIFY_MS) {
+    return state.cache.sandboxId;
+  }
+  const resolved = await inspectSandbox(state);
+  if (typeof resolved === "string") {
+    return resolved;
+  }
+  return replaceSandboxRuntime(state, startingRunId);
 }
 
 async function restartSandboxForWorkspaceRecovery(
@@ -305,7 +307,9 @@ async function ensureExistingSandboxStarted(state: RuntimeState): Promise<string
     }
     state.cache.sandboxId = existing.id;
     await state.ctx.storage.put(DAYTONA_ID_KEY, existing.id);
-    state.cache.startedVerifiedAtMs = Date.now();
+    // Cleanup callers may start a stale snapshot. Only the desired-runtime path can
+    // populate the short-lived verified cache used by regular sandbox operations.
+    state.cache.startedVerifiedAtMs = 0;
     return existing.id;
   });
 }
@@ -328,17 +332,36 @@ async function withSandboxMutation<Result>(
   }
 }
 
-async function resolveStartedSandbox(state: RuntimeState, startingRunId?: string): Promise<string> {
-  const daytona = await ensureClient(state);
-  let resolved: DaytonaSandbox;
-  try {
-    resolved = await state.provisioning.resolve(daytona);
-    if (!state.provisioning.isDesired(resolved)) {
-      resolved = await replaceSandboxRuntime(state, daytona, resolved, startingRunId);
+async function inspectSandbox(state: RuntimeState): Promise<string | DaytonaSandbox> {
+  return withSandboxMutation(state, async () => {
+    if (state.isSandboxRuntimeUpdateInProgress) {
+      throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
     }
-  } catch (error) {
-    throw toUpstreamError(error, "Daytona sandbox lookup failed.", state.identity.sandboxName());
-  }
+    if (
+      state.cache.sandboxId &&
+      Date.now() - state.cache.startedVerifiedAtMs < STARTED_REVERIFY_MS
+    ) {
+      return state.cache.sandboxId;
+    }
+    const daytona = await ensureClient(state);
+    let resolved: DaytonaSandbox;
+    try {
+      resolved = await state.provisioning.resolve(daytona);
+    } catch (error) {
+      throw toUpstreamError(error, "Daytona sandbox lookup failed.", state.identity.sandboxName());
+    }
+    if (!state.provisioning.isDesired(resolved)) {
+      return resolved;
+    }
+    return activateResolvedSandbox(state, daytona, resolved);
+  });
+}
+
+async function activateResolvedSandbox(
+  state: RuntimeState,
+  daytona: DaytonaClient,
+  resolved: DaytonaSandbox,
+): Promise<string> {
   state.cache.sandboxId = resolved.id;
   await state.ctx.storage.put(DAYTONA_ID_KEY, resolved.id);
   if (!(await state.provisioning.ensureStarted(daytona, resolved))) {
@@ -351,43 +374,70 @@ async function resolveStartedSandbox(state: RuntimeState, startingRunId?: string
   return resolved.id;
 }
 
-async function replaceSandboxRuntime(
-  state: RuntimeState,
-  daytona: DaytonaClient,
-  current: DaytonaSandbox,
-  startingRunId?: string,
-): Promise<DaytonaSandbox> {
+async function replaceSandboxRuntime(state: RuntimeState, startingRunId?: string): Promise<string> {
+  if (state.isSandboxRuntimeUpdateInProgress) {
+    throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
+  }
+  // Claim the upgrade before awaiting. Operations admitted earlier will observe
+  // this fence in inspectSandbox; operations admitted later are rejected by the
+  // lease gate until the replacement completes.
   state.isSandboxRuntimeUpdateInProgress = true;
   try {
     await assertSandboxReplacementAllowed(state, startingRunId);
-    state.provisioning.assertRuntimeReplacementSafe(current);
-    await prepareForSandboxReplacement(state);
-    await state.provisioning.deleteForReplacement(daytona, current);
-    const replacement = await state.provisioning.create(daytona);
-    if (!state.provisioning.isDesired(replacement)) {
-      throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
-    }
-    createLogger().info("sandbox_runtime_replaced", {
-      sandboxId: state.identity.sandboxName(),
-      snapshot: state.env.DAYTONA_SANDBOX_SNAPSHOT,
+    return withSandboxMutation(state, async () => {
+      const daytona = await ensureClient(state);
+      let resolved: DaytonaSandbox;
+      try {
+        resolved = await state.provisioning.resolve(daytona);
+        if (!state.provisioning.isDesired(resolved)) {
+          resolved = await replaceSandboxRuntimeExclusive(state, daytona, resolved);
+        }
+      } catch (error) {
+        throw toUpstreamError(
+          error,
+          "Daytona sandbox lookup failed.",
+          state.identity.sandboxName(),
+        );
+      }
+      return activateResolvedSandbox(state, daytona, resolved);
     });
-    return replacement;
   } finally {
     state.isSandboxRuntimeUpdateInProgress = false;
   }
+}
+
+async function replaceSandboxRuntimeExclusive(
+  state: RuntimeState,
+  daytona: DaytonaClient,
+  current: DaytonaSandbox,
+): Promise<DaytonaSandbox> {
+  state.provisioning.assertRuntimeReplacementSafe(current);
+  await prepareForSandboxReplacement(state);
+  await state.provisioning.deleteForReplacement(daytona, current);
+  const replacement = await state.provisioning.create(daytona);
+  if (!state.provisioning.isDesired(replacement)) {
+    throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
+  }
+  createLogger().info("sandbox_runtime_replaced", {
+    sandboxId: state.identity.sandboxName(),
+    snapshot: state.env.DAYTONA_SANDBOX_SNAPSHOT,
+  });
+  return replacement;
 }
 
 async function assertSandboxReplacementAllowed(
   state: RuntimeState,
   startingRunId?: string,
 ): Promise<void> {
+  // Run leases are the replacement safety boundary. Short-lived Computer-panel
+  // requests may overlap the swap and retry; they must not reject the user's run.
   const leases = await runLeases(state.ctx.storage);
   const active = leases.filter((lease) => Date.now() - lease.startedMs < STALE_RUN_LEASE_MS);
   if (active.length !== leases.length) {
     await state.ctx.storage.put(RUN_LEASES_KEY, active);
   }
   const otherRuns = active.filter((lease) => lease.runId !== startingRunId);
-  if (state.activeOperationCount > 1 || otherRuns.length > 0) {
+  if (otherRuns.length > 0) {
     throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
   }
 }

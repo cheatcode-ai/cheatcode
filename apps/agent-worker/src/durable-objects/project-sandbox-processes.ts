@@ -9,7 +9,10 @@ import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
-import { projectPackageEnvironment } from "./project-sandbox-package-runtime";
+import {
+  projectPackageEnvironment,
+  unsupportedProjectPackageManager,
+} from "./project-sandbox-package-runtime";
 import { createProcessControl, type ProcessControl } from "./project-sandbox-process-control";
 import { emptyConsoleSnapshot, sliceProcessLogs } from "./project-sandbox-process-logs";
 import {
@@ -163,11 +166,17 @@ async function runCode(
 
 async function exec(runtime: ProcessRuntime, input: ProjectExecInput): Promise<SandboxExecResult> {
   const parsed = ProjectExecInputSchema.parse(input);
-  const id = await runtime.ensureSandbox();
   const startedAt = Date.now();
   const command = commandToShellString(parsed.command);
   const cwd = parsed.cwd ?? WORKSPACE_DIR;
   const timeoutMs = parsed.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+  const unsupportedManager = unsupportedProjectPackageManager(cwd, parsed.command);
+  if (unsupportedManager) {
+    const result = packageManagerPolicyResult(command, unsupportedManager, startedAt);
+    await recordExecAudit(runtime, parsed.command, cwd, result, result.exitCode, startedAt);
+    return result;
+  }
+  const id = await runtime.ensureSandbox();
   const env = projectPackageEnvironment(cwd, parsed.env);
   try {
     const completed = await runtime.client().execute(id, {
@@ -183,6 +192,23 @@ async function exec(runtime: ProcessRuntime, input: ProjectExecInput): Promise<S
   } catch (error) {
     throw runtime.toUpstreamError(error, "Sandbox command failed.");
   }
+}
+
+function packageManagerPolicyResult(
+  command: string,
+  manager: string,
+  startedAt: number,
+): SandboxExecResult {
+  return {
+    command,
+    durationMs: Date.now() - startedAt,
+    exitCode: 64,
+    stderr:
+      `${manager} is disabled in persistent projects because it writes dependencies to object storage. ` +
+      "Use pnpm; dependencies are installed in the sandbox-local project runtime.",
+    stdout: "",
+    success: false,
+  };
 }
 
 function execResult(
@@ -238,6 +264,7 @@ async function startProcess(
 ): Promise<SandboxProcessResult> {
   const parsed = ProjectStartProcessInputSchema.parse(input);
   assertValidProcessStart(parsed);
+  assertSupportedProjectPackageManager(parsed.cwd ?? WORKSPACE_DIR, parsed.command);
   const id = await context.runtime.ensureSandbox();
   const name = parsed.processId;
   const sessionId = `cc-${name}`;
@@ -256,6 +283,20 @@ async function startProcess(
   await context.control.persistStartedProcess(id, name, record, parsed.waitForPort);
   await recordSandboxUsageBestEffort(await context.runtime.meteringContext());
   return { command: record.command, id: name, status: "running" };
+}
+
+function assertSupportedProjectPackageManager(cwd: string, command: readonly string[]): void {
+  const manager = unsupportedProjectPackageManager(cwd, command);
+  if (!manager) return;
+  throw new APIError(
+    422,
+    "sandbox_command_failed",
+    `${manager} is disabled in persistent projects. Use pnpm instead.`,
+    {
+      hint: "Use pnpm so dependency trees stay in the sandbox-local project runtime.",
+      retriable: false,
+    },
+  );
 }
 
 function processPolicy(input: ParsedProcessStartInput): ProcessPolicy {
