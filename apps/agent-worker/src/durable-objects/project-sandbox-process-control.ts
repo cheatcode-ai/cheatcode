@@ -2,6 +2,7 @@ import type { DaytonaSessionExecResponse } from "@cheatcode/agent-core/tools/cod
 import { APIError } from "@cheatcode/observability";
 import { shellQuote, sleep } from "../sandbox-support";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
+import { projectPackageEnvironment } from "./project-sandbox-package-runtime";
 import { SANDBOX_PROCESS_TERMINATION_SCRIPT } from "./project-sandbox-process-cleanup";
 import {
   ENV_FILE_DIR,
@@ -125,7 +126,7 @@ async function relaunchDevServer(
     name,
     record.cwd,
     supervisedProcessCommand(record.command, record),
-    restartEnv ?? restartEnvironment(name, record),
+    projectPackageEnvironment(record.cwd, restartEnv ?? restartEnvironment(name, record)),
   );
   const relaunched = {
     ...record,

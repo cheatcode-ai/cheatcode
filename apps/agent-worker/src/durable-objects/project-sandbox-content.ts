@@ -31,6 +31,7 @@ import {
   WORKSPACE_DIR,
 } from "./project-sandbox-content-support";
 import { listSandboxFiles } from "./project-sandbox-files";
+import { projectLocalRuntimeDir } from "./project-sandbox-package-runtime";
 import { buildPreviewUrl, signedUrlToExpo } from "./project-sandbox-preview";
 import {
   APP_PREVIEW_SLOT_PREFIX,
@@ -542,6 +543,13 @@ async function performProjectWorkspaceCleanup(
   if (id) {
     await context.dependencies.process.terminateUntrackedSandboxProcesses(id);
     await removeWorkspaceFolder(context.runtime, id, workspaceSlug);
+    await context.runtime
+      .client()
+      .deleteFilePath(id, projectLocalRuntimeDir(workspaceSlug), true)
+      .catch((error: unknown) => {
+        if (error instanceof DaytonaApiError && error.status === 404) return;
+        throw context.runtime.toUpstreamError(error, "Project local runtime removal failed.");
+      });
   }
   await context.dependencies.process.freeProjectPort(workspaceSlug);
   await context.dependencies.deleteUploadedFileMetadata(projectId);
@@ -561,6 +569,7 @@ async function mobileExpoProxy(
   return {
     expoUrl: signedUrlToExpo(signed.url),
     restartEnv: {
+      CHEATCODE_APP_RUNTIME: "expo",
       CI: "1",
       EXPO_NO_TELEMETRY: "1",
       EXPO_PACKAGER_PROXY_URL: signed.url,

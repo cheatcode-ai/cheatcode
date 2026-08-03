@@ -53,6 +53,7 @@ export interface PreparedStartDevServer {
 // Per-project dev-server slot prefix. Each project's dev server occupies proc:app-preview:<slug>
 // so multiple projects' servers persist side by side in the one per-user sandbox (Cheatcode parity).
 const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
+const EXPO_RUNTIME_BIN = "/home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo";
 
 export async function executeStartDevServer(
   input: StartDevServerInput,
@@ -134,7 +135,10 @@ export async function executePreparedStartDevServer(
 
 // An `expo start …` invocation, however the model spelled it (npx / pnpm exec / bare, any flags).
 function isExpoStartCommand(command: readonly string[]): boolean {
-  return command.includes("expo") && command.includes("start");
+  return (
+    command.some((argument) => argument === "expo" || argument.endsWith("/expo")) &&
+    command.includes("start")
+  );
 }
 
 // Restore the curated Expo dependency tree onto the project's package.json. The model routinely
@@ -178,7 +182,7 @@ function expoWebCommand(port: number): string[] {
   const writeScript = `echo ${restoreB64} | base64 -d > /tmp/cc-restore-expo-deps.js`;
   const heal =
     "node /tmp/cc-restore-expo-deps.js && rm -f pnpm-lock.yaml package-lock.json && CI=1 EXPO_NO_TELEMETRY=1 pnpm install --prefer-offline";
-  const startMetro = `exec pnpm exec expo start -c --web --host lan --port ${port}`;
+  const startMetro = `exec ${EXPO_RUNTIME_BIN} start -c --web --host lan --port ${port}`;
   return ["sh", "-lc", `${writeScript}; (${heal}) ; ${startMetro}`];
 }
 

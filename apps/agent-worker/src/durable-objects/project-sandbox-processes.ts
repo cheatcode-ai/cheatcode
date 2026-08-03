@@ -9,6 +9,7 @@ import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
+import { projectPackageEnvironment } from "./project-sandbox-package-runtime";
 import { createProcessControl, type ProcessControl } from "./project-sandbox-process-control";
 import { emptyConsoleSnapshot, sliceProcessLogs } from "./project-sandbox-process-logs";
 import {
@@ -167,12 +168,13 @@ async function exec(runtime: ProcessRuntime, input: ProjectExecInput): Promise<S
   const command = commandToShellString(parsed.command);
   const cwd = parsed.cwd ?? WORKSPACE_DIR;
   const timeoutMs = parsed.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS;
+  const env = projectPackageEnvironment(cwd, parsed.env);
   try {
     const completed = await runtime.client().execute(id, {
       command,
       cwd,
       timeout: timeoutSeconds(timeoutMs),
-      ...(parsed.env === undefined ? {} : { env: parsed.env }),
+      ...(env === undefined ? {} : { env }),
     });
     const result = execResult(command, completed, startedAt);
     await recordExecAudit(runtime, parsed.command, cwd, result, completed.exitCode, startedAt);
@@ -279,7 +281,7 @@ async function launchProcess(
       name,
       provisional.cwd,
       supervisedProcessCommand(provisional.command, provisional),
-      input.env,
+      projectPackageEnvironment(provisional.cwd, input.env),
       input.stdin,
     );
     return { ...provisional, cmdId: execution.cmdId ?? sessionId };

@@ -42,8 +42,9 @@ small current/version namespace records and mirrors the current version to
 `/workspace/<workspaceSlug>/uploads/` on the user's persistent Daytona volume before exposing it.
 An exact replay is idempotent; uploading new bytes at the same path creates a retained version and
 updates the working copy. First-run app scaffolding preserves the `uploads/` directory, and restored
-template projects reuse a complete persistent dependency installation or repair an interrupted one
-instead of rebuilding the workspace. The working copy is a reserved cache: every project-bound run
+template projects reuse immutable snapshot runtimes or restore project-specific dependencies to the
+sandbox's local disk instead of copying generated package trees to persistent object-store FUSE.
+The working copy is a reserved cache: every project-bound run
 verifies its current file set before model access, restores missing, replaced, or modified files from
 the checksum-verified R2 version, records the exact workspace materialization separately from the
 immutable user-facing file metadata, and repeats that repair when the run exits. File write/delete
@@ -263,6 +264,8 @@ match. A stale snapshot or target is replaced automatically only when canonical
 ownership and the persistent mount are unambiguous and no other operation or run
 lease is active. All other contract mismatches fail closed. New and replacement
 sandboxes mount the user's isolated volume subpath directly at `/workspace`.
+Generated dependency and compiler-cache state lives under the matching project-scoped
+`/home/node/.cheatcode/projects/<workspaceSlug>/` directory and is deleted with the project.
 Account deletion clears that subpath before deleting all exactly owned sandboxes,
 so persistent volume data does not outlive the account.
 

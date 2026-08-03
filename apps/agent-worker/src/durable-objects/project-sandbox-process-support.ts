@@ -200,9 +200,15 @@ export function restartEnvironment(
     return undefined;
   }
   if (record.isMobile) {
-    return { CI: "1", EXPO_NO_TELEMETRY: "1", PORT: String(record.port) };
+    return {
+      CHEATCODE_APP_RUNTIME: "expo",
+      CI: "1",
+      EXPO_NO_TELEMETRY: "1",
+      PORT: String(record.port),
+    };
   }
   return {
+    CHEATCODE_APP_RUNTIME: "next",
     CHOKIDAR_USEPOLLING: "true",
     PORT: String(record.port),
     WATCHPACK_POLLING: "1000",
