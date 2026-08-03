@@ -115,6 +115,12 @@ matched imperative such as “build a website” or “create a mobile app” al
 app-builder path before model execution. That high-confidence fallback materializes the project,
 scaffolds its canonical workspace, and registers the managed preview even when the selected model
 would otherwise attempt generic shell work and finish without a Computer target.
+The canonical app source remains on the durable `/workspace` volume. Managed Next.js previews
+compile from a sandbox-local one-way mirror because Daytona's object-store FUSE mount can stall
+webpack compilation even after the listening socket opens. A baked Python synchronizer performs a
+full refresh on every process start and mirrors subsequent writes and deletions within one second,
+including shell-based edits. The local source, dependency tree, and build cache are disposable;
+wake and restart reconstruct them from the durable project without changing the Files surface.
 
 AgentRun keeps one compact exact SQLite shape for run identity, replay parts, and
 coordination state. Dormant objects are reconciled transactionally on activation;
