@@ -208,9 +208,12 @@ COPY --chown=node:node app-templates/ /home/node/.cheatcode-template-manifests/
 COPY --chown=node:node app-generators/ /home/node/.cheatcode-app-generators/
 
 # The generators provide source files only. Reviewed manifests and lockfiles are
-# copied over them, then fetched into the node user's pnpm store so project creation
-# can install the exact dependency graph offline. The Expo template artifact itself
-# is pinned: create-expo-app's mutable "default" alias is intentionally not used.
+# copied over them, then the exact dependency graph is installed into immutable,
+# sandbox-local runtimes. Persistent /workspace is Daytona object-store FUSE: it is
+# the right home for user source, but copying dependency trees there is both slow and
+# non-atomic. The source-only templates stay separate so project creation copies only
+# editable files. The Expo template artifact itself is pinned: create-expo-app's
+# mutable "default" alias is intentionally not used.
 ARG EXPO_TEMPLATE_VERSION=57.0.6
 ARG EXPO_TEMPLATE_SHA256=4c2a276f05db27f4a4dfaa326123e72be33d7ad6878fdd46b8df7eb3376def3b
 
@@ -222,13 +225,16 @@ RUN set -eux; \
   cp /home/node/.cheatcode-template-manifests/next/package.json /home/node/cheatcode-next-template/package.json; \
   cp /home/node/.cheatcode-template-manifests/next/pnpm-lock.yaml /home/node/cheatcode-next-template/pnpm-lock.yaml; \
   cp /home/node/.cheatcode-template-manifests/next/pnpm-workspace.yaml /home/node/cheatcode-next-template/pnpm-workspace.yaml; \
+  cp /home/node/.cheatcode-template-manifests/next/next.config.ts /home/node/cheatcode-next-template/next.config.ts; \
   rm -rf \
     /home/node/cheatcode-next-template/.next \
     /home/node/cheatcode-next-template/node_modules \
     /home/node/cheatcode-next-template/AGENTS.md \
     /home/node/cheatcode-next-template/CLAUDE.md; \
-  cd /home/node/cheatcode-next-template; \
-  pnpm fetch --frozen-lockfile; \
+  mkdir -p /home/node/.cheatcode/app-runtimes; \
+  cp -a /home/node/cheatcode-next-template /home/node/.cheatcode/app-runtimes/next; \
+  cd /home/node/.cheatcode/app-runtimes/next; \
+  pnpm install --frozen-lockfile; \
   cd /workspace; \
   curl -fsSL \
     "https://registry.npmjs.org/expo-template-default/-/expo-template-default-${EXPO_TEMPLATE_VERSION}.tgz" \
@@ -246,7 +252,9 @@ RUN set -eux; \
   cd /home/node/cheatcode-expo-template; \
   node -e 'const fs=require("node:fs");const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo??={};j.expo.name="cheatcode-expo-template";j.expo.slug="cheatcode-expo-template";j.expo.web={...(j.expo.web??{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2)+"\n")'; \
   rm -rf .git .expo node_modules package-lock.json AGENTS.md CLAUDE.md .claude; \
-  pnpm fetch --frozen-lockfile; \
+  cp -a /home/node/cheatcode-expo-template /home/node/.cheatcode/app-runtimes/expo; \
+  cd /home/node/.cheatcode/app-runtimes/expo; \
+  pnpm install --frozen-lockfile; \
   cd /workspace; \
   rm -rf \
     /tmp/expo-template-default.tgz \
