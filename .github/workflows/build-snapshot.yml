@@ -133,6 +133,13 @@ jobs:
             libreoffice --version
             test -f /home/node/cheatcode-next-template/pnpm-lock.yaml
             test -f /home/node/cheatcode-expo-template/pnpm-lock.yaml
+            test -f /home/node/cheatcode-next-template/next.config.ts
+            test ! -e /home/node/cheatcode-next-template/node_modules
+            test ! -e /home/node/cheatcode-expo-template/node_modules
+            test -x /home/node/.cheatcode/app-runtimes/next/node_modules/.bin/next
+            test -x /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo
+            NODE_PATH=/home/node/.cheatcode/app-runtimes/next/node_modules node -e "require.resolve(\"next\");require.resolve(\"react\");require.resolve(\"react-dom\")"
+            NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules node -e "require.resolve(\"expo\");require.resolve(\"react-native-web\");require.resolve(\"@expo/metro-runtime\")"
             test -f /home/node/.cheatcode/default-skills/browser-use/SKILL.md
             test -f /home/node/.cheatcode/default-skills/pptx/SKILL.md
             test -f /home/node/.cheatcode/default-skills/pptx/scripts/thumbnail.py

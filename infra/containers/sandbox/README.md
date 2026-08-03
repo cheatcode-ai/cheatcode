@@ -85,8 +85,12 @@ the image build. Document-runtime versions are owned by its reviewed manifest an
 they are intentionally absent from the Worker workspace catalog. Its `uuid` override
 keeps ExcelJS on the patched UUID implementation while preserving the public CommonJS
 `v4` API that ExcelJS consumes. The Next and Expo scaffolds likewise use reviewed manifests and
-pnpm locks under `app-templates/`. Their locked packages are prefetched into the image
-so normal project creation can install offline. Expo uses an exact
+pnpm locks under `app-templates/`. Their locked packages are installed into immutable
+sandbox-local runtimes in the image. Project creation copies only source and config to
+the persistent Daytona volume; dependency trees and generated compiler caches stay on
+the sandbox's local filesystem, avoiding slow, partial writes to object-store FUSE.
+Additional dependencies use a project-scoped local modules directory and can be
+restored from the reviewed package store after a sandbox replacement. Expo uses an exact
 `expo-template-default` tarball with a reviewed SHA-256 rather than the mutable
 `default` alias. These locks prevent a snapshot rebuild from resolving a different
 dependency tree while the application source stays unchanged.
