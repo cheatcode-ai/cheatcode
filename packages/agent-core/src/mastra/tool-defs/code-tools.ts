@@ -62,7 +62,7 @@ export const mastraRunCode = createTool({
 export const mastraShellExec = createTool({
   id: "shell_exec",
   description:
-    "Run a deterministic sandbox command in argv form. Omit cwd for projectless browser, skill-runtime, or environment-inspection commands. For any command that reads, creates, or changes persistent project files, set cwd to /workspace; that explicitly attaches the project and maps /workspace to its persistent folder.",
+    "Run a bounded deterministic sandbox command in argv form; never use it to launch a user-facing dev server or background service. Use code_start_dev_server for Computer previews. Omit cwd for projectless browser, skill-runtime, or environment-inspection commands. For any command that reads, creates, or changes persistent project files, set cwd to /workspace; that explicitly attaches the project and maps /workspace to its persistent folder.",
   inputSchema: ShellExecInputSchema,
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
@@ -79,7 +79,7 @@ export const mastraShellExec = createTool({
 export const mastraShellStartProcess = createTool({
   id: "shell_start_process",
   description:
-    "Start a long-running process under /workspace in the project sandbox with optional port readiness and restart policy.",
+    "Start a non-preview background process under /workspace with optional port readiness and restart policy. Never use this for a web or mobile app the user should see in Computer; code_start_dev_server is the only tool that registers and restores that preview.",
   inputSchema: ShellStartProcessInputSchema,
   outputSchema: ShellProcessOutputSchema,
   execute: async (input, context) => {
@@ -104,7 +104,7 @@ export const mastraShellKillProcess = createTool({
 export const mastraShellTerminal = createTool({
   id: "shell_terminal",
   description:
-    "Run a short terminal-style command in /workspace. Prefer shell_exec for deterministic argv automation.",
+    "Run a short foreground terminal-style command in /workspace. Never start a dev server or background process here; use code_start_dev_server for Computer previews. Prefer shell_exec for deterministic argv automation.",
   inputSchema: ShellTerminalInputSchema,
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
@@ -215,7 +215,7 @@ export const mastraGitPush = createTool({
 export const mastraStartDevServer = createTool({
   id: "code_start_dev_server",
   description:
-    "Start a managed long-running dev server under /workspace. Returns only process readiness and the internal port; the user opens the authenticated preview from the Computer panel.",
+    "Start the managed web or mobile dev server shown in Computer. This is the only preview-registering server tool: it assigns the project's stable internal port, remaps the requested port in the command when needed, and restores the process after sandbox idle stops. Returns readiness and the actual internal port.",
   inputSchema: StartDevServerInputSchema,
   outputSchema: StartDevServerOutputSchema,
   execute: async (input, context) => {
