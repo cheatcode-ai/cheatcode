@@ -1,7 +1,7 @@
 import { APIError } from "@cheatcode/observability";
 import type { CodeRuntimeContextFor } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { resolveProjectWorkspacePath } from "./workspace-paths";
+import { remapProjectWorkspaceReferences, resolveProjectWorkspacePath } from "./workspace-paths";
 
 export const RunCodeInputSchema = z.strictObject({
   language: z
@@ -25,10 +25,11 @@ export async function executeRunCode(
   runtimeContext: CodeRuntimeContextFor<"runCode">,
 ): Promise<RunCodeOutput> {
   const parsedInput = RunCodeInputSchema.parse(input);
+  const workspaceDir = runtimeContext.workspaceDir;
   const result = await runtimeContext.sandbox.runCode({
     language: parsedInput.language,
-    code: parsedInput.code,
-    cwd: resolveProjectWorkspacePath(undefined, runtimeContext.workspaceDir),
+    code: remapProjectWorkspaceReferences(parsedInput.code, workspaceDir),
+    cwd: workspaceDir ? resolveProjectWorkspacePath(undefined, workspaceDir) : "/tmp",
   });
 
   const output = {

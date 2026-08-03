@@ -48,7 +48,7 @@ export function resolveProjectWorkspacePath(
     });
   }
   const requested = canonicalWorkspacePath(value ?? projectRoot);
-  const resolved = requested === "/workspace" ? projectRoot : requested;
+  const resolved = resolveVirtualWorkspacePath(requested, projectRoot);
   if (resolved !== projectRoot && !resolved.startsWith(`${projectRoot}/`)) {
     throw new APIError(
       400,
@@ -61,6 +61,55 @@ export function resolveProjectWorkspacePath(
     );
   }
   return resolved;
+}
+
+/**
+ * Rewrites the virtual `/workspace` namespace inside a command or inline program to the active
+ * project's real folder. References that already use the real project root remain unchanged.
+ */
+export function remapProjectWorkspaceReferences(
+  value: string,
+  workspaceDir: string | undefined,
+): string {
+  const projectRoot = canonicalWorkspacePath(workspaceDir ?? "/workspace");
+  if (projectRoot === "/workspace") {
+    return value;
+  }
+  return value.replace(WORKSPACE_REFERENCE_PATTERN, (reference, offset: number) =>
+    isProjectRootReference(value, offset, projectRoot) ? reference : projectRoot,
+  );
+}
+
+export function containsWorkspaceReference(value: string): boolean {
+  WORKSPACE_REFERENCE_PATTERN.lastIndex = 0;
+  return WORKSPACE_REFERENCE_PATTERN.test(value);
+}
+
+const WORKSPACE_REFERENCE_PATTERN = /(?<![\p{L}\p{N}_./-])\/workspace(?=\/|$|[\s"'`,;:)}\]])/gu;
+
+function resolveVirtualWorkspacePath(requested: string, projectRoot: string): string {
+  if (requested === projectRoot || requested.startsWith(`${projectRoot}/`)) {
+    return requested;
+  }
+  if (requested === "/workspace") {
+    return projectRoot;
+  }
+  if (requested.startsWith("/workspace/")) {
+    return `${projectRoot}${requested.slice("/workspace".length)}`;
+  }
+  return requested;
+}
+
+function isProjectRootReference(value: string, offset: number, projectRoot: string): boolean {
+  if (!value.startsWith(projectRoot, offset)) {
+    return false;
+  }
+  const nextCharacter = value.at(offset + projectRoot.length);
+  return nextCharacter === undefined || isPathBoundary(nextCharacter);
+}
+
+function isPathBoundary(value: string): boolean {
+  return /[/\s"'`,;:)}\]]/u.test(value);
 }
 
 function isSafeWorkspaceRelativePath(path: string): boolean {

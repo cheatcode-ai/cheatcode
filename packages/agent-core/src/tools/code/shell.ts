@@ -4,7 +4,11 @@ import {
   EnvironmentVariablesSchema,
 } from "@cheatcode/sandbox-contracts";
 import { z } from "zod";
-import { resolveProjectWorkspacePath, WorkspacePathSchema } from "./workspace-paths";
+import {
+  remapProjectWorkspaceReferences,
+  resolveProjectWorkspacePath,
+  WorkspacePathSchema,
+} from "./workspace-paths";
 
 export const ShellExecInputSchema = z.strictObject({
   command: z
@@ -97,9 +101,13 @@ export async function executeShellExec(
   runtimeContext: CodeRuntimeContextFor<"exec">,
 ): Promise<ShellExecOutput> {
   const parsedInput = ShellExecInputSchema.parse(input);
+  const workspaceDir = runtimeContext.workspaceDir;
   const result = await runtimeContext.sandbox.exec({
-    command: parsedInput.command,
-    cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
+    command: remapCommandWorkspaceReferences(parsedInput.command, workspaceDir),
+    cwd:
+      workspaceDir || parsedInput.cwd
+        ? resolveProjectWorkspacePath(parsedInput.cwd, workspaceDir)
+        : "/tmp",
     ...(parsedInput.env ? { env: parsedInput.env } : {}),
     ...(parsedInput.timeoutMs ? { timeoutMs: parsedInput.timeoutMs } : {}),
   });
@@ -130,7 +138,7 @@ export async function executeShellStartProcess(
     : undefined;
   return ShellProcessOutputSchema.parse(
     await runtimeContext.sandbox.startProcess({
-      command: parsedInput.command,
+      command: remapCommandWorkspaceReferences(parsedInput.command, runtimeContext.workspaceDir),
       cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
       ...(parsedInput.env ? { env: parsedInput.env } : {}),
       keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
@@ -162,9 +170,20 @@ export async function executeShellTerminal(
   const parsedInput = ShellTerminalInputSchema.parse(input);
   return ShellExecOutputSchema.parse(
     await runtimeContext.sandbox.exec({
-      command: ["sh", "-lc", parsedInput.command],
+      command: [
+        "sh",
+        "-lc",
+        remapProjectWorkspaceReferences(parsedInput.command, runtimeContext.workspaceDir),
+      ],
       cwd: resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir),
       timeoutMs: parsedInput.timeoutMs,
     }),
   );
+}
+
+function remapCommandWorkspaceReferences(
+  command: readonly string[],
+  workspaceDir: string | undefined,
+): string[] {
+  return command.map((argument) => remapProjectWorkspaceReferences(argument, workspaceDir));
 }
