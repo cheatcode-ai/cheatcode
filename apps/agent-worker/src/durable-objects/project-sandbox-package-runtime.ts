@@ -5,6 +5,10 @@ const BASE_NODE_PATH = [
   "/opt/cheatcode-skill-runtime/node_modules",
 ];
 const WORKSPACE_PROJECT_PATH = /^\/workspace\/([a-z0-9]+(?:-[a-z0-9]+)*)(?:\/|$)/u;
+const UNSUPPORTED_PACKAGE_MANAGERS = new Set(["npm", "npx", "yarn", "yarnpkg"]);
+const SHELL_EXECUTABLES = new Set(["bash", "sh", "zsh"]);
+const SHELL_PACKAGE_MANAGER_COMMAND =
+  /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:[^\s;&|()]+\/)?(npm|npx|yarn|yarnpkg)(?=\s|$)/u;
 
 export const NEXT_RUNTIME_BIN = `${APP_RUNTIME_ROOT}/next/node_modules/.bin/next`;
 export const EXPO_RUNTIME_BIN = `${APP_RUNTIME_ROOT}/expo/node_modules/.bin/expo`;
@@ -21,6 +25,20 @@ export function projectLocalCacheDir(workspaceSlug: string): string {
 
 export function projectLocalRuntimeDir(workspaceSlug: string): string {
   return `${PROJECT_LOCAL_ROOT}/${workspaceSlug}`;
+}
+
+/** Prevents package managers that place dependency trees on persistent FUSE. */
+export function unsupportedProjectPackageManager(
+  cwd: string,
+  command: readonly string[],
+): string | null {
+  if (!WORKSPACE_PROJECT_PATH.test(cwd)) return null;
+  const executable = basename(command[0]);
+  if (UNSUPPORTED_PACKAGE_MANAGERS.has(executable)) return executable;
+  if (!SHELL_EXECUTABLES.has(executable)) return null;
+  const commandFlag = command.findIndex((argument) => /^-[a-z]*c[a-z]*$/u.test(argument));
+  const shellCommand = commandFlag < 0 ? undefined : command[commandFlag + 1];
+  return shellCommand?.match(SHELL_PACKAGE_MANAGER_COMMAND)?.[1] ?? null;
 }
 
 /** Keeps generated dependencies and caches off persistent object-store FUSE. */
@@ -48,4 +66,9 @@ export function projectPackageEnvironment(
       .join(":"),
     npm_config_modules_dir: modulesDir,
   };
+}
+
+function basename(path: string | undefined): string {
+  if (!path) return "";
+  return path.slice(path.lastIndexOf("/") + 1);
 }
