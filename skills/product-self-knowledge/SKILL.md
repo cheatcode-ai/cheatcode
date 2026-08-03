@@ -47,7 +47,7 @@ The visible model catalog is:
 | Claude Opus 4.8 | Anthropic | Highest-capability Anthropic option |
 | GPT-5.4 Thinking | OpenAI | Reasoning-focused option |
 | GPT-5.4 Mini | OpenAI | Fast utility option |
-| DeepSeek V4 | DeepSeek | Included platform route |
+| DeepSeek V4 Pro | DeepSeek | Included platform route |
 
 Cheatcode accepts provider-prefixed OpenRouter and Google model IDs even though those providers are not shown as separate catalog rows. BYOK keys are configured in Models and are decrypted only for the active request. Supported provider key families are Anthropic, OpenAI, Google, OpenRouter, DeepSeek, Exa, and Firecrawl. BYOK key counts are not limited by subscription-plan slots.
 

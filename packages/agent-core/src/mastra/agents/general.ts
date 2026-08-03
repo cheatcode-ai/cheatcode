@@ -81,7 +81,7 @@ function createOpenRouterByokModel(
 
 /**
  * DeepSeek model — serves both the included platform route and user BYOK keys.
- * Pass the bare provider id (`deepseek-v4-flash`); non-thinking mode is selected at the
+ * Pass the bare provider id (`deepseek-v4-pro`); non-thinking mode is selected at the
  * stream call site via providerOptions so tool-calling stays clean.
  */
 function createDeepSeekModel(
