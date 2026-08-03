@@ -64,6 +64,7 @@ interface AppBuilderWorkspace {
   mobile: boolean;
   port: number;
   slot: string;
+  slug: string;
 }
 
 function isMobileBuild(input: AgentRunAppBuilderInput): boolean {
@@ -120,7 +121,7 @@ async function resolveAppWorkspace(
   const slug = input.workspaceSlug;
   const slot = `app-preview:${slug}`;
   const port = await allocateAppPort(sandbox, slug, mobile, logger);
-  return { dir, mobile, port, slot };
+  return { dir, mobile, port, slot, slug };
 }
 
 interface RunAppBuilderOptions {
@@ -538,7 +539,7 @@ async function startExpoDevServer(
       port: workspace.port,
       timeoutMs: 180_000,
     },
-    { sandbox },
+    { sandbox, workspaceDir: workspace.dir, workspaceSlug: workspace.slug },
   );
 }
 
@@ -591,7 +592,7 @@ async function startAppBuilderDevServer(
       port: workspace.port,
       timeoutMs: 180_000,
     },
-    { sandbox },
+    { sandbox, workspaceDir: workspace.dir, workspaceSlug: workspace.slug },
   );
 }
 

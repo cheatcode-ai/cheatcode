@@ -148,6 +148,9 @@ Managed processes use required stable IDs and a maximum of 32 live metadata slot
 sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the
 bounded record set against Daytona, removes missing or completed sessions and their port state,
 and rejects a new distinct slot only when all 32 remain live.
+App-preview identity and port allocation derive from the canonical project workspace root, while
+the launch command may run in any descendant folder. Nested app layouts therefore retain the same
+project-scoped wake, console, cleanup, and restart identity after Daytona idle-stops the sandbox.
 
 Each user has one durable Daytona sandbox. Projects are lexically confined to their
 folders under `/workspace`, and run leases keep the sandbox active while the agent is
@@ -173,6 +176,13 @@ development. Local Compose service-binds that same Worker behind
 proxy injects only bounded code-server workbench HTML and pins parent messaging
 to the environment's exact app origin; generated-app preview HTML remains
 streamed.
+
+Opening Files starts code-server directly against the requested workspace. It does not recursively
+enumerate the project first, so dependency trees and large generated projects are outside the cold
+start critical path. After an idle stop, a current tracked code-server session is relaunched from its
+durable command instead of repeating installation and cleanup probes. A project with no tracked
+app-preview record returns the terminal `none` state without starting Daytona or entering the
+preview wake polling loop.
 
 AgentRun does not count, persist, bill, or emit model-token or model-cost data,
 and it does not apply per-run or daily dollar caps. Provider usage remains an

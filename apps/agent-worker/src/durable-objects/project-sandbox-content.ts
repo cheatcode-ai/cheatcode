@@ -441,26 +441,29 @@ async function wakePreview(
   input: ProjectWakePreviewInput,
 ): Promise<ProjectWakePreviewResult> {
   const parsed = ProjectWakePreviewInputSchema.parse(input);
-  const id = await context.runtime.ensureSandbox();
   const slot = parsed.workspaceSlug
     ? `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`
     : "app-preview";
   const record = await context.dependencies.process.processRecord(slot);
-  if (!record?.port) return { running: false, state: "started" };
+  if (!record?.port) return { running: false, state: "none" };
+  const id = await context.runtime.ensureSandbox();
   const mobile = await mobileExpoProxy(context.runtime, id, record);
   const repaired = record.isMobile
     ? await ensureMobileMetroForwardedHostConfig(context.runtime, id, record.cwd)
     : false;
   let running = await context.dependencies.process.isPortAlive(id, record.port);
   if (!running || repaired) {
-    await context.dependencies.process.relaunchDevServer(
+    const relaunched = await context.dependencies.process.relaunchDevServer(
       id,
       slot,
       record,
       mobile?.restartEnv ?? restartEnvironment(slot, record),
     );
     await context.dependencies.process
-      .waitForPort(id, record.port, "/", PREVIEW_WAKE_TIMEOUT_MS)
+      .waitForPort(id, record.port, "/", PREVIEW_WAKE_TIMEOUT_MS, {
+        cmdId: relaunched.cmdId,
+        sessionId: relaunched.sessionId,
+      })
       .catch(() => undefined);
     running = await context.dependencies.process.isPortAlive(id, record.port);
   }
@@ -501,14 +504,14 @@ async function projectPreviewStatus(
   input: ProjectPreviewStatusInput,
 ): Promise<{ running: boolean; state: string }> {
   const parsed = ProjectPreviewStatusInputSchema.parse(input);
+  const record = await context.dependencies.process.processRecord(
+    `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`,
+  );
+  if (!record?.port) return { running: false, state: "none" };
   const runtimeState = await context.dependencies.sandboxRuntimeState();
   if (runtimeState.state !== "started" || !runtimeState.sandboxId) {
     return { running: false, state: runtimeState.state };
   }
-  const record = await context.dependencies.process.processRecord(
-    `${APP_PREVIEW_SLOT_PREFIX}${parsed.workspaceSlug}`,
-  );
-  if (!record?.port) return { running: false, state: runtimeState.state };
   const running = await context.dependencies.process.httpPortReady(
     runtimeState.sandboxId,
     record.port,
@@ -597,10 +600,16 @@ async function ensureMobileMetroForwardedHostConfig(
 }
 
 async function ensureCodeServer(context: ContentContext, id: string): Promise<void> {
-  if (
-    (await context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000)) &&
-    (await hasCodeServerSettingsMarker(context.runtime, id))
-  ) {
+  const [isPortReady, hasCurrentSettings] = await Promise.all([
+    context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000),
+    hasCodeServerSettingsMarker(context.runtime, id),
+  ]);
+  if (isPortReady && hasCurrentSettings) {
+    return;
+  }
+  const tracked = await context.dependencies.process.processRecord(CODE_SERVER_PROCESS_ID);
+  if (hasCurrentSettings && tracked?.port === CODE_SERVER_PORT) {
+    await relaunchTrackedCodeServer(context, id, tracked);
     return;
   }
   if (!(await hasCodeServerRuntime(context.runtime, id))) {
@@ -628,15 +637,31 @@ async function ensureCodeServer(context: ContentContext, id: string): Promise<vo
   }
 }
 
+async function relaunchTrackedCodeServer(
+  context: ContentContext,
+  id: string,
+  record: ProcessRecord,
+): Promise<void> {
+  const relaunched = await context.dependencies.process.relaunchDevServer(
+    id,
+    CODE_SERVER_PROCESS_ID,
+    record,
+    codeServerEnvironment(context.runtime.previewHostname()),
+  );
+  await context.dependencies.process.waitForPort(
+    id,
+    CODE_SERVER_PORT,
+    "/",
+    CODE_SERVER_START_TIMEOUT_MS,
+    { cmdId: relaunched.cmdId, sessionId: relaunched.sessionId },
+  );
+}
+
 async function startCodeServer(context: ContentContext): Promise<void> {
   await context.dependencies.coordinatedProcess.startProcess({
     command: ["bash", "-lc", codeServerStartCommand()],
     cwd: WORKSPACE_DIR,
-    env: {
-      CODE_SERVER_PORT: String(CODE_SERVER_PORT),
-      CODE_SERVER_TRUSTED_ORIGINS: codeServerTrustedOrigins(context.runtime.previewHostname()),
-      CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
-    },
+    env: codeServerEnvironment(context.runtime.previewHostname()),
     keepAliveTimeoutMs: 0,
     maxRestarts: 3,
     processId: CODE_SERVER_PROCESS_ID,
@@ -648,6 +673,14 @@ async function startCodeServer(context: ContentContext): Promise<void> {
       timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
     },
   });
+}
+
+function codeServerEnvironment(previewHostname: string): Record<string, string> {
+  return {
+    CODE_SERVER_PORT: String(CODE_SERVER_PORT),
+    CODE_SERVER_TRUSTED_ORIGINS: codeServerTrustedOrigins(previewHostname),
+    CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
+  };
 }
 
 async function hasCodeServerRuntime(runtime: ContentRuntime, id: string): Promise<boolean> {

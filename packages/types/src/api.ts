@@ -339,9 +339,9 @@ export const SandboxPreviewWakeSchema = z.strictObject({
 });
 
 /**
- * Current sandbox lifecycle state for the preview panel. Kept fresh by Daytona
- * `sandbox.state.updated` webhooks (falls back to a live read). `running` is true only in the
- * `started` state; the panel uses this to show a booting spinner or a resume affordance.
+ * Current app-preview state for the preview panel. `state: "none"` means this project has no
+ * tracked dev server; otherwise `state` carries the current sandbox lifecycle state and `running`
+ * reports whether the tracked server's port is live.
  */
 export const SandboxPreviewStatusSchema = z.strictObject({
   running: z.boolean(),
