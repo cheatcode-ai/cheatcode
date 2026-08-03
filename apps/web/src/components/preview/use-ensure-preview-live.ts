@@ -128,7 +128,12 @@ async function refreshPreviewSession(
   const controller = new AbortController();
   runtime.wakeAbort = controller;
   runtime.waking = true;
-  if (showBooting) setPhase("booting");
+  if (showBooting) {
+    // Unmount a stale cross-origin document before a real wake. The fresh handoff URL then performs
+    // its own cookie exchange on remount; silent capability rotation still preserves live SPA state.
+    clearPreviewUrls(deps);
+    setPhase("booting");
+  }
   try {
     const outcome = await requestPreviewRefresh(
       { ...deps, threadId: deps.threadId },

@@ -76,11 +76,12 @@ export async function prepareStartDevServer(
   const isExpo = isExpoStartCommand(parsedInput.command);
   const isMobile = isExpo || parsedInput.isMobile;
   const port = await allocateDevServerPort(runtimeContext, slug, isMobile);
+  const command = remapRequestedDevServerPort(parsedInput.command, parsedInput.port, port);
   return {
     mayUseNetwork: isExpo,
     port,
     process: {
-      command: isExpo ? expoWebCommand(port) : parsedInput.command,
+      command: isExpo ? expoWebCommand(port) : command,
       cwd,
       env: { ...parsedInput.env, PORT: String(port) },
       isMobile,
@@ -92,6 +93,22 @@ export async function prepareStartDevServer(
       waitForPort: { port, timeoutMs: parsedInput.timeoutMs },
     },
   };
+}
+
+/**
+ * The model supplies a familiar port such as 5173, while the shared user sandbox may allocate a
+ * different stable port for this project. Remap standalone occurrences in argv and shell payloads
+ * so explicit framework flags and positional ports agree with the readiness probe and preview URL.
+ */
+function remapRequestedDevServerPort(
+  command: readonly string[],
+  requestedPort: number,
+  allocatedPort: number,
+): string[] {
+  if (requestedPort === allocatedPort) return [...command];
+  const requestedPortToken = new RegExp(`(?<!\\d)${requestedPort}(?!\\d)`, "gu");
+  const allocatedPortToken = String(allocatedPort);
+  return command.map((argument) => argument.replace(requestedPortToken, allocatedPortToken));
 }
 
 /** Executes only the fully resolved process plan. */
