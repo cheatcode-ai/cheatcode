@@ -7,6 +7,7 @@ export type { ArtifactKind } from "@cheatcode/types/artifacts";
 
 const ENVIRONMENT_VARIABLE_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/u;
 const MAX_ENVIRONMENT_VARIABLES = 128;
+const WORKSPACE_SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u;
 
 /** A bounded, shell-safe process environment accepted at the sandbox boundary. */
 export const EnvironmentVariablesSchema = z
@@ -211,6 +212,8 @@ export interface CodeRuntimeContext {
   sandbox: SandboxLike;
   /** The project folder inside the shared per-user sandbox. */
   workspaceDir?: string | undefined;
+  /** Stable project identity; process slots must not infer this from a nested command cwd. */
+  workspaceSlug?: string | undefined;
 }
 
 /** Narrows a tool's sandbox dependency to only the methods it invokes. */
@@ -244,6 +247,7 @@ export const CodeRuntimeContextSchema = z.strictObject({
   ensureWorkspace: z.custom<WorkspaceResolver>((value) => typeof value === "function").optional(),
   sandbox: SandboxLikeSchema,
   workspaceDir: z.string().optional(),
+  workspaceSlug: z.string().min(1).max(64).regex(WORKSPACE_SLUG).optional(),
 });
 
 function isArtifactRuntime(value: unknown): value is ArtifactRuntime {

@@ -85,8 +85,7 @@ async function executeThreadTerminalCommand(c: AgentContext): Promise<Response> 
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId") ?? "");
   const body = await readTerminalCommand(c);
-  await requireWritableThreadProject(c.env, userId, threadId);
-  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const project = await requireWritableThreadProject(c.env, userId, threadId);
   const sandbox = await sandboxForUser(c.env, userId);
   const workspaceDir = project
     ? workspacePathForSlug(project.workspaceSlug)

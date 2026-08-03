@@ -66,8 +66,13 @@ export async function prepareStartDevServer(
   runtimeContext: CodeRuntimeContextFor<"allocateProjectPort">,
 ): Promise<PreparedStartDevServer> {
   const parsedInput = StartDevServerInputSchema.parse(input);
+  if (!runtimeContext.workspaceDir || !runtimeContext.workspaceSlug) {
+    throw new APIError(500, "internal_service_error", "Project workspace is unavailable", {
+      retriable: false,
+    });
+  }
   const cwd = resolveProjectWorkspacePath(parsedInput.cwd, runtimeContext.workspaceDir);
-  const slug = deriveWorkspaceSlug(cwd);
+  const slug = runtimeContext.workspaceSlug;
   const isExpo = isExpoStartCommand(parsedInput.command);
   const isMobile = isExpo || parsedInput.isMobile;
   const port = await allocateDevServerPort(runtimeContext, slug, isMobile);
@@ -151,17 +156,6 @@ function expoWebCommand(port: number): string[] {
     "node /tmp/cc-restore-expo-deps.js && rm -f pnpm-lock.yaml package-lock.json && CI=1 EXPO_NO_TELEMETRY=1 pnpm install --prefer-offline";
   const startMetro = `exec pnpm exec expo start -c --web --host lan --port ${port}`;
   return ["sh", "-lc", `${writeScript}; (${heal}) ; ${startMetro}`];
-}
-
-// The project's workspaceSlug = the last non-empty path segment of the cwd (/workspace/<slug>).
-// Every run has a project, so the forced cwd is always /workspace/<slug> and yields a slug here.
-function deriveWorkspaceSlug(cwd: string): string {
-  const segments = cwd.split("/").filter((segment) => segment.length > 0);
-  const slug = segments[segments.length - 1];
-  if (!slug) {
-    throw new Error(`Cannot derive a workspace slug from cwd: ${cwd}`);
-  }
-  return slug;
 }
 
 // Get-or-assign this project's stable dev-server port from the sandbox's per-project allocator

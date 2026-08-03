@@ -10,7 +10,6 @@ import {
   findAgentEntitlementByUserId,
   findAgentRunForUser,
   getProject,
-  getProjectWriteState,
   getThread,
   type RunPersonalization,
   withUserDb,
@@ -73,10 +72,10 @@ export async function requireWritableThreadProject(
   env: AgentEnv,
   userId: string,
   threadId: string,
-): Promise<void> {
+): Promise<{ id: string; name: string; workspaceSlug: string } | null> {
   const parsedUserId = toUserId(userId);
   return withUserDb(env, parsedUserId, async ({ transaction }) => {
-    await transaction(async (tx) => {
+    return transaction(async (tx) => {
       const thread = await getThread(tx, { threadId: toThreadId(threadId), userId: parsedUserId });
       if (!thread) {
         throw new APIError(404, "resource_thread_not_found", "Thread not found", {
@@ -85,32 +84,33 @@ export async function requireWritableThreadProject(
       }
       if (!thread.projectId) {
         // Project-less chats stay writable until a workspace-backed tool materializes a project.
-        return;
+        return null;
       }
-      const state = await getProjectWriteState(tx, {
+      const project = await getProject(tx, {
         projectId: thread.projectId,
         userId: parsedUserId,
       });
-      if (!state) {
+      if (!project) {
         throw new APIError(404, "resource_project_not_found", "Project not found", {
           retriable: false,
         });
       }
-      if (state.readOnly) {
+      if (project.readOnly) {
         throw new APIError(
           403,
           "permission_plan_required",
           "Project is read-only after downgrade",
           {
             details: {
-              archiveAfter: state.archiveAfter?.toISOString() ?? null,
-              overQuota: state.overQuota,
+              archiveAfter: project.archiveAfter?.toISOString() ?? null,
+              overQuota: project.overQuota,
             },
             hint: "Delete or archive over-limit projects, or upgrade your plan to continue editing this project.",
             retriable: false,
           },
         );
       }
+      return { id: project.id, name: project.name, workspaceSlug: project.workspaceSlug };
     });
   });
 }

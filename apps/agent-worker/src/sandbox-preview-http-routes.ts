@@ -11,9 +11,7 @@ import { requireWritableThreadProject, sandboxForUser } from "./agent-routing";
 import {
   readSandboxStateCache,
   SANDBOX_WORKSPACE_ROOT,
-  selectInitialCodeServerFile,
   terminalDisplayCwd,
-  terminalProjectForThread,
 } from "./sandbox-route-support";
 import { parseThreadRouteParam, readGatewayUserId } from "./tenancy";
 
@@ -38,31 +36,19 @@ async function openComputerIde(c: AgentContext): Promise<Response> {
 async function openThreadIde(c: AgentContext): Promise<Response> {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId") ?? "");
-  await requireWritableThreadProject(c.env, userId, threadId);
-  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const project = await requireWritableThreadProject(c.env, userId, threadId);
   const sandbox = await sandboxForUser(c.env, userId);
   const workspacePath = project
     ? workspacePathForSlug(project.workspaceSlug)
     : SANDBOX_WORKSPACE_ROOT;
-  const initialFilePath = project
-    ? selectInitialCodeServerFile(
-        (await sandbox.listFiles({ includeHidden: false, path: workspacePath, recursive: true }))
-          .files,
-        workspacePath,
-      )
-    : undefined;
-  const session = await sandbox.exposeCodeServer({
-    ...(initialFilePath ? { initialFilePath } : {}),
-    workspacePath,
-  });
+  const session = await sandbox.exposeCodeServer({ workspacePath });
   return ideSessionResponse(c, session);
 }
 
 async function wakeThreadPreview(c: AgentContext): Promise<Response> {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId") ?? "");
-  await requireWritableThreadProject(c.env, userId, threadId);
-  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const project = await requireWritableThreadProject(c.env, userId, threadId);
   const sandbox = await sandboxForUser(c.env, userId);
   const result = await sandbox.wakePreview({
     ...(project ? { workspaceSlug: project.workspaceSlug } : {}),
@@ -74,8 +60,7 @@ async function wakeThreadPreview(c: AgentContext): Promise<Response> {
 async function threadPreviewStatus(c: AgentContext): Promise<Response> {
   const userId = readGatewayUserId(c.req.raw.headers);
   const threadId = parseThreadRouteParam(c.req.param("threadId") ?? "");
-  await requireWritableThreadProject(c.env, userId, threadId);
-  const project = await terminalProjectForThread(c.env, userId, threadId);
+  const project = await requireWritableThreadProject(c.env, userId, threadId);
   const sandbox = await sandboxForUser(c.env, userId);
   if (project) {
     const status = await sandbox.projectPreviewStatus({ workspaceSlug: project.workspaceSlug });

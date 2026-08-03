@@ -53,7 +53,7 @@ export interface ProcessControl {
     name: string,
     record: ProcessRecord,
     restartEnv?: Record<string, string>,
-  ) => Promise<void>;
+  ) => Promise<ProcessRecord>;
   releaseProcessPort: (processId: string) => Promise<void>;
   terminateUntrackedSandboxProcesses: (id: string) => Promise<void>;
   waitForPort: (
@@ -116,7 +116,7 @@ async function relaunchDevServer(
   name: string,
   record: ProcessRecord,
   restartEnv?: Record<string, string>,
-): Promise<void> {
+): Promise<ProcessRecord> {
   const sessionId = record.sessionId || `cc-${name}`;
   await runtime.client().deleteSession(id, sessionId);
   const exec = await control.launchSessionProcess(
@@ -127,16 +127,18 @@ async function relaunchDevServer(
     supervisedProcessCommand(record.command, record),
     restartEnv ?? restartEnvironment(name, record),
   );
+  const relaunched = {
+    ...record,
+    cmdId: exec.cmdId ?? sessionId,
+    startedAtMs: Date.now(),
+  } satisfies ProcessRecord;
   try {
-    await runtime.storage.put(`${PROC_PREFIX}${name}`, {
-      ...record,
-      cmdId: exec.cmdId ?? sessionId,
-      startedAtMs: Date.now(),
-    } satisfies ProcessRecord);
+    await runtime.storage.put(`${PROC_PREFIX}${name}`, relaunched);
   } catch (error) {
     await control.cleanupLaunchedProcess(id, sessionId, name);
     throw error;
   }
+  return relaunched;
 }
 
 async function waitForPort(

@@ -193,13 +193,17 @@ function agentRequestContext(
     ensureWorkspace: async () => {
       const workspace = await options.workspaceResolver();
       codeRuntime.workspaceDir = workspace.workspaceDir;
+      codeRuntime.workspaceSlug = workspace.workspaceSlug;
       return workspace;
     },
     sandbox: options.sandbox,
     ...(isSkillCreator
       ? { workspaceDir: "/workspace" }
       : input.workspaceSlug
-        ? { workspaceDir: workspacePathForSlug(input.workspaceSlug) }
+        ? {
+            workspaceDir: workspacePathForSlug(input.workspaceSlug),
+            workspaceSlug: input.workspaceSlug,
+          }
         : {}),
   };
   return createCodeRequestContext(codeRuntime, {

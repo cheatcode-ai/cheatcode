@@ -1,7 +1,6 @@
 import { getProject, getThread, withUserDb } from "@cheatcode/db";
 import { APIError } from "@cheatcode/observability";
 import { toProjectId, toThreadId, toUserId } from "@cheatcode/types";
-import type { SandboxFileEntry } from "@cheatcode/types/api";
 import { z } from "zod";
 import type { AgentEnv } from "./agent-env";
 import { shellQuote } from "./sandbox-support";
@@ -9,46 +8,6 @@ import { shellQuote } from "./sandbox-support";
 export const SANDBOX_WORKSPACE_ROOT = "/workspace";
 export const TERMINAL_DISPLAY_WORKSPACE = "/home/user/computer";
 
-const APP_ENTRY_FILE_NAMES = new Set([
-  "app.js",
-  "index.html",
-  "next.config.js",
-  "package.json",
-  "vite.config.js",
-]);
-const CODE_SERVER_IGNORED_SEGMENTS = new Set([
-  ".git",
-  ".next",
-  ".turbo",
-  "dist",
-  "node_modules",
-  "out",
-]);
-const CODE_SERVER_DELIVERABLE_EXTENSIONS = new Set([
-  ".doc",
-  ".docx",
-  ".odp",
-  ".ods",
-  ".odt",
-  ".pdf",
-  ".ppt",
-  ".pptx",
-  ".xls",
-  ".xlsx",
-]);
-const CODE_SERVER_ENTRY_RELATIVE_PATHS = [
-  "index.html",
-  "package.json",
-  "src/app/page.tsx",
-  "src/app/page.jsx",
-  "src/App.tsx",
-  "src/App.jsx",
-  "src/main.tsx",
-  "src/main.jsx",
-  "app.js",
-  "main.py",
-  "README.md",
-];
 const SandboxStateCacheSchema = z.strictObject({
   state: z.string().min(1).max(50),
   updatedAt: z.string().optional(),
@@ -83,55 +42,6 @@ export async function terminalProjectForThread(
       return { id: project.id, name: project.name, workspaceSlug: project.workspaceSlug };
     });
   });
-}
-
-export function selectInitialCodeServerFile(
-  files: SandboxFileEntry[],
-  workspacePath: string,
-): string | undefined {
-  const candidates = files
-    .filter((file) => file.type === "file" && isCodeServerCandidate(file.path, workspacePath))
-    .sort(
-      (left, right) =>
-        codeServerFileScore(right, workspacePath) - codeServerFileScore(left, workspacePath),
-    );
-  return candidates[0]?.path;
-}
-
-function isCodeServerCandidate(path: string, workspacePath: string): boolean {
-  if (!path.startsWith(`${workspacePath}/`)) {
-    return false;
-  }
-  const relativePath = path.slice(workspacePath.length + 1);
-  return !relativePath.split("/").some((segment) => CODE_SERVER_IGNORED_SEGMENTS.has(segment));
-}
-
-function codeServerFileScore(file: SandboxFileEntry, workspacePath: string): number {
-  const relativePath = file.path.slice(workspacePath.length + 1);
-  const extension = extensionOf(file.name);
-  if (CODE_SERVER_DELIVERABLE_EXTENSIONS.has(extension)) {
-    return 1_000 - relativePath.split("/").length;
-  }
-  const entryIndex = CODE_SERVER_ENTRY_RELATIVE_PATHS.indexOf(relativePath);
-  if (entryIndex !== -1) {
-    return 900 - entryIndex;
-  }
-  if (APP_ENTRY_FILE_NAMES.has(file.name)) {
-    return 800;
-  }
-  if (isLikelySourceExtension(extension)) {
-    return 500 - relativePath.split("/").length;
-  }
-  return 100 - relativePath.length / 1_000;
-}
-
-function extensionOf(filename: string): string {
-  const dotIndex = filename.lastIndexOf(".");
-  return dotIndex <= 0 ? "" : filename.slice(dotIndex).toLowerCase();
-}
-
-function isLikelySourceExtension(extension: string): boolean {
-  return [".css", ".html", ".js", ".jsx", ".json", ".md", ".py", ".ts", ".tsx"].includes(extension);
 }
 
 export function terminalDisplayCwd(cwd: string): string {

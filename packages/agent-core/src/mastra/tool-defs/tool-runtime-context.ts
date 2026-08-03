@@ -37,6 +37,7 @@ export async function workspaceRuntimeFromContext(context: unknown) {
     const workspace = await runtime.ensureWorkspace?.();
     if (workspace) {
       runtime.workspaceDir = workspace.workspaceDir;
+      runtime.workspaceSlug = workspace.workspaceSlug;
     }
   }
   if (!runtime.workspaceDir) {
