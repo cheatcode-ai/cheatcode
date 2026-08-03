@@ -90,6 +90,12 @@ updates:
       - dependency-name: "*"
         update-types:
           - version-update:semver-major
+      - dependency-name: numpy
+        versions:
+          - ">=2.4"
+      - dependency-name: matplotlib
+        versions:
+          - ">=3.11"
 
   - package-ecosystem: github-actions
     directory: /
