@@ -2,7 +2,7 @@
 
 import type { ProjectSummary } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
-import { Activity, type ReactNode, useEffect } from "react";
+import { Activity, type ReactNode, useEffect, useState } from "react";
 import { BrowserTakeoverSurface } from "@/components/preview/browser-takeover-surface";
 import { ExpoDevicePanel } from "@/components/preview/expo-device-panel";
 import {
@@ -86,12 +86,13 @@ function usePreviewPanelController(
     store.setActivePreviewTab("app");
     store.setPreviewPanelOpen(true);
   }, [browserTakeover.session, store.setActivePreviewTab, store.setPreviewPanelOpen]);
-  return { ...store, browserTakeover, isMobile, previewLive };
+  return { ...store, browserTakeover, isMobile, isRunActive: activeRunId !== null, previewLive };
 }
 
 function usePreviewPanelStore() {
   return {
     activePreviewTab: useAppStore((state) => normalizeComputerTab(state.activePreviewTab)),
+    appPreviewStatus: useAppStore((state) => state.appPreviewStatus),
     expoUrl: useAppStore((state) => state.expoUrl),
     previewDevice: useAppStore((state) => state.previewDevice),
     previewPanelOpen: useAppStore((state) => state.previewPanelOpen),
@@ -220,11 +221,13 @@ function panelBodyProps(
 ): PanelBodyProps {
   return {
     activePreviewTab: controller.activePreviewTab,
+    appPreviewStatus: controller.appPreviewStatus,
     computerOpen: controller.previewPanelOpen,
     device: controller.previewDevice,
     expoUrl: controller.expoUrl,
     hasProject: project !== null,
     isMobile: controller.isMobile,
+    isRunActive: controller.isRunActive,
     previewPhase: controller.previewLive.phase,
     previewRetry: controller.previewLive.retry,
     previewReloadToken: controller.previewReloadToken,
@@ -237,11 +240,13 @@ function panelBodyProps(
 
 interface PanelBodyProps {
   activePreviewTab: PreviewTab;
+  appPreviewStatus: ReturnType<typeof useAppStore.getState>["appPreviewStatus"];
   computerOpen: boolean;
   device: PreviewDevice;
   expoUrl: string | null;
   hasProject: boolean;
   isMobile: boolean;
+  isRunActive: boolean;
   previewPhase: PreviewLivePhase;
   previewRetry: () => Promise<void>;
   previewReloadToken: number;
@@ -253,11 +258,13 @@ interface PanelBodyProps {
 
 function PanelBody({
   activePreviewTab,
+  appPreviewStatus,
   computerOpen,
   device,
   expoUrl,
   hasProject,
   isMobile,
+  isRunActive,
   previewPhase,
   previewRetry,
   previewReloadToken,
@@ -276,7 +283,9 @@ function PanelBody({
             device={device}
             expoUrl={expoUrl}
             hasProject={hasProject}
+            appPreviewStatus={appPreviewStatus}
             isMobile={isMobile}
+            isRunActive={isRunActive}
             previewPhase={previewPhase}
             previewRetry={previewRetry}
             previewReloadToken={previewReloadToken}
@@ -302,10 +311,12 @@ type AppTabProps = Omit<
 >;
 
 function AppTab({
+  appPreviewStatus,
   device,
   expoUrl,
   hasProject,
   isMobile,
+  isRunActive,
   previewPhase,
   previewRetry,
   previewReloadToken,
@@ -335,6 +346,7 @@ function AppTab({
       <AppTabContent
         frameDevice={frameDevice}
         iframeUrl={iframeUrl}
+        isGeneratedPreviewPending={appPreviewStatus === "building" && isRunActive}
         previewPhase={previewPhase}
         previewRetry={previewRetry}
         previewUrl={previewUrl}
@@ -374,6 +386,7 @@ function AppTabLayout({
 function AppTabContent({
   frameDevice,
   iframeUrl,
+  isGeneratedPreviewPending,
   previewPhase,
   previewRetry,
   previewUrl,
@@ -381,19 +394,20 @@ function AppTabContent({
 }: {
   frameDevice: PreviewDevice;
   iframeUrl: string;
+  isGeneratedPreviewPending: boolean;
   previewPhase: PreviewLivePhase;
   previewRetry: () => Promise<void>;
   previewUrl: string | null;
   requestedIframeUrl: string | null;
 }) {
-  if (previewPhase === "booting") {
+  if (previewPhase === "booting" || isGeneratedPreviewPending) {
     return (
       <PreviewDeviceFrame
         device={frameDevice}
         content={
           <CheatcodeLoader
             className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
-            label="Starting preview…"
+            label={isGeneratedPreviewPending ? "Building preview…" : "Starting preview…"}
           />
         }
       />
@@ -426,17 +440,30 @@ function PreviewDeviceFrame({ content, device }: { content: ReactNode; device: P
 }
 
 function BrowserPreviewIframe({ iframeUrl }: { iframeUrl: string }) {
+  const [isLoaded, setIsLoaded] = useState(false);
   return (
-    <iframe
-      className="min-h-0 min-w-0 flex-1 border-0 bg-background"
-      key={iframeUrl}
-      allow={APP_PREVIEW_IFRAME_ALLOW}
-      allowFullScreen
-      referrerPolicy="origin"
-      sandbox={APP_PREVIEW_IFRAME_SANDBOX}
-      src={iframeUrl}
-      title="Browser preview"
-    />
+    <div className="relative flex min-h-0 min-w-0 flex-1 bg-background">
+      {!isLoaded ? (
+        <CheatcodeLoader
+          className="absolute inset-0 z-10 bg-bg-secondary"
+          label="Loading preview…"
+        />
+      ) : null}
+      <iframe
+        className={cn(
+          "min-h-0 min-w-0 flex-1 border-0 bg-background transition-opacity duration-150 motion-reduce:transition-none",
+          isLoaded ? "opacity-100" : "opacity-0",
+        )}
+        key={iframeUrl}
+        allow={APP_PREVIEW_IFRAME_ALLOW}
+        allowFullScreen
+        onLoad={() => setIsLoaded(true)}
+        referrerPolicy="origin"
+        sandbox={APP_PREVIEW_IFRAME_SANDBOX}
+        src={iframeUrl}
+        title="Browser preview"
+      />
+    </div>
   );
 }
 

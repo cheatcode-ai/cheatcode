@@ -148,11 +148,14 @@ interface RunAppBuilderOptions {
   setRunStage: (stage: string) => void;
 }
 
+interface AppBuilderSetup {
+  agentContextNote?: string;
+  waitsForGeneratedPreview: boolean;
+}
+
 type WorkspaceOptions = RunAppBuilderOptions & { workspace: AppBuilderWorkspace };
 
-export async function runAppBuilder(
-  options: RunAppBuilderOptions,
-): Promise<{ agentContextNote?: string }> {
+export async function runAppBuilder(options: RunAppBuilderOptions): Promise<AppBuilderSetup> {
   const { input, logger, sandbox } = options;
   throwIfRunCanceled(options.abortSignal);
   const workspace = await resolveAppWorkspace(sandbox, input, logger);
@@ -166,20 +169,35 @@ export async function runAppBuilder(
   // follow-up run. See D7 — the marker, not the template-shape check, is the
   // one-shot guarantee.
   if (await hasImportedAppWorkspace(sandbox, workspace.dir)) {
-    return restoreImportedWorkspace(workspaceOptions);
+    return {
+      ...(await restoreImportedWorkspace(workspaceOptions)),
+      waitsForGeneratedPreview: false,
+    };
   }
   const shouldBootstrap = !(await hasExistingAppBuilderWorkspace(sandbox, workspace.dir));
   if (shouldBootstrap && input.importRepoUrl) {
-    return importRepoWorkspace({ ...workspaceOptions, repoUrl: input.importRepoUrl });
+    return {
+      ...(await importRepoWorkspace({ ...workspaceOptions, repoUrl: input.importRepoUrl })),
+      waitsForGeneratedPreview: false,
+    };
   }
-  return runTemplateAppBuilder({ ...workspaceOptions, shouldBootstrap });
+  return {
+    ...(await runTemplateAppBuilder({ ...workspaceOptions, shouldBootstrap })),
+    waitsForGeneratedPreview: shouldBootstrap,
+  };
 }
 
 async function runTemplateAppBuilder(
   options: WorkspaceOptions & { shouldBootstrap: boolean },
 ): Promise<{ agentContextNote: string }> {
-  const { sandbox, workspace } = options;
+  const { append, sandbox, shouldBootstrap, workspace } = options;
   throwIfRunCanceled(options.abortSignal);
+  if (shouldBootstrap) {
+    await append({
+      type: "data-app-preview-status",
+      data: { v: 1, status: "building" },
+    });
+  }
   await prepareTemplateWorkspace(options);
   throwIfRunCanceled(options.abortSignal);
   await clearBuildCache(sandbox, workspace.dir, workspace.mobile);

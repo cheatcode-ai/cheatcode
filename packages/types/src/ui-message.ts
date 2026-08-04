@@ -6,6 +6,7 @@ import { type LogicalModelId, LogicalModelIdSchema } from "./models";
 
 const TaskStatusSchema = z.enum(["pending", "running", "completed", "failed"]);
 const SandboxStreamStatusSchema = z.enum(["starting", "ready", "failed"]);
+const AppPreviewStreamStatusSchema = z.enum(["building", "ready"]);
 
 /**
  * Informational model-transition part. Replaces the silent text-delta fallback
@@ -41,6 +42,11 @@ const TaskStatusDataSchema = z.strictObject({
 const SandboxStatusDataSchema = z.strictObject({
   v: z.literal(1),
   status: SandboxStreamStatusSchema,
+});
+
+const AppPreviewStatusDataSchema = z.strictObject({
+  v: z.literal(1),
+  status: AppPreviewStreamStatusSchema,
 });
 
 const ProjectCreatedDataSchema = z.strictObject({
@@ -103,6 +109,7 @@ const SeqDataSchema = z.strictObject({
 });
 
 export const CHEATCODE_DATA_SCHEMAS = {
+  "app-preview-status": AppPreviewStatusDataSchema,
   artifact: ArtifactDataSchema,
   error: ErrorDataSchema,
   "model-fallback": ModelFallbackDataSchema,
@@ -133,6 +140,7 @@ function dataMessagePartSchema<Name extends keyof typeof CHEATCODE_DATA_SCHEMAS>
 /** Exact V2 message-part contract persisted in Postgres and replayed to the web client. */
 export const MessagePartSchema = z.discriminatedUnion("type", [
   TextMessagePartSchema,
+  dataMessagePartSchema("app-preview-status"),
   dataMessagePartSchema("artifact"),
   dataMessagePartSchema("error"),
   dataMessagePartSchema("model-fallback"),
@@ -147,6 +155,7 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
 ]);
 
 export type ModelFallbackData = z.infer<typeof ModelFallbackDataSchema>;
+export type AppPreviewState = "idle" | z.infer<typeof AppPreviewStreamStatusSchema>;
 export type SandboxState = "cold" | z.infer<typeof SandboxStreamStatusSchema>;
 
 type CheatcodeDataParts = {

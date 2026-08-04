@@ -40,6 +40,7 @@ export function buildMessageTimeline(
 
 export function isHiddenTranscriptPart(part: MessagePart): boolean {
   return (
+    part.type === "data-app-preview-status" ||
     part.type === "data-artifact" ||
     part.type === "data-sandbox-status" ||
     /* retained for historical transcripts */

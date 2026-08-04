@@ -53,7 +53,7 @@ async function executeAppBuilderPath(
   if (options.isCanceled()) {
     return "completed";
   }
-  const { agentContextNote } = await runAppBuilder(options);
+  const { agentContextNote, waitsForGeneratedPreview } = await runAppBuilder(options);
   if (options.isCanceled()) {
     return "completed";
   }
@@ -69,6 +69,12 @@ async function executeAppBuilderPath(
     return "completed";
   }
   await restartMobilePreviewIfNeeded(options);
+  if (waitsForGeneratedPreview) {
+    await options.append({
+      type: "data-app-preview-status",
+      data: { v: 1, status: "ready" },
+    });
+  }
   return "continue";
 }
 
