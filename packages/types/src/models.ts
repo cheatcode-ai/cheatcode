@@ -19,56 +19,56 @@ function logicalModelId<const Value extends string>(value: Value): Value & Logic
 }
 
 const RAW_CATALOG_MODEL_IDS = {
-  claudeOpus: "anthropic/claude-opus-4-8",
-  claudeSonnet: "anthropic/claude-sonnet-4-6",
+  claudeOpus: "anthropic/claude-opus-5",
+  claudeSonnet: "anthropic/claude-sonnet-5",
   deepseekPro: "deepseek/deepseek-v4-pro",
-  gptMini: "openai/gpt-5.4-mini",
-  gptThinking: "openai/gpt-5.4-thinking",
+  gptSol: "openai/gpt-5.6-sol",
+  gptTerra: "openai/gpt-5.6-terra",
 } as const;
 
 const RAW_CATALOG_MODEL_ID_VALUES = [
   RAW_CATALOG_MODEL_IDS.claudeSonnet,
   RAW_CATALOG_MODEL_IDS.claudeOpus,
-  RAW_CATALOG_MODEL_IDS.gptThinking,
-  RAW_CATALOG_MODEL_IDS.gptMini,
+  RAW_CATALOG_MODEL_IDS.gptSol,
+  RAW_CATALOG_MODEL_IDS.gptTerra,
   RAW_CATALOG_MODEL_IDS.deepseekPro,
 ] as const;
 
 /**
  * The single source of truth for the agent model catalog shown in the picker.
  *
- * Curated to the live Models list: Claude Sonnet 4.6, Claude Opus 4.8,
- * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 Pro model. The standalone
+ * Curated to the live Models list: Claude Sonnet 5, Claude Opus 5,
+ * GPT-5.6 Sol, GPT-5.6 Terra, and the included DeepSeek V4 Pro model. The standalone
  * OpenRouter-Auto row stays reachable as a provider-prefixed request id but is not
  * drawn in the picker. Google AI keys are tool-only and never select the chat model.
  *
  * Catalog order doubles as the resolution priority: the production default is first,
- * and Opus 4.8 is preferred over the GPT-5.4 entries when that default is disabled.
+ * and Opus 5 is preferred over the GPT-5.6 entries when that default is disabled.
  */
 export const AGENT_MODEL_CATALOG = [
   {
     id: logicalModelId(RAW_CATALOG_MODEL_IDS.claudeSonnet),
-    label: "Claude Sonnet 4.6",
+    label: "Claude Sonnet 5",
     provider: "anthropic",
     description: "Default code-building model for app and sandbox work.",
   },
   {
     id: logicalModelId(RAW_CATALOG_MODEL_IDS.claudeOpus),
-    label: "Claude Opus 4.8",
+    label: "Claude Opus 5",
     provider: "anthropic",
     description: "Highest-capability Anthropic model for complex planning and analysis.",
   },
   {
-    id: logicalModelId(RAW_CATALOG_MODEL_IDS.gptThinking),
-    label: "GPT-5.4 Thinking",
+    id: logicalModelId(RAW_CATALOG_MODEL_IDS.gptSol),
+    label: "GPT-5.6 Sol",
     provider: "openai",
-    description: "Reasoning-heavy model for planning, research, and analysis.",
+    description: "Highest-capability OpenAI model for agentic work and complex reasoning.",
   },
   {
-    id: logicalModelId(RAW_CATALOG_MODEL_IDS.gptMini),
-    label: "GPT-5.4 Mini",
+    id: logicalModelId(RAW_CATALOG_MODEL_IDS.gptTerra),
+    label: "GPT-5.6 Terra",
     provider: "openai",
-    description: "Fast fallback model for lower-cost utility runs.",
+    description: "Balanced OpenAI fallback for fast, efficient utility runs.",
   },
   {
     id: logicalModelId(RAW_CATALOG_MODEL_IDS.deepseekPro),
@@ -84,7 +84,7 @@ export const PRODUCTION_DEFAULT_MODEL_ID = logicalModelId(
   RAW_CATALOG_MODEL_IDS.claudeSonnet,
 ) satisfies CatalogModelId;
 export const FALLBACK_MODEL_ID = logicalModelId(
-  RAW_CATALOG_MODEL_IDS.gptMini,
+  RAW_CATALOG_MODEL_IDS.gptTerra,
 ) satisfies CatalogModelId;
 
 /**
