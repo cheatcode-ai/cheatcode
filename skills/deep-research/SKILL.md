@@ -17,6 +17,7 @@ Answer complex questions with sourced synthesis. The output should read like an 
 2. Run the request through `research_deep`; use 3 queries for concise or narrow reports, 4 by default, and 5-6 only when the user explicitly asks for deeper coverage. It validates citations and creates the PDF deliverable.
 3. Return the key conclusion and important caveats in chat, with a short source list.
 4. Refer to the PDF naturally as ready below. Do not call a separate document tool or recreate the report.
+5. Call the workflow once per user request. If it fails, explain the failure instead of immediately rerunning it.
 
 ## Fan-out Mode
 
