@@ -354,6 +354,7 @@ function useLazyImagePreview(
   getToken: () => Promise<null | string>,
 ): ImagePreview {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const getTokenRef = useRef(getToken);
   const isNearViewport = useNearViewport(hostRef);
   const [preview, setPreview] = useState<Omit<ImagePreview, "hostRef">>({
     message: null,
@@ -361,11 +362,19 @@ function useLazyImagePreview(
     url: null,
   });
   useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+  useEffect(() => {
     if (!isNearViewport) return;
     const controller = new AbortController();
     let objectUrl: string | null = null;
     setPreview({ message: null, status: "loading", url: null });
-    void loadOutputImagePreview(getToken, data.outputId, data.sizeBytes, controller.signal)
+    void loadOutputImagePreview(
+      () => getTokenRef.current(),
+      data.outputId,
+      data.sizeBytes,
+      controller.signal,
+    )
       .then((blob) => {
         objectUrl = URL.createObjectURL(blob);
         setPreview({ message: null, status: "ready", url: objectUrl });
@@ -382,7 +391,7 @@ function useLazyImagePreview(
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [data.outputId, data.sizeBytes, getToken, isNearViewport]);
+  }, [data.outputId, data.sizeBytes, isNearViewport]);
   return { ...preview, hostRef };
 }
 
