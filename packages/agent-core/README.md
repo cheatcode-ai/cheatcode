@@ -68,7 +68,11 @@ the Mastra workflow run, forward each workflow step signal through every nested
 Each concurrent research pass gets an isolated evidence collector populated only
 from parsed Exa result IDs/URLs and Firecrawl result URLs. Claim citations and the
 final synthesis are schema-validated against that evidence; prose URL scraping
-is not an accepted provenance boundary.
+is not an accepted provenance boundary. Successful top-level deep-research and
+fan-out tools deterministically package that validated report, its claim-to-source
+map, and its source list as a PDF artifact. The project workspace is resolved only
+after remote research succeeds; the PDF is then stored both in the live project
+files and the durable generated-output store.
 
 Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
