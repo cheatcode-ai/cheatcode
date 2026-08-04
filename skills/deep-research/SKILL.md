@@ -9,22 +9,21 @@ compatibility: Requires Exa and Firecrawl research tools; fan-out mode requires 
 
 # Deep Research
 
-Answer complex questions with sourced synthesis. The output should read like an analyst brief: clear thesis, cited evidence, disagreement handling, and confidence notes. When the question spans many entities or angles, fan out parallel probes first (see Fan-out Mode), then synthesize.
+Answer complex questions with sourced synthesis. The output should read like an analyst brief: clear thesis, cited evidence, disagreement handling, and confidence notes. Every run produces a complete PDF deliverable in the user's project in addition to a concise chat summary. When the question spans many entities or angles, use Fan-out Mode.
 
 ## Quick Start
 
-1. Rewrite the user's ask into 3-6 research questions.
-2. Create a source matrix with question, claim, evidence, URL, date, and confidence columns.
-3. Search with `search_web_advanced`; use date/domain filters when appropriate.
-4. Scrape authoritative sources with `search_scrape`.
-5. Synthesize with inline citations and explicit uncertainty.
+1. Scope the user's ask, timeframe, geography, and decision use.
+2. Run the request through `research_deep`; it performs the parallel research, validates citations, and creates the PDF deliverable.
+3. Return the key conclusion and important caveats in chat, with a short source list.
+4. Refer to the PDF naturally as ready below. Do not call a separate document tool or recreate the report.
 
 ## Fan-out Mode
 
-Use breadth first when the ask covers many independent entities (companies, tools, policies, markets): survey a population, compare many companies, or scan a market across 10-25 angles. Run it through the `research_fanout` workflow tool.
+Use breadth first when the ask covers many independent entities (companies, tools, policies, markets): survey a population, compare many companies, or scan a market across many angles. Run it through the `research_fanout` workflow tool; it creates the cited comparison PDF automatically.
 
 1. Identify the population to cover and the comparison criteria.
-2. Define up to 25 independent probe slots with clear per-probe questions and source expectations.
+2. Define up to 12 independent probe slots with clear per-probe questions and source expectations.
 3. Fan out the probes; keep them independent so slow or failed branches do not block the answer.
 4. Use the same fields for every entity so the comparison is fair; track source URLs per cell.
 5. Deduplicate facts, aliases, and repeated articles before synthesis.
@@ -55,8 +54,9 @@ Use breadth first when the ask covers many independent entities (companies, tool
 
 ## Deliverables
 
-- Markdown report
-- Source matrix
+- PDF research report saved in the project and shown in Deliverables
+- Concise chat summary with the main conclusion and caveats
+- Claim-to-source evidence map and source list inside the PDF
 - Confidence and gaps
 
 ## References

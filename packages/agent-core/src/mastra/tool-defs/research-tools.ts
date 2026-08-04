@@ -1,4 +1,6 @@
 import { createTool, type ToolExecutionContext } from "@mastra/core/tools";
+import { executeGeneratePdf } from "../../tools/docs/execute";
+import { GeneratePdfOutputSchema } from "../../tools/docs/schemas";
 import {
   ExaSearchInputSchema,
   ExaSearchOutputSchema,
@@ -25,8 +27,13 @@ import {
   firecrawlSource,
   registerResearchSources,
 } from "../workflows/research-provenance";
-import { researchRuntimeFromContext } from "./tool-runtime-context";
+import { buildResearchReportDocument } from "./research-report-document-support";
+import { researchRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 import { WorkflowResultSchema } from "./tool-schemas";
+
+const ResearchReportArtifactSchema = ResearchReportSchema.extend({
+  artifact: GeneratePdfOutputSchema,
+});
 
 type RequestContextReader = { get(key: string): unknown };
 type MutableRequestContext = RequestContextReader & {
@@ -241,30 +248,49 @@ export const mastraFirecrawlExtract = createTool({
 export const mastraDeepResearch = createTool({
   id: "research_deep",
   description:
-    "Run the Deep Research workflow for a complex topic. It fans out focused research queries and returns a cited report.",
+    "Run the Deep Research workflow for a complex topic. It returns a cited report and saves the complete report as a PDF deliverable in the project.",
   inputSchema: DeepResearchInputSchema,
-  outputSchema: ResearchReportSchema,
-  execute: async (input, context) =>
-    runResearchWorkflow({
+  outputSchema: ResearchReportArtifactSchema,
+  execute: async (input, context) => {
+    const parsedInput = DeepResearchInputSchema.parse(input);
+    const report = await runResearchWorkflow({
       context,
-      inputData: DeepResearchInputSchema.parse(input),
+      inputData: parsedInput,
       workflowName: "deepResearch",
-    }),
+    });
+    return createResearchReportArtifact(report, parsedInput.topic, context);
+  },
 });
 
 export const mastraResearchFanout = createTool({
   id: "research_fanout",
   description:
-    "Run the Deep Research fan-out workflow across multiple entities or angles and return a comparison matrix style report.",
+    "Run the Deep Research fan-out workflow across multiple entities or angles. It returns a cited comparison report and saves the complete report as a PDF deliverable in the project.",
   inputSchema: DeepResearchFanoutInputSchema,
-  outputSchema: ResearchReportSchema,
-  execute: async (input, context) =>
-    runResearchWorkflow({
+  outputSchema: ResearchReportArtifactSchema,
+  execute: async (input, context) => {
+    const parsedInput = DeepResearchFanoutInputSchema.parse(input);
+    const report = await runResearchWorkflow({
       context,
-      inputData: DeepResearchFanoutInputSchema.parse(input),
+      inputData: parsedInput,
       workflowName: "deepResearchFanout",
-    }),
+    });
+    return createResearchReportArtifact(report, parsedInput.goal, context);
+  },
 });
+
+async function createResearchReportArtifact(
+  report: ResearchReport,
+  topic: string,
+  context: ToolExecutionContext,
+) {
+  context.abortSignal?.throwIfAborted();
+  const artifact = await executeGeneratePdf(
+    buildResearchReportDocument(report, topic),
+    await workspaceRuntimeFromContext(context),
+  );
+  return ResearchReportArtifactSchema.parse({ ...report, artifact });
+}
 
 async function executeExaTool(input: unknown, context: ToolExecutionContext) {
   const output = await executeExaSearch(

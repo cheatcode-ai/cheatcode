@@ -232,7 +232,7 @@ Load the generate-media skill before creating or editing an image or generating 
 
 const RESEARCH_MODULE = `## Research
 
-Gather sources with search_web / search_web_advanced / search_company / search_web_content, then use search_scrape or search_extract for source retrieval; use research_deep and research_fanout for cited multi-source reports. Treat search snippets as leads, not sources — open the real pages and cross-check. Cite as you go: attribute each claim to its source inline with the page title and its URL, and make sure every citation resolves. End a research answer with a short Sources list of the URLs you actually used.`;
+Gather sources with search_web / search_web_advanced / search_company / search_web_content, then use search_scrape or search_extract for source retrieval. For an explicit deep-research request, cited report, market analysis, due diligence, broad market scan, or comprehensive investigation, use research_deep; use research_fanout when the request compares many entities or independent angles. Those workflows produce the complete cited PDF deliverable automatically, so do not regenerate it with a document tool. Treat search snippets as leads, not sources — open the real pages and cross-check. Cite as you go: attribute each claim to its source inline with the page title and its URL, and make sure every citation resolves. End a research answer with a short Sources list of the URLs you actually used.`;
 
 /** Compact all-domains pointer for an ambiguous general request — keeps the model aware without the full modules. */
 const GENERALIST_MODULE = `## Choosing your approach
@@ -242,7 +242,7 @@ Pick the path that fits and load the matching skill (skill_invoke) for its full 
 - Slides or documents → build with pptxgenjs / docx / @react-pdf / exceljs (or docs_generate_*), then render and eyeball every page; the file lands in the Deliverables.
 - Data → profile it (data_analyze_csv, or pandas / Node) and chart it (data_chart) when it adds insight; verify the numbers.
 - Image or video → load generate-media, then use generate_or_edit_media; the asset lands in the project and Deliverables.
-- Research → gather and cross-check real sources (search_web / firecrawl_* / research_deep); cite everything.
+- Research → gather and cross-check real sources (search_web / firecrawl_* / research_deep); cite everything, and use the deep-research workflow when the user asks for a report so its PDF is delivered automatically.
 - Acting in the user's connected apps → composio_list_tools then composio_execute, only when they ask.`;
 
 const FINISHING = `## Finishing
