@@ -141,10 +141,10 @@ function createQueryStep(id: string, config: ResearchWorkflowPrompts) {
         abortSignal,
       );
       const response = await agent.generate(researchPassPrompt(config, inputData.query, evidence), {
+        activeTools: [],
         abortSignal,
         requestContext: research.requestContext,
         structuredOutput: { schema: ResearchPassDraftSchema },
-        toolChoice: "none",
       });
       return validateResearchPass(
         parseResearchPassDraft(response.object),
@@ -165,10 +165,10 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
       const agent = mastra.getAgent("general");
       const sources = mergeResearchSources(inputData);
       const response = await agent.generate(config.synthesisPrompt(inputData), {
+        activeTools: [],
         abortSignal,
         requestContext,
         structuredOutput: { schema: ResearchSynthesisDraftSchema },
-        toolChoice: "none",
       });
       const draft = parseResearchSynthesisDraft(response.object);
       return ResearchReportSchema.parse({
