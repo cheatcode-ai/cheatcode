@@ -20,6 +20,7 @@ export const CONTEXT = {
   promptTaskMessage: "promptTaskMessage",
   promptWorkspaceDir: "promptWorkspaceDir",
   researchEvidenceCollector: "researchEvidenceCollector",
+  researchWorkflowAttempted: "researchWorkflowAttempted",
   researchWorkflowActive: "researchWorkflowActive",
   runIntent: "runIntent",
   userSkillCreator: "userSkillCreator",

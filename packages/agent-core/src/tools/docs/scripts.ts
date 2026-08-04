@@ -1,16 +1,13 @@
-import type {
-  GenerateDocumentInput,
-  GenerateSlidesInput,
-  GenerateSpreadsheetInput,
-} from "./schemas";
-
 const RUNTIME_REQUIRE = [
   'import { createRequire } from "node:module";',
   'const require = createRequire("/opt/cheatcode-doc-runtime/package.json");',
 ].join("\n");
 
-function assignment(name: string, value: unknown): string {
-  return `const ${name} = ${JSON.stringify(value)};`;
+function loadInput(inputPath: string): string {
+  return [
+    'const { readFile } = await import("node:fs/promises");',
+    `const input = JSON.parse(await readFile(${JSON.stringify(inputPath)}, "utf8"));`,
+  ].join("\n");
 }
 
 function emitArtifact(filename: string, mimeType: string): string {
@@ -25,10 +22,10 @@ function emitArtifact(filename: string, mimeType: string): string {
   ].join("\n");
 }
 
-export function buildSlidesScript(input: GenerateSlidesInput, filename: string): string {
+export function buildSlidesScript(inputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
-    assignment("input", input),
+    loadInput(inputPath),
     emitArtifact(
       filename,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -62,10 +59,10 @@ export function buildSlidesScript(input: GenerateSlidesInput, filename: string):
   ].join("\n");
 }
 
-export function buildDocxScript(input: GenerateDocumentInput, filename: string): string {
+export function buildDocxScript(inputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
-    assignment("input", input),
+    loadInput(inputPath),
     emitArtifact(
       filename,
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -93,10 +90,10 @@ export function buildDocxScript(input: GenerateDocumentInput, filename: string):
   ].join("\n");
 }
 
-export function buildXlsxScript(input: GenerateSpreadsheetInput, filename: string): string {
+export function buildXlsxScript(inputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
-    assignment("input", input),
+    loadInput(inputPath),
     emitArtifact(filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
     'const ExcelJS = require("exceljs");',
     "const workbook = new ExcelJS.Workbook();",
@@ -119,10 +116,10 @@ export function buildXlsxScript(input: GenerateSpreadsheetInput, filename: strin
   ].join("\n");
 }
 
-export function buildPdfScript(input: GenerateDocumentInput, filename: string): string {
+export function buildPdfScript(inputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
-    assignment("input", input),
+    loadInput(inputPath),
     emitArtifact(filename, "application/pdf"),
     'const ReactModule = await import(require.resolve("react"));',
     "const React = ReactModule.default ?? ReactModule;",

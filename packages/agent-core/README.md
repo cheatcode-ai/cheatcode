@@ -75,7 +75,10 @@ Successful top-level deep-research and fan-out tools deterministically package
 that validated report, its claim-to-source map, and its source list as a PDF
 artifact. The project workspace is resolved only after remote research succeeds;
 the PDF is then stored both in the live project files and the durable
-generated-output store.
+generated-output store. Document generators stage their bounded structured input
+in a hidden, project-local temporary file instead of embedding it in the sandbox
+command line, then delete that input after rendering; this keeps large reports
+within the sandbox process contract without retaining source payloads.
 
 Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
