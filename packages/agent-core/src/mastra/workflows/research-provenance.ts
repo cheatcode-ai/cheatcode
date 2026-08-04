@@ -34,26 +34,26 @@ export const ResearchPassDraftSchema = z.strictObject({
   claims: z
     .array(
       z.strictObject({
-        claim: z.string().trim().min(1).max(800),
+        claim: z.string().trim().min(1),
         sources: z.array(SourceReferenceDraftSchema).min(1).max(3),
       }),
     )
     .min(1)
     .max(6),
-  summary: z.string().trim().min(1).max(2_000),
+  summary: z.string().trim().min(1),
 });
 
 export const ResearchSynthesisDraftSchema = z.strictObject({
   claims: z
     .array(
       z.strictObject({
-        claim: z.string().trim().min(1).max(800),
+        claim: z.string().trim().min(1),
         sourceIds: z.array(z.string().trim().min(1).max(4_096)).min(1).max(4),
       }),
     )
     .min(1)
     .max(16),
-  report: z.string().trim().min(1).max(12_000),
+  report: z.string().trim().min(1),
 });
 
 type SourceReference = z.infer<typeof SourceReferenceSchema>;
