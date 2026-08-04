@@ -6,6 +6,8 @@ import { CONTEXT, type ContextKey } from "../context";
 import type { LlmProvider } from "../llm-context";
 import type { UserSkillCreator, UserSkillLoader, UserSkillRuntime } from "../user-skill-runtime";
 
+type GoogleToolApiKeyResolver = () => Promise<string | undefined>;
+
 interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
   anthropicApiKey?: string | undefined;
@@ -17,7 +19,7 @@ interface CodeRequestContextOptions {
   exaApiKey?: string | undefined;
   firecrawlApiKey?: string | undefined;
   globalMemory?: string | undefined;
-  googleApiKey?: string | undefined;
+  googleToolApiKeyResolver?: GoogleToolApiKeyResolver | undefined;
   llmProvider?: LlmProvider | undefined;
   modelId?: string | undefined;
   openaiApiKey?: string | undefined;
@@ -61,7 +63,7 @@ function contextEntries(
     [CONTEXT.composioQuotaMeter, options.composioQuotaMeter],
     [CONTEXT.composioUserId, options.composioUserId],
     [CONTEXT.openaiApiKey, options.openaiApiKey],
-    [CONTEXT.googleApiKey, options.googleApiKey],
+    [CONTEXT.googleToolApiKeyResolver, options.googleToolApiKeyResolver],
     [CONTEXT.openrouterApiKey, options.openrouterApiKey],
     [CONTEXT.deepseekApiKey, options.deepseekApiKey],
     [CONTEXT.exaApiKey, options.exaApiKey],
@@ -71,6 +73,17 @@ function contextEntries(
     [CONTEXT.userSkillCreator, options.userSkillCreator],
     [CONTEXT.userSkillLoader, options.userSkillLoader],
   ];
+}
+
+export async function resolveGoogleToolApiKey(requestContext: {
+  get(key: string): unknown;
+}): Promise<string | undefined> {
+  const candidate = requestContext.get(CONTEXT.googleToolApiKeyResolver);
+  if (typeof candidate !== "function") {
+    return undefined;
+  }
+  const apiKey = await (candidate as GoogleToolApiKeyResolver)();
+  return typeof apiKey === "string" && apiKey.trim().length > 0 ? apiKey.trim() : undefined;
 }
 
 function setOptionalContextValue(

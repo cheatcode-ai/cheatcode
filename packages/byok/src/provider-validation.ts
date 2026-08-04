@@ -56,7 +56,7 @@ const PROVIDER_VALIDATORS = {
   },
   google: {
     invalidStatuses: [400, 401, 403],
-    label: "Google Gemini",
+    label: "Google AI",
     method: "GET",
     schema: z
       .object({

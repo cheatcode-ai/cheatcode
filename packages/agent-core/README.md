@@ -21,8 +21,8 @@ Sandbox and artifact capabilities cross tool-domain boundaries only through
 Single-consumer data, document, and media implementations live under
 `src/tools/`. Data tools profile and normalize bounded tabular inputs and render
 deterministic SVG/Recharts output. Document tools generate sandbox-side PPTX,
-DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media tools use
-the active request's Google BYOK key for image/video work. All three receive
+DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media and Google-backed
+browser tools resolve the user's Google AI BYOK key lazily when invoked. All three receive
 sandbox and R2 artifact capabilities through request-scoped contracts; they do
 not read environment variables, persist credentials, or log keys.
 
@@ -52,9 +52,9 @@ pnpm --filter @cheatcode/agent-core typecheck
 Provider keys are supplied through BYOK runtime context, not module scope.
 `resolveRequestedLlmTransport` returns an `LlmTransportSelection`: its provider and bare
 model ID are SDK transport inputs, never the durable product model attribution.
-Google model selections use `google/<Gemini model id>`, for example
-`google/gemini-2.5-flash`. OpenRouter model selections use
-`openrouter/<OpenRouter model id>`, for example `openrouter/openrouter/auto`.
+OpenRouter model selections use `openrouter/<OpenRouter model id>`, for example
+`openrouter/openrouter/auto`. Google AI keys are tool credentials for image/video
+generation and browser automation; `google/<model id>` is not an agent-model route.
 
 Mastra storage is intentionally execution-only and in-memory. AgentRun Durable
 Objects and Postgres own durable run and transcript state. Workflows that receive

@@ -113,7 +113,6 @@ async function prepareMastraContext(options: MastraStreamOptions): Promise<Prepa
     composioConfigured: Boolean(toolCredentials.composioApiKey),
     exaConfigured: Boolean(toolCredentials.exaApiKey),
     firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
-    googleMediaConfigured: Boolean(toolCredentials.googleMediaApiKey),
   });
   return { ...userSkillContext, toolCredentials };
 }
@@ -217,10 +216,7 @@ function agentRequestContext(
     exaApiKey: toolCredentials.exaApiKey,
     firecrawlApiKey: toolCredentials.firecrawlApiKey,
     globalMemory: input.globalMemory,
-    googleApiKey:
-      credential.transportProvider === "google"
-        ? credential.apiKey
-        : toolCredentials.googleMediaApiKey,
+    googleToolApiKeyResolver: toolCredentials.googleToolApiKeyResolver,
     llmProvider: credential.transportProvider,
     modelId: credential.transportModelId,
     openaiApiKey: credential.transportProvider === "openai" ? credential.apiKey : undefined,

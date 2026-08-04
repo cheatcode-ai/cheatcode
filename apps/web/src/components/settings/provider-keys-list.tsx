@@ -1,6 +1,8 @@
 import type { Provider, ProviderKeySummary } from "@cheatcode/types/api";
 import type { FormEventHandler } from "react";
 import type { FieldError, UseFormRegister, UseFormWatch } from "react-hook-form";
+import { Info } from "@/components/ui";
+import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { cn } from "@/lib/ui/cn";
 import { ProviderKeyEditor } from "./provider-key-editor";
 import {
@@ -124,11 +126,26 @@ function ProviderKeyRowHeader({
   provider: Provider;
   summary: ProviderKeySummary | undefined;
 }) {
+  const meta = PROVIDER_META[provider];
   return (
     <div className="flex min-h-8 items-center justify-between">
-      <h2 className="truncate font-medium text-[14px] text-foreground" id={providerTabId(provider)}>
-        {PROVIDER_META[provider].label} API Key
-      </h2>
+      <div className="flex min-w-0 items-center gap-1.5">
+        <h2
+          className="min-w-0 truncate font-medium text-[14px] text-foreground"
+          id={providerTabId(provider)}
+        >
+          {meta.label} API Key
+        </h2>
+        <CheatcodeTooltip label={meta.description} side="top">
+          <button
+            aria-label={`About ${meta.label} API key`}
+            className="inline-flex size-6 shrink-0 cursor-help items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+            type="button"
+          >
+            <Info aria-hidden="true" className="size-3.5" />
+          </button>
+        </CheatcodeTooltip>
+      </div>
       {isExpanded ? null : (
         <div className="ml-4 flex items-center gap-2">
           <button

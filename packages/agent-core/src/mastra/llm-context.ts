@@ -5,7 +5,6 @@ import {
 } from "@cheatcode/types";
 
 export const ANTHROPIC_API_KEY_CONTEXT_KEY = "anthropicApiKey";
-export const GOOGLE_API_KEY_CONTEXT_KEY = "googleApiKey";
 export const OPENAI_API_KEY_CONTEXT_KEY = "openaiApiKey";
 export const OPENROUTER_API_KEY_CONTEXT_KEY = "openrouterApiKey";
 export const DEEPSEEK_API_KEY_CONTEXT_KEY = "deepseekApiKey";
@@ -23,7 +22,7 @@ export const DEFAULT_DEEPSEEK_MODEL_ID = providerLocalModelId(
   "deepseek/",
 );
 
-export type LlmProvider = "anthropic" | "google" | "openai" | "openrouter" | "deepseek";
+export type LlmProvider = "anthropic" | "openai" | "openrouter" | "deepseek";
 
 /** Provider-local selection used only to construct the outbound SDK transport. */
 export interface LlmTransportSelection {

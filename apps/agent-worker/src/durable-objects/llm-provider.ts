@@ -161,7 +161,7 @@ function resolveModelRequest(model: LogicalModelId): RequestedModel {
   } catch (error) {
     throw new APIError(400, "request_body_invalid", "Unsupported model selection.", {
       details: { message: error instanceof Error ? error.message : "Unknown model error" },
-      hint: "Use a supported Anthropic, Google Gemini, OpenAI, DeepSeek, or OpenRouter model id.",
+      hint: "Use a supported Anthropic, OpenAI, DeepSeek, or OpenRouter model id.",
       retriable: false,
     });
   }
@@ -300,9 +300,6 @@ function providerLabel(provider: LlmProvider): string {
   }
   if (provider === "openai") {
     return "OpenAI";
-  }
-  if (provider === "google") {
-    return "Google Gemini";
   }
   if (provider === "deepseek") {
     return "DeepSeek";

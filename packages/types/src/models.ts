@@ -7,7 +7,7 @@ export const LogicalModelIdSchema = z
   .min(1)
   .max(200)
   .regex(
-    /^(?:anthropic|deepseek|google|openai|openrouter)\/\S+$/,
+    /^(?:anthropic|deepseek|openai|openrouter)\/\S+$/,
     "Use a supported provider-prefixed model id without whitespace.",
   )
   .brand<"LogicalModelId">();
@@ -38,9 +38,9 @@ const RAW_CATALOG_MODEL_ID_VALUES = [
  * The single source of truth for the agent model catalog shown in the picker.
  *
  * Curated to the live Models list: Claude Sonnet 4.6, Claude Opus 4.8,
- * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 Pro model. Gemini 2.5
- * Flash and the standalone OpenRouter-Auto row stay reachable as provider-prefixed
- * request ids routed through OpenRouter, but are not drawn in the picker.
+ * GPT-5.4 Thinking, GPT-5.4 Mini, and the included DeepSeek V4 Pro model. The standalone
+ * OpenRouter-Auto row stays reachable as a provider-prefixed request id but is not
+ * drawn in the picker. Google AI keys are tool-only and never select the chat model.
  *
  * Catalog order doubles as the resolution priority: the production default is first,
  * and Opus 4.8 is preferred over the GPT-5.4 entries when that default is disabled.

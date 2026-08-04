@@ -1,6 +1,5 @@
 import { createAnthropic } from "@ai-sdk/anthropic";
 import { createDeepSeek } from "@ai-sdk/deepseek";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { createOpenAI } from "@ai-sdk/openai";
 import { APIError } from "@cheatcode/observability";
 import { Agent } from "@mastra/core/agent";
@@ -12,10 +11,8 @@ import {
   DEEPSEEK_API_KEY_CONTEXT_KEY,
   DEFAULT_ANTHROPIC_MODEL_ID,
   DEFAULT_DEEPSEEK_MODEL_ID,
-  DEFAULT_GOOGLE_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
   DEFAULT_OPENROUTER_MODEL_ID,
-  GOOGLE_API_KEY_CONTEXT_KEY,
   LLM_MODEL_ID_CONTEXT_KEY,
   LLM_PROVIDER_CONTEXT_KEY,
   type LlmProvider,
@@ -49,17 +46,6 @@ function createOpenAiByokModel(
     throw new Error("OpenAI BYOK key is required.");
   }
   return createOpenAI({ apiKey: trimmed, fetch: boundedProviderFetch }).responses(modelId);
-}
-
-function createGoogleByokModel(
-  apiKey: string,
-  modelId = DEFAULT_GOOGLE_MODEL_ID,
-): MastraModelConfig {
-  const trimmed = apiKey.trim();
-  if (trimmed.length === 0) {
-    throw new Error("Google BYOK key is required.");
-  }
-  return createGoogleGenerativeAI({ apiKey: trimmed, fetch: boundedProviderFetch })(modelId);
 }
 
 function createOpenRouterByokModel(
@@ -107,9 +93,6 @@ export function resolveRequestedLlmTransport(model: string): LlmTransportSelecti
   if (requested.startsWith("openai/")) {
     return requestedModel("openai", requested.slice("openai/".length));
   }
-  if (requested.startsWith("google/")) {
-    return requestedModel("google", requested.slice("google/".length));
-  }
   if (requested.startsWith("openrouter/")) {
     return requestedModel("openrouter", requested.slice("openrouter/".length));
   }
@@ -147,11 +130,6 @@ function resolveGeneralModel({
         requiredProviderKey(requestContext, OPENROUTER_API_KEY_CONTEXT_KEY, "OpenRouter", provider),
         requestedModelId(modelId, DEFAULT_OPENROUTER_MODEL_ID),
       );
-    case "google":
-      return createGoogleByokModel(
-        requiredProviderKey(requestContext, GOOGLE_API_KEY_CONTEXT_KEY, "Google Gemini", provider),
-        requestedModelId(modelId, DEFAULT_GOOGLE_MODEL_ID),
-      );
     case "deepseek":
       return createDeepSeekModel(
         requiredProviderKey(requestContext, DEEPSEEK_API_KEY_CONTEXT_KEY, "DeepSeek", provider),
@@ -166,7 +144,7 @@ function resolveGeneralModel({
 }
 
 function resolveLlmProvider(value: unknown): LlmProvider {
-  if (value === "google" || value === "openai" || value === "openrouter" || value === "deepseek") {
+  if (value === "openai" || value === "openrouter" || value === "deepseek") {
     return value;
   }
   return "anthropic";
