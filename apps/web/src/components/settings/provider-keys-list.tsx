@@ -136,15 +136,17 @@ function ProviderKeyRowHeader({
         >
           {meta.label} API Key
         </h2>
-        <CheatcodeTooltip label={meta.description} side="top">
-          <button
-            aria-label={`About ${meta.label} API key`}
-            className="inline-flex size-6 shrink-0 cursor-help items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
-            type="button"
-          >
-            <Info aria-hidden="true" className="size-3.5" />
-          </button>
-        </CheatcodeTooltip>
+        {meta.description ? (
+          <CheatcodeTooltip label={meta.description} side="top">
+            <button
+              aria-label={`About ${meta.label} API key`}
+              className="inline-flex size-6 shrink-0 cursor-help items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring/50"
+              type="button"
+            >
+              <Info aria-hidden="true" className="size-3.5" />
+            </button>
+          </CheatcodeTooltip>
+        ) : null}
       </div>
       {isExpanded ? null : (
         <div className="ml-4 flex items-center gap-2">

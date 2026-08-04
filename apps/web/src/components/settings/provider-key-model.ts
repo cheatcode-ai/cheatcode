@@ -10,20 +10,17 @@ export type ProviderKeyFormValues = z.infer<typeof ProviderKeyFormSchema>;
 export type ProviderKeyEditorStatus = "deleting" | "idle" | "saving";
 export type SecretVisibility = "hidden" | "visible";
 
-export const PROVIDER_META: Record<Provider, { description: string; label: string }> = {
-  anthropic: { description: "Agent models and browser automation.", label: "Anthropic" },
-  deepseek: { description: "Optional personal key for DeepSeek models.", label: "DeepSeek" },
-  exa: { description: "Web research and source discovery.", label: "Exa" },
-  firecrawl: { description: "Web search, scraping, and extraction.", label: "Firecrawl" },
+export const PROVIDER_META: Record<Provider, { description?: string; label: string }> = {
+  anthropic: { label: "Anthropic" },
+  deepseek: { label: "DeepSeek" },
+  exa: { label: "Exa" },
+  firecrawl: { label: "Firecrawl" },
   google: {
     description: "Tools only: images, Veo video, and browser automation.",
     label: "Google AI",
   },
-  openai: { description: "Agent models and browser automation.", label: "OpenAI" },
-  openrouter: {
-    description: "Alternative routing for supported agent models.",
-    label: "OpenRouter",
-  },
+  openai: { label: "OpenAI" },
+  openrouter: { label: "OpenRouter" },
 };
 
 export function providerPanelId(provider: Provider): string {
