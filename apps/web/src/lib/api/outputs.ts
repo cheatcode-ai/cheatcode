@@ -13,6 +13,7 @@ import {
 } from "@/lib/api/authorized-fetch";
 
 const OUTPUT_IMAGE_PREVIEW_MAX_BYTES = 20 * 1024 * 1024;
+const OUTPUT_IMAGE_PREVIEW_TIMEOUT_MS = 30_000;
 
 export async function createOutputDownloadUrl(
   getToken: () => Promise<null | string>,
@@ -39,10 +40,14 @@ export async function loadOutputImagePreview(
   if (sizeBytes <= 0 || sizeBytes > OUTPUT_IMAGE_PREVIEW_MAX_BYTES) {
     throw new Error("This image is too large to preview here. Download it to view the original.");
   }
-  const capability = await createOutputDownloadUrl(getToken, outputId, signal);
+  const requestSignal = AbortSignal.any([
+    signal,
+    AbortSignal.timeout(OUTPUT_IMAGE_PREVIEW_TIMEOUT_MS),
+  ]);
+  const capability = await createOutputDownloadUrl(getToken, outputId, requestSignal);
   const response = await fetch(capability.downloadUrl, {
     referrerPolicy: "no-referrer",
-    signal,
+    signal: requestSignal,
   });
   if (!response.ok) {
     throw new Error(`Image preview returned HTTP ${response.status}`);
