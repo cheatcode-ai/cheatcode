@@ -258,6 +258,8 @@ return parts;
 }
 
 function treeItemName(row){
+var ariaLabel=row&&row.getAttribute("aria-label");
+if(ariaLabel)return ariaLabel.split(", compact,")[0].trim();
 var label=row&&row.querySelector(".label-name");
 return ((label&&label.textContent)||"").trim();
 }
