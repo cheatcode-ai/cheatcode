@@ -94,6 +94,7 @@ export interface SandboxRuntime {
   readonly ownerUserId: () => string;
   readonly previewHostname: () => string;
   readonly previewSecret: () => Promise<string>;
+  readonly releaseSha: () => string;
   readonly registerOwner: (userId: string, sandboxName?: string) => Promise<void>;
   readonly restartSandboxForWorkspaceRecovery: (sandboxId: string) => Promise<void>;
   readonly sandboxName: () => string;
@@ -162,6 +163,7 @@ function runtimeHandle(state: RuntimeState): SandboxRuntime {
     previewHostname: () =>
       previewHostnameForWorker(state.env.CHEATCODE_ENVIRONMENT, state.env.PREVIEW_HOSTNAME),
     previewSecret: () => previewSecret(state),
+    releaseSha: () => state.env.CHEATCODE_RELEASE_SHA ?? "development",
     registerOwner: (userId, sandboxName) => state.identity.registerOwner(userId, sandboxName),
     restartSandboxForWorkspaceRecovery: (sandboxId) =>
       restartSandboxForWorkspaceRecovery(state, sandboxId),

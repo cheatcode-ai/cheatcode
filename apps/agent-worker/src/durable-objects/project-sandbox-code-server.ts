@@ -10,9 +10,11 @@ export const CODE_SERVER_START_TIMEOUT_MS = 120_000;
 export function codeServerFolderUrl(
   rawUrl: string,
   folderPath: string,
+  bridgeRelease: string,
   initialFilePath?: string,
 ): string {
   const url = new URL(rawUrl);
+  url.searchParams.set("cc_bridge", bridgeRelease);
   url.searchParams.set("folder", folderPath);
   if (initialFilePath) {
     url.searchParams.set("cc_open_file", initialFilePath);
