@@ -25,7 +25,7 @@ export function ProjectPicker({
 }) {
   const controller = useProjectPickerController({ onSelect, selectedProject });
   return (
-    <div className="relative min-w-0" ref={controller.meta.menuRef}>
+    <div className="relative min-w-0 max-w-full" ref={controller.meta.menuRef}>
       <ProjectPickerTrigger
         compact={compact}
         controller={controller}
