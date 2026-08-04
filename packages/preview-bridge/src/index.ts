@@ -127,16 +127,26 @@ style.textContent=[
 ].join("");
 (document.head||document.documentElement).appendChild(style);
 
-function dispatchClick(target){
+function dispatchClick(target,detail){
 if(!target)return;
+var clickDetail=typeof detail==="number"?detail:1;
 var pointerEvents=["pointerover","pointerenter","pointermove","pointerdown","pointerup"];
 for(var i=0;i<pointerEvents.length;i++){
-target.dispatchEvent(new PointerEvent(pointerEvents[i],{bubbles:true,cancelable:true,pointerType:"mouse",button:0,buttons:pointerEvents[i]==="pointerdown"?1:0}));
+target.dispatchEvent(new PointerEvent(pointerEvents[i],{bubbles:true,cancelable:true,pointerType:"mouse",button:0,buttons:pointerEvents[i]==="pointerdown"?1:0,detail:clickDetail}));
 }
 var mouseEvents=["mouseover","mouseenter","mousemove","mousedown","mouseup","click"];
 for(var j=0;j<mouseEvents.length;j++){
-target.dispatchEvent(new MouseEvent(mouseEvents[j],{bubbles:true,cancelable:true,button:0,buttons:mouseEvents[j]==="mousedown"?1:0}));
+target.dispatchEvent(new MouseEvent(mouseEvents[j],{bubbles:true,cancelable:true,button:0,buttons:mouseEvents[j]==="mousedown"?1:0,detail:clickDetail,view:window}));
 }
+}
+
+function dispatchDoubleClick(target){
+if(!target)return;
+dispatchClick(target,1);
+setTimeout(function(){
+dispatchClick(target,2);
+target.dispatchEvent(new MouseEvent("dblclick",{bubbles:true,cancelable:true,button:0,buttons:0,detail:2,view:window}));
+},120);
 }
 
 function visible(el){
@@ -225,8 +235,7 @@ var isDeliverable=/\.(pptx?|pdf|docx?|xlsx?|ods|odt)\b/i.test(text);
 if((isRequestedFile||(!cheatcodeInitialFileName&&isDeliverable))&&visible(rows[i])){
 window.__CHEATCODE_CS_OPENED_INITIAL_DELIVERABLE__=true;
 var target=rows[i].querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||rows[i];
-dispatchClick(target);
-setTimeout(function(){dispatchClick(target)},250);
+dispatchDoubleClick(target);
 break;
 }
 }
@@ -267,6 +276,26 @@ function reportFileOpened(requestId){
 try{window.parent.postMessage({requestId:requestId,type:"CHEATCODE_FILE_OPENED"},cheatcodeParentOrigin)}catch(_err){}
 }
 
+function hasOpenFileTab(filename){
+var tabs=document.querySelectorAll(".part.editor .tab");
+for(var i=0;i<tabs.length;i++){
+var label=(tabs[i].getAttribute("aria-label")||tabs[i].textContent||"").trim();
+if(label.indexOf(filename)!==-1)return true;
+}
+return false;
+}
+
+function confirmRequestedFileOpen(filename,requestId,attempt){
+if(!activeFileOpenRequest||activeFileOpenRequest.requestId!==requestId)return;
+if(hasOpenFileTab(filename)){
+activeFileOpenRequest=null;
+reportFileOpened(requestId);
+return;
+}
+if(attempt>=40){activeFileOpenRequest=null;return;}
+setTimeout(function(){confirmRequestedFileOpen(filename,requestId,attempt+1)},100);
+}
+
 function openRequestedFileStep(parts,index,expectedLevel,requestId,attempt){
 if(!activeFileOpenRequest||activeFileOpenRequest.requestId!==requestId||attempt>80)return;
 var row=findVisibleTreeItem(parts[index],expectedLevel);
@@ -281,9 +310,8 @@ setTimeout(function(){openRequestedFileStep(parts,index+1,level===null?null:leve
 return;
 }
 var target=row.querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||row;
-dispatchClick(target);
-setTimeout(function(){dispatchClick(target);reportFileOpened(requestId)},250);
-activeFileOpenRequest=null;
+dispatchDoubleClick(target);
+setTimeout(function(){confirmRequestedFileOpen(parts[index],requestId,0)},200);
 }
 
 function openWorkspaceFile(path,requestId){
