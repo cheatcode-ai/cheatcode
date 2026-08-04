@@ -44,7 +44,7 @@ export function ProjectPickerTrigger({
         aria-haspopup="menu"
         aria-label="Choose project"
         className={cn(
-          "group/button relative isolate inline-flex h-8 min-w-0 shrink-0 cursor-pointer select-none items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-background px-2.5 font-medium text-secondary-foreground text-sm transition duration-200 hover:bg-accent/70 hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 max-[340px]:max-w-[92px] max-[340px]:gap-1 max-[340px]:px-2 [&_svg]:pointer-events-none [&_svg]:shrink-0",
+          "group/button relative isolate inline-flex h-8 w-full min-w-0 cursor-pointer select-none items-center justify-center gap-1.5 overflow-hidden whitespace-nowrap rounded-full bg-background px-2.5 font-medium text-secondary-foreground text-sm transition duration-200 hover:bg-accent/70 hover:text-accent-foreground focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-offset-1 active:scale-[0.99] disabled:pointer-events-none disabled:opacity-50 max-[340px]:max-w-[92px] max-[340px]:gap-1 max-[340px]:px-2 [&_svg]:pointer-events-none [&_svg]:shrink-0",
           compact ? "max-w-[160px]" : "max-w-[220px]",
         )}
         data-variant={variant}
@@ -55,7 +55,7 @@ export function ProjectPickerTrigger({
         type="button"
       >
         <ProjectFolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 max-w-full truncate font-medium text-xs">
+        <span className="min-w-0 flex-1 truncate font-medium text-xs">
           {selectedProject?.name ?? "Choose project"}
         </span>
       </button>
