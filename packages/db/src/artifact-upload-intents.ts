@@ -282,7 +282,6 @@ function lockActiveUploadOwnership(
         eq(projects.id, input.projectId),
         eq(threads.activeRunId, input.agentRunId),
         inArray(agentRuns.status, ["pending", "running"]),
-        isNull(agentRuns.finishedAt),
         isNull(threads.deletedAt),
         isNull(projects.deletedAt),
         isNull(users.deletedAt),
