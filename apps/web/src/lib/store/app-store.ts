@@ -1,6 +1,6 @@
 "use client";
 
-import type { SandboxState } from "@cheatcode/types";
+import type { AppPreviewState, SandboxState } from "@cheatcode/types";
 import type { SandboxConsoleProcess } from "@cheatcode/types/api";
 import { create, type StateCreator } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
@@ -26,6 +26,7 @@ const PREVIEW_PATH_HISTORY_MAX = 50;
 interface AppStoreState {
   activePreviewTab: PreviewTab;
   agentModelId: AgentModelId;
+  appPreviewStatus: AppPreviewState;
   connectionState: ConnectionState;
   consoleCursor: ConsoleCursor;
   consoleLines: ConsoleLine[];
@@ -62,6 +63,7 @@ interface AppStoreActions {
   resetPreviewNavigation: () => void;
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
+  setAppPreviewStatus: (status: AppPreviewState) => void;
   setConnectionState: (state: ConnectionState) => void;
   setConsoleStripOpen: (open: boolean) => void;
   setDraft: (threadId: string, value: string) => void;
@@ -115,6 +117,7 @@ function initialAppStoreState(): AppStoreState {
   return {
     activePreviewTab: "app",
     agentModelId: DEFAULT_AGENT_MODEL_ID,
+    appPreviewStatus: "idle",
     connectionState: "online",
     consoleCursor: { stderr: 0, stdout: 0 },
     consoleLines: [],
@@ -184,6 +187,7 @@ function createPreviewActions(set: AppStoreSet) {
     navigatePreviewPath: (path: string) => set((state) => navigatePreviewPath(state, path)),
     resetPreviewNavigation: () => set({ previewPath: "/", previewPathHistory: [] }),
     setActivePreviewTab: (activePreviewTab: PreviewTab) => set({ activePreviewTab }),
+    setAppPreviewStatus: (appPreviewStatus: AppPreviewState) => set({ appPreviewStatus }),
     setExpoUrl: (expoUrl: string | null) => set({ expoUrl }),
     setPreviewDevice: (previewDevice: PreviewDevice) => set({ previewDevice }),
     setPreviewPanelOpen: (previewPanelOpen: boolean) => set({ previewPanelOpen }),
@@ -261,6 +265,7 @@ function identityScopedInitialState(): Pick<
   | "consoleStripOpen"
   | "consoleTruncated"
   | "draftByThread"
+  | "appPreviewStatus"
   | "expoUrl"
   | "previewPanelOpen"
   | "previewPath"
@@ -272,6 +277,7 @@ function identityScopedInitialState(): Pick<
   | "streamReconnect"
 > {
   return {
+    appPreviewStatus: "idle",
     consoleCursor: { stderr: 0, stdout: 0 },
     consoleLines: [],
     consoleProcess: null,

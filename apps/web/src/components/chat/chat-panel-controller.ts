@@ -67,6 +67,7 @@ function useChatPanelRuntime(input: ChatPanelProps) {
   const surfaceApplier = useWorkspaceSurfaceApplier({
     projectId: input.project?.id ?? null,
     setActivePreviewTab: store.setActivePreviewTab,
+    setAppPreviewStatus: store.setAppPreviewStatus,
     setPreviewPanelOpen: store.setPreviewPanelOpen,
     setSandboxStatus: store.setSandboxStatus,
     threadId: input.threadId,
@@ -250,6 +251,7 @@ function useChatPanelStore(threadId: string) {
     resetConsole: useAppStore((state) => state.resetConsole),
     resetPreviewNavigation: useAppStore((state) => state.resetPreviewNavigation),
     setActivePreviewTab: useAppStore((state) => state.setActivePreviewTab),
+    setAppPreviewStatus: useAppStore((state) => state.setAppPreviewStatus),
     setDraft: useAppStore((state) => state.setDraft),
     setExpoUrl: useAppStore((state) => state.setExpoUrl),
     setPreviewPanelOpen: useAppStore((state) => state.setPreviewPanelOpen),
@@ -455,6 +457,7 @@ function useChatPanelEffects(
     resetConsole: store.resetConsole,
     resetPreviewNavigation: store.resetPreviewNavigation,
     setActivePreviewTab: store.setActivePreviewTab,
+    setAppPreviewStatus: store.setAppPreviewStatus,
     setExpoUrl: store.setExpoUrl,
     setPreviewPanelOpen: store.setPreviewPanelOpen,
     setPreviewUrl: store.setPreviewUrl,

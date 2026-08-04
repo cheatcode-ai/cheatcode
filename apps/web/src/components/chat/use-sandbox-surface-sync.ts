@@ -14,8 +14,14 @@ type SandboxStatusData = Extract<
   { type: "data-sandbox-status" }
 >["data"];
 
+type AppPreviewStatusData = Extract<
+  CheatcodeUIMessage["parts"][number],
+  { type: "data-app-preview-status" }
+>["data"];
+
 export interface SandboxStatusActions {
   setActivePreviewTab: (tab: PreviewTab) => void;
+  setAppPreviewStatus: (status: AppPreviewStatusData["status"] | "idle") => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setSandboxStatus: (status: SandboxState) => void;
 }
@@ -33,6 +39,7 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
 }
 
 export type SurfaceCommand =
+  | { kind: "preview-status"; status: AppPreviewStatusData["status"] }
   | { kind: "status"; status: SandboxStatusData["status"] }
   | { kind: "open-browser-preview"; toolCallId: string };
 
@@ -53,6 +60,7 @@ interface SurfaceCommandState {
 
 interface HydratedSurfaceCommands {
   browser: SurfaceCommand | null;
+  preview: SurfaceCommand | null;
   status: SurfaceCommand | null;
 }
 
@@ -67,10 +75,16 @@ export function useWorkspaceSurfaceApplier(
   const actions = useMemo(
     () => ({
       setActivePreviewTab: input.setActivePreviewTab,
+      setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
-    [input.setActivePreviewTab, input.setPreviewPanelOpen, input.setSandboxStatus],
+    [
+      input.setActivePreviewTab,
+      input.setAppPreviewStatus,
+      input.setPreviewPanelOpen,
+      input.setSandboxStatus,
+    ],
   );
   const apply = useCallback(
     (command: SurfaceCommand) =>
@@ -91,14 +105,21 @@ export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
   const actions = useMemo(
     () => ({
       setActivePreviewTab: input.setActivePreviewTab,
+      setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
-    [input.setActivePreviewTab, input.setPreviewPanelOpen, input.setSandboxStatus],
+    [
+      input.setActivePreviewTab,
+      input.setAppPreviewStatus,
+      input.setPreviewPanelOpen,
+      input.setSandboxStatus,
+    ],
   );
 
   useResetSandboxSurface(input);
   useHydratedSurfaceCommand(commands.status, input.surfaceApplier);
+  useHydratedSurfaceCommand(commands.preview, input.surfaceApplier);
   useProjectFilesDefault(input.project, status, actions, defaultedProjectFilesRef);
   useHydratedSurfaceCommand(commands.browser, input.surfaceApplier);
   useCompletionPreview(input.chatStatus, previousStatusRef);
@@ -111,6 +132,10 @@ export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
   if (part["type"] === "data-sandbox-status") {
     const parsed = CHEATCODE_DATA_SCHEMAS["sandbox-status"].safeParse(part["data"]);
     return parsed.success ? { kind: "status", status: parsed.data.status } : null;
+  }
+  if (part["type"] === "data-app-preview-status") {
+    const parsed = CHEATCODE_DATA_SCHEMAS["app-preview-status"].safeParse(part["data"]);
+    return parsed.success ? { kind: "preview-status", status: parsed.data.status } : null;
   }
   if (part["type"] !== "data-tool") {
     return null;
@@ -126,6 +151,7 @@ function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
     input.surfaceApplier.reset();
     input.resetConsole();
     input.resetPreviewNavigation();
+    input.setAppPreviewStatus("idle");
     input.setPreviewUrl(null);
     input.setExpoUrl(null);
     input.setPreviewPanelOpen(false);
@@ -134,6 +160,7 @@ function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
     input.resetConsole,
     input.resetPreviewNavigation,
     input.setExpoUrl,
+    input.setAppPreviewStatus,
     input.setPreviewPanelOpen,
     input.setPreviewUrl,
     input.setSandboxStatus,
@@ -186,8 +213,7 @@ function useCompletionPreview(
 }
 
 function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): HydratedSurfaceCommands {
-  let browser: SurfaceCommand | null = null;
-  let status: SurfaceCommand | null = null;
+  const commands: HydratedSurfaceCommands = { browser: null, preview: null, status: null };
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
     const message = messages[messageIndex];
     if (!message) {
@@ -199,15 +225,23 @@ function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): Hydra
       if (!part) {
         continue;
       }
-      const command = workspaceSurfaceEffect(part);
-      if (command?.kind === "status") {
-        status = command;
-      } else if (command?.kind === "open-browser-preview") {
-        browser = command;
-      }
+      recordHydratedSurfaceCommand(commands, workspaceSurfaceEffect(part));
     }
   }
-  return { browser, status };
+  return commands;
+}
+
+function recordHydratedSurfaceCommand(
+  commands: HydratedSurfaceCommands,
+  command: SurfaceCommand | null,
+): void {
+  if (command?.kind === "status") {
+    commands.status = command;
+  } else if (command?.kind === "preview-status") {
+    commands.preview = command;
+  } else if (command?.kind === "open-browser-preview") {
+    commands.browser = command;
+  }
 }
 
 function applyWorkspaceSurfaceCommand(
@@ -219,6 +253,12 @@ function applyWorkspaceSurfaceCommand(
   if (command.kind === "status") {
     if (useAppStore.getState().sandboxStatus !== command.status) {
       actions.setSandboxStatus(command.status);
+    }
+    return;
+  }
+  if (command.kind === "preview-status") {
+    if (useAppStore.getState().appPreviewStatus !== command.status) {
+      actions.setAppPreviewStatus(command.status);
     }
     return;
   }

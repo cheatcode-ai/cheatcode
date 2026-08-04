@@ -26,7 +26,8 @@ capability discovery contracts, error codes, and UI message types.
   used by API, runtime-port, and code-tool schemas
 - `skill-runtime.ts`: canonical skill-runtime capability scopes and schema
 - `ui-message.ts`: the exact AI SDK UI message data-part contract persisted in
-  Postgres and replayed to the web client
+  Postgres and replayed to the web client, including the app-preview content-readiness transition
+  that keeps internal scaffolds out of the user-facing Browser surface
 
 The `./api` subpath also exports the canonical user-message character budget, project-file
 upload/batch/namespace limits and schemas, and finalized project-archive byte

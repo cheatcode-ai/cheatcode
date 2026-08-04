@@ -77,6 +77,7 @@ export {
   TRANSCRIPT_SEGMENT_MAX_PARTS_BYTES,
 } from "./transcript-segments";
 export type {
+  AppPreviewState,
   CheatcodeUIMessage,
   ModelFallbackData,
   SandboxState,
