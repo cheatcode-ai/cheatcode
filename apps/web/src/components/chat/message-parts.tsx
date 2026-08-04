@@ -64,7 +64,9 @@ export function MessageParts({
           />
         ),
       )}
-      {deliverables.length > 0 ? <DeliverablesBlock items={deliverables} /> : null}
+      {deliverables.length > 0 ? (
+        <DeliverablesBlock items={deliverables} threadId={threadId} />
+      ) : null}
     </div>
   );
 }

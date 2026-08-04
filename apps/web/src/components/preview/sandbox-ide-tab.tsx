@@ -13,6 +13,7 @@ import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";
 import { openComputerIde, openSandboxIde } from "@/lib/api/sandbox";
+import { type FilesOpenRequest, useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
 const PREVIEW_SESSION_REFRESH_MS = 8 * 60 * 1000;
@@ -206,6 +207,8 @@ function SandboxIdeFrame({
 
 function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const clearFilesOpenRequest = useAppStore((state) => state.clearFilesOpenRequest);
+  const filesOpenRequest = useAppStore((state) => state.filesOpenRequest);
   const [readyIframeUrl, setReadyIframeUrl] = useState<string | null>(null);
   const [timedOutIframeUrl, setTimedOutIframeUrl] = useState<string | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
@@ -216,6 +219,7 @@ function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) 
         iframeOrigin,
         iframeUrl,
         iframeRef,
+        clearFilesOpenRequest,
         setReadyIframeUrl,
         setSidebarVisible,
         setTimedOutIframeUrl,
@@ -224,7 +228,7 @@ function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) 
     };
     window.addEventListener("message", handleMessage);
     return () => window.removeEventListener("message", handleMessage);
-  }, [iframeOrigin, iframeUrl, threadId]);
+  }, [clearFilesOpenRequest, iframeOrigin, iframeUrl, threadId]);
   const isReady = iframeUrl !== null && readyIframeUrl === iframeUrl;
   const requestReadyState = () => requestCodeServerState(iframeOrigin, iframeRef);
   useCodeServerHandshake({
@@ -234,6 +238,7 @@ function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) 
     isReady,
     setTimedOutIframeUrl,
   });
+  useRequestedFileOpen({ filesOpenRequest, iframeOrigin, iframeRef, isReady, threadId });
   const toggleSidebar = () => {
     if (!iframeOrigin) return;
     iframeRef.current?.contentWindow?.postMessage(
@@ -249,6 +254,27 @@ function useCodeServerBridge(iframeUrl: string | null, threadId: string | null) 
     sidebarVisible,
     toggleSidebar,
   };
+}
+
+function useRequestedFileOpen(input: {
+  filesOpenRequest: FilesOpenRequest | null;
+  iframeOrigin: string | null;
+  iframeRef: RefObject<HTMLIFrameElement | null>;
+  isReady: boolean;
+  threadId: string | null;
+}): void {
+  const { filesOpenRequest, iframeOrigin, iframeRef, isReady, threadId } = input;
+  useEffect(() => {
+    if (!isReady || !iframeOrigin || filesOpenRequest?.threadId !== threadId) return;
+    iframeRef.current?.contentWindow?.postMessage(
+      {
+        path: filesOpenRequest.path,
+        requestId: filesOpenRequest.requestId,
+        type: "CHEATCODE_OPEN_FILE",
+      },
+      iframeOrigin,
+    );
+  }, [filesOpenRequest, iframeOrigin, iframeRef, isReady, threadId]);
 }
 
 function useCodeServerHandshake(input: {
@@ -292,6 +318,7 @@ function requestCodeServerState(
 function handleCodeServerMessage(
   event: MessageEvent,
   input: {
+    clearFilesOpenRequest: (requestId: string) => void;
     iframeOrigin: string | null;
     iframeUrl: string | null;
     iframeRef: RefObject<HTMLIFrameElement | null>;
@@ -305,6 +332,9 @@ function handleCodeServerMessage(
   if (!iframeOrigin || !isTrustedCodeServerMessage(event, iframeOrigin, input.iframeRef)) return;
   if (event.data.type === "CHEATCODE_SIDEBAR_STATE") {
     input.setSidebarVisible(event.data.visible === true);
+  }
+  if (event.data.type === "CHEATCODE_FILE_OPENED") {
+    input.clearFilesOpenRequest(event.data.requestId);
   }
   if (event.data.type === "CHEATCODE_CODE_SERVER_READY") {
     input.setReadyIframeUrl(input.iframeUrl);
@@ -332,6 +362,7 @@ function isTrustedCodeServerMessage(
 
 type CodeServerMessage =
   | { readonly type: "CHEATCODE_CODE_SERVER_READY" }
+  | { readonly requestId: string; readonly type: "CHEATCODE_FILE_OPENED" }
   | { readonly type: "CHEATCODE_SIDEBAR_STATE"; readonly visible: boolean };
 
 function isCodeServerMessage(value: unknown): value is CodeServerMessage {
@@ -340,6 +371,9 @@ function isCodeServerMessage(value: unknown): value is CodeServerMessage {
   }
   if (value.type === "CHEATCODE_CODE_SERVER_READY") {
     return true;
+  }
+  if (value.type === "CHEATCODE_FILE_OPENED") {
+    return "requestId" in value && typeof value.requestId === "string";
   }
   return (
     value.type === "CHEATCODE_SIDEBAR_STATE" &&

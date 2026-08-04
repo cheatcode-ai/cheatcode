@@ -233,6 +233,67 @@ break;
 }catch(_err){}
 }
 
+var activeFileOpenRequest=null;
+function requestedFileParts(rawPath){
+if(typeof rawPath!=="string"||rawPath.length<1||rawPath.length>1000||rawPath.charAt(0)==="/"||rawPath.indexOf("\\")!==-1)return null;
+var parts=rawPath.split("/");
+for(var i=0;i<parts.length;i++){
+if(!parts[i]||parts[i]==="."||parts[i]==="..")return null;
+}
+return parts;
+}
+
+function treeItemName(row){
+var label=row&&row.querySelector(".label-name");
+return ((label&&label.textContent)||"").trim();
+}
+
+function treeItemLevel(row){
+var value=row&&row.getAttribute("aria-level");
+return value&&/^\d+$/.test(value)?Number(value):null;
+}
+
+function findVisibleTreeItem(name,expectedLevel){
+var rows=document.querySelectorAll(".part.sidebar [role='treeitem']");
+for(var i=0;i<rows.length;i++){
+if(!visible(rows[i])||treeItemName(rows[i])!==name)continue;
+var level=treeItemLevel(rows[i]);
+if(expectedLevel===null||level===null||level===expectedLevel)return rows[i];
+}
+return null;
+}
+
+function reportFileOpened(requestId){
+try{window.parent.postMessage({requestId:requestId,type:"CHEATCODE_FILE_OPENED"},cheatcodeParentOrigin)}catch(_err){}
+}
+
+function openRequestedFileStep(parts,index,expectedLevel,requestId,attempt){
+if(!activeFileOpenRequest||activeFileOpenRequest.requestId!==requestId||attempt>80)return;
+var row=findVisibleTreeItem(parts[index],expectedLevel);
+if(!row){setTimeout(function(){openRequestedFileStep(parts,index,expectedLevel,requestId,attempt+1)},100);return;}
+var level=treeItemLevel(row);
+if(index<parts.length-1){
+if(row.getAttribute("aria-expanded")!=="true"){
+var twistie=row.querySelector(".monaco-tl-twistie")||row;
+dispatchClick(twistie);
+}
+setTimeout(function(){openRequestedFileStep(parts,index+1,level===null?null:level+1,requestId,attempt+1)},120);
+return;
+}
+var target=row.querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||row;
+dispatchClick(target);
+setTimeout(function(){dispatchClick(target);reportFileOpened(requestId)},250);
+activeFileOpenRequest=null;
+}
+
+function openWorkspaceFile(path,requestId){
+var parts=requestedFileParts(path);
+if(!parts||typeof requestId!=="string"||requestId.length<1||requestId.length>100)return;
+activeFileOpenRequest={requestId:requestId};
+applySidebarState(false);
+openRequestedFileStep(parts,0,null,requestId,0);
+}
+
 function closeAllEditors(){
 var tabs=document.querySelectorAll(".tab");
 if(!tabs.length)return true;
@@ -340,6 +401,7 @@ var requestedSidebar=document.querySelector(".part.sidebar");
 if(requestedSidebar)reportSidebarState(requestedSidebar);
 }
 if(message.type==="CHEATCODE_CLOSE_ALL_EDITORS")closeAllEditors();
+if(message.type==="CHEATCODE_OPEN_FILE")openWorkspaceFile(message.path,message.requestId);
 if(message.type==="CHEATCODE_RESET_WORKSPACE_VIEW"){workspaceResetRequested=true;resetWorkspaceView();}
 if(message.type==="CHEATCODE_TOGGLE_SIDEBAR")toggleSidebar();
 if(message.type==="CHEATCODE_SET_SIDEBAR_COLLAPSED")applySidebarState(message.collapsed===true);

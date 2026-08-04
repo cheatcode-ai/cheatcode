@@ -11,7 +11,12 @@ partial or corrupt transcript is never rendered as a duplicate assistant message
 
 Deliverable parts contain durable output identity and presentation metadata, never an expiring
 URL. A download click calls the authenticated gateway mint endpoint, validates its bounded response,
-and follows the resulting short-lived capability directly to the streaming response.
+and follows the resulting short-lived capability directly to the streaming response. Image
+deliverables lazily exchange that same capability for a bounded in-memory blob when they approach
+the viewport, render an inline thumbnail, and reuse the blob in an accessible full-size viewer.
+No image capability or object URL is persisted. Opening an image in Files switches to the project
+workspace and asks the trusted code-server bridge to reveal the exact generated asset; an already
+visible Files panel selects a newly generated image without waking a closed sandbox.
 
 Composer uploads always land in a writable project. If none is selected, choosing the first
 valid file creates and selects a general project named from that file. Files upload sequentially
