@@ -70,13 +70,17 @@ function usePreviewPanelController(
   const { getToken } = useAuth();
   const store = usePreviewPanelStore();
   const isMobile = project?.mode === "app-builder-mobile" || store.expoUrl !== null;
+  const isRunActive = activeRunId !== null;
+  const isFreshPreviewBuilding = store.appPreviewStatus === "building" && isRunActive;
   // The authenticated wake endpoint is the only source of preview capabilities. Opening any
   // project Computer panel asks it for a fresh handoff; projects without a dev server fall back to
-  // Files. Daytona idle-stops are revived through the same path.
+  // Files. Fresh scaffolds wait until generated content is ready so their one-minute handoff is
+  // minted immediately before the iframe mounts. Daytona idle-stops are revived through the same
+  // path.
   const previewLive = useEnsurePreviewLive(
     threadId,
     getToken,
-    store.previewPanelOpen && project !== null,
+    store.previewPanelOpen && project !== null && !isFreshPreviewBuilding,
     store.sandboxStatus,
   );
   useFirstPreviewTelemetry(getToken, store.previewPanelOpen, store.previewUrl);
@@ -86,7 +90,7 @@ function usePreviewPanelController(
     store.setActivePreviewTab("app");
     store.setPreviewPanelOpen(true);
   }, [browserTakeover.session, store.setActivePreviewTab, store.setPreviewPanelOpen]);
-  return { ...store, browserTakeover, isMobile, isRunActive: activeRunId !== null, previewLive };
+  return { ...store, browserTakeover, isMobile, isRunActive, previewLive };
 }
 
 function usePreviewPanelStore() {
@@ -328,6 +332,8 @@ function AppTab({
   const iframeUrl =
     useStablePreviewSource(requestedIframeUrl) ?? requestedIframeUrl ?? "about:blank";
   const frameDevice: PreviewDevice = isMobile ? "phone" : device;
+  const isGeneratedPreviewPending = appPreviewStatus === "building" && isRunActive;
+  const isReadyPreviewPending = appPreviewStatus === "ready" && previewUrl === null;
   if (
     previewPhase === "live" &&
     !previewUrl &&
@@ -346,7 +352,8 @@ function AppTab({
       <AppTabContent
         frameDevice={frameDevice}
         iframeUrl={iframeUrl}
-        isGeneratedPreviewPending={appPreviewStatus === "building" && isRunActive}
+        isGeneratedPreviewPending={isGeneratedPreviewPending}
+        isReadyPreviewPending={isReadyPreviewPending}
         previewPhase={previewPhase}
         previewRetry={previewRetry}
         previewUrl={previewUrl}
@@ -387,6 +394,7 @@ function AppTabContent({
   frameDevice,
   iframeUrl,
   isGeneratedPreviewPending,
+  isReadyPreviewPending,
   previewPhase,
   previewRetry,
   previewUrl,
@@ -395,25 +403,27 @@ function AppTabContent({
   frameDevice: PreviewDevice;
   iframeUrl: string;
   isGeneratedPreviewPending: boolean;
+  isReadyPreviewPending: boolean;
   previewPhase: PreviewLivePhase;
   previewRetry: () => Promise<void>;
   previewUrl: string | null;
   requestedIframeUrl: string | null;
 }) {
-  if (previewPhase === "booting" || isGeneratedPreviewPending) {
+  if (
+    previewPhase === "booting" ||
+    isGeneratedPreviewPending ||
+    (isReadyPreviewPending && previewPhase !== "error")
+  ) {
     return (
-      <>
-        <PreviewSessionRefresh previewUrl={requestedIframeUrl} />
-        <PreviewDeviceFrame
-          device={frameDevice}
-          content={
-            <CheatcodeLoader
-              className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
-              label={isGeneratedPreviewPending ? "Building preview…" : "Starting preview…"}
-            />
-          }
-        />
-      </>
+      <PreviewDeviceFrame
+        device={frameDevice}
+        content={
+          <CheatcodeLoader
+            className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
+            label={isGeneratedPreviewPending ? "Building preview…" : "Starting preview…"}
+          />
+        }
+      />
     );
   }
   if (previewPhase === "error") {
