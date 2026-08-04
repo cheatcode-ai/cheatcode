@@ -32,7 +32,9 @@ const SandboxArtifactSchema = z.strictObject({
 type SandboxArtifact = z.infer<typeof SandboxArtifactSchema>;
 
 const MAX_WORKSPACE_ARTIFACT_BASE64_CHARS = 2_000_000;
+const MAX_STAGED_INPUT_CHARACTERS = 1_900_000;
 const WORKSPACE_ROOT = "/workspace";
+const ARTIFACT_STAGING_DIRECTORY = ".cheatcode/artifact-inputs";
 
 export async function executeGenerateSlides(
   input: GenerateSlidesInput,
@@ -40,10 +42,8 @@ export async function executeGenerateSlides(
 ): Promise<GenerateSlidesOutput> {
   const parsed = GenerateSlidesInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "pptx");
-  const artifact = await runArtifactScript(
-    buildSlidesScript(parsed, filename),
-    runtimeContext,
-    "slide",
+  const artifact = await runArtifactScript(parsed, runtimeContext, "slide", (inputPath) =>
+    buildSlidesScript(inputPath, filename),
   );
   return GenerateSlidesOutputSchema.parse({
     ...artifact,
@@ -58,10 +58,8 @@ export async function executeGenerateDocx(
 ): Promise<GenerateDocxOutput> {
   const parsed = GenerateDocumentInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "docx");
-  const artifact = await runArtifactScript(
-    buildDocxScript(parsed, filename),
-    runtimeContext,
-    "docx",
+  const artifact = await runArtifactScript(parsed, runtimeContext, "docx", (inputPath) =>
+    buildDocxScript(inputPath, filename),
   );
   return GenerateDocxOutputSchema.parse({
     ...artifact,
@@ -76,7 +74,9 @@ export async function executeGeneratePdf(
 ): Promise<GeneratePdfOutput> {
   const parsed = GenerateDocumentInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "pdf");
-  const artifact = await runArtifactScript(buildPdfScript(parsed, filename), runtimeContext, "pdf");
+  const artifact = await runArtifactScript(parsed, runtimeContext, "pdf", (inputPath) =>
+    buildPdfScript(inputPath, filename),
+  );
   return GeneratePdfOutputSchema.parse({
     ...artifact,
     kind: "pdf",
@@ -90,10 +90,8 @@ export async function executeGenerateXlsx(
 ): Promise<GenerateXlsxOutput> {
   const parsed = GenerateSpreadsheetInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "xlsx");
-  const artifact = await runArtifactScript(
-    buildXlsxScript(parsed, filename),
-    runtimeContext,
-    "xlsx",
+  const artifact = await runArtifactScript(parsed, runtimeContext, "xlsx", (inputPath) =>
+    buildXlsxScript(inputPath, filename),
   );
   return GenerateXlsxOutputSchema.parse({
     ...artifact,
@@ -103,9 +101,10 @@ export async function executeGenerateXlsx(
 }
 
 async function runArtifactScript(
-  code: string,
+  input: unknown,
   runtimeContext: CodeRuntimeContext,
   kind: ArtifactKind,
+  buildScript: (inputPath: string) => string,
 ): Promise<ArtifactUploadResult> {
   if (!runtimeContext.artifacts) {
     throw new APIError(500, "internal_service_error", "Artifact storage is unavailable", {
@@ -113,29 +112,53 @@ async function runArtifactScript(
     });
   }
 
-  const result = await runtimeContext.sandbox.runCode({
-    code,
-    cwd: runtimeContext.workspaceDir ?? WORKSPACE_ROOT,
-    language: "javascript",
-  });
-  if (!result.success) {
-    throw new APIError(502, "upstream_sandbox_failed", "Document generation failed", {
-      details: {
-        stderrBytes: result.stderr.length,
-        stdoutBytes: result.stdout.length,
-      },
+  const staging = stagedArtifactInput(input, runtimeContext.workspaceDir ?? WORKSPACE_ROOT);
+  try {
+    await runtimeContext.sandbox.writeFile({ content: staging.content, path: staging.path });
+    const result = await runtimeContext.sandbox.runCode({
+      code: buildScript(staging.path),
+      cwd: runtimeContext.workspaceDir ?? WORKSPACE_ROOT,
+      language: "javascript",
+    });
+    if (!result.success) {
+      throw new APIError(502, "upstream_sandbox_failed", "Document generation failed", {
+        details: {
+          inputCharacters: staging.content.length,
+          stderrBytes: result.stderr.length,
+          stdoutBytes: result.stdout.length,
+        },
+        retriable: false,
+      });
+    }
+
+    const generated = parseSandboxArtifact(result.stdout);
+    await writeWorkspaceArtifact(runtimeContext, generated);
+    return await runtimeContext.artifacts.put({
+      contentType: generated.mimeType,
+      data: base64ToBytes(generated.base64),
+      filename: generated.filename,
+      kind,
+    });
+  } finally {
+    await runtimeContext.sandbox.deleteFile({ path: staging.path }).catch(() => undefined);
+  }
+}
+
+function stagedArtifactInput(
+  input: unknown,
+  workspaceDir: string,
+): { content: string; path: string } {
+  const content = JSON.stringify(input);
+  if (content.length > MAX_STAGED_INPUT_CHARACTERS) {
+    throw new APIError(422, "tool_validation_failed", "Document input is too large", {
+      details: { inputCharacters: content.length },
       retriable: false,
     });
   }
-
-  const generated = parseSandboxArtifact(result.stdout);
-  await writeWorkspaceArtifact(runtimeContext, generated);
-  return runtimeContext.artifacts.put({
-    contentType: generated.mimeType,
-    data: base64ToBytes(generated.base64),
-    filename: generated.filename,
-    kind,
-  });
+  return {
+    content,
+    path: `${workspaceDir}/${ARTIFACT_STAGING_DIRECTORY}/${crypto.randomUUID()}.json`,
+  };
 }
 
 async function writeWorkspaceArtifact(

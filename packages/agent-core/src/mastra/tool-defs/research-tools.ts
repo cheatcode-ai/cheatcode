@@ -79,6 +79,10 @@ async function runResearchWorkflow({
   if (researchWorkflowIsActive(requestContext)) {
     throw new Error("Nested research workflows are not allowed.");
   }
+  if (researchWorkflowWasAttempted(requestContext)) {
+    throw new Error("A research workflow was already attempted for this request.");
+  }
+  markResearchWorkflowAttempted(requestContext);
   const workflow = mastraFromToolContext(context).getWorkflow(workflowName);
   const run = await workflow.createRun();
   const cancellation = bindToolCancellation(context, run);
@@ -142,6 +146,14 @@ function requestContextFromUnknownToolContext(context: ToolExecutionContext): un
 
 function researchWorkflowIsActive(requestContext: unknown): boolean {
   return mutableRequestContext(requestContext)?.get(CONTEXT.researchWorkflowActive) === true;
+}
+
+function researchWorkflowWasAttempted(requestContext: unknown): boolean {
+  return mutableRequestContext(requestContext)?.get(CONTEXT.researchWorkflowAttempted) === true;
+}
+
+function markResearchWorkflowAttempted(requestContext: unknown): void {
+  mutableRequestContext(requestContext)?.set(CONTEXT.researchWorkflowAttempted, true);
 }
 
 function markResearchWorkflowActive(requestContext: unknown): () => void {
