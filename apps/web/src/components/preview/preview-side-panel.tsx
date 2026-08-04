@@ -402,15 +402,18 @@ function AppTabContent({
 }) {
   if (previewPhase === "booting" || isGeneratedPreviewPending) {
     return (
-      <PreviewDeviceFrame
-        device={frameDevice}
-        content={
-          <CheatcodeLoader
-            className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
-            label={isGeneratedPreviewPending ? "Building preview…" : "Starting preview…"}
-          />
-        }
-      />
+      <>
+        <PreviewSessionRefresh previewUrl={requestedIframeUrl} />
+        <PreviewDeviceFrame
+          device={frameDevice}
+          content={
+            <CheatcodeLoader
+              className="h-full min-h-[420px] min-w-0 flex-1 bg-bg-secondary"
+              label={isGeneratedPreviewPending ? "Building preview…" : "Starting preview…"}
+            />
+          }
+        />
+      </>
     );
   }
   if (previewPhase === "error") {
