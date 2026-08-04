@@ -4,10 +4,10 @@ import {
   GenerateOrEditMediaInputSchema,
   GenerateOrEditMediaOutputSchema,
 } from "../../tools/media/schemas";
-import { CONTEXT } from "../context";
+import { resolveGoogleToolApiKey } from "./request-context";
 import { requestContextFromToolContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 
-/** Generates or edits image/video artifacts with the user's request-scoped Google key. */
+/** Generates or edits media after lazily resolving the user's Google AI tool key. */
 export const mastraGenerateOrEditMedia = createTool({
   id: "generate_or_edit_media",
   description:
@@ -16,11 +16,11 @@ export const mastraGenerateOrEditMedia = createTool({
   outputSchema: GenerateOrEditMediaOutputSchema,
   execute: async (input, context) => {
     const requestContext = requestContextFromToolContext(context);
-    const googleApiKey = requestContext.get(CONTEXT.googleApiKey);
+    const googleApiKey = await resolveGoogleToolApiKey(requestContext);
     return executeGenerateOrEditMedia(
       GenerateOrEditMediaInputSchema.parse(input),
       await workspaceRuntimeFromContext(context),
-      typeof googleApiKey === "string" ? googleApiKey : "",
+      googleApiKey ?? "",
     );
   },
 });

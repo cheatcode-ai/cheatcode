@@ -356,8 +356,8 @@ function extensionForMimeType(mimeType: string): string {
 function requiredApiKey(value: string): string {
   const key = value.trim();
   if (!key) {
-    throw new APIError(400, "byok_key_missing", "Add a Google API key to generate media.", {
-      hint: "Open Models and configure your Google API key.",
+    throw new APIError(400, "byok_key_missing", "Add a Google AI API key to generate media.", {
+      hint: "Open Models and configure your Google AI API key.",
       retriable: false,
     });
   }

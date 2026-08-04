@@ -7,37 +7,35 @@ import {
   DEFAULT_GOOGLE_MODEL_ID,
   DEFAULT_OPENAI_MODEL_ID,
 } from "../llm-context";
+import { resolveGoogleToolApiKey } from "./request-context";
 
-const BROWSER_PROVIDER_CONFIG: Record<
-  BrowserProvider,
+type DirectBrowserProvider = Exclude<BrowserProvider, "google">;
+
+const DIRECT_BROWSER_PROVIDER_CONFIG: Record<
+  DirectBrowserProvider,
   { apiKeyContext: string; defaultModelId: string }
 > = {
   anthropic: {
     apiKeyContext: CONTEXT.anthropicApiKey,
     defaultModelId: DEFAULT_ANTHROPIC_MODEL_ID,
   },
-  google: {
-    apiKeyContext: CONTEXT.googleApiKey,
-    defaultModelId: DEFAULT_GOOGLE_MODEL_ID,
-  },
   openai: {
     apiKeyContext: CONTEXT.openaiApiKey,
     defaultModelId: DEFAULT_OPENAI_MODEL_ID,
   },
 };
-const BROWSER_PROVIDER_FALLBACK_ORDER: readonly BrowserProvider[] = [
+const DIRECT_BROWSER_PROVIDER_FALLBACK_ORDER: readonly DirectBrowserProvider[] = [
   "anthropic",
   "openai",
-  "google",
 ];
 
 export interface RequestContextReader {
   get(key: string): unknown;
 }
 
-export function browserRuntimeFromRequestContext(
+export async function browserRuntimeFromRequestContext(
   requestContext: RequestContextReader,
-): BrowserRuntimeContext {
+): Promise<BrowserRuntimeContext> {
   const runtimeContext = CodeRuntimeContextSchema.parse(requestContext.get(CONTEXT.codeRuntime));
   const runId = requestContext.get(CONTEXT.browserRunId);
   if (typeof runId !== "string" || runId.length === 0) {
@@ -52,17 +50,17 @@ export function browserRuntimeFromRequestContext(
   }
   return {
     ...(runtimeContext.artifacts ? { artifacts: runtimeContext.artifacts } : {}),
-    credential: browserCredentialFromRequestContext(requestContext),
+    credential: await browserCredentialFromRequestContext(requestContext),
     runId,
     sandbox: runtimeContext.sandbox,
   };
 }
 
-function browserCredentialFromRequestContext(requestContext: RequestContextReader) {
+async function browserCredentialFromRequestContext(requestContext: RequestContextReader) {
   const requestedProvider = requestContext.get(CONTEXT.llmProvider);
   const modelId = requestContext.get(CONTEXT.llmModelId);
-  if (isBrowserProvider(requestedProvider)) {
-    const config = BROWSER_PROVIDER_CONFIG[requestedProvider];
+  if (isDirectBrowserProvider(requestedProvider)) {
+    const config = DIRECT_BROWSER_PROVIDER_CONFIG[requestedProvider];
     return providerCredential(
       requestedProvider,
       requestContext.get(config.apiKeyContext),
@@ -73,21 +71,25 @@ function browserCredentialFromRequestContext(requestContext: RequestContextReade
   return fallbackBrowserCredential(requestContext);
 }
 
-function fallbackBrowserCredential(requestContext: RequestContextReader) {
+async function fallbackBrowserCredential(requestContext: RequestContextReader) {
   // Fallback for non-vision providers (for example, an included DeepSeek or OpenRouter run): browser
   // tools need a vision/CUA key, so prefer any the user has. The platform DeepSeek key is
   // never read here, so it can never reach the sandbox as a browser credential.
-  for (const provider of BROWSER_PROVIDER_FALLBACK_ORDER) {
-    const config = BROWSER_PROVIDER_CONFIG[provider];
+  for (const provider of DIRECT_BROWSER_PROVIDER_FALLBACK_ORDER) {
+    const config = DIRECT_BROWSER_PROVIDER_CONFIG[provider];
     const apiKey = requestContext.get(config.apiKeyContext);
     if (typeof apiKey === "string" && apiKey.trim().length > 0) {
       return providerCredential(provider, apiKey, undefined, config.defaultModelId);
     }
   }
+  const googleApiKey = await resolveGoogleToolApiKey(requestContext);
+  if (googleApiKey) {
+    return providerCredential("google", googleApiKey, undefined, DEFAULT_GOOGLE_MODEL_ID);
+  }
   throw new APIError(
     400,
     "byok_key_missing",
-    "Browser automation needs an Anthropic, OpenAI, or Google API key.",
+    "Browser automation needs an Anthropic, OpenAI, or Google AI API key.",
     {
       hint: "Add one in Settings → Models. The included DeepSeek model does not power browser tools.",
       retriable: false,
@@ -95,8 +97,8 @@ function fallbackBrowserCredential(requestContext: RequestContextReader) {
   );
 }
 
-function isBrowserProvider(value: unknown): value is BrowserProvider {
-  return value === "anthropic" || value === "google" || value === "openai";
+function isDirectBrowserProvider(value: unknown): value is DirectBrowserProvider {
+  return value === "anthropic" || value === "openai";
 }
 
 function providerCredential(
@@ -130,7 +132,7 @@ function browserProviderLabel(provider: BrowserProvider): string {
     return "Anthropic";
   }
   if (provider === "google") {
-    return "Google Gemini";
+    return "Google AI";
   }
   return "OpenAI";
 }

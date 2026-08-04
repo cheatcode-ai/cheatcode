@@ -28,7 +28,6 @@ export const SETTINGS_KEY_PROVIDERS = [
 export const MODEL_KEY_PROVIDERS = new Set<Provider>([
   "anthropic",
   "deepseek",
-  "google",
   "openai",
   "openrouter",
 ]);
@@ -44,7 +43,7 @@ const PROVIDER_LABELS = {
   deepseek: "DeepSeek",
   exa: "Exa",
   firecrawl: "Firecrawl",
-  google: "Gemini",
+  google: "Google AI",
   openai: "OpenAI",
   openrouter: "OpenRouter",
 } satisfies Record<Provider, string>;

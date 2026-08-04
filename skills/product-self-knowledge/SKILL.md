@@ -49,7 +49,7 @@ The visible model catalog is:
 | GPT-5.4 Mini | OpenAI | Fast utility option |
 | DeepSeek V4 Pro | DeepSeek | Included platform route |
 
-Cheatcode accepts provider-prefixed OpenRouter and Google model IDs even though those providers are not shown as separate catalog rows. BYOK keys are configured in Models and are decrypted only for the active request. Supported provider key families are Anthropic, OpenAI, Google, OpenRouter, DeepSeek, Exa, and Firecrawl. BYOK key counts are not limited by subscription-plan slots.
+Cheatcode accepts provider-prefixed OpenRouter model IDs even though OpenRouter is not shown as a separate catalog row. Google AI keys are tool-only credentials for image/video generation and browser automation; agent runs reject `google/<model-id>` selections. BYOK keys are configured in Models and decrypted only for the active request or tool invocation. Supported provider key families are Anthropic, OpenAI, Google AI, OpenRouter, DeepSeek, Exa, and Firecrawl. BYOK key counts are not limited by subscription-plan slots.
 
 ## Plans
 

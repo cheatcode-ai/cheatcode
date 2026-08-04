@@ -11,7 +11,7 @@ export const CONTEXT = {
   exaApiKey: "exaApiKey",
   firecrawlApiKey: "firecrawlApiKey",
   globalMemory: "globalMemory",
-  googleApiKey: "googleApiKey",
+  googleToolApiKeyResolver: "googleToolApiKeyResolver",
   llmModelId: "llmModelId",
   llmProvider: "llmProvider",
   openaiApiKey: "openaiApiKey",

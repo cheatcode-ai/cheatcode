@@ -27,6 +27,7 @@ export {
   Globe,
   Image,
   Inbox,
+  Info,
   LifeBuoy,
   Link,
   Loader2,
