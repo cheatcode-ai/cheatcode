@@ -289,7 +289,7 @@ function lockActiveUploadOwnership(
         isNull(users.deletionFence),
       ),
     )
-    .for("update")
+    .for("update", { of: agentRuns })
     .limit(1)
     .then((rows) => rows[0]);
 }
