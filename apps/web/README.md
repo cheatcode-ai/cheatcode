@@ -27,10 +27,10 @@ live iframe mounted so application state is preserved during ordinary use.
 Fresh app-builder projects keep the animated Cheatcode mark visible while the internal starter
 scaffold boots and the model generates the requested app. The persisted `app-preview-status`
 stream part reveals the iframe only when generated content is ready, and an iframe-load guard keeps
-the same mark in place until the final document has loaded. While that mark is visible, the hidden
-session exchange remains mounted so the one-minute URL handoff becomes a renewable ten-minute
-host cookie before long-running builds finish. Existing project edits remain visible and continue
-hot-reloading normally.
+the same mark in place until the final document has loaded. Preview wake and capability minting stay
+paused during fresh scaffold generation; readiness acquires a new one-minute handoff immediately
+before the iframe mounts and exchanges it for the renewable ten-minute host cookie. Existing project
+edits remain visible and continue hot-reloading normally.
 
 ## Public exports
 
