@@ -199,7 +199,8 @@ enumerate the project first, so dependency trees and large generated projects ar
 start critical path. After an idle stop, a current tracked code-server session is relaunched from its
 durable command instead of repeating installation and cleanup probes. A project with no tracked
 app-preview record returns the terminal `none` state without starting Daytona or entering the
-preview wake polling loop.
+preview wake polling loop. Files URLs include the Worker release SHA so code-server's service worker
+cannot reuse a workbench document containing an older injected parent bridge after a deployment.
 
 AgentRun does not count, persist, bill, or emit model-token or model-cost data,
 and it does not apply per-run or daily dollar caps. Provider usage remains an

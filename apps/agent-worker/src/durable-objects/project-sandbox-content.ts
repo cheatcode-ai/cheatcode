@@ -117,6 +117,7 @@ type ContentRuntime = Pick<
   | "ensureSandbox"
   | "previewHostname"
   | "previewSecret"
+  | "releaseSha"
   | "toUpstreamError"
 >;
 
@@ -429,10 +430,11 @@ async function exposeCodeServer(
     secret: await context.runtime.previewSecret(),
     useSubdomain: true,
   });
+  const bridgeRelease = context.runtime.releaseSha();
   return {
     expiresAt: built.expiresAt,
     port: CODE_SERVER_PORT,
-    url: codeServerFolderUrl(built.url, displayFolder, parsed.initialFilePath),
+    url: codeServerFolderUrl(built.url, displayFolder, bridgeRelease, parsed.initialFilePath),
     workspacePath: parsed.workspacePath,
   };
 }
