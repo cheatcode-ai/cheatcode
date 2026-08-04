@@ -2,9 +2,6 @@
 -- PostgreSQL database dump
 --
 
--- NOTE: The 0000 checksum was intentionally revised on 2026-07-31; its ledger
--- hash was updated in the same production operation.
-
 -- Cheatcode runs only on Supabase Postgres. Bootstrap the external objects that
 -- are intentionally outside the public schema dump before restoring it.
 CREATE SCHEMA IF NOT EXISTS extensions;
@@ -13,6 +10,8 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS pg_trgm WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS supabase_vault WITH SCHEMA extensions;
 CREATE EXTENSION IF NOT EXISTS moddatetime WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS vector WITH SCHEMA extensions;
+CREATE EXTENSION IF NOT EXISTS pg_stat_statements WITH SCHEMA extensions;
 
 DO $roles$
 BEGIN
@@ -1098,80 +1097,6 @@ $_$;
 
 
 --
--- Name: webhooks_list_daily_activation_events(date, text, uuid, integer); Type: FUNCTION; Schema: public; Owner: -
---
-
-CREATE FUNCTION public.webhooks_list_daily_activation_events(p_day date, p_cursor_event text, p_cursor_user_id uuid, p_limit integer) RETURNS TABLE(event_order integer, event_name text, user_id uuid, cohort_week text, cohort_month text)
-    LANGUAGE sql STABLE SECURITY DEFINER
-    SET search_path TO ''
-    AS $$
-  with bounded as (
-    select greatest(1, least(coalesce(p_limit, 1), 200)) as page_size,
-           case
-             when p_cursor_event is null then null
-             when p_cursor_event = 'retention_d7' then 1
-             when p_cursor_event = 'retention_d28' then 2
-             when p_cursor_event = 'first_week_mau' then 3
-             else -1
-           end as cursor_order
-  ), activation_events as (
-    select 1 as event_order, 'retention_d7'::text as event_name,
-           candidate.id as user_id,
-           to_char(date_trunc('week', candidate.created_at), 'YYYY-MM-DD') as cohort_week,
-           to_char(date_trunc('month', candidate.created_at), 'YYYY-MM-DD') as cohort_month
-      from public.v2_users candidate
-     where candidate.deleted_at is null
-       and candidate.created_at >= p_day - interval '7 days'
-       and candidate.created_at < p_day - interval '6 days'
-       and exists (
-         select 1 from public.v2_agent_runs run
-          where run.user_id = candidate.id
-            and run.started_at >= p_day
-            and run.started_at < p_day + interval '1 day'
-       )
-    union all
-    select 2, 'retention_d28'::text, candidate.id,
-           to_char(date_trunc('week', candidate.created_at), 'YYYY-MM-DD'),
-           to_char(date_trunc('month', candidate.created_at), 'YYYY-MM-DD')
-      from public.v2_users candidate
-     where candidate.deleted_at is null
-       and candidate.created_at >= p_day - interval '28 days'
-       and candidate.created_at < p_day - interval '27 days'
-       and exists (
-         select 1 from public.v2_agent_runs run
-          where run.user_id = candidate.id
-            and run.started_at >= p_day
-            and run.started_at < p_day + interval '1 day'
-       )
-    union all
-    select 3, 'first_week_mau'::text, candidate.id,
-           to_char(date_trunc('week', candidate.created_at), 'YYYY-MM-DD'), null::text
-      from public.v2_users candidate
-     where candidate.deleted_at is null
-       and candidate.created_at >= p_day - interval '7 days'
-       and candidate.created_at < p_day - interval '6 days'
-       and (
-         select count(*) from public.v2_agent_runs run
-          where run.user_id = candidate.id
-            and run.started_at >= candidate.created_at
-            and run.started_at < candidate.created_at + interval '7 days'
-       ) >= 3
-  )
-  select event.event_order, event.event_name, event.user_id,
-         event.cohort_week, event.cohort_month
-    from activation_events event, bounded
-   where (bounded.cursor_order is null and p_cursor_user_id is null)
-      or (
-        bounded.cursor_order > 0
-        and p_cursor_user_id is not null
-        and (event.event_order, event.user_id) > (bounded.cursor_order, p_cursor_user_id)
-      )
-   order by event.event_order, event.user_id
-   limit (select page_size + 1 from bounded)
-$$;
-
-
---
 -- Name: webhooks_mark_clerk_user_deleted(text, timestamp with time zone); Type: FUNCTION; Schema: public; Owner: -
 --
 
@@ -1450,46 +1375,6 @@ ALTER TABLE ONLY public.v2_audit_log FORCE ROW LEVEL SECURITY;
 
 
 --
--- Name: v2_daily_maintenance_jobs; Type: TABLE; Schema: public; Owner: -
---
-
-CREATE TABLE public.v2_daily_maintenance_jobs (
-    day date NOT NULL,
-    scheduled_at timestamp(3) with time zone NOT NULL,
-    phase text DEFAULT 'activation'::text NOT NULL,
-    activation_cursor_event text,
-    activation_cursor_user_id uuid,
-    continuation integer DEFAULT 0 NOT NULL,
-    status text DEFAULT 'queued'::text NOT NULL,
-    release_version_id uuid,
-    lease_token uuid,
-    lease_expires_at timestamp(3) with time zone,
-    failure_count integer DEFAULT 0 NOT NULL,
-    next_attempt_at timestamp(3) with time zone DEFAULT now() NOT NULL,
-    last_error_code text,
-    completed_at timestamp(3) with time zone,
-    CONSTRAINT v2_daily_maintenance_jobs_activation_cursor_check CHECK ((((activation_cursor_event IS NULL) AND (activation_cursor_user_id IS NULL)) OR ((phase = 'activation'::text) AND (activation_cursor_event = ANY (ARRAY['retention_d7'::text, 'retention_d28'::text, 'first_week_mau'::text])) AND (activation_cursor_user_id IS NOT NULL)))),
-    CONSTRAINT v2_daily_maintenance_jobs_counter_check CHECK (((continuation >= 0) AND (failure_count >= 0))),
-    CONSTRAINT v2_daily_maintenance_jobs_day_check CHECK ((day = (((scheduled_at AT TIME ZONE 'UTC'::text))::date - 1))),
-    CONSTRAINT v2_daily_maintenance_jobs_error_code_check CHECK (((last_error_code IS NULL) OR (octet_length(last_error_code) <= 128))),
-    CONSTRAINT v2_daily_maintenance_jobs_lease_check CHECK ((((status = 'leased'::text) AND (release_version_id IS NOT NULL) AND (lease_token IS NOT NULL) AND (lease_expires_at IS NOT NULL) AND (completed_at IS NULL)) OR ((status = 'queued'::text) AND (release_version_id IS NULL) AND (lease_token IS NULL) AND (lease_expires_at IS NULL) AND (completed_at IS NULL)) OR ((status = 'complete'::text) AND (release_version_id IS NULL) AND (lease_token IS NULL) AND (lease_expires_at IS NULL) AND (completed_at IS NOT NULL)))),
-    CONSTRAINT v2_daily_maintenance_jobs_phase_check CHECK ((phase = ANY (ARRAY['activation'::text, 'orphan-upload-cleanup'::text]))),
-    CONSTRAINT v2_daily_maintenance_jobs_phase_cursor_check CHECK (((phase = 'activation'::text) OR ((phase = 'orphan-upload-cleanup'::text) AND (activation_cursor_event IS NULL) AND (activation_cursor_user_id IS NULL)))),
-    CONSTRAINT v2_daily_maintenance_jobs_status_check CHECK ((status = ANY (ARRAY['queued'::text, 'leased'::text, 'complete'::text]))),
-    CONSTRAINT v2_daily_maintenance_jobs_terminal_phase_check CHECK (((status <> 'complete'::text) OR (phase = 'orphan-upload-cleanup'::text)))
-);
-
-ALTER TABLE ONLY public.v2_daily_maintenance_jobs FORCE ROW LEVEL SECURITY;
-
-
---
--- Name: TABLE v2_daily_maintenance_jobs; Type: COMMENT; Schema: public; Owner: -
---
-
-COMMENT ON TABLE public.v2_daily_maintenance_jobs IS 'Durable daily activation-metric and orphan-upload-cleanup workflow state.';
-
-
---
 -- Name: v2_deleted_clerk_identities; Type: TABLE; Schema: public; Owner: -
 --
 
@@ -1515,7 +1400,7 @@ CREATE TABLE public.v2_entitlements (
     updated_at timestamp with time zone DEFAULT now() NOT NULL,
     cancel_at_period_end boolean DEFAULT false NOT NULL,
     CONSTRAINT v2_entitlements_period_order_check CHECK (((current_period_start IS NULL) OR (current_period_end IS NULL) OR (current_period_start <= current_period_end))),
-    CONSTRAINT v2_entitlements_tier_check CHECK ((tier = ANY (ARRAY['free'::text, 'pro'::text, 'premium'::text, 'ultra'::text, 'max'::text])))
+    CONSTRAINT v2_entitlements_tier_check CHECK ((tier = ANY (ARRAY['free'::text, 'pro'::text, 'premium'::text])))
 );
 
 ALTER TABLE ONLY public.v2_entitlements FORCE ROW LEVEL SECURITY;
@@ -1851,14 +1736,6 @@ ALTER TABLE ONLY public.v2_audit_log
 
 
 --
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_pkey; Type: CONSTRAINT; Schema: public; Owner: -
---
-
-ALTER TABLE ONLY public.v2_daily_maintenance_jobs
-    ADD CONSTRAINT v2_daily_maintenance_jobs_pkey PRIMARY KEY (day);
-
-
---
 -- Name: v2_deleted_clerk_identities v2_deleted_clerk_identities_pkey; Type: CONSTRAINT; Schema: public; Owner: -
 --
 
@@ -2107,27 +1984,6 @@ CREATE INDEX v2_audit_log_created_brin_idx ON public.v2_audit_log USING brin (cr
 --
 
 CREATE INDEX v2_audit_log_user_created_idx ON public.v2_audit_log USING btree (user_id, created_at DESC NULLS LAST);
-
-
---
--- Name: v2_daily_maintenance_jobs_completed_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX v2_daily_maintenance_jobs_completed_idx ON public.v2_daily_maintenance_jobs USING btree (completed_at, day) WHERE (status = 'complete'::text);
-
-
---
--- Name: v2_daily_maintenance_jobs_lease_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX v2_daily_maintenance_jobs_lease_idx ON public.v2_daily_maintenance_jobs USING btree (lease_expires_at, day) WHERE (status = 'leased'::text);
-
-
---
--- Name: v2_daily_maintenance_jobs_ready_idx; Type: INDEX; Schema: public; Owner: -
---
-
-CREATE INDEX v2_daily_maintenance_jobs_ready_idx ON public.v2_daily_maintenance_jobs USING btree (next_attempt_at, day) WHERE (status = 'queued'::text);
 
 
 --
@@ -2707,47 +2563,6 @@ ALTER TABLE public.v2_audit_log ENABLE ROW LEVEL SECURITY;
 --
 
 CREATE POLICY v2_audit_log_postgres_all ON public.v2_audit_log TO postgres USING (true) WITH CHECK (true);
-
-
---
--- Name: v2_daily_maintenance_jobs; Type: ROW SECURITY; Schema: public; Owner: -
---
-
-ALTER TABLE public.v2_daily_maintenance_jobs ENABLE ROW LEVEL SECURITY;
-
---
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_delete_maintenance; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY v2_daily_maintenance_jobs_delete_maintenance ON public.v2_daily_maintenance_jobs FOR DELETE TO app_webhooks USING (true);
-
-
---
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_insert_maintenance; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY v2_daily_maintenance_jobs_insert_maintenance ON public.v2_daily_maintenance_jobs FOR INSERT TO app_webhooks WITH CHECK (true);
-
-
---
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_postgres_all; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY v2_daily_maintenance_jobs_postgres_all ON public.v2_daily_maintenance_jobs TO postgres USING (true) WITH CHECK (true);
-
-
---
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_select_maintenance; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY v2_daily_maintenance_jobs_select_maintenance ON public.v2_daily_maintenance_jobs FOR SELECT TO app_webhooks USING (true);
-
-
---
--- Name: v2_daily_maintenance_jobs v2_daily_maintenance_jobs_update_maintenance; Type: POLICY; Schema: public; Owner: -
---
-
-CREATE POLICY v2_daily_maintenance_jobs_update_maintenance ON public.v2_daily_maintenance_jobs FOR UPDATE TO app_webhooks USING (true) WITH CHECK (true);
 
 
 --
@@ -3410,14 +3225,6 @@ GRANT ALL ON FUNCTION public.webhooks_finalize_current_user_deletion(p_deletion_
 
 
 --
--- Name: FUNCTION webhooks_list_daily_activation_events(p_day date, p_cursor_event text, p_cursor_user_id uuid, p_limit integer); Type: ACL; Schema: public; Owner: -
---
-
-REVOKE ALL ON FUNCTION public.webhooks_list_daily_activation_events(p_day date, p_cursor_event text, p_cursor_user_id uuid, p_limit integer) FROM PUBLIC;
-GRANT ALL ON FUNCTION public.webhooks_list_daily_activation_events(p_day date, p_cursor_event text, p_cursor_user_id uuid, p_limit integer) TO app_webhooks;
-
-
---
 -- Name: FUNCTION webhooks_mark_clerk_user_deleted(p_clerk_id text, p_deleted_at timestamp with time zone); Type: ACL; Schema: public; Owner: -
 --
 
@@ -3598,111 +3405,6 @@ GRANT SELECT(cleanup_not_before) ON TABLE public.v2_artifact_upload_intents TO a
 
 GRANT SELECT(quiesced_at),UPDATE(quiesced_at) ON TABLE public.v2_artifact_upload_intents TO app_agent;
 GRANT SELECT(quiesced_at) ON TABLE public.v2_artifact_upload_intents TO app_webhooks;
-
-
---
--- Name: TABLE v2_daily_maintenance_jobs; Type: ACL; Schema: public; Owner: -
---
-
-GRANT SELECT,DELETE ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.day; Type: ACL; Schema: public; Owner: -
---
-
-GRANT INSERT(day) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.scheduled_at; Type: ACL; Schema: public; Owner: -
---
-
-GRANT INSERT(scheduled_at) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.phase; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(phase) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.activation_cursor_event; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(activation_cursor_event) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.activation_cursor_user_id; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(activation_cursor_user_id) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.continuation; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(continuation) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.status; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(status) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.release_version_id; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(release_version_id) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.lease_token; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(lease_token) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.lease_expires_at; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(lease_expires_at) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.failure_count; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(failure_count) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.next_attempt_at; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(next_attempt_at) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.last_error_code; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(last_error_code) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
-
-
---
--- Name: COLUMN v2_daily_maintenance_jobs.completed_at; Type: ACL; Schema: public; Owner: -
---
-
-GRANT UPDATE(completed_at) ON TABLE public.v2_daily_maintenance_jobs TO app_webhooks;
 
 
 --
@@ -4463,29 +4165,10 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON SEQUENC
 
 
 --
--- Name: DEFAULT PRIVILEGES FOR SEQUENCES; Type: DEFAULT ACL; Schema: public; Owner: -
---
-
--- The pg_dump of production also recreated supabase_admin's default ACLs for
--- sequences, functions, and tables at this point. Those statements are removed:
--- they are Supabase-managed platform state that already exists on every
--- project, they only affect supabase_admin-created objects (this schema
--- creates none), and the migration role `postgres` is denied ALTER DEFAULT
--- PRIVILEGES FOR ROLE supabase_admin (SQLSTATE 42501) on every Supabase
--- project, old or new.
-
-
---
 -- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
 --
 
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIONS TO postgres;
-
-
---
--- Name: DEFAULT PRIVILEGES FOR FUNCTIONS; Type: DEFAULT ACL; Schema: public; Owner: -
---
-
 
 
 --
@@ -4495,10 +4178,65 @@ ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON FUNCTIO
 ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT ALL ON TABLES TO postgres;
 
 
---
--- Name: DEFAULT PRIVILEGES FOR TABLES; Type: DEFAULT ACL; Schema: public; Owner: -
---
 
+-- Cheatcode does not use the Supabase Data API. Runtime database access is
+-- limited to the three least-privilege application roles created above.
+DO $$
+DECLARE
+  data_api_role text;
+BEGIN
+  FOREACH data_api_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role']
+  LOOP
+    IF pg_catalog.to_regrole(data_api_role) IS NOT NULL THEN
+      EXECUTE pg_catalog.format('REVOKE USAGE ON SCHEMA public FROM %I', data_api_role);
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', data_api_role
+      );
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', data_api_role
+      );
+      EXECUTE pg_catalog.format(
+        'REVOKE ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public FROM %I', data_api_role
+      );
+    END IF;
+  END LOOP;
+END
+$$;
+
+REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM PUBLIC;
+
+DO $$
+DECLARE
+  data_api_role text;
+BEGIN
+  -- Supabase manages supabase_admin's default ACLs. This baseline changes only
+  -- the postgres-owned objects it creates.
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE EXECUTE ON FUNCTIONS FROM PUBLIC;
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE ALL ON TABLES FROM PUBLIC;
+  ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
+    REVOKE ALL ON SEQUENCES FROM PUBLIC;
+
+  FOREACH data_api_role IN ARRAY ARRAY['anon', 'authenticated', 'service_role']
+  LOOP
+    IF pg_catalog.to_regrole(data_api_role) IS NOT NULL THEN
+      EXECUTE pg_catalog.format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM %I',
+        data_api_role
+      );
+      EXECUTE pg_catalog.format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON TABLES FROM %I',
+        data_api_role
+      );
+      EXECUTE pg_catalog.format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public REVOKE ALL ON SEQUENCES FROM %I',
+        data_api_role
+      );
+    END IF;
+  END LOOP;
+END
+$$;
 
 
 --

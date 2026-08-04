@@ -298,7 +298,7 @@ async function reconcileCommittedOutput(
   db: Database,
   input: ArtifactUploadIdentity,
 ): Promise<"committed" | "fenced" | null> {
-  const output = await lockCommittedOutput(db, input.id);
+  const output = await findCommittedOutput(db, input.id);
   if (!output) {
     return null;
   }
@@ -306,7 +306,7 @@ async function reconcileCommittedOutput(
   return "committed";
 }
 
-async function lockCommittedOutput(db: Database, id: string) {
+async function findCommittedOutput(db: Database, id: string) {
   const [output] = await db
     .select({
       agentRunId: generatedOutputs.agentRunId,
@@ -315,13 +315,12 @@ async function lockCommittedOutput(db: Database, id: string) {
     })
     .from(generatedOutputs)
     .where(eq(generatedOutputs.id, id))
-    .for("update")
     .limit(1);
   return output;
 }
 
 function assertCommittedOutputIdentity(
-  output: NonNullable<Awaited<ReturnType<typeof lockCommittedOutput>>>,
+  output: NonNullable<Awaited<ReturnType<typeof findCommittedOutput>>>,
   input: ArtifactUploadIdentity,
 ): void {
   if (

@@ -1,2 +1,0 @@
-ALTER TABLE "v2_entitlements" DROP CONSTRAINT "v2_entitlements_tier_check";--> statement-breakpoint
-ALTER TABLE "v2_entitlements" ADD CONSTRAINT "v2_entitlements_tier_check" CHECK ("v2_entitlements"."tier" in ('free','pro','premium'));

@@ -25,19 +25,20 @@ class SupabaseTargetError extends Error {
 }
 
 export async function assertSupabaseTarget(client: PgClient): Promise<void> {
-  const checks = await Promise.all([
-    validateTableSet(client),
-    validateRls(client),
-    validateExtensionsAndSchemas(client),
-    validateFunctions(client),
-    validateRuntimeRoles(client),
-    validateRuntimeAcl(client),
-    validateDataApiIsolation(client),
-    validateIntegrityConstraints(client),
-    validateIntegrityIndexes(client),
-    validateCanonicalProjectWorkspaces(client),
-    validateFirstArtifactMilestone(client),
-  ]);
+  const checks = [
+    await validateTableSet(client),
+    await validateRls(client),
+    await validateExtensionsAndSchemas(client),
+    await validateFunctions(client),
+    await validateRuntimeRoles(client),
+    await validateRuntimeAcl(client),
+    await validateImmutableGeneratedOutputAcl(client),
+    await validateDataApiIsolation(client),
+    await validateIntegrityConstraints(client),
+    await validateIntegrityIndexes(client),
+    await validateCanonicalProjectWorkspaces(client),
+    await validateFirstArtifactMilestone(client),
+  ];
   const issues = checks.flat();
   if (issues.length > 0) {
     throw new SupabaseTargetError(issues);
@@ -274,6 +275,21 @@ async function validateRuntimeAcl(client: PgClient): Promise<string[]> {
   return issues;
 }
 
+async function validateImmutableGeneratedOutputAcl(client: PgClient): Promise<string[]> {
+  const result = await client.query(
+    `select has_table_privilege(pg_catalog.to_regrole('app_agent'), 'public.v2_generated_outputs', 'INSERT') as can_insert,
+            has_any_column_privilege(pg_catalog.to_regrole('app_agent'), 'public.v2_generated_outputs', 'SELECT') as can_select,
+            has_any_column_privilege(pg_catalog.to_regrole('app_agent'), 'public.v2_generated_outputs', 'UPDATE') as can_update`,
+  );
+  const row = result.rows[0];
+  if (row?.["can_insert"] !== true || row["can_select"] !== true) {
+    return ["app_agent must retain INSERT and bounded SELECT access to generated outputs."];
+  }
+  return row["can_update"] === false
+    ? []
+    : ["app_agent must not update immutable generated outputs."];
+}
+
 function validateFunctionAcl(
   object: string,
   privilege: string,
@@ -298,12 +314,12 @@ function validateRelationAcl(
 }
 
 async function validateDataApiIsolation(client: PgClient): Promise<string[]> {
-  const checks = await Promise.all([
-    validateDataApiRelationAccess(client),
-    validateDataApiFunctionAccess(client),
-    validateDataApiSchemaAccess(client),
-    validateDataApiDefaultAcl(client),
-  ]);
+  const checks = [
+    await validateDataApiRelationAccess(client),
+    await validateDataApiFunctionAccess(client),
+    await validateDataApiSchemaAccess(client),
+    await validateDataApiDefaultAcl(client),
+  ];
   return checks.flat();
 }
 

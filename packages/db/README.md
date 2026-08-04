@@ -53,7 +53,9 @@ mime, filename, and R2 object identity.
 - Assistant transcript segments are unique by run and segment, with one final
   segment marker.
 - Provider-key rows contain Vault references and non-secret fingerprints only.
-- Generated outputs and upload intents bind user, run, and project ownership.
+- Generated outputs are immutable after publication. Upload intents bind user,
+  run, and project ownership while the per-user project-mutation advisory lock
+  serializes reservation and finalization.
 - Agent-run skill-runtime capabilities store only bounded, short-lived digests;
   the agent role rotates them under signed user context and terminal transitions
   clear them.
@@ -106,25 +108,9 @@ External provider calls occur outside database transactions and advisory locks.
 
 ## Migrations
 
-The repository keeps a single current-schema Drizzle baseline at
-`drizzle/0000_current_schema.sql`, its generated snapshot, and the journal.
-Future schema changes append ordinary forward Drizzle migrations. The
-pre-launch historical migration archive is intentionally absent.
-
-The baseline's checksum was intentionally revised on 2026-07-31 to remove
-unrunnable `supabase_admin` default-ACL recreations (platform-managed state the
-`postgres` migration role is denied on every Supabase project). Databases that
-recorded the pre-revision baseline fail ledger verification with "Migration
-ledger diverges from source at position 0." The one-time remedy, run once as
-the migration admin against that database only:
-
-```sql
-update drizzle.__drizzle_migrations
-   set hash = '<sha256 of the current drizzle/0000_current_schema.sql>'
- where created_at = 1784981026716;
-```
-
-Compute the hash with `shasum -a 256 packages/db/drizzle/0000_current_schema.sql`.
+The repository keeps one current-schema Drizzle baseline at
+`drizzle/0000_current_schema.sql`, one generated snapshot, and one journal
+entry. The pre-launch migration history is intentionally absent.
 
 ```bash
 pnpm --filter @cheatcode/db db:generate
@@ -142,11 +128,10 @@ The migration runner:
 6. validates the complete current table, column, constraint, index, function,
    RLS, grant, role, and data-integrity contract.
 
-The target-parity migration also installs the required Supabase extensions and
-removes the `anon`, `authenticated`, and `service_role` access and default ACLs
-from `public`. This schema-USAGE revoke is deliberate because Cheatcode does
-not use the Supabase Data API. Supabase-managed Vault-schema grants remain
-untouched.
+The baseline installs the required Supabase extensions and removes the `anon`,
+`authenticated`, and `service_role` access and default ACLs from `public`. This
+schema-USAGE revoke is deliberate because Cheatcode does not use the Supabase
+Data API. Supabase-managed Vault-schema grants remain untouched.
 
 `pnpm dev:setup` supplies the role passwords and signed-context Vault rows that a
 schema migration cannot safely embed, then proves real logins and signed tenant
