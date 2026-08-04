@@ -168,9 +168,10 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
     execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
       const agent = mastra.getAgent("general");
       const sources = mergeResearchSources(inputData);
-      const response = await agent.generate(config.synthesisPrompt(inputData), {
+      const response = await agent.generate(researchSynthesisPrompt(config, inputData), {
         activeTools: [],
         abortSignal,
+        modelSettings: { maxOutputTokens: 8_192 },
         providerOptions: RESEARCH_PROVIDER_OPTIONS,
         requestContext,
         structuredOutput: { schema: ResearchSynthesisDraftSchema },
@@ -289,9 +290,21 @@ function researchPassPrompt(
     config.queryPrompt(query),
     "Use only the provider evidence below. For Exa citations, copy providerResultId and URL exactly. For Firecrawl citations, copy the URL exactly.",
     "Set providerResultId to an empty string for every Firecrawl citation.",
+    "Return 4-6 distinct, synthesis-ready claims, no more than 3 sources per claim, and a concise summary. Prioritize the strongest guidance instead of exhaustively restating the evidence.",
     "Do not cite sourceId directly and do not add sources that are absent from this evidence pack.",
     "",
     JSON.stringify(evidence, null, 2),
+  ].join("\n");
+}
+
+function researchSynthesisPrompt(
+  config: ResearchWorkflowPrompts,
+  findings: z.output<typeof ResearchFindingSchema>[],
+): string {
+  return [
+    config.synthesisPrompt(findings),
+    "Consolidate overlapping evidence into at most 16 distinct claims with no more than 4 source IDs per claim.",
+    "Keep the report focused and complete within 2,000 words while retaining actionable findings and citations.",
   ].join("\n");
 }
 
