@@ -140,13 +140,19 @@ target.dispatchEvent(new MouseEvent(mouseEvents[j],{bubbles:true,cancelable:true
 }
 }
 
-function dispatchDoubleClick(target){
-if(!target)return;
-dispatchClick(target,1);
+function activateTreeItem(row){
+if(!row)return;
+var target=row.querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||row;
+dispatchClick(target);
 setTimeout(function(){
-dispatchClick(target,2);
-target.dispatchEvent(new MouseEvent("dblclick",{bubbles:true,cancelable:true,button:0,buttons:0,detail:2,view:window}));
-},120);
+var tree=row.closest("[role='tree']");
+if(!tree)return;
+if(typeof tree.focus==="function")tree.focus();
+var options={bubbles:true,cancelable:true,composed:true,key:" ",code:"Space",keyCode:32,charCode:32,which:32};
+tree.dispatchEvent(new KeyboardEvent("keydown",options));
+tree.dispatchEvent(new KeyboardEvent("keypress",options));
+tree.dispatchEvent(new KeyboardEvent("keyup",options));
+},50);
 }
 
 function visible(el){
@@ -234,8 +240,7 @@ var isRequestedFile=cheatcodeInitialFileName&&text.indexOf(cheatcodeInitialFileN
 var isDeliverable=/\.(pptx?|pdf|docx?|xlsx?|ods|odt)\b/i.test(text);
 if((isRequestedFile||(!cheatcodeInitialFileName&&isDeliverable))&&visible(rows[i])){
 window.__CHEATCODE_CS_OPENED_INITIAL_DELIVERABLE__=true;
-var target=rows[i].querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||rows[i];
-dispatchDoubleClick(target);
+activateTreeItem(rows[i]);
 break;
 }
 }
@@ -309,8 +314,7 @@ dispatchClick(twistie);
 setTimeout(function(){openRequestedFileStep(parts,index+1,level===null?null:level+1,requestId,attempt+1)},120);
 return;
 }
-var target=row.querySelector(".label-name,.monaco-icon-label,.monaco-tl-contents")||row;
-dispatchDoubleClick(target);
+activateTreeItem(row);
 setTimeout(function(){confirmRequestedFileOpen(parts[index],requestId,0)},200);
 }
 
