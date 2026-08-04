@@ -43,10 +43,10 @@ The visible model catalog is:
 | Model | Provider | Notes |
 |---|---|---|
 | Auto | Cheatcode routing | Resolves to the actual model selected for the run |
-| Claude Sonnet 4.6 | Anthropic | Default app and sandbox model |
-| Claude Opus 4.8 | Anthropic | Highest-capability Anthropic option |
-| GPT-5.4 Thinking | OpenAI | Reasoning-focused option |
-| GPT-5.4 Mini | OpenAI | Fast utility option |
+| Claude Sonnet 5 | Anthropic | Default app and sandbox model |
+| Claude Opus 5 | Anthropic | Highest-capability Anthropic option |
+| GPT-5.6 Sol | OpenAI | Highest-capability OpenAI option |
+| GPT-5.6 Terra | OpenAI | Balanced fast utility option and fallback |
 | DeepSeek V4 Pro | DeepSeek | Included platform route |
 
 Cheatcode accepts provider-prefixed OpenRouter model IDs even though OpenRouter is not shown as a separate catalog row. Google AI keys are tool-only credentials for image/video generation and browser automation; agent runs reject `google/<model-id>` selections. BYOK keys are configured in Models and decrypted only for the active request or tool invocation. Supported provider key families are Anthropic, OpenAI, Google AI, OpenRouter, DeepSeek, Exa, and Firecrawl. BYOK key counts are not limited by subscription-plan slots.
