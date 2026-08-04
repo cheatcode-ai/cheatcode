@@ -3,7 +3,9 @@
 Shared code-server parent-frame integration used by both the production preview
 proxy and the local agent-worker preview path. The proxy supplies an exact,
 trusted application origin and injects the bridge only into bounded,
-signature-checked code-server workbench HTML.
+signature-checked code-server workbench HTML. The bridge reports readiness and sidebar state,
+accepts bounded relative workspace-file reveal requests from that exact parent origin, expands the
+corresponding Explorer path, opens the file, and acknowledges the request back to the parent.
 
 ## Public exports
 

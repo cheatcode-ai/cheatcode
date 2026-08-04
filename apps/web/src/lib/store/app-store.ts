@@ -21,6 +21,12 @@ interface StreamReconnect {
   fromSeq: number;
 }
 
+export interface FilesOpenRequest {
+  path: string;
+  requestId: string;
+  threadId: string;
+}
+
 const PREVIEW_PATH_HISTORY_MAX = 50;
 
 interface AppStoreState {
@@ -35,6 +41,7 @@ interface AppStoreState {
   consoleTruncated: boolean;
   draftByThread: Record<string, string>;
   expoUrl: string | null;
+  filesOpenRequest: FilesOpenRequest | null;
   previewDevice: PreviewDevice;
   previewPanelOpen: boolean;
   previewPath: string;
@@ -56,11 +63,13 @@ interface AppStoreActions {
   ) => void;
   bumpPreviewReloadToken: () => void;
   clearDraft: (threadId: string) => void;
+  clearFilesOpenRequest: (requestId: string) => void;
   goBackPreviewPath: () => void;
   navigatePreviewPath: (path: string) => void;
   resetConsole: () => void;
   resetIdentityState: () => void;
   resetPreviewNavigation: () => void;
+  requestFileOpen: (threadId: string, path: string) => void;
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
   setAppPreviewStatus: (status: AppPreviewState) => void;
@@ -126,6 +135,7 @@ function initialAppStoreState(): AppStoreState {
     consoleTruncated: false,
     draftByThread: {},
     expoUrl: null,
+    filesOpenRequest: null,
     previewDevice: "desktop",
     previewPanelOpen: false,
     previewPath: "/",
@@ -186,6 +196,18 @@ function createPreviewActions(set: AppStoreSet) {
     goBackPreviewPath: () => set(goBackPreviewPath),
     navigatePreviewPath: (path: string) => set((state) => navigatePreviewPath(state, path)),
     resetPreviewNavigation: () => set({ previewPath: "/", previewPathHistory: [] }),
+    clearFilesOpenRequest: (requestId: string) =>
+      set((state) =>
+        state.filesOpenRequest?.requestId === requestId ? { filesOpenRequest: null } : {},
+      ),
+    requestFileOpen: (threadId: string, path: string) =>
+      set({
+        filesOpenRequest: {
+          path,
+          requestId: crypto.randomUUID(),
+          threadId,
+        },
+      }),
     setActivePreviewTab: (activePreviewTab: PreviewTab) => set({ activePreviewTab }),
     setAppPreviewStatus: (appPreviewStatus: AppPreviewState) => set({ appPreviewStatus }),
     setExpoUrl: (expoUrl: string | null) => set({ expoUrl }),
@@ -267,6 +289,7 @@ function identityScopedInitialState(): Pick<
   | "draftByThread"
   | "appPreviewStatus"
   | "expoUrl"
+  | "filesOpenRequest"
   | "previewPanelOpen"
   | "previewPath"
   | "previewPathHistory"
@@ -285,6 +308,7 @@ function identityScopedInitialState(): Pick<
     consoleTruncated: false,
     draftByThread: {},
     expoUrl: null,
+    filesOpenRequest: null,
     previewPanelOpen: false,
     previewPath: "/",
     previewPathHistory: [],
