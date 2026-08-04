@@ -24,11 +24,17 @@ const SourceReferenceSchema = z.discriminatedUnion("provider", [
   }),
 ]);
 
+const SourceReferenceDraftSchema = z.strictObject({
+  provider: z.enum(["exa", "firecrawl"]),
+  providerResultId: z.string().trim().max(500),
+  url: z.string().trim().min(1),
+});
+
 export const ResearchPassDraftSchema = z.strictObject({
   claims: z.array(
     z.strictObject({
       claim: z.string().trim().min(1),
-      sources: z.array(SourceReferenceSchema).min(1),
+      sources: z.array(SourceReferenceDraftSchema).min(1),
     }),
   ),
   summary: z.string().trim().min(1),
@@ -45,6 +51,7 @@ export const ResearchSynthesisDraftSchema = z.strictObject({
 });
 
 type SourceReference = z.infer<typeof SourceReferenceSchema>;
+type SourceReferenceDraft = z.infer<typeof SourceReferenceDraftSchema>;
 type ResearchPassDraft = z.infer<typeof ResearchPassDraftSchema>;
 
 interface EvidenceCollector {
@@ -81,7 +88,11 @@ export function validateResearchPass(
   const citedSources = new Map<string, ResearchSource>();
   const claims = draft.claims.map((claim) => ({
     claim: claim.claim,
-    sourceIds: resolveClaimSources(claim.sources, collector, citedSources),
+    sourceIds: resolveClaimSources(
+      claim.sources.map(sourceReferenceFromDraft),
+      collector,
+      citedSources,
+    ),
   }));
   return ResearchFindingSchema.parse({
     claims,
@@ -89,6 +100,20 @@ export function validateResearchPass(
     sources: [...citedSources.values()],
     summary: draft.summary,
   });
+}
+
+function sourceReferenceFromDraft(draft: SourceReferenceDraft): SourceReference {
+  if (draft.provider === "exa") {
+    return SourceReferenceSchema.parse({
+      provider: draft.provider,
+      providerResultId: draft.providerResultId,
+      url: draft.url,
+    });
+  }
+  if (draft.providerResultId.length > 0) {
+    throw new Error("A Firecrawl citation cannot include an Exa result identifier.");
+  }
+  return SourceReferenceSchema.parse({ provider: draft.provider, url: draft.url });
 }
 
 export function validateSynthesisClaims(

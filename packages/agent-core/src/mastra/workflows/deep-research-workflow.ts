@@ -31,6 +31,9 @@ const RESEARCH_QUERY_CONCURRENCY = 3;
 const RESEARCH_RESULTS_PER_QUERY = 6;
 const RESEARCH_RESULT_TEXT_CHARACTERS = 2_500;
 const RESEARCH_SCRAPE_CHARACTERS = 12_000;
+const RESEARCH_PROVIDER_OPTIONS = {
+  anthropic: { structuredOutputMode: "outputFormat" as const },
+};
 
 interface ResearchEvidenceSource {
   content: string;
@@ -143,6 +146,7 @@ function createQueryStep(id: string, config: ResearchWorkflowPrompts) {
       const response = await agent.generate(researchPassPrompt(config, inputData.query, evidence), {
         activeTools: [],
         abortSignal,
+        providerOptions: RESEARCH_PROVIDER_OPTIONS,
         requestContext: research.requestContext,
         structuredOutput: { schema: ResearchPassDraftSchema },
       });
@@ -167,6 +171,7 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
       const response = await agent.generate(config.synthesisPrompt(inputData), {
         activeTools: [],
         abortSignal,
+        providerOptions: RESEARCH_PROVIDER_OPTIONS,
         requestContext,
         structuredOutput: { schema: ResearchSynthesisDraftSchema },
       });
@@ -283,6 +288,7 @@ function researchPassPrompt(
   return [
     config.queryPrompt(query),
     "Use only the provider evidence below. For Exa citations, copy providerResultId and URL exactly. For Firecrawl citations, copy the URL exactly.",
+    "Set providerResultId to an empty string for every Firecrawl citation.",
     "Do not cite sourceId directly and do not add sources that are absent from this evidence pack.",
     "",
     JSON.stringify(evidence, null, 2),
