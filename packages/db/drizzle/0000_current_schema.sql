@@ -3403,7 +3403,7 @@ GRANT SELECT(cleanup_not_before) ON TABLE public.v2_artifact_upload_intents TO a
 -- Name: COLUMN v2_artifact_upload_intents.quiesced_at; Type: ACL; Schema: public; Owner: -
 --
 
-GRANT SELECT(quiesced_at),UPDATE(quiesced_at) ON TABLE public.v2_artifact_upload_intents TO app_agent;
+GRANT SELECT(quiesced_at),INSERT(quiesced_at),UPDATE(quiesced_at) ON TABLE public.v2_artifact_upload_intents TO app_agent;
 GRANT SELECT(quiesced_at) ON TABLE public.v2_artifact_upload_intents TO app_webhooks;
 
 
