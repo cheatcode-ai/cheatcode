@@ -4,18 +4,12 @@ export function buildDeepResearchQueries(
 ): Array<{ query: string }> {
   const trimmedTopic = topic.trim();
   const templates = [
-    `${trimmedTopic} current overview and key facts`,
-    `${trimmedTopic} recent developments and news`,
-    `${trimmedTopic} market landscape competitors and alternatives`,
-    `${trimmedTopic} technical details implementation constraints`,
-    `${trimmedTopic} risks limitations criticism`,
-    `${trimmedTopic} primary sources documentation reports`,
-    `${trimmedTopic} case studies adoption examples`,
-    `${trimmedTopic} pricing business model economics`,
-    `${trimmedTopic} legal regulatory policy considerations`,
-    `${trimmedTopic} future roadmap trends forecasts`,
-    `${trimmedTopic} expert analysis long-form review`,
-    `${trimmedTopic} data benchmarks statistics`,
+    `${trimmedTopic} current landscape overview and authoritative primary sources`,
+    `${trimmedTopic} technical product and implementation details constraints`,
+    `${trimmedTopic} risks limitations failure modes criticism`,
+    `${trimmedTopic} evidence data benchmarks case studies adoption`,
+    `${trimmedTopic} legal regulatory economic and operational considerations`,
+    `${trimmedTopic} recent developments future trends disagreements open questions`,
   ];
   return dedupeQueries(templates)
     .slice(0, maxQueries)

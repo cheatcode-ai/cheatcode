@@ -45,7 +45,15 @@ export const ResearchQuerySchema = z.strictObject({
 });
 
 export const DeepResearchInputSchema = z.strictObject({
-  maxQueries: z.number().int().min(3).max(12).default(6),
+  maxQueries: z
+    .number()
+    .int()
+    .min(3)
+    .max(6)
+    .default(4)
+    .describe(
+      "Focused research pass count: use 3 for a concise or narrow report, 4 by default, and 5-6 only when the user explicitly asks for deeper coverage.",
+    ),
   topic: z.string().trim().min(1).max(2_000),
 });
 

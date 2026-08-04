@@ -248,7 +248,7 @@ export const mastraFirecrawlExtract = createTool({
 export const mastraDeepResearch = createTool({
   id: "research_deep",
   description:
-    "Run the Deep Research workflow for a complex topic. It returns a cited report and saves the complete report as a PDF deliverable in the project.",
+    "Run focused Deep Research for one complex topic and save the cited report as a project PDF. Use 3 queries for concise or narrow reports, 4 by default, and 5-6 only when the user explicitly requests deeper coverage; use research_fanout for broad multi-entity scans.",
   inputSchema: DeepResearchInputSchema,
   outputSchema: ResearchReportArtifactSchema,
   execute: async (input, context) => {
