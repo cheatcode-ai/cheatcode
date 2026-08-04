@@ -33,6 +33,7 @@ export async function assertSupabaseTarget(client: PgClient): Promise<void> {
     await validateRuntimeRoles(client),
     await validateRuntimeAcl(client),
     await validateImmutableGeneratedOutputAcl(client),
+    await validateArtifactUploadIntentAcl(client),
     await validateDataApiIsolation(client),
     await validateIntegrityConstraints(client),
     await validateIntegrityIndexes(client),
@@ -288,6 +289,20 @@ async function validateImmutableGeneratedOutputAcl(client: PgClient): Promise<st
   return row["can_update"] === false
     ? []
     : ["app_agent must not update immutable generated outputs."];
+}
+
+async function validateArtifactUploadIntentAcl(client: PgClient): Promise<string[]> {
+  const result = await client.query(
+    `select has_column_privilege(pg_catalog.to_regrole('app_agent'), 'public.v2_artifact_upload_intents', 'quiesced_at', 'INSERT') as can_insert_quiesced_at,
+            has_table_privilege(pg_catalog.to_regrole('app_agent'), 'public.v2_artifact_upload_intents', 'UPDATE') as can_update_table`,
+  );
+  const row = result.rows[0];
+  if (row?.["can_insert_quiesced_at"] !== true) {
+    return ["app_agent must insert the bounded quiesced-at default on artifact upload intents."];
+  }
+  return row["can_update_table"] === false
+    ? []
+    : ["app_agent must not have table-wide update access to artifact upload intents."];
 }
 
 function validateFunctionAcl(
