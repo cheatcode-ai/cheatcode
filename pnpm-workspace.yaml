@@ -115,7 +115,7 @@ catalog:
   drizzle-kit: 0.31.10
   drizzle-orm: 0.45.2
   geist: 1.7.2
-  hono: 4.12.30
+  hono: 4.12.34
   katex: 0.17.0
   knip: 6.27.0
   lefthook: 2.1.10
