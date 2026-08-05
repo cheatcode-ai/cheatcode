@@ -115,8 +115,8 @@ catalogs:
       specifier: 1.7.2
       version: 1.7.2
     hono:
-      specifier: 4.12.30
-      version: 4.12.30
+      specifier: 4.12.34
+      version: 4.12.34
     katex:
       specifier: 0.17.0
       version: 0.17.0
@@ -304,7 +304,7 @@ importers:
         version: 6.0.205(zod@4.4.3)
       hono:
         specifier: 'catalog:'
-        version: 4.12.30
+        version: 4.12.34
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -353,7 +353,7 @@ importers:
         version: link:../../packages/types
       hono:
         specifier: 'catalog:'
-        version: 4.12.30
+        version: 4.12.34
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -557,7 +557,7 @@ importers:
         version: 0.48.1
       hono:
         specifier: 'catalog:'
-        version: 4.12.30
+        version: 4.12.34
       zod:
         specifier: 'catalog:'
         version: 4.4.3
@@ -4814,6 +4814,10 @@ packages:
 
   hono@4.12.30:
     resolution: {integrity: sha512-emn+JoJjrN9YTpRDS5it/UI2SO9BAE37T6I3d963RxcZ81G9A4pr2SZTEiiaiKbzx+NKRg5BZ89fCL7gCJCUog==}
+    engines: {node: '>=16.9.0'}
+
+  hono@4.12.34:
+    resolution: {integrity: sha512-GqXJqY/xJkJmuloTrnV1ZEXG3fqte+VjkUqoRNZXcrUidiUOP4fMSIHHY4tsqZBK++kVyWmt/AAfSUuy57/eSA==}
     engines: {node: '>=16.9.0'}
 
   html-url-attributes@3.0.1:
@@ -10686,6 +10690,8 @@ snapshots:
       react-is: 16.13.1
 
   hono@4.12.30: {}
+
+  hono@4.12.34: {}
 
   html-url-attributes@3.0.1: {}
 
