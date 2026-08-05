@@ -12,25 +12,29 @@ function loadInput(inputPath: string): string {
   ].join("\n");
 }
 
-function emitArtifact(filename: string, mimeType: string): string {
+function emitArtifact(filename: string, mimeType: string, outputPath: string): string {
   return [
-    "function emit(base64) {",
+    "async function emit(data) {",
+    '  const { writeFile } = await import("node:fs/promises");',
+    '  const buffer = typeof data === "string" ? Buffer.from(data, "base64") : Buffer.from(data);',
+    `  await writeFile(${JSON.stringify(outputPath)}, buffer);`,
     `  process.stdout.write("\\n${ARTIFACT_STDOUT_MARKER}" + JSON.stringify({`,
     `    filename: ${JSON.stringify(filename)},`,
     `    mimeType: ${JSON.stringify(mimeType)},`,
-    "    base64,",
+    `    path: ${JSON.stringify(outputPath)},`,
     "  }));",
     "}",
   ].join("\n");
 }
 
-export function buildSlidesScript(inputPath: string, filename: string): string {
+export function buildSlidesScript(inputPath: string, outputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
     loadInput(inputPath),
     emitArtifact(
       filename,
       "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+      outputPath,
     ),
     'const PptxGenJS = require("pptxgenjs");',
     "const pptx = new PptxGenJS();",
@@ -57,17 +61,18 @@ export function buildSlidesScript(inputPath: string, filename: string): string {
     "  if (item.notes) { slide.addNotes(item.notes); }",
     "}",
     'const base64 = await pptx.write({ outputType: "base64" });',
-    "emit(base64);",
+    "await emit(base64);",
   ].join("\n");
 }
 
-export function buildDocxScript(inputPath: string, filename: string): string {
+export function buildDocxScript(inputPath: string, outputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
     loadInput(inputPath),
     emitArtifact(
       filename,
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      outputPath,
     ),
     'const { Document, HeadingLevel, Packer, Paragraph, TextRun } = require("docx");',
     "const children = [",
@@ -88,15 +93,19 @@ export function buildDocxScript(inputPath: string, filename: string): string {
     "  sections: [{ children }],",
     "});",
     "const buffer = await Packer.toBuffer(doc);",
-    'emit(Buffer.from(buffer).toString("base64"));',
+    "await emit(buffer);",
   ].join("\n");
 }
 
-export function buildXlsxScript(inputPath: string, filename: string): string {
+export function buildXlsxScript(inputPath: string, outputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
     loadInput(inputPath),
-    emitArtifact(filename, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+    emitArtifact(
+      filename,
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      outputPath,
+    ),
     'const ExcelJS = require("exceljs");',
     "const workbook = new ExcelJS.Workbook();",
     'workbook.creator = "Cheatcode";',
@@ -114,15 +123,15 @@ export function buildXlsxScript(inputPath: string, filename: string): string {
     "  worksheet.views = [{ state: 'frozen', ySplit: 1 }];",
     "}",
     "const buffer = await workbook.xlsx.writeBuffer();",
-    'emit(Buffer.from(buffer).toString("base64"));',
+    "await emit(buffer);",
   ].join("\n");
 }
 
-export function buildPdfScript(inputPath: string, filename: string): string {
+export function buildPdfScript(inputPath: string, outputPath: string, filename: string): string {
   return [
     RUNTIME_REQUIRE,
     loadInput(inputPath),
-    emitArtifact(filename, "application/pdf"),
+    emitArtifact(filename, "application/pdf", outputPath),
     'const ReactModule = await import(require.resolve("react"));',
     "const React = ReactModule.default ?? ReactModule;",
     'const renderer = await import(require.resolve("@react-pdf/renderer"));',
@@ -143,7 +152,7 @@ export function buildPdfScript(inputPath: string, filename: string): string {
     "});",
     "const document = h(Document, null, h(Page, { size: 'A4', style: styles.page }, children));",
     "const buffer = await renderToBuffer(document);",
-    'emit(Buffer.from(buffer).toString("base64"));',
+    "await emit(buffer);",
   ].join("\n");
 }
 
@@ -276,14 +285,18 @@ const MARKDOWN_PDF_DOCUMENT = [
   "  ),",
   ");",
   "const buffer = await renderToBuffer(document);",
-  'emit(Buffer.from(buffer).toString("base64"));',
+  "await emit(buffer);",
 ].join("\n");
 
-export function buildMarkdownPdfScript(inputPath: string, filename: string): string {
+export function buildMarkdownPdfScript(
+  inputPath: string,
+  outputPath: string,
+  filename: string,
+): string {
   return [
     RUNTIME_REQUIRE,
     loadInput(inputPath),
-    emitArtifact(filename, "application/pdf"),
+    emitArtifact(filename, "application/pdf", outputPath),
     MARKDOWN_PDF_SETUP,
     MARKDOWN_PDF_STYLES,
     MARKDOWN_PDF_INLINE_RENDERER,

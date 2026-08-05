@@ -34,18 +34,28 @@ import {
   buildXlsxScript,
 } from "./scripts";
 
-const SandboxArtifactSchema = z.strictObject({
-  base64: z.string().min(1),
+const SandboxArtifactMetadataSchema = z.strictObject({
   filename: z.string().min(1),
   mimeType: z.string().min(1),
+  path: z.string().min(1),
 });
 
-type SandboxArtifact = z.infer<typeof SandboxArtifactSchema>;
+type SandboxArtifactMetadata = z.infer<typeof SandboxArtifactMetadataSchema>;
+
+interface SandboxArtifact extends Omit<SandboxArtifactMetadata, "path"> {
+  base64: string;
+}
+
+interface ArtifactStaging {
+  content: string;
+  inputPath: string;
+  outputPath: string;
+}
 
 const MAX_WORKSPACE_ARTIFACT_BASE64_CHARS = 2_000_000;
 const MAX_STAGED_INPUT_CHARACTERS = 1_900_000;
 const WORKSPACE_ROOT = "/workspace";
-const ARTIFACT_STAGING_DIRECTORY = ".cheatcode/artifact-inputs";
+const ARTIFACT_STAGING_DIRECTORY = ".cheatcode/artifact-staging";
 const ARTIFACT_STDOUT_MARKER = "__CHEATCODE_ARTIFACT__";
 
 export async function executeGenerateSlides(
@@ -54,8 +64,11 @@ export async function executeGenerateSlides(
 ): Promise<GenerateSlidesOutput> {
   const parsed = GenerateSlidesInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "pptx");
-  const artifact = await runArtifactScript(parsed, runtimeContext, "slide", (inputPath) =>
-    buildSlidesScript(inputPath, filename),
+  const artifact = await runArtifactScript(
+    parsed,
+    runtimeContext,
+    "slide",
+    (inputPath, outputPath) => buildSlidesScript(inputPath, outputPath, filename),
   );
   return GenerateSlidesOutputSchema.parse({
     ...artifact,
@@ -70,8 +83,11 @@ export async function executeGenerateDocx(
 ): Promise<GenerateDocxOutput> {
   const parsed = GenerateDocumentInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "docx");
-  const artifact = await runArtifactScript(parsed, runtimeContext, "docx", (inputPath) =>
-    buildDocxScript(inputPath, filename),
+  const artifact = await runArtifactScript(
+    parsed,
+    runtimeContext,
+    "docx",
+    (inputPath, outputPath) => buildDocxScript(inputPath, outputPath, filename),
   );
   return GenerateDocxOutputSchema.parse({
     ...artifact,
@@ -86,8 +102,8 @@ export async function executeGeneratePdf(
 ): Promise<GeneratePdfOutput> {
   const parsed = GenerateDocumentInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "pdf");
-  const artifact = await runArtifactScript(parsed, runtimeContext, "pdf", (inputPath) =>
-    buildPdfScript(inputPath, filename),
+  const artifact = await runArtifactScript(parsed, runtimeContext, "pdf", (inputPath, outputPath) =>
+    buildPdfScript(inputPath, outputPath, filename),
   );
   return GeneratePdfOutputSchema.parse({
     ...artifact,
@@ -107,7 +123,7 @@ export async function executeGenerateMarkdownPdf(
     { markdown: parsed.markdown, title: parsed.title, tokens },
     runtimeContext,
     "pdf",
-    (inputPath) => buildMarkdownPdfScript(inputPath, filename),
+    (inputPath, outputPath) => buildMarkdownPdfScript(inputPath, outputPath, filename),
   );
   return GenerateMarkdownPdfOutputSchema.parse({
     ...artifact,
@@ -122,8 +138,11 @@ export async function executeGenerateXlsx(
 ): Promise<GenerateXlsxOutput> {
   const parsed = GenerateSpreadsheetInputSchema.parse(input);
   const filename = normalizeFilename(parsed.filename ?? parsed.title, "xlsx");
-  const artifact = await runArtifactScript(parsed, runtimeContext, "xlsx", (inputPath) =>
-    buildXlsxScript(inputPath, filename),
+  const artifact = await runArtifactScript(
+    parsed,
+    runtimeContext,
+    "xlsx",
+    (inputPath, outputPath) => buildXlsxScript(inputPath, outputPath, filename),
   );
   return GenerateXlsxOutputSchema.parse({
     ...artifact,
@@ -136,7 +155,7 @@ async function runArtifactScript(
   input: unknown,
   runtimeContext: CodeRuntimeContext,
   kind: ArtifactKind,
-  buildScript: (inputPath: string) => string,
+  buildScript: (inputPath: string, outputPath: string) => string,
 ): Promise<ArtifactUploadResult> {
   if (!runtimeContext.artifacts) {
     throw new APIError(500, "internal_service_error", "Artifact storage is unavailable", {
@@ -144,11 +163,14 @@ async function runArtifactScript(
     });
   }
 
-  const staging = stagedArtifactInput(input, runtimeContext.workspaceDir ?? WORKSPACE_ROOT);
+  const staging = createArtifactStaging(input, runtimeContext.workspaceDir ?? WORKSPACE_ROOT);
   try {
-    await runtimeContext.sandbox.writeFile({ content: staging.content, path: staging.path });
+    await runtimeContext.sandbox.writeFile({
+      content: staging.content,
+      path: staging.inputPath,
+    });
     const result = await runtimeContext.sandbox.runCode({
-      code: buildScript(staging.path),
+      code: buildScript(staging.inputPath, staging.outputPath),
       cwd: runtimeContext.workspaceDir ?? WORKSPACE_ROOT,
       language: "javascript",
     });
@@ -163,7 +185,8 @@ async function runArtifactScript(
       });
     }
 
-    const generated = parseSandboxArtifact(result.stdout);
+    const metadata = parseSandboxArtifact(result.stdout, staging.outputPath);
+    const generated = await readSandboxArtifact(runtimeContext, metadata);
     await writeWorkspaceArtifact(runtimeContext, generated);
     return await runtimeContext.artifacts.put({
       contentType: generated.mimeType,
@@ -172,14 +195,24 @@ async function runArtifactScript(
       kind,
     });
   } finally {
-    await runtimeContext.sandbox.deleteFile({ path: staging.path }).catch(() => undefined);
+    await runtimeContext.sandbox.deleteFile({ path: staging.inputPath }).catch(() => undefined);
+    await runtimeContext.sandbox.deleteFile({ path: staging.outputPath }).catch(() => undefined);
   }
 }
 
-function stagedArtifactInput(
-  input: unknown,
-  workspaceDir: string,
-): { content: string; path: string } {
+async function readSandboxArtifact(
+  runtimeContext: CodeRuntimeContext,
+  metadata: SandboxArtifactMetadata,
+): Promise<SandboxArtifact> {
+  const file = await runtimeContext.sandbox.readFile({ encoding: "base64", path: metadata.path });
+  return {
+    base64: z.string().min(1).parse(file.content),
+    filename: metadata.filename,
+    mimeType: metadata.mimeType,
+  };
+}
+
+function createArtifactStaging(input: unknown, workspaceDir: string): ArtifactStaging {
   const content = JSON.stringify(input);
   if (content.length > MAX_STAGED_INPUT_CHARACTERS) {
     throw new APIError(422, "tool_validation_failed", "Document input is too large", {
@@ -187,9 +220,11 @@ function stagedArtifactInput(
       retriable: false,
     });
   }
+  const stagingId = crypto.randomUUID();
   return {
     content,
-    path: `${workspaceDir}/${ARTIFACT_STAGING_DIRECTORY}/${crypto.randomUUID()}.json`,
+    inputPath: `${workspaceDir}/${ARTIFACT_STAGING_DIRECTORY}/${stagingId}.json`,
+    outputPath: `${workspaceDir}/${ARTIFACT_STAGING_DIRECTORY}/${stagingId}.bin`,
   };
 }
 
@@ -218,14 +253,19 @@ async function writeWorkspaceArtifact(
   }
 }
 
-function parseSandboxArtifact(stdout: string): SandboxArtifact {
+function parseSandboxArtifact(stdout: string, expectedPath: string): SandboxArtifactMetadata {
   try {
     const markerIndex = stdout.lastIndexOf(ARTIFACT_STDOUT_MARKER);
-    const payload =
-      markerIndex === -1
-        ? stdout.trim()
-        : stdout.slice(markerIndex + ARTIFACT_STDOUT_MARKER.length).trim();
-    return SandboxArtifactSchema.parse(JSON.parse(payload));
+    if (markerIndex === -1) {
+      throw new Error("Artifact metadata marker is missing.");
+    }
+    const payload = stdout.slice(markerIndex + ARTIFACT_STDOUT_MARKER.length).trim();
+    const metadataLine = payload.split(/\r?\n/u, 1)[0] ?? "";
+    const metadata = SandboxArtifactMetadataSchema.parse(JSON.parse(metadataLine));
+    if (metadata.path !== expectedPath) {
+      throw new Error("Artifact metadata path did not match the staged output path.");
+    }
+    return metadata;
   } catch (error) {
     throw new APIError(
       502,
