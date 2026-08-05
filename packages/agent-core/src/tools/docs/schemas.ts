@@ -34,6 +34,12 @@ export const GenerateDocumentInputSchema = z.strictObject({
   title: TextValueSchema,
 });
 
+export const GenerateMarkdownPdfInputSchema = z.strictObject({
+  filename: z.string().trim().min(1).max(160).optional(),
+  markdown: z.string().trim().min(1).max(120_000),
+  title: TextValueSchema.optional(),
+});
+
 const SpreadsheetCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
 const SpreadsheetRowSchema = z.record(z.string().min(1).max(80), SpreadsheetCellSchema);
 
@@ -61,6 +67,12 @@ export const GeneratePdfOutputSchema = z.strictObject({
   sectionCount: z.number().int().positive(),
 });
 
+export const GenerateMarkdownPdfOutputSchema = z.strictObject({
+  ...ArtifactOutputSchema.shape,
+  blockCount: z.number().int().positive(),
+  kind: z.literal("pdf"),
+});
+
 export const GenerateSlidesOutputSchema = z.strictObject({
   ...ArtifactOutputSchema.shape,
   kind: z.literal("slide"),
@@ -75,6 +87,8 @@ export const GenerateXlsxOutputSchema = z.strictObject({
 
 export type GenerateDocumentInput = z.input<typeof GenerateDocumentInputSchema>;
 export type GenerateDocxOutput = z.output<typeof GenerateDocxOutputSchema>;
+export type GenerateMarkdownPdfInput = z.input<typeof GenerateMarkdownPdfInputSchema>;
+export type GenerateMarkdownPdfOutput = z.output<typeof GenerateMarkdownPdfOutputSchema>;
 export type GeneratePdfOutput = z.output<typeof GeneratePdfOutputSchema>;
 export type GenerateSlidesInput = z.input<typeof GenerateSlidesInputSchema>;
 export type GenerateSlidesOutput = z.output<typeof GenerateSlidesOutputSchema>;

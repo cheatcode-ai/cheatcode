@@ -305,6 +305,8 @@ function researchSynthesisPrompt(
     config.synthesisPrompt(findings),
     "Consolidate overlapping evidence into at most 16 distinct claims with no more than 4 source IDs per claim.",
     "Keep the report focused and complete within 2,000 words while retaining actionable findings and citations.",
+    "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
+    "Cite factual claims with descriptive Markdown links to the exact source URLs in the findings, and finish with a Sources heading containing only sources used in the report.",
   ].join("\n");
 }
 

@@ -71,9 +71,11 @@ primary result. A single tool-free model pass structures each provider evidence
 pack, and workflow steps do not retry failed model output inside the same Worker
 invocation. Claim citations and the final synthesis are schema-validated against
 that evidence; prose URL scraping is not an accepted provenance boundary.
-Successful top-level deep-research and fan-out tools deterministically package
-that validated report, its claim-to-source map, and its source list as a PDF
-artifact. The project workspace is resolved only after remote research succeeds;
+Successful top-level deep-research and fan-out tools render the validated report's
+canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
+and PDF therefore preserve the same headings, prose, lists, tables, links, citations,
+and ordering; only print-safe pagination and document chrome differ. The project
+workspace is resolved only after remote research succeeds;
 the PDF is then stored both in the live project files and the durable
 generated-output store. Document generators stage their bounded structured input
 in a hidden, project-local temporary file instead of embedding it in the sandbox
