@@ -181,6 +181,10 @@ Each user has one durable Daytona sandbox. Projects are lexically confined to th
 folders under `/workspace`, and run leases keep the sandbox active while the agent is
 working. Project folders share the sandbox's Unix identity, so this prevents accidental
 cross-project access but is not an operating-system security boundary within one user.
+The validated `runCode` source contract remains separate from the smaller public `exec`
+argv contract: the Worker base64-chunks source into bounded, reserved request environment
+variables and pipes it to the selected interpreter over stdin. Large code therefore does
+not exceed an argv element limit or leave a temporary source file on the persistent volume.
 Sandbox lookup validates canonical ownership labels before trusting a cached Daytona
 resource ID. A missing/stale Durable Object cache therefore recovers the one canonical
 sandbox by labels, while duplicate live canonical matches fail closed. New sandboxes pin
