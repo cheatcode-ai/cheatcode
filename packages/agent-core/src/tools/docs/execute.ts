@@ -4,12 +4,17 @@ import type {
   ArtifactUploadResult,
   CodeRuntimeContext,
 } from "@cheatcode/sandbox-contracts";
+import { lexer } from "marked";
 import { z } from "zod";
 import {
   type GenerateDocumentInput,
   GenerateDocumentInputSchema,
   type GenerateDocxOutput,
   GenerateDocxOutputSchema,
+  type GenerateMarkdownPdfInput,
+  GenerateMarkdownPdfInputSchema,
+  type GenerateMarkdownPdfOutput,
+  GenerateMarkdownPdfOutputSchema,
   type GeneratePdfOutput,
   GeneratePdfOutputSchema,
   type GenerateSlidesInput,
@@ -21,7 +26,13 @@ import {
   type GenerateXlsxOutput,
   GenerateXlsxOutputSchema,
 } from "./schemas";
-import { buildDocxScript, buildPdfScript, buildSlidesScript, buildXlsxScript } from "./scripts";
+import {
+  buildDocxScript,
+  buildMarkdownPdfScript,
+  buildPdfScript,
+  buildSlidesScript,
+  buildXlsxScript,
+} from "./scripts";
 
 const SandboxArtifactSchema = z.strictObject({
   base64: z.string().min(1),
@@ -81,6 +92,26 @@ export async function executeGeneratePdf(
     ...artifact,
     kind: "pdf",
     sectionCount: parsed.sections.length,
+  });
+}
+
+export async function executeGenerateMarkdownPdf(
+  input: GenerateMarkdownPdfInput,
+  runtimeContext: CodeRuntimeContext,
+): Promise<GenerateMarkdownPdfOutput> {
+  const parsed = GenerateMarkdownPdfInputSchema.parse(input);
+  const filename = normalizeFilename(parsed.filename ?? parsed.title ?? "research-report", "pdf");
+  const tokens = lexer(parsed.markdown, { gfm: true });
+  const artifact = await runArtifactScript(
+    { markdown: parsed.markdown, title: parsed.title, tokens },
+    runtimeContext,
+    "pdf",
+    (inputPath) => buildMarkdownPdfScript(inputPath, filename),
+  );
+  return GenerateMarkdownPdfOutputSchema.parse({
+    ...artifact,
+    blockCount: tokens.filter((token) => token.type !== "space").length,
+    kind: "pdf",
   });
 }
 

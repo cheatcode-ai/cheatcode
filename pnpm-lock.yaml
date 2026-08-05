@@ -129,6 +129,9 @@ catalogs:
     lucide-react:
       specifier: 1.24.0
       version: 1.24.0
+    marked:
+      specifier: 17.0.6
+      version: 17.0.6
     next:
       specifier: 16.2.11
       version: 16.2.11
@@ -613,6 +616,9 @@ importers:
       arquero:
         specifier: 'catalog:'
         version: 8.0.3
+      marked:
+        specifier: 'catalog:'
+        version: 17.0.6
       zod:
         specifier: 'catalog:'
         version: 4.4.3

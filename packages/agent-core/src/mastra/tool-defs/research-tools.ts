@@ -1,6 +1,7 @@
 import { createTool, type ToolExecutionContext } from "@mastra/core/tools";
-import { executeGeneratePdf } from "../../tools/docs/execute";
-import { GeneratePdfOutputSchema } from "../../tools/docs/schemas";
+import { z } from "zod/v4";
+import { executeGenerateMarkdownPdf } from "../../tools/docs/execute";
+import { GenerateMarkdownPdfOutputSchema } from "../../tools/docs/schemas";
 import {
   ExaSearchInputSchema,
   ExaSearchOutputSchema,
@@ -27,12 +28,13 @@ import {
   firecrawlSource,
   registerResearchSources,
 } from "../workflows/research-provenance";
-import { buildResearchReportDocument } from "./research-report-document-support";
+import { buildResearchMarkdownPdfInput } from "./research-report-document-support";
 import { researchRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 import { WorkflowResultSchema } from "./tool-schemas";
 
-const ResearchReportArtifactSchema = ResearchReportSchema.extend({
-  artifact: GeneratePdfOutputSchema,
+const ResearchReportArtifactSchema = z.strictObject({
+  artifact: GenerateMarkdownPdfOutputSchema,
+  report: ResearchReportSchema.shape.report,
 });
 
 type RequestContextReader = { get(key: string): unknown };
@@ -297,11 +299,11 @@ async function createResearchReportArtifact(
   context: ToolExecutionContext,
 ) {
   context.abortSignal?.throwIfAborted();
-  const artifact = await executeGeneratePdf(
-    buildResearchReportDocument(report, topic),
+  const artifact = await executeGenerateMarkdownPdf(
+    buildResearchMarkdownPdfInput(report.report, topic),
     await workspaceRuntimeFromContext(context),
   );
-  return ResearchReportArtifactSchema.parse({ ...report, artifact });
+  return ResearchReportArtifactSchema.parse({ artifact, report: report.report });
 }
 
 async function executeExaTool(input: unknown, context: ToolExecutionContext) {
