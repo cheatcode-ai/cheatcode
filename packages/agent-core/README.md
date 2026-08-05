@@ -79,12 +79,14 @@ and PDF therefore preserve the same headings, prose, lists, tables, links, citat
 and ordering; only print-safe pagination and document chrome differ. The project
 workspace is resolved only after remote research succeeds;
 the PDF is then stored both in the live project files and the durable
-generated-output store. Sandbox renderers delimit their final artifact metadata with
-an internal stdout marker so bounded library diagnostics cannot corrupt the payload.
-Document generators stage their bounded structured input
-in a hidden, project-local temporary file instead of embedding it in the sandbox
-command line, then delete that input after rendering; this keeps large reports
-within the sandbox process contract without retaining source payloads.
+generated-output store. Sandbox renderers write binary output to a bounded staging
+file and delimit only its small metadata object with an internal stdout marker. The
+host validates that path, reads the bytes through the sandbox file boundary, uploads
+the durable artifact, and removes both staging files. Document generators stage
+their bounded structured input in a hidden, project-local temporary file instead of
+embedding it in the sandbox command line, then delete that input after rendering;
+this keeps large reports within the sandbox process contract without retaining
+source payloads.
 
 Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
