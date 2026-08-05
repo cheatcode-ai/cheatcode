@@ -1,4 +1,4 @@
-const MAX_RESEARCH_QUERY_CHARACTERS = 2_000;
+const MAX_RESEARCH_QUERY_CHARACTERS = 1_000;
 
 export function buildDeepResearchQueries(
   topic: string,
