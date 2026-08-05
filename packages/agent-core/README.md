@@ -39,7 +39,9 @@ workspace-backed file, shell, document, chart, or artifact work resolves the thr
 project lazily when durable project storage is actually needed. Code tools expose `/workspace`
 as a virtual project root and remap path references inside argv, shell payloads, and inline code
 to the canonical project folder. Projectless calculations and environment probes run from `/tmp`,
-so a weaker model cannot accidentally leave durable files outside a project.
+so a weaker model cannot accidentally leave durable files outside a project. The bounded Daytona
+REST adapter maps request-scoped command environment variables to the provider's `envs` wire field;
+generated code can therefore cross the process boundary without entering argv or persistent files.
 
 ## Code Checks
 

@@ -199,6 +199,14 @@ interface ExecuteParams {
   timeout?: number;
 }
 
+interface CodeRunParams {
+  code: string;
+  env?: Record<string, string>;
+  language: "javascript" | "python";
+  /** seconds */
+  timeout?: number;
+}
+
 // ---------------------------------------------------------------------------
 // Client
 // ---------------------------------------------------------------------------
@@ -360,9 +368,23 @@ export class DaytonaClient {
   async execute(id: string, params: ExecuteParams): Promise<DaytonaExecuteResponse> {
     const body: Record<string, unknown> = { command: params.command };
     if (params.cwd !== undefined) body["cwd"] = params.cwd;
-    if (params.env !== undefined) body["env"] = params.env;
+    if (params.env !== undefined) body["envs"] = params.env;
     if (params.timeout !== undefined) body["timeout"] = params.timeout;
     const json = await this.toolbox("POST", id, "/process/execute", {
+      body,
+      timeoutMs: (params.timeout ?? 600) * 1_000 + DAYTONA_EXEC_OVERHEAD_MS,
+    });
+    return ExecuteResponseSchema.parse(json);
+  }
+
+  async runCode(id: string, params: CodeRunParams): Promise<DaytonaExecuteResponse> {
+    const body: Record<string, unknown> = {
+      code: params.code,
+      language: params.language,
+    };
+    if (params.env !== undefined) body["envs"] = params.env;
+    if (params.timeout !== undefined) body["timeout"] = params.timeout;
+    const json = await this.toolbox("POST", id, "/process/code-run", {
       body,
       timeoutMs: (params.timeout ?? 600) * 1_000 + DAYTONA_EXEC_OVERHEAD_MS,
     });
