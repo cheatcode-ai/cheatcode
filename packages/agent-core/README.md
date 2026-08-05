@@ -67,10 +67,12 @@ the Mastra workflow run, forward each workflow step signal through every nested
 `agent.generate`, and remove abort listeners before deleting the ephemeral run.
 Each concurrent research pass gets an isolated evidence collector populated only
 from one bounded Exa discovery call and an optional Firecrawl extraction of its
-primary result. A single tool-free model pass structures each provider evidence
-pack, and workflow steps do not retry failed model output inside the same Worker
-invocation. Claim citations and the final synthesis are schema-validated against
-that evidence; prose URL scraping is not an accepted provenance boundary.
+primary result. A single tool-free model pass structures each byte-bounded provider
+evidence pack. Nested model calls use stage-appropriate output bounds, an operational
+timeout, and one in-memory retry for transient provider failures; request cancellation
+always wins and no secret-bearing state is snapshotted. Claim citations and the final
+synthesis are schema-validated against that evidence; prose URL scraping is not an
+accepted provenance boundary.
 Successful top-level deep-research and fan-out tools render the validated report's
 canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
 and PDF therefore preserve the same headings, prose, lists, tables, links, citations,

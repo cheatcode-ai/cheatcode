@@ -1,4 +1,4 @@
-import { APIError } from "@cheatcode/observability";
+import { APIError, createLogger } from "@cheatcode/observability";
 import { createStep, createWorkflow } from "@mastra/core/workflows";
 import { z } from "zod/v4";
 import {
@@ -28,9 +28,14 @@ import {
 } from "./research-schemas";
 
 const RESEARCH_QUERY_CONCURRENCY = 3;
-const RESEARCH_RESULTS_PER_QUERY = 6;
-const RESEARCH_RESULT_TEXT_CHARACTERS = 2_500;
-const RESEARCH_SCRAPE_CHARACTERS = 12_000;
+const RESEARCH_RESULTS_PER_QUERY = 5;
+const RESEARCH_RESULT_TEXT_CHARACTERS = 1_600;
+const RESEARCH_EVIDENCE_CHARACTERS_PER_SOURCE = 3_000;
+const RESEARCH_SCRAPE_CHARACTERS = 6_000;
+const RESEARCH_PASS_MAX_OUTPUT_TOKENS = 2_048;
+const RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS = 4_096;
+const RESEARCH_MODEL_TIMEOUT_MS = 75_000;
+const RESEARCH_MODEL_ATTEMPTS = 2;
 const RESEARCH_PROVIDER_OPTIONS = {
   anthropic: { structuredOutputMode: "outputFormat" as const },
 };
@@ -143,13 +148,16 @@ function createQueryStep(id: string, config: ResearchWorkflowPrompts) {
         research.requestContext,
         abortSignal,
       );
-      const response = await agent.generate(researchPassPrompt(config, inputData.query, evidence), {
-        activeTools: [],
-        abortSignal,
-        providerOptions: RESEARCH_PROVIDER_OPTIONS,
-        requestContext: research.requestContext,
-        structuredOutput: { schema: ResearchPassDraftSchema },
-      });
+      const response = await generateResearchOutput(abortSignal, (generationSignal) =>
+        agent.generate(researchPassPrompt(config, inputData.query, evidence), {
+          activeTools: [],
+          abortSignal: generationSignal,
+          modelSettings: { maxOutputTokens: RESEARCH_PASS_MAX_OUTPUT_TOKENS },
+          providerOptions: RESEARCH_PROVIDER_OPTIONS,
+          requestContext: research.requestContext,
+          structuredOutput: { schema: ResearchPassDraftSchema },
+        }),
+      );
       return validateResearchPass(
         parseResearchPassDraft(response.object),
         inputData.query,
@@ -168,14 +176,16 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
     execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
       const agent = mastra.getAgent("general");
       const sources = mergeResearchSources(inputData);
-      const response = await agent.generate(researchSynthesisPrompt(config, inputData), {
-        activeTools: [],
-        abortSignal,
-        modelSettings: { maxOutputTokens: 8_192 },
-        providerOptions: RESEARCH_PROVIDER_OPTIONS,
-        requestContext,
-        structuredOutput: { schema: ResearchSynthesisDraftSchema },
-      });
+      const response = await generateResearchOutput(abortSignal, (generationSignal) =>
+        agent.generate(researchSynthesisPrompt(config, inputData), {
+          activeTools: [],
+          abortSignal: generationSignal,
+          modelSettings: { maxOutputTokens: RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS },
+          providerOptions: RESEARCH_PROVIDER_OPTIONS,
+          requestContext,
+          structuredOutput: { schema: ResearchSynthesisDraftSchema },
+        }),
+      );
       const draft = parseResearchSynthesisDraft(response.object);
       return ResearchReportSchema.parse({
         claims: validateSynthesisClaims(draft.claims, sources),
@@ -239,7 +249,8 @@ function exaEvidenceSource(
 ): ResearchEvidenceSource {
   const content = [result.summary, ...result.highlights, result.text]
     .filter((value): value is string => Boolean(value))
-    .join("\n\n");
+    .join("\n\n")
+    .slice(0, RESEARCH_EVIDENCE_CHARACTERS_PER_SOURCE);
   return {
     content,
     provider: "exa",
@@ -332,6 +343,51 @@ function invalidStructuredResearchOutput(stage: string): APIError {
     "upstream_provider_outage",
     `The ${stage} returned invalid structured output`,
     { retriable: true },
+  );
+}
+
+async function generateResearchOutput<T>(
+  abortSignal: AbortSignal,
+  generate: (generationSignal: AbortSignal) => Promise<T>,
+): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < RESEARCH_MODEL_ATTEMPTS; attempt += 1) {
+    abortSignal.throwIfAborted();
+    const generationSignal = AbortSignal.any([
+      abortSignal,
+      AbortSignal.timeout(RESEARCH_MODEL_TIMEOUT_MS),
+    ]);
+    try {
+      return await generate(generationSignal);
+    } catch (error) {
+      abortSignal.throwIfAborted();
+      lastError = error;
+      if (!isRetriableModelError(error) || attempt === RESEARCH_MODEL_ATTEMPTS - 1) {
+        throw error;
+      }
+      createLogger().warn("research_model_generation_retrying", {
+        attempt: attempt + 1,
+        error,
+      });
+    }
+  }
+  throw lastError;
+}
+
+function isRetriableModelError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  if (error.name === "TimeoutError") {
+    return true;
+  }
+  const record = error as Error & { isRetryable?: unknown; statusCode?: unknown };
+  if (record.isRetryable === true) {
+    return true;
+  }
+  return (
+    typeof record.statusCode === "number" &&
+    (record.statusCode === 408 || record.statusCode === 429 || record.statusCode >= 500)
   );
 }
 
