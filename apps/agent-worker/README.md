@@ -83,6 +83,10 @@ completed step instead of losing an in-memory coroutine. Transcript publication 
 event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
 There is no application step, token, duration, or cost ceiling; semantic completion ends the loop,
 while per-operation timeouts and the platform Workflow limit remain operational safeguards.
+Successful deep-research tools are terminal response producers: the Workflow suppresses the model's
+pre-tool narration, publishes the tool's validated canonical Markdown directly as the assistant text,
+and completes without asking a second model turn to copy or summarize it. The same Markdown is the
+input to the PDF renderer, so chat and deliverable content cannot diverge by model behavior.
 
 The run-keyed Durable Object is the authoritative status, cancellation, transcript, and stream
 store. It validates every Workflow callback against the stored input hash and deterministic
