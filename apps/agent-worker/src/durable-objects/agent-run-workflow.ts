@@ -11,6 +11,10 @@ import type { AgentRun } from "./agent-run";
 import type { AgentRunEnv } from "./agent-run-env";
 import { toAgentRunStreamError } from "./agent-run-errors";
 import {
+  canonicalResearchReport,
+  isResearchReportTool,
+} from "./agent-run-research-response-support";
+import {
   agentToolCallUiChunks,
   agentToolErrorUiChunks,
   agentToolResultUiChunks,
@@ -164,6 +168,9 @@ async function runAgentLoop(
       ...state,
       messages: [...state.messages, workflowJsonValue(toolResultMessage(toolTurn.results))],
     });
+    if (toolTurn.results.some((result) => canonicalResearchReport(result) !== undefined)) {
+      return;
+    }
     if (
       state.input.runIntent === "skill-creator" &&
       toolTurn.results.some(
@@ -302,12 +309,15 @@ async function publishModelStep(
   if (model.fallback) {
     chunks.push({ data: { ...model.fallback, v: 1 }, type: "data-model-fallback" });
   }
-  const text = model.step.text.trim();
+  const modelText = model.step.toolCalls.some((toolCall) => isResearchReportTool(toolCall.toolName))
+    ? ""
+    : model.step.text;
+  const text = modelText.trim();
   if (text.length > 0) {
     const id = `answer-${stepIndex}`;
     chunks.push(
       { id, type: "text-start" },
-      { delta: model.step.text, id, type: "text-delta" },
+      { delta: modelText, id, type: "text-delta" },
       { id, type: "text-end" },
     );
   }
@@ -347,9 +357,18 @@ async function publishToolStep(
     toolCallId: result.toolCall.toolCallId,
     toolName: result.toolCall.toolName,
   };
-  const chunks = result.error
+  const report = canonicalResearchReport(result);
+  const chunks: UIMessageChunk[] = result.error
     ? agentToolErrorUiChunks({ ...payloadBase, error: result.error })
     : agentToolResultUiChunks({ ...payloadBase, result: result.output });
+  if (report) {
+    const id = `research-report-${stepIndex}-${toolIndex}`;
+    chunks.push(
+      { id, type: "text-start" },
+      { delta: report, id, type: "text-delta" },
+      { id, type: "text-end" },
+    );
+  }
   await workflowStep.do(`publish tool ${stepIndex}.${toolIndex}`, STATE_STEP, async () => {
     emitToolCompletion(env, payload, result, toolStepIndex);
     await appendWorkflowEvent(
@@ -362,6 +381,7 @@ async function publishToolStep(
   return {
     ...state,
     hasArtifact: state.hasArtifact || chunks.some((chunk) => chunk.type === "data-artifact"),
+    hasVisibleText: state.hasVisibleText || report !== undefined,
     input: result.input,
   };
 }
