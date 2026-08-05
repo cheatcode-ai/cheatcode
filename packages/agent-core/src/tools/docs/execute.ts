@@ -46,6 +46,7 @@ const MAX_WORKSPACE_ARTIFACT_BASE64_CHARS = 2_000_000;
 const MAX_STAGED_INPUT_CHARACTERS = 1_900_000;
 const WORKSPACE_ROOT = "/workspace";
 const ARTIFACT_STAGING_DIRECTORY = ".cheatcode/artifact-inputs";
+const ARTIFACT_STDOUT_MARKER = "__CHEATCODE_ARTIFACT__";
 
 export async function executeGenerateSlides(
   input: GenerateSlidesInput,
@@ -219,7 +220,12 @@ async function writeWorkspaceArtifact(
 
 function parseSandboxArtifact(stdout: string): SandboxArtifact {
   try {
-    return SandboxArtifactSchema.parse(JSON.parse(stdout.trim()));
+    const markerIndex = stdout.lastIndexOf(ARTIFACT_STDOUT_MARKER);
+    const payload =
+      markerIndex === -1
+        ? stdout.trim()
+        : stdout.slice(markerIndex + ARTIFACT_STDOUT_MARKER.length).trim();
+    return SandboxArtifactSchema.parse(JSON.parse(payload));
   } catch (error) {
     throw new APIError(
       502,
