@@ -11,6 +11,7 @@ import {
   createResearchStepContext,
   exaSource,
   firecrawlSource,
+  mergeResearchClaims,
   mergeResearchSources,
   ResearchPassDraftSchema,
   ResearchSynthesisDraftSchema,
@@ -179,6 +180,7 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
     execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
       const agent = mastra.getAgent("general");
       const sources = mergeResearchSources(inputData);
+      const claims = validateSynthesisClaims(mergeResearchClaims(inputData), sources);
       return generateResearchOutput(abortSignal, async (generationSignal) => {
         const response = await agent.generate(researchSynthesisPrompt(config, inputData), {
           activeTools: [],
@@ -190,7 +192,7 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
         });
         const draft = parseResearchSynthesisDraft(response.object);
         return ResearchReportSchema.parse({
-          claims: validateSynthesisClaims(draft.claims, sources),
+          claims,
           findings: inputData,
           report: draft.report,
           sources,
@@ -304,7 +306,7 @@ function researchPassPrompt(
     config.queryPrompt(query),
     "Use only the provider evidence below. For Exa citations, copy providerResultId and URL exactly. For Firecrawl citations, copy the URL exactly.",
     "Set providerResultId to an empty string for every Firecrawl citation.",
-    "Return 3-4 distinct, synthesis-ready claims. Keep each claim under 450 characters, use no more than 2 sources per claim, and keep the summary under 700 characters.",
+    "Return only 3-4 distinct, synthesis-ready claims. Keep each claim under 450 characters and use no more than 2 sources per claim.",
     "Prioritize the strongest guidance instead of exhaustively restating the evidence.",
     "Do not cite sourceId directly and do not add sources that are absent from this evidence pack.",
     "",
@@ -318,7 +320,7 @@ function researchSynthesisPrompt(
 ): string {
   return [
     config.synthesisPrompt(findings),
-    "Consolidate overlapping evidence into at most 16 distinct claims with no more than 4 source IDs per claim.",
+    "Return only the report field requested by the output schema; the provenance index is assembled deterministically from the validated findings.",
     "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
     "Cite factual claims with descriptive Markdown links to the exact source URLs in the findings, and finish with a Sources heading containing only sources used in the report.",

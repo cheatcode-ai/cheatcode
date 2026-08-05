@@ -71,8 +71,10 @@ primary result. A single tool-free model pass structures each byte-bounded provi
 evidence pack. Nested model calls use stage-appropriate output bounds, an operational
 timeout, and one in-memory retry for transient provider or invalid structured-output
 failures; request cancellation always wins and no secret-bearing state is snapshotted.
-Claim citations and the final synthesis are schema-validated against that evidence;
-prose URL scraping is not an accepted provenance boundary.
+Claim citations are schema-validated against that evidence, and the durable claim map
+is assembled deterministically from those validated passes. The model-authored final
+synthesis contains only the canonical Markdown report; prose URL scraping is not an
+accepted provenance boundary.
 Successful top-level deep-research and fan-out tools render the validated report's
 canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
 and PDF therefore preserve the same headings, prose, lists, tables, links, citations,

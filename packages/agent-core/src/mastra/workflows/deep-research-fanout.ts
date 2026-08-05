@@ -22,8 +22,7 @@ function fanoutSynthesisPrompt(findings: unknown): string {
   return [
     "Synthesize the following parallel research findings into a comparison-oriented report.",
     "Include a comparison matrix when the findings cover multiple entities.",
-    "The claim sourceIds must exactly match IDs in the input sources. Do not invent or rewrite IDs.",
-    "The structured claim map is authoritative provenance; keep the report readable and evidence-bound.",
+    "Use only the source URLs present in the findings, and keep the report readable and evidence-bound.",
     "",
     JSON.stringify(findings, null, 2),
   ].join("\n");
