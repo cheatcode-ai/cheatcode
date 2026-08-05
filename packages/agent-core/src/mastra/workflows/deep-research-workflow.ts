@@ -7,6 +7,7 @@ import {
   ResearchRuntimeContextSchema,
 } from "../../tools/research";
 import { CONTEXT } from "../context";
+import { parseResearchMarkdown } from "./research-markdown";
 import {
   exaSource,
   firecrawlSource,
@@ -30,10 +31,9 @@ const RESEARCH_RESULT_TEXT_CHARACTERS = 1_600;
 const RESEARCH_EVIDENCE_CHARACTERS_PER_SOURCE = 3_000;
 const RESEARCH_SYNTHESIS_EVIDENCE_CHARACTERS_PER_SOURCE = 1_200;
 const RESEARCH_SCRAPE_CHARACTERS = 6_000;
-const RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS = 4_096;
+const RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS = 8_192;
 const RESEARCH_MODEL_TIMEOUT_MS = 75_000;
 const RESEARCH_MODEL_ATTEMPTS = 2;
-const ResearchMarkdownSchema = z.string().trim().min(1).max(20_000).startsWith("# ");
 
 interface ResearchEvidenceSource {
   content: string;
@@ -160,7 +160,11 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
         return ResearchReportSchema.parse({
           claims,
           findings: inputData,
-          report: parseResearchMarkdown(response.text),
+          report: parseResearchMarkdown({
+            finishReason: response.finishReason,
+            sources,
+            value: response.text,
+          }),
           sources,
         });
       });
@@ -259,7 +263,8 @@ function researchSynthesisPrompt(config: ResearchWorkflowPrompts, evidence: unkn
     "Start with one level-one heading. The returned Markdown is displayed unchanged in chat and rendered unchanged into the PDF.",
     "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
-    "Cite factual claims with descriptive Markdown links to the exact source URLs in the evidence, and finish with a Sources heading containing only sources used in the report.",
+    "Cite factual claims with descriptive Markdown links to the exact source URLs in the evidence.",
+    "Finish with exactly one level-two Sources heading. Under it, include one bullet per cited URL, formatted only as a descriptive Markdown link. Every inline citation must appear in that list, and every listed source must be cited inline.",
   ].join("\n");
 }
 
@@ -301,19 +306,6 @@ function compactEvidence(value: string): string {
     .replace(/\s+/gu, " ")
     .trim()
     .slice(0, RESEARCH_SYNTHESIS_EVIDENCE_CHARACTERS_PER_SOURCE);
-}
-
-function parseResearchMarkdown(value: unknown): string {
-  const parsed = ResearchMarkdownSchema.safeParse(value);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  throw new APIError(
-    502,
-    "upstream_provider_outage",
-    "Research synthesis returned invalid Markdown",
-    { retriable: true },
-  );
 }
 
 async function generateResearchOutput<T>(
