@@ -79,7 +79,9 @@ and PDF therefore preserve the same headings, prose, lists, tables, links, citat
 and ordering; only print-safe pagination and document chrome differ. The project
 workspace is resolved only after remote research succeeds;
 the PDF is then stored both in the live project files and the durable
-generated-output store. Document generators stage their bounded structured input
+generated-output store. Sandbox renderers delimit their final artifact metadata with
+an internal stdout marker so bounded library diagnostics cannot corrupt the payload.
+Document generators stage their bounded structured input
 in a hidden, project-local temporary file instead of embedding it in the sandbox
 command line, then delete that input after rendering; this keeps large reports
 within the sandbox process contract without retaining source payloads.

@@ -3,6 +3,8 @@ const RUNTIME_REQUIRE = [
   'const require = createRequire("/opt/cheatcode-doc-runtime/package.json");',
 ].join("\n");
 
+const ARTIFACT_STDOUT_MARKER = "__CHEATCODE_ARTIFACT__";
+
 function loadInput(inputPath: string): string {
   return [
     'const { readFile } = await import("node:fs/promises");',
@@ -13,7 +15,7 @@ function loadInput(inputPath: string): string {
 function emitArtifact(filename: string, mimeType: string): string {
   return [
     "function emit(base64) {",
-    "  process.stdout.write(JSON.stringify({",
+    `  process.stdout.write("\\n${ARTIFACT_STDOUT_MARKER}" + JSON.stringify({`,
     `    filename: ${JSON.stringify(filename)},`,
     `    mimeType: ${JSON.stringify(mimeType)},`,
     "    base64,",
