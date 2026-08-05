@@ -41,7 +41,7 @@ export const ResearchReportSchema = z.strictObject({
 });
 
 export const ResearchQuerySchema = z.strictObject({
-  query: z.string().trim().min(1).max(1_000),
+  query: z.string().trim().min(1).max(2_000),
 });
 
 export const DeepResearchInputSchema = z.strictObject({
@@ -54,7 +54,14 @@ export const DeepResearchInputSchema = z.strictObject({
     .describe(
       "Focused research pass count: use 3 for a concise or narrow report, 4 by default, and 5-6 only when the user explicitly asks for deeper coverage.",
     ),
-  topic: z.string().trim().min(1).max(2_000),
+  topic: z
+    .string()
+    .trim()
+    .min(1)
+    .max(2_000)
+    .describe(
+      "Concise research topic and requested report focus. Preserve the user's requirements without adding unrelated detail.",
+    ),
 });
 
 export const DeepResearchFanoutInputSchema = z.strictObject({
