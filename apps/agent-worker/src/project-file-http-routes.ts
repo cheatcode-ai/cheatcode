@@ -1,8 +1,12 @@
+import { listProjectGeneratedOutputs, withUserDb } from "@cheatcode/db";
 import { APIError, readBoundedRequestBytes } from "@cheatcode/observability";
+import { toProjectId, toUserId, type UserId } from "@cheatcode/types";
 import {
+  PROJECT_DELIVERABLE_MAX_CURRENT_FILES,
   PROJECT_FILE_MAX_BYTES,
   ProjectFileListSchema,
   ProjectFileUploadResponseSchema,
+  projectDeliverableRelativePath,
 } from "@cheatcode/types/api";
 import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import type { Context, Hono } from "hono";
@@ -79,11 +83,41 @@ export function registerProjectFileHttpRoutes(app: Hono<{ Bindings: AgentEnv }>)
 }
 
 async function listProjectFiles(c: AgentContext): Promise<Response> {
-  const userId = readGatewayUserId(c.req.raw.headers);
+  const userId = toUserId(readGatewayUserId(c.req.raw.headers));
   const projectId = parseProjectId(c.req.param("projectId"));
   await requireProjectAccess(c.env, userId, projectId, false);
   const sandbox = await sandboxForUser(c.env, userId);
-  return c.json(ProjectFileListSchema.parse(await sandbox.listUploadedFiles({ projectId })));
+  const [uploads, generated] = await Promise.all([
+    sandbox.listUploadedFiles({ projectId }),
+    listGeneratedProjectFiles(c.env, userId, projectId),
+  ]);
+  return c.json(
+    ProjectFileListSchema.parse({
+      files: [
+        ...generated.map((output) => ({
+          contentType: output.mimeType,
+          name: output.filename,
+          outputId: output.id,
+          path: projectDeliverableRelativePath(output.id, output.filename),
+          projectId,
+          type: "deliverable" as const,
+        })),
+        ...uploads.files.map((file) => ({ ...file, type: "upload" as const })),
+      ],
+    }),
+  );
+}
+
+async function listGeneratedProjectFiles(env: AgentEnv, userId: UserId, projectId: string) {
+  return withUserDb(env, userId, async ({ transaction }) => {
+    return transaction((tx) =>
+      listProjectGeneratedOutputs(tx, {
+        limit: PROJECT_DELIVERABLE_MAX_CURRENT_FILES,
+        projectId: toProjectId(projectId),
+        userId,
+      }),
+    );
+  });
 }
 
 async function uploadProjectFile(c: AgentContext): Promise<Response> {

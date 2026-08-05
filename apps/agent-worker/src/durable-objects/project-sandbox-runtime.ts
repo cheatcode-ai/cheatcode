@@ -1,7 +1,12 @@
 import { WorkspaceFilePathSchema, WorkspacePathSchema } from "@cheatcode/agent-core/tools/code";
 import { EnvironmentVariablesSchema } from "@cheatcode/sandbox-contracts";
 import { toProjectId } from "@cheatcode/types";
-import { PROJECT_FILE_MAX_BYTES, ProjectFileRelativePathSchema } from "@cheatcode/types/api";
+import {
+  PROJECT_FILE_MAX_BYTES,
+  ProjectDeliverableFilenameSchema,
+  ProjectFileRelativePathSchema,
+} from "@cheatcode/types/api";
+import { GENERATED_OUTPUT_MAX_BYTES, OutputIdSchema } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 import { shellQuote } from "../sandbox-support";
 
@@ -102,6 +107,24 @@ export const ProjectRestoreUploadedFilesInputSchema = z
     workspaceSlug: ProjectWorkspaceSlugSchema,
   })
 
+  .refine(
+    (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
+    "Workspace slug does not belong to the requested project.",
+  );
+
+export const ProjectRestoreGeneratedOutputInputSchema = z
+  .strictObject({
+    bytes: z
+      .instanceof(Uint8Array)
+      .refine(
+        (value) => value.byteLength > 0 && value.byteLength <= GENERATED_OUTPUT_MAX_BYTES,
+        `Generated outputs must be between 1 byte and ${GENERATED_OUTPUT_MAX_BYTES} bytes.`,
+      ),
+    filename: ProjectDeliverableFilenameSchema,
+    outputId: OutputIdSchema,
+    projectId: z.string().uuid().toLowerCase().transform(toProjectId),
+    workspaceSlug: ProjectWorkspaceSlugSchema,
+  })
   .refine(
     (input) => input.workspaceSlug.endsWith(`-${input.projectId.toLowerCase()}`),
     "Workspace slug does not belong to the requested project.",
@@ -221,6 +244,9 @@ export type ProjectUploadFileInput = z.input<typeof ProjectUploadFileInputSchema
 export type ProjectListUploadedFilesInput = z.input<typeof ProjectListUploadedFilesInputSchema>;
 export type ProjectRestoreUploadedFilesInput = z.input<
   typeof ProjectRestoreUploadedFilesInputSchema
+>;
+export type ProjectRestoreGeneratedOutputInput = z.input<
+  typeof ProjectRestoreGeneratedOutputInputSchema
 >;
 export type ProjectListFilesInput = z.input<typeof ProjectListFilesInputSchema>;
 export type ProjectSearchFilesInput = z.input<typeof ProjectSearchFilesInputSchema>;

@@ -66,7 +66,12 @@ export {
   listUserDeletionRunPage,
   loadUserDeletionContext,
 } from "./lifecycle";
-export { findGeneratedOutput } from "./outputs";
+export type { ReferencedProjectGeneratedOutputRecord } from "./outputs";
+export {
+  findGeneratedOutput,
+  listProjectGeneratedOutputs,
+  listReferencedProjectGeneratedOutputs,
+} from "./outputs";
 export type { RunPersonalization, UpsertUserProfileInput, UserProfileRecord } from "./profiles";
 export { getRunPersonalization, getUserProfile, upsertUserProfile } from "./profiles";
 export type { ProjectDeletionOutputRecord, ResourceDeletionScope } from "./project-deletion";

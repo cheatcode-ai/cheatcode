@@ -15,11 +15,10 @@ import {
 } from "@cheatcode/observability";
 import type { ArtifactUploadInput, ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
 import type { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
-import { ArtifactKindSchema } from "@cheatcode/types/artifacts";
+import { ArtifactKindSchema, GENERATED_OUTPUT_MAX_BYTES } from "@cheatcode/types/artifacts";
 import { closeDatabaseBestEffort } from "./db-close";
 
 const ARTIFACT_DIGEST_DOMAIN = "cheatcode:artifact-upload:v2";
-const MAX_ARTIFACT_BYTES = 32 * 1024 * 1024;
 const MAX_CONTENT_TYPE_LENGTH = 255;
 const VALID_CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/iu;
 
@@ -291,8 +290,10 @@ function assertArtifactUpload(artifact: ArtifactUploadInput): void {
   if (!(artifact.data instanceof Uint8Array)) {
     throw invalidArtifact("Artifact data must be binary");
   }
-  if (artifact.data.byteLength === 0 || artifact.data.byteLength > MAX_ARTIFACT_BYTES) {
-    throw invalidArtifact(`Artifact data must be between 1 byte and ${MAX_ARTIFACT_BYTES} bytes`);
+  if (artifact.data.byteLength === 0 || artifact.data.byteLength > GENERATED_OUTPUT_MAX_BYTES) {
+    throw invalidArtifact(
+      `Artifact data must be between 1 byte and ${GENERATED_OUTPUT_MAX_BYTES} bytes`,
+    );
   }
   if (!artifact.filename.trim() || artifact.filename.length > 255) {
     throw invalidArtifact("Artifact filename must be between 1 and 255 characters");

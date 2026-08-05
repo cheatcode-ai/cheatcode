@@ -23,7 +23,8 @@ valid file creates and selects a general project named from that file. Files upl
 as raw bounded requests, show per-batch progress and actionable failures, and become durable
 `uploads/` files in that project instead of being pasted into message text. The composer inserts
 a compact `/uploads/...` reference after each successful save. `/` is exclusively the
-persistent project-file browser;
+persistent project-file browser and merges durable uploads with generated Deliverables. A selected
+Deliverable inserts its stable `/deliverables/<output-id>/<filename>` project reference;
 `@` is exclusively the user-skill picker. The file browser reads durable project-file metadata and
 does not create or wake Daytona merely because the user opens it.
 Computer preview wakeups rotate the preview session and reload the visible iframe

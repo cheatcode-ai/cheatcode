@@ -7,7 +7,7 @@ import { listProjectFiles, projectFilesQueryKey } from "@/lib/api/project-files"
 
 const MAX_FILE_ITEMS = 30;
 
-/** `/` source for durable files that were uploaded into the selected project. */
+/** `/` source for durable uploads and generated deliverables in the selected project. */
 export function useProjectFileItems({
   enabled,
   projectId,
@@ -33,10 +33,18 @@ export function useProjectFileItems({
   const matched = files.data.files
     .filter((file) => `${file.name} ${file.path}`.toLocaleLowerCase().includes(needle))
     .slice(0, MAX_FILE_ITEMS);
-  if (matched.length === 0) return [statusRow("No matching uploaded files")];
+  if (matched.length === 0) return [statusRow("No matching project files")];
   return matched.map((file) => ({
-    hint: file.versionCount > 1 ? `${file.versionCount} versions` : "saved in project",
-    id: `project-file:${file.fileId}:${file.versionId}`,
+    hint:
+      file.type === "deliverable"
+        ? "generated deliverable"
+        : file.versionCount > 1
+          ? `${file.versionCount} versions`
+          : "uploaded to project",
+    id:
+      file.type === "deliverable"
+        ? `project-deliverable:${file.outputId}`
+        : `project-file:${file.fileId}:${file.versionId}`,
     insert: `/${file.path} `,
     label: file.name,
     visual: "file",
