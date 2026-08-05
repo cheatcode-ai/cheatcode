@@ -63,18 +63,16 @@ their Mastra run after completion; adding persistent Mastra storage requires a
 redesign that reacquires credentials instead of serializing them.
 
 Nested research workflows bind the calling tool's abort signal idempotently to
-the Mastra workflow run, forward each workflow step signal through every nested
+the Mastra workflow run, forward the synthesis step signal through its nested
 `agent.generate`, and remove abort listeners before deleting the ephemeral run.
-Each concurrent research pass gets an isolated evidence collector populated only
-from one bounded Exa discovery call and an optional Firecrawl extraction of its
-primary result. A single tool-free model pass structures each byte-bounded provider
-evidence pack. Nested model calls use stage-appropriate output bounds, an operational
-timeout, and one in-memory retry for transient provider or invalid structured-output
-failures; request cancellation always wins and no secret-bearing state is snapshotted.
-Claim citations are schema-validated against that evidence, and the durable claim map
-is assembled deterministically from those validated passes. The model-authored final
-synthesis contains only the canonical Markdown report; prose URL scraping is not an
-accepted provenance boundary.
+Each concurrent research pass performs one bounded Exa discovery call and an optional
+Firecrawl extraction of its primary result. Provider-owned IDs, URLs, excerpts, and
+the durable claim map are assembled deterministically instead of asking a model to
+reproduce citation identifiers. The sole tool-free model call writes only the canonical
+Markdown report from those byte-bounded evidence packs. It has an operational timeout
+and one in-memory retry for transient provider or invalid Markdown failures; request
+cancellation always wins and no secret-bearing state is snapshotted. Prose URL scraping
+is not an accepted provenance boundary.
 Successful top-level deep-research and fan-out tools render the validated report's
 canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
 and PDF therefore preserve the same headings, prose, lists, tables, links, citations,

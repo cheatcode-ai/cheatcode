@@ -8,15 +8,10 @@ import {
 } from "../../tools/research";
 import { CONTEXT } from "../context";
 import {
-  createResearchStepContext,
   exaSource,
   firecrawlSource,
   mergeResearchClaims,
   mergeResearchSources,
-  ResearchPassDraftSchema,
-  ResearchSynthesisDraftSchema,
-  registerResearchSources,
-  validateResearchPass,
   validateSynthesisClaims,
 } from "./research-provenance";
 import {
@@ -26,34 +21,28 @@ import {
   ResearchQueryListSchema,
   ResearchQuerySchema,
   ResearchReportSchema,
+  type ResearchSource,
 } from "./research-schemas";
 
 const RESEARCH_QUERY_CONCURRENCY = 3;
 const RESEARCH_RESULTS_PER_QUERY = 5;
 const RESEARCH_RESULT_TEXT_CHARACTERS = 1_600;
 const RESEARCH_EVIDENCE_CHARACTERS_PER_SOURCE = 3_000;
+const RESEARCH_SYNTHESIS_EVIDENCE_CHARACTERS_PER_SOURCE = 1_200;
 const RESEARCH_SCRAPE_CHARACTERS = 6_000;
-const RESEARCH_PASS_MAX_OUTPUT_TOKENS = 2_048;
 const RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS = 4_096;
 const RESEARCH_MODEL_TIMEOUT_MS = 75_000;
 const RESEARCH_MODEL_ATTEMPTS = 2;
-const RESEARCH_PROVIDER_OPTIONS = {
-  anthropic: { structuredOutputMode: "outputFormat" as const },
-};
+const ResearchMarkdownSchema = z.string().trim().min(1).max(20_000).startsWith("# ");
 
 interface ResearchEvidenceSource {
   content: string;
-  provider: "exa" | "firecrawl";
-  providerResultId?: string | undefined;
-  sourceId: string;
-  title?: string | null | undefined;
-  url: string;
+  source: ResearchSource;
 }
 
 type RequestContextReader = { get(key: string): unknown };
 
 interface ResearchWorkflowPrompts {
-  queryPrompt(query: string): string;
   synthesisPrompt(findings: unknown): string;
 }
 
@@ -89,7 +78,7 @@ function buildDeepResearchWorkflow(config: DeepResearchWorkflowConfig) {
     outputSchema: ResearchReportSchema,
   })
     .then(createDeepPlanStep(config))
-    .foreach(createQueryStep("run-deep-research-query", config), {
+    .foreach(createQueryStep("run-deep-research-query"), {
       concurrency: RESEARCH_QUERY_CONCURRENCY,
     })
     .then(createSynthesisStep("synthesize-deep-research", config))
@@ -104,7 +93,7 @@ function buildFanoutResearchWorkflow(config: FanoutResearchWorkflowConfig) {
     outputSchema: ResearchReportSchema,
   })
     .then(createFanoutPlanStep(config))
-    .foreach(createQueryStep("run-deep-research-fanout-query", config), {
+    .foreach(createQueryStep("run-deep-research-fanout-query"), {
       concurrency: RESEARCH_QUERY_CONCURRENCY,
     })
     .then(createSynthesisStep("synthesize-deep-research-fanout", config))
@@ -135,38 +124,15 @@ function createFanoutPlanStep(config: FanoutResearchWorkflowConfig) {
   });
 }
 
-function createQueryStep(id: string, config: ResearchWorkflowPrompts) {
+function createQueryStep(id: string) {
   return createStep({
     id,
     inputSchema: ResearchQuerySchema,
     outputSchema: ResearchFindingSchema,
     retries: 0,
-    execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
-      const agent = mastra.getAgent("general");
-      const research = createResearchStepContext(requestContext);
-      const evidence = await fetchResearchEvidence(
-        inputData.query,
-        research.requestContext,
-        abortSignal,
-      );
-      return generateResearchOutput(abortSignal, async (generationSignal) => {
-        const response = await agent.generate(
-          researchPassPrompt(config, inputData.query, evidence),
-          {
-            activeTools: [],
-            abortSignal: generationSignal,
-            modelSettings: { maxOutputTokens: RESEARCH_PASS_MAX_OUTPUT_TOKENS },
-            providerOptions: RESEARCH_PROVIDER_OPTIONS,
-            requestContext: research.requestContext,
-            structuredOutput: { schema: ResearchPassDraftSchema },
-          },
-        );
-        return validateResearchPass(
-          parseResearchPassDraft(response.object),
-          inputData.query,
-          research.collector,
-        );
-      });
+    execute: async ({ abortSignal, inputData, requestContext }) => {
+      const evidence = await fetchResearchEvidence(inputData.query, requestContext, abortSignal);
+      return researchFindingFromEvidence(inputData.query, evidence);
     },
   });
 }
@@ -182,19 +148,19 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
       const sources = mergeResearchSources(inputData);
       const claims = validateSynthesisClaims(mergeResearchClaims(inputData), sources);
       return generateResearchOutput(abortSignal, async (generationSignal) => {
-        const response = await agent.generate(researchSynthesisPrompt(config, inputData), {
-          activeTools: [],
-          abortSignal: generationSignal,
-          modelSettings: { maxOutputTokens: RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS },
-          providerOptions: RESEARCH_PROVIDER_OPTIONS,
-          requestContext,
-          structuredOutput: { schema: ResearchSynthesisDraftSchema },
-        });
-        const draft = parseResearchSynthesisDraft(response.object);
+        const response = await agent.generate(
+          researchSynthesisPrompt(config, synthesisEvidence(inputData)),
+          {
+            activeTools: [],
+            abortSignal: generationSignal,
+            modelSettings: { maxOutputTokens: RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS },
+            requestContext,
+          },
+        );
         return ResearchReportSchema.parse({
           claims,
           findings: inputData,
-          report: draft.report,
+          report: parseResearchMarkdown(response.text),
           sources,
         });
       });
@@ -234,16 +200,9 @@ async function fetchResearchEvidence(
     });
   }
   const evidence = search.results.map((result) => exaEvidenceSource(search.requestId, result));
-  registerResearchSources(
-    { requestContext },
-    search.results.map((result) => exaSource({ ...result, requestId: search.requestId })),
-  );
   const scraped = await fetchPrimaryPageEvidence(primary, runtime, abortSignal);
   if (scraped) {
     evidence.push(scraped);
-    registerResearchSources({ requestContext }, [
-      firecrawlSource({ title: scraped.title ?? undefined, url: scraped.url }),
-    ]);
   }
   return evidence;
 }
@@ -258,11 +217,7 @@ function exaEvidenceSource(
     .slice(0, RESEARCH_EVIDENCE_CHARACTERS_PER_SOURCE);
   return {
     content,
-    provider: "exa",
-    providerResultId: result.id,
-    sourceId: exaSource({ ...result, requestId }).id,
-    title: result.title,
-    url: result.url,
+    source: exaSource({ ...result, requestId }),
   };
 }
 
@@ -286,10 +241,10 @@ async function fetchPrimaryPageEvidence(
     const content = (page.markdown ?? page.description ?? "").slice(0, RESEARCH_SCRAPE_CHARACTERS);
     return {
       content,
-      provider: "firecrawl",
-      sourceId: firecrawlSource({ url: page.url }).id,
-      title: page.title ?? page.metadata?.title,
-      url: page.url,
+      source: firecrawlSource({
+        title: page.title ?? page.metadata?.title,
+        url: page.url,
+      }),
     };
   } catch {
     abortSignal.throwIfAborted();
@@ -297,57 +252,66 @@ async function fetchPrimaryPageEvidence(
   }
 }
 
-function researchPassPrompt(
-  config: ResearchWorkflowPrompts,
-  query: string,
-  evidence: ResearchEvidenceSource[],
-): string {
+function researchSynthesisPrompt(config: ResearchWorkflowPrompts, evidence: unknown): string {
   return [
-    config.queryPrompt(query),
-    "Use only the provider evidence below. For Exa citations, copy providerResultId and URL exactly. For Firecrawl citations, copy the URL exactly.",
-    "Set providerResultId to an empty string for every Firecrawl citation.",
-    "Return only 3-4 distinct, synthesis-ready claims. Keep each claim under 450 characters and use no more than 2 sources per claim.",
-    "Prioritize the strongest guidance instead of exhaustively restating the evidence.",
-    "Do not cite sourceId directly and do not add sources that are absent from this evidence pack.",
-    "",
-    JSON.stringify(evidence, null, 2),
-  ].join("\n");
-}
-
-function researchSynthesisPrompt(
-  config: ResearchWorkflowPrompts,
-  findings: z.output<typeof ResearchFindingSchema>[],
-): string {
-  return [
-    config.synthesisPrompt(findings),
-    "Return only the report field requested by the output schema; the provenance index is assembled deterministically from the validated findings.",
+    config.synthesisPrompt(evidence),
+    "Return only the complete report Markdown, with no JSON wrapper, preamble, or enclosing code fence.",
+    "Start with one level-one heading. The returned Markdown is displayed unchanged in chat and rendered unchanged into the PDF.",
     "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
-    "Cite factual claims with descriptive Markdown links to the exact source URLs in the findings, and finish with a Sources heading containing only sources used in the report.",
+    "Cite factual claims with descriptive Markdown links to the exact source URLs in the evidence, and finish with a Sources heading containing only sources used in the report.",
   ].join("\n");
 }
 
-function parseResearchPassDraft(value: unknown) {
-  const parsed = ResearchPassDraftSchema.safeParse(value);
+function researchFindingFromEvidence(
+  query: string,
+  evidence: ResearchEvidenceSource[],
+): z.output<typeof ResearchFindingSchema> {
+  const claims = evidence.map(({ content, source }) => ({
+    claim: compactEvidence(content),
+    sourceIds: [source.id],
+  }));
+  return ResearchFindingSchema.parse({
+    claims,
+    query,
+    sources: evidence.map(({ source }) => source),
+    summary: claims
+      .slice(0, 2)
+      .map(({ claim }) => claim)
+      .join(" ")
+      .slice(0, 1_200),
+  });
+}
+
+function synthesisEvidence(findings: z.output<typeof ResearchFindingSchema>[]) {
+  return findings.map((finding) => {
+    const sources = new Map(finding.sources.map((source) => [source.id, source]));
+    return {
+      evidence: finding.claims.flatMap((claim) => {
+        const source = sources.get(claim.sourceIds[0] ?? "");
+        return source ? [{ excerpt: claim.claim, title: source.title, url: source.url }] : [];
+      }),
+      query: finding.query,
+    };
+  });
+}
+
+function compactEvidence(value: string): string {
+  return value
+    .replace(/\s+/gu, " ")
+    .trim()
+    .slice(0, RESEARCH_SYNTHESIS_EVIDENCE_CHARACTERS_PER_SOURCE);
+}
+
+function parseResearchMarkdown(value: unknown): string {
+  const parsed = ResearchMarkdownSchema.safeParse(value);
   if (parsed.success) {
     return parsed.data;
   }
-  throw invalidStructuredResearchOutput("research pass");
-}
-
-function parseResearchSynthesisDraft(value: unknown) {
-  const parsed = ResearchSynthesisDraftSchema.safeParse(value);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  throw invalidStructuredResearchOutput("research synthesis");
-}
-
-function invalidStructuredResearchOutput(stage: string): APIError {
-  return new APIError(
+  throw new APIError(
     502,
     "upstream_provider_outage",
-    `The ${stage} returned invalid structured output`,
+    "Research synthesis returned invalid Markdown",
     { retriable: true },
   );
 }

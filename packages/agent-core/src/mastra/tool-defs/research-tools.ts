@@ -23,11 +23,6 @@ import {
   type ResearchReport,
   ResearchReportSchema,
 } from "../workflows";
-import {
-  exaSource,
-  firecrawlSource,
-  registerResearchSources,
-} from "../workflows/research-provenance";
 import { buildResearchMarkdownPdfInput } from "./research-report-document-support";
 import { researchRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
 import { WorkflowResultSchema } from "./tool-schemas";
@@ -222,13 +217,11 @@ export const mastraSearchCompany = createTool({
   outputSchema: ExaSearchOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ExaSearchInputSchema.parse(input);
-    const output = await executeExaSearch(
+    return executeExaSearch(
       { ...parsedInput, category: "company" },
       researchRuntimeFromContext(context),
       abortSignalFromToolContext(context),
     );
-    registerExaOutput(context, output);
-    return output;
   },
 });
 
@@ -307,74 +300,37 @@ async function createResearchReportArtifact(
 }
 
 async function executeExaTool(input: unknown, context: ToolExecutionContext) {
-  const output = await executeExaSearch(
+  return executeExaSearch(
     ExaSearchInputSchema.parse(input),
     researchRuntimeFromContext(context),
     abortSignalFromToolContext(context),
   );
-  registerExaOutput(context, output);
-  return output;
 }
 
 async function executeFirecrawlScrapeTool(input: unknown, context: ToolExecutionContext) {
-  const output = await executeFirecrawlScrape(
+  return executeFirecrawlScrape(
     FirecrawlScrapeInputSchema.parse(input),
     researchRuntimeFromContext(context),
     abortSignalFromToolContext(context),
   );
-  if (firecrawlStatusIsSuccessful(output.metadata?.statusCode)) {
-    registerResearchSources(context, [
-      firecrawlSource({ title: output.title ?? output.metadata?.title, url: output.url }),
-    ]);
-  }
-  return output;
 }
 
 async function executeFirecrawlSearchTool(input: unknown, context: ToolExecutionContext) {
-  const output = await executeFirecrawlSearch(
+  return executeFirecrawlSearch(
     FirecrawlSearchInputSchema.parse(input),
     researchRuntimeFromContext(context),
     abortSignalFromToolContext(context),
   );
-  registerResearchSources(
-    context,
-    output.results.flatMap((result) => {
-      const url = result.url ?? result.metadata?.sourceURL;
-      return url && firecrawlStatusIsSuccessful(result.metadata?.statusCode)
-        ? [firecrawlSource({ title: result.title ?? result.metadata?.title, url })]
-        : [];
-    }),
-  );
-  return output;
 }
 
 async function executeFirecrawlExtractTool(input: unknown, context: ToolExecutionContext) {
-  const output = await executeFirecrawlExtract(
+  return executeFirecrawlExtract(
     FirecrawlExtractInputSchema.parse(input),
     researchRuntimeFromContext(context),
     abortSignalFromToolContext(context),
-  );
-  registerResearchSources(
-    context,
-    output.sources.map((url) => firecrawlSource({ url })),
-  );
-  return output;
-}
-
-function registerExaOutput(
-  context: ToolExecutionContext,
-  output: Awaited<ReturnType<typeof executeExaSearch>>,
-): void {
-  registerResearchSources(
-    context,
-    output.results.map((result) => exaSource({ ...result, requestId: output.requestId })),
   );
 }
 
 function abortSignalFromToolContext(context: ToolExecutionContext): AbortSignal | undefined {
   return context.abortSignal;
-}
-
-function firecrawlStatusIsSuccessful(statusCode: number | undefined): boolean {
-  return statusCode === undefined || (statusCode >= 200 && statusCode < 400);
 }
