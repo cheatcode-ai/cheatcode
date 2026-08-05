@@ -6,7 +6,6 @@ import type {
   SandboxRunCodeResult,
 } from "@cheatcode/sandbox-contracts";
 import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
-import { encodeBase64 } from "../sandbox-support";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
@@ -56,8 +55,6 @@ import {
 import type { SandboxRuntime } from "./project-sandbox-runtime-handle";
 
 const DEFAULT_EXEC_TIMEOUT_MS = 60_000;
-const RUN_CODE_ENV_CHUNK_CHARACTERS = 24_000;
-const RUN_CODE_ENV_PREFIX = "CHEATCODE_RUN_CODE_";
 
 export interface ProjectSandboxStatus {
   healthy: boolean;
@@ -149,11 +146,11 @@ async function runCode(
   input: ProjectRunCodeInput,
 ): Promise<SandboxRunCodeResult> {
   const parsed = ProjectRunCodeInputSchema.parse(input);
-  const encodedChunks = chunkRunCode(encodeBase64(new TextEncoder().encode(parsed.code)));
-  const result = await executeCommand(context.runtime, {
-    command: runCodeCommand(parsed.language, encodedChunks.length),
+  const result = await executeCode(context.runtime, {
+    code: parsed.code,
     cwd: parsed.cwd ?? WORKSPACE_DIR,
-    env: runCodeEnvironment(parsed.env, encodedChunks),
+    env: parsed.env,
+    language: parsed.language,
     timeoutMs: parsed.timeoutMs ?? DEFAULT_EXEC_TIMEOUT_MS,
   });
   return {
@@ -162,6 +159,38 @@ async function runCode(
     stdout: result.stdout,
     success: result.success,
   };
+}
+
+interface ExecutableCode {
+  code: string;
+  cwd: string;
+  env: Record<string, string> | undefined;
+  language: "javascript" | "python";
+  timeoutMs: number;
+}
+
+async function executeCode(
+  runtime: ProcessRuntime,
+  input: ExecutableCode,
+): Promise<SandboxExecResult> {
+  const startedAt = Date.now();
+  const processName = input.language === "python" ? "python3" : "node";
+  const id = await runtime.ensureSandbox();
+  const env = projectPackageEnvironment(input.cwd, input.env);
+  try {
+    const completed = await runtime.client().runCode(id, {
+      code: codeWithWorkingDirectory(input.language, input.cwd, input.code),
+      language: input.language,
+      timeout: timeoutSeconds(input.timeoutMs),
+      ...(env === undefined ? {} : { env }),
+    });
+    const result = execResult(processName, completed, startedAt);
+    await recordExecAudit(runtime, [processName], input.cwd, result, completed.exitCode, startedAt);
+    await recordSandboxUsageBestEffort(await runtime.meteringContext());
+    return result;
+  } catch (error) {
+    throw runtime.toUpstreamError(error, "Sandbox code execution failed.");
+  }
 }
 
 async function exec(runtime: ProcessRuntime, input: ProjectExecInput): Promise<SandboxExecResult> {
@@ -211,32 +240,16 @@ async function executeCommand(
   }
 }
 
-function chunkRunCode(encoded: string): string[] {
-  const chunks: string[] = [];
-  for (let offset = 0; offset < encoded.length; offset += RUN_CODE_ENV_CHUNK_CHARACTERS) {
-    chunks.push(encoded.slice(offset, offset + RUN_CODE_ENV_CHUNK_CHARACTERS));
+function codeWithWorkingDirectory(
+  language: "javascript" | "python",
+  cwd: string,
+  code: string,
+): string {
+  const serializedCwd = JSON.stringify(cwd);
+  if (language === "python") {
+    return `import os\nos.chdir(${serializedCwd})\nexec(compile(${JSON.stringify(code)}, "<cheatcode>", "exec"))`;
   }
-  return chunks;
-}
-
-function runCodeCommand(language: "javascript" | "python", chunkCount: number): string[] {
-  const inputs = Array.from(
-    { length: chunkCount },
-    (_, index) => `"$${RUN_CODE_ENV_PREFIX}${index}"`,
-  ).join(" ");
-  const interpreter = language === "python" ? "python3 -" : "node --input-type=module";
-  return ["sh", "-c", `printf %s ${inputs} | base64 -d | ${interpreter}`];
-}
-
-function runCodeEnvironment(
-  requested: Record<string, string> | undefined,
-  chunks: readonly string[],
-): Record<string, string> {
-  const environment = { ...requested };
-  for (const [index, chunk] of chunks.entries()) {
-    environment[`${RUN_CODE_ENV_PREFIX}${index}`] = chunk;
-  }
-  return environment;
+  return `process.chdir(${serializedCwd});\n${code}`;
 }
 
 function packageManagerPolicyResult(
