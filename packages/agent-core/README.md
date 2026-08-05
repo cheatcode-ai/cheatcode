@@ -78,10 +78,12 @@ Each concurrent research pass performs one bounded Exa discovery call and an opt
 Firecrawl extraction of its primary result. Provider-owned IDs, URLs, excerpts, and
 the durable claim map are assembled deterministically instead of asking a model to
 reproduce citation identifiers. The sole tool-free model call writes only the canonical
-Markdown report from those byte-bounded evidence packs. It has an operational timeout
-and one in-memory retry for transient provider or invalid Markdown failures; request
-cancellation always wins and no secret-bearing state is snapshotted. Prose URL scraping
-is not an accepted provenance boundary.
+Markdown report from those byte-bounded evidence packs. Before publication, the workflow
+rejects truncated generations and validates the heading structure, citation URLs, and the
+one-to-one relationship between inline citations and the final Sources list. It has an
+operational timeout and one in-memory retry for transient provider or invalid Markdown
+failures; request cancellation always wins and no secret-bearing state is snapshotted.
+Prose URL scraping is not an accepted provenance boundary.
 Successful top-level deep-research and fan-out tools render the validated report's
 canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
 and PDF therefore preserve the same headings, prose, lists, tables, links, citations,
