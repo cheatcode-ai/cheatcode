@@ -21,8 +21,7 @@ function deepResearchPrompt(query: string): string {
 function synthesisPrompt(kind: string, findings: unknown): string {
   return [
     `Synthesize the following findings into a cited ${kind}.`,
-    "The claim sourceIds must exactly match IDs in the input sources. Do not invent or rewrite IDs.",
-    "The structured claim map is authoritative provenance; keep the report readable and evidence-bound.",
+    "Use only the source URLs present in the findings, and keep the report readable and evidence-bound.",
     "",
     JSON.stringify(findings, null, 2),
   ].join("\n");

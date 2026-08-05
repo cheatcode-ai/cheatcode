@@ -40,19 +40,9 @@ export const ResearchPassDraftSchema = z.strictObject({
     )
     .min(1)
     .max(4),
-  summary: z.string().trim().min(1).max(1_000),
 });
 
 export const ResearchSynthesisDraftSchema = z.strictObject({
-  claims: z
-    .array(
-      z.strictObject({
-        claim: z.string().trim().min(1).max(1_000),
-        sourceIds: z.array(z.string().trim().min(1).max(4_096)).min(1).max(4),
-      }),
-    )
-    .min(1)
-    .max(16),
   report: z.string().trim().min(1).max(20_000),
 });
 
@@ -104,8 +94,26 @@ export function validateResearchPass(
     claims,
     query,
     sources: [...citedSources.values()],
-    summary: draft.summary,
+    summary: claims
+      .slice(0, 2)
+      .map((claim) => claim.claim)
+      .join(" "),
   });
+}
+
+export function mergeResearchClaims(findings: Array<{ claims: ResearchClaim[] }>): ResearchClaim[] {
+  const claims = new Map<string, ResearchClaim>();
+  for (const finding of findings) {
+    for (const claim of finding.claims) {
+      const key = claim.claim.trim().replace(/\s+/g, " ").toLowerCase();
+      const existing = claims.get(key);
+      claims.set(key, {
+        claim: existing?.claim ?? claim.claim,
+        sourceIds: [...new Set([...(existing?.sourceIds ?? []), ...claim.sourceIds])].slice(0, 4),
+      });
+    }
+  }
+  return [...claims.values()].slice(0, 16);
 }
 
 function sourceReferenceFromDraft(draft: SourceReferenceDraft): SourceReference {
