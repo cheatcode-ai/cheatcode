@@ -148,21 +148,24 @@ function createQueryStep(id: string, config: ResearchWorkflowPrompts) {
         research.requestContext,
         abortSignal,
       );
-      const response = await generateResearchOutput(abortSignal, (generationSignal) =>
-        agent.generate(researchPassPrompt(config, inputData.query, evidence), {
-          activeTools: [],
-          abortSignal: generationSignal,
-          modelSettings: { maxOutputTokens: RESEARCH_PASS_MAX_OUTPUT_TOKENS },
-          providerOptions: RESEARCH_PROVIDER_OPTIONS,
-          requestContext: research.requestContext,
-          structuredOutput: { schema: ResearchPassDraftSchema },
-        }),
-      );
-      return validateResearchPass(
-        parseResearchPassDraft(response.object),
-        inputData.query,
-        research.collector,
-      );
+      return generateResearchOutput(abortSignal, async (generationSignal) => {
+        const response = await agent.generate(
+          researchPassPrompt(config, inputData.query, evidence),
+          {
+            activeTools: [],
+            abortSignal: generationSignal,
+            modelSettings: { maxOutputTokens: RESEARCH_PASS_MAX_OUTPUT_TOKENS },
+            providerOptions: RESEARCH_PROVIDER_OPTIONS,
+            requestContext: research.requestContext,
+            structuredOutput: { schema: ResearchPassDraftSchema },
+          },
+        );
+        return validateResearchPass(
+          parseResearchPassDraft(response.object),
+          inputData.query,
+          research.collector,
+        );
+      });
     },
   });
 }
@@ -176,22 +179,22 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
     execute: async ({ abortSignal, inputData, mastra, requestContext }) => {
       const agent = mastra.getAgent("general");
       const sources = mergeResearchSources(inputData);
-      const response = await generateResearchOutput(abortSignal, (generationSignal) =>
-        agent.generate(researchSynthesisPrompt(config, inputData), {
+      return generateResearchOutput(abortSignal, async (generationSignal) => {
+        const response = await agent.generate(researchSynthesisPrompt(config, inputData), {
           activeTools: [],
           abortSignal: generationSignal,
           modelSettings: { maxOutputTokens: RESEARCH_SYNTHESIS_MAX_OUTPUT_TOKENS },
           providerOptions: RESEARCH_PROVIDER_OPTIONS,
           requestContext,
           structuredOutput: { schema: ResearchSynthesisDraftSchema },
-        }),
-      );
-      const draft = parseResearchSynthesisDraft(response.object);
-      return ResearchReportSchema.parse({
-        claims: validateSynthesisClaims(draft.claims, sources),
-        findings: inputData,
-        report: draft.report,
-        sources,
+        });
+        const draft = parseResearchSynthesisDraft(response.object);
+        return ResearchReportSchema.parse({
+          claims: validateSynthesisClaims(draft.claims, sources),
+          findings: inputData,
+          report: draft.report,
+          sources,
+        });
       });
     },
   });
@@ -301,7 +304,8 @@ function researchPassPrompt(
     config.queryPrompt(query),
     "Use only the provider evidence below. For Exa citations, copy providerResultId and URL exactly. For Firecrawl citations, copy the URL exactly.",
     "Set providerResultId to an empty string for every Firecrawl citation.",
-    "Return 4-6 distinct, synthesis-ready claims, no more than 3 sources per claim, and a concise summary. Prioritize the strongest guidance instead of exhaustively restating the evidence.",
+    "Return 3-4 distinct, synthesis-ready claims. Keep each claim under 450 characters, use no more than 2 sources per claim, and keep the summary under 700 characters.",
+    "Prioritize the strongest guidance instead of exhaustively restating the evidence.",
     "Do not cite sourceId directly and do not add sources that are absent from this evidence pack.",
     "",
     JSON.stringify(evidence, null, 2),
@@ -315,7 +319,7 @@ function researchSynthesisPrompt(
   return [
     config.synthesisPrompt(findings),
     "Consolidate overlapping evidence into at most 16 distinct claims with no more than 4 source IDs per claim.",
-    "Keep the report focused and complete within 2,000 words while retaining actionable findings and citations.",
+    "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
     "Cite factual claims with descriptive Markdown links to the exact source URLs in the findings, and finish with a Sources heading containing only sources used in the report.",
   ].join("\n");
@@ -381,8 +385,19 @@ function isRetriableModelError(error: unknown): boolean {
   if (error.name === "TimeoutError") {
     return true;
   }
-  const record = error as Error & { isRetryable?: unknown; statusCode?: unknown };
-  if (record.isRetryable === true) {
+  const record = error as Error & {
+    code?: unknown;
+    id?: unknown;
+    isRetryable?: unknown;
+    retriable?: unknown;
+    statusCode?: unknown;
+  };
+  if (
+    record.isRetryable === true ||
+    record.retriable === true ||
+    record.id === "STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED" ||
+    record.code === "STRUCTURED_OUTPUT_SCHEMA_VALIDATION_FAILED"
+  ) {
     return true;
   }
   return (
