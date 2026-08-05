@@ -31,6 +31,7 @@ const LEASE_POLICIES = {
   readFile: ["workspace", "path"], listUploadedFiles: ["sandbox"],
   uploadProjectFile: ["workspace", "workspace-slug"],
   restoreUploadedFiles: ["workspace", "workspace-slug"],
+  restoreGeneratedOutput: ["workspace", "workspace-slug"],
   writeFile: ["workspace", "path"], listFiles: ["workspace", "path"],
   searchFiles: ["workspace", "path"], deleteFile: ["workspace", "path"],
   getSignedPreviewUrl: ["sandbox"], exposeBrowserTakeover: ["sandbox"],

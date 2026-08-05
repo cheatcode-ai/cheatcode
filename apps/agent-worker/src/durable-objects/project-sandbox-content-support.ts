@@ -9,7 +9,7 @@ import {
 export const PROJECT_ARCHIVE_MAX_BYTES = 512 * 1024 * 1024;
 export const PROJECT_ARCHIVE_MAX_FILES = 25_000;
 export const WORKSPACE_DIR = "/workspace";
-const MANAGED_PROJECT_UPLOAD_PATH = /^\/workspace\/[^/]+\/uploads(?:\/|$)/u;
+const MANAGED_PROJECT_SOURCE_PATH = /^\/workspace\/[^/]+\/(?:deliverables|uploads)(?:\/|$)/u;
 const PROJECT_WORKSPACE_ROOT_PATH = /^\/workspace\/[^/]+\/?$/u;
 
 export const PROJECT_ARCHIVE_SCRIPT = `
@@ -106,11 +106,11 @@ if archive_size > max_output_bytes:
 export { PROJECT_ARCHIVE_MAX_OUTPUT_BYTES };
 
 export function assertMutableWorkspacePath(path: string): void {
-  if (!MANAGED_PROJECT_UPLOAD_PATH.test(path)) {
+  if (!MANAGED_PROJECT_SOURCE_PATH.test(path)) {
     return;
   }
-  throw new APIError(403, "permission_access_denied", "Uploaded project files are read-only", {
-    hint: "Read the uploaded file or copy it to another project path before editing it.",
+  throw new APIError(403, "permission_access_denied", "Referenced project files are read-only", {
+    hint: "Read the source file or copy it to another project path before editing it.",
     retriable: false,
   });
 }

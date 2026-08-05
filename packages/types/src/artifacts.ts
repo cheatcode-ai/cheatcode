@@ -3,6 +3,9 @@ import { z } from "zod";
 /** Exact artifact kinds that can be stored, streamed, and rendered by V2. */
 const ARTIFACT_KINDS = ["docx", "image", "pdf", "slide", "video", "xlsx"] as const;
 
+/** One generated deliverable stays bounded for Worker memory and sandbox transfer safety. */
+export const GENERATED_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
+
 export const ArtifactKindSchema = z.enum(ARTIFACT_KINDS);
 export const OutputIdSchema = z.string().uuid();
 

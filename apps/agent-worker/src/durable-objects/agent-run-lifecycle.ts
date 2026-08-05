@@ -1,6 +1,7 @@
 import { mastra } from "@cheatcode/agent-core";
 import { createLogger } from "@cheatcode/observability";
 import type { UIMessageChunk } from "ai";
+import { restoreReferencedDeliverables } from "./agent-run-deliverables";
 import type { AgentRunEnv } from "./agent-run-env";
 import { toAgentRunStreamError } from "./agent-run-errors";
 import { persistOrQueueAssistantMessage } from "./agent-run-message-persistence";
@@ -92,6 +93,12 @@ async function executeActiveRun(execution: RunExecution): Promise<void> {
     return;
   }
   await restoreRunProjectFiles(execution);
+  await restoreReferencedDeliverables({
+    env: deps.env,
+    input,
+    logger: execution.logger,
+    sandbox: execution.sandbox,
+  });
   const path = await deps.executeRunPath(
     input,
     execution.sandbox,

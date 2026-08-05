@@ -30,7 +30,8 @@ capability discovery contracts, error codes, and UI message types.
   that keeps internal scaffolds out of the user-facing Browser surface
 
 The `./api` subpath also exports the canonical user-message character budget, project-file
-upload/batch/namespace limits and schemas, and finalized project-archive byte
+upload/batch/namespace limits and schemas, the discriminated upload/generated-Deliverable project
+file catalog plus deterministic Deliverable path builder, and finalized project-archive byte
 limit so browser and Worker boundaries cannot drift.
 
 ## Code Checks

@@ -4,11 +4,11 @@ import { APIError } from "@cheatcode/observability";
 import {
   PROJECT_FILE_MAX_CURRENT_FILES,
   type ProjectFile,
-  ProjectFileListSchema,
   ProjectFileRelativePathSchema,
   ProjectFileSchema,
   type ProjectFileUploadResponse,
   ProjectFileUploadResponseSchema,
+  ProjectUploadedFileListSchema,
 } from "@cheatcode/types/api";
 import { z } from "zod";
 import { sleep } from "../sandbox-support";
@@ -534,7 +534,7 @@ async function listProjectFileRecords(
     return parsed.success ? [parsed.data] : [];
   });
   files.sort((left, right) => left.path.localeCompare(right.path));
-  return ProjectFileListSchema.parse({ files });
+  return ProjectUploadedFileListSchema.parse({ files });
 }
 
 async function deleteStoragePrefix(runtime: FileRuntime, prefix: string): Promise<void> {

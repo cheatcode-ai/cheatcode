@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { OutputIdSchema } from "./artifacts";
 import { IntegrationNameSchema } from "./integrations";
 import { LogicalModelIdSchema } from "./models";
 import { extendSandboxExecResultShape, sandboxFileEntryShape } from "./sandbox-wire";
@@ -117,6 +118,8 @@ export const PROJECT_FILE_MAX_BYTES = 20 * 1024 * 1024;
 export const PROJECT_FILE_MAX_BATCH = 10;
 /** Operational namespace ceiling for current files in one project. */
 export const PROJECT_FILE_MAX_CURRENT_FILES = 1_000;
+/** Bounded recent generated-output catalog returned by the project file browser. */
+export const PROJECT_DELIVERABLE_MAX_CURRENT_FILES = 1_000;
 
 export const ProjectFileRelativePathSchema = z
   .string()
@@ -141,8 +144,62 @@ export const ProjectFileSchema = z.strictObject({
   versionId: z.string().uuid(),
 });
 
-export const ProjectFileListSchema = z.strictObject({
+export const ProjectUploadedFileListSchema = z.strictObject({
   files: z.array(ProjectFileSchema).max(PROJECT_FILE_MAX_CURRENT_FILES),
+});
+
+export const ProjectDeliverableFilenameSchema = z
+  .string()
+  .min(1)
+  .max(255)
+  .regex(/^[a-z0-9._-]+$/u, "Generated deliverable filenames must be canonical.")
+  .refine((value) => value !== "." && value !== "..", "Invalid deliverable filename.");
+
+export const ProjectDeliverableRelativePathSchema = z
+  .string()
+  .min(51)
+  .max(305)
+  .regex(
+    /^deliverables\/[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\/[a-z0-9._-]+$/u,
+    "Generated deliverables must use their durable project path.",
+  );
+
+export function projectDeliverableRelativePath(outputId: string, filename: string): string {
+  const parsedOutputId = OutputIdSchema.parse(outputId);
+  const parsedFilename = ProjectDeliverableFilenameSchema.parse(filename);
+  return ProjectDeliverableRelativePathSchema.parse(
+    `deliverables/${parsedOutputId}/${parsedFilename}`,
+  );
+}
+
+const ProjectDeliverableSchema = z
+  .strictObject({
+    contentType: z.string().min(1).max(255),
+    name: ProjectDeliverableFilenameSchema,
+    outputId: OutputIdSchema,
+    path: ProjectDeliverableRelativePathSchema,
+    projectId: z.string().uuid(),
+    type: z.literal("deliverable"),
+  })
+  .refine(
+    (value) => value.path === projectDeliverableRelativePath(value.outputId, value.name),
+    "Generated deliverable path does not match its identity.",
+  );
+
+const ProjectUploadedFileReferenceSchema = z.strictObject({
+  ...ProjectFileSchema.shape,
+  type: z.literal("upload"),
+});
+
+const ProjectFileReferenceSchema = z.discriminatedUnion("type", [
+  ProjectDeliverableSchema,
+  ProjectUploadedFileReferenceSchema,
+]);
+
+export const ProjectFileListSchema = z.strictObject({
+  files: z
+    .array(ProjectFileReferenceSchema)
+    .max(PROJECT_FILE_MAX_CURRENT_FILES + PROJECT_DELIVERABLE_MAX_CURRENT_FILES),
 });
 
 export const ProjectFileUploadResponseSchema = z.strictObject({

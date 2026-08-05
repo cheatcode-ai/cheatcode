@@ -33,6 +33,14 @@ existence before minting a one-hour HMAC capability; the public signed download 
 streaming second hop. Expiring capabilities and internal R2 keys are never stored in transcripts or
 returned by artifact tools.
 
+The project file catalog merges uploaded-file metadata with the newest durable generated-output
+records without starting Daytona. Generated entries use an ID-backed
+`deliverables/<output-id>/<filename>` path, so duplicate names remain unambiguous. When a user
+actually references one, the run rechecks user/project ownership, validates the R2 object's exact
+identity and checksum metadata, and restores only that output to its deterministic workspace path
+before model execution. Opening the slash menu therefore stays cheap, while old Deliverables remain
+usable after sandbox idle stops or workspace-file loss.
+
 User uploads are durable project files rather than prompt text. The authenticated project-file
 route accepts one bounded raw file at a time, validates its filename, extension, UTF-8 or binary
 signature, and tenant/project write state, then derives deterministic file and version UUIDs from

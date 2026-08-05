@@ -91,6 +91,7 @@ Public exports include:
 - `assertDatabaseRuntimeReadiness`
 - `resolveInternalUserId`
 - project, thread, message, and agent-run helpers
+- project-scoped generated-output catalog and exact referenced-output reads
 - model-context suffix reads with logical-turn and byte bounds
 - BYOK and integration helpers
 - entitlement and usage helpers

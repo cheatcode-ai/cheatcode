@@ -16,6 +16,10 @@ import type {
   SandboxConsoleSnapshot,
 } from "@cheatcode/types/api";
 import { type ContentOps, createContentOps } from "./project-sandbox-content";
+import {
+  createGeneratedOutputOps,
+  type GeneratedOutputOps,
+} from "./project-sandbox-generated-outputs";
 import { type LeaseMethod, leaseKind, workspaceScope } from "./project-sandbox-lease-policy";
 import { createLifecycleOps, type LifecycleOps } from "./project-sandbox-lifecycle";
 import type { ProjectSandboxEnv } from "./project-sandbox-lifecycle-support";
@@ -43,6 +47,7 @@ import type {
   ProjectPreviewStatusInput,
   ProjectReadDevServerLogsInput,
   ProjectReadFileInput,
+  ProjectRestoreGeneratedOutputInput,
   ProjectRestoreUploadedFilesInput,
   ProjectRunCodeInput,
   ProjectSandboxRuntimeState,
@@ -56,7 +61,11 @@ import type {
 } from "./project-sandbox-runtime";
 import { createSandboxRuntime, type SandboxRuntime } from "./project-sandbox-runtime-handle";
 
-type ProjectSandboxOperations = LifecycleOps & ProcessOps & FileOps & ContentOps;
+type ProjectSandboxOperations = LifecycleOps &
+  ProcessOps &
+  FileOps &
+  ContentOps &
+  GeneratedOutputOps;
 
 /**
  * Public Durable Object facade. The policy table is interpreted only here;
@@ -76,6 +85,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     const coordinated = this.coordinatedProcessOps(() => process);
     process = createProcessOps(this.runtime, coordinated);
     const files = createFileOps(this.runtime);
+    const generatedOutputs = createGeneratedOutputOps(this.runtime);
     const content = createContentOps(this.runtime, {
       coordinatedProcess: coordinated,
       deleteUploadedFileMetadata: files.deleteUploadedFileMetadata,
@@ -83,7 +93,7 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       sandboxRuntimeState: () =>
         this.withLease("sandboxRuntimeState", undefined, lifecycle.sandboxRuntimeState),
     });
-    this.operations = { ...lifecycle, ...process, ...files, ...content };
+    this.operations = { ...lifecycle, ...process, ...files, ...content, ...generatedOutputs };
   }
 
   // Account deletion fences and drains active operations; taking a lease would deadlock.
@@ -207,6 +217,14 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   ): Promise<{ restoredFileCount: number }> {
     return this.withLease("restoreUploadedFiles", input, () =>
       this.operations.restoreUploadedFiles(input),
+    );
+  }
+
+  public restoreGeneratedOutput(
+    input: ProjectRestoreGeneratedOutputInput,
+  ): Promise<SandboxWriteFileResult> {
+    return this.withLease("restoreGeneratedOutput", input, () =>
+      this.operations.restoreGeneratedOutput(input),
     );
   }
 
