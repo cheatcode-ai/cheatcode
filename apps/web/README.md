@@ -8,6 +8,11 @@ Persisted assistant runs may cross message pages, but each API row stays bounded
 query actively follows cursors until every segment through the final marker is loaded, then
 losslessly reconstructs structured fragments and merges the run under its stable run ID. A
 partial or corrupt transcript is never rendered as a duplicate assistant message.
+While a thread has an authoritative active run, its lightweight thread record is refreshed every
+two seconds in the visible tab. The event stream remains the primary delivery path; this status
+refresh only reconciles a silently lost connection or a browser restored after the backend became
+terminal. When the run pointer clears, the client stops any stale stream, refreshes the persisted
+transcript and sidebar state, and replaces the transient chat state with that durable result.
 
 Deliverable parts contain durable output identity and presentation metadata, never an expiring
 URL. A download click calls the authenticated gateway mint endpoint, validates its bounded response,

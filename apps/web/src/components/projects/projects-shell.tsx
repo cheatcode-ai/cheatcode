@@ -9,7 +9,7 @@ import type { ProjectSummary, RunIntent, Thread } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
-import { useCallback, useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import { ChatPanel } from "@/components/chat/chat-panel";
 import { PreviewSidePanel } from "@/components/preview/preview-side-panel";
 import {
@@ -23,7 +23,7 @@ import {
   getThread,
   listThreadMessagesPage,
 } from "@/lib/api/project-thread";
-import { projectKeys, threadKeys } from "@/lib/api/query-keys";
+import { invalidateChatLists, projectKeys, threadKeys } from "@/lib/api/query-keys";
 import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
 
@@ -74,7 +74,8 @@ function useProjectsShell(threadIdProp: string | undefined) {
   const deliverableCount = countDeliverables(initialMessages);
   const loadOlderMessages = useOlderThreadMessagesLoader(initialMessagesQuery);
 
-  useRefreshThreadProjectOnSandboxChange({
+  useProjectsShellEffects({
+    activeRunId: threadQuery.data?.activeRunId ?? null,
     projectId,
     queryClient,
     sandboxStatus,
@@ -101,6 +102,17 @@ function useProjectsShell(threadIdProp: string | undefined) {
     threadId,
     threadQuery,
   };
+}
+
+function useProjectsShellEffects(input: {
+  activeRunId: null | string;
+  projectId: null | string;
+  queryClient: ReturnType<typeof useQueryClient>;
+  sandboxStatus: ReturnType<typeof useAppStore.getState>["sandboxStatus"];
+  threadId: null | string;
+}): void {
+  useRefreshThreadProjectOnSandboxChange(input);
+  useReconcileTerminalRun(input);
 }
 
 function useProjectsRetry(input: {
@@ -249,9 +261,31 @@ function useThreadQuery(getToken: () => Promise<null | string>, threadId: null |
     enabled: Boolean(threadId),
     queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
     queryKey: threadKeys.detail(threadId),
+    refetchInterval: (query) => (query.state.data?.activeRunId ? 2_000 : false),
+    refetchIntervalInBackground: false,
     retry: false,
     staleTime: 5_000,
   });
+}
+
+function useReconcileTerminalRun(input: {
+  activeRunId: null | string;
+  queryClient: ReturnType<typeof useQueryClient>;
+  threadId: null | string;
+}): void {
+  const previousRunIdRef = useRef(input.activeRunId);
+  useEffect(() => {
+    const previousRunId = previousRunIdRef.current;
+    previousRunIdRef.current = input.activeRunId;
+    if (!input.threadId || previousRunId === null || input.activeRunId !== null) return;
+    void Promise.all([
+      input.queryClient.invalidateQueries({
+        exact: true,
+        queryKey: threadKeys.messages(input.threadId),
+      }),
+      invalidateChatLists(input.queryClient),
+    ]);
+  }, [input.activeRunId, input.queryClient, input.threadId]);
 }
 
 function useProjectQuery(getToken: () => Promise<null | string>, projectId: null | string) {

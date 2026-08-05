@@ -24,8 +24,8 @@ exact object before failing. A committed replay under a still-active run atomica
 retention before the output can be exposed through a fresh download capability. A terminal replay
 can acknowledge only the same unexpired output and never renews it; every committed replay verifies
 the exact R2 object again before returning. Terminal run
-persistence records upload quiescence only after its execution promise has settled, while deletion
-RPCs abort and join the same promise before returning.
+persistence records upload quiescence only after the Workflow-owned tool steps have settled, while
+deletion RPCs terminate the run's Workflow before removing its durable state.
 
 Artifact messages persist only the output UUID and presentation metadata. The authenticated
 `POST /v1/outputs/:outputId/download-url` path rechecks tenant ownership, retention, and R2
@@ -74,25 +74,25 @@ and clears the matching thread pointer in one transaction. Transport or reconnec
 leaves the pointer intact for the next idempotent replay. Active-run conflicts use the same
 reconciliation path instead of blindly returning a conflict.
 
-Each admitted semantic run has a deterministic chain of Cloudflare Workflow generations. A
-generation keeps the Durable Object execution request attached in four-minute ownership epochs,
-then checkpoints and renews the same in-memory coroutine. At 20,000 epochs (about 55 days), it
-atomically reserves `generation + 1` in the run-keyed Durable Object and creates the deterministic
-successor, leaving almost 5,000 steps below Cloudflare's configured 25,000-step platform ceiling.
-The successor's first execution atomically promotes its exact generation, input hash, and instance
-ID; any late callback from the predecessor becomes a no-op. A pending successor is recovered by
-the existing admission alarm if creation was ambiguous. `draining` permits that continuation,
-while `closed` fences it. Generations are an operational rollover mechanism, not a run-duration,
-step, token, or cost limit.
+Each admitted semantic run has one deterministic Cloudflare Workflow instance. The Workflow owns
+the agent loop and checkpoints preparation, every model turn, every tool invocation, transcript
+publication, completion, and cleanup as separate steps. Its state contains only validated JSON;
+provider keys and sandbox capabilities are reacquired inside the active step and never enter
+Workflow storage. A Worker isolate or Durable Object eviction therefore resumes from the last
+completed step instead of losing an in-memory coroutine. Transcript publication uses deterministic
+event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
+There is no application step, token, duration, or cost ceiling; semantic completion ends the loop,
+while per-operation timeouts and the platform Workflow limit remain operational safeguards.
 
-A persisted execution-start fence makes retries at-most-once: a warm retry joins the exact
-promise, while a restart that lost that promise terminalizes the run instead of replaying model
-calls, tools, or other non-idempotent external side effects. An alarm-backed lease also
-terminalizes an admission or execution whose current Workflow owner stops renewing it.
-Before a Worker release, the closed gateway plus draining agent gate requires every retained
-`cheatcode-agent-runs` instance to be complete. Errored and terminated instances
-remain restartable on their pinned Worker version, so they block deployment until
-the exact retained instance has expired or been purged.
+The run-keyed Durable Object is the authoritative status, cancellation, transcript, and stream
+store. It validates every Workflow callback against the stored input hash and deterministic
+instance ID, and late callbacks become terminal no-ops. Admission ambiguity is recovered by the
+existing alarm. Cancellation terminates the Workflow before committing terminal state. Before a
+Worker release, the closed gateway plus draining agent gate requires every retained
+`cheatcode-agent-runs` instance to be complete. Workflow retries resume individual model and tool
+steps from their durable checkpoints. An exhausted or externally terminated instance is never
+blindly restarted from the beginning because doing so could repeat an external tool side effect;
+the run object reconciles that terminal mismatch into a visible, retryable failure instead.
 
 Normal chat runs resolve provider credentials from Supabase Vault through `packages/byok`,
 pass only the request-scoped transport credential to Mastra, and execute tools against the
@@ -110,13 +110,12 @@ record with the canonical UI-message schema, and converts it with AI SDK
 `convertToModelMessages`. The current run's user message must be last and carry that run ID.
 Ephemeral app-builder context is appended only to that current model turn and is never stored.
 
-`AgentRun` is the Durable Object coordination shell rather than the implementation home for
-every concern. Its HTTP adapter owns bounded request parsing and route dispatch; the run
-lifecycle module owns progress, terminal persistence, and sandbox-lease cleanup; the run-path
-module selects general or app-builder execution; and the output component owns replay and
-answer segmentation. The Workflow controller owns admission, execution identity, the
-at-most-once fence, and ownership leases. The shell retains only Durable Object identity,
-cancellation, status, and dependency wiring.
+`AgentRun` is the Durable Object coordination shell rather than the implementation home for every
+concern. Its HTTP adapter owns bounded request parsing and route dispatch; the Workflow runtime
+owns model/tool step preparation and sandbox-lease cleanup; the app-builder path owns scaffold and
+preview setup; and the output component owns idempotent transcript publication plus resumable
+streams. The Workflow controller owns admission, callback identity, and cancellation. The shell
+retains only durable run identity, status, transcript, cancellation, and dependency wiring.
 
 An explicit app-builder mode remains authoritative. In a projectless chat, a narrowly
 matched imperative such as “build a website” or “create a mobile app” also enters the matching
@@ -240,9 +239,8 @@ as every segment's logical timestamp. PostgreSQL publishes a run only when its u
 segment exists; retries compare each segment's JSONB, final marker, timestamp, and tenant
 identity. Oversized structured parts use lossless bounded fragment envelopes rather than
 truncation, and there is no transcript-length, step, token, or cost ceiling.
-Mastra tool-call chunks also emit `step_started`, `step_completed`,
-`tool_invoked`, and `skill_invoked` events when those chunks are present in the
-live stream. If the last stream subscriber disconnects while a run is still
+Checkpointed tool steps emit `step_started`, `step_completed`, `tool_invoked`, and
+`skill_invoked` events independently of the live stream. If the last stream subscriber disconnects while a run is still
 running, AgentRun emits `run_abandoned` for the funnel trail.
 
 Project deletion first fences project/thread mutations, refuses an active run, records a

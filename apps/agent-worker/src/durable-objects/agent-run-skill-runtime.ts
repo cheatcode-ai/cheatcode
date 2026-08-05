@@ -4,6 +4,7 @@ import {
   type StoredSkillRuntimeCapability,
   withUserDb,
 } from "@cheatcode/db";
+import type { createLogger } from "@cheatcode/observability";
 import type { SandboxLike } from "@cheatcode/sandbox-contracts";
 import { type SkillRuntimeScope, toAgentRunId, toUserId } from "@cheatcode/types";
 import type { AgentRunEnv } from "./agent-run-env";
@@ -12,7 +13,7 @@ import type { StartRunInput } from "./agent-run-schemas";
 const SKILL_RUNTIME_CONFIG_PATH = "/workspace/.cheatcode/runtime/skill-runtime-config.json";
 const SKILL_RUNTIME_PUBLIC_BASE_URL = "https://gateway.trycheatcode.com/skill-runtime";
 
-export const SKILL_RUNTIME_CAPABILITY_ROTATION_MS = 10 * 60_000;
+const SKILL_RUNTIME_CAPABILITY_ROTATION_MS = 10 * 60_000;
 
 const RUN_SCOPES: readonly SkillRuntimeScope[] = [
   "events:write",
@@ -24,7 +25,7 @@ const RUN_SCOPES: readonly SkillRuntimeScope[] = [
 type SkillRuntimeAccessTokens = Record<SkillRuntimeScope, string>;
 
 /** Projects independently scoped, rotating run capabilities into the project sandbox. */
-export async function projectSkillRuntimeConfig(input: {
+async function projectSkillRuntimeConfig(input: {
   env: AgentRunEnv;
   run: StartRunInput;
   sandbox: SandboxLike;
@@ -74,6 +75,31 @@ export async function projectSkillRuntimeConfig(input: {
     encoding: "utf8",
     path: SKILL_RUNTIME_CONFIG_PATH,
   });
+}
+
+/** Keeps sandboxed skill capabilities valid for the lifetime of one checkpointed tool step. */
+export async function guardSkillRuntimeCapabilities<T>(input: {
+  env: AgentRunEnv;
+  logger: ReturnType<typeof createLogger>;
+  operation: () => Promise<T>;
+  run: StartRunInput;
+  sandbox: SandboxLike;
+}): Promise<T> {
+  await projectSkillRuntimeConfig(input);
+  let refreshTail = Promise.resolve();
+  const interval = setInterval(() => {
+    refreshTail = refreshTail
+      .then(() => projectSkillRuntimeConfig(input))
+      .catch((error: unknown) => {
+        input.logger.warn("skill_runtime_capability_rotation_failed", { error });
+      });
+  }, SKILL_RUNTIME_CAPABILITY_ROTATION_MS);
+  try {
+    return await input.operation();
+  } finally {
+    clearInterval(interval);
+    await refreshTail;
+  }
 }
 
 async function persistCapabilities(

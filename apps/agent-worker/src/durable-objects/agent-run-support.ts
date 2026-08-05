@@ -1,8 +1,12 @@
-import type { AgentChunkType } from "@cheatcode/agent-core";
 import { APIError } from "@cheatcode/observability";
-import { resolveWithAbortTimeout } from "./abort-timeout";
 
-export type MastraChunkRead = IteratorResult<AgentChunkType, unknown> | "timeout";
+export interface RunIdentity {
+  runId: string;
+  threadId: string;
+  userId: string;
+}
+
+export type TerminalRunStatus = "canceled" | "completed" | "failed";
 
 export function missingInternalUserResponse(
   surface: "browser takeover" | "cancel" | "delete-all" | "status" | "streams",
@@ -13,17 +17,9 @@ export function missingInternalUserResponse(
   }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
 }
 
-export async function readMastraChunk(
-  iterator: AsyncIterator<AgentChunkType>,
-  timeoutMs?: number,
-  abortController?: AbortController,
-): Promise<MastraChunkRead> {
-  if (!timeoutMs) {
-    return iterator.next();
-  }
-  return resolveWithAbortTimeout({
-    abortController: abortController ?? new AbortController(),
-    operation: iterator.next(),
-    timeoutMs,
-  });
+export function invalidResumeCursorResponse(): Response {
+  return new APIError(400, "request_query_param_invalid", "Invalid resume cursor", {
+    hint: "Pass lastSeq as a non-negative integer.",
+    retriable: false,
+  }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
 }

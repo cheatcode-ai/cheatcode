@@ -145,7 +145,7 @@ interface RunAppBuilderOptions {
   // Harness workspace setup runs before the model streams; its progress is status
   // chrome (run stage / Computer panel), never visible answer prose. Anything the
   // model needs to know is handed to it as agentContextNote.
-  setRunStage: (stage: string) => void;
+  setRunStage: (stage: string) => Promise<void>;
 }
 
 interface AppBuilderSetup {
@@ -219,10 +219,10 @@ async function prepareTemplateWorkspace(
 ): Promise<void> {
   const { input, logger, sandbox, setRunStage, shouldBootstrap, workspace } = options;
   const mobile = workspace.mobile;
-  setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
+  await setRunStage(mobile ? "Preparing the Expo workspace." : "Preparing the Next.js workspace.");
   await ensureAppBuilderRuntime(sandbox, mobile);
   if (!shouldBootstrap) {
-    setRunStage("Restoring the app workspace.");
+    await setRunStage("Restoring the app workspace.");
     if (!(await hasInstalledAppBuilderDependencies(sandbox, workspace))) {
       await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     }
@@ -243,14 +243,14 @@ async function prepareTemplateWorkspace(
   if (mobile) {
     await ensureExpoWebSupport(sandbox, workspace.dir);
   } else {
-    setRunStage("Seeding the starter files.");
+    await setRunStage("Seeding the starter files.");
     await writeAppBuilderFiles(input, sandbox, workspace.dir);
   }
 }
 
 async function startTemplatePreview(options: WorkspaceOptions): Promise<void> {
   const { append, logger, sandbox, setRunStage, workspace } = options;
-  setRunStage("Starting the dev server.");
+  await setRunStage("Starting the dev server.");
   if (workspace.mobile) {
     await startExpoDevServer(sandbox, logger, workspace);
   } else {
@@ -274,7 +274,7 @@ export async function restartMobilePreview(
   options: Pick<RunAppBuilderOptions, "append" | "input" | "logger" | "sandbox" | "setRunStage">,
 ): Promise<void> {
   const { append, input, logger, sandbox, setRunStage } = options;
-  setRunStage("Reloading the preview.");
+  await setRunStage("Reloading the preview.");
   const workspace = await resolveAppWorkspace(sandbox, input, logger);
   await startExpoDevServer(sandbox, logger, workspace);
   await append({
@@ -299,7 +299,7 @@ async function importRepoWorkspace(
     throw repoImportError("The import URL must be a public https github.com repository.");
   }
   logger.info("repo_import_started", { repoHost: repoRef.host, repoPath: repoRef.path });
-  setRunStage(`Cloning ${repoRef.path}.`);
+  await setRunStage(`Cloning ${repoRef.path}.`);
   await resetTemplateAppBuilderDirectory(sandbox, workspace.dir);
   throwIfRunCanceled(options.abortSignal);
   const cloneDir = `${workspace.dir}/.cheatcode-import-${input.runId ?? crypto.randomUUID()}`;
@@ -350,7 +350,7 @@ async function restoreImportedWorkspace(
   options: WorkspaceOptions,
 ): Promise<{ agentContextNote: string }> {
   const { append, input, logger, sandbox, setRunStage, workspace } = options;
-  setRunStage("Restoring the imported workspace.");
+  await setRunStage("Restoring the imported workspace.");
   await installImportedDependencies(sandbox, logger, workspace.dir);
   throwIfRunCanceled(options.abortSignal);
   await clearBuildCache(sandbox, workspace.dir, workspace.mobile);

@@ -12,7 +12,7 @@ const AppPreviewStreamStatusSchema = z.enum(["building", "ready"]);
  * Informational model-transition part. Replaces the silent text-delta fallback
  * notice and explains why routing changed.
  */
-export const ModelFallbackDataSchema = z.strictObject({
+const ModelFallbackDataSchema = z.strictObject({
   v: z.literal(1),
   fromModel: LogicalModelIdSchema,
   toModel: LogicalModelIdSchema,

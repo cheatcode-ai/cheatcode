@@ -175,11 +175,25 @@ function missingProviderKey(label: string, provider: LlmProvider): APIError {
   });
 }
 
-export const generalAgent = new Agent({
-  id: "general",
-  name: "general",
+const generalAgentDefinition = {
   instructions: ({ requestContext }: { requestContext?: RequestContext }) =>
     buildSystemPrompt(promptRuntimeContextFromRequestContext(requestContext)),
   model: resolveGeneralModel,
+} as const;
+
+export const generalAgent = new Agent({
+  ...generalAgentDefinition,
+  id: "general",
+  name: "general",
   tools: cheatcodeTools,
+});
+
+/**
+ * Produces exactly one model turn without executing tools. Cloudflare Workflow
+ * checkpoints that turn before invoking any selected tool in its own durable step.
+ */
+export const generalStepAgent = new Agent({
+  ...generalAgentDefinition,
+  id: "general-step",
+  name: "general-step",
 });
