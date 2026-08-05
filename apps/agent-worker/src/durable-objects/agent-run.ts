@@ -1,26 +1,11 @@
 import { DurableObject } from "cloudflare:workers";
-import type { AgentChunkType } from "@cheatcode/agent-core";
 import { APIError, createLogger } from "@cheatcode/observability";
-import type {
-  ArtifactRuntime,
-  CodeRuntimeContext,
-  WorkspaceResolver,
-} from "@cheatcode/sandbox-contracts";
-import {
-  RunStatusSnapshotSchema,
-  toAgentRunId,
-  toProjectId,
-  toThreadId,
-  toUserId,
-} from "@cheatcode/types";
+import { RunStatusSnapshotSchema } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { createAgentStreamResponse } from "../streaming/ui-message-stream";
 import { armAgentRunAlarm } from "./agent-run-alarm";
-import { storeAgentArtifact } from "./agent-run-artifacts";
 import { AgentRunBrowserTakeover } from "./agent-run-browser-takeover";
-import { emitMastraChunkTelemetry } from "./agent-run-chunk-telemetry";
 import type { AgentRunEnv } from "./agent-run-env";
-import { executeAgentRunLifecycle } from "./agent-run-lifecycle";
 import {
   pendingAssistantMessageRetryAt,
   persistOrQueueAssistantMessage,
@@ -28,7 +13,6 @@ import {
 } from "./agent-run-message-persistence";
 import { persistAgentRunLogicalModel } from "./agent-run-model-persistence";
 import { AgentRunOutput } from "./agent-run-output";
-import { executeAgentRunPath } from "./agent-run-path";
 import {
   absentAgentRunOkResponse,
   absentAgentRunWorkflowResponse,
@@ -38,10 +22,8 @@ import {
 } from "./agent-run-responses";
 import { resolveAgentRunRetentionAction } from "./agent-run-retention";
 import type { StartRunInput } from "./agent-run-schemas";
-import { projectSkillRuntimeConfig } from "./agent-run-skill-runtime";
 import { agentRunStatusPayload } from "./agent-run-status-payload";
 import {
-  isTerminalPersistableRunStatus,
   type PersistableRunStatus,
   pendingStatusRetryAt,
   persistSerializedAgentRunStatus,
@@ -55,34 +37,32 @@ import {
   hasAgentRunStorage,
   initializeAgentRunStorage,
   isAgentRunDeleted,
+  setAgentRunStage,
   setRunStateValue,
   updateRunRowStatus,
   upsertRunRow,
 } from "./agent-run-storage";
-import type { StreamDriverDeps } from "./agent-run-stream-driver";
-import { missingInternalUserResponse } from "./agent-run-support";
+import {
+  invalidResumeCursorResponse,
+  missingInternalUserResponse,
+  type RunIdentity,
+  type TerminalRunStatus,
+} from "./agent-run-support";
 import { AgentRunWorkflowController } from "./agent-run-workflow-controller";
 import type {
   AgentRunWorkflowCallbackInput,
+  AgentRunWorkflowEventInput,
   AgentRunWorkflowFailureInput,
+  AgentRunWorkflowModelInput,
+  AgentRunWorkflowStageInput,
 } from "./agent-run-workflow-protocol";
-import { createRunWorkspaceResolver } from "./agent-run-workspace";
-import { mastraChunkError, normalizeMastraStreamError } from "./mastra-stream-chunks";
 import { hasActiveRun, parseLastSeqParam } from "./run-state";
 import { type AgentRunSnapshotStatus, snapshotAgentRunStatus } from "./run-summary";
 
-type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
-type TerminalRunStatus = "canceled" | "completed" | "failed";
-interface RunIdentity {
-  runId: string;
-  threadId: string;
-  userId: string;
-}
 export class AgentRun extends DurableObject<AgentRunEnv> {
   private alarmExecutionPromise: Promise<void> | undefined;
   private cancelRequested = false;
   private deletionInProgress = false;
-  private ownershipLost = false;
   private readonly output: AgentRunOutput;
   private readonly browserTakeover: AgentRunBrowserTakeover;
   private requestAdmissionTail: Promise<void> = Promise.resolve();
@@ -97,7 +77,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       ctx: this.ctx,
       env: this.env,
       getStatus: () => this.getStatus(),
-      isCanceled: () => this.isExecutionStopped(),
+      isCanceled: () => this.isRunCanceled(),
       isTerminalizing: () => this.terminalTransitionOpen,
     });
     this.browserTakeover = new AgentRunBrowserTakeover({
@@ -110,9 +90,8 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       armAlarm: () => this.armAlarm(),
       ctx: this.ctx,
       env: this.env,
-      finalizeOwnershipFailure: (message) => this.finalizeOwnershipFailure(message),
+      finalizeWorkflowFailure: (failure) => this.finalizeWorkflowFailure(failure),
       getStatus: () => this.getStatus(),
-      run: (input, abortController) => this.run(input, abortController),
     });
   }
 
@@ -145,9 +124,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     if (await this.workflow.recoverPendingAdmission()) {
       return;
     }
-    if (await this.workflow.handleExpiredLease()) {
-      return;
-    }
+    await this.workflow.reconcileAdmission();
     await retryPendingAssistantMessage(this.ctx, this.env);
     if (pendingAssistantMessageRetryAt(this.ctx) === Number.POSITIVE_INFINITY) {
       await this.serializeStatusPersistence(() => retryPendingAgentRunStatus(this.ctx, this.env));
@@ -248,13 +225,68 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     );
   }
 
-  public executeWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+  public beginWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
     return this.enqueueRequest(() =>
       this.withStorage(
-        () => agentRunWorkflowResponse(() => this.workflow.executeEpoch(input)),
+        () => agentRunWorkflowResponse(() => this.beginWorkflowInternal(input)),
         absentAgentRunWorkflowResponse,
       ),
     );
+  }
+
+  public appendWorkflowEvent(input: AgentRunWorkflowEventInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.appendWorkflowEventInternal(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public setWorkflowStage(input: AgentRunWorkflowStageInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.setWorkflowStageInternal(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public persistWorkflowModel(input: AgentRunWorkflowModelInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.persistWorkflowModelInternal(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public completeWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.completeWorkflowInternal(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public cleanupWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    return this.enqueueRequest(() =>
+      this.withStorage(
+        () => agentRunWorkflowResponse(() => this.cleanupWorkflowInternal(input)),
+        absentAgentRunWorkflowResponse,
+      ),
+    );
+  }
+
+  public waitForBrowserTakeover(input: AgentRunWorkflowCallbackInput): Promise<number> {
+    return this.enqueueRequest(async () => {
+      if (!hasAgentRunStorage(this.ctx)) return 0;
+      assertAgentRunStorage(this.ctx);
+      return (await this.workflow.authorizeCallback(input)) === "current"
+        ? this.browserTakeover.wait(AbortSignal.timeout(10 * 60_000))
+        : 0;
+    });
   }
 
   public failWorkflow(input: AgentRunWorkflowFailureInput): Promise<Response> {
@@ -266,16 +298,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     );
   }
 
-  public rolloverWorkflow(input: AgentRunWorkflowCallbackInput): Promise<Response> {
-    return this.enqueueRequest(() =>
-      this.withStorage(
-        () => agentRunWorkflowResponse(() => this.workflow.reserveSuccessor(input)),
-        absentAgentRunWorkflowResponse,
-      ),
-    );
-  }
-
-  private enqueueRequest(operation: () => Promise<Response> | Response): Promise<Response> {
+  private enqueueRequest<T>(operation: () => Promise<T> | T): Promise<T> {
     // FIFO admission makes start settle before a later presence probe observes the object.
     const response = this.requestAdmissionTail.then(operation);
     this.requestAdmissionTail = response.then(
@@ -316,7 +339,6 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const admission = await this.workflow.createAdmission(input);
     await this.workflow.armAdmissionRecovery();
     this.cancelRequested = false;
-    this.ownershipLost = false;
     this.workflow.claimAdmission(admission, () => {
       this.setRunIdentity(input);
       this.setOwnerUserId(input.userId);
@@ -410,10 +432,8 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const alarmExecutionPromise = this.alarmExecutionPromise;
     const terminalTransitionPromise = this.terminalTransitionPromise;
     this.cancelRequested = true;
-    this.workflow.abort(new Error("run state deleted"));
-    // Join the canceled coroutine so a late terminal-status write cannot recreate erased state.
+    await this.workflow.terminate().catch(() => undefined);
     await Promise.all([
-      this.workflow.join(),
       alarmExecutionPromise?.catch(() => undefined),
       terminalTransitionPromise?.catch(() => undefined),
     ]);
@@ -440,9 +460,10 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
 
   private async commitCancellation(): Promise<void> {
     this.cancelRequested = true;
-    this.workflow.abort(new Error("run canceled"));
+    await this.workflow.terminate().catch((error: unknown) => {
+      createLogger().warn("agent_run_workflow_termination_failed", { error });
+    });
     try {
-      await this.workflow.join();
       await this.append(
         {
           type: "data-error",
@@ -480,117 +501,80 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     }
   }
 
-  private async run(input: StartRunInput, abortController: AbortController): Promise<void> {
-    await executeAgentRunLifecycle(
-      {
-        append: (chunk) => this.append(chunk),
-        ctx: this.ctx,
-        env: this.env,
-        cleanupBrowserTakeover: () => this.browserTakeover.cleanup(),
-        executeRunPath: (runInput, sandbox, logger, signal) =>
-          this.executeRunPath(runInput, sandbox, logger, signal),
-        finalizeTerminal: (status, operation) => this.finalizeTerminal(status, operation, true),
-        isCanceled: () => this.isExecutionStopped(),
-        output: this.output,
-        persistRunStatus: (runInput, status, error) =>
-          this.persistRunStatusById({
-            isArtifactsQuiesced: isTerminalPersistableRunStatus(status),
-            ...(error ? { error } : {}),
-            runId: runInput.runId,
-            status,
-            userId: runInput.userId,
-          }),
-        setRunStage: (stage) => this.setRunStage(stage),
+  private async beginWorkflowInternal(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    const outcome = await this.workflow.authorizeCallback(input);
+    if (outcome !== "current") return Response.json({ outcome });
+    setAgentRunStage(this.ctx, "Preparing project sandbox.");
+    this.output.appendWorkflowEvent("run:start", [
+      { messageId: input.input.runId, type: "start" },
+      { data: { status: "starting", v: 1 }, type: "data-sandbox-status" },
+    ]);
+    await this.persistRunStatusById({
+      isArtifactsQuiesced: false,
+      runId: input.input.runId,
+      status: "running",
+      userId: input.input.userId,
+    });
+    return Response.json({ outcome: "current" });
+  }
+
+  private async appendWorkflowEventInternal(input: AgentRunWorkflowEventInput): Promise<Response> {
+    const outcome = await this.workflow.authorizeCallback(input);
+    if (outcome !== "current") return Response.json({ appendedCount: 0, outcome });
+    const appendedCount = this.output.appendWorkflowEvent(input.eventKey, input.chunks);
+    return Response.json({ appendedCount, outcome });
+  }
+
+  private async setWorkflowStageInternal(input: AgentRunWorkflowStageInput): Promise<Response> {
+    const outcome = await this.workflow.authorizeCallback(input);
+    if (outcome === "current") setAgentRunStage(this.ctx, input.stage);
+    return Response.json({ outcome });
+  }
+
+  private async persistWorkflowModelInternal(input: AgentRunWorkflowModelInput): Promise<Response> {
+    const outcome = await this.workflow.authorizeCallback(input);
+    if (outcome !== "current") return Response.json({ outcome });
+    await persistAgentRunLogicalModel({
+      ctx: this.ctx,
+      env: this.env,
+      logger: createLogger({ runId: input.input.runId, userId: input.input.userId }),
+      logicalModelId: input.logicalModelId,
+      runId: input.input.runId,
+      userId: input.input.userId,
+    });
+    return Response.json({ outcome });
+  }
+
+  private async completeWorkflowInternal(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    const outcome = await this.workflow.authorizeCallback(input);
+    if (outcome !== "current") return Response.json({ outcome });
+    await this.finalizeTerminal(
+      "completed",
+      async () => {
+        this.output.appendWorkflowEvent("run:complete", [
+          { data: { status: "ready", v: 1 }, type: "data-sandbox-status" },
+          { finishReason: "stop", type: "finish" },
+        ]);
+        const identity = this.runIdentity();
+        if (identity) {
+          await persistOrQueueAssistantMessage({
+            ctx: this.ctx,
+            env: this.env,
+            logger: createLogger({ runId: identity.runId, userId: identity.userId }),
+            ...identity,
+          });
+        }
+        await this.persistStoredRunStatus("completed", undefined, true);
       },
-      input,
-      abortController,
+      true,
     );
+    return Response.json({ outcome: "terminal" });
   }
 
-  private async executeRunPath(
-    input: StartRunInput,
-    sandbox: ProjectSandboxStub,
-    logger: ReturnType<typeof createLogger>,
-    abortSignal: AbortSignal,
-  ): Promise<"completed" | "continue"> {
-    const workspaceResolver = createRunWorkspaceResolver({
-      append: (chunk) => this.append(chunk),
-      env: this.env,
-      input,
-      logger,
-      sandbox,
-    });
-    return executeAgentRunPath({
-      abortSignal,
-      append: (chunk) => this.append(chunk),
-      env: this.env,
-      input,
-      isCanceled: () => this.isExecutionStopped(),
-      logger,
-      sandbox,
-      setRunStage: (stage) => this.setRunStage(stage),
-      streamDriverDeps: this.streamDriverDeps(workspaceResolver),
-      workspaceResolver,
-    });
-  }
-
-  private streamDriverDeps(workspaceResolver: WorkspaceResolver): StreamDriverDeps {
-    return {
-      append: (chunk) => this.append(chunk),
-      appendCheckedMastraChunk: (input, chunk) => this.appendCheckedMastraChunk(input, chunk),
-      createArtifactRuntime: (input) => this.createArtifactRuntime(input, workspaceResolver),
-      env: this.env,
-      persistLogicalModel: (input, logicalModelId, logger) =>
-        persistAgentRunLogicalModel({
-          ctx: this.ctx,
-          env: this.env,
-          logger,
-          logicalModelId,
-          runId: input.runId,
-          userId: input.userId,
-        }),
-      projectSkillRuntimeConfig: (input, sandbox) =>
-        projectSkillRuntimeConfig({
-          env: this.env,
-          run: input,
-          sandbox,
-        }),
-      setRunStage: (stage) => this.setRunStage(stage),
-      waitForBrowserTakeover: (signal) => this.browserTakeover.wait(signal),
-    };
-  }
-
-  private async appendCheckedMastraChunk(
-    input: StartRunInput,
-    chunk: AgentChunkType,
-  ): Promise<number> {
-    const streamError = mastraChunkError(chunk);
-    if (streamError) {
-      throw normalizeMastraStreamError(streamError);
-    }
-    emitMastraChunkTelemetry(this.ctx, this.env, input, chunk);
-    return this.output.appendMastraChunk(chunk);
-  }
-
-  private createArtifactRuntime(
-    input: StartRunInput,
-    workspaceResolver: WorkspaceResolver,
-  ): ArtifactRuntime {
-    return {
-      put: async (artifact) => {
-        const workspace = await workspaceResolver();
-        return storeAgentArtifact({
-          artifact,
-          env: this.env,
-          input: {
-            projectId: toProjectId(workspace.projectId),
-            runId: toAgentRunId(input.runId),
-            threadId: toThreadId(input.threadId),
-            userId: toUserId(input.userId),
-          },
-        });
-      },
-    };
+  private async cleanupWorkflowInternal(input: AgentRunWorkflowCallbackInput): Promise<Response> {
+    await this.workflow.authorizeCallback(input);
+    await this.browserTakeover.cleanup();
+    return Response.json({ ok: true });
   }
 
   private async append(
@@ -639,23 +623,29 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     return { runId, threadId, userId };
   }
 
-  private async finalizeOwnershipFailure(message: string): Promise<void> {
+  private async finalizeWorkflowFailure(input: {
+    code: string;
+    message: string;
+    retriable: boolean;
+  }): Promise<void> {
     if (isAgentRunDeleted(this.ctx)) {
       return;
     }
-    this.ownershipLost = true;
-    await this.finalizeTerminal("failed", () => this.commitOwnershipFailure(message), true);
+    await this.finalizeTerminal("failed", () => this.commitWorkflowFailure(input), true);
   }
 
-  private async commitOwnershipFailure(message: string): Promise<void> {
+  private async commitWorkflowFailure(input: {
+    code: string;
+    message: string;
+    retriable: boolean;
+  }): Promise<void> {
     await this.append(
       {
         type: "data-error",
-        data: { v: 1, code: "run_interrupted", message, retriable: true },
+        data: { v: 1, code: input.code, message: input.message, retriable: input.retriable },
       },
       { allowAfterCancelRequest: true },
     );
-    await this.output.ensureAnswerSegmentEnded({ allowAfterCancelRequest: true });
     await this.append({ type: "finish", finishReason: "error" }, { allowAfterCancelRequest: true });
     const identity = this.runIdentity();
     if (identity) {
@@ -666,7 +656,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
         ...identity,
       });
     }
-    await this.persistStoredRunStatus("failed", { message, type: "run_interrupted" }, true);
+    await this.persistStoredRunStatus("failed", { message: input.message, type: input.code }, true);
   }
 
   private setRunIdentity(input: StartRunInput): void {
@@ -691,19 +681,8 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     setRunStateValue(this.ctx, "owner_user_id", userId);
   }
 
-  private setRunStage(stage: string): void {
-    if (isAgentRunDeleted(this.ctx)) {
-      return;
-    }
-    setRunStateValue(this.ctx, "run_stage", stage);
-  }
-
   private isRunCanceled(): boolean {
     return isAgentRunDeleted(this.ctx) || this.cancelRequested || this.getStatus() === "canceled";
-  }
-
-  private isExecutionStopped(): boolean {
-    return this.isRunCanceled() || this.ownershipLost;
   }
 
   private async persistStoredRunStatus(
@@ -814,11 +793,4 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     this.statusPersistenceChain = current.catch(() => undefined);
     await current;
   }
-}
-
-function invalidResumeCursorResponse(): Response {
-  return new APIError(400, "request_query_param_invalid", "Invalid resume cursor", {
-    hint: "Pass lastSeq as a non-negative integer.",
-    retriable: false,
-  }).toResponse(`req_${crypto.randomUUID().replaceAll("-", "")}`);
 }

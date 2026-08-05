@@ -1,54 +1,36 @@
+import type { LogicalModelId } from "@cheatcode/types";
+import type { UIMessageChunk } from "ai";
 import { z } from "zod";
 import { StartRunInputSchema } from "./agent-run-schemas";
 
 export const AGENT_RUN_WORKFLOW_ADMITTED_KEY = "workflow_admitted";
-export const AGENT_RUN_WORKFLOW_EXECUTION_STARTED_KEY = "workflow_execution_started";
-export const AGENT_RUN_WORKFLOW_GENERATION_KEY = "workflow_generation";
 export const AGENT_RUN_WORKFLOW_ID_KEY = "workflow_id";
 export const AGENT_RUN_WORKFLOW_INPUT_HASH_KEY = "workflow_input_hash";
-export const AGENT_RUN_WORKFLOW_LEASE_EXPIRES_AT_KEY = "workflow_lease_expires_at";
 export const AGENT_RUN_WORKFLOW_PENDING_INPUT_KEY = "workflow_pending_input";
+export const AGENT_RUN_WORKFLOW_RECONCILE_AT_KEY = "workflow_reconcile_at";
 export const AGENT_RUN_WORKFLOW_RETRY_ATTEMPT_KEY = "workflow_retry_attempt";
 export const AGENT_RUN_WORKFLOW_RETRY_AT_KEY = "workflow_retry_at";
+export const AGENT_RUN_WORKFLOW_UNKNOWN_ATTEMPT_KEY = "workflow_unknown_attempt";
 
-export const AGENT_RUN_EXECUTION_EPOCH_MS = 4 * 60 * 1_000;
-export const AGENT_RUN_EXECUTION_LEASE_GRACE_MS = 90 * 1_000;
-export const AGENT_RUN_EXECUTION_HEARTBEAT_MS = 15 * 1_000;
 export const AGENT_RUN_WORKFLOW_MAX_RESPONSE_BYTES = 8 * 1_024;
-export const AGENT_RUN_WORKFLOW_ROLLOVER_MAX_RESPONSE_BYTES = 256 * 1_024;
-export const AGENT_RUN_WORKFLOW_EXECUTION_RETRY_LIMIT = 5;
 export const AGENT_RUN_WORKFLOW_FAILURE_RETRY_LIMIT = 5;
-export const AGENT_RUN_WORKFLOW_ROLLOVER_RETRY_LIMIT = 5;
-// This is a generation boundary, not a run cap. The successor keeps the same
-// semantic run while resetting Workflow step and subrequest accounting.
-export const AGENT_RUN_WORKFLOW_ROLLOVER_EPOCHS = 1_000;
+export const AGENT_RUN_WORKFLOW_RECONCILE_INTERVAL_MS = 10_000;
 export const AGENT_RUN_WORKFLOW_RETRY_BASE_MS = 5_000;
 export const AGENT_RUN_WORKFLOW_RETRY_MAX_MS = 60_000;
-
-const CLOUDFLARE_WORKFLOW_DEFAULT_SUBREQUEST_LIMIT = 10_000;
-const EXECUTION_SUBREQUESTS_PER_ATTEMPT = 1;
-const FAILURE_SUBREQUESTS_PER_ATTEMPT = 1;
-const ROLLOVER_RESERVATION_SUBREQUESTS_PER_ATTEMPT = 1;
-// A colliding successor creation can create, get, inspect, and restart the exact
-// instance before one retry attempt returns.
-const SUCCESSOR_CREATION_SUBREQUESTS_PER_ATTEMPT = 4;
-const AGENT_RUN_WORKFLOW_MAX_SUBREQUESTS =
-  AGENT_RUN_WORKFLOW_ROLLOVER_EPOCHS *
-    (AGENT_RUN_WORKFLOW_EXECUTION_RETRY_LIMIT + 1) *
-    EXECUTION_SUBREQUESTS_PER_ATTEMPT +
-  (AGENT_RUN_WORKFLOW_ROLLOVER_RETRY_LIMIT + 1) * ROLLOVER_RESERVATION_SUBREQUESTS_PER_ATTEMPT +
-  (AGENT_RUN_WORKFLOW_ROLLOVER_RETRY_LIMIT + 1) * SUCCESSOR_CREATION_SUBREQUESTS_PER_ATTEMPT +
-  (AGENT_RUN_WORKFLOW_FAILURE_RETRY_LIMIT + 1) * FAILURE_SUBREQUESTS_PER_ATTEMPT;
-
-if (AGENT_RUN_WORKFLOW_MAX_SUBREQUESTS > CLOUDFLARE_WORKFLOW_DEFAULT_SUBREQUEST_LIMIT) {
-  throw new Error("AgentRun Workflow rollover exceeds its Cloudflare subrequest budget.");
-}
+export const AGENT_RUN_WORKFLOW_UNKNOWN_ATTEMPT_LIMIT = 3;
 
 const Sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/u);
-const WorkflowGenerationSchema = z.number().int().nonnegative().safe();
+const WorkflowCallbackOutcomeSchema = z.enum(["current", "deleted", "terminal"]);
+
+export const AgentRunWorkflowCallbackResponseSchema = z.union([
+  z.strictObject({ outcome: WorkflowCallbackOutcomeSchema }),
+  z.strictObject({
+    appendedCount: z.number().int().nonnegative(),
+    outcome: WorkflowCallbackOutcomeSchema,
+  }),
+]);
 
 export const AgentRunWorkflowPayloadSchema = z.strictObject({
-  generation: WorkflowGenerationSchema,
   input: StartRunInputSchema,
   inputHash: Sha256HexSchema,
 });
@@ -59,41 +41,29 @@ export interface AgentRunWorkflowCallbackInput extends AgentRunWorkflowPayload {
   workflowInstanceId: string;
 }
 
+export interface AgentRunWorkflowEventInput extends AgentRunWorkflowCallbackInput {
+  chunks: UIMessageChunk[];
+  eventKey: string;
+}
+
+export interface AgentRunWorkflowModelInput extends AgentRunWorkflowCallbackInput {
+  logicalModelId: LogicalModelId;
+}
+
+export interface AgentRunWorkflowStageInput extends AgentRunWorkflowCallbackInput {
+  stage: string;
+}
+
 export interface AgentRunWorkflowFailureInput {
-  generation: number;
+  code: string;
   inputHash: string;
   message: string;
+  retriable: boolean;
   workflowInstanceId: string;
 }
 
-export const AgentRunWorkflowEpochResultSchema = z.strictObject({
-  outcome: z.enum(["continue", "continued", "deleted", "terminal"]),
-  status: z.string().min(1).max(32),
-});
-
-export type AgentRunWorkflowEpochResult = z.infer<typeof AgentRunWorkflowEpochResultSchema>;
-
-const AgentRunWorkflowRolloverTerminalResultSchema = z.strictObject({
-  outcome: z.enum(["continued", "deleted", "terminal"]),
-  status: z.string().min(1).max(32),
-});
-
-const AgentRunWorkflowRolloverReservedResultSchema = z.strictObject({
-  outcome: z.literal("reserved"),
-  payload: AgentRunWorkflowPayloadSchema,
-  status: z.string().min(1).max(32),
-  workflowInstanceId: z.string().min(1).max(100),
-});
-
-export const AgentRunWorkflowRolloverResultSchema = z.union([
-  AgentRunWorkflowRolloverTerminalResultSchema,
-  AgentRunWorkflowRolloverReservedResultSchema,
-]);
-
-export type AgentRunWorkflowRolloverResult = z.infer<typeof AgentRunWorkflowRolloverResultSchema>;
-
-export function agentRunWorkflowInstanceId(runId: string, generation: number): string {
-  return `agent-run-${runId}-${generation}`;
+export function agentRunWorkflowInstanceId(runId: string): string {
+  return `agent-run-${runId}`;
 }
 
 export async function agentRunWorkflowInputHash(input: unknown): Promise<string> {

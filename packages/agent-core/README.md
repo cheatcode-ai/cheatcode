@@ -4,8 +4,9 @@ Mastra agents, tool registry, and workflow entrypoints.
 
 ## Public exports
 
-- `mastra`
 - `createCodeRequestContext`
+- `generateGeneralAgentStep` and `executeGeneralAgentTool` for Cloudflare
+  Workflow-owned, step-granular agent execution
 - runtime credential and model contracts consumed by `agent-worker`
 
 The tool and agent registries are statically constrained by the lightweight
@@ -63,6 +64,12 @@ Objects and Postgres own durable run and transcript state. Workflows that receiv
 the secret-bearing request context must disable snapshot persistence and delete
 their Mastra run after completion; adding persistent Mastra storage requires a
 redesign that reacquires credentials instead of serializing them.
+
+The production agent loop does not rely on that in-memory store for ownership.
+`agent-worker` asks the model for one turn without executing tools, checkpoints the
+turn in Cloudflare Workflow, and then reconstructs each selected tool in a separate
+Workflow step. Provider keys and tool credentials are reacquired inside each step
+and never enter Workflow state.
 
 Nested research workflows bind the calling tool's abort signal idempotently to
 the Mastra workflow run, forward the synthesis step signal through its nested

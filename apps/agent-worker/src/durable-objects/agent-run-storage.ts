@@ -109,6 +109,10 @@ export function setRunStateValue(ctx: DurableObjectState, key: string, value: st
   ctx.storage.sql.exec("INSERT OR REPLACE INTO run_state (key, value) VALUES (?, ?)", key, value);
 }
 
+export function setAgentRunStage(ctx: DurableObjectState, stage: string): void {
+  if (!isAgentRunDeleted(ctx)) setRunStateValue(ctx, "run_stage", stage);
+}
+
 /** Permanently claims this run-keyed object for deletion before any async cleanup yields. */
 export function claimAgentRunDeletion(ctx: DurableObjectState, userId: string): boolean {
   return ctx.storage.transactionSync(() => {
@@ -211,6 +215,26 @@ export function appendAgentRunMessagePart(ctx: DurableObjectState, chunk: UIMess
     throw new Error("Unable to read message part sequence.");
   }
   return row.seq;
+}
+
+/** Atomically appends a Workflow-owned event once across step retries and DO restarts. */
+export function appendAgentRunMessagePartOnce(
+  ctx: DurableObjectState,
+  eventKey: string,
+  chunk: UIMessageChunk,
+): number | null {
+  const stateKey = `workflow_event:${eventKey}`;
+  if (stateKey.length > 256) {
+    throw new RangeError("Workflow transcript event key exceeds the durable key bound.");
+  }
+  return ctx.storage.transactionSync(() => {
+    if (getRunStateValue(ctx, stateKey) !== undefined) {
+      return null;
+    }
+    const seq = appendAgentRunMessagePart(ctx, chunk);
+    setRunStateValue(ctx, stateKey, String(seq));
+    return seq;
+  });
 }
 
 export function readAgentRunMessagePartPage(

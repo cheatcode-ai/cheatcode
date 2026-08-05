@@ -28,7 +28,7 @@ export interface PersistAgentRunStatusInput {
   userId: string;
 }
 
-export function isTerminalPersistableRunStatus(
+function isTerminalPersistableRunStatus(
   status: PersistableRunStatus,
 ): status is Extract<PersistableRunStatus, "canceled" | "completed" | "failed"> {
   return status === "canceled" || status === "completed" || status === "failed";

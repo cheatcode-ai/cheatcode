@@ -83,8 +83,4 @@ export type {
   SandboxState,
   UIMessagePart,
 } from "./ui-message";
-export {
-  CHEATCODE_DATA_SCHEMAS,
-  ModelFallbackDataSchema,
-  parseMessagePart,
-} from "./ui-message";
+export { CHEATCODE_DATA_SCHEMAS, parseMessagePart } from "./ui-message";

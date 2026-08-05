@@ -1,109 +1,24 @@
-import type { AgentChunkType } from "@cheatcode/agent-core";
 import { type ArtifactKind, ArtifactKindSchema } from "@cheatcode/types/artifacts";
 import { TOOL_CAPABILITIES } from "@cheatcode/types/capabilities";
 import type { UIMessageChunk } from "ai";
 
-const ANSWER_TEXT_ID = "answer";
 const SANDBOX_TOOL_NAMES = capabilityNameSet("usesSandbox");
 const ARTIFACT_TOOL_NAMES = capabilityNameSet("producesArtifact");
 
-type ToolCallPayload = Extract<AgentChunkType, { type: "tool-call" }>["payload"];
-type ToolResultPayload = Extract<AgentChunkType, { type: "tool-result" }>["payload"];
-type ToolErrorPayload = Extract<AgentChunkType, { type: "tool-error" }>["payload"];
-type VisibleAgentChunk = Extract<
-  AgentChunkType,
-  { type: "text-delta" | "tool-call" | "tool-error" | "tool-result" }
->;
-type NonVisibleAgentChunk = Exclude<AgentChunkType, VisibleAgentChunk>;
-type PrivateOutputAgentChunk = Extract<
-  NonVisibleAgentChunk,
-  {
-    type:
-      | "file"
-      | "reasoning-delta"
-      | "reasoning-end"
-      | "reasoning-signature"
-      | "reasoning-start"
-      | "redacted-reasoning"
-      | "source";
-  }
->;
-type ControlAgentChunk = Exclude<NonVisibleAgentChunk, PrivateOutputAgentChunk>;
-
-export function mastraChunkToUiChunks(chunk: AgentChunkType): UIMessageChunk[] {
-  switch (chunk.type) {
-    case "text-delta":
-      return textDeltaChunks(chunk.payload.text);
-    case "tool-call":
-      return toolCallChunks(chunk.payload);
-    case "tool-result":
-      return toolResultChunks(chunk.payload);
-    case "tool-error":
-      return isSandboxTool(chunk.payload) ? [sandboxStatusChunk("ready")] : [];
-    default:
-      return nonVisibleMastraChunk(chunk);
-  }
+interface AgentToolCallUiPayload {
+  args?: unknown;
+  toolCallId: string;
+  toolName: string;
 }
 
-function nonVisibleMastraChunk(chunk: NonVisibleAgentChunk): UIMessageChunk[] {
-  switch (chunk.type) {
-    // Reasoning is intentionally private; binary/provider-source output must cross the
-    // bounded artifact tools instead of entering the transcript directly.
-    case "file":
-    case "reasoning-delta":
-    case "reasoning-end":
-    case "reasoning-signature":
-    case "reasoning-start":
-    case "redacted-reasoning":
-    case "source":
-      return [];
-    default:
-      return controlMastraChunk(chunk);
-  }
+interface AgentToolResultUiPayload extends AgentToolCallUiPayload {
+  result: unknown;
 }
 
-function controlMastraChunk(chunk: ControlAgentChunk): UIMessageChunk[] {
-  switch (chunk.type) {
-    // These lifecycle/control chunks either have a dedicated Cheatcode channel or carry no
-    // user-visible transcript data. Listing them makes a future Mastra union addition fail CI.
-    case "abort":
-    case "background-task-cancelled":
-    case "background-task-completed":
-    case "background-task-failed":
-    case "background-task-output":
-    case "background-task-progress":
-    case "background-task-resumed":
-    case "background-task-running":
-    case "background-task-started":
-    case "background-task-suspended":
-    case "error":
-    case "finish":
-    case "goal":
-    case "is-task-complete":
-    case "object":
-    case "object-result":
-    case "raw":
-    case "response-metadata":
-    case "start":
-    case "step-finish":
-    case "step-output":
-    case "step-start":
-    case "text-end":
-    case "text-start":
-    case "tool-call-delta":
-    case "tool-call-input-streaming-end":
-    case "tool-call-input-streaming-start":
-    case "tool-call-suspended":
-    case "tool-output":
-    case "tripwire":
-    case "watch":
-      return [];
-    default:
-      return [];
-  }
+interface AgentToolErrorUiPayload extends AgentToolCallUiPayload {
+  error: unknown;
 }
-
-function toolResultChunks(payload: ToolResultPayload): UIMessageChunk[] {
+export function agentToolResultUiChunks(payload: AgentToolResultUiPayload): UIMessageChunk[] {
   if (payload.toolName === "skill_create") {
     const skill = skillCreatedChunkFromResult(payload.result);
     return skill ? [skill] : [];
@@ -141,45 +56,6 @@ function skillCreatedChunkFromResult(result: unknown): UIMessageChunk | undefine
   };
 }
 
-export function mastraChunkError(chunk: AgentChunkType): unknown | null {
-  if (chunk.type !== "error") {
-    return null;
-  }
-  return chunk.payload.error ?? new Error("Unknown Mastra stream error.");
-}
-
-export function normalizeMastraStreamError(error: unknown): Error {
-  if (error instanceof Error) {
-    return error;
-  }
-  if (typeof error === "string") {
-    return new Error(error);
-  }
-  if (typeof error !== "object" || error === null) {
-    return new Error("Unknown Mastra stream error.");
-  }
-  const record = error as Record<string, unknown>;
-  const message =
-    stringField(record, "message") || stringField(record, "error") || "Mastra stream error.";
-  const normalized: Error & { status?: number; statusCode?: number } = new Error(message);
-  const status = record["status"];
-  const statusCode = record["statusCode"];
-  if (typeof status === "number") {
-    normalized.status = status;
-  }
-  if (typeof statusCode === "number") {
-    normalized.statusCode = statusCode;
-  }
-  return normalized;
-}
-
-function textDeltaChunks(text: string): UIMessageChunk[] {
-  if (text.length === 0) {
-    return [];
-  }
-  return [{ type: "text-delta", id: ANSWER_TEXT_ID, delta: text }];
-}
-
 function sandboxStatusChunk(status: "ready" | "starting"): UIMessageChunk {
   return {
     type: "data-sandbox-status",
@@ -192,7 +68,7 @@ const MAX_TOOL_INPUT_STRING = 256;
 
 // Surface every tool call as a transcript row (Cheatcode parity). Sandbox tools also drive
 // the Computer-panel status; non-sandbox tools only get the row.
-function toolCallChunks(payload: ToolCallPayload): UIMessageChunk[] {
+export function agentToolCallUiChunks(payload: AgentToolCallUiPayload): UIMessageChunk[] {
   const chunks: UIMessageChunk[] = [toolActivityChunk(payload)];
   if (SANDBOX_TOOL_NAMES.has(payload.toolName)) {
     chunks.push(sandboxStatusChunk("starting"));
@@ -200,7 +76,11 @@ function toolCallChunks(payload: ToolCallPayload): UIMessageChunk[] {
   return chunks;
 }
 
-function toolActivityChunk(payload: ToolCallPayload): UIMessageChunk {
+export function agentToolErrorUiChunks(payload: AgentToolErrorUiPayload): UIMessageChunk[] {
+  return isSandboxTool(payload) ? [sandboxStatusChunk("ready")] : [];
+}
+
+function toolActivityChunk(payload: AgentToolCallUiPayload): UIMessageChunk {
   const input = toolInputFromPayload(payload);
   return {
     type: "data-tool",
@@ -215,7 +95,9 @@ function toolActivityChunk(payload: ToolCallPayload): UIMessageChunk {
 
 // Keep the persisted part small: only scalar args, capped count + string length. The
 // transcript row needs the path/command/url/query, not the full (possibly huge) payload.
-function toolInputFromPayload(payload: ToolCallPayload): Record<string, unknown> | undefined {
+function toolInputFromPayload(
+  payload: AgentToolCallUiPayload,
+): Record<string, unknown> | undefined {
   const input = asRecord(payload.args);
   if (Object.keys(input).length > 0) {
     return truncateToolInput(input);
@@ -265,11 +147,11 @@ function stringField(record: Record<string, unknown>, key: string): string {
   return typeof value === "string" ? value : "";
 }
 
-function isSandboxTool(payload: ToolResultPayload | ToolErrorPayload): boolean {
+function isSandboxTool(payload: { toolName: string }): boolean {
   return SANDBOX_TOOL_NAMES.has(payload.toolName);
 }
 
-function isArtifactTool(payload: ToolResultPayload): boolean {
+function isArtifactTool(payload: { toolName: string }): boolean {
   return ARTIFACT_TOOL_NAMES.has(payload.toolName);
 }
 

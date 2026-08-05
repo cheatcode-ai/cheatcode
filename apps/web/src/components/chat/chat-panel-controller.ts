@@ -17,6 +17,7 @@ import { chatErrorMessage, createChatTransport } from "@/components/chat/chat-tr
 import {
   useConnectionStateSync,
   useFailedSubmissionRecovery,
+  useTerminalRunReconciliation,
   useVisibleStreamResume,
 } from "@/components/chat/use-chat-lifecycle";
 import { useChatSubmission } from "@/components/chat/use-chat-submission";
@@ -469,6 +470,12 @@ function useChatPanelEffects(
     activeRunId: input.activeRunId,
     resumeStream: shared.resumeStream,
     status: chat.status,
+  });
+  useTerminalRunReconciliation({
+    activeRunId: input.activeRunId,
+    persistedMessages: input.initialMessages ?? EMPTY_MESSAGES,
+    setMessages: chat.setMessages,
+    stopStream: chat.stop,
   });
   useFailedSubmissionRecovery({
     ...shared,

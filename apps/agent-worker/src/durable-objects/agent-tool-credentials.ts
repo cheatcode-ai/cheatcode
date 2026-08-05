@@ -14,17 +14,17 @@ export async function resolveAgentToolCredentials(input: {
   env: AgentRunEnv;
   logger: ReturnType<typeof createLogger>;
   run: StartRunInput;
-  setRunStage(stage: string): void;
+  setRunStage(stage: string): Promise<void>;
 }): Promise<AgentToolCredentials> {
-  input.setRunStage("Resolving research providers.");
+  await input.setRunStage("Resolving research providers.");
   const researchCredentials = await resolveResearchCredentials(input.env, input.run, input.logger);
-  input.setRunStage("Resolving Composio providers.");
+  await input.setRunStage("Resolving Composio providers.");
   const composioCredentials = await resolveComposioRuntimeCredentials(
     input.env,
     input.run,
     input.logger,
   );
-  input.setRunStage("Preparing Google tool access.");
+  await input.setRunStage("Preparing Google tool access.");
   const googleToolApiKeyResolver = createGoogleToolApiKeyResolver(
     input.env,
     input.run,

@@ -11,7 +11,7 @@ export function absentAgentRunOkResponse(): Response {
 }
 
 export function absentAgentRunWorkflowResponse(): Response {
-  return Response.json({ outcome: "deleted", status: "deleted" });
+  return Response.json({ outcome: "deleted" });
 }
 
 export function agentRunStreamCapacityResponse(): Response {

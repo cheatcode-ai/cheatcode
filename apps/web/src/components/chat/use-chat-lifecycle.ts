@@ -1,6 +1,7 @@
+import type { CheatcodeUIMessage } from "@cheatcode/types";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import {
   type PendingSubmission,
   reconcileFailedSubmission,
@@ -41,6 +42,31 @@ export function useVisibleStreamResume(input: {
       document.removeEventListener("visibilitychange", resumeVisibleStream);
     };
   }, [input.activeRunId, input.resumeStream, input.status]);
+}
+
+export function useTerminalRunReconciliation(input: {
+  activeRunId: null | string;
+  persistedMessages: CheatcodeUIMessage[];
+  setMessages: SetChatMessages;
+  stopStream: () => void;
+}): void {
+  const previousRunIdRef = useRef(input.activeRunId);
+  const isReconcilingRef = useRef(false);
+  useEffect(() => {
+    const previousRunId = previousRunIdRef.current;
+    previousRunIdRef.current = input.activeRunId;
+    if (input.activeRunId !== null) {
+      isReconcilingRef.current = false;
+      return;
+    }
+    if (previousRunId !== null) {
+      isReconcilingRef.current = true;
+      input.stopStream();
+    }
+    if (isReconcilingRef.current) {
+      input.setMessages(input.persistedMessages);
+    }
+  }, [input.activeRunId, input.persistedMessages, input.setMessages, input.stopStream]);
 }
 
 export function useFailedSubmissionRecovery(input: {

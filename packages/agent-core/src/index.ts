@@ -1,5 +1,3 @@
-export type { AgentChunkType } from "@mastra/core/stream";
-export { mastra } from "./mastra";
 export type { LlmProvider, LlmTransportSelection } from "./mastra/agents";
 export {
   DEFAULT_DEEPSEEK_MODEL_ID,
@@ -11,6 +9,11 @@ export type {
   ComposioQuotaMeter,
   ComposioQuotaResult,
 } from "./mastra/composio-context";
+export {
+  executeGeneralAgentTool,
+  type GeneralAgentToolCall,
+  generateGeneralAgentStep,
+} from "./mastra/durable-agent-step";
 export { createCodeRequestContext } from "./mastra/tool-defs/request-context";
 export type {
   UserSkillCreateInput,

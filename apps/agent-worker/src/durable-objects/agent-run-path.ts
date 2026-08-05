@@ -4,11 +4,10 @@ import type { UIMessageChunk } from "ai";
 import { restartMobilePreview, runAppBuilder, warmSandbox } from "./agent-run-app-builder";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
-import { type StreamDriverDeps, streamMastraRunWithFallback } from "./agent-run-stream-driver";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 
-export interface AgentRunPathOptions {
+export interface AppBuilderRunOptions {
   abortSignal: AbortSignal;
   append: (chunk: UIMessageChunk) => Promise<void>;
   env: AgentRunEnv;
@@ -16,8 +15,7 @@ export interface AgentRunPathOptions {
   isCanceled: () => boolean;
   logger: ReturnType<typeof createLogger>;
   sandbox: ProjectSandboxStub;
-  setRunStage: (stage: string) => void;
-  streamDriverDeps: StreamDriverDeps;
+  setRunStage: (stage: string) => Promise<void>;
   workspaceResolver: WorkspaceResolver;
 }
 
@@ -26,60 +24,48 @@ type ProjectBoundStartRunInput = StartRunInput & {
   workspaceSlug: string;
 };
 
-type ProjectBoundAgentRunPathOptions = AgentRunPathOptions & {
+type ProjectBoundAppBuilderRunOptions = AppBuilderRunOptions & {
   input: ProjectBoundStartRunInput;
 };
 
-export async function executeAgentRunPath(
-  options: AgentRunPathOptions,
-): Promise<"completed" | "continue"> {
-  const appBuilderMode = appBuilderModeForRun(options.input);
-  if (appBuilderMode) {
-    options.input.projectMode = appBuilderMode;
-    await options.workspaceResolver();
-    return executeAppBuilderPath({
-      ...options,
-      input: requireProjectBinding(options.input),
-    });
-  }
-  await streamMastraRunWithFallback(options.streamDriverDeps, options);
-  return options.isCanceled() ? "completed" : "continue";
+export interface PreparedAppBuilderRun {
+  agentContextNote?: string;
+  options: ProjectBoundAppBuilderRunOptions;
+  waitsForGeneratedPreview: boolean;
 }
 
-async function executeAppBuilderPath(
-  options: ProjectBoundAgentRunPathOptions,
-): Promise<"completed" | "continue"> {
-  await warmSandbox(options.sandbox, options.logger);
-  if (options.isCanceled()) {
-    return "completed";
+export async function prepareAppBuilderRun(
+  options: AppBuilderRunOptions,
+): Promise<PreparedAppBuilderRun | null> {
+  const appBuilderMode = appBuilderModeForRun(options.input);
+  if (!appBuilderMode) return null;
+  options.input.projectMode = appBuilderMode;
+  await options.workspaceResolver();
+  const boundOptions = { ...options, input: requireProjectBinding(options.input) };
+  await warmSandbox(boundOptions.sandbox, boundOptions.logger);
+  if (boundOptions.isCanceled()) {
+    return { options: boundOptions, waitsForGeneratedPreview: false };
   }
-  const { agentContextNote, waitsForGeneratedPreview } = await runAppBuilder(options);
-  if (options.isCanceled()) {
-    return "completed";
-  }
-  await streamMastraRunWithFallback(options.streamDriverDeps, {
-    abortSignal: options.abortSignal,
-    ...(agentContextNote === undefined ? {} : { agentContextNote }),
-    input: options.input,
-    logger: options.logger,
-    sandbox: options.sandbox,
-    workspaceResolver: options.workspaceResolver,
-  });
-  if (options.isCanceled()) {
-    return "completed";
-  }
+  const prepared = await runAppBuilder(boundOptions);
+  return { ...prepared, options: boundOptions };
+}
+
+export async function finalizeAppBuilderRun(prepared: {
+  options: AppBuilderRunOptions;
+  waitsForGeneratedPreview: boolean;
+}): Promise<void> {
+  const options = { ...prepared.options, input: requireProjectBinding(prepared.options.input) };
   await restartMobilePreviewIfNeeded(options);
-  if (waitsForGeneratedPreview) {
+  if (prepared.waitsForGeneratedPreview) {
     await options.append({
       type: "data-app-preview-status",
       data: { v: 1, status: "ready" },
     });
   }
-  return "continue";
 }
 
 async function restartMobilePreviewIfNeeded(
-  options: ProjectBoundAgentRunPathOptions,
+  options: ProjectBoundAppBuilderRunOptions,
 ): Promise<void> {
   if (options.input.projectMode !== "app-builder-mobile") {
     return;
