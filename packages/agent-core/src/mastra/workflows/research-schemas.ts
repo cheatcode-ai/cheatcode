@@ -41,7 +41,7 @@ export const ResearchReportSchema = z.strictObject({
 });
 
 export const ResearchQuerySchema = z.strictObject({
-  query: z.string().trim().min(1).max(2_000),
+  query: z.string().trim().min(1).max(1_000),
 });
 
 export const DeepResearchInputSchema = z.strictObject({
@@ -65,7 +65,14 @@ export const DeepResearchInputSchema = z.strictObject({
 });
 
 export const DeepResearchFanoutInputSchema = z.strictObject({
-  entities: z.array(z.string().trim().min(1).max(200)).min(1).max(12).optional(),
+  entities: z
+    .array(z.string().trim().min(1).max(200))
+    .min(1)
+    .max(12)
+    .optional()
+    .describe(
+      "Optional array of separate short entity names; never combine entities into one string.",
+    ),
   goal: z.string().trim().min(1).max(2_000),
   maxQueries: z.number().int().min(1).max(12).default(10),
 });

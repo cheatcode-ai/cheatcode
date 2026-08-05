@@ -279,7 +279,7 @@ export const mastraDeepResearch = createTool({
 export const mastraResearchFanout = createTool({
   id: "research_fanout",
   description:
-    "Run the Deep Research fan-out workflow across multiple entities or angles. It returns a cited comparison report and saves the complete report as a PDF deliverable in the project.",
+    "Run Deep Research across four or more independent entities or genuinely separate angles. Pass entities as an array of separate short names. For comparisons of a few sources or standards within one topic, use research_deep. The workflow returns a cited comparison report and saves the complete report as a PDF deliverable in the project.",
   inputSchema: DeepResearchFanoutInputSchema,
   outputSchema: ResearchReportArtifactSchema,
   execute: async (input, context) => {
