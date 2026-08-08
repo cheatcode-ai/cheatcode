@@ -73,7 +73,7 @@ const nextConfig = {
       {
         headers: [
           { key: "Content-Security-Policy", value: CONTENT_SECURITY_POLICY },
-          { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+          { key: "Cross-Origin-Opener-Policy", value: "same-origin" },
           { key: "Origin-Agent-Cluster", value: "?1" },
           { key: "Permissions-Policy", value: "camera=(), geolocation=(), microphone=()" },
           { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },

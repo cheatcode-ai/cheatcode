@@ -95,6 +95,10 @@ The production CSP admits the exact validated `NEXT_PUBLIC_GATEWAY_URL`; a real 
 Production build pins that value to `https://gateway.trycheatcode.com`, while optimized
 local QA can use its loopback Wrangler origin.
 Production additionally admits only Vercel's exact immutable deployment origin.
+Google and other social authentication uses Clerk's full-page redirect flow. The callback therefore
+finishes through one authoritative navigation instead of a popup attempting to replace the anonymous
+client tree after its server identity has changed. Production can keep `Cross-Origin-Opener-Policy`
+at `same-origin`; no authentication flow depends on a cross-origin opener relationship.
 
 ## Deploy
 
