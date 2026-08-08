@@ -81,6 +81,11 @@ provider keys and sandbox capabilities are reacquired inside the active step and
 Workflow storage. A Worker isolate or Durable Object eviction therefore resumes from the last
 completed step instead of losing an in-memory coroutine. Transcript publication uses deterministic
 event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
+Preparation uses a multi-minute durable exponential-backoff window for transient provider
+failures. Daytona's explicit host-recovery start rejection is treated as a runtime failover signal:
+after the active-run lease and canonical volume mount are verified, the stopped container is
+replaced on the same isolated workspace-volume subpath. This preserves user files while avoiding
+an indefinite dependency on one unhealthy runner.
 There is no application step, token, duration, or cost ceiling; semantic completion ends the loop,
 while per-operation timeouts and the platform Workflow limit remain operational safeguards.
 The Worker pins Cloudflare's paid-plan maximum subrequest allowance because external provider,

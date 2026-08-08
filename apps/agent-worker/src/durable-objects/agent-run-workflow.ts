@@ -47,7 +47,10 @@ import {
   WorkflowToolStepResultSchema,
 } from "./agent-run-workflow-runtime";
 
-const PREPARE_STEP = stepConfig("10 minutes", 3);
+// A stopped Daytona sandbox can temporarily reject starts while its host recovers.
+// Keep that provider recovery inside the durable preparation step so a transient
+// host event does not become a user-visible failed run.
+const PREPARE_STEP = stepConfig("10 minutes", 6);
 const MODEL_STEP = stepConfig("5 minutes", 3);
 const TOOL_STEP = stepConfig("15 minutes", 2);
 const STATE_STEP = stepConfig("2 minutes", 5);

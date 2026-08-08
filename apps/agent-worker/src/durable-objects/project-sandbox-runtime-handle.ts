@@ -1,4 +1,8 @@
-import { DaytonaClient, type DaytonaSandbox } from "@cheatcode/agent-core/tools/code";
+import {
+  DaytonaClient,
+  type DaytonaSandbox,
+  isDaytonaHostRecoveryStartError,
+} from "@cheatcode/agent-core/tools/code";
 import { previewHostnameForWorker, resolveWorkerSecret } from "@cheatcode/env";
 import { APIError, createLogger } from "@cheatcode/observability";
 import { performAccountDeletion } from "./project-sandbox-account-deletion";
@@ -58,6 +62,8 @@ interface RuntimeState {
   isSandboxRuntimeUpdateInProgress: boolean;
   workspaceState: ProjectSandboxWorkspaceState | undefined;
 }
+
+type RuntimeReplacementReason = "configuration_changed" | "daytona_host_recovery";
 
 interface SandboxLeaseRuntime {
   withCleanupSignal: <Result>(operation: () => Promise<Result>) => Promise<Result | undefined>;
@@ -265,11 +271,21 @@ async function ensureSandbox(state: RuntimeState, startingRunId?: string): Promi
   if (state.cache.sandboxId && Date.now() - state.cache.startedVerifiedAtMs < STARTED_REVERIFY_MS) {
     return state.cache.sandboxId;
   }
-  const resolved = await inspectSandbox(state);
-  if (typeof resolved === "string") {
-    return resolved;
+  try {
+    const resolved = await inspectSandbox(state);
+    if (typeof resolved === "string") {
+      return resolved;
+    }
+    return replaceSandboxRuntime(state, startingRunId, "configuration_changed");
+  } catch (error) {
+    if (!isDaytonaHostRecoveryStartError(error)) {
+      throw error;
+    }
+    createLogger().warn("sandbox_host_recovery_failover_started", {
+      sandboxId: state.identity.sandboxName(),
+    });
+    return replaceSandboxRuntime(state, startingRunId, "daytona_host_recovery");
   }
-  return replaceSandboxRuntime(state, startingRunId);
 }
 
 async function restartSandboxForWorkspaceRecovery(
@@ -376,7 +392,11 @@ async function activateResolvedSandbox(
   return resolved.id;
 }
 
-async function replaceSandboxRuntime(state: RuntimeState, startingRunId?: string): Promise<string> {
+async function replaceSandboxRuntime(
+  state: RuntimeState,
+  startingRunId: string | undefined,
+  reason: RuntimeReplacementReason,
+): Promise<string> {
   if (state.isSandboxRuntimeUpdateInProgress) {
     throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
   }
@@ -391,8 +411,8 @@ async function replaceSandboxRuntime(state: RuntimeState, startingRunId?: string
       let resolved: DaytonaSandbox;
       try {
         resolved = await state.provisioning.resolve(daytona);
-        if (!state.provisioning.isDesired(resolved)) {
-          resolved = await replaceSandboxRuntimeExclusive(state, daytona, resolved);
+        if (reason === "daytona_host_recovery" || !state.provisioning.isDesired(resolved)) {
+          resolved = await replaceSandboxRuntimeExclusive(state, daytona, resolved, reason);
         }
       } catch (error) {
         throw toUpstreamError(
@@ -412,6 +432,7 @@ async function replaceSandboxRuntimeExclusive(
   state: RuntimeState,
   daytona: DaytonaClient,
   current: DaytonaSandbox,
+  reason: RuntimeReplacementReason,
 ): Promise<DaytonaSandbox> {
   state.provisioning.assertRuntimeReplacementSafe(current);
   await prepareForSandboxReplacement(state);
@@ -421,6 +442,7 @@ async function replaceSandboxRuntimeExclusive(
     throw sandboxRuntimeUpdatePending(state.env.DAYTONA_SANDBOX_SNAPSHOT);
   }
   createLogger().info("sandbox_runtime_replaced", {
+    reason,
     sandboxId: state.identity.sandboxName(),
     snapshot: state.env.DAYTONA_SANDBOX_SNAPSHOT,
   });
