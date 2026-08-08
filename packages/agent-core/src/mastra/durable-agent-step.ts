@@ -4,6 +4,17 @@ import { z } from "zod";
 import { mastra } from "./index";
 import { cheatcodeTools } from "./tool-defs/tool-set";
 
+export const GeneralAgentFinishReasonSchema = z.enum([
+  "stop",
+  "length",
+  "content-filter",
+  "tool-calls",
+  "error",
+  "other",
+]);
+
+type GeneralAgentFinishReason = z.infer<typeof GeneralAgentFinishReasonSchema>;
+
 export interface GeneralAgentToolCall {
   input: JSONValue;
   toolCallId: string;
@@ -11,7 +22,7 @@ export interface GeneralAgentToolCall {
 }
 
 interface GeneralAgentStepResult {
-  finishReason: string;
+  finishReason: GeneralAgentFinishReason;
   responseMessages: JSONValue[];
   text: string;
   toolCalls: GeneralAgentToolCall[];
@@ -51,7 +62,7 @@ export async function generateGeneralAgentStep(
     runId: options.runId,
   });
   return {
-    finishReason: result.finishReason ?? "unknown",
+    finishReason: GeneralAgentFinishReasonSchema.parse(result.finishReason),
     responseMessages: toJsonValues(result.response.messages ?? []),
     text: result.text,
     toolCalls: result.toolCalls.map((call) => ({

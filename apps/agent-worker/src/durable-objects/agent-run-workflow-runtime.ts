@@ -1,5 +1,6 @@
 import {
   executeGeneralAgentTool,
+  GeneralAgentFinishReasonSchema,
   type GeneralAgentToolCall,
   generateGeneralAgentStep,
 } from "@cheatcode/agent-core";
@@ -87,7 +88,7 @@ export const WorkflowModelStepResultSchema = z.strictObject({
   input: StartRunInputSchema,
   logicalModelId: LogicalModelIdSchema,
   step: z.strictObject({
-    finishReason: z.string(),
+    finishReason: GeneralAgentFinishReasonSchema,
     responseMessages: z.array(WorkflowJsonValueSchema),
     text: z.string(),
     toolCalls: z.array(WorkflowToolCallSchema),

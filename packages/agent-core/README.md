@@ -7,6 +7,7 @@ Mastra agents, tool registry, and workflow entrypoints.
 - `createCodeRequestContext`
 - `generateGeneralAgentStep` and `executeGeneralAgentTool` for Cloudflare
   Workflow-owned, step-granular agent execution
+- `GeneralAgentFinishReasonSchema`, the validated model-turn completion contract
 - runtime credential and model contracts consumed by `agent-worker`
 
 The tool and agent registries are statically constrained by the lightweight
