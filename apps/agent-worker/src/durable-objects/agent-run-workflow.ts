@@ -1,6 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
+  APIError,
   createLogger,
   emitErrorEvent,
   emitUserEvent,
@@ -57,6 +58,20 @@ const STATE_STEP = stepConfig("2 minutes", 5);
 const CLEANUP_STEP = stepConfig("5 minutes", 5);
 const FAILURE_STEP = stepConfig("2 minutes", AGENT_RUN_WORKFLOW_FAILURE_RETRY_LIMIT);
 const JsonValueSchema = z.json();
+const MODEL_LENGTH_CONTINUATION_MESSAGE: ModelMessage = {
+  role: "user",
+  content: [
+    {
+      type: "text",
+      text: [
+        "The provider ended your previous turn at its per-response output limit.",
+        "Continue the unfinished work from the current state without repeating completed work.",
+        "If a tool call was interrupted, split the remaining operation into smaller complete tool calls.",
+        "Do not claim completion until the requested outcome has been verified.",
+      ].join(" "),
+    },
+  ],
+};
 
 interface AgentRunWorkflowEnv extends AgentRunEnv, AgentRunWorkflowBindings {
   AGENT_RUN: DurableObjectNamespace<AgentRun>;
@@ -185,6 +200,11 @@ async function runAgentLoop(
       stepIndex,
     );
     if (model.step.toolCalls.length === 0) {
+      if (model.step.finishReason === "length") {
+        state = continueTruncatedModelTurn(state);
+        continue;
+      }
+      requireSemanticCompletion(model.step.finishReason);
       await publishClosingBackstopIfNeeded(env, workflowStep, workflowInstanceId, payload, state);
       return;
     }
@@ -217,6 +237,23 @@ async function runAgentLoop(
       return;
     }
   }
+}
+
+function continueTruncatedModelTurn(state: WorkflowAgentState): WorkflowAgentState {
+  return WorkflowAgentStateSchema.parse({
+    ...state,
+    messages: [...state.messages, workflowJsonValue(MODEL_LENGTH_CONTINUATION_MESSAGE)],
+  });
+}
+
+function requireSemanticCompletion(
+  finishReason: WorkflowModelStepResult["step"]["finishReason"],
+): void {
+  if (finishReason === "stop") return;
+  throw new APIError(502, "upstream_llm_failed", "The model stopped before completing the run.", {
+    details: { finishReason },
+    retriable: finishReason !== "content-filter",
+  });
 }
 
 async function executeModelWorkflowStep(input: {

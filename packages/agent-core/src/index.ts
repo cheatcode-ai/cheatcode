@@ -11,6 +11,7 @@ export type {
 } from "./mastra/composio-context";
 export {
   executeGeneralAgentTool,
+  GeneralAgentFinishReasonSchema,
   type GeneralAgentToolCall,
   generateGeneralAgentStep,
 } from "./mastra/durable-agent-step";

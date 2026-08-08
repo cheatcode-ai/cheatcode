@@ -87,6 +87,10 @@ the Daytona adapter normalizes the provider's structured `503` response to an in
 then the lifecycle verifies the active-run lease and canonical volume mount before replacing the
 stopped container on the same isolated workspace-volume subpath. This preserves user files while
 avoiding an indefinite dependency on one unhealthy runner.
+Provider output-length termination is nonterminal: the Workflow checkpoints the partial model turn,
+adds an internal continuation message, and resumes from that durable state. A tool-free turn completes
+the run only when the model reports an actual stop; content filtering, provider errors, and invalid
+terminal reasons fail explicitly instead of publishing incomplete work as success.
 There is no application step, token, duration, or cost ceiling; semantic completion ends the loop,
 while per-operation timeouts and the platform Workflow limit remain operational safeguards.
 The Worker pins Cloudflare's paid-plan maximum subrequest allowance because external provider,
