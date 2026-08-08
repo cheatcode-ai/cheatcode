@@ -34,8 +34,17 @@ const DAYTONA_FILE_LIST_MAX_ITEMS = 1_000;
 const DAYTONA_SANDBOX_PAGE_MAX_ITEMS = 100;
 const DAYTONA_SESSION_COMMAND_MAX_ITEMS = 1_000;
 const DAYTONA_VOLUME_NAME_MAX_CHARACTERS = 100;
-const DAYTONA_HOST_RECOVERY_START_MESSAGE =
+const DAYTONA_HOST_RECOVERY_ERROR_CODE = "daytona_host_recovering";
+const DAYTONA_HOST_RECOVERY_MESSAGE_PREFIX =
   "sandbox start is temporarily unavailable while the sandbox's host recovers";
+
+const DaytonaErrorResponseSchema = z
+  .object({
+    error: z.string(),
+    message: z.string(),
+    statusCode: z.number().int(),
+  })
+  .strip();
 
 interface DaytonaClientConfig {
   apiKey: string;
@@ -75,7 +84,7 @@ export function isDaytonaHostRecoveryStartError(error: unknown): boolean {
     if (
       current instanceof DaytonaApiError &&
       current.status === 503 &&
-      current.message.toLowerCase().includes(DAYTONA_HOST_RECOVERY_START_MESSAGE)
+      current.code === DAYTONA_HOST_RECOVERY_ERROR_CODE
     ) {
       return true;
     }
@@ -655,6 +664,7 @@ export class DaytonaClient {
 }
 
 async function toApiError(res: Response, operation?: string): Promise<DaytonaApiError> {
+  let code: string | undefined;
   let details: unknown;
   let message = `Daytona request failed (HTTP ${res.status}${operation ? `; ${operation}` : ""})`;
   try {
@@ -662,6 +672,7 @@ async function toApiError(res: Response, operation?: string): Promise<DaytonaApi
     if (text.length > 0) {
       try {
         const parsed: unknown = JSON.parse(text);
+        code = providerErrorCode(parsed, res.status);
         details = parsed;
         message = providerErrorMessage(parsed) ?? message;
       } catch {
@@ -671,7 +682,25 @@ async function toApiError(res: Response, operation?: string): Promise<DaytonaApi
   } catch {
     // ignore body read failures
   }
-  return new DaytonaApiError(res.status, message, { details });
+  return new DaytonaApiError(res.status, message, {
+    ...(code ? { code } : {}),
+    details,
+  });
+}
+
+function providerErrorCode(value: unknown, responseStatus: number): string | undefined {
+  const result = DaytonaErrorResponseSchema.safeParse(value);
+  if (!result.success) return undefined;
+  const providerError = result.data;
+  if (
+    responseStatus === 503 &&
+    providerError.statusCode === 503 &&
+    providerError.error === "Service Unavailable" &&
+    providerError.message.toLowerCase().startsWith(DAYTONA_HOST_RECOVERY_MESSAGE_PREFIX)
+  ) {
+    return DAYTONA_HOST_RECOVERY_ERROR_CODE;
+  }
+  return undefined;
 }
 
 function providerErrorMessage(value: unknown): string | undefined {
