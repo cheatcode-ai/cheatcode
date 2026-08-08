@@ -122,10 +122,12 @@ streams. The Workflow controller owns admission, callback identity, and cancella
 retains only durable run identity, status, transcript, cancellation, and dependency wiring.
 
 An explicit app-builder mode remains authoritative. In a projectless chat, a narrowly
-matched imperative such as “build a website” or “create a mobile app” also enters the matching
-app-builder path before model execution. That high-confidence fallback materializes the project,
-scaffolds its canonical workspace, and registers the managed preview even when the selected model
-would otherwise attempt generic shell work and finish without a Computer target.
+matched imperative such as “build a website,” “create a pomodoro app,” or “create a mobile app”
+also enters the matching app-builder path before model execution. A generic app defaults to the
+web path unless the request carries an explicit mobile or non-web runtime signal. That
+high-confidence fallback materializes the project, scaffolds its canonical workspace, and
+registers the managed preview even when the selected model would otherwise attempt generic shell
+work and finish without a Computer target.
 The starter page is an internal server-readiness target, not user-facing generated content. A
 fresh template run emits the typed `app-preview-status` transition from `building` to `ready` only
 after model execution (and the mobile preview restart, when applicable), so the web client can keep

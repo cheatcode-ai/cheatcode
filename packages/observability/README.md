@@ -41,6 +41,9 @@ Error Analytics Engine rows intentionally contain only categorical metadata.
 Raw error messages and stack traces are never written to Analytics Engine, and
 the structured logger suppresses error-message, stack, SQL, parameter, body,
 prompt, content, and command-output fields at its sink.
+Agent Workflow terminal failures and pre-tool infrastructure failures emit run-scoped rows through
+this same safe projection, so an exhausted retry retains source and cause classifications without
+persisting prompts, commands, provider responses, or credentials.
 
 ## Code Checks
 
