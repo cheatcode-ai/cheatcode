@@ -54,10 +54,10 @@ export async function rotateSkillRuntimeCapabilities(
     const retained = StoredSkillRuntimeCapabilitiesSchema.parse(run.capabilities).filter(
       (capability) => capability.expiresAt > input.now,
     );
-    const capabilities = StoredSkillRuntimeCapabilitiesSchema.parse([
-      ...retained,
-      ...input.capabilities,
-    ]).slice(-MAX_STORED_CAPABILITIES_PER_RUN);
+    const next = StoredSkillRuntimeCapabilitiesSchema.parse(input.capabilities);
+    const capabilities = StoredSkillRuntimeCapabilitiesSchema.parse(
+      [...retained, ...next].slice(-MAX_STORED_CAPABILITIES_PER_RUN),
+    );
     const [updated] = await tx
       .update(agentRuns)
       .set({ skillRuntimeCapabilities: capabilities })

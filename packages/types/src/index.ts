@@ -31,7 +31,7 @@ export {
 } from "./billing";
 export type { AgentCapabilityName, ToolCapabilityName } from "./capabilities";
 export type { ErrorCode } from "./errors";
-export { ErrorResponseSchema } from "./errors";
+export { ErrorCodeSchema, ErrorResponseSchema } from "./errors";
 export type { AgentRunId, ProjectId, ThreadId, UserId } from "./ids";
 export { toAgentRunId, toProjectId, toThreadId, toUserId } from "./ids";
 export type { IntegrationName } from "./integrations";

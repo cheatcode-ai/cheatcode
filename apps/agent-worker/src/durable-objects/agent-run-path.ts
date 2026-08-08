@@ -97,6 +97,9 @@ const IMPERATIVE_BUILD_PATTERN =
 const MOBILE_APP_PATTERN = /\b(?:mobile app|expo|react native|ios app|android app|iphone app)\b/iu;
 const WEB_APP_PATTERN =
   /\b(?:web ?app|website|web ?site|landing ?page|home ?page|web ?page|dashboard|next\.?js|frontend|front-end|saas)\b/iu;
+const GENERIC_APP_PATTERN = /\b(?:app|application)\b/iu;
+const NON_WEB_APP_PATTERN =
+  /\b(?:api|backend|cli|command[ -]line|desktop|electron|library|macos|server|terminal|windows)\b/iu;
 
 function appBuilderModeForRun(input: StartRunInput): "app-builder" | "app-builder-mobile" | null {
   if (isAppBuilderMode(input.projectMode)) {
@@ -108,5 +111,10 @@ function appBuilderModeForRun(input: StartRunInput): "app-builder" | "app-builde
   if (MOBILE_APP_PATTERN.test(input.messageText)) {
     return "app-builder-mobile";
   }
-  return WEB_APP_PATTERN.test(input.messageText) ? "app-builder" : null;
+  if (WEB_APP_PATTERN.test(input.messageText)) {
+    return "app-builder";
+  }
+  return GENERIC_APP_PATTERN.test(input.messageText) && !NON_WEB_APP_PATTERN.test(input.messageText)
+    ? "app-builder"
+    : null;
 }

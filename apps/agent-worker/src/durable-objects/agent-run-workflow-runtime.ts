@@ -3,7 +3,13 @@ import {
   type GeneralAgentToolCall,
   generateGeneralAgentStep,
 } from "@cheatcode/agent-core";
-import { createLogger, emitUserEvent, readBoundedResponseJson } from "@cheatcode/observability";
+import {
+  createLogger,
+  emitErrorEvent,
+  emitUserEvent,
+  readBoundedResponseJson,
+  safeErrorTelemetry,
+} from "@cheatcode/observability";
 import type { ArtifactRuntime, WorkspaceResolver } from "@cheatcode/sandbox-contracts";
 import {
   FALLBACK_MODEL_ID,
@@ -21,6 +27,7 @@ import { storeAgentArtifact } from "./agent-run-artifacts";
 import { loadThreadModelContext } from "./agent-run-conversation";
 import { restoreReferencedDeliverables } from "./agent-run-deliverables";
 import type { AgentRunEnv } from "./agent-run-env";
+import { toAgentRunStreamError } from "./agent-run-errors";
 import {
   createAgentRequestContext,
   type MastraContextOptions,
@@ -211,24 +218,56 @@ export async function executeWorkflowToolStep(
     userId: input.userId,
   });
   const sandbox = sandboxFor(env, input);
-  await sandbox.renewRun(input.runId);
-  await stub.waitForBrowserTakeover(callback);
-  return guardSkillRuntimeCapabilities({
-    env,
-    logger,
-    operation: () =>
-      executePreparedWorkflowTool({
-        callback,
-        env,
-        input,
-        logger,
-        sandbox,
-        selectedLogicalModelId: state.selectedLogicalModelId,
-        stub,
-        toolCall,
-      }),
-    run: input,
-    sandbox,
+  try {
+    await sandbox.renewRun(input.runId);
+    await stub.waitForBrowserTakeover(callback);
+    return await guardSkillRuntimeCapabilities({
+      env,
+      logger,
+      operation: () =>
+        executePreparedWorkflowTool({
+          callback,
+          env,
+          input,
+          logger,
+          sandbox,
+          selectedLogicalModelId: state.selectedLogicalModelId,
+          stub,
+          toolCall,
+        }),
+      run: input,
+      sandbox,
+    });
+  } catch (error) {
+    recordToolStepInfrastructureFailure(env, input, toolCall, error, logger);
+    throw error;
+  }
+}
+
+function recordToolStepInfrastructureFailure(
+  env: AgentRunEnv,
+  input: StartRunInput,
+  toolCall: GeneralAgentToolCall,
+  error: unknown,
+  logger: ReturnType<typeof createLogger>,
+): void {
+  const failure = toAgentRunStreamError(error);
+  const telemetry = safeErrorTelemetry(error);
+  emitErrorEvent(env, {
+    errorCategory: "agent_run_tool_step",
+    errorCode: failure.code,
+    route: "agent-run-workflow/tool-step",
+    runId: input.runId,
+    userId: input.userId,
+    workerName: "agent-worker",
+    ...(env.CHEATCODE_RELEASE_SHA ? { versionTag: env.CHEATCODE_RELEASE_SHA } : {}),
+    ...telemetry,
+  });
+  logger.error("agent_run_tool_step_failed", {
+    failureCode: failure.code,
+    toolCallId: toolCall.toolCallId,
+    toolName: toolCall.toolName,
+    ...telemetry,
   });
 }
 

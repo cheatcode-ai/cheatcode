@@ -1,9 +1,12 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
 import {
+  createLogger,
+  emitErrorEvent,
   emitUserEvent,
   readBoundedResponseJson,
   readBoundedResponseText,
+  safeErrorTelemetry,
 } from "@cheatcode/observability";
 import type { ModelMessage, ToolResultPart, UIMessageChunk } from "ai";
 import { z } from "zod";
@@ -92,6 +95,7 @@ export class AgentRunWorkflow extends WorkflowEntrypoint<
       return { status: "completed" };
     } catch (error) {
       const failure = toAgentRunStreamError(error);
+      recordWorkflowFailure(this.env, payload, event.instanceId, failure, error);
       await step.do("fail AgentRun", FAILURE_STEP, () =>
         failAgentRun(this.env, event.instanceId, payload, failure),
       );
@@ -102,6 +106,35 @@ export class AgentRunWorkflow extends WorkflowEntrypoint<
       );
     }
   }
+}
+
+function recordWorkflowFailure(
+  env: AgentRunWorkflowEnv,
+  payload: AgentRunWorkflowPayload,
+  workflowInstanceId: string,
+  failure: ReturnType<typeof toAgentRunStreamError>,
+  error: unknown,
+): void {
+  const telemetry = safeErrorTelemetry(error);
+  emitErrorEvent(env, {
+    errorCategory: "agent_run_workflow",
+    errorCode: failure.code,
+    route: "agent-run-workflow",
+    runId: payload.input.runId,
+    userId: payload.input.userId,
+    workerName: "agent-worker",
+    ...(env.CHEATCODE_RELEASE_SHA ? { versionTag: env.CHEATCODE_RELEASE_SHA } : {}),
+    ...telemetry,
+  });
+  createLogger({
+    runId: payload.input.runId,
+    threadId: payload.input.threadId,
+    userId: payload.input.userId,
+  }).error("agent_run_workflow_failed", {
+    failureCode: failure.code,
+    workflowInstanceId,
+    ...telemetry,
+  });
 }
 
 export async function admitAgentRunWorkflow(
