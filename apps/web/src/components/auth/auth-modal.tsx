@@ -7,6 +7,10 @@ import { clerkAuthAppearance } from "./clerk-auth-appearance";
 
 export type AuthMode = "sign-in" | "sign-up";
 
+// OAuth changes the authenticated server identity. A full-page redirect gives Clerk and Next.js
+// one authoritative navigation instead of reconciling a popup callback into an anonymous tree.
+const AUTH_OAUTH_FLOW = "redirect" as const;
+
 interface AuthModalProps {
   open: boolean;
   id?: string | undefined;
@@ -75,7 +79,7 @@ function AuthModalContent({
           appearance={clerkAuthAppearance}
           fallbackRedirectUrl={redirectPath}
           forceRedirectUrl={redirectPath}
-          oauthFlow="popup"
+          oauthFlow={AUTH_OAUTH_FLOW}
           routing="hash"
         />
       ) : (
@@ -83,7 +87,7 @@ function AuthModalContent({
           appearance={clerkAuthAppearance}
           fallbackRedirectUrl={redirectPath}
           forceRedirectUrl={redirectPath}
-          oauthFlow="popup"
+          oauthFlow={AUTH_OAUTH_FLOW}
           routing="hash"
         />
       )}
