@@ -18,6 +18,7 @@ const MAX_BROWSER_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const MAX_BROWSER_SCREENSHOT_BASE64_CHARACTERS = Math.ceil(MAX_BROWSER_SCREENSHOT_BYTES / 3) * 4;
 const DRIVER_REQUEST_OVERHEAD_MS = 30_000;
 const DRIVER_REQUEST_MAX_MS = 600_000;
+const DRIVER_HEALTH_TIMEOUT_MS = 5_000;
 
 interface BrowserDriverConnection {
   authToken: string;
@@ -440,7 +441,13 @@ async function browserDriverServerIsHealthy(
   connection: BrowserDriverConnection,
 ): Promise<boolean> {
   try {
-    const result = await requestBrowserDriver(null, "/health", runtimeContext, connection, 90_000);
+    const result = await requestBrowserDriver(
+      null,
+      "/health",
+      runtimeContext,
+      connection,
+      DRIVER_HEALTH_TIMEOUT_MS,
+    );
     const parsed = BrowserDriverHealthSchema.safeParse(result.body);
     return (
       result.success &&
