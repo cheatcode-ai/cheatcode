@@ -83,6 +83,10 @@ completed step instead of losing an in-memory coroutine. Transcript publication 
 event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
 There is no application step, token, duration, or cost ceiling; semantic completion ends the loop,
 while per-operation timeouts and the platform Workflow limit remain operational safeguards.
+The Worker pins Cloudflare's paid-plan maximum subrequest allowance because external provider,
+Daytona, Hyperdrive, R2, and Durable Object requests share one Workflow-instance budget. That
+platform transport budget must accommodate the configured 25,000 durable steps rather than become
+an earlier, workload-dependent product limit.
 Successful deep-research tools are terminal response producers: the Workflow suppresses the model's
 pre-tool narration, publishes the tool's validated canonical Markdown directly as the assistant text,
 and completes without asking a second model turn to copy or summarize it. The same Markdown is the
