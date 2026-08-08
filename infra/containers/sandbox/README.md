@@ -110,14 +110,16 @@ Stagehand currently resolves `@ai-sdk/provider-utils` 3.0.29. That release conta
 the bounded JSON-response reader that Vercel shipped in 3.0.28. GitHub's current
 `GHSA-866g-f22w-33x8` range nevertheless marks every 3.x version through 3.0.97
 affected, so `npm audit` reports the resulting low-severity transitive paths. The
-driver independently caps every non-streaming provider response and restricts
-Node fetches to the exact selected Anthropic, Google, or OpenAI API hostname,
-containing both that resource-consumption surface and the related download-URL
-SSRF advisory. Chromium navigation remains inside the isolated sandbox and does
-not use this provider transport. Keep the exception visible and reassess it with
-each Stagehand/AI SDK release; do not apply npm's suggested breaking Stagehand
-downgrade. Static checks fail on moderate-or-higher findings across every
-sandbox lock without hiding this low-severity report.
+driver injects a bounded, provider-scoped fetch implementation into Stagehand's
+AI SDK client and restricts it to the exact selected Anthropic, Google, or OpenAI
+API hostname, containing both that resource-consumption surface and the related
+download-URL SSRF advisory. The driver owns Chromium's lifecycle explicitly and
+uses the native transport only for its validated loopback CDP connection;
+Chromium navigation does not use the provider transport. Keep the exception
+visible and reassess it with each Stagehand/AI SDK release; do not apply npm's
+suggested breaking Stagehand downgrade. Static checks fail on
+moderate-or-higher findings across every sandbox lock without hiding this
+low-severity report.
 
 Snapshot publication builds and scans the exact local AMD64 image before pushing it
 to Daytona. Trivy fails on every fixable medium-or-higher vulnerability and every
@@ -137,8 +139,9 @@ user-programmable sandbox. Project commands run as `node`; only the immutable
 launcher may be started through the narrow sudo rule, and that launcher drops to
 the separate `cheatcode-browser` Unix user. The Agent Worker sends the
 request-scoped model key and driver bearer token once over the Daytona session's
-stdin. They are never command arguments, environment variables, workspace files,
-or persisted process metadata. The driver runs from its mode-0700 home with core
+stdin after terminal echo is disabled. They are never command arguments,
+environment variables, workspace files, session logs, or persisted process
+metadata. The driver runs from its mode-0700 home with core
 dumps disabled, deletes provider-key environment names defensively, expires
 after 55 minutes, and requires both the bearer token and run ID. Worker calls
 reach it through a short-lived Daytona-signed port URL; arbitrary workspace code

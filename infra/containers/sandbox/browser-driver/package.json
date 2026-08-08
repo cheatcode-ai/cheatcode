@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@browserbasehq/stagehand": "3.7.0",
+    "chrome-launcher": "1.2.1",
     "playwright-core": "1.61.1",
     "zod": "4.4.3"
   },

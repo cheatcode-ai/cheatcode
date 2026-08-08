@@ -2,6 +2,7 @@ import { createServer } from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { Stagehand } from "@browserbasehq/stagehand";
+import { launch as launchChrome } from "chrome-launcher";
 import {
   installBrowserConnectionGuard,
   installOriginInterceptor,
@@ -9,6 +10,7 @@ import {
 
 const BOOTSTRAP_TIMEOUT_MS = 30_000;
 const MAX_BOOTSTRAP_BYTES = 64_000;
+const MAX_CDP_RESPONSE_BYTES = 64_000;
 const MAX_LIFETIME_MS = 60 * 60 * 1000;
 const MAX_BODY_BYTES = 500_000;
 const MAX_PENDING_ACTION_BATCHES = 8;
@@ -25,11 +27,11 @@ const CREDENTIAL_FINGERPRINT = bootstrap.credentialFingerprint;
 const DRIVER_TOKEN = bootstrap.driverToken;
 const RUN_ID = bootstrap.runId;
 const PROVIDER_API_HOSTNAME = providerApiHostname(MODEL_NAME);
+const UPSTREAM_FETCH = globalThis.fetch.bind(globalThis);
 
 // Stagehand's current AI SDK line has no patched release for GHSA-866g-f22w-33x8.
-// Bound buffered model responses here and keep its provider fetches on the exact
-// selected API host; browser navigation uses Chromium and is unaffected.
-installBoundedProviderFetch();
+// Inject a bounded provider-only transport into its AI SDK client. Stagehand's
+// Chromium/CDP transport deliberately retains the native fetch implementation.
 
 for (const name of [
   "ANTHROPIC_API_KEY",
@@ -43,25 +45,26 @@ for (const name of [
   delete process.env[name];
 }
 
-let stagehandPromise;
+let browserRuntimePromise;
+let browserRuntimeStatus = "initializing";
+let ownedChrome;
+let ownedStagehand;
+let shutdownPromise;
 let actionQueue = Promise.resolve();
 let pendingActionBatches = 0;
 
-function installBoundedProviderFetch() {
-  const upstreamFetch = globalThis.fetch.bind(globalThis);
-  globalThis.fetch = async (input, init) => {
-    assertProviderRequestUrl(input);
-    const response = await upstreamFetch(input, { ...init, redirect: "manual" });
-    if (response.status >= 300 && response.status < 400) {
-      await response.body?.cancel().catch(() => undefined);
-      throw new Error("Browser model provider redirects are not allowed");
-    }
-    if (!response.body || isStreamingResponse(response)) {
-      return response;
-    }
-    await rejectOversizedDeclaredResponse(response);
-    return new Response(limitProviderResponseBody(response.body), response);
-  };
+async function boundedProviderFetch(input, init) {
+  assertProviderRequestUrl(input);
+  const response = await UPSTREAM_FETCH(input, { ...init, redirect: "manual" });
+  if (response.status >= 300 && response.status < 400) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Browser model provider redirects are not allowed");
+  }
+  if (!response.body || isStreamingResponse(response)) {
+    return response;
+  }
+  await rejectOversizedDeclaredResponse(response);
+  return new Response(limitProviderResponseBody(response.body), response);
 }
 
 function assertProviderRequestUrl(input) {
@@ -181,42 +184,156 @@ class RequestError extends Error {
 }
 
 function modelConfig() {
-  return { apiKey: MODEL_API_KEY, modelName: MODEL_NAME };
+  return { apiKey: MODEL_API_KEY, fetch: boundedProviderFetch, modelName: MODEL_NAME };
 }
 
-function createStagehand() {
+function createStagehand(cdpUrl) {
   return new Stagehand({
     env: "LOCAL",
     model: modelConfig(),
     localBrowserLaunchOptions: {
-      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
-      chromiumSandbox: false,
+      cdpUrl,
       connectTimeoutMs: 30000,
-      executablePath: process.env.CHROME_PATH,
-      headless: false,
+      viewport: { height: 711, width: 1288 },
     },
     verbose: 0,
   });
 }
 
-async function stagehandInstance() {
-  stagehandPromise ??= initializeStagehand().catch((error) => {
-    stagehandPromise = undefined;
-    throw error;
-  });
-  return stagehandPromise;
+async function browserRuntime() {
+  return browserRuntimePromise ?? startBrowserRuntime();
 }
 
-async function initializeStagehand() {
-  const stagehand = createStagehand();
+function startBrowserRuntime() {
+  browserRuntimeStatus = "initializing";
+  const pending = initializeBrowserRuntime();
+  browserRuntimePromise = pending;
+  void pending.then(
+    () => {
+      if (browserRuntimePromise === pending) browserRuntimeStatus = "ready";
+    },
+    (error) => {
+      if (browserRuntimePromise !== pending) return;
+      browserRuntimeStatus = "failed";
+      writeDriverDiagnostic("browser_driver_initialization_failed", error);
+      setTimeout(() => void shutdown(1), 0);
+    },
+  );
+  return pending;
+}
+
+async function initializeBrowserRuntime() {
+  const chrome = await launchOwnedChrome();
+  ownedChrome = chrome;
+  let stagehand;
   try {
+    stagehand = createStagehand(await readChromeWebSocketUrl(chrome.port));
+    ownedStagehand = stagehand;
     await stagehand.init();
     await installBrowserConnectionGuard(stagehand.context);
-    return stagehand;
+    return { chrome, stagehand };
   } catch (error) {
-    await stagehand.close({ force: true }).catch(() => undefined);
+    await stagehand?.close({ force: true }).catch(() => undefined);
+    if (ownedStagehand === stagehand) ownedStagehand = undefined;
+    if (ownedChrome === chrome) ownedChrome = undefined;
+    killChrome(chrome);
     throw error;
   }
+}
+
+async function closeBrowserRuntime(runtime) {
+  await runtime.stagehand.close({ force: true }).catch(() => undefined);
+  if (ownedStagehand === runtime.stagehand) ownedStagehand = undefined;
+  if (ownedChrome === runtime.chrome) ownedChrome = undefined;
+  killChrome(runtime.chrome);
+}
+
+function killChrome(chrome) {
+  try {
+    chrome.kill();
+  } catch {
+    // The browser may already have exited.
+  }
+}
+
+async function launchOwnedChrome() {
+  return launchChrome({
+    chromeFlags: [
+      "--remote-allow-origins=*",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-dev-shm-usage",
+      "--site-per-process",
+      "--enable-features=WebMCPTesting,DevToolsWebMCPSupport",
+      "--window-size=1288,798",
+      "--no-sandbox",
+      "--disable-setuid-sandbox",
+    ],
+    chromePath: process.env.CHROME_PATH,
+    handleSIGINT: false,
+  });
+}
+
+async function readChromeWebSocketUrl(port) {
+  const response = await UPSTREAM_FETCH(`http://127.0.0.1:${port}/json/version`, {
+    signal: AbortSignal.timeout(5_000),
+  });
+  if (!response.ok) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Chromium CDP version endpoint was unavailable");
+  }
+  const body = await readBoundedResponseText(response, MAX_CDP_RESPONSE_BYTES);
+  const value = JSON.parse(body);
+  return validateChromeWebSocketUrl(value?.webSocketDebuggerUrl, port);
+}
+
+async function readBoundedResponseText(response, maxBytes) {
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error("Chromium CDP response exceeded its size limit");
+  }
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks = [];
+  let totalBytes = 0;
+  try {
+    for (;;) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      totalBytes += chunk.value.byteLength;
+      if (totalBytes > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("Chromium CDP response exceeded its size limit");
+      }
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+function validateChromeWebSocketUrl(value, port) {
+  if (typeof value !== "string") throw new Error("Chromium CDP WebSocket URL is missing");
+  const url = new URL(value);
+  const isValid =
+    url.protocol === "ws:" &&
+    url.hostname === "127.0.0.1" &&
+    url.port === String(port) &&
+    url.pathname.startsWith("/devtools/browser/") &&
+    !url.search &&
+    !url.hash &&
+    !url.username &&
+    !url.password;
+  if (!isValid) throw new Error("Chromium CDP WebSocket URL is invalid");
+  return url.href;
 }
 
 async function readBody(request) {
@@ -232,24 +349,25 @@ async function readBody(request) {
   return Buffer.concat(chunks).toString("utf8");
 }
 
-async function runActions(stagehand, actions) {
+async function runActions(runtime, actions) {
   const results = [];
 
   for (const action of actions) {
-    results.push(await runAction(stagehand, action));
+    results.push(await runAction(runtime, action));
   }
 
   return results;
 }
 
-async function runAction(stagehand, action) {
+async function runAction(runtime, action) {
+  const { stagehand } = runtime;
   const page = await stagehand.context.awaitActivePage();
   if (action.type === "goto") {
     await page.goto(action.url, { waitUntil: action.waitUntil || "domcontentloaded" });
     return { type: action.type, url: page.url() };
   }
   if (action.type === "act") {
-    return runGuardedAct(stagehand, page, action);
+    return runGuardedAct(runtime, page, action);
   }
   if (action.type === "observe") {
     const result = await stagehand.observe(action.instruction, { page });
@@ -274,7 +392,8 @@ async function runAction(stagehand, action) {
   };
 }
 
-async function runGuardedAct(stagehand, page, action) {
+async function runGuardedAct(runtime, page, action) {
+  const { stagehand } = runtime;
   assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
   let failure;
   let originInterceptor;
@@ -302,15 +421,20 @@ async function runGuardedAct(stagehand, page, action) {
     }
   }
   if (failure) {
-    await discardStagehand(stagehand);
+    await discardBrowserRuntime(runtime);
     throw failure;
   }
   return response;
 }
 
-async function discardStagehand(stagehand) {
-  stagehandPromise = undefined;
-  await stagehand.close({ force: true }).catch(() => undefined);
+async function discardBrowserRuntime(runtime) {
+  const pending = browserRuntimePromise;
+  browserRuntimePromise = undefined;
+  browserRuntimeStatus = "initializing";
+  await closeBrowserRuntime(runtime);
+  if (browserRuntimePromise === undefined || browserRuntimePromise === pending) {
+    void startBrowserRuntime();
+  }
 }
 
 function assertExpectedBrowserTarget(actualUrl, expectedUrl, allowedOrigin) {
@@ -338,8 +462,8 @@ function runActionsSerialized(actions) {
   }
   pendingActionBatches += 1;
   const result = actionQueue.then(async () => {
-    const stagehand = await stagehandInstance();
-    return runActions(stagehand, actions);
+    const runtime = await browserRuntime();
+    return runActions(runtime, actions);
   });
   actionQueue = result.then(
     () => undefined,
@@ -465,6 +589,16 @@ function isRecord(value) {
 const server = createServer(async (request, response) => {
   try {
     if (request.method === "GET" && request.url === "/ready") {
+      if (browserRuntimeStatus !== "ready") {
+        jsonResponse(response, 503, {
+          error:
+            browserRuntimeStatus === "failed"
+              ? "browser_driver_initialization_failed"
+              : "browser_driver_initializing",
+          ok: false,
+        });
+        return;
+      }
       jsonResponse(response, 200, { ok: true });
       return;
     }
@@ -475,7 +609,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/health") {
-      const stagehand = await stagehandInstance();
+      const { stagehand } = await browserRuntime();
       stagehand.connectURL();
       if (!stagehand.context?.activePage()) {
         throw new Error("Browser driver has no active page");
@@ -490,7 +624,7 @@ const server = createServer(async (request, response) => {
     }
 
     if (request.method === "GET" && request.url === "/state") {
-      const stagehand = await stagehandInstance();
+      const { stagehand } = await browserRuntime();
       const page = await stagehand.context.awaitActivePage();
       jsonResponse(response, 200, { ok: true, url: page.url() });
       return;
@@ -507,8 +641,9 @@ const server = createServer(async (request, response) => {
     jsonResponse(response, 404, { error: "not_found", ok: false });
   } catch (error) {
     const isRequestError = error instanceof RequestError;
+    if (!isRequestError) writeDriverDiagnostic("browser_driver_request_failed", error);
     jsonResponse(response, isRequestError ? error.status : 500, {
-      error: isRequestError ? error.message : "Browser driver request failed",
+      error: isRequestError ? error.message : "browser_driver_request_failed",
       ok: false,
     });
   }
@@ -518,18 +653,40 @@ server.listen(PORT, "0.0.0.0");
 server.requestTimeout = REQUEST_BODY_TIMEOUT_MS;
 server.headersTimeout = 10_000;
 server.keepAliveTimeout = 5_000;
-const lifetimeTimer = setTimeout(() => void shutdown(), bootstrap.expiresAtMs - Date.now());
+void startBrowserRuntime();
+const lifetimeTimer = setTimeout(() => void shutdown(0), bootstrap.expiresAtMs - Date.now());
 lifetimeTimer.unref();
 
-async function shutdown() {
-  clearTimeout(lifetimeTimer);
-  server.close();
-  if (stagehandPromise) {
-    const stagehand = await stagehandPromise.catch(() => null);
-    await stagehand?.close().catch(() => undefined);
-  }
-  process.exit(0);
+async function shutdown(exitCode = 0) {
+  shutdownPromise ??= performShutdown(exitCode);
+  return shutdownPromise;
 }
 
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+async function performShutdown(exitCode) {
+  clearTimeout(lifetimeTimer);
+  server.close();
+  const stagehand = ownedStagehand;
+  const chrome = ownedChrome;
+  ownedStagehand = undefined;
+  ownedChrome = undefined;
+  await stagehand?.close({ force: true }).catch(() => undefined);
+  if (chrome) killChrome(chrome);
+  process.exit(exitCode);
+}
+
+function writeDriverDiagnostic(event, error) {
+  const name = error instanceof Error ? error.name : "UnknownError";
+  const message = sanitizeDiagnosticMessage(error instanceof Error ? error.message : String(error));
+  process.stderr.write(`${JSON.stringify({ event, message, name })}\n`);
+}
+
+function sanitizeDiagnosticMessage(message) {
+  let sanitized = message.slice(0, 2_000);
+  for (const secret of [MODEL_API_KEY, DRIVER_TOKEN]) {
+    if (secret) sanitized = sanitized.replaceAll(secret, "[redacted]");
+  }
+  return sanitized.replaceAll(/(?:sk|AIza)[-_A-Za-z0-9]{12,}/gu, "[redacted]");
+}
+
+process.on("SIGINT", () => void shutdown(0));
+process.on("SIGTERM", () => void shutdown(0));
