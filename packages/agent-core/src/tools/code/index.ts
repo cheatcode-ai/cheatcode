@@ -5,7 +5,11 @@ export type {
   DaytonaVolume,
   SandboxDestroyResult,
 } from "./daytona-client";
-export { DaytonaApiError, DaytonaClient } from "./daytona-client";
+export {
+  DaytonaApiError,
+  DaytonaClient,
+  isDaytonaHostRecoveryStartError,
+} from "./daytona-client";
 
 export {
   DeleteFileInputSchema,

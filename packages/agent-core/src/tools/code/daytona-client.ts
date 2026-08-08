@@ -34,6 +34,8 @@ const DAYTONA_FILE_LIST_MAX_ITEMS = 1_000;
 const DAYTONA_SANDBOX_PAGE_MAX_ITEMS = 100;
 const DAYTONA_SESSION_COMMAND_MAX_ITEMS = 1_000;
 const DAYTONA_VOLUME_NAME_MAX_CHARACTERS = 100;
+const DAYTONA_HOST_RECOVERY_START_MESSAGE =
+  "sandbox start is temporarily unavailable while the sandbox's host recovers";
 
 interface DaytonaClientConfig {
   apiKey: string;
@@ -64,6 +66,22 @@ export class DaytonaApiError extends Error {
     this.retriable = options?.retriable ?? (status >= 500 || status === 429);
     this.details = options?.details;
   }
+}
+
+/** Identifies Daytona's host-local start rejection so callers can fail over safely. */
+export function isDaytonaHostRecoveryStartError(error: unknown): boolean {
+  let current = error;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (
+      current instanceof DaytonaApiError &&
+      current.status === 503 &&
+      current.message.toLowerCase().includes(DAYTONA_HOST_RECOVERY_START_MESSAGE)
+    ) {
+      return true;
+    }
+    current = current instanceof Error ? current.cause : undefined;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------
