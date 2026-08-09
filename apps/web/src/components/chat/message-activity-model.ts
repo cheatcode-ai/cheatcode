@@ -108,26 +108,47 @@ export function buildActivityRows(parts: MessagePart[]): ActivityItem[] {
 export function collapseToolRuns(
   parts: ToolActivityPart[],
 ): Array<{ evidence: ToolEvidencePart[]; key: string; parts: ToolPart[] }> {
-  const evidence = parts.filter(isToolEvidencePart);
+  const evidenceByToolCallId = groupEvidenceByToolCallId(parts.filter(isToolEvidencePart));
   const tools = parts.filter(isToolPart);
   const rows: Array<{ evidence: ToolEvidencePart[]; key: string; parts: ToolPart[] }> = [];
   let index = 0;
   while (index < tools.length) {
-    const type = tools[index]?.type;
+    const tool = tools[index];
+    if (!tool) break;
+    const evidence = evidenceByToolCallId.get(tool.data.toolCallId) ?? [];
+    if (evidence.length > 0) {
+      rows.push({ evidence, key: `${tool.data.toolName}:${index}`, parts: [tool] });
+      index += 1;
+      continue;
+    }
     let end = index + 1;
-    while (end < tools.length && tools[end]?.type === type) {
+    while (
+      tools[end]?.data.toolName === tool.data.toolName &&
+      !evidenceByToolCallId.has(tools[end]?.data.toolCallId ?? "")
+    ) {
       end += 1;
     }
-    const toolParts = tools.slice(index, end);
-    const toolCallIds = new Set(toolParts.map((part) => part.data.toolCallId));
     rows.push({
-      evidence: evidence.filter((part) => toolCallIds.has(part.data.toolCallId)),
-      key: `${type}:${index}`,
-      parts: toolParts,
+      evidence: [],
+      key: `${tool.data.toolName}:${index}`,
+      parts: tools.slice(index, end),
     });
     index = end;
   }
   return rows;
+}
+
+function groupEvidenceByToolCallId(evidence: ToolEvidencePart[]): Map<string, ToolEvidencePart[]> {
+  const grouped = new Map<string, ToolEvidencePart[]>();
+  for (const part of evidence) {
+    const existing = grouped.get(part.data.toolCallId);
+    if (existing) {
+      existing.push(part);
+    } else {
+      grouped.set(part.data.toolCallId, [part]);
+    }
+  }
+  return grouped;
 }
 
 export function buildToolDetailSections(parts: ToolPart[]): ToolDetailSection[] {
