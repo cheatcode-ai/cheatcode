@@ -1,6 +1,10 @@
 import { shellQuote } from "../sandbox-support";
-import { localProjectProcessCommand } from "./project-sandbox-local-source";
-import { NEXT_RUNTIME_BIN, resolveProjectLocalRuntime } from "./project-sandbox-package-runtime";
+import { localPnpmProjectProcessCommand } from "./project-sandbox-local-source";
+import {
+  NEXT_RUNTIME_BIN,
+  NEXT_TEMPLATE_DIR,
+  resolveProjectLocalRuntime,
+} from "./project-sandbox-package-runtime";
 
 interface LocalPreviewCommandInput {
   port: number;
@@ -25,5 +29,5 @@ export function localNextPreviewCommand(input: LocalPreviewCommandInput): string
   ]
     .map(shellQuote)
     .join(" ");
-  return ["sh", "-lc", localProjectProcessCommand(runtime, nextCommand)];
+  return ["sh", "-lc", localPnpmProjectProcessCommand(runtime, nextCommand, NEXT_TEMPLATE_DIR)];
 }

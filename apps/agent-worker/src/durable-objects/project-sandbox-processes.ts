@@ -8,7 +8,10 @@ import type {
 import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
-import { localPackageCommand, localProjectProcessCommand } from "./project-sandbox-local-source";
+import {
+  localPackageCommand,
+  localPnpmProjectProcessCommand,
+} from "./project-sandbox-local-source";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
 import {
   localizeProjectPackageCommand,
@@ -378,7 +381,7 @@ async function startProcess(
     ? commandToShellString([
         "sh",
         "-lc",
-        localProjectProcessCommand(
+        localPnpmProjectProcessCommand(
           packageRuntime,
           commandToShellString(localizeProjectPackageCommand(packageRuntime, parsed.command)),
         ),

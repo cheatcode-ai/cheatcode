@@ -56,7 +56,9 @@ export const ApplyFileInputSchema = z.strictObject({
       (value) => value.includes(EXISTING_CODE_MARKER),
       `Sparse edits must include ${EXISTING_CODE_MARKER}`,
     )
-    .describe("Only changed code with // ... existing code ... marking unchanged regions."),
+    .describe(
+      "Only the changed lines, with the exact // ... existing code ... marker for every unchanged region. Preserve indentation and include only enough surrounding context to locate each edit.",
+    ),
 });
 
 export const ApplyFileOutputSchema = z.strictObject({

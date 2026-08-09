@@ -156,7 +156,7 @@ export const mastraFsWrite = createTool({
 export const mastraFsApply = createTool({
   id: "fs_apply",
   description:
-    "Apply a focused edit to an existing UTF-8 file under /workspace. Read the file first, then provide only changed code with // ... existing code ... wherever content stays unchanged. Use fs_write for new files, binary files, or intentional complete replacements.",
+    "Edit an existing UTF-8 file under /workspace by showing only the changed lines. Read the file first. ALWAYS use the exact // ... existing code ... marker for every unchanged section; omitting it deletes that section. Preserve indentation, include only enough surrounding context to locate each edit, and batch multiple changes to the same file in one call. Use fs_write only for new files, binary files, or intentional complete replacements.",
   inputSchema: ApplyFileInputSchema,
   outputSchema: ApplyFileOutputSchema,
   execute: async (input, context) => {
