@@ -173,6 +173,12 @@ pinned package-manager versions:
 cd infra/containers/sandbox/package-manager
 npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
+cd ../browser-driver
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
+cd ../runtime-security-overrides
+npm install --package-lock-only --ignore-scripts --no-audit --no-fund
+
 cd ../app-generators
 npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
@@ -183,10 +189,10 @@ cd ../extension-overrides/parquet-viewer
 npm install --package-lock-only --ignore-scripts --no-audit --no-fund
 
 cd ../app-templates/next
-pnpm install --lockfile-only --ignore-scripts --ignore-workspace
+pnpm install --lockfile-only --ignore-scripts
 
 cd ../expo
-pnpm install --lockfile-only --ignore-scripts --ignore-workspace
+pnpm install --lockfile-only --ignore-scripts
 ```
 
 Static checks audit the root graph plus all sandbox npm locks and both independent

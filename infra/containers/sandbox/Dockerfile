@@ -35,7 +35,8 @@ COPY package-manager/package.json package-manager/package-lock.json /opt/cheatco
 COPY doc-runtime/package.json doc-runtime/package-lock.json /opt/cheatcode-doc-runtime/
 # npm, pnpm, and code-server ship their own dependency trees, so ordinary
 # top-level overrides cannot replace vulnerable packages inside those bundles.
-# Dependabot alerts #9 (brace-expansion) and #8 (tar) are lockfile-metadata findings mitigated by this overlay because npm has not re-bundled the fixed versions.
+# Vendor-bundled dependency trees are replaced from this reviewed overlay when
+# their parent distributions have not yet shipped fixed transitive versions.
 COPY runtime-security-overrides/package.json runtime-security-overrides/package-lock.json /opt/cheatcode-runtime-security-overrides/
 COPY skill-runtime/package.json skill-runtime/package-lock.json skill-runtime/tsconfig.json /opt/cheatcode-skill-runtime/
 COPY skill-runtime/bin/ /opt/cheatcode-skill-runtime/bin/
@@ -51,17 +52,29 @@ RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
   && ln -sf /opt/cheatcode-package-manager/node_modules/.bin/pnpx /usr/local/bin/pnpx \
   && rm -rf \
     /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/ip-address \
     /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/undici \
     /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/undici \
     /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar \
+    /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/undici \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/brace-expansion \
     /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/ip-address \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/ip-address \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
     /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/undici-v6 \
+    /opt/cheatcode-package-manager/node_modules/npm/node_modules/undici \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
     /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/undici-v6 \
+    /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/undici \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
     /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/undici-v6 \
+    /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/undici \
   && rm -f /opt/cheatcode-package-manager/package-lock.json
 WORKDIR /opt/cheatcode-doc-runtime
 RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund \
@@ -84,14 +97,23 @@ RUN curl -fsSL \
   && rm -f /tmp/code-server.tar.gz \
   && rm -rf \
     "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/js-yaml" \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/ip-address" \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/ip-address" \
     "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/shell-quote" \
     "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/tar" \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/undici" \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/js-yaml \
     "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/js-yaml" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/ip-address \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/node_modules/ip-address" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/ip-address \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/ip-address" \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/shell-quote \
     "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/shell-quote" \
   && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/tar \
-    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/tar"
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/tar" \
+  && cp -a /opt/cheatcode-runtime-security-overrides/node_modules/undici-v7 \
+    "/opt/code-server-${CODE_SERVER_VERSION}-linux-amd64/lib/vscode/node_modules/undici"
 
 COPY requirements.txt /tmp/requirements.txt
 RUN pip3 install --break-system-packages --disable-pip-version-check --no-cache-dir \
