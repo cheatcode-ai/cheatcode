@@ -8,9 +8,12 @@ import type {
 import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
+import { localProjectProcessCommand, localSourceSyncCommand } from "./project-sandbox-local-source";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
 import {
+  localizeProjectPackageCommand,
   projectPackageEnvironment,
+  projectPnpmRuntime,
   unsupportedProjectPackageManager,
 } from "./project-sandbox-package-runtime";
 import { createProcessControl, type ProcessControl } from "./project-sandbox-process-control";
@@ -225,6 +228,20 @@ async function executeCommand(
   const id = await runtime.ensureSandbox();
   const env = projectPackageEnvironment(input.cwd, input.env);
   try {
+    const packageRuntime = projectPnpmRuntime(input.cwd, input.command);
+    if (packageRuntime) {
+      const result = await executeProjectPnpmCommand(
+        runtime,
+        id,
+        input,
+        packageRuntime,
+        env,
+        startedAt,
+      );
+      await recordExecAudit(runtime, input.command, input.cwd, result, result.exitCode, startedAt);
+      await recordSandboxUsageBestEffort(await runtime.meteringContext());
+      return result;
+    }
     const completed = await runtime.client().execute(id, {
       command,
       cwd: input.cwd,
@@ -238,6 +255,80 @@ async function executeCommand(
   } catch (error) {
     throw runtime.toUpstreamError(error, "Sandbox command failed.");
   }
+}
+
+async function executeProjectPnpmCommand(
+  runtime: ProcessRuntime,
+  id: string,
+  input: ExecutableCommand,
+  packageRuntime: NonNullable<ReturnType<typeof projectPnpmRuntime>>,
+  env: Record<string, string> | undefined,
+  startedAt: number,
+): Promise<SandboxExecResult> {
+  const client = runtime.client();
+  const localizedCommand = localizeProjectPackageCommand(packageRuntime, input.command);
+  const prepare = await client.execute(id, {
+    command: localSourceSyncCommand(packageRuntime, "package-prepare"),
+    cwd: WORKSPACE_DIR,
+    timeout: 60,
+  });
+  if (prepare.exitCode !== 0) {
+    return localPackageRuntimeFailure(input.command, prepare, startedAt);
+  }
+  let completed: Awaited<ReturnType<typeof client.execute>>;
+  try {
+    completed = await client.execute(id, {
+      command: commandToShellString(localizedCommand),
+      cwd: packageRuntime.localCwd,
+      timeout: timeoutSeconds(input.timeoutMs),
+      ...(env === undefined ? {} : { env }),
+    });
+  } catch (error) {
+    await abortProjectPackageCommand(client, id, packageRuntime);
+    throw error;
+  }
+  if (completed.exitCode !== 0) {
+    await abortProjectPackageCommand(client, id, packageRuntime);
+    return execResult(commandToShellString(input.command), completed, startedAt);
+  }
+  const committed = await client.execute(id, {
+    command: localSourceSyncCommand(packageRuntime, "package-commit"),
+    cwd: WORKSPACE_DIR,
+    timeout: 60,
+  });
+  if (committed.exitCode !== 0) {
+    return localPackageRuntimeFailure(input.command, committed, startedAt);
+  }
+  return execResult(commandToShellString(input.command), completed, startedAt);
+}
+
+async function abortProjectPackageCommand(
+  client: ReturnType<ProcessRuntime["client"]>,
+  id: string,
+  packageRuntime: NonNullable<ReturnType<typeof projectPnpmRuntime>>,
+): Promise<void> {
+  await client
+    .execute(id, {
+      command: localSourceSyncCommand(packageRuntime, "package-abort"),
+      cwd: WORKSPACE_DIR,
+      timeout: 10,
+    })
+    .catch(() => undefined);
+}
+
+function localPackageRuntimeFailure(
+  command: readonly string[],
+  completed: { exitCode: number; result?: string | null | undefined },
+  startedAt: number,
+): SandboxExecResult {
+  return {
+    command: commandToShellString([...command]),
+    durationMs: Date.now() - startedAt,
+    exitCode: completed.exitCode || 74,
+    stderr: completed.result ?? "Could not synchronize the sandbox-local package runtime.",
+    stdout: "",
+    success: false,
+  };
 }
 
 function codeWithWorkingDirectory(
@@ -261,12 +352,20 @@ function packageManagerPolicyResult(
     command,
     durationMs: Date.now() - startedAt,
     exitCode: 64,
-    stderr:
-      `${manager} is disabled in persistent projects because it writes dependencies to object storage. ` +
-      "Use pnpm; dependencies are installed in the sandbox-local project runtime.",
+    stderr: packageManagerPolicyMessage(manager),
     stdout: "",
     success: false,
   };
+}
+
+function packageManagerPolicyMessage(manager: string): string {
+  if (manager === "pnpm" || manager === "pnpx") {
+    return `${manager} must be passed as direct command argv so Cheatcode can synchronize its sandbox-local package runtime.`;
+  }
+  return (
+    `${manager} is disabled in persistent projects because it writes dependencies to object storage. ` +
+    "Use pnpm directly; dependencies are installed in the sandbox-local project runtime."
+  );
 }
 
 function execResult(
@@ -328,7 +427,18 @@ async function startProcess(
   const sessionId = `cc-${name}`;
   await context.control.prepareProcessSlot(id, name, parsed);
   const cwd = parsed.cwd ?? WORKSPACE_DIR;
-  const rawCommand = commandToShellString(parsed.command);
+  const serializedCommand = commandToShellString(parsed.command);
+  const packageRuntime = projectPnpmRuntime(cwd, parsed.command);
+  const rawCommand = packageRuntime
+    ? commandToShellString([
+        "sh",
+        "-lc",
+        localProjectProcessCommand(
+          packageRuntime,
+          commandToShellString(localizeProjectPackageCommand(packageRuntime, parsed.command)),
+        ),
+      ])
+    : serializedCommand;
   const policy = processPolicy(parsed);
   const provisional = processRecordFromLaunch(parsed, policy, {
     cmdId: sessionId,
@@ -346,12 +456,17 @@ async function startProcess(
 function assertSupportedProjectPackageManager(cwd: string, command: readonly string[]): void {
   const manager = unsupportedProjectPackageManager(cwd, command);
   if (!manager) return;
+  const isPnpm = manager === "pnpm" || manager === "pnpx";
   throw new APIError(
     422,
     "sandbox_command_failed",
-    `${manager} is disabled in persistent projects. Use pnpm instead.`,
+    isPnpm
+      ? `${manager} must be passed as direct command argv.`
+      : `${manager} is disabled in persistent projects. Use pnpm instead.`,
     {
-      hint: "Use pnpm so dependency trees stay in the sandbox-local project runtime.",
+      hint: isPnpm
+        ? `Call ${manager} directly so its native-disk runtime can be synchronized safely.`
+        : "Use pnpm so dependency trees stay in the sandbox-local project runtime.",
       retriable: false,
     },
   );
