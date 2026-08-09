@@ -1,4 +1,4 @@
-import { isToolPart } from "@/components/chat/message-activity-model";
+import { isToolEvidencePart, isToolPart } from "@/components/chat/message-activity-model";
 import type { MessagePart, TimelineItem } from "@/components/chat/message-parts.types";
 
 interface PendingActivity {
@@ -88,7 +88,12 @@ function isNonEmptyText(
 }
 
 function isStepPart(part: MessagePart): boolean {
-  return part.type === "text" || part.type === "data-project-created" || isToolPart(part);
+  return (
+    part.type === "text" ||
+    part.type === "data-project-created" ||
+    isToolPart(part) ||
+    isToolEvidencePart(part)
+  );
 }
 
 function partKey(messageId: string, part: MessagePart, partIndex: number): string {

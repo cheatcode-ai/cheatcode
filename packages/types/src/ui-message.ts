@@ -85,6 +85,16 @@ const ToolDataSchema = z.strictObject({
   toolName: z.string().min(1),
 });
 
+const ToolEvidenceDataSchema = z.strictObject({
+  v: z.literal(1),
+  filename: z.string().min(1),
+  kind: z.literal("image"),
+  mimeType: z.string().startsWith("image/"),
+  outputId: OutputIdSchema,
+  sizeBytes: z.number().int().positive(),
+  toolCallId: z.string().min(1),
+});
+
 const ErrorDataSchema = z.strictObject({
   v: z.literal(1),
   code: z.string().min(1),
@@ -121,6 +131,7 @@ export const CHEATCODE_DATA_SCHEMAS = {
   seq: SeqDataSchema,
   "task-status": TaskStatusDataSchema,
   tool: ToolDataSchema,
+  "tool-evidence": ToolEvidenceDataSchema,
   "transcript-fragment": TranscriptFragmentDataSchema,
 } as const;
 
@@ -151,6 +162,7 @@ export const MessagePartSchema = z.discriminatedUnion("type", [
   dataMessagePartSchema("skill-created"),
   dataMessagePartSchema("task-status"),
   dataMessagePartSchema("tool"),
+  dataMessagePartSchema("tool-evidence"),
   dataMessagePartSchema("transcript-fragment"),
 ]);
 

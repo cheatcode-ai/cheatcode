@@ -11,8 +11,11 @@ import {
   isToolPart,
   type MessagePart,
   type ProjectCreatedPart,
+  type ToolActivityPart,
+  type ToolEvidencePart,
   type ToolPart,
 } from "@/components/chat/message-activity-model";
+import { ToolEvidenceImage } from "@/components/chat/message-tool-evidence";
 import { ChevronDown } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
 
@@ -116,18 +119,18 @@ export function ProjectCreatedActivity({ part }: { part: ProjectCreatedPart }) {
   );
 }
 
-export function ToolGroup({ parts }: { parts: ToolPart[] }) {
+export function ToolGroup({ parts }: { parts: ToolActivityPart[] }) {
   const rows = collapseToolRuns(parts);
   return (
     <div className="space-y-2">
       {rows.map((row) => (
-        <ToolRow key={row.key} parts={row.parts} />
+        <ToolRow evidence={row.evidence} key={row.key} parts={row.parts} />
       ))}
     </div>
   );
 }
 
-function ToolRow({ parts }: { parts: ToolPart[] }) {
+function ToolRow({ evidence, parts }: { evidence: ToolEvidencePart[]; parts: ToolPart[] }) {
   const [open, setOpen] = useState(false);
   const first = parts[0];
   if (!first) {
@@ -152,7 +155,7 @@ function ToolRow({ parts }: { parts: ToolPart[] }) {
           )}
         />
       </button>
-      {open ? <ToolDetails parts={parts} /> : null}
+      {open ? <ToolDetails evidence={evidence} parts={parts} /> : null}
     </div>
   );
 }
@@ -162,19 +165,26 @@ function toolRowLabel(description: { arg: string | null; verb: string }, extra: 
   return extra > 0 ? `${primary} (+${extra} more)` : primary;
 }
 
-function ToolDetails({ parts }: { parts: ToolPart[] }) {
+function ToolDetails({ evidence, parts }: { evidence: ToolEvidencePart[]; parts: ToolPart[] }) {
   const sections = buildToolDetailSections(parts);
+  const detailCount = sections.length + evidence.length;
   return (
     <div className="relative mt-0 ml-[5px] space-y-0 pt-1.5 pl-5">
       {sections.map((section, index) => (
         <ToolDetailCard
-          continued={index < sections.length - 1}
+          continued={index < detailCount - 1}
           isCommand={section.isCommand}
           key={section.key}
           label={section.label}
           scroll={section.scroll}
           value={section.value}
         />
+      ))}
+      {evidence.map((part, index) => (
+        <div className="relative pb-2 first:pt-1 last:pb-0" key={part.data.outputId}>
+          <TimelineConnector continued={sections.length + index < detailCount - 1} />
+          <ToolEvidenceImage data={part.data} />
+        </div>
       ))}
     </div>
   );

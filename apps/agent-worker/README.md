@@ -33,6 +33,11 @@ existence before minting a one-hour HMAC capability; the public signed download 
 streaming second hop. Expiring capabilities and internal R2 keys are never stored in transcripts or
 returned by artifact tools.
 
+Browser screenshots use the same crash-consistent R2 persistence but are classified as internal
+tool evidence. Their reserved filenames keep them out of project-file and slash-command catalogs,
+their stream part is linked to the exact browser tool call, and they do not claim the user's
+first-generated-deliverable activation event.
+
 The project file catalog merges uploaded-file metadata with the newest durable generated-output
 records without starting Daytona. Generated entries use an ID-backed
 `deliverables/<output-id>/<filename>` path, so duplicate names remain unambiguous. When a user

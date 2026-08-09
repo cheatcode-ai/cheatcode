@@ -32,6 +32,7 @@ export interface QuiescedArtifactUploadIntentRecord extends ArtifactUploadIntent
 }
 
 export interface FinalizeArtifactUploadInput extends ArtifactUploadIdentity {
+  claimFirstArtifact: boolean;
   createdAt: Date;
   filename: string;
   mimeType: string;
@@ -140,11 +141,13 @@ async function commitGeneratedOutput(
     r2Key: input.r2Key,
     userId: input.userId,
   });
-  const first = await db
-    .update(users)
-    .set({ firstArtifactAt: input.createdAt })
-    .where(and(eq(users.id, input.userId), isNull(users.firstArtifactAt)))
-    .returning({ id: users.id });
+  const first = input.claimFirstArtifact
+    ? await db
+        .update(users)
+        .set({ firstArtifactAt: input.createdAt })
+        .where(and(eq(users.id, input.userId), isNull(users.firstArtifactAt)))
+        .returning({ id: users.id })
+    : [];
   const removed = await db
     .delete(artifactUploadIntents)
     .where(

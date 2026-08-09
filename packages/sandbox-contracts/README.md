@@ -19,6 +19,11 @@ objects are not cloned or stripped during validation.
 - `CodeRuntimeContext`, `CodeRuntimeContextFor`, and `CodeRuntimeContextSchema`
 - `EnvironmentVariablesSchema`
 
+Artifact uploads declare their exposure. `deliverable` outputs are user files;
+`internal` outputs use the reserved `.cheatcode-internal-` filename namespace and
+support durable agent UI such as browser-step screenshots without entering the
+project's Deliverables catalog.
+
 Long-running processes require a caller-owned stable `processId`. The sandbox uses that identity
 as an idempotency slot for replacement, inspection, cleanup, and bounded record reaping; anonymous
 fire-and-forget process records are not part of the contract.

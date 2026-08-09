@@ -41,7 +41,9 @@ The schema modules under `src/schema/` define:
 - security-sensitive audit records
 
 Files are not stored in Postgres. `v2_generated_outputs` contains only ownership,
-mime, filename, and R2 object identity.
+mime, filename, and R2 object identity. The reserved `.cheatcode-internal-` filename
+namespace identifies agent UI evidence that remains downloadable by exact authorized
+identity but is excluded from project Deliverables and file references.
 
 ## Invariants
 

@@ -2,6 +2,7 @@ import type { CheatcodeUIMessage } from "@cheatcode/types";
 
 export type MessagePart = CheatcodeUIMessage["parts"][number];
 export type ArtifactData = Extract<MessagePart, { type: "data-artifact" }>["data"];
+export type ToolEvidenceData = Extract<MessagePart, { type: "data-tool-evidence" }>["data"];
 
 export type TimelineItem =
   | { kind: "activity"; key: string; parts: MessagePart[] }
