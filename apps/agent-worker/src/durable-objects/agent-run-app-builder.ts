@@ -211,7 +211,7 @@ function templateContextNote(workspace: AppBuilderWorkspace): string {
   const mobile = workspace.mobile
     ? " For this mobile build, that internal address renders the react-native-web preview."
     : "";
-  return `[context] A ${stack} workspace is scaffolded in ${workspace.dir}, and its managed dev server is running internally at http://localhost:${workspace.port}. Build the user's app by editing files under ${workspace.dir}; it hot-reloads on save. Use pnpm for dependency changes. Verify it with the sandbox's headed browser at that internal localhost address.${mobile} Never request or paste an external preview or Expo URL.`;
+  return `[context] A ${stack} workspace is already scaffolded at ${workspace.dir}, and its managed dev server is running internally at http://localhost:${workspace.port}. Do not initialize another app or nested project. Build the user's app by inspecting and editing the existing root files under ${workspace.dir}; it hot-reloads on save. Use pnpm only for necessary dependency changes. Verify it with the sandbox's headed browser at that internal localhost address.${mobile} Never request or paste an external preview or Expo URL.`;
 }
 
 async function prepareTemplateWorkspace(

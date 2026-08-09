@@ -31,7 +31,6 @@ import {
   toUpstreamError,
 } from "./project-sandbox-lifecycle-support";
 import type { SandboxMeteringContext } from "./project-sandbox-metering";
-import { PROC_PREFIX, PROCESS_PORT_ALLOC_KEY } from "./project-sandbox-process-support";
 import { ProjectSandboxProvisioning } from "./project-sandbox-provisioning";
 import type { ParsedProjectCleanupWorkspaceInput } from "./project-sandbox-runtime";
 import {
@@ -471,11 +470,8 @@ async function prepareForSandboxReplacement(state: RuntimeState): Promise<void> 
   state.cache.startedVerifiedAtMs = 0;
   await state.ctx.storage.delete(DAYTONA_ID_KEY);
   await state.ctx.storage.put(RUNTIME_RESET_PENDING_KEY, true);
-  const processRecords = await state.ctx.storage.list({ prefix: PROC_PREFIX });
-  if (processRecords.size > 0) {
-    await state.ctx.storage.delete([...processRecords.keys()]);
-  }
-  await state.ctx.storage.delete(PROCESS_PORT_ALLOC_KEY);
+  // Process records and port reservations are desired launch state, not a projection of the
+  // outgoing container. Wake paths use them to recreate sessions in the replacement sandbox.
 }
 
 async function clearPersistedRuntimeProjection(

@@ -46,6 +46,7 @@ import {
   WriteFileOutputSchema,
 } from "../../tools/code";
 import { containsWorkspaceReference } from "../../tools/code/workspace-paths";
+import { assertAppBuilderShellCommandAllowed } from "./app-builder-shell-policy-support";
 import { resolveMorphApplyRuntime } from "./request-context";
 import {
   codeRuntimeFromContext,
@@ -80,6 +81,7 @@ export const mastraShellExec = createTool({
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellExecInputSchema.parse(input);
+    assertAppBuilderShellCommandAllowed(context, parsedInput.command);
     const baseRuntime = codeRuntimeFromContext(context);
     const runtimeContext =
       baseRuntime.workspaceDir ||
@@ -124,6 +126,7 @@ export const mastraShellTerminal = createTool({
   outputSchema: ShellExecOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellTerminalInputSchema.parse(input);
+    assertAppBuilderShellCommandAllowed(context, parsedInput.command);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executeShellTerminal(parsedInput, runtimeContext);
   },
@@ -142,7 +145,7 @@ export const mastraFsRead = createTool({
 export const mastraFsWrite = createTool({
   id: "fs_write",
   description:
-    "Create a new file or intentionally replace an entire file under /workspace. For focused changes to an existing text file, use fs_apply so unchanged code is preserved without regenerating the whole file.",
+    "Create a new file or intentionally replace an entire file under /workspace; every call requires both path and the complete content to write. For focused changes to an existing text file, use fs_apply so unchanged code is preserved without regenerating the whole file.",
   inputSchema: WriteFileInputSchema,
   outputSchema: WriteFileOutputSchema,
   execute: async (input, context) =>
