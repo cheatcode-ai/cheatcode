@@ -230,7 +230,9 @@ checks require the provider's actual mount tuple as well as the matching labels;
 alone cannot attest durable storage. When the configured snapshot or target changes, the
 first operation after active work drains replaces only the stale container and remounts
 that same volume subpath. New operations are fenced during replacement, stale process
-projections are cleared, and project files plus user-installed skills remain durable.
+sessions disappear with the old container, while durable process launch records and port
+reservations remain as desired state so Files and app previews can relaunch in the replacement.
+Project files plus user-installed skills remain durable.
 Identity, snapshot-label, or storage-mount ambiguity still fails closed.
 
 Preview URLs carry a 60-second `handoff` capability minted by `@cheatcode/auth`.

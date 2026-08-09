@@ -50,6 +50,10 @@ Focused edits to existing UTF-8 files use the request-scoped Morph FastApply run
 sandbox-side compare-and-swap write. The agent sends only the existing file, sparse edit, and
 instruction to Morph; the deployment key remains in Cloudflare Secrets Store. New files, binary
 files, and intentional full replacements continue to use the deterministic file writer.
+App-builder runs receive an existing framework workspace and managed preview before model
+execution. Their shell tools reject app-initialization commands so a model cannot replace that
+canonical root with another scaffold or a nested project; ordinary package installation and build
+commands remain available.
 
 ## Code Checks
 
