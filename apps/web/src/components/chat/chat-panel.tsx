@@ -35,9 +35,11 @@ export function ChatPanel(props: ChatPanelProps) {
         hasOlderMessages={props.hasOlderMessages}
         isLoadingOlderMessages={props.isLoadingOlderMessages}
         isStreaming={controller.state.isMessageListStreaming}
+        isWaitingForFirstResponse={controller.state.isWaitingForFirstResponse}
         messages={controller.state.messages}
         onContinue={controller.actions.continueRun}
         onLoadOlderMessages={controller.actions.loadOlderMessages}
+        runStartedAt={controller.state.runStartedAt}
         threadId={props.threadId}
       />
       <PromptComposerView controller={promptComposerController} />

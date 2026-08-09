@@ -153,16 +153,19 @@ after model execution (and the mobile preview restart, when applicable), so the 
 the branded loading surface over the scaffold without relying on timers or iframe inspection.
 The canonical app source remains on the durable `/workspace` volume. Managed Next.js previews
 compile from a sandbox-local one-way mirror because Daytona's object-store FUSE mount can stall
-webpack compilation even after the listening socket opens. A baked Python synchronizer performs a
-full refresh on every process start and mirrors subsequent writes and deletions within one second,
-including shell-based edits. The local source, dependency tree, and build cache are disposable;
+webpack compilation even after the listening socket opens. A baked Python synchronizer compares
+content identities rather than unrelated FUSE/native-disk timestamps, performs atomic file
+replacement, and mirrors subsequent writes and deletions within 250 ms, including equal-size and
+shell-based edits. The local source, dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 The immutable sandbox exposes that synchronizer as the root-owned
 `/opt/cheatcode/project-source-sync.py` helper, keeping Worker-to-sandbox command arguments small
 and making the snapshot the source of truth for executable sandbox runtime code.
-Direct pnpm commands use that same native-disk source as a transaction: the runtime snapshots the
-durable source, executes pnpm locally, and copies only command-produced source changes back after
-verifying that the corresponding durable paths did not change concurrently. Long-running pnpm
+Direct pnpm commands use that same native-disk source as one OS-locked transaction: the runtime
+snapshots the durable source, executes pnpm locally without a shell, and copies only command-produced
+source changes back after verifying that the corresponding durable paths did not change concurrently.
+The kernel releases the lock if the request or package process dies, so preview synchronization cannot
+be stranded behind a stale marker. Long-running pnpm
 processes keep the durable-to-local mirror alive for hot reload. Shell-wrapped package managers are
 rejected because they cannot participate in this synchronization boundary; npm, Yarn, and Bun stay
 disabled for project workspaces.
@@ -374,6 +377,7 @@ pnpm --filter @cheatcode/agent-worker typecheck
 - `PREVIEW_TOKEN_SECRET`
 - `COMPOSIO_API_KEY`
 - `DEEPSEEK_PLATFORM_API_KEY`
+- `MORPH_API_KEY` (required server-side FastApply transport; resolved only for an active existing-file edit)
 - `OUTPUT_DOWNLOAD_SIGNING_SECRET` (Secrets Store binding)
 - `OUTPUT_DOWNLOAD_BASE_URL` (development override; production defaults to the gateway origin)
 - `PREVIEW_HOSTNAME` (development override; production derives the canonical app hostname)

@@ -46,6 +46,10 @@ to the canonical project folder. Projectless calculations and environment probes
 so a weaker model cannot accidentally leave durable files outside a project. The bounded Daytona
 REST adapter maps request-scoped command environment variables to the provider's `envs` wire field;
 generated code can therefore cross the process boundary without entering argv or persistent files.
+Focused edits to existing UTF-8 files use the request-scoped Morph FastApply runtime and a
+sandbox-side compare-and-swap write. The agent sends only the existing file, sparse edit, and
+instruction to Morph; the deployment key remains in Cloudflare Secrets Store. New files, binary
+files, and intentional full replacements continue to use the deterministic file writer.
 
 ## Code Checks
 

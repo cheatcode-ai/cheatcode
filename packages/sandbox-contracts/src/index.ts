@@ -5,6 +5,7 @@ export type {
   ArtifactUploadResult,
   CodeRuntimeContext,
   CodeRuntimeContextFor,
+  SandboxCompareAndSwapFileResult,
   SandboxDeleteFileResult,
   SandboxExecResult,
   SandboxKillProcessResult,

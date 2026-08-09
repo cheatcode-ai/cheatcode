@@ -77,6 +77,12 @@ export const ProjectWriteFileInputSchema = z.strictObject({
   encoding: z.enum(["utf8", "base64"]).default("utf8"),
 });
 
+export const ProjectCompareAndSwapFileInputSchema = z.strictObject({
+  path: WorkspaceFilePathSchema,
+  content: z.string().max(2_000_000),
+  expectedSha256: z.string().regex(/^[a-f0-9]{64}$/u),
+});
+
 export const ProjectUploadFileInputSchema = z
   .strictObject({
     bytes: z
@@ -240,6 +246,7 @@ export type ProjectExecInput = z.input<typeof ProjectExecInputSchema>;
 export type ProjectStartProcessInput = z.input<typeof ProjectStartProcessInputSchema>;
 export type ProjectReadFileInput = z.input<typeof ProjectReadFileInputSchema>;
 export type ProjectWriteFileInput = z.input<typeof ProjectWriteFileInputSchema>;
+export type ProjectCompareAndSwapFileInput = z.input<typeof ProjectCompareAndSwapFileInputSchema>;
 export type ProjectUploadFileInput = z.input<typeof ProjectUploadFileInputSchema>;
 export type ProjectListUploadedFilesInput = z.input<typeof ProjectListUploadedFilesInputSchema>;
 export type ProjectRestoreUploadedFilesInput = z.input<

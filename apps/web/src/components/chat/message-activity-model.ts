@@ -36,11 +36,12 @@ type ToolDetailSection = {
 
 const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   code_run: { verb: "Ran", argKeys: ["code"] },
-  fs_read: { verb: "Read", argKeys: ["path", "file", "filePath"] },
-  fs_write: { verb: "Wrote", argKeys: ["path", "file", "filePath"] },
+  fs_apply: { verb: "Edited", argKeys: ["path", "file", "filePath"] },
   fs_delete: { verb: "Deleted", argKeys: ["path", "file"] },
   fs_list: { verb: "Listed", argKeys: ["path", "dir", "directory"] },
+  fs_read: { verb: "Read", argKeys: ["path", "file", "filePath"] },
   fs_search: { verb: "Searched files", argKeys: ["query", "pattern", "q"] },
+  fs_write: { verb: "Wrote", argKeys: ["path", "file", "filePath"] },
   shell_exec: { verb: "Ran", argKeys: ["command", "cmd"] },
   shell_terminal: { verb: "Ran", argKeys: ["command", "cmd"] },
   shell_start_process: { verb: "Started", argKeys: ["command", "cmd"] },

@@ -12,8 +12,11 @@ export {
 } from "./daytona-client";
 
 export {
+  ApplyFileInputSchema,
+  ApplyFileOutputSchema,
   DeleteFileInputSchema,
   DeleteFileOutputSchema,
+  executeApplyFile,
   executeDeleteFile,
   executeListFiles,
   executeReadFile,

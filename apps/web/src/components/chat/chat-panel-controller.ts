@@ -7,7 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChatOnDataCallback, ChatStatus } from "ai";
 import { useRouter } from "next/navigation";
-import { useCallback, useDeferredValue, useEffect, useMemo, useRef } from "react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   mergeLoadedMessageHistory,
@@ -103,6 +103,14 @@ function useChatRuntimeBase(
   const hasReceivedStreamDataRef = useRef(false);
   const hasSubmittedRef = useRef(false);
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
+  const [runStartedAt, setRunStartedAt] = useState<null | number>(() =>
+    input.activeRunId ? Date.now() : null,
+  );
+  useEffect(() => {
+    if (input.activeRunId !== null) {
+      setRunStartedAt((current) => current ?? Date.now());
+    }
+  }, [input.activeRunId]);
   const transport = useMemo(
     () => createChatTransport(input.threadId, getToken),
     [getToken, input.threadId],
@@ -116,6 +124,7 @@ function useChatRuntimeBase(
     initialMessages: input.initialMessages ?? EMPTY_MESSAGES,
     pendingSubmissionRef,
     queryClient,
+    setRunStartedAt,
     sandboxActions: store,
     surfaceApplier,
     threadId: input.threadId,
@@ -133,6 +142,8 @@ function useChatRuntimeBase(
     pendingSubmissionRef,
     queryClient,
     router,
+    runStartedAt,
+    setRunStartedAt,
   };
 }
 
@@ -157,6 +168,7 @@ function usePanelSubmission(
       selectedModel,
       sendMessage: runtime.chat.sendMessage,
       setDraft: runtime.store.setDraft,
+      setRunStartedAt: runtime.setRunStartedAt,
       status: runtime.chat.status,
       threadId: input.threadId,
       threadTitle: input.threadTitle,
@@ -178,6 +190,7 @@ function usePanelSubmission(
       runtime.queryClient,
       runtime.router,
       runtime.store.setDraft,
+      runtime.setRunStartedAt,
       selectedModel,
     ],
   );
@@ -234,6 +247,7 @@ function useChatPanelActions(
 
 function chatPanelState(input: ChatPanelProps, runtime: ReturnType<typeof useChatPanelRuntime>) {
   const isRunActive = isActiveRunStatus(runtime.chat.status) || input.activeRunId !== null;
+  const lastMessage = runtime.messages.at(-1);
   return {
     composerStatus: composerRunStatus(
       runtime.chat.status,
@@ -241,7 +255,12 @@ function chatPanelState(input: ChatPanelProps, runtime: ReturnType<typeof useCha
     ),
     draft: runtime.store.draft,
     isMessageListStreaming: isRunActive || runtime.cancelRunMutation.isPending,
+    isWaitingForFirstResponse:
+      isRunActive &&
+      (runtime.pendingSubmissionRef.current !== null ||
+        (!runtime.hasReceivedStreamDataRef.current && lastMessage?.role !== "assistant")),
     messages: runtime.messages,
+    runStartedAt: runtime.runStartedAt,
   };
 }
 
@@ -288,6 +307,7 @@ function useChatSession(input: {
   initialMessages: CheatcodeUIMessage[];
   pendingSubmissionRef: { current: PendingSubmission | null };
   queryClient: ReturnType<typeof useQueryClient>;
+  setRunStartedAt: (value: null | number) => void;
   sandboxActions: SandboxStatusActions;
   surfaceApplier: WorkspaceSurfaceApplier;
   threadId: string;
@@ -396,6 +416,7 @@ function handleStreamFinish(isError: boolean, input: Parameters<typeof useChatSe
     input.pendingSubmissionRef.current = null;
   }
   input.hasSubmittedRef.current = false;
+  input.setRunStartedAt(null);
   for (const queryKey of [threadKeys.detail(input.threadId), threadKeys.messages(input.threadId)]) {
     void input.queryClient.invalidateQueries({ queryKey });
   }

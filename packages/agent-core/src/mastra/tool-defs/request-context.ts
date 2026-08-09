@@ -1,3 +1,4 @@
+import type { MorphApplyRuntime } from "@cheatcode/morph";
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import type { RunIntent } from "@cheatcode/types/api";
 import { RequestContext } from "@mastra/core/request-context";
@@ -7,6 +8,7 @@ import type { LlmProvider } from "../llm-context";
 import type { UserSkillCreator, UserSkillLoader, UserSkillRuntime } from "../user-skill-runtime";
 
 type GoogleToolApiKeyResolver = () => Promise<string | undefined>;
+type MorphApplyResolver = () => Promise<MorphApplyRuntime>;
 
 interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
@@ -22,6 +24,7 @@ interface CodeRequestContextOptions {
   googleToolApiKeyResolver?: GoogleToolApiKeyResolver | undefined;
   llmProvider?: LlmProvider | undefined;
   modelId?: string | undefined;
+  morphApplyResolver?: MorphApplyResolver | undefined;
   openaiApiKey?: string | undefined;
   openrouterApiKey?: string | undefined;
   projectMode?: string | undefined;
@@ -63,6 +66,7 @@ function contextEntries(
     [CONTEXT.composioQuotaMeter, options.composioQuotaMeter],
     [CONTEXT.composioUserId, options.composioUserId],
     [CONTEXT.openaiApiKey, options.openaiApiKey],
+    [CONTEXT.morphApplyResolver, options.morphApplyResolver],
     [CONTEXT.googleToolApiKeyResolver, options.googleToolApiKeyResolver],
     [CONTEXT.openrouterApiKey, options.openrouterApiKey],
     [CONTEXT.deepseekApiKey, options.deepseekApiKey],
@@ -73,6 +77,16 @@ function contextEntries(
     [CONTEXT.userSkillCreator, options.userSkillCreator],
     [CONTEXT.userSkillLoader, options.userSkillLoader],
   ];
+}
+
+export async function resolveMorphApplyRuntime(requestContext: {
+  get(key: string): unknown;
+}): Promise<MorphApplyRuntime> {
+  const candidate = requestContext.get(CONTEXT.morphApplyResolver);
+  if (typeof candidate !== "function") {
+    throw new Error("Morph FastApply is not configured.");
+  }
+  return (candidate as MorphApplyResolver)();
 }
 
 export async function resolveGoogleToolApiKey(requestContext: {

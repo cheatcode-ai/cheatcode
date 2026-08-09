@@ -8,7 +8,7 @@ import type {
 import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
-import { localProjectProcessCommand, localSourceSyncCommand } from "./project-sandbox-local-source";
+import { localPackageCommand, localProjectProcessCommand } from "./project-sandbox-local-source";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
 import {
   localizeProjectPackageCommand,
@@ -267,68 +267,13 @@ async function executeProjectPnpmCommand(
 ): Promise<SandboxExecResult> {
   const client = runtime.client();
   const localizedCommand = localizeProjectPackageCommand(packageRuntime, input.command);
-  const prepare = await client.execute(id, {
-    command: localSourceSyncCommand(packageRuntime, "package-prepare"),
+  const completed = await client.execute(id, {
+    command: localPackageCommand(packageRuntime, localizedCommand),
     cwd: WORKSPACE_DIR,
-    timeout: 60,
+    timeout: timeoutSeconds(input.timeoutMs),
+    ...(env === undefined ? {} : { env }),
   });
-  if (prepare.exitCode !== 0) {
-    return localPackageRuntimeFailure(input.command, prepare, startedAt);
-  }
-  let completed: Awaited<ReturnType<typeof client.execute>>;
-  try {
-    completed = await client.execute(id, {
-      command: commandToShellString(localizedCommand),
-      cwd: packageRuntime.localCwd,
-      timeout: timeoutSeconds(input.timeoutMs),
-      ...(env === undefined ? {} : { env }),
-    });
-  } catch (error) {
-    await abortProjectPackageCommand(client, id, packageRuntime);
-    throw error;
-  }
-  if (completed.exitCode !== 0) {
-    await abortProjectPackageCommand(client, id, packageRuntime);
-    return execResult(commandToShellString(input.command), completed, startedAt);
-  }
-  const committed = await client.execute(id, {
-    command: localSourceSyncCommand(packageRuntime, "package-commit"),
-    cwd: WORKSPACE_DIR,
-    timeout: 60,
-  });
-  if (committed.exitCode !== 0) {
-    return localPackageRuntimeFailure(input.command, committed, startedAt);
-  }
   return execResult(commandToShellString(input.command), completed, startedAt);
-}
-
-async function abortProjectPackageCommand(
-  client: ReturnType<ProcessRuntime["client"]>,
-  id: string,
-  packageRuntime: NonNullable<ReturnType<typeof projectPnpmRuntime>>,
-): Promise<void> {
-  await client
-    .execute(id, {
-      command: localSourceSyncCommand(packageRuntime, "package-abort"),
-      cwd: WORKSPACE_DIR,
-      timeout: 10,
-    })
-    .catch(() => undefined);
-}
-
-function localPackageRuntimeFailure(
-  command: readonly string[],
-  completed: { exitCode: number; result?: string | null | undefined },
-  startedAt: number,
-): SandboxExecResult {
-  return {
-    command: commandToShellString([...command]),
-    durationMs: Date.now() - startedAt,
-    exitCode: completed.exitCode || 74,
-    stderr: completed.result ?? "Could not synchronize the sandbox-local package runtime.",
-    stdout: "",
-    success: false,
-  };
 }
 
 function codeWithWorkingDirectory(

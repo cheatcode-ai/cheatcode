@@ -59,10 +59,18 @@ interface SandboxWriteFileInput {
   path: string;
 }
 
+interface SandboxCompareAndSwapFileInput {
+  content: string;
+  expectedSha256: string;
+  path: string;
+}
+
 export interface SandboxWriteFileResult {
   path: string;
   success: boolean;
 }
+
+export type SandboxCompareAndSwapFileResult = SandboxWriteFileResult;
 
 interface SandboxListFilesInput {
   includeHidden?: boolean;
@@ -173,6 +181,9 @@ interface SandboxAllocateProcessPortInput {
 export interface SandboxLike {
   allocateProjectPort(input: SandboxAllocateProjectPortInput): Promise<number>;
   allocateProcessPort(input: SandboxAllocateProcessPortInput): Promise<number>;
+  compareAndSwapFile(
+    input: SandboxCompareAndSwapFileInput,
+  ): Promise<SandboxCompareAndSwapFileResult>;
   deleteFile(input: SandboxDeleteFileInput): Promise<SandboxDeleteFileResult>;
   ensureReady(): Promise<SandboxStatus>;
   exec(input: SandboxExecInput): Promise<SandboxExecResult>;
@@ -259,6 +270,7 @@ function isSandboxLike(value: unknown): value is SandboxLike {
   return [
     "allocateProjectPort",
     "allocateProcessPort",
+    "compareAndSwapFile",
     "deleteFile",
     "ensureReady",
     "exec",

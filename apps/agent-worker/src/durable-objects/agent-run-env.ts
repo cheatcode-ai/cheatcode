@@ -12,6 +12,7 @@ export interface AgentRunEnv extends AnalyticsBindings {
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
   DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
+  MORPH_API_KEY: WorkerSecret;
   OUTPUT_DOWNLOAD_BASE_URL?: string;
   OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME?: string;

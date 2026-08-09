@@ -49,6 +49,11 @@
       "binding": "OUTPUT_DOWNLOAD_SIGNING_SECRET",
       "store_id": "ba25994718db4707ab99a498e22eb5a6",
       "secret_name": "output-download-signing-secret"
+    },
+    {
+      "binding": "MORPH_API_KEY",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "morph-api-key"
     }
   ],
   "durable_objects": {

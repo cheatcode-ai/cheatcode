@@ -6,6 +6,7 @@ export {
   mastraBrowserScreenshot,
 } from "./browser-tools";
 export {
+  mastraFsApply,
   mastraFsDelete,
   mastraFsList,
   mastraFsRead,

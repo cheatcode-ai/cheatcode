@@ -88,6 +88,7 @@ async function collectApplicationValues(
   const values = { ...existing };
   await collectClerkValues(values);
   await collectDaytonaValues(values);
+  values["MORPH_API_KEY"] = await promptRequiredSecret("MORPH_API_KEY", values["MORPH_API_KEY"]);
   for (const key of SIGNING_SECRET_KEYS) {
     values[key] = await promptGeneratedSecret(key, values[key]);
   }

@@ -21,6 +21,7 @@ export const TOOL_CAPABILITIES = [
     "Capture a sandbox browser screenshot.",
     TOOL_EVIDENCE_TOOL,
   ),
+  tool("code", "fs_apply", "Apply a focused edit to an existing workspace file.", SANDBOX_TOOL),
   tool("code", "fs_delete", "Delete workspace files or directories.", SANDBOX_TOOL),
   tool("code", "fs_list", "List project sandbox files.", SANDBOX_TOOL),
   tool("code", "fs_read", "Read a file from the project sandbox.", SANDBOX_TOOL),
