@@ -117,14 +117,30 @@ jobs:
             libnss_version="$(dpkg-query --show libnss3 | cut --fields=2)"
             dpkg --compare-versions "$libnss_version" ge "2:3.87.1-1+deb12u3"
             code_server_dir="$(dirname "$(dirname "$(readlink -f "$(command -v code-server)")")")"
-            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-doc-runtime/node_modules/brace-expansion/package.json)" = 5.0.8
-            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion/package.json)" = 5.0.8
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-doc-runtime/node_modules/brace-expansion/package.json)" = 5.0.9
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-browser-driver/node_modules/fast-uri/package.json)" = 3.1.5
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-browser-driver/node_modules/hono/package.json)" = 4.12.34
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-browser-driver/node_modules/ip-address/package.json)" = 10.3.1
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/brace-expansion/package.json)" = 5.0.9
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/ip-address/package.json)" = 10.3.1
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/undici/package.json)" = 6.28.0
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/undici/package.json)" = 6.28.0
+            test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/undici/package.json)" = 6.28.0
             test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/npm/node_modules/tar/package.json)" = 7.5.22
             test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/artifacts/exe/dist/node_modules/tar/package.json)" = 7.5.22
             test "$(node -p "require(process.argv[1]).version" /opt/cheatcode-package-manager/node_modules/pnpm/dist/node_modules/tar/package.json)" = 7.5.22
-            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/node_modules/js-yaml/package.json")" = 4.3.0
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/node_modules/ip-address/package.json")" = 10.3.1
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/node_modules/js-yaml/package.json")" = 4.3.1
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/ip-address/package.json")" = 10.3.1
             test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/shell-quote/package.json")" = 1.10.0
             test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/tar/package.json")" = 7.5.22
+            test "$(node -p "require(process.argv[1]).version" "$code_server_dir/lib/vscode/node_modules/undici/package.json")" = 7.29.0
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/next/node_modules/.pnpm/nanoid@3.3.17/node_modules/nanoid/package.json)" = 3.3.17
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/next/node_modules/.pnpm/postcss@8.5.23/node_modules/postcss/package.json)" = 8.5.23
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/expo/node_modules/.pnpm/brace-expansion@5.0.9/node_modules/brace-expansion/package.json)" = 5.0.9
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/expo/node_modules/.pnpm/js-yaml@4.3.1/node_modules/js-yaml/package.json)" = 4.3.1
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/expo/node_modules/.pnpm/nanoid@3.3.17/node_modules/nanoid/package.json)" = 3.3.17
+            test "$(node -p "require(process.argv[1]).version" /home/node/.cheatcode/app-runtimes/expo/node_modules/.pnpm/postcss@8.5.23/node_modules/postcss/package.json)" = 8.5.23
             npm --version
             pnpm --version
             python3 --version
@@ -172,6 +188,7 @@ jobs:
             python3 /home/node/.cheatcode/default-skills/xlsx/scripts/recalc.py --help
             python3 /home/node/.cheatcode/default-skills/webapp-testing/scripts/with_server.py --help
             python3 -c "import defusedxml, lxml, markitdown, pdf2image, pdfplumber, playwright, pypdf, pypdfium2, pytesseract, reportlab"
+            python3 -c "import importlib.metadata as m; assert m.version(\"cryptography\") == \"50.0.0\"; assert m.version(\"pypdf\") == \"6.15.0\""
             pandoc --version
             pdfinfo -v
             qpdf --version
