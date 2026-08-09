@@ -158,6 +158,9 @@ content identities rather than unrelated FUSE/native-disk timestamps, performs a
 replacement, and mirrors subsequent writes and deletions within 250 ms, including equal-size and
 shell-based edits. The local source, dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
+Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the
+server starts, while an unchanged baked app-builder template continues to use the immutable runtime
+without an unnecessary install.
 The immutable sandbox exposes that synchronizer as the root-owned
 `/opt/cheatcode/project-source-sync.py` helper, keeping Worker-to-sandbox command arguments small
 and making the snapshot the source of truth for executable sandbox runtime code.
