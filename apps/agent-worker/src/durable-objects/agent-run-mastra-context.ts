@@ -11,6 +11,7 @@ import type { StartRunInput } from "./agent-run-schemas";
 import { resolveUserSkillContext } from "./agent-run-user-skills";
 import { resolveAgentToolCredentials } from "./agent-tool-credentials";
 import type { LlmCredential } from "./llm-provider";
+import { createMorphApplyResolver } from "./morph-provider";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 type ResolvedToolCredentials = Awaited<ReturnType<typeof resolveAgentToolCredentials>>;
@@ -94,6 +95,7 @@ export function createAgentRequestContext(
     googleToolApiKeyResolver: toolCredentials.googleToolApiKeyResolver,
     llmProvider: credential.transportProvider,
     modelId: credential.transportModelId,
+    morphApplyResolver: createMorphApplyResolver(options.env),
     openaiApiKey: credential.transportProvider === "openai" ? credential.apiKey : undefined,
     openrouterApiKey: credential.transportProvider === "openrouter" ? credential.apiKey : undefined,
     projectMode: input.projectMode,

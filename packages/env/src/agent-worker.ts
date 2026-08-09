@@ -33,6 +33,7 @@ export const AgentWorkerEnvSchema = z
     DAYTONA_WORKSPACE_VOLUME: z.string().min(1).max(100),
     DEEPSEEK_PLATFORM_API_KEY: OptionalWorkerSecretSchema,
     HYPERDRIVE: HyperdriveSchema,
+    MORPH_API_KEY: WorkerSecretSchema,
     OUTPUT_DOWNLOAD_BASE_URL: z.string().url().optional(),
     OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecretSchema,
     PREVIEW_HOSTNAME: PreviewHostnameSchema.optional(),

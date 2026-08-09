@@ -1,7 +1,10 @@
 import { createTool } from "@mastra/core/tools";
 import {
+  ApplyFileInputSchema,
+  ApplyFileOutputSchema,
   DeleteFileInputSchema,
   DeleteFileOutputSchema,
+  executeApplyFile,
   executeDeleteFile,
   executeGitClone,
   executeGitStatus,
@@ -43,13 +46,18 @@ import {
   WriteFileOutputSchema,
 } from "../../tools/code";
 import { containsWorkspaceReference } from "../../tools/code/workspace-paths";
-import { codeRuntimeFromContext, workspaceRuntimeFromContext } from "./tool-runtime-context";
+import { resolveMorphApplyRuntime } from "./request-context";
+import {
+  codeRuntimeFromContext,
+  requestContextFromToolContext,
+  workspaceRuntimeFromContext,
+} from "./tool-runtime-context";
 import { StartDevServerInputSchema, StartDevServerOutputSchema } from "./tool-schemas";
 
 export const mastraRunCode = createTool({
   id: "code_run",
   description:
-    "Run a short, self-contained Python or JavaScript snippet inline in the sandbox for a quick throwaway computation. It cannot install packages or save files. For real project code, generated files, or anything needing dependencies, use fs_write plus shell_exec instead.",
+    "Run a short, self-contained Python or JavaScript snippet inline in the sandbox for a quick throwaway computation. It cannot install packages or save files. For real project code, use fs_apply/fs_write plus shell_exec instead.",
   inputSchema: RunCodeInputSchema,
   outputSchema: RunCodeOutputSchema,
   execute: async (input, context) => {
@@ -134,11 +142,28 @@ export const mastraFsRead = createTool({
 export const mastraFsWrite = createTool({
   id: "fs_write",
   description:
-    "Write a file under /workspace in the project sandbox. Use for code edits and generated files.",
+    "Create a new file or intentionally replace an entire file under /workspace. For focused changes to an existing text file, use fs_apply so unchanged code is preserved without regenerating the whole file.",
   inputSchema: WriteFileInputSchema,
   outputSchema: WriteFileOutputSchema,
   execute: async (input, context) =>
     executeWriteFile(input, await workspaceRuntimeFromContext(context)),
+});
+
+/** Applies a sparse model-authored edit to one existing text file without rewriting it wholesale. */
+export const mastraFsApply = createTool({
+  id: "fs_apply",
+  description:
+    "Apply a focused edit to an existing UTF-8 file under /workspace. Read the file first, then provide only changed code with // ... existing code ... wherever content stays unchanged. Use fs_write for new files, binary files, or intentional complete replacements.",
+  inputSchema: ApplyFileInputSchema,
+  outputSchema: ApplyFileOutputSchema,
+  execute: async (input, context) => {
+    const requestContext = requestContextFromToolContext(context);
+    return executeApplyFile(
+      input,
+      await workspaceRuntimeFromContext(context),
+      await resolveMorphApplyRuntime(requestContext),
+    );
+  },
 });
 
 export const mastraFsList = createTool({

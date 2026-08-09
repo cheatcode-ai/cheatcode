@@ -1,13 +1,14 @@
 import { DaytonaApiError } from "@cheatcode/agent-core/tools/code";
 import { APIError } from "@cheatcode/observability";
 import type {
+  SandboxCompareAndSwapFileResult,
   SandboxDeleteFileResult,
   SandboxListFilesResult,
   SandboxReadFileResult,
   SandboxSearchFilesResult,
   SandboxWriteFileResult,
 } from "@cheatcode/sandbox-contracts";
-import { decodeBase64, dirname, encodeBase64, shellQuote } from "../sandbox-support";
+import { encodeBase64, shellQuote } from "../sandbox-support";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   CODE_SERVER_DISPLAY_DIR,
@@ -21,7 +22,6 @@ import {
 } from "./project-sandbox-code-server";
 import {
   assertDeletableWorkspacePath,
-  assertMutableWorkspacePath,
   buildGrepCommand,
   PROJECT_ARCHIVE_MAX_BYTES,
   PROJECT_ARCHIVE_MAX_FILES,
@@ -30,6 +30,7 @@ import {
   parseGrepOutput,
   WORKSPACE_DIR,
 } from "./project-sandbox-content-support";
+import { compareAndSwapFile, writeFile } from "./project-sandbox-file-apply";
 import { listSandboxFiles } from "./project-sandbox-files";
 import { projectLocalRuntimeDir } from "./project-sandbox-package-runtime";
 import { buildPreviewUrl, signedUrlToExpo } from "./project-sandbox-preview";
@@ -53,6 +54,7 @@ import {
   ProjectCleanupWorkspaceInputSchema,
   type ProjectCodeServerInput,
   ProjectCodeServerInputSchema,
+  type ProjectCompareAndSwapFileInput,
   type ProjectDeleteFileInput,
   ProjectDeleteFileInputSchema,
   type ProjectListFilesInput,
@@ -70,7 +72,6 @@ import {
   ProjectWakePreviewInputSchema,
   type ProjectWakePreviewResult,
   type ProjectWriteFileInput,
-  ProjectWriteFileInputSchema,
 } from "./project-sandbox-runtime";
 import type { SandboxRuntime } from "./project-sandbox-runtime-handle";
 
@@ -84,6 +85,9 @@ const BROWSER_TAKEOVER_SCRIPT = "/opt/cheatcode/start-browser-takeover.sh";
 
 export interface ContentOps {
   cleanupProjectWorkspace: (input: ProjectCleanupWorkspaceInput) => Promise<void>;
+  compareAndSwapFile: (
+    input: ProjectCompareAndSwapFileInput,
+  ) => Promise<SandboxCompareAndSwapFileResult>;
   deleteFile: (input: ProjectDeleteFileInput) => Promise<SandboxDeleteFileResult>;
   downloadProjectArchive: (input: ProjectArchiveInput, onFinished: () => void) => Promise<Response>;
   exposeBrowserTakeover: (
@@ -159,6 +163,7 @@ export function createContentOps(
   const context = { dependencies, runtime };
   return {
     cleanupProjectWorkspace: (input) => cleanupProjectWorkspace(context, input),
+    compareAndSwapFile: (input) => compareAndSwapFile(runtime, input),
     deleteFile: (input) => deleteFile(runtime, input),
     downloadProjectArchive: (input, onFinished) =>
       downloadProjectArchive(context, input, onFinished),
@@ -265,22 +270,6 @@ async function readFile(
     path: parsed.path,
     size: bytes.byteLength,
   };
-}
-
-async function writeFile(
-  runtime: ContentRuntime,
-  input: ProjectWriteFileInput,
-): Promise<SandboxWriteFileResult> {
-  const parsed = ProjectWriteFileInputSchema.parse(input);
-  assertMutableWorkspacePath(parsed.path);
-  const id = await runtime.ensureSandbox();
-  await runtime.client().createFolder(id, dirname(parsed.path));
-  const bytes =
-    parsed.encoding === "base64"
-      ? decodeBase64(parsed.content)
-      : new TextEncoder().encode(parsed.content);
-  await runtime.client().uploadFile(id, parsed.path, bytes);
-  return { path: parsed.path, success: true };
 }
 
 async function listFiles(

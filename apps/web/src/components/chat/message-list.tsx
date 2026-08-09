@@ -20,9 +20,11 @@ interface MessageListProps {
   hasOlderMessages: boolean;
   isLoadingOlderMessages: boolean;
   isStreaming: boolean;
+  isWaitingForFirstResponse: boolean;
   messages: readonly CheatcodeUIMessage[];
   onContinue: () => void;
   onLoadOlderMessages: () => Promise<OlderMessagesLoadResult>;
+  runStartedAt: null | number;
   threadId: string;
 }
 
@@ -30,13 +32,16 @@ export function MessageList({
   hasOlderMessages,
   isLoadingOlderMessages,
   isStreaming,
+  isWaitingForFirstResponse,
   messages,
   onContinue,
   onLoadOlderMessages,
+  runStartedAt,
   threadId,
 }: MessageListProps) {
   const scrollState = useMessageScrollState();
-  const turns = groupMessagesIntoTurns(messages);
+  const displayMessages = withPendingAssistant(messages, isWaitingForFirstResponse, threadId);
+  const turns = groupMessagesIntoTurns(displayMessages);
   const virtualizer = useVirtualizer({
     count: turns.length,
     estimateSize: () => scrollState.parentRef.current?.clientHeight ?? ESTIMATED_TURN_HEIGHT,
@@ -44,7 +49,7 @@ export function MessageList({
     getScrollElement: () => scrollState.parentRef.current,
     overscan: 6,
   });
-  const latestMessageId = messages.at(-1)?.id ?? "";
+  const latestMessageId = displayMessages.at(-1)?.id ?? "";
   const scroll = useMessageScrollController({ latestMessageId, scrollState });
   const loadOlderMessages = useOlderMessagesAnchor({
     isLoading: isLoadingOlderMessages,
@@ -67,6 +72,7 @@ export function MessageList({
       listTopPadding={listTopPadding}
       loadOlderMessages={loadOlderMessages}
       onContinue={onContinue}
+      runStartedAt={runStartedAt}
       scroll={scroll}
       scrollState={scrollState}
       totalHeight={virtualizer.getTotalSize() + listTopPadding + LIST_BOTTOM_PADDING}
@@ -75,4 +81,22 @@ export function MessageList({
       virtualizer={virtualizer}
     />
   );
+}
+
+function withPendingAssistant(
+  messages: readonly CheatcodeUIMessage[],
+  isWaitingForFirstResponse: boolean,
+  threadId: string,
+): readonly CheatcodeUIMessage[] {
+  if (!isWaitingForFirstResponse) {
+    return messages;
+  }
+  return [
+    ...messages,
+    {
+      id: `pending-assistant-${threadId}`,
+      parts: [],
+      role: "assistant",
+    },
+  ];
 }

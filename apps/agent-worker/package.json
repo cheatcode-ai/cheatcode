@@ -20,6 +20,7 @@
     "@cheatcode/db": "workspace:*",
     "@cheatcode/durable-storage": "workspace:*",
     "@cheatcode/env": "workspace:*",
+    "@cheatcode/morph": "workspace:*",
     "@cheatcode/observability": "workspace:*",
     "@cheatcode/preview-bridge": "workspace:*",
     "@cheatcode/sandbox-contracts": "workspace:*",

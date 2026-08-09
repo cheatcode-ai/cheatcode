@@ -22,6 +22,7 @@ export function MessageListView({
   listTopPadding,
   loadOlderMessages,
   onContinue,
+  runStartedAt,
   scroll,
   scrollState,
   totalHeight,
@@ -38,6 +39,7 @@ export function MessageListView({
         listTopPadding={listTopPadding}
         loadOlderMessages={loadOlderMessages}
         onContinue={onContinue}
+        runStartedAt={runStartedAt}
         scroll={scroll}
         scrollState={scrollState}
         totalHeight={totalHeight}
@@ -60,6 +62,7 @@ interface MessageListViewProps {
   listTopPadding: number;
   loadOlderMessages: () => Promise<OlderMessagesLoadResult>;
   onContinue: () => void;
+  runStartedAt: null | number;
   scroll: MessageScrollController;
   scrollState: MessageScrollState;
   totalHeight: number;
@@ -88,6 +91,7 @@ function VirtualMessageContent({
   listTopPadding,
   loadOlderMessages,
   onContinue,
+  runStartedAt,
   scrollState,
   totalHeight,
   turns,
@@ -121,6 +125,7 @@ function VirtualMessageContent({
               isLastTurn={isLastTurn}
               isStreaming={isStreaming}
               onContinue={onContinue}
+              runStartedAt={runStartedAt}
               threadId={threadId}
               turn={turn}
             />
@@ -135,12 +140,14 @@ function MessageTurnContent({
   isLastTurn,
   isStreaming,
   onContinue,
+  runStartedAt,
   threadId,
   turn,
 }: {
   isLastTurn: boolean;
   isStreaming: boolean;
   onContinue: () => void;
+  runStartedAt: null | number;
   threadId: string;
   turn: MessageTurn;
 }) {
@@ -158,6 +165,7 @@ function MessageTurnContent({
             key={message.id}
             message={message}
             onContinue={!isStreaming && isLastTurn && isLastMessage ? onContinue : undefined}
+            runStartedAt={runStartedAt}
             streaming={isStreaming && isLastTurn && isLastMessage}
             threadId={threadId}
           />
@@ -213,16 +221,18 @@ function ScrollToBottomButton({
 function MessageBubble({
   message,
   onContinue,
+  runStartedAt,
   streaming,
   threadId,
 }: {
   message: CheatcodeUIMessage;
   onContinue?: (() => void) | undefined;
+  runStartedAt: null | number;
   streaming: boolean;
   threadId: string;
 }) {
   const isUser = message.role === "user";
-  const elapsed = useElapsedSeconds(streaming);
+  const elapsed = useElapsedSeconds(streaming, runStartedAt);
   return (
     <article className="cc-fade-in group relative w-full max-w-full px-2">
       <div

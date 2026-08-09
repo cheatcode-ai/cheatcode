@@ -408,6 +408,7 @@ async function generateWithCredential(input: {
     ...(input.input.runIntent === "skill-creator"
       ? {
           activeTools: [
+            "fs_apply",
             "fs_delete",
             "fs_list",
             "fs_read",

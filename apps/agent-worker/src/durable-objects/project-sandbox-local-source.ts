@@ -4,30 +4,38 @@ import type { ProjectLocalRuntime } from "./project-sandbox-package-runtime";
 const LOCAL_SOURCE_SYNC_BINARY = "/opt/cheatcode/project-source-sync.py";
 
 function runtimeStatePaths(runtime: ProjectLocalRuntime): {
-  baselinePath: string;
-  busyPath: string;
   lockPath: string;
 } {
   return {
-    baselinePath: `${runtime.runtimeDir}/package-operation-baseline.json`,
-    busyPath: `${runtime.runtimeDir}/preview-sync.busy`,
     lockPath: `${runtime.runtimeDir}/package-operation.lock`,
   };
 }
 
-export function localSourceSyncCommand(
+function localSourceSyncCommand(
   runtime: ProjectLocalRuntime,
-  mode: "package-abort" | "package-commit" | "package-prepare" | "preview-loop" | "preview-once",
+  mode: "preview-loop" | "preview-once",
 ): string {
-  const { baselinePath, busyPath, lockPath } = runtimeStatePaths(runtime);
+  const { lockPath } = runtimeStatePaths(runtime);
+  return [LOCAL_SOURCE_SYNC_BINARY, mode, runtime.workspaceDir, runtime.localSourceDir, lockPath]
+    .map(shellQuote)
+    .join(" ");
+}
+
+/** Runs pnpm and commits its source changes while holding one crash-safe OS lock. */
+export function localPackageCommand(
+  runtime: ProjectLocalRuntime,
+  command: readonly string[],
+): string {
+  const { lockPath } = runtimeStatePaths(runtime);
   return [
     LOCAL_SOURCE_SYNC_BINARY,
-    mode,
+    "package-run",
     runtime.workspaceDir,
     runtime.localSourceDir,
     lockPath,
-    busyPath,
-    baselinePath,
+    runtime.localCwd,
+    "--",
+    ...command,
   ]
     .map(shellQuote)
     .join(" ");

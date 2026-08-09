@@ -289,6 +289,9 @@ importers:
       '@cheatcode/env':
         specifier: workspace:*
         version: link:../../packages/env
+      '@cheatcode/morph':
+        specifier: workspace:*
+        version: link:../../packages/morph
       '@cheatcode/observability':
         specifier: workspace:*
         version: link:../../packages/observability
@@ -594,6 +597,9 @@ importers:
       '@cheatcode/composio':
         specifier: workspace:*
         version: link:../composio
+      '@cheatcode/morph':
+        specifier: workspace:*
+        version: link:../morph
       '@cheatcode/observability':
         specifier: workspace:*
         version: link:../observability
@@ -787,6 +793,22 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 22.20.1
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+
+  packages/morph:
+    dependencies:
+      '@cheatcode/observability':
+        specifier: workspace:*
+        version: link:../observability
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
+    devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../tsconfig
       typescript:
         specifier: 'catalog:'
         version: 6.0.3

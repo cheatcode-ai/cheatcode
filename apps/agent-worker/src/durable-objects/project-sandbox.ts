@@ -1,5 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import type {
+  SandboxCompareAndSwapFileResult,
   SandboxDeleteFileResult,
   SandboxExecResult,
   SandboxKillProcessResult,
@@ -39,6 +40,7 @@ import type {
   ProjectBrowserTakeoverStopInput,
   ProjectCleanupWorkspaceInput,
   ProjectCodeServerInput,
+  ProjectCompareAndSwapFileInput,
   ProjectDeleteFileInput,
   ProjectExecInput,
   ProjectKillProcessInput,
@@ -230,6 +232,14 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
 
   public writeFile(input: ProjectWriteFileInput): Promise<SandboxWriteFileResult> {
     return this.withLease("writeFile", input, () => this.operations.writeFile(input));
+  }
+
+  public compareAndSwapFile(
+    input: ProjectCompareAndSwapFileInput,
+  ): Promise<SandboxCompareAndSwapFileResult> {
+    return this.withLease("compareAndSwapFile", input, () =>
+      this.operations.compareAndSwapFile(input),
+    );
   }
 
   public listFiles(input: ProjectListFilesInput): Promise<SandboxListFilesResult> {

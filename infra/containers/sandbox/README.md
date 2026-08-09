@@ -99,6 +99,10 @@ The root-owned `/opt/cheatcode/project-source-sync.py` helper is the single runt
 boundary between persistent project source and the native-disk project mirror. It is
 baked and syntax-checked with the immutable image so Workers invoke a short, bounded
 command instead of transporting executable source through sandbox command arguments.
+It uses content hashes and atomic replacement across the FUSE/native-disk boundary.
+Direct pnpm invocations execute inside one `flock`-guarded transaction; process death
+releases that lock automatically, and successful source changes commit only after a
+three-way conflict check against the durable tree.
 
 Open VSX currently publishes Parquet Viewer 3.1.0 with vulnerable Thrift and WebSocket
 runtimes. The image keeps the extension feature but replaces those two runtime packages

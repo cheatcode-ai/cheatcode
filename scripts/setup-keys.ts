@@ -30,6 +30,7 @@ export const SETUP_KEY_META: Record<RequiredKey, KeyMeta> = {
   DAYTONA_WORKSPACE_VOLUME: { label: "Daytona workspace volume", secret: false },
   NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY: { label: "Clerk publishable key", secret: false },
   NEXT_PUBLIC_GATEWAY_URL: { label: "Local gateway URL", secret: false },
+  MORPH_API_KEY: { label: "Morph API key", secret: true },
   OUTPUT_DOWNLOAD_SIGNING_SECRET: { label: "Output-download signing secret", secret: true },
   PREVIEW_TOKEN_SECRET: { label: "Preview-token signing secret", secret: true },
   SUPABASE_AGENT_DATABASE_URL: { label: "Agent database URL", secret: true },

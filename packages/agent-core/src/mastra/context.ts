@@ -14,6 +14,7 @@ export const CONTEXT = {
   googleToolApiKeyResolver: "googleToolApiKeyResolver",
   llmModelId: "llmModelId",
   llmProvider: "llmProvider",
+  morphApplyResolver: "morphApplyResolver",
   openaiApiKey: "openaiApiKey",
   openrouterApiKey: "openrouterApiKey",
   promptProjectMode: "promptProjectMode",
