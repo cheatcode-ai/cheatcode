@@ -7,7 +7,6 @@ import {
 import {
   createLogger,
   emitErrorEvent,
-  emitUserEvent,
   readBoundedResponseJson,
   safeErrorTelemetry,
 } from "@cheatcode/observability";
@@ -423,12 +422,6 @@ async function generateWithCredential(input: {
     messages: input.messages,
     requestContext,
     runId: input.input.runId,
-  });
-  emitUserEvent(input.env, {
-    eventName: "run_model_resolved",
-    logicalModelId: input.primary.logicalModelId,
-    runId: input.input.runId,
-    userId: input.input.userId,
   });
   return WorkflowModelStepResultSchema.parse({
     input: input.input,

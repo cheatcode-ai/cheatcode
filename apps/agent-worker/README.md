@@ -268,8 +268,12 @@ as every segment's logical timestamp. PostgreSQL publishes a run only when its u
 segment exists; retries compare each segment's JSONB, final marker, timestamp, and tenant
 identity. Oversized structured parts use lossless bounded fragment envelopes rather than
 truncation, and there is no transcript-length, step, token, or cost ceiling.
-Checkpointed tool steps emit `step_started`, `step_completed`, `tool_invoked`, and
-`skill_invoked` events independently of the live stream. If the last stream subscriber disconnects while a run is still
+Checkpointed tool steps emit one `tool_invoked` completion event and, when applicable, one
+`skill_invoked` event independently of the live stream. Model resolution is emitted on the initial
+selection and on a real fallback change, rather than once per model turn. The Workflow transcript
+and Cloudflare step history remain the source of truth for detailed step lifecycle debugging, while
+bounded Analytics Engine events cover product outcomes without coupling telemetry limits to run
+correctness. If the last stream subscriber disconnects while a run is still
 running, AgentRun emits `run_abandoned` for the funnel trail.
 
 Project deletion first fences project/thread mutations, refuses an active run, records a

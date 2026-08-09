@@ -228,11 +228,18 @@ export function emitPerformanceMetric(env: AnalyticsBindings, metric: Performanc
 }
 
 function writePoint(dataset: AnalyticsDataset | undefined, point: AnalyticsDataPoint): void {
-  dataset?.writeDataPoint({
-    indexes: sanitizeBlobs(point.indexes).slice(0, 1),
-    blobs: sanitizeBlobs(point.blobs).slice(0, 20),
-    doubles: sanitizeDoubles(point.doubles).slice(0, 20),
-  });
+  if (!dataset) return;
+  try {
+    dataset.writeDataPoint({
+      indexes: sanitizeBlobs(point.indexes).slice(0, 1),
+      blobs: sanitizeBlobs(point.blobs).slice(0, 20),
+      doubles: sanitizeDoubles(point.doubles).slice(0, 20),
+    });
+  } catch {
+    // Analytics is intentionally outside the product correctness boundary. In
+    // particular, a long-lived Workflow can outgrow Analytics Engine's
+    // per-invocation write allowance even though the user operation is healthy.
+  }
 }
 
 function sanitizeBlobs(values: (string | undefined)[] | undefined): string[] {
