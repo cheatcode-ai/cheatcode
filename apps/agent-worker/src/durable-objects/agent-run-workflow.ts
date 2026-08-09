@@ -294,7 +294,7 @@ async function executeToolWorkflowSteps(input: {
   const results: WorkflowToolStepResult[] = [];
   for (const [toolIndex, toolCall] of input.model.step.toolCalls.entries()) {
     const toolStepIndex = input.firstToolStepIndex + toolIndex;
-    await publishToolStart({ ...input, toolCall, toolIndex, toolStepIndex });
+    await publishToolStart({ ...input, toolCall, toolIndex });
     const result = await executeToolWorkflowStep({ ...input, state, toolCall, toolIndex });
     results.push(result);
     state = await publishToolStep(
@@ -316,22 +316,13 @@ async function publishToolStart(
   input: Parameters<typeof executeToolWorkflowSteps>[0] & {
     toolCall: WorkflowModelStepResult["step"]["toolCalls"][number];
     toolIndex: number;
-    toolStepIndex: number;
   },
 ): Promise<void> {
   await input.workflowStep.do(
     `publish tool start ${input.stepIndex}.${input.toolIndex}`,
     STATE_STEP,
-    async () => {
-      emitUserEvent(input.env, {
-        eventName: "step_started",
-        runId: input.payload.input.runId,
-        stepIdx: input.toolStepIndex,
-        stepType: "tool",
-        toolName: input.toolCall.toolName,
-        userId: input.payload.input.userId,
-      });
-      await appendWorkflowEvent(
+    () =>
+      appendWorkflowEvent(
         input.env,
         workflowCallback(input.payload, input.workflowInstanceId),
         `tool-start:${input.stepIndex}:${input.toolIndex}`,
@@ -340,8 +331,7 @@ async function publishToolStart(
           toolCallId: input.toolCall.toolCallId,
           toolName: input.toolCall.toolName,
         }),
-      );
-    },
+      ),
   );
 }
 
@@ -404,6 +394,14 @@ async function publishModelStep(
       "persist Workflow model",
     );
     await appendWorkflowEvent(env, callback, `model:${stepIndex}`, chunks);
+    if (state.selectedLogicalModelId !== model.logicalModelId) {
+      emitUserEvent(env, {
+        eventName: "run_model_resolved",
+        logicalModelId: model.logicalModelId,
+        runId: payload.input.runId,
+        userId: payload.input.userId,
+      });
+    }
   });
   return {
     ...state,
@@ -475,7 +473,6 @@ function emitToolCompletion(
     userId: payload.input.userId,
   } as const;
   emitUserEvent(env, { ...event, eventName: "tool_invoked" });
-  emitUserEvent(env, { ...event, eventName: "step_completed", stepType: "tool" });
   if (result.toolCall.toolName === "skill_invoke" && !result.error) {
     emitUserEvent(env, {
       durationMs: result.durationMs,

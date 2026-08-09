@@ -37,6 +37,11 @@ positions.
   consumes the stream
 - `emitAgentMetric`, `emitUserEvent`, `emitErrorEvent`, `emitPerformanceMetric`
 
+Analytics emitters are best-effort by contract: a missing binding, account
+quota, or per-invocation write allowance cannot fail the product operation that
+produced the telemetry. Callers therefore do not add local error handling or
+make correctness decisions from an Analytics Engine write.
+
 Error Analytics Engine rows intentionally contain only categorical metadata.
 Raw error messages and stack traces are never written to Analytics Engine, and
 the structured logger suppresses error-message, stack, SQL, parameter, body,
