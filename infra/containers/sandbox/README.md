@@ -95,6 +95,11 @@ restored from the reviewed package store after a sandbox replacement. Expo uses 
 `default` alias. These locks prevent a snapshot rebuild from resolving a different
 dependency tree while the application source stays unchanged.
 
+The root-owned `/opt/cheatcode/project-source-sync.py` helper is the single runtime
+boundary between persistent project source and the native-disk project mirror. It is
+baked and syntax-checked with the immutable image so Workers invoke a short, bounded
+command instead of transporting executable source through sandbox command arguments.
+
 Open VSX currently publishes Parquet Viewer 3.1.0 with vulnerable Thrift and WebSocket
 runtimes. The image keeps the extension feature but replaces those two runtime packages
 with the exact, lockfile-pinned versions in `extension-overrides/parquet-viewer/` and
