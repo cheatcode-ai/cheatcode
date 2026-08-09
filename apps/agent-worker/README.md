@@ -152,6 +152,9 @@ webpack compilation even after the listening socket opens. A baked Python synchr
 full refresh on every process start and mirrors subsequent writes and deletions within one second,
 including shell-based edits. The local source, dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
+The immutable sandbox exposes that synchronizer as the root-owned
+`/opt/cheatcode/project-source-sync.py` helper, keeping Worker-to-sandbox command arguments small
+and making the snapshot the source of truth for executable sandbox runtime code.
 Direct pnpm commands use that same native-disk source as a transaction: the runtime snapshots the
 durable source, executes pnpm locally, and copies only command-produced source changes back after
 verifying that the corresponding durable paths did not change concurrently. Long-running pnpm

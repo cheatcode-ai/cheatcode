@@ -144,6 +144,8 @@ jobs:
             npm --version
             pnpm --version
             python3 --version
+            test -x /opt/cheatcode/project-source-sync.py
+            python3 -c "import ast,pathlib;ast.parse(pathlib.Path(\"/opt/cheatcode/project-source-sync.py\").read_text())"
             code-server --version
             "$CHROME_PATH" --version
             libreoffice --version
