@@ -3,6 +3,11 @@ import { z } from "zod";
 /** Exact artifact kinds that can be stored, streamed, and rendered by V2. */
 const ARTIFACT_KINDS = ["docx", "image", "pdf", "slide", "video", "xlsx"] as const;
 
+/** Reserved filename namespace for durable outputs that support the agent UI, not the user. */
+export const INTERNAL_OUTPUT_FILENAME_PREFIX = ".cheatcode-internal-";
+
+export const ArtifactExposureSchema = z.enum(["deliverable", "internal"]);
+
 /** One generated deliverable stays bounded for Worker memory and sandbox transfer safety. */
 export const GENERATED_OUTPUT_MAX_BYTES = 32 * 1024 * 1024;
 
@@ -20,6 +25,7 @@ export const OutputDownloadUrlResponseSchema = z.strictObject({
 });
 
 export type ArtifactKind = z.infer<typeof ArtifactKindSchema>;
+export type ArtifactExposure = z.infer<typeof ArtifactExposureSchema>;
 export type OutputDownloadUrlResponse = z.infer<typeof OutputDownloadUrlResponseSchema>;
 
 function isSafeOutputDownloadUrl(value: string): boolean {

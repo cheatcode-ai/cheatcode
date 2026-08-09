@@ -1,5 +1,6 @@
 import { APIError } from "@cheatcode/observability";
 import type { ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
+import { INTERNAL_OUTPUT_FILENAME_PREFIX } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 import type { BrowserRuntimeContext } from "./runtime";
 import { BrowserRuntimeContextSchema } from "./runtime";
@@ -574,7 +575,8 @@ async function normalizeBrowserActionResult(
   const artifact = await runtimeContext.artifacts.put({
     contentType: "image/png",
     data: bytes,
-    filename: `browser-screenshot-${index + 1}-${crypto.randomUUID()}.png`,
+    exposure: "internal",
+    filename: `${INTERNAL_OUTPUT_FILENAME_PREFIX}browser-screenshot-${index + 1}-${crypto.randomUUID()}.png`,
     kind: "image",
   });
   return {

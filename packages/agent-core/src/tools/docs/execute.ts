@@ -191,6 +191,7 @@ async function runArtifactScript(
     return await runtimeContext.artifacts.put({
       contentType: generated.mimeType,
       data: base64ToBytes(generated.base64),
+      exposure: "deliverable",
       filename: generated.filename,
       kind,
     });

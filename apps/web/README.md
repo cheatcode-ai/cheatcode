@@ -23,6 +23,10 @@ No image capability or object URL is persisted. Opening an image in Files switch
 workspace and asks the trusted code-server bridge to reveal the exact generated asset; an already
 visible Files panel selects a newly generated image without waking a closed sandbox.
 
+Browser screenshots are not Deliverables. A screenshot stream part carries the durable output
+identity plus its originating tool-call ID; the chat loads it only when the corresponding browser
+activity is expanded and offers an accessible full-size viewer inside that activity.
+
 Composer uploads always land in a writable project. If none is selected, choosing the first
 valid file creates and selects a general project named from that file. Files upload sequentially
 as raw bounded requests, show per-batch progress and actionable failures, and become durable

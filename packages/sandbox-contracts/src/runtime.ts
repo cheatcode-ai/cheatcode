@@ -1,6 +1,6 @@
 import type { SandboxExecResultBase } from "@cheatcode/types";
 import type { SandboxFileEntry } from "@cheatcode/types/api";
-import type { ArtifactKind } from "@cheatcode/types/artifacts";
+import type { ArtifactExposure, ArtifactKind } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 
 export type { ArtifactKind } from "@cheatcode/types/artifacts";
@@ -190,6 +190,7 @@ export interface SandboxLike {
 export interface ArtifactUploadInput {
   contentType: string;
   data: Uint8Array;
+  exposure: ArtifactExposure;
   filename: string;
   kind: ArtifactKind;
 }

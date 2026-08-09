@@ -300,6 +300,7 @@ async function storeArtifact(
   return runtime.artifacts.put({
     contentType: media.mimeType,
     data: media.bytes,
+    exposure: "deliverable",
     filename,
     kind: type,
   });

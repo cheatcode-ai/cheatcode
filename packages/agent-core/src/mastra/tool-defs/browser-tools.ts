@@ -69,7 +69,7 @@ export const mastraBrowserExtract = createTool({
 export const mastraBrowserScreenshot = createTool({
   id: "browser_screenshot",
   description:
-    "Capture the current sandbox browser page as a PNG artifact. The result contains bounded artifact metadata and a download URL, never inline base64 image data.",
+    "Capture the current sandbox browser page as durable visual evidence for this tool step. The screenshot appears inside the expanded browser action and is not a user deliverable.",
   inputSchema: BrowserScreenshotInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>

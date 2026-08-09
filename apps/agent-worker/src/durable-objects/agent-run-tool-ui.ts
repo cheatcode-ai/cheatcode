@@ -3,7 +3,8 @@ import { TOOL_CAPABILITIES } from "@cheatcode/types/capabilities";
 import type { UIMessageChunk } from "ai";
 
 const SANDBOX_TOOL_NAMES = capabilityNameSet("usesSandbox");
-const ARTIFACT_TOOL_NAMES = capabilityNameSet("producesArtifact");
+const DELIVERABLE_TOOL_NAMES = artifactPresentationNameSet("deliverable");
+const TOOL_EVIDENCE_TOOL_NAMES = artifactPresentationNameSet("tool-evidence");
 
 interface AgentToolCallUiPayload {
   args?: unknown;
@@ -23,21 +24,22 @@ export function agentToolResultUiChunks(payload: AgentToolResultUiPayload): UIMe
     const skill = skillCreatedChunkFromResult(payload.result);
     return skill ? [skill] : [];
   }
-  if (isSandboxTool(payload)) {
-    const chunks = [sandboxStatusChunk("ready")];
-    if (isArtifactTool(payload)) {
-      const artifact = artifactChunkFromResult(payload.result);
-      if (artifact) {
-        chunks.push(artifact);
-      }
-    }
-    return chunks;
+  const chunks = isSandboxTool(payload) ? [sandboxStatusChunk("ready")] : [];
+  const output = toolOutputUiChunk(payload);
+  if (output) {
+    chunks.push(output);
   }
-  if (isArtifactTool(payload)) {
-    const artifact = artifactChunkFromResult(payload.result);
-    return artifact ? [artifact] : [];
+  return chunks;
+}
+
+function toolOutputUiChunk(payload: AgentToolResultUiPayload): UIMessageChunk | undefined {
+  if (isDeliverableTool(payload)) {
+    return artifactChunkFromResult(payload.result);
   }
-  return [];
+  if (isToolEvidenceTool(payload)) {
+    return toolEvidenceChunkFromResult(payload);
+  }
+  return undefined;
 }
 
 function skillCreatedChunkFromResult(result: unknown): UIMessageChunk | undefined {
@@ -151,8 +153,12 @@ function isSandboxTool(payload: { toolName: string }): boolean {
   return SANDBOX_TOOL_NAMES.has(payload.toolName);
 }
 
-function isArtifactTool(payload: { toolName: string }): boolean {
-  return ARTIFACT_TOOL_NAMES.has(payload.toolName);
+function isDeliverableTool(payload: { toolName: string }): boolean {
+  return DELIVERABLE_TOOL_NAMES.has(payload.toolName);
+}
+
+function isToolEvidenceTool(payload: { toolName: string }): boolean {
+  return TOOL_EVIDENCE_TOOL_NAMES.has(payload.toolName);
 }
 
 function artifactChunkFromResult(result: unknown): UIMessageChunk | undefined {
@@ -174,6 +180,38 @@ function artifactChunkFromResult(result: unknown): UIMessageChunk | undefined {
       mimeType,
       outputId,
       sizeBytes,
+    },
+  };
+}
+
+function toolEvidenceChunkFromResult(
+  payload: AgentToolResultUiPayload,
+): UIMessageChunk | undefined {
+  const artifact = artifactRecordFromResult(payload.result);
+  const outputId = stringField(artifact, "outputId");
+  const kind = artifactKind(artifact);
+  const mimeType = stringField(artifact, "mimeType");
+  const filename = stringField(artifact, "filename");
+  const sizeBytes = numberField(artifact, "sizeBytes");
+  if (
+    !outputId ||
+    kind !== "image" ||
+    !mimeType.startsWith("image/") ||
+    !filename ||
+    sizeBytes === undefined
+  ) {
+    return undefined;
+  }
+  return {
+    type: "data-tool-evidence",
+    data: {
+      v: 1,
+      filename,
+      kind,
+      mimeType,
+      outputId,
+      sizeBytes,
+      toolCallId: payload.toolCallId,
     },
   };
 }
@@ -217,8 +255,18 @@ function artifactKind(record: Record<string, unknown>): ArtifactKind | undefined
   return parsed.success ? parsed.data : undefined;
 }
 
-function capabilityNameSet(flag: "producesArtifact" | "usesSandbox"): ReadonlySet<string> {
+function capabilityNameSet(flag: "usesSandbox"): ReadonlySet<string> {
   return new Set(
     TOOL_CAPABILITIES.filter((capability) => capability[flag]).map((capability) => capability.name),
+  );
+}
+
+function artifactPresentationNameSet(
+  presentation: "deliverable" | "tool-evidence",
+): ReadonlySet<string> {
+  return new Set(
+    TOOL_CAPABILITIES.filter((capability) => capability.artifactPresentation === presentation).map(
+      (capability) => capability.name,
+    ),
   );
 }

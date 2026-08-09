@@ -17,10 +17,12 @@ const LARGE_TOOL_FIELDS = new Set([
 
 export type MessagePart = CheatcodeUIMessage["parts"][number];
 export type ToolPart = Extract<MessagePart, { type: "data-tool" }>;
+export type ToolEvidencePart = Extract<MessagePart, { type: "data-tool-evidence" }>;
+export type ToolActivityPart = ToolPart | ToolEvidencePart;
 export type ProjectCreatedPart = Extract<MessagePart, { type: "data-project-created" }>;
 type TextPart = Extract<MessagePart, { type: "text" }>;
 export type ActivityItem =
-  | { kind: "tools"; key: string; parts: ToolPart[] }
+  | { kind: "tools"; key: string; parts: ToolActivityPart[] }
   | { kind: "project-created"; key: string; part: ProjectCreatedPart }
   | { kind: "narration"; key: string; part: TextPart };
 type ToolVerbSpec = { verb: string; argKeys?: string[] };
@@ -77,7 +79,7 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
 
 export function buildActivityRows(parts: MessagePart[]): ActivityItem[] {
   const rows: ActivityItem[] = [];
-  let run: { parts: ToolPart[]; startIndex: number } | null = null;
+  let run: { parts: ToolActivityPart[]; startIndex: number } | null = null;
   const flush = () => {
     if (run) {
       rows.push({ kind: "tools", key: `tools:${run.startIndex}`, parts: run.parts });
@@ -85,7 +87,7 @@ export function buildActivityRows(parts: MessagePart[]): ActivityItem[] {
     }
   };
   parts.forEach((part, index) => {
-    if (isToolPart(part)) {
+    if (isToolActivityPart(part)) {
       run ??= { parts: [], startIndex: index };
       run.parts.push(part);
       return;
@@ -103,16 +105,26 @@ export function buildActivityRows(parts: MessagePart[]): ActivityItem[] {
   return rows;
 }
 
-export function collapseToolRuns(parts: ToolPart[]): { key: string; parts: ToolPart[] }[] {
-  const rows: { key: string; parts: ToolPart[] }[] = [];
+export function collapseToolRuns(
+  parts: ToolActivityPart[],
+): Array<{ evidence: ToolEvidencePart[]; key: string; parts: ToolPart[] }> {
+  const evidence = parts.filter(isToolEvidencePart);
+  const tools = parts.filter(isToolPart);
+  const rows: Array<{ evidence: ToolEvidencePart[]; key: string; parts: ToolPart[] }> = [];
   let index = 0;
-  while (index < parts.length) {
-    const type = parts[index]?.type;
+  while (index < tools.length) {
+    const type = tools[index]?.type;
     let end = index + 1;
-    while (end < parts.length && parts[end]?.type === type) {
+    while (end < tools.length && tools[end]?.type === type) {
       end += 1;
     }
-    rows.push({ key: `${type}:${index}`, parts: parts.slice(index, end) });
+    const toolParts = tools.slice(index, end);
+    const toolCallIds = new Set(toolParts.map((part) => part.data.toolCallId));
+    rows.push({
+      evidence: evidence.filter((part) => toolCallIds.has(part.data.toolCallId)),
+      key: `${type}:${index}`,
+      parts: toolParts,
+    });
     index = end;
   }
   return rows;
@@ -157,6 +169,14 @@ function humanizeToolName(name: string): string {
 
 export function isToolPart(part: MessagePart): part is ToolPart {
   return part.type === "data-tool";
+}
+
+export function isToolEvidencePart(part: MessagePart): part is ToolEvidencePart {
+  return part.type === "data-tool-evidence";
+}
+
+function isToolActivityPart(part: MessagePart): part is ToolActivityPart {
+  return isToolPart(part) || isToolEvidencePart(part);
 }
 
 function toolDetailSections(part: ToolPart): Array<Omit<ToolDetailSection, "key">> {

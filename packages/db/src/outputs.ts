@@ -1,5 +1,6 @@
 import type { ProjectId, UserId } from "@cheatcode/types";
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { INTERNAL_OUTPUT_FILENAME_PREFIX } from "@cheatcode/types/artifacts";
+import { and, desc, eq, inArray, notLike } from "drizzle-orm";
 import type { Database } from "./client";
 import { agentRuns, generatedOutputs, threads } from "./schema";
 
@@ -70,7 +71,11 @@ export async function listReferencedProjectGeneratedOutputs(
 }
 
 function projectOutputScope(projectId: ProjectId, userId: UserId) {
-  return and(eq(generatedOutputs.userId, userId), eq(threads.projectId, projectId));
+  return and(
+    eq(generatedOutputs.userId, userId),
+    eq(threads.projectId, projectId),
+    notLike(generatedOutputs.filename, `${INTERNAL_OUTPUT_FILENAME_PREFIX}%`),
+  );
 }
 
 function runOwnsOutput() {

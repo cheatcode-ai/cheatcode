@@ -15,10 +15,15 @@ import {
 } from "@cheatcode/observability";
 import type { ArtifactUploadInput, ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
 import type { AgentRunId, ProjectId, ThreadId, UserId } from "@cheatcode/types";
-import { ArtifactKindSchema, GENERATED_OUTPUT_MAX_BYTES } from "@cheatcode/types/artifacts";
+import {
+  ArtifactExposureSchema,
+  ArtifactKindSchema,
+  GENERATED_OUTPUT_MAX_BYTES,
+  INTERNAL_OUTPUT_FILENAME_PREFIX,
+} from "@cheatcode/types/artifacts";
 import { closeDatabaseBestEffort } from "./db-close";
 
-const ARTIFACT_DIGEST_DOMAIN = "cheatcode:artifact-upload:v2";
+const ARTIFACT_DIGEST_DOMAIN = "cheatcode:artifact-upload:v3";
 const MAX_CONTENT_TYPE_LENGTH = 255;
 const VALID_CONTENT_TYPE = /^[a-z0-9][a-z0-9!#$&^_.+-]*\/[a-z0-9][a-z0-9!#$&^_.+-]*$/iu;
 
@@ -143,13 +148,16 @@ async function putAndFinalize(
   const finalized = await transaction((db) =>
     finalizeArtifactUpload(db, {
       ...prepared.identity,
+      claimFirstArtifact: artifact.exposure === "deliverable",
       createdAt,
       filename: prepared.filename,
       mimeType: artifact.contentType,
     }),
   );
   if (finalized.state === "committed") {
-    emitFirstArtifactEvent(env, input, prepared.outputId, finalized.isFirstForUser);
+    if (artifact.exposure === "deliverable") {
+      emitFirstArtifactEvent(env, input, prepared.outputId, finalized.isFirstForUser);
+    }
     return;
   }
   await env.R2_OUTPUTS.delete(prepared.r2Key);
@@ -180,6 +188,7 @@ async function writeArtifactObject(
   const stored = await env.R2_OUTPUTS.put(identity.r2Key, artifact.data, {
     customMetadata: {
       contentSha256: identity.contentSha256,
+      exposure: artifact.exposure,
       filename: identity.filename,
       kind: artifact.kind,
       outputId: identity.outputId,
@@ -214,6 +223,7 @@ function assertStoredArtifactObject(
     object.httpMetadata?.contentType !== artifact.contentType ||
     !metadata ||
     metadata["contentSha256"] !== identity.contentSha256 ||
+    metadata["exposure"] !== artifact.exposure ||
     metadata["filename"] !== identity.filename ||
     metadata["kind"] !== artifact.kind ||
     metadata["outputId"] !== identity.outputId ||
@@ -235,6 +245,7 @@ async function deterministicOutputId(
       ARTIFACT_DIGEST_DOMAIN,
       runId,
       artifact.kind,
+      artifact.exposure,
       artifact.contentType,
       filename,
       contentSha256,
@@ -306,6 +317,13 @@ function assertArtifactUpload(artifact: ArtifactUploadInput): void {
   }
   if (!ArtifactKindSchema.safeParse(artifact.kind).success) {
     throw invalidArtifact("Artifact kind is invalid");
+  }
+  if (!ArtifactExposureSchema.safeParse(artifact.exposure).success) {
+    throw invalidArtifact("Artifact exposure is invalid");
+  }
+  const usesInternalFilename = artifact.filename.startsWith(INTERNAL_OUTPUT_FILENAME_PREFIX);
+  if (usesInternalFilename !== (artifact.exposure === "internal")) {
+    throw invalidArtifact("Artifact filename does not match its exposure");
   }
 }
 

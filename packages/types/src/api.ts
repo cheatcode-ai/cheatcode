@@ -308,10 +308,10 @@ const ToolDomainSchema = z.enum([
 ]);
 
 const ToolSummarySchema = z.strictObject({
+  artifactPresentation: z.enum(["deliverable", "none", "tool-evidence"]),
   description: z.string(),
   domain: ToolDomainSchema,
   name: z.string(),
-  producesArtifact: z.boolean(),
   usesSandbox: z.boolean(),
 });
 

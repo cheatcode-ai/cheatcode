@@ -23,6 +23,7 @@ export async function executeDataChart(
     ? await runtimeContext.artifacts.put({
         contentType: "image/svg+xml",
         data: utf8ToBytes(svg),
+        exposure: "deliverable",
         filename,
         kind: "image",
       })
