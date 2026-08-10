@@ -45,7 +45,6 @@ export {
 } from "./git";
 export {
   executePreparedStartDevServer,
-  executeStartDevServer,
   prepareStartDevServer,
 } from "./preview";
 export { executeRunCode, RunCodeInputSchema, RunCodeOutputSchema } from "./run-code";

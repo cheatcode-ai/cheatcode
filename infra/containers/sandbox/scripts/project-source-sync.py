@@ -279,6 +279,7 @@ def package_run(source, target, lock_path, local_cwd, command):
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         sync_directory(source, target)
         baseline = tree_state(target)
+        detach_runtime_dependencies(local_cwd)
         completed = subprocess.run(command, cwd=local_cwd, check=False)
         if completed.returncode != 0:
             return completed.returncode
@@ -329,6 +330,9 @@ def dependency_state_path(local_cwd):
 
 
 def dependencies_are_current(local_cwd, local_root):
+    modules = os.path.join(local_cwd, "node_modules")
+    if os.path.islink(modules):
+        return False
     marker = dependency_state_path(local_cwd)
     try:
         with open(marker, "r", encoding="ascii") as source:
@@ -351,6 +355,30 @@ def record_dependency_state(local_cwd, local_root):
             os.unlink(temporary)
         except FileNotFoundError:
             pass
+
+
+def activate_runtime_dependencies(local_cwd, dependency_runtime):
+    runtime_modules = os.path.join(dependency_runtime, "node_modules")
+    if not os.path.isdir(runtime_modules):
+        return False
+    modules = os.path.join(local_cwd, "node_modules")
+    if os.path.islink(modules) and os.path.realpath(modules) == os.path.realpath(runtime_modules):
+        return True
+    temporary = os.path.join(local_cwd, f".cheatcode-modules-{os.getpid()}")
+    remove_path(temporary)
+    try:
+        os.symlink(os.path.realpath(runtime_modules), temporary)
+        remove_path(modules)
+        os.replace(temporary, modules)
+    finally:
+        remove_path(temporary)
+    return True
+
+
+def detach_runtime_dependencies(local_cwd):
+    modules = os.path.join(local_cwd, "node_modules")
+    if os.path.islink(modules):
+        remove_path(modules)
 
 
 def pnpm_workspace_path(local_cwd, local_root):
@@ -412,17 +440,19 @@ def reviewed_pnpm_build_policy(local_cwd, local_root):
         restore_path(workspace_path, captured)
 
 
-def restore_pnpm_dependencies(local_cwd, local_root, dependency_template):
+def restore_pnpm_dependencies(local_cwd, local_root, dependency_runtime):
     package_path = os.path.join(local_cwd, "package.json")
     lock_path = os.path.join(local_cwd, "pnpm-lock.yaml")
     if not os.path.isfile(package_path):
         return 0
-    if dependency_template and files_equal(
-        package_path, os.path.join(dependency_template, "package.json")
-    ) and files_equal(lock_path, os.path.join(dependency_template, "pnpm-lock.yaml")):
-        return 0
+    if dependency_runtime and files_equal(
+        package_path, os.path.join(dependency_runtime, "package.json")
+    ) and files_equal(lock_path, os.path.join(dependency_runtime, "pnpm-lock.yaml")):
+        if activate_runtime_dependencies(local_cwd, dependency_runtime):
+            return 0
     if dependencies_are_current(local_cwd, local_root):
         return 0
+    detach_runtime_dependencies(local_cwd)
     common = ["install", "--prefer-offline", "--network-concurrency", "4"]
     with reviewed_pnpm_build_policy(local_cwd, local_root):
         if not os.path.isfile(lock_path):
@@ -472,14 +502,14 @@ def reap_process(process):
         process.wait()
 
 
-def preview_run(source, target, lock_path, local_cwd, dependency_template, command):
+def preview_run(source, target, lock_path, local_cwd, dependency_runtime, command):
     validate_local_cwd(target, local_cwd)
     if not command:
         raise ValueError("preview-run requires an app command")
     with open_lock(lock_path) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         sync_source_once(source, target)
-        dependency_status = restore_pnpm_dependencies(local_cwd, target, dependency_template)
+        dependency_status = restore_pnpm_dependencies(local_cwd, target, dependency_runtime)
         if dependency_status != 0:
             return dependency_status
 
@@ -541,15 +571,15 @@ def main():
         raise SystemExit(package_run(source, target, lock_path, sys.argv[5], sys.argv[7:]))
     if mode == "preview-run":
         if len(sys.argv) < 9 or sys.argv[7] != "--":
-            raise ValueError("preview-run requires a cwd, dependency template, and argv after --")
-        dependency_template = None if sys.argv[6] == "-" else sys.argv[6]
+            raise ValueError("preview-run requires a cwd, dependency runtime, and argv after --")
+        dependency_runtime = None if sys.argv[6] == "-" else sys.argv[6]
         raise SystemExit(
             preview_run(
                 source,
                 target,
                 lock_path,
                 sys.argv[5],
-                dependency_template,
+                dependency_runtime,
                 sys.argv[8:],
             )
         )

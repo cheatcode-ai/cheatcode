@@ -60,16 +60,6 @@ export interface PreparedStartDevServer {
 const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
 const EXPO_RUNTIME_BIN = "/home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo";
 
-export async function executeStartDevServer(
-  input: StartDevServerInput,
-  runtimeContext: CodeRuntimeContextFor<"allocateProjectPort" | "readFile" | "startProcess">,
-): Promise<StartDevServerOutput> {
-  return executePreparedStartDevServer(
-    await prepareStartDevServer(input, runtimeContext),
-    runtimeContext,
-  );
-}
-
 /** Resolves dynamic port allocation and command normalization before execution. */
 export async function prepareStartDevServer(
   input: StartDevServerInput,

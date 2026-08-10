@@ -35,7 +35,7 @@ export function localPackageCommand(
 export function localProjectProcessCommand(
   runtime: ProjectLocalRuntime,
   command: readonly string[],
-  dependencyTemplateDir?: string,
+  dependencyRuntimeDir?: string,
 ): string[] {
   const { lockPath } = runtimeStatePaths(runtime);
   return [
@@ -45,7 +45,7 @@ export function localProjectProcessCommand(
     runtime.localSourceDir,
     lockPath,
     runtime.localCwd,
-    dependencyTemplateDir ?? "-",
+    dependencyRuntimeDir ?? "-",
     "--",
     ...command,
   ];
