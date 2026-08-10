@@ -7,7 +7,9 @@ import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
 export type PreviewLivePhase = "booting" | "error" | "live";
 
 export interface PreviewLiveState {
+  authorizeNavigation: () => Promise<boolean>;
   phase: PreviewLivePhase;
+  reload: () => Promise<void>;
   retry: () => Promise<void>;
 }
 
@@ -25,7 +27,12 @@ type PreviewRefreshOutcome =
   | { kind: "aborted" | "failure" }
   | { kind: "success"; result: PreviewRefreshResult };
 
+interface PreviewRefreshAttempt {
+  outcome: PreviewRefreshOutcome;
+}
+
 interface PreviewRefreshDependencies {
+  bumpPreviewReloadToken: () => void;
   getToken: () => Promise<null | string>;
   setActivePreviewTab: (tab: PreviewTab) => void;
   setExpoUrl: (url: string | null) => void;
@@ -36,12 +43,13 @@ interface PreviewRefreshDependencies {
 interface PreviewLiveRuntime {
   deps: PreviewRefreshDependencies;
   nextRefreshAt: number;
+  refreshRequest: Promise<PreviewRefreshAttempt | null> | null;
   requestGeneration: number;
   wakeAbort: AbortController | null;
-  waking: boolean;
 }
 
 type SetPreviewLivePhase = (phase: PreviewLivePhase) => void;
+type PreviewRefreshMode = "authorize" | "recover" | "reload" | "rotate";
 
 /**
  * Keeps the app preview live while the Computer panel is open. Daytona auto-stops a sandbox after
@@ -61,27 +69,33 @@ export function useEnsurePreviewLive(
   sandboxStatus: string,
 ): PreviewLiveState {
   const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
+  const bumpPreviewReloadToken = useAppStore((state) => state.bumpPreviewReloadToken);
   const setPreviewUrl = useAppStore((state) => state.setPreviewUrl);
   const setExpoUrl = useAppStore((state) => state.setExpoUrl);
   const [phase, setPhase] = useState<PreviewLivePhase>("live");
   const runtime = usePreviewLiveRuntime(
+    bumpPreviewReloadToken,
     getToken,
     setActivePreviewTab,
     setExpoUrl,
     setPreviewUrl,
     threadId,
   );
-  const { refreshPreview, wake } = usePreviewRefresh(runtime, setPhase);
+  const { authorizeNavigation, refreshPreview, reload, wake } = usePreviewRefresh(
+    runtime,
+    setPhase,
+  );
 
   usePreviewActivation(active, threadId, runtime, setPhase, wake);
   useReadySandboxWake(active, sandboxStatus, wake);
   usePreviewStatusPolling(active, threadId, runtime, wake);
   usePreviewSessionRotation(active, threadId, runtime, refreshPreview);
 
-  return { phase, retry: wake };
+  return { authorizeNavigation, phase, reload, retry: wake };
 }
 
 function usePreviewLiveRuntime(
+  bumpPreviewReloadToken: PreviewRefreshDependencies["bumpPreviewReloadToken"],
   getToken: PreviewRefreshDependencies["getToken"],
   setActivePreviewTab: PreviewRefreshDependencies["setActivePreviewTab"],
   setExpoUrl: PreviewRefreshDependencies["setExpoUrl"],
@@ -89,63 +103,99 @@ function usePreviewLiveRuntime(
   threadId: string | null,
 ): PreviewLiveRuntime {
   const runtimeRef = useRef<PreviewLiveRuntime>({
-    deps: { getToken, setActivePreviewTab, setExpoUrl, setPreviewUrl, threadId },
+    deps: {
+      bumpPreviewReloadToken,
+      getToken,
+      setActivePreviewTab,
+      setExpoUrl,
+      setPreviewUrl,
+      threadId,
+    },
     nextRefreshAt: 0,
+    refreshRequest: null,
     requestGeneration: 0,
     wakeAbort: null,
-    waking: false,
   });
   // Commit the latest Clerk token getter without restarting the stable wake callback.
   useEffect(() => {
     runtimeRef.current.deps = {
+      bumpPreviewReloadToken,
       getToken,
       setActivePreviewTab,
       setExpoUrl,
       setPreviewUrl,
       threadId,
     };
-  }, [getToken, setActivePreviewTab, setExpoUrl, setPreviewUrl, threadId]);
+  }, [bumpPreviewReloadToken, getToken, setActivePreviewTab, setExpoUrl, setPreviewUrl, threadId]);
   return runtimeRef.current;
 }
 
 function usePreviewRefresh(runtime: PreviewLiveRuntime, setPhase: SetPreviewLivePhase) {
-  const refreshPreview = useCallback(
-    (showBooting: boolean) => refreshPreviewSession(runtime, showBooting, setPhase),
-    [runtime, setPhase],
-  );
-  const wake = useCallback(() => refreshPreview(true), [refreshPreview]);
-  return { refreshPreview, wake };
+  const authorizeNavigation = useCallback(async () => {
+    const result = await refreshPreviewSession(runtime, "authorize", setPhase);
+    return Boolean(result?.running && result.url);
+  }, [runtime, setPhase]);
+  const refreshPreview = useCallback(async () => {
+    await refreshPreviewSession(runtime, "rotate", setPhase);
+  }, [runtime, setPhase]);
+  const reload = useCallback(async () => {
+    await refreshPreviewSession(runtime, "reload", setPhase);
+  }, [runtime, setPhase]);
+  const wake = useCallback(async () => {
+    await refreshPreviewSession(runtime, "recover", setPhase);
+  }, [runtime, setPhase]);
+  return { authorizeNavigation, refreshPreview, reload, wake };
 }
 
 async function refreshPreviewSession(
   runtime: PreviewLiveRuntime,
-  showBooting: boolean,
+  mode: PreviewRefreshMode,
   setPhase: SetPreviewLivePhase,
-): Promise<void> {
+): Promise<PreviewRefreshResult | null> {
   const deps = runtime.deps;
-  if (!deps.threadId || runtime.waking) return;
-  const requestGeneration = runtime.requestGeneration;
-  const controller = new AbortController();
-  runtime.wakeAbort = controller;
-  runtime.waking = true;
+  const showBooting = mode === "recover" || mode === "reload";
   if (showBooting) {
+    setPhase("booting");
+  }
+  if (mode === "recover") {
     // Unmount a stale cross-origin document before a real wake. The fresh handoff URL then performs
     // its own cookie exchange on remount; silent capability rotation still preserves live SPA state.
     clearPreviewUrls(deps);
-    setPhase("booting");
   }
-  try {
-    const outcome = await requestPreviewRefresh(
-      { ...deps, threadId: deps.threadId },
-      controller.signal,
-    );
-    if (requestGeneration !== runtime.requestGeneration) return;
-    const refreshDelay = applyPreviewRefreshOutcome(outcome, deps, showBooting, setPhase);
-    if (refreshDelay !== null) runtime.nextRefreshAt = Date.now() + refreshDelay;
-  } finally {
-    if (runtime.wakeAbort === controller) runtime.wakeAbort = null;
-    if (requestGeneration === runtime.requestGeneration) runtime.waking = false;
+  const attempt = await acquirePreviewRefresh(runtime);
+  if (!attempt) return null;
+  const refreshDelay = applyPreviewRefreshOutcome(attempt.outcome, deps, showBooting, setPhase);
+  if (refreshDelay !== null) runtime.nextRefreshAt = Date.now() + refreshDelay;
+  if (attempt.outcome.kind !== "success") return null;
+  if (mode === "reload" && attempt.outcome.result.running && attempt.outcome.result.url) {
+    deps.bumpPreviewReloadToken();
   }
+  return attempt.outcome.result;
+}
+
+async function acquirePreviewRefresh(
+  runtime: PreviewLiveRuntime,
+): Promise<PreviewRefreshAttempt | null> {
+  if (runtime.refreshRequest !== null) return runtime.refreshRequest;
+  const deps = runtime.deps;
+  if (!deps.threadId) return null;
+  const requestGeneration = runtime.requestGeneration;
+  const controller = new AbortController();
+  runtime.wakeAbort = controller;
+  const request = requestPreviewRefresh({ ...deps, threadId: deps.threadId }, controller.signal)
+    .then((outcome) => (requestGeneration === runtime.requestGeneration ? { outcome } : null))
+    .finally(() => finishPreviewRefresh(runtime, request, controller));
+  runtime.refreshRequest = request;
+  return request;
+}
+
+function finishPreviewRefresh(
+  runtime: PreviewLiveRuntime,
+  request: Promise<PreviewRefreshAttempt | null>,
+  controller: AbortController,
+): void {
+  if (runtime.refreshRequest === request) runtime.refreshRequest = null;
+  if (runtime.wakeAbort === controller) runtime.wakeAbort = null;
 }
 
 function usePreviewActivation(
@@ -197,7 +247,7 @@ function usePreviewStatusPolling(
       try {
         await pollPreviewStatus({
           getToken: runtime.deps.getToken,
-          isWaking: () => runtime.waking,
+          isWaking: () => runtime.refreshRequest !== null,
           signal: controller.signal,
           threadId,
           wake,
@@ -218,12 +268,12 @@ function usePreviewSessionRotation(
   active: boolean,
   threadId: string | null,
   runtime: PreviewLiveRuntime,
-  refreshPreview: (showBooting: boolean) => Promise<void>,
+  refreshPreview: () => Promise<void>,
 ): void {
   useEffect(() => {
     if (!active || !threadId) return;
     const id = setInterval(() => {
-      if (Date.now() >= runtime.nextRefreshAt) void refreshPreview(false);
+      if (Date.now() >= runtime.nextRefreshAt) void refreshPreview();
     }, PREVIEW_SESSION_CHECK_MS);
     return () => clearInterval(id);
   }, [active, refreshPreview, runtime, threadId]);
@@ -233,7 +283,7 @@ function cancelPreviewRequest(runtime: PreviewLiveRuntime): void {
   runtime.requestGeneration += 1;
   runtime.wakeAbort?.abort();
   runtime.wakeAbort = null;
-  runtime.waking = false;
+  runtime.refreshRequest = null;
 }
 
 function clearPreviewUrls(deps: PreviewRefreshDependencies): void {

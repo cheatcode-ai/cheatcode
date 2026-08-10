@@ -2,9 +2,9 @@
 
 import { PREVIEW_HOSTNAME } from "@cheatcode/env/web";
 import { useEffect, useState } from "react";
+import { PREVIEW_TOKEN_QUERY } from "@/components/preview/preview-protocol";
 
 const PREVIEW_SESSION_PATH = "/.well-known/cheatcode-preview-session";
-const PREVIEW_TOKEN_QUERY = "__cc_pt";
 const PREVIEW_HOST_SUFFIX = `.${PREVIEW_HOSTNAME}`;
 const PREVIEW_HOST_LABEL = /^[a-z0-9]+(?:-[a-z0-9]+)*--\d{1,5}$/u;
 
