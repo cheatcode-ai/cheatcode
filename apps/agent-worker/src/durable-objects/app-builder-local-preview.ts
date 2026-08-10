@@ -1,9 +1,9 @@
 import { localProjectProcessCommand } from "./project-sandbox-local-source";
 import {
   EXPO_RUNTIME_BIN,
-  EXPO_TEMPLATE_DIR,
+  EXPO_RUNTIME_DIR,
   NEXT_RUNTIME_BIN,
-  NEXT_TEMPLATE_DIR,
+  NEXT_RUNTIME_DIR,
   resolveProjectLocalRuntime,
 } from "./project-sandbox-package-runtime";
 
@@ -25,7 +25,7 @@ export function localNextPreviewCommand(input: LocalPreviewCommandInput): string
     "--port",
     String(input.port),
   ];
-  return localProjectProcessCommand(runtime, nextCommand, NEXT_TEMPLATE_DIR);
+  return localProjectProcessCommand(runtime, nextCommand, NEXT_RUNTIME_DIR);
 }
 
 /** Runs Expo/Metro from native sandbox disk while `/workspace` remains durable source. */
@@ -41,7 +41,7 @@ export function localExpoPreviewCommand(input: LocalPreviewCommandInput): string
     "--port",
     String(input.port),
   ];
-  return localProjectProcessCommand(runtime, expoCommand, EXPO_TEMPLATE_DIR);
+  return localProjectProcessCommand(runtime, expoCommand, EXPO_RUNTIME_DIR);
 }
 
 function requireLocalPreviewRuntime(input: LocalPreviewCommandInput) {

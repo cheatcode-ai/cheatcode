@@ -89,8 +89,11 @@ pnpm locks under `app-templates/`. Their locked packages are installed into immu
 sandbox-local runtimes in the image. Project creation copies only source and config to
 the persistent Daytona volume; dependency trees and generated compiler caches stay on
 the sandbox's local filesystem, avoiding slow, partial writes to object-store FUSE.
-Additional dependencies use a project-scoped local modules directory and can be
-restored from the reviewed package store after a sandbox replacement. Expo uses an exact
+Exact scaffold projects link their disposable native-disk mirror to the matching immutable
+runtime dependency tree, avoiding both package copies and installs during startup. The helper
+detaches that link before a package mutation or non-template restore; additional dependencies then
+use a project-scoped local modules directory and can be restored from the reviewed package store
+after a sandbox replacement. Expo uses an exact
 `expo-template-default` tarball with a reviewed SHA-256 rather than the mutable
 `default` alias. These locks prevent a snapshot rebuild from resolving a different
 dependency tree while the application source stays unchanged.
@@ -110,9 +113,10 @@ native-disk app and sync-loop children, and forwards termination signals. Transi
 from the durable FUSE source is retried during a bounded grace period without interrupting the app.
 If source access does not recover or the synchronizer otherwise exits, the managed preview exits as
 one failed process unit so its existing bounded restart policy cannot leave a healthy port backed by
-stale source. A dependency-state digest
-skips unchanged reinstalls, while projects without a durable lockfile install without creating one
-as a preview side effect. Dependency restoration temporarily merges the image's reviewed build
+stale source. Exact scaffold manifests activate the immutable runtime dependency tree, while a
+dependency-state digest skips unchanged project-local reinstalls. Projects without a durable
+lockfile install without creating one as a preview side effect. Dependency restoration temporarily
+merges the image's reviewed build
 policy into the sandbox-local workspace, currently permitting `esbuild` so Vite can install its
 platform binary while pnpm's default-deny lifecycle policy remains intact for every other package.
 The original workspace manifest is restored byte-for-byte before the app starts, and the managed
