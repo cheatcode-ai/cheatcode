@@ -109,26 +109,6 @@ export function appBuilderTypeScriptConfigSource(workspaceSlug: string): string 
   )}\n`;
 }
 
-export function expoTypeScriptConfigSource(workspaceSlug: string): string {
-  const localModules = `/home/node/.cheatcode/projects/${workspaceSlug}/node_modules`;
-  const runtimeModules = "/home/node/.cheatcode/app-runtimes/expo/node_modules";
-  return `${JSON.stringify(
-    {
-      extends: `${runtimeModules}/expo/tsconfig.base`,
-      compilerOptions: {
-        paths: {
-          "@/*": ["./*"],
-          "*": [`${localModules}/*`, `${runtimeModules}/*`],
-        },
-        strict: true,
-      },
-      include: ["**/*.ts", "**/*.tsx", ".expo/types/**/*.ts", "expo-env.d.ts"],
-    },
-    null,
-    2,
-  )}\n`;
-}
-
 function escapeForTsxText(value: string): string {
   return value.replace(/[<>{}]/g, "");
 }

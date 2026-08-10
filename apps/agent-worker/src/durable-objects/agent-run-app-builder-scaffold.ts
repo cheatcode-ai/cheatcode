@@ -10,14 +10,16 @@ import {
   appBuilderLayoutSource,
   appBuilderPageSource,
   appBuilderTypeScriptConfigSource,
-  expoTypeScriptConfigSource,
 } from "./app-builder-template";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   EXPO_RUNTIME_BIN,
+  EXPO_RUNTIME_CONFIG_BIN,
+  EXPO_RUNTIME_DIR,
   EXPO_TEMPLATE_DIR,
   NEXT_RUNTIME_BIN,
   NEXT_TEMPLATE_DIR,
+  projectLocalModulesDir,
 } from "./project-sandbox-package-runtime";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
@@ -63,20 +65,6 @@ export function writeAppBuilderFiles(
       { sandbox },
     ),
   ]).then(() => undefined);
-}
-
-export function writeExpoRuntimeFiles(
-  sandbox: ProjectSandboxStub,
-  dir: string,
-  workspaceSlug: string,
-): Promise<void> {
-  return executeWriteFile(
-    {
-      path: `${dir}/tsconfig.json`,
-      content: expoTypeScriptConfigSource(workspaceSlug),
-    },
-    { sandbox },
-  ).then(() => undefined);
 }
 
 export async function scaffoldExpoApp(
@@ -176,6 +164,7 @@ export async function ensureAppBuilderRuntime(
 export async function ensureExpoWebSupport(
   sandbox: ProjectSandboxStub,
   dir: string,
+  workspaceSlug: string,
 ): Promise<void> {
   try {
     await executeShellExec(
@@ -194,6 +183,18 @@ export async function ensureExpoWebSupport(
   } catch {
     throw missingBakedRuntimeError("Expo");
   }
+  await executeShellExec(
+    {
+      command: [
+        EXPO_RUNTIME_CONFIG_BIN,
+        projectLocalModulesDir(workspaceSlug),
+        `${EXPO_RUNTIME_DIR}/node_modules`,
+      ],
+      cwd: dir,
+      timeoutMs: 15_000,
+    },
+    { sandbox },
+  );
   // Force the Metro web bundler + single-page output for Expo Router web. `output:"single"`
   // serves a client-rendered SPA (one index.html) instead of per-request server rendering,
   // which does `new URL(req.url)` behind the proxy and throws. Best-effort: a no-op when the

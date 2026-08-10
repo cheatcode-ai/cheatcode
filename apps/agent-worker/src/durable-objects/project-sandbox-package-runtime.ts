@@ -15,6 +15,7 @@ export const NEXT_RUNTIME_DIR = `${APP_RUNTIME_ROOT}/next`;
 export const EXPO_RUNTIME_DIR = `${APP_RUNTIME_ROOT}/expo`;
 export const NEXT_RUNTIME_BIN = `${NEXT_RUNTIME_DIR}/node_modules/.bin/next`;
 export const EXPO_RUNTIME_BIN = `${EXPO_RUNTIME_DIR}/node_modules/.bin/expo`;
+export const EXPO_RUNTIME_CONFIG_BIN = "/opt/cheatcode/configure-expo-runtime.mjs";
 export const NEXT_TEMPLATE_DIR = "/home/node/cheatcode-next-template";
 export const EXPO_TEMPLATE_DIR = "/home/node/cheatcode-expo-template";
 
