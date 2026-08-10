@@ -108,7 +108,12 @@ three-way conflict check against the durable tree. Long-lived previews invoke th
 direct argv: it synchronizes source, restores dependencies under the project lock, supervises the
 native-disk app and sync-loop children, and forwards termination signals. A dependency-state digest
 skips unchanged reinstalls, while projects without a durable lockfile install without creating one
-as a preview side effect. The Worker therefore does
+as a preview side effect. Dependency restoration temporarily merges the image's reviewed build
+policy into the sandbox-local workspace, currently permitting `esbuild` so Vite can install its
+platform binary while pnpm's default-deny lifecycle policy remains intact for every other package.
+The original workspace manifest is restored byte-for-byte before the app starts, and the managed
+preview disables pnpm's redundant pre-script auto-install because the helper has already restored
+and digested that exact dependency state under the project lock. The Worker therefore does
 not transport an executable shell wrapper or make trusted bootstrap commands indistinguishable from
 model-supplied shell input.
 

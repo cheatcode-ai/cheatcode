@@ -111,6 +111,8 @@ jobs:
       - name: Smoke-test candidate runtime
         run: |
           docker run --rm --platform=linux/amd64 --entrypoint /bin/sh "$IMAGE_TAG" -lc '
+            set -eu
+
             test "$(id -un)" = node
             test "$PWD" = /workspace
             test "$(node --version)" = v24.18.0
@@ -145,7 +147,84 @@ jobs:
             pnpm --version
             python3 --version
             test -x /opt/cheatcode/project-source-sync.py
+            test -x /opt/cheatcode/pnpm-build-policy.mjs
             python3 -c "import ast,pathlib;ast.parse(pathlib.Path(\"/opt/cheatcode/project-source-sync.py\").read_text())"
+            node --check /opt/cheatcode/pnpm-build-policy.mjs
+            policy_test_dir="$(mktemp -d)"
+            printf "packages:\\n  - .\\nallowBuilds:\\n  sharp: false\\n" > "$policy_test_dir/pnpm-workspace.yaml"
+            node /opt/cheatcode/pnpm-build-policy.mjs "$policy_test_dir/pnpm-workspace.yaml"
+            node -e "const y=require(\"/opt/cheatcode-runtime-security-overrides/node_modules/js-yaml\");const p=y.load(require(\"node:fs\").readFileSync(process.argv[1],\"utf8\"));if(p.allowBuilds.esbuild!==true||p.allowBuilds.sharp!==false)throw new Error(\"reviewed build policy merge failed\")" "$policy_test_dir/pnpm-workspace.yaml"
+            rm -rf "$policy_test_dir"
+
+            preview_test_dir="$(mktemp -d)"
+            preview_source="$preview_test_dir/durable"
+            preview_mirror="$preview_test_dir/mirror"
+            preview_lock="$preview_test_dir/project.lock"
+            preview_pid=""
+            cleanup_preview_test() {
+              if [ -n "$preview_pid" ]; then
+                kill "$preview_pid" 2>/dev/null || true
+                wait "$preview_pid" 2>/dev/null || true
+              fi
+              rm -rf "$preview_test_dir"
+            }
+            trap cleanup_preview_test EXIT
+            mkdir -p "$preview_source" "$preview_mirror"
+            printf "%s\n" "{\"name\":\"vite-policy-smoke\",\"private\":true,\"scripts\":{\"dev\":\"vite\"},\"devDependencies\":{\"vite\":\"5.4.11\"}}" > "$preview_source/package.json"
+            printf "%s\n" "<main id=\"app\">reviewed lifecycle policy works</main>" > "$preview_source/index.html"
+
+            wait_for_preview() {
+              preview_port="$1"
+              preview_log="$2"
+              preview_attempt=0
+              while [ "$preview_attempt" -lt 90 ]; do
+                if curl --fail --silent "http://127.0.0.1:$preview_port" | grep --fixed-strings --quiet "reviewed lifecycle policy works"; then
+                  return 0
+                fi
+                if ! kill -0 "$preview_pid" 2>/dev/null; then
+                  break
+                fi
+                sleep 1
+                preview_attempt=$((preview_attempt + 1))
+              done
+              sed -n "1,240p" "$preview_log" >&2
+              return 1
+            }
+
+            cold_started_at="$(date +%s)"
+            PORT=5199 /opt/cheatcode/project-source-sync.py preview-run "$preview_source" "$preview_mirror" "$preview_lock" "$preview_mirror" - -- pnpm run dev --host 0.0.0.0 --port 5199 > "$preview_test_dir/cold.log" 2>&1 &
+            preview_pid="$!"
+            wait_for_preview 5199 "$preview_test_dir/cold.log"
+            cold_elapsed=$(( $(date +%s) - cold_started_at ))
+            kill "$preview_pid" 2>/dev/null || true
+            wait "$preview_pid" 2>/dev/null || true
+            preview_pid=""
+            test "$cold_elapsed" -le 90
+            test ! -e "$preview_source/pnpm-workspace.yaml"
+            test ! -e "$preview_mirror/pnpm-workspace.yaml"
+            test -x "$preview_mirror/node_modules/.bin/vite"
+            test -x "$preview_mirror/node_modules/.pnpm/esbuild@0.21.5/node_modules/esbuild/bin/esbuild"
+            grep --fixed-strings --quiet "esbuild postinstall: Done" "$preview_test_dir/cold.log"
+
+            warm_started_at="$(date +%s)"
+            PORT=5200 /opt/cheatcode/project-source-sync.py preview-run "$preview_source" "$preview_mirror" "$preview_lock" "$preview_mirror" - -- pnpm run dev --host 0.0.0.0 --port 5200 > "$preview_test_dir/warm.log" 2>&1 &
+            preview_pid="$!"
+            wait_for_preview 5200 "$preview_test_dir/warm.log"
+            warm_elapsed=$(( $(date +%s) - warm_started_at ))
+            kill "$preview_pid" 2>/dev/null || true
+            wait "$preview_pid" 2>/dev/null || true
+            preview_pid=""
+            test "$warm_elapsed" -le 10
+            test ! -e "$preview_source/pnpm-workspace.yaml"
+            test ! -e "$preview_mirror/pnpm-workspace.yaml"
+            if grep --fixed-strings --quiet "Progress:" "$preview_test_dir/warm.log"; then
+              echo "Warm preview unexpectedly reinstalled dependencies." >&2
+              exit 1
+            fi
+            echo "Vite preview smoke passed: cold=${cold_elapsed}s warm=${warm_elapsed}s"
+            cleanup_preview_test
+            trap - EXIT
+
             code-server --version
             "$CHROME_PATH" --version
             libreoffice --version
@@ -171,7 +250,7 @@ jobs:
             test -f /home/node/.cheatcode/default-skills/generate-media/SKILL.md
             test -f /home/node/.cheatcode/default-skills/product-self-knowledge/SKILL.md
             test "$(find /home/node/.cheatcode/default-skills -type f -name "*.py" | wc -l)" -eq 56
-            test "$(find /home/node/.cheatcode/default-skills -type f -name "*.ts" | wc -l)" -eq 12
+            test "$(find /home/node/.cheatcode/default-skills -type f -name "*.ts" | wc -l)" -eq 11
             test "$(find /home/node/.cheatcode/default-skills -type f -name "*.xsd" | wc -l)" -eq 117
             test ! -e /home/node/.cheatcode/default-skills/deploy
             test ! -e /home/node/.cheatcode/default-skills/landing-page

@@ -10,12 +10,14 @@ import subprocess
 import sys
 import tempfile
 import time
+from contextlib import contextmanager
 
 
 IGNORED_DIRS = {".expo", ".next", ".turbo", "build", "coverage", "dist", "node_modules", "out"}
 LOCAL_ONLY_NAMES = IGNORED_DIRS | {"next-env.d.ts"}
 PACKAGE_CONFLICT_EXIT = 74
 DEPENDENCY_STATE_FILENAME = ".cheatcode-dependency-state"
+PNPM_BUILD_POLICY_BINARY = "/opt/cheatcode/pnpm-build-policy.mjs"
 
 
 def remove_path(path):
@@ -288,6 +290,65 @@ def record_dependency_state(local_cwd, local_root):
             pass
 
 
+def pnpm_workspace_path(local_cwd, local_root):
+    current = os.path.realpath(local_cwd)
+    root = os.path.realpath(local_root)
+    while True:
+        candidate = os.path.join(current, "pnpm-workspace.yaml")
+        if os.path.lexists(candidate):
+            return candidate
+        if current == root:
+            return os.path.join(local_cwd, "pnpm-workspace.yaml")
+        current = os.path.dirname(current)
+
+
+def capture_path(path):
+    if os.path.islink(path):
+        return ("link", os.readlink(path))
+    if os.path.isfile(path):
+        with open(path, "rb") as source:
+            return ("file", source.read(), os.stat(path).st_mode & 0o7777)
+    if os.path.lexists(path):
+        raise ValueError(f"pnpm workspace path must be a file: {path}")
+    return ("missing",)
+
+
+def restore_path(path, captured):
+    remove_path(path)
+    if captured[0] == "missing":
+        return
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if captured[0] == "link":
+        os.symlink(captured[1], path)
+        return
+    descriptor, temporary = tempfile.mkstemp(prefix=".cheatcode-policy-", dir=os.path.dirname(path))
+    try:
+        with os.fdopen(descriptor, "wb") as target:
+            target.write(captured[1])
+        os.chmod(temporary, captured[2])
+        os.replace(temporary, path)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+@contextmanager
+def reviewed_pnpm_build_policy(local_cwd, local_root):
+    workspace_path = pnpm_workspace_path(local_cwd, local_root)
+    captured = capture_path(workspace_path)
+    try:
+        subprocess.run(
+            ["node", PNPM_BUILD_POLICY_BINARY, workspace_path],
+            cwd=local_cwd,
+            check=True,
+        )
+        yield
+    finally:
+        restore_path(workspace_path, captured)
+
+
 def restore_pnpm_dependencies(local_cwd, local_root, dependency_template):
     package_path = os.path.join(local_cwd, "package.json")
     lock_path = os.path.join(local_cwd, "pnpm-lock.yaml")
@@ -300,26 +361,24 @@ def restore_pnpm_dependencies(local_cwd, local_root, dependency_template):
     if dependencies_are_current(local_cwd, local_root):
         return 0
     common = ["install", "--prefer-offline", "--network-concurrency", "4"]
-    if not os.path.isfile(lock_path):
-        status = subprocess.run(
-            ["pnpm", *common, "--lockfile=false"], cwd=local_cwd, check=False
-        ).returncode
-        if status == 0:
-            record_dependency_state(local_cwd, local_root)
-        return status
-    offline = subprocess.run(
-        ["pnpm", "install", "--frozen-lockfile", "--offline"],
-        cwd=local_cwd,
-        check=False,
-    )
-    if offline.returncode == 0:
-        record_dependency_state(local_cwd, local_root)
-        return 0
-    status = subprocess.run(
-        ["pnpm", "install", "--frozen-lockfile", *common[1:]],
-        cwd=local_cwd,
-        check=False,
-    ).returncode
+    with reviewed_pnpm_build_policy(local_cwd, local_root):
+        if not os.path.isfile(lock_path):
+            status = subprocess.run(
+                ["pnpm", *common, "--lockfile=false"], cwd=local_cwd, check=False
+            ).returncode
+        else:
+            offline = subprocess.run(
+                ["pnpm", "install", "--frozen-lockfile", "--offline"],
+                cwd=local_cwd,
+                check=False,
+            )
+            status = offline.returncode
+            if status != 0:
+                status = subprocess.run(
+                    ["pnpm", "install", "--frozen-lockfile", *common[1:]],
+                    cwd=local_cwd,
+                    check=False,
+                ).returncode
     if status == 0:
         record_dependency_state(local_cwd, local_root)
     return status
@@ -375,7 +434,14 @@ def preview_run(source, target, lock_path, local_cwd, dependency_template, comma
     try:
         for signal_number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
             previous_handlers[signal_number] = signal.signal(signal_number, terminate_children)
-        app_process = subprocess.Popen(command, cwd=local_cwd, start_new_session=True)
+        app_environment = os.environ.copy()
+        app_environment["pnpm_config_verify_deps_before_run"] = "false"
+        app_process = subprocess.Popen(
+            command,
+            cwd=local_cwd,
+            env=app_environment,
+            start_new_session=True,
+        )
         return app_process.wait()
     finally:
         terminate_children()
