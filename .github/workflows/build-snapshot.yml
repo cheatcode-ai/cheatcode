@@ -148,6 +148,7 @@ jobs:
             python3 --version
             test -x /opt/cheatcode/project-source-sync.py
             test -x /opt/cheatcode/pnpm-build-policy.mjs
+            test -x /opt/cheatcode/configure-expo-runtime.mjs
             python3 -c "import ast,pathlib;ast.parse(pathlib.Path(\"/opt/cheatcode/project-source-sync.py\").read_text())"
             python3 - <<PY
           import errno
@@ -213,6 +214,7 @@ jobs:
                       raise RuntimeError("preview sync smoke process did not stop")
           PY
             node --check /opt/cheatcode/pnpm-build-policy.mjs
+            node --check /opt/cheatcode/configure-expo-runtime.mjs
             policy_test_dir="$(mktemp -d)"
             printf "packages:\\n  - .\\nallowBuilds:\\n  sharp: false\\n" > "$policy_test_dir/pnpm-workspace.yaml"
             node /opt/cheatcode/pnpm-build-policy.mjs "$policy_test_dir/pnpm-workspace.yaml"
@@ -338,6 +340,12 @@ jobs:
             trap cleanup_expo_test EXIT
             mkdir -p "$expo_source" "$expo_mirror"
             cp -R /home/node/cheatcode-expo-template/. "$expo_source/"
+            (
+              cd "$expo_source"
+              /opt/cheatcode/configure-expo-runtime.mjs \
+                "$expo_mirror/node_modules" \
+                /home/node/.cheatcode/app-runtimes/expo/node_modules
+            )
             CI=1 EXPO_NO_TELEMETRY=1 NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules \
               /opt/cheatcode/project-source-sync.py preview-run \
               "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" \
@@ -357,6 +365,38 @@ jobs:
             test -L "$expo_mirror/node_modules"
             test "$(readlink -f "$expo_mirror/node_modules")" = \
               /home/node/.cheatcode/app-runtimes/expo/node_modules
+            expo_bundle="$expo_test_dir/entry.bundle.js"
+            curl --fail --silent --show-error --get \
+              --output "$expo_bundle" \
+              --data-urlencode platform=web \
+              --data-urlencode dev=true \
+              --data-urlencode hot=false \
+              --data-urlencode lazy=true \
+              --data-urlencode transform.engine=hermes \
+              --data-urlencode transform.routerRoot=src/app \
+              --data-urlencode transform.reactCompiler=true \
+              --data-urlencode unstable_transformProfile=hermes-stable \
+              http://127.0.0.1:5201/node_modules/expo-router/entry.bundle
+            grep --fixed-strings --quiet "Welcome to" "$expo_bundle"
+            expo_dom="$expo_test_dir/expo-dom.html"
+            expo_chrome_log="$expo_test_dir/chromium.log"
+            if ! timeout 30 "$CHROME_PATH" \
+              --headless \
+              --no-sandbox \
+              --disable-dev-shm-usage \
+              --disable-gpu \
+              --virtual-time-budget=10000 \
+              --dump-dom \
+              http://127.0.0.1:5201 > "$expo_dom" 2> "$expo_chrome_log"; then
+              sed -n "1,240p" "$expo_chrome_log" >&2
+              exit 1
+            fi
+            if ! grep --fixed-strings --quiet "Welcome to" "$expo_dom"; then
+              sed -n "1,240p" "$expo_log" >&2
+              sed -n "1,240p" "$expo_chrome_log" >&2
+              sed -n "1,240p" "$expo_dom" >&2
+              exit 1
+            fi
             printf "%s\n" "mobile source synchronization works" > "$expo_source/.cheatcode-mobile-sync-smoke"
             expo_sync_attempt=0
             until test -f "$expo_mirror/.cheatcode-mobile-sync-smoke" && \

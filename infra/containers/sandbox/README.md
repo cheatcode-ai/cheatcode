@@ -105,6 +105,11 @@ command instead of transporting executable source through sandbox command argume
 It uses content hashes and atomic replacement on native disk. Writes back to Daytona's
 object-store FUSE use direct overwrite plus checksum verification because that mount does
 not implement replacement renames or portable chmod semantics.
+The adjacent root-owned `/opt/cheatcode/configure-expo-runtime.mjs` helper preserves the
+checksum-pinned Expo template's source and asset aliases while adding only the disposable local
+and immutable dependency locations. Snapshot smoke testing runs that same helper, compiles the
+real Expo Router bundle, and renders the template in headless Chromium; a listening Metro port
+without an executable app is not considered healthy.
 Direct pnpm invocations execute inside one `flock`-guarded transaction; process death
 releases that lock automatically, and successful source changes commit only after a
 three-way conflict check against the durable tree. Long-lived previews invoke the same helper as

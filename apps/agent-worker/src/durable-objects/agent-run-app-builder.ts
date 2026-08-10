@@ -15,7 +15,6 @@ import {
   scaffoldAppBuilder,
   scaffoldExpoApp,
   writeAppBuilderFiles,
-  writeExpoRuntimeFiles,
 } from "./agent-run-app-builder-scaffold";
 import { localExpoPreviewCommand, localNextPreviewCommand } from "./app-builder-local-preview";
 import {
@@ -223,7 +222,7 @@ async function prepareTemplateWorkspace(
       await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     }
     if (mobile) {
-      await ensureExpoWebSupport(sandbox, workspace.dir);
+      await ensureExpoWebSupport(sandbox, workspace.dir, workspace.slug);
     }
     return;
   }
@@ -231,13 +230,12 @@ async function prepareTemplateWorkspace(
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
     await scaffoldExpoApp(sandbox, logger, workspace.dir);
-    await writeExpoRuntimeFiles(sandbox, workspace.dir, workspace.slug);
   } else {
     await scaffoldAppBuilder(sandbox, logger, workspace.dir);
   }
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
-    await ensureExpoWebSupport(sandbox, workspace.dir);
+    await ensureExpoWebSupport(sandbox, workspace.dir, workspace.slug);
   } else {
     await setRunStage("Seeding the starter files.");
     await writeAppBuilderFiles(input, sandbox, workspace.dir);

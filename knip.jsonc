@@ -15,6 +15,7 @@
       "entry": [
         "skills/**/*.ts",
         "infra/containers/sandbox/app-generators/configure-expo-template.mjs",
+        "infra/containers/sandbox/scripts/configure-expo-runtime.mjs",
         "infra/containers/sandbox/scripts/pnpm-build-policy.mjs"
       ]
     },
