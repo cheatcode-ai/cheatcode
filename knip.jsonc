@@ -10,8 +10,9 @@
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
-      // `cheatcode-skills`; they are intentionally outside the pnpm workspace graph.
-      "entry": ["skills/**/*.ts"]
+      // `cheatcode-skills`; the pnpm policy executable is invoked by the sandbox's
+      // Python supervisor. Both are intentionally outside the pnpm workspace graph.
+      "entry": ["skills/**/*.ts", "infra/containers/sandbox/scripts/pnpm-build-policy.mjs"]
     },
     "packages/db": {
       "drizzle": {
