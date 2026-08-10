@@ -167,7 +167,11 @@ webpack compilation even after the listening socket opens. A baked Python synchr
 content identities rather than unrelated FUSE/native-disk timestamps, performs atomic replacement
 on native disk and checksum-verified direct overwrites on the non-POSIX durable mount, and mirrors
 subsequent writes and deletions within 250 ms, including equal-size and
-shell-based edits. The local source, dependency tree, and build cache are disposable;
+shell-based edits. Transient read contention on the durable source is retried within a bounded grace
+period; sustained source failure or a terminated synchronizer fails the whole managed preview so the
+existing bounded process restart policy restores both the app and its source feed instead of reusing
+a stale listening port. The local source,
+dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the
 server starts. A package/lock/config digest skips the install entirely when the local dependency tree
