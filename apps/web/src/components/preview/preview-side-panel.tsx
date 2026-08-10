@@ -2,7 +2,7 @@
 
 import type { ProjectSummary } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
-import { Activity, type ReactNode, useEffect, useState } from "react";
+import { Activity, type ReactNode, useEffect, useRef, useState } from "react";
 import { BrowserTakeoverSurface } from "@/components/preview/browser-takeover-surface";
 import { ExpoDevicePanel } from "@/components/preview/expo-device-panel";
 import {
@@ -83,6 +83,7 @@ function usePreviewPanelController(
     store.previewPanelOpen && project !== null && !isFreshPreviewBuilding,
     store.sandboxStatus,
   );
+  useRequestedPreviewReload(store.previewReloadRequestToken, previewLive.reload);
   useFirstPreviewTelemetry(getToken, store.previewPanelOpen, store.previewUrl);
   const browserTakeover = useBrowserTakeover(activeRunId, threadId);
   useEffect(() => {
@@ -100,12 +101,22 @@ function usePreviewPanelStore() {
     expoUrl: useAppStore((state) => state.expoUrl),
     previewDevice: useAppStore((state) => state.previewDevice),
     previewPanelOpen: useAppStore((state) => state.previewPanelOpen),
+    previewReloadRequestToken: useAppStore((state) => state.previewReloadRequestToken),
     previewReloadToken: useAppStore((state) => state.previewReloadToken),
     previewUrl: useAppStore((state) => state.previewUrl),
     sandboxStatus: useAppStore((state) => state.sandboxStatus),
     setActivePreviewTab: useAppStore((state) => state.setActivePreviewTab),
     setPreviewPanelOpen: useAppStore((state) => state.setPreviewPanelOpen),
   };
+}
+
+function useRequestedPreviewReload(requestToken: number, reload: () => Promise<void>): void {
+  const handledTokenRef = useRef(requestToken);
+  useEffect(() => {
+    if (handledTokenRef.current === requestToken) return;
+    handledTokenRef.current = requestToken;
+    void reload();
+  }, [reload, requestToken]);
 }
 
 function useFirstPreviewTelemetry(
