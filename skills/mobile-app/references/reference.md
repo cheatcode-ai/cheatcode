@@ -16,3 +16,6 @@
 - Keyboard does not cover the active input's submit action.
 - Loading and empty states are mobile-sized.
 - Primary action remains obvious after scrolling.
+- Wait for rendered page content before capturing the review screenshot.
+- Exercise one representative state-changing interaction.
+- Review browser errors once after the interaction; do not repeat equivalent captures after the checks pass.

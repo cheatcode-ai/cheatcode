@@ -14,10 +14,10 @@ Ship a mobile-first responsive app surface unless the plan explicitly expands sc
 ## Quick Start
 
 1. Identify the core mobile workflow and primary repeat action.
-2. Create a compact mobile implementation checklist in the chat before editing.
+2. Inspect the existing route, theme, and reusable components together before editing.
 3. Reuse the existing frontend stack and components.
-4. Build mobile-first navigation, empty states, loading states, and responsive layouts.
-5. Verify a narrow mobile viewport and a desktop viewport by directly opening the preview, tapping/clicking through the UI, and checking console/network output.
+4. Build the smallest coherent set of screens and states that completes the workflow.
+5. Wait for a stable render, inspect it once, exercise one representative interaction, and check browser errors once. If those checks pass, finish.
 
 ## Design Rules
 
@@ -36,20 +36,23 @@ Ship a mobile-first responsive app surface unless the plan explicitly expands sc
 | Layout | Mobile-first spacing, responsive panels, no horizontal overflow |
 | Input | Keyboard-safe forms and obvious submit action |
 | State | Empty, loading, error, and success states for the core loop |
-| Review | Mobile screenshot, desktop screenshot, console/network review |
+| Review | One stable mobile render, one core interaction, and one browser-error review |
 
 ## Review
 
 - No horizontal scroll at mobile width.
 - Tap targets are large enough and not crowded.
 - Keyboard and sheet interactions do not hide critical fields.
+- For an Expo project, verify the managed web render only after Metro has produced page content; an initial empty capture during bundling is not a defect signal.
+- For a responsive web project, check a desktop viewport only when the request includes a desktop experience.
+- Do not infer readiness from screenshot file size or repeat equivalent screenshots after the rendered content and representative interaction pass.
 
 ## Deliverables
 
 - Mobile-first implementation
 - Mobile review notes
-- UI screenshots and console/network notes
+- Browser screenshots remain verification evidence inside their originating browser activity; they are not user Deliverables.
 
 ## References
 
-- `reference.md` - mobile app patterns and QA checklist.
+- `references/reference.md` - mobile app patterns and QA checklist.

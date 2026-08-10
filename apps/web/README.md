@@ -108,6 +108,10 @@ Google and other social authentication uses Clerk's full-page redirect flow. The
 finishes through one authoritative navigation instead of a popup attempting to replace the anonymous
 client tree after its server identity has changed. Production can keep `Cross-Origin-Opener-Policy`
 at `same-origin`; no authentication flow depends on a cross-origin opener relationship.
+The identity-scoped query boundary derives its key from Clerk's client `useAuth()` state inside the
+mounted `ClerkProvider`. It must not suspend the entire application on a server `auth()` promise:
+the authenticated route gate already owns the Clerk loading state, and the query boundary remounts
+cleanly when that resolved user or organization identity changes.
 
 ## Deploy
 
