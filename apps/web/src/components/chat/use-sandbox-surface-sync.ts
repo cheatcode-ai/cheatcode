@@ -27,7 +27,7 @@ export interface SandboxStatusActions {
 }
 
 interface WorkspaceSurfaceActions extends SandboxStatusActions {
-  bumpPreviewReloadToken: () => void;
+  requestPreviewReload: () => void;
 }
 
 interface SandboxSurfaceSyncInput extends SandboxStatusActions {
@@ -78,14 +78,14 @@ export function useWorkspaceSurfaceApplier(
   }
   const actions = useMemo(
     () => ({
-      bumpPreviewReloadToken: input.bumpPreviewReloadToken,
+      requestPreviewReload: input.requestPreviewReload,
       setActivePreviewTab: input.setActivePreviewTab,
       setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
     [
-      input.bumpPreviewReloadToken,
+      input.requestPreviewReload,
       input.setActivePreviewTab,
       input.setAppPreviewStatus,
       input.setPreviewPanelOpen,
@@ -278,7 +278,7 @@ function applyWorkspaceSurfaceCommand(
   }
   state.openedBrowserToolKeys.add(onceKey);
   if (command.shouldReload) {
-    actions.bumpPreviewReloadToken();
+    actions.requestPreviewReload();
   }
   actions.setActivePreviewTab("app");
   actions.setPreviewPanelOpen(true);

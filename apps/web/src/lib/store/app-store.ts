@@ -46,6 +46,7 @@ interface AppStoreState {
   previewPanelOpen: boolean;
   previewPath: string;
   previewPathHistory: string[];
+  previewReloadRequestToken: number;
   previewReloadToken: number;
   previewUrl: string | null;
   sandboxStatus: SandboxState;
@@ -70,6 +71,7 @@ interface AppStoreActions {
   resetIdentityState: () => void;
   resetPreviewNavigation: () => void;
   requestFileOpen: (threadId: string, path: string) => void;
+  requestPreviewReload: () => void;
   setActivePreviewTab: (tab: PreviewTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
   setAppPreviewStatus: (status: AppPreviewState) => void;
@@ -140,6 +142,7 @@ function initialAppStoreState(): AppStoreState {
     previewPanelOpen: false,
     previewPath: "/",
     previewPathHistory: [],
+    previewReloadRequestToken: 0,
     previewReloadToken: 0,
     previewUrl: null,
     sandboxStatus: "cold",
@@ -208,6 +211,8 @@ function createPreviewActions(set: AppStoreSet) {
           threadId,
         },
       }),
+    requestPreviewReload: () =>
+      set((state) => ({ previewReloadRequestToken: state.previewReloadRequestToken + 1 })),
     setActivePreviewTab: (activePreviewTab: PreviewTab) => set({ activePreviewTab }),
     setAppPreviewStatus: (appPreviewStatus: AppPreviewState) => set({ appPreviewStatus }),
     setExpoUrl: (expoUrl: string | null) => set({ expoUrl }),
