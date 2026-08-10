@@ -5,12 +5,19 @@ import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
-import type { ComposerIntent, IntentId } from "@/components/home/home-composer-intents";
-import { resolveSubmitSkill, resolveSubmitSurface } from "@/components/home/home-composer-intents";
+import type {
+  BuildSurface,
+  ComposerIntent,
+  IntentId,
+} from "@/components/home/home-composer-intents";
+import {
+  resolveSubmitBuildSurface,
+  resolveSubmitSkill,
+} from "@/components/home/home-composer-intents";
 import { buildLaunchParams } from "@/components/home/home-composer-prompt-state";
 import { type AgentModelId, agentModelRequestValue } from "@/lib/agent-models";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
-import { createChat, surfaceToMode, threadTitle } from "@/lib/api/project-thread";
+import { buildSurfaceToMode, createChat, threadTitle } from "@/lib/api/project-thread";
 import { assertUserMessageWithinLimit } from "@/lib/input/prompt-attachments";
 
 interface HomeSubmissionState {
@@ -26,12 +33,12 @@ interface HomeSubmissionState {
 }
 
 interface HomeSubmissionSnapshot {
+  buildSurface: BuildSurface | null;
   intent: RunIntent | null;
   model: null | string;
   project: ProjectSummary | null;
   prompt: string;
   repoUrl: string | null;
-  surface: "mobile" | "web" | null;
 }
 
 interface SubmissionRuntime {
@@ -91,12 +98,17 @@ function buildSubmissionSnapshot(state: HomeSubmissionState): HomeSubmissionSnap
     return null;
   }
   return {
+    buildSurface: resolveSubmitBuildSurface(
+      state.repoUrl,
+      state.intentId,
+      state.intent,
+      state.skillChip,
+    ),
     intent: state.skillCreatorMode ? "skill-creator" : null,
     model: agentModelRequestValue(state.agentModelId) ?? null,
     project: state.selectedProject,
     prompt,
     repoUrl: state.repoUrl,
-    surface: resolveSubmitSurface(state.repoUrl, state.intentId, state.intent, state.skillChip),
   };
 }
 
@@ -145,7 +157,7 @@ async function startNewChat(
     const thread = await createChat(runtime.getToken, {
       initialPrompt: snapshot.prompt,
       title: threadTitle(snapshot.prompt),
-      mode: surfaceToMode(snapshot.surface),
+      mode: buildSurfaceToMode(snapshot.buildSurface),
       ...(snapshot.repoUrl ? { importRepoUrl: snapshot.repoUrl } : {}),
       ...(snapshot.model ? { defaultModel: snapshot.model } : {}),
     });
@@ -166,7 +178,7 @@ function preservePromptForSignIn(
       model: snapshot.model,
       prompt: snapshot.prompt,
       repo: snapshot.repoUrl,
-      surface: snapshot.surface,
+      buildSurface: snapshot.buildSurface,
     });
     runtime.setAuthRedirectTo(`/?${params.toString()}`);
   } catch (error) {

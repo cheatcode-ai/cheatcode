@@ -10,9 +10,19 @@
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
-      // `cheatcode-skills`; the pnpm policy executable is invoked by the sandbox's
-      // Python supervisor. Both are intentionally outside the pnpm workspace graph.
-      "entry": ["skills/**/*.ts", "infra/containers/sandbox/scripts/pnpm-build-policy.mjs"]
+      // `cheatcode-skills`; the container scripts are invoked by the sandbox Dockerfile
+      // or its Python supervisor. These edges sit outside the pnpm workspace graph.
+      "entry": [
+        "skills/**/*.ts",
+        "infra/containers/sandbox/app-generators/configure-expo-template.mjs",
+        "infra/containers/sandbox/scripts/pnpm-build-policy.mjs"
+      ]
+    },
+    "apps/agent-worker": {
+      // Wrangler reaches the platform module through its `alias` deployment
+      // configuration, which is intentionally outside TypeScript's import graph.
+      "entry": ["src/platform/execa-unavailable.ts"],
+      "includeEntryExports": false
     },
     "packages/db": {
       "drizzle": {

@@ -6,6 +6,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-07-15",
   "compatibility_flags": ["nodejs_compat"],
+  "alias": {
+    "execa": "./src/platform/execa-unavailable.ts"
+  },
   "limits": {
     "subrequests": 10000000
   },

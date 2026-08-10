@@ -41,7 +41,8 @@ omits it, and is distinct from generic background process tools so idle recovery
 canonical process record. Identical healthy starts are idempotent, and the sandbox-local launcher
 restores missing dependencies before readiness. Web app-builder preparation
 opts into matching-process reuse to avoid taking down a healthy preview on every follow-up; Expo
-retains replacement semantics for its ephemeral signed launch environment and post-edit restart.
+retains replacement semantics for its ephemeral signed launch environment while the shared
+native-disk source feed provides hot reload without a post-edit restart.
 Browser-only runs use the account sandbox without materializing a persistent project;
 workspace-backed file, shell, document, chart, or artifact work resolves the thread's
 project lazily when durable project storage is actually needed. Code tools expose `/workspace`
@@ -87,6 +88,11 @@ The production agent loop does not rely on that in-memory store for ownership.
 turn in Cloudflare Workflow, and then reconstructs each selected tool in a separate
 Workflow step. Provider keys and tool credentials are reacquired inside each step
 and never enter Workflow state.
+The catalog uses the current AI SDK provider generation. Anthropic's adapter sends the known
+128K Sonnet/Opus output maximum, DeepSeek V4 Pro receives its advertised 384K maximum explicitly
+instead of the API's smaller omitted-value default, and OpenAI/OpenRouter intentionally omit an
+artificial common ceiling so the selected provider model owns its maximum. A model-only turn that
+still ends with `length` is continued semantically rather than treated as successful completion.
 
 Nested research workflows bind the calling tool's abort signal idempotently to
 the Mastra workflow run, forward the synthesis step signal through its nested

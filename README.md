@@ -46,7 +46,8 @@ You need:
 - Docker with Docker Compose;
 - a dedicated Supabase project—the free tier is sufficient;
 - Clerk development keys; and
-- a Daytona API key plus an immutable Cheatcode sandbox snapshot.
+- a Daytona API key plus an immutable Cheatcode sandbox snapshot; and
+- a Morph API key for server-side FastApply edits.
 
 Install and launch the guided setup:
 

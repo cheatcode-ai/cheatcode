@@ -1,7 +1,7 @@
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
 
 type SkillIntent = "data" | "research" | "slides";
-export type SkillSurface = "mobile" | "web";
+export type SkillBuildSurface = "mobile" | "web";
 
 // Skills that map onto an existing intent pill (the design's slide/research/data lanes).
 const SKILL_TO_INTENT: Record<string, SkillIntent> = {
@@ -11,7 +11,7 @@ const SKILL_TO_INTENT: Record<string, SkillIntent> = {
 };
 
 // Skills that fix the build surface but have no intent pill.
-const SKILL_TO_SURFACE: Record<string, SkillSurface> = {
+const SKILL_TO_BUILD_SURFACE: Record<string, SkillBuildSurface> = {
   "mobile-app": "mobile",
 };
 
@@ -39,6 +39,6 @@ export function resolveInitialSkill(skill: string | null | undefined): InitialSk
   return { chip: skill, intent: null };
 }
 
-export function skillSurface(skill: string | null): SkillSurface | null {
-  return skill ? (SKILL_TO_SURFACE[skill] ?? null) : null;
+export function skillBuildSurface(skill: string | null): SkillBuildSurface | null {
+  return skill ? (SKILL_TO_BUILD_SURFACE[skill] ?? null) : null;
 }

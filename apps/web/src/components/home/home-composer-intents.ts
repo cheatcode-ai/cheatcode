@@ -1,9 +1,12 @@
 import type { ComponentType } from "react";
-import { skillSurface } from "@/components/home/use-initial-skill";
+import { skillBuildSurface } from "@/components/home/use-initial-skill";
 import { Globe, Smartphone, Star, TrendingUp } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 
 export type IntentId = "data" | "mobile-app" | "research" | "slides" | "web-app";
+
+/** Runtime/preview topology only; research, data, and slides remain work intents. */
+export type BuildSurface = "mobile" | "web";
 
 export type ComposerIntent = {
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean | "false" | "true" }>;
@@ -11,7 +14,7 @@ export type ComposerIntent = {
   label: string;
   placeholder: string;
   skill: null | string;
-  surface: "mobile" | "web" | null;
+  buildSurface: BuildSurface | null;
 };
 
 export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
@@ -21,7 +24,7 @@ export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
     label: "Mobile app",
     placeholder: "Describe the app - I'll build it with a live phone preview",
     skill: null,
-    surface: "mobile",
+    buildSurface: "mobile",
   },
   {
     icon: Globe,
@@ -29,7 +32,7 @@ export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
     label: "Web app",
     placeholder: "Describe the site or web app - I'll build and preview it",
     skill: null,
-    surface: "web",
+    buildSurface: "web",
   },
   {
     icon: Star,
@@ -37,7 +40,7 @@ export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
     label: "Slides",
     placeholder: "What's the deck about? Audience and key points help",
     skill: "pitch-deck",
-    surface: null,
+    buildSurface: null,
   },
   {
     icon: CheatcodeMark,
@@ -45,7 +48,7 @@ export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
     label: "Research",
     placeholder: "What should I research? I'll fan out agents and cite sources",
     skill: "deep-research",
-    surface: null,
+    buildSurface: null,
   },
   {
     icon: TrendingUp,
@@ -53,7 +56,7 @@ export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
     label: "Data",
     placeholder: "Attach or describe the data - I'll profile and chart it",
     skill: "csv-analyst",
-    surface: null,
+    buildSurface: null,
   },
 ] as const;
 
@@ -73,14 +76,14 @@ export function resolveSubmitSkill(
 }
 
 /** The build surface (mobile/web/null) implied by the current intent or imported repo. */
-export function resolveSubmitSurface(
+export function resolveSubmitBuildSurface(
   repoUrl: string | null,
   intentId: IntentId | null,
   intent: ComposerIntent | null,
   skillChip: string | null,
-): "mobile" | "web" | null {
+): BuildSurface | null {
   if (repoUrl) {
     return intentId === "mobile-app" ? "mobile" : "web";
   }
-  return intent ? intent.surface : skillSurface(skillChip);
+  return intent ? intent.buildSurface : skillBuildSurface(skillChip);
 }

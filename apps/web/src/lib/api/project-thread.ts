@@ -480,12 +480,12 @@ function uiMessageRole(value: string): CheatcodeUIMessage["role"] | null {
   return null;
 }
 
-/** Maps a composer build surface to the chat's launch-intent mode. */
-export function surfaceToMode(surface: string | null): ProjectMode {
-  if (surface === "mobile") {
+/** Maps the composer's preview/runtime choice to the persisted project mode. */
+export function buildSurfaceToMode(buildSurface: string | null): ProjectMode {
+  if (buildSurface === "mobile") {
     return "app-builder-mobile";
   }
-  return surface === "web" ? "app-builder" : "general";
+  return buildSurface === "web" ? "app-builder" : "general";
 }
 
 /** Derives a chat's title from its first prompt; an empty/absent prompt reads "New chat". */

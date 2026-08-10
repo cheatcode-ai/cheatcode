@@ -1,14 +1,15 @@
 "use client";
 
 import type { RunIntent } from "@cheatcode/types/api";
+import type { BuildSurface } from "@/components/home/home-composer-intents";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 
 export function buildLaunchParams(input: {
+  buildSurface: BuildSurface | null;
   intent: RunIntent | null;
   model: null | string;
   prompt: string;
   repo: null | string;
-  surface: "mobile" | "web" | null;
 }): URLSearchParams {
   const params = new URLSearchParams();
   if (input.intent) {
@@ -17,8 +18,8 @@ export function buildLaunchParams(input: {
   if (input.prompt.length > 0) {
     params.set("promptKey", createPromptHandoff(input.prompt).promptKey);
   }
-  if (input.surface) {
-    params.set("surface", input.surface);
+  if (input.buildSurface) {
+    params.set("surface", input.buildSurface);
   }
   if (input.model) {
     params.set("model", input.model);
