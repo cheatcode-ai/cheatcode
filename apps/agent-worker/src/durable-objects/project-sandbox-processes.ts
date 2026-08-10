@@ -8,10 +8,7 @@ import type {
 import type { SandboxConsoleSnapshot } from "@cheatcode/types/api";
 import { sandboxExecProcessName } from "./project-sandbox-audit";
 import { WORKSPACE_DIR } from "./project-sandbox-content-support";
-import {
-  localPackageCommand,
-  localPnpmProjectProcessCommand,
-} from "./project-sandbox-local-source";
+import { localPackageCommand, localProjectProcessCommand } from "./project-sandbox-local-source";
 import { recordSandboxUsageBestEffort } from "./project-sandbox-metering";
 import {
   localizeProjectPackageCommand,
@@ -374,18 +371,14 @@ async function startProcess(
   const name = parsed.processId;
   const sessionId = `cc-${name}`;
   const cwd = parsed.cwd ?? WORKSPACE_DIR;
-  const serializedCommand = commandToShellString(parsed.command);
   const packageRuntime = projectPnpmRuntime(cwd, parsed.command);
-  const rawCommand = packageRuntime
-    ? commandToShellString([
-        "sh",
-        "-lc",
-        localPnpmProjectProcessCommand(
-          packageRuntime,
-          commandToShellString(localizeProjectPackageCommand(packageRuntime, parsed.command)),
-        ),
-      ])
-    : serializedCommand;
+  const processCommand = packageRuntime
+    ? localProjectProcessCommand(
+        packageRuntime,
+        localizeProjectPackageCommand(packageRuntime, parsed.command),
+      )
+    : parsed.command;
+  const rawCommand = commandToShellString(processCommand);
   const requestedEnvironment = projectPackageEnvironment(cwd, parsed.env);
   const policy = processPolicy(parsed);
   const environmentDigest = parsed.shouldReuseMatchingProcess
