@@ -11,6 +11,10 @@ import {
   WorkspacePathSchema,
 } from "./workspace-paths";
 
+const PackageJsonScriptsSchema = z
+  .object({ scripts: z.record(z.string(), z.string()).optional() })
+  .strip();
+
 const StartDevServerInputSchema = z.strictObject({
   command: z.array(z.string().min(1).max(8_192)).min(1).max(128),
   cwd: WorkspacePathSchema,
@@ -58,7 +62,7 @@ const EXPO_RUNTIME_BIN = "/home/node/.cheatcode/app-runtimes/expo/node_modules/.
 
 export async function executeStartDevServer(
   input: StartDevServerInput,
-  runtimeContext: CodeRuntimeContextFor<"allocateProjectPort" | "startProcess">,
+  runtimeContext: CodeRuntimeContextFor<"allocateProjectPort" | "readFile" | "startProcess">,
 ): Promise<StartDevServerOutput> {
   return executePreparedStartDevServer(
     await prepareStartDevServer(input, runtimeContext),
@@ -69,7 +73,7 @@ export async function executeStartDevServer(
 /** Resolves dynamic port allocation and command normalization before execution. */
 export async function prepareStartDevServer(
   input: StartDevServerInput,
-  runtimeContext: CodeRuntimeContextFor<"allocateProjectPort">,
+  runtimeContext: CodeRuntimeContextFor<"allocateProjectPort" | "readFile">,
 ): Promise<PreparedStartDevServer> {
   const parsedInput = StartDevServerInputSchema.parse(input);
   if (!runtimeContext.workspaceDir || !runtimeContext.workspaceSlug) {
@@ -85,14 +89,27 @@ export async function prepareStartDevServer(
   const workspaceCommand = parsedInput.command.map((argument) =>
     remapProjectWorkspaceReferences(argument, runtimeContext.workspaceDir),
   );
-  const command = remapRequestedDevServerPort(workspaceCommand, parsedInput.port, port);
+  const command = isExpo
+    ? expoWebCommand(port)
+    : await resolveWebDevServerCommand(
+        workspaceCommand,
+        cwd,
+        parsedInput.port,
+        port,
+        runtimeContext,
+      );
   return {
     mayUseNetwork: isExpo,
     port,
     process: {
-      command: isExpo ? expoWebCommand(port) : command,
+      command,
       cwd,
-      env: { ...parsedInput.env, PORT: String(port) },
+      env: {
+        ...parsedInput.env,
+        HOST: "0.0.0.0",
+        HOSTNAME: "0.0.0.0",
+        PORT: String(port),
+      },
       isMobile,
       keepAliveTimeoutMs: parsedInput.keepAliveTimeoutMs,
       maxRestarts: parsedInput.maxRestarts,
@@ -119,6 +136,113 @@ function remapRequestedDevServerPort(
   const requestedPortToken = new RegExp(`(?<!\\d)${requestedPort}(?!\\d)`, "gu");
   const allocatedPortToken = String(allocatedPort);
   return command.map((argument) => argument.replace(requestedPortToken, allocatedPortToken));
+}
+
+type WebDevServerBinding = "environment" | "host-port" | "next";
+
+async function resolveWebDevServerCommand(
+  command: readonly string[],
+  cwd: string,
+  requestedPort: number,
+  allocatedPort: number,
+  runtimeContext: CodeRuntimeContextFor<"readFile">,
+): Promise<string[]> {
+  const normalized = normalizePnpmScriptCommand(command);
+  const remapped = remapRequestedDevServerPort(normalized, requestedPort, allocatedPort);
+  if (commandBindsPort(remapped, allocatedPort)) return remapped;
+  const binding = await resolveWebDevServerBinding(remapped, cwd, runtimeContext);
+  if (binding === "environment") return remapped;
+  const hostFlag = binding === "next" ? "--hostname" : "--host";
+  return [...remapped, hostFlag, "0.0.0.0", "--port", String(allocatedPort)];
+}
+
+function normalizePnpmScriptCommand(command: readonly string[]): string[] {
+  if (!pnpmScriptName(command)) return [...command];
+  const delimiter = command.indexOf("--");
+  if (delimiter < 0) return [...command];
+  return command.filter((_, index) => index !== delimiter);
+}
+
+function commandBindsPort(command: readonly string[], port: number): boolean {
+  const token = new RegExp(`(?<!\\d)${port}(?!\\d)`, "u");
+  return command.some((argument) => token.test(argument) || argument.includes("$PORT"));
+}
+
+async function resolveWebDevServerBinding(
+  command: readonly string[],
+  cwd: string,
+  runtimeContext: CodeRuntimeContextFor<"readFile">,
+): Promise<WebDevServerBinding> {
+  const script = await readPnpmScript(command, cwd, runtimeContext);
+  const launch = `${command.join(" ")} ${script ?? ""}`.trim();
+  if (/\bnext(?:\s+(?:dev|start))?\b/u.test(launch)) return "next";
+  if (/\breact-scripts\s+start\b/u.test(launch)) return "environment";
+  if (/^(?:node|python3?|tsx)(?:\s|$)/u.test(launch)) return "environment";
+  if (supportsHostAndPortFlags(launch)) return "host-port";
+  throw unsupportedDevServerCommand();
+}
+
+function supportsHostAndPortFlags(command: string): boolean {
+  return /\b(?:astro|gatsby|nuxt|parcel|vite)\b|\bwebpack\s+serve\b|\bng\s+serve\b|\breact-router\s+dev\b/u.test(
+    command,
+  );
+}
+
+async function readPnpmScript(
+  command: readonly string[],
+  cwd: string,
+  runtimeContext: CodeRuntimeContextFor<"readFile">,
+): Promise<string | undefined> {
+  const scriptName = pnpmScriptName(command);
+  if (!scriptName) return undefined;
+  const result = await runtimeContext.sandbox
+    .readFile({ encoding: "utf8", path: `${cwd}/package.json` })
+    .catch(() => null);
+  if (!result) return undefined;
+  return packageScript(result.content, scriptName);
+}
+
+function packageScript(content: string, scriptName: string): string | undefined {
+  try {
+    const parsedJson = PackageJsonScriptsSchema.safeParse(JSON.parse(content));
+    return parsedJson.success ? parsedJson.data.scripts?.[scriptName] : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function pnpmScriptName(command: readonly string[]): string | undefined {
+  if (command[0]?.slice(command[0].lastIndexOf("/") + 1) !== "pnpm") return undefined;
+  if (command[1] === "run") return command[2];
+  const candidate = command[1];
+  if (!candidate || candidate.startsWith("-") || PNPM_NON_SCRIPT_COMMANDS.has(candidate)) {
+    return undefined;
+  }
+  return candidate;
+}
+
+const PNPM_NON_SCRIPT_COMMANDS = new Set([
+  "add",
+  "build",
+  "dlx",
+  "exec",
+  "fetch",
+  "install",
+  "list",
+  "remove",
+  "update",
+]);
+
+function unsupportedDevServerCommand(): APIError {
+  return new APIError(
+    422,
+    "tool_validation_failed",
+    "The managed preview could not determine how this command binds its HTTP port.",
+    {
+      hint: "Pass the normal framework port flag in the command using the requested port (for example --host 0.0.0.0 --port 5173). Cheatcode will remap it to the project's allocated port.",
+      retriable: false,
+    },
+  );
 }
 
 /** Executes only the fully resolved process plan. */

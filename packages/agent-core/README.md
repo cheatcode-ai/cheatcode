@@ -36,8 +36,10 @@ actions remain scoped to the user's active account, and secret-bearing input is
 validated before execution. Deterministic prepare/execute boundaries keep dynamic
 ports and Git destinations stable between resolution and execution. The managed
 preview tool owns Computer-visible dev servers, remaps a requested port to the
-project’s allocated port when necessary, and is distinct from generic background
-process tools so idle recovery always has a canonical process record. Web app-builder preparation
+project’s allocated port when necessary, injects the supported framework binding when the model
+omits it, and is distinct from generic background process tools so idle recovery always has a
+canonical process record. Identical healthy starts are idempotent, and the sandbox-local launcher
+restores missing dependencies before readiness. Web app-builder preparation
 opts into matching-process reuse to avoid taking down a healthy preview on every follow-up; Expo
 retains replacement semantics for its ephemeral signed launch environment and post-edit restart.
 Browser-only runs use the account sandbox without materializing a persistent project;

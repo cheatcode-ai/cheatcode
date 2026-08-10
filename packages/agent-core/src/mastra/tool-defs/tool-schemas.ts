@@ -9,7 +9,9 @@ export const StartDevServerInputSchema = z.strictObject({
     .array(z.string().min(1).max(8_192).describe("One argv element."))
     .min(1)
     .max(128)
-    .describe("Dev server command argv."),
+    .describe(
+      "Normal dev server command argv. Cheatcode adds or remaps supported framework host and port flags.",
+    ),
   cwd: WorkspacePathSchema.describe("App directory under /workspace."),
   env: EnvironmentVariablesSchema.optional().describe("Request-scoped env vars."),
   name: z.string().min(1).max(100).default("app-preview").describe("Preview name."),
