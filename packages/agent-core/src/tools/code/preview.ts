@@ -28,6 +28,7 @@ const StartDevServerInputSchema = z.strictObject({
   name: z.string().min(1).max(100).default("app-preview"),
   port: z.number().int().positive().max(65_535).default(5173),
   restartOnFailure: z.boolean().default(true),
+  shouldReuseMatchingProcess: z.boolean().default(false),
   timeoutMs: z.number().int().positive().max(600_000).default(120_000),
 });
 
@@ -97,6 +98,7 @@ export async function prepareStartDevServer(
       maxRestarts: parsedInput.maxRestarts,
       processId: `${APP_PREVIEW_SLOT_PREFIX}${slug}`,
       restartOnFailure: parsedInput.restartOnFailure,
+      shouldReuseMatchingProcess: parsedInput.shouldReuseMatchingProcess,
       timeoutMs: parsedInput.timeoutMs,
       waitForPort: { port, timeoutMs: parsedInput.timeoutMs },
     },

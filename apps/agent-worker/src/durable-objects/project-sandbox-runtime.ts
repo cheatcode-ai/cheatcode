@@ -56,6 +56,7 @@ export const ProjectStartProcessInputSchema = z.strictObject({
   maxRestarts: z.number().int().min(0).max(25).optional(),
   processId: ProcessIdSchema,
   restartOnFailure: z.boolean().optional(),
+  shouldReuseMatchingProcess: z.boolean().optional(),
   waitForPort: z
     .strictObject({
       port: z.number().int().positive().max(65_535),

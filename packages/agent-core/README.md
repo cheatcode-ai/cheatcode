@@ -36,8 +36,10 @@ actions remain scoped to the user's active account, and secret-bearing input is
 validated before execution. Deterministic prepare/execute boundaries keep dynamic
 ports and Git destinations stable between resolution and execution. The managed
 preview tool owns Computer-visible dev servers, remaps a requested port to the
-project's allocated port when necessary, and is distinct from generic background
-process tools so idle recovery always has a canonical process record.
+project’s allocated port when necessary, and is distinct from generic background
+process tools so idle recovery always has a canonical process record. Web app-builder preparation
+opts into matching-process reuse to avoid taking down a healthy preview on every follow-up; Expo
+retains replacement semantics for its ephemeral signed launch environment and post-edit restart.
 Browser-only runs use the account sandbox without materializing a persistent project;
 workspace-backed file, shell, document, chart, or artifact work resolves the thread's
 project lazily when durable project storage is actually needed. Code tools expose `/workspace`
