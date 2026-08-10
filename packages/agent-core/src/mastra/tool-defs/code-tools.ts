@@ -251,14 +251,17 @@ export const mastraGitPush = createTool({
 export const mastraStartDevServer = createTool({
   id: "code_start_dev_server",
   description:
-    "Start the managed web or mobile dev server shown in Computer. This is the only preview-registering server tool: it assigns the project's stable internal port, remaps the requested port in the command when needed, and restores the process after sandbox idle stops. Returns readiness and the actual internal port.",
+    "Start the managed web or mobile dev server shown in Computer. This is the only preview-registering server tool: it restores missing pnpm dependencies, assigns and enforces the project's stable internal host/port, reuses an identical healthy server, and restores it after sandbox idle stops. Do not run pnpm install merely to start an unchanged app. Returns only after readiness on the actual internal port.",
   inputSchema: StartDevServerInputSchema,
   outputSchema: StartDevServerOutputSchema,
   execute: async (input, context) => {
     const parsedInput = StartDevServerInputSchema.parse(input);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executePreparedStartDevServer(
-      await prepareStartDevServer(parsedInput, runtimeContext),
+      await prepareStartDevServer(
+        { ...parsedInput, shouldReuseMatchingProcess: true },
+        runtimeContext,
+      ),
       runtimeContext,
     );
   },

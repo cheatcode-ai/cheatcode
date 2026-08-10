@@ -166,8 +166,9 @@ async function waitForPort(
     }
     await sleep(1_500);
   }
+  const logs = process ? await readProcessLogs(runtime, id, process) : "";
   throw new APIError(504, "upstream_sandbox_timeout", "Sandbox process did not become ready.", {
-    details: { port, timeoutMs: timeoutMs ?? 120_000, url },
+    details: { logs, port, timeoutMs: timeoutMs ?? 120_000, url },
     hint: "Inspect the process command and logs, then retry.",
     retriable: true,
   });
@@ -481,15 +482,24 @@ async function throwIfProcessExited(
     .catch(() => null);
   const command = session?.commands.find((candidate) => candidate.id === process.cmdId);
   if (typeof command?.exitCode !== "number") return;
-  const logs = await runtime
-    .client()
-    .getSessionCommandLogs(id, process.sessionId, process.cmdId)
-    .catch(() => "");
+  const logs = await readProcessLogs(runtime, id, process);
   throw new APIError(502, "sandbox_command_failed", "Sandbox process exited before readiness.", {
     details: { exitCode: command.exitCode, logs: logs.slice(-2_000), port },
     hint: "Inspect the process logs, fix the start command, and retry.",
     retriable: false,
   });
+}
+
+async function readProcessLogs(
+  runtime: ProcessControlRuntime,
+  id: string,
+  process: { cmdId: string; sessionId: string },
+): Promise<string> {
+  return runtime
+    .client()
+    .getSessionCommandLogs(id, process.sessionId, process.cmdId)
+    .then((logs) => logs.slice(-2_000))
+    .catch(() => "");
 }
 
 async function releaseProcessPort(

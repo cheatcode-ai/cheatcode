@@ -86,6 +86,9 @@ provider keys and sandbox capabilities are reacquired inside the active step and
 Workflow storage. A Worker isolate or Durable Object eviction therefore resumes from the last
 completed step instead of losing an in-memory coroutine. Transcript publication uses deterministic
 event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
+Failed sandbox tools return a bounded model-facing projection of their exit code, hint, command
+output, and managed-process logs, so the next model turn can correct the failure instead of
+retrying blind. Those internal diagnostics are not promoted into user-facing assistant text.
 Preparation uses a multi-minute durable exponential-backoff window for transient provider
 failures. Daytona's explicit host-recovery start rejection is treated as a runtime failover signal:
 the Daytona adapter normalizes the provider's structured `503` response to an internal error code,
@@ -161,13 +164,15 @@ the branded loading surface over the scaffold without relying on timers or ifram
 The canonical app source remains on the durable `/workspace` volume. Managed Next.js previews
 compile from a sandbox-local one-way mirror because Daytona's object-store FUSE mount can stall
 webpack compilation even after the listening socket opens. A baked Python synchronizer compares
-content identities rather than unrelated FUSE/native-disk timestamps, performs atomic file
-replacement, and mirrors subsequent writes and deletions within 250 ms, including equal-size and
+content identities rather than unrelated FUSE/native-disk timestamps, performs atomic replacement
+on native disk and checksum-verified direct overwrites on the non-POSIX durable mount, and mirrors
+subsequent writes and deletions within 250 ms, including equal-size and
 shell-based edits. The local source, dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the
-server starts, while an unchanged baked app-builder template continues to use the immutable runtime
-without an unnecessary install.
+server starts. A package/lock/config digest skips the install entirely when the local dependency tree
+is current; automatic preview restoration does not create a durable lockfile. An unchanged baked
+app-builder template continues to use the immutable runtime without an unnecessary install.
 The immutable sandbox exposes that synchronizer as the root-owned
 `/opt/cheatcode/project-source-sync.py` helper, keeping Worker-to-sandbox command arguments small
 and making the snapshot the source of truth for executable sandbox runtime code.

@@ -15,6 +15,7 @@ import time
 IGNORED_DIRS = {".expo", ".next", ".turbo", "build", "coverage", "dist", "node_modules", "out"}
 LOCAL_ONLY_NAMES = IGNORED_DIRS | {"next-env.d.ts"}
 PACKAGE_CONFLICT_EXIT = 74
+DEPENDENCY_STATE_FILENAME = ".cheatcode-dependency-state"
 
 
 def remove_path(path):
@@ -32,7 +33,7 @@ def file_digest(path):
     return value.hexdigest()
 
 
-def atomic_copy(source, target):
+def atomic_local_copy(source, target):
     os.makedirs(os.path.dirname(target), exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=".cheatcode-sync-", dir=os.path.dirname(target))
     os.close(descriptor)
@@ -47,7 +48,7 @@ def atomic_copy(source, target):
             pass
 
 
-def sync_link(source, target):
+def sync_local_link(source, target):
     link = os.readlink(source)
     if os.path.islink(target) and os.readlink(target) == link:
         return
@@ -71,7 +72,7 @@ def sync_file(source, target):
             pass
     if os.path.isdir(target) or os.path.islink(target):
         remove_path(target)
-    atomic_copy(source, target)
+    atomic_local_copy(source, target)
 
 
 def sync_directory(source, target):
@@ -86,7 +87,7 @@ def sync_directory(source, target):
         destination = os.path.join(target, entry.name)
         try:
             if entry.is_symlink():
-                sync_link(entry.path, destination)
+                sync_local_link(entry.path, destination)
             elif entry.is_dir(follow_symlinks=False):
                 sync_directory(entry.path, destination)
             elif entry.is_file(follow_symlinks=False):
@@ -147,7 +148,25 @@ def preview_sync(source, target, mode, lock_path):
         time.sleep(0.25)
 
 
-def copy_state(source_root, target_root, relative, state):
+def overwrite_durable_file(source, target):
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    with open(source, "rb") as source_file, open(target, "wb") as target_file:
+        shutil.copyfileobj(source_file, target_file, 1024 * 1024)
+        target_file.flush()
+    if not files_equal(source, target):
+        raise OSError(f"durable file verification failed: {target}")
+
+
+def overwrite_durable_link(source, target):
+    link = os.readlink(source)
+    if os.path.islink(target) and os.readlink(target) == link:
+        return
+    remove_path(target)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    os.symlink(link, target)
+
+
+def copy_state_to_durable(source_root, target_root, relative, state):
     source = os.path.join(source_root, relative)
     target = os.path.join(target_root, relative)
     kind = state[0]
@@ -158,11 +177,11 @@ def copy_state(source_root, target_root, relative, state):
         return
     os.makedirs(os.path.dirname(target), exist_ok=True)
     if kind == "link":
-        sync_link(source, target)
+        overwrite_durable_link(source, target)
         return
     if os.path.isdir(target) or os.path.islink(target):
         remove_path(target)
-    atomic_copy(source, target)
+    overwrite_durable_file(source, target)
 
 
 def commit_local_changes(durable_root, local_root, baseline):
@@ -186,7 +205,7 @@ def commit_local_changes(durable_root, local_root, baseline):
         (path for path in changed if path in local),
         key=lambda value: value.count(os.sep),
     ):
-        copy_state(local_root, durable_root, relative, local[relative])
+        copy_state_to_durable(local_root, durable_root, relative, local[relative])
 
 
 def package_run(source, target, lock_path, local_cwd, command):
@@ -198,6 +217,7 @@ def package_run(source, target, lock_path, local_cwd, command):
         completed = subprocess.run(command, cwd=local_cwd, check=False)
         if completed.returncode != 0:
             return completed.returncode
+        record_dependency_state(local_cwd, target)
         try:
             commit_local_changes(source, target, baseline)
         except RuntimeError as error:
@@ -222,7 +242,53 @@ def files_equal(left, right):
     )
 
 
-def restore_pnpm_dependencies(local_cwd, dependency_template):
+def dependency_state(local_cwd, local_root):
+    digest = hashlib.sha256()
+    current = os.path.realpath(local_cwd)
+    root = os.path.realpath(local_root)
+    while True:
+        relative = os.path.relpath(current, root)
+        for name in ("package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", ".npmrc"):
+            path = os.path.join(current, name)
+            digest.update(os.path.join(relative, name).encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(file_digest(path).encode("ascii") if os.path.isfile(path) else b"missing")
+            digest.update(b"\0")
+        if current == root:
+            return digest.hexdigest()
+        current = os.path.dirname(current)
+
+
+def dependency_state_path(local_cwd):
+    return os.path.join(local_cwd, "node_modules", DEPENDENCY_STATE_FILENAME)
+
+
+def dependencies_are_current(local_cwd, local_root):
+    marker = dependency_state_path(local_cwd)
+    try:
+        with open(marker, "r", encoding="ascii") as source:
+            return source.read().strip() == dependency_state(local_cwd, local_root)
+    except (FileNotFoundError, OSError, UnicodeError):
+        return False
+
+
+def record_dependency_state(local_cwd, local_root):
+    modules = os.path.join(local_cwd, "node_modules")
+    if not os.path.isdir(modules):
+        return
+    descriptor, temporary = tempfile.mkstemp(prefix=".cheatcode-dependency-", dir=modules)
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as target:
+            target.write(dependency_state(local_cwd, local_root) + "\n")
+        os.replace(temporary, dependency_state_path(local_cwd))
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def restore_pnpm_dependencies(local_cwd, local_root, dependency_template):
     package_path = os.path.join(local_cwd, "package.json")
     lock_path = os.path.join(local_cwd, "pnpm-lock.yaml")
     if not os.path.isfile(package_path):
@@ -231,21 +297,32 @@ def restore_pnpm_dependencies(local_cwd, dependency_template):
         package_path, os.path.join(dependency_template, "package.json")
     ) and files_equal(lock_path, os.path.join(dependency_template, "pnpm-lock.yaml")):
         return 0
+    if dependencies_are_current(local_cwd, local_root):
+        return 0
     common = ["install", "--prefer-offline", "--network-concurrency", "4"]
     if not os.path.isfile(lock_path):
-        return subprocess.run(["pnpm", *common], cwd=local_cwd, check=False).returncode
+        status = subprocess.run(
+            ["pnpm", *common, "--lockfile=false"], cwd=local_cwd, check=False
+        ).returncode
+        if status == 0:
+            record_dependency_state(local_cwd, local_root)
+        return status
     offline = subprocess.run(
         ["pnpm", "install", "--frozen-lockfile", "--offline"],
         cwd=local_cwd,
         check=False,
     )
     if offline.returncode == 0:
+        record_dependency_state(local_cwd, local_root)
         return 0
-    return subprocess.run(
+    status = subprocess.run(
         ["pnpm", "install", "--frozen-lockfile", *common[1:]],
         cwd=local_cwd,
         check=False,
     ).returncode
+    if status == 0:
+        record_dependency_state(local_cwd, local_root)
+    return status
 
 
 def stop_process(process):
@@ -280,7 +357,7 @@ def preview_run(source, target, lock_path, local_cwd, dependency_template, comma
     with open_lock(lock_path) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         sync_directory(source, target)
-        dependency_status = restore_pnpm_dependencies(local_cwd, dependency_template)
+        dependency_status = restore_pnpm_dependencies(local_cwd, target, dependency_template)
         if dependency_status != 0:
             return dependency_status
 

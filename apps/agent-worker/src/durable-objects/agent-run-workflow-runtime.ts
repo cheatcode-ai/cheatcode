@@ -36,6 +36,7 @@ import {
 import { finalizeAppBuilderRun, prepareAppBuilderRun } from "./agent-run-path";
 import { type StartRunInput, StartRunInputSchema } from "./agent-run-schemas";
 import { guardSkillRuntimeCapabilities } from "./agent-run-skill-runtime";
+import { agentToolErrorText } from "./agent-run-tool-error-support";
 import {
   AGENT_RUN_WORKFLOW_MAX_RESPONSE_BYTES,
   type AgentRunWorkflowCallbackInput,
@@ -317,7 +318,7 @@ async function executePreparedWorkflowTool(input: {
   } catch (error) {
     return WorkflowToolStepResultSchema.parse({
       durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : "Tool execution failed.",
+      error: agentToolErrorText(error),
       input: input.input,
       toolCall: input.toolCall,
     });
