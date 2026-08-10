@@ -106,7 +106,11 @@ Direct pnpm invocations execute inside one `flock`-guarded transaction; process 
 releases that lock automatically, and successful source changes commit only after a
 three-way conflict check against the durable tree. Long-lived previews invoke the same helper as
 direct argv: it synchronizes source, restores dependencies under the project lock, supervises the
-native-disk app and sync-loop children, and forwards termination signals. A dependency-state digest
+native-disk app and sync-loop children, and forwards termination signals. Transient read contention
+from the durable FUSE source is retried during a bounded grace period without interrupting the app.
+If source access does not recover or the synchronizer otherwise exits, the managed preview exits as
+one failed process unit so its existing bounded restart policy cannot leave a healthy port backed by
+stale source. A dependency-state digest
 skips unchanged reinstalls, while projects without a durable lockfile install without creating one
 as a preview side effect. Dependency restoration temporarily merges the image's reviewed build
 policy into the sandbox-local workspace, currently permitting `esbuild` so Vite can install its

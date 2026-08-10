@@ -149,6 +149,69 @@ jobs:
             test -x /opt/cheatcode/project-source-sync.py
             test -x /opt/cheatcode/pnpm-build-policy.mjs
             python3 -c "import ast,pathlib;ast.parse(pathlib.Path(\"/opt/cheatcode/project-source-sync.py\").read_text())"
+            python3 - <<PY
+          import errno
+          import importlib.util
+          import multiprocessing
+          import os
+          import pathlib
+          import sys
+          import tempfile
+          import time
+
+          sys.dont_write_bytecode = True
+          script = "/opt/cheatcode/project-source-sync.py"
+          spec = importlib.util.spec_from_file_location("project_source_sync", script)
+          if spec is None or spec.loader is None:
+              raise RuntimeError("source synchronizer module could not be loaded")
+          synchronizer = importlib.util.module_from_spec(spec)
+          spec.loader.exec_module(synchronizer)
+
+          with tempfile.TemporaryDirectory() as root:
+              source = os.path.join(root, "durable")
+              target = os.path.join(root, "mirror")
+              lock = os.path.join(root, "project.lock")
+              os.makedirs(source)
+              pathlib.Path(source, "index.html").write_text("sync recovered", encoding="utf-8")
+              original_sync = synchronizer.sync_directory
+              failures_remaining = [4]
+
+              def transient_sync(current_source, current_target):
+                  if failures_remaining[0] > 0:
+                      failures_remaining[0] -= 1
+                      raise PermissionError(
+                          errno.EPERM,
+                          "simulated durable source contention",
+                          os.path.join(source, "index.html"),
+                      )
+                  original_sync(current_source, current_target)
+
+              synchronizer.sync_directory = transient_sync
+              process = multiprocessing.get_context("fork").Process(
+                  target=synchronizer.preview_sync,
+                  args=(source, target, "preview-loop", lock),
+              )
+              process.start()
+              try:
+                  deadline = time.monotonic() + 5
+                  output = pathlib.Path(target, "index.html")
+                  while time.monotonic() < deadline and not output.exists():
+                      if not process.is_alive():
+                          raise RuntimeError("preview sync exited after transient source contention")
+                      time.sleep(0.05)
+                  if not output.is_file() or output.read_text(encoding="utf-8") != "sync recovered":
+                      raise RuntimeError("preview sync did not recover after transient source contention")
+                  if not process.is_alive():
+                      raise RuntimeError("preview sync stopped after recovering source access")
+              finally:
+                  process.terminate()
+                  process.join(timeout=5)
+                  if process.is_alive():
+                      process.kill()
+                      process.join(timeout=5)
+                  if process.is_alive():
+                      raise RuntimeError("preview sync smoke process did not stop")
+          PY
             node --check /opt/cheatcode/pnpm-build-policy.mjs
             policy_test_dir="$(mktemp -d)"
             printf "packages:\\n  - .\\nallowBuilds:\\n  sharp: false\\n" > "$policy_test_dir/pnpm-workspace.yaml"
@@ -175,10 +238,12 @@ jobs:
 
             wait_for_preview() {
               preview_port="$1"
-              preview_log="$2"
+              preview_text="$2"
+              preview_log="$3"
+              preview_limit="$4"
               preview_attempt=0
-              while [ "$preview_attempt" -lt 90 ]; do
-                if curl --fail --silent "http://127.0.0.1:$preview_port" | grep --fixed-strings --quiet "reviewed lifecycle policy works"; then
+              while [ "$preview_attempt" -lt "$preview_limit" ]; do
+                if curl --fail --silent "http://127.0.0.1:$preview_port" | grep --fixed-strings --quiet "$preview_text"; then
                   return 0
                 fi
                 if ! kill -0 "$preview_pid" 2>/dev/null; then
@@ -194,7 +259,7 @@ jobs:
             cold_started_at="$(date +%s)"
             PORT=5199 /opt/cheatcode/project-source-sync.py preview-run "$preview_source" "$preview_mirror" "$preview_lock" "$preview_mirror" - -- pnpm run dev --host 0.0.0.0 --port 5199 > "$preview_test_dir/cold.log" 2>&1 &
             preview_pid="$!"
-            wait_for_preview 5199 "$preview_test_dir/cold.log"
+            wait_for_preview 5199 "reviewed lifecycle policy works" "$preview_test_dir/cold.log" 90
             cold_elapsed=$(( $(date +%s) - cold_started_at ))
             kill "$preview_pid" 2>/dev/null || true
             wait "$preview_pid" 2>/dev/null || true
@@ -209,11 +274,8 @@ jobs:
             warm_started_at="$(date +%s)"
             PORT=5200 /opt/cheatcode/project-source-sync.py preview-run "$preview_source" "$preview_mirror" "$preview_lock" "$preview_mirror" - -- pnpm run dev --host 0.0.0.0 --port 5200 > "$preview_test_dir/warm.log" 2>&1 &
             preview_pid="$!"
-            wait_for_preview 5200 "$preview_test_dir/warm.log"
+            wait_for_preview 5200 "reviewed lifecycle policy works" "$preview_test_dir/warm.log" 10
             warm_elapsed=$(( $(date +%s) - warm_started_at ))
-            kill "$preview_pid" 2>/dev/null || true
-            wait "$preview_pid" 2>/dev/null || true
-            preview_pid=""
             test "$warm_elapsed" -le 10
             test ! -e "$preview_source/pnpm-workspace.yaml"
             test ! -e "$preview_mirror/pnpm-workspace.yaml"
@@ -221,6 +283,28 @@ jobs:
               echo "Warm preview unexpectedly reinstalled dependencies." >&2
               exit 1
             fi
+            printf "%s\n" "<main id=\"app\">live source synchronization works</main>" > "$preview_source/index.html"
+            wait_for_preview 5200 "live source synchronization works" "$preview_test_dir/warm.log" 10
+            sync_pid="$(pgrep -P "$preview_pid" -f "project-source-sync.py preview-loop" | head -n 1)"
+            if [ -z "$sync_pid" ]; then
+              echo "Managed preview did not expose a source synchronizer child." >&2
+              exit 1
+            fi
+            kill "$sync_pid"
+            preview_stop_attempt=0
+            while kill -0 "$preview_pid" 2>/dev/null && [ "$preview_stop_attempt" -lt 20 ]; do
+              sleep 1
+              preview_stop_attempt=$((preview_stop_attempt + 1))
+            done
+            if kill -0 "$preview_pid" 2>/dev/null; then
+              echo "Managed preview stayed alive without its source synchronizer." >&2
+              exit 1
+            fi
+            if wait "$preview_pid"; then
+              echo "Managed preview reported success after its source synchronizer failed." >&2
+              exit 1
+            fi
+            preview_pid=""
             echo "Vite preview smoke passed: cold=${cold_elapsed}s warm=${warm_elapsed}s"
             cleanup_preview_test
             trap - EXIT

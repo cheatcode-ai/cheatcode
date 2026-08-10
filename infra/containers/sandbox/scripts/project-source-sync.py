@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Synchronize durable project source with its sandbox-local native-disk mirror."""
 
+import errno
 import fcntl
 import hashlib
 import os
@@ -16,8 +17,20 @@ from contextlib import contextmanager
 IGNORED_DIRS = {".expo", ".next", ".turbo", "build", "coverage", "dist", "node_modules", "out"}
 LOCAL_ONLY_NAMES = IGNORED_DIRS | {"next-env.d.ts"}
 PACKAGE_CONFLICT_EXIT = 74
+PREVIEW_SYNC_FAILURE_EXIT = 75
 DEPENDENCY_STATE_FILENAME = ".cheatcode-dependency-state"
 PNPM_BUILD_POLICY_BINARY = "/opt/cheatcode/pnpm-build-policy.mjs"
+PREVIEW_SYNC_INTERVAL_SECONDS = 0.25
+SOURCE_FAILURE_GRACE_SECONDS = 10
+SOURCE_READ_RETRY_DELAYS_SECONDS = (0.05, 0.1, 0.2)
+SOURCE_WARNING_INTERVAL_SECONDS = 5
+TRANSIENT_SOURCE_ERRNOS = {
+    errno.EACCES,
+    errno.EBUSY,
+    errno.EIO,
+    errno.EPERM,
+    errno.ESTALE,
+}
 
 
 def remove_path(path):
@@ -136,18 +149,68 @@ def try_lock(lock):
         return False
 
 
+def is_transient_source_error(error, source):
+    if error.errno not in TRANSIENT_SOURCE_ERRNOS or not error.filename:
+        return False
+    source_root = os.path.abspath(source)
+    failed_path = os.path.abspath(error.filename)
+    try:
+        return os.path.commonpath([source_root, failed_path]) == source_root
+    except ValueError:
+        return False
+
+
+def sync_source_once(source, target):
+    for delay in (*SOURCE_READ_RETRY_DELAYS_SECONDS, None):
+        try:
+            sync_directory(source, target)
+            return
+        except OSError as error:
+            if delay is None or not is_transient_source_error(error, source):
+                raise
+            time.sleep(delay)
+
+
 def preview_sync(source, target, mode, lock_path):
     is_once = mode == "preview-once"
+    source_failure_started_at = None
+    last_warning_at = 0
     while True:
-        with open_lock(lock_path) as lock:
-            if is_once:
-                fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-                sync_directory(source, target)
-            elif try_lock(lock):
-                sync_directory(source, target)
+        did_attempt_sync = False
+        did_sync = False
+        try:
+            with open_lock(lock_path) as lock:
+                if is_once:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                    did_attempt_sync = True
+                    sync_source_once(source, target)
+                    did_sync = True
+                elif try_lock(lock):
+                    did_attempt_sync = True
+                    sync_source_once(source, target)
+                    did_sync = True
+        except OSError as error:
+            if is_once or not is_transient_source_error(error, source):
+                raise
+            now = time.monotonic()
+            if source_failure_started_at is None:
+                source_failure_started_at = now
+            elif now - source_failure_started_at >= SOURCE_FAILURE_GRACE_SECONDS:
+                raise
+            if now - last_warning_at >= SOURCE_WARNING_INTERVAL_SECONDS:
+                print(
+                    f"durable source temporarily unreadable; preview sync is retrying: {error}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                last_warning_at = now
+        if did_sync:
+            source_failure_started_at = None
+        elif not did_attempt_sync:
+            source_failure_started_at = None
         if is_once:
             return
-        time.sleep(0.25)
+        time.sleep(PREVIEW_SYNC_INTERVAL_SECONDS)
 
 
 def overwrite_durable_file(source, target):
@@ -415,7 +478,7 @@ def preview_run(source, target, lock_path, local_cwd, dependency_template, comma
         raise ValueError("preview-run requires an app command")
     with open_lock(lock_path) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
-        sync_directory(source, target)
+        sync_source_once(source, target)
         dependency_status = restore_pnpm_dependencies(local_cwd, target, dependency_template)
         if dependency_status != 0:
             return dependency_status
@@ -442,7 +505,21 @@ def preview_run(source, target, lock_path, local_cwd, dependency_template, comma
             env=app_environment,
             start_new_session=True,
         )
-        return app_process.wait()
+        while True:
+            app_status = app_process.poll()
+            if app_status is not None:
+                return app_status
+            sync_status = sync_process.poll()
+            if sync_status is not None:
+                print(
+                    f"preview source synchronizer exited unexpectedly with status {sync_status}",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                stop_process(app_process)
+                reap_process(app_process)
+                return sync_status or PREVIEW_SYNC_FAILURE_EXIT
+            time.sleep(PREVIEW_SYNC_INTERVAL_SECONDS)
     finally:
         terminate_children()
         reap_process(app_process)
