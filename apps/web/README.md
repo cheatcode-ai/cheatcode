@@ -51,6 +51,9 @@ the same mark in place until the final document has loaded. Preview wake and cap
 paused during fresh scaffold generation; readiness acquires a new one-minute handoff immediately
 before the iframe mounts and exchanges it for the renewable ten-minute host cookie. Existing project
 edits remain visible and continue hot-reloading normally.
+When the agent completes a browser-open action, the Browser panel reloads its entry document exactly
+once so the user sees the same freshly verified build. Read-only extraction, screenshots, and browser
+interactions still open the panel without repeatedly resetting the user's live preview state.
 
 ## Public exports
 
