@@ -21,9 +21,8 @@ import {
   writeAppBuilderFiles,
   writeExpoRuntimeFiles,
 } from "./agent-run-app-builder-scaffold";
-import { localNextPreviewCommand } from "./app-builder-local-preview";
+import { localExpoPreviewCommand, localNextPreviewCommand } from "./app-builder-local-preview";
 import {
-  EXPO_RUNTIME_BIN,
   EXPO_TEMPLATE_DIR,
   NEXT_TEMPLATE_DIR,
   projectLocalCacheDir,
@@ -254,27 +253,6 @@ async function startTemplatePreview(options: WorkspaceOptions): Promise<void> {
   } else {
     await startAppBuilderDevServer(sandbox, workspace);
   }
-  await append({
-    type: "data-sandbox-status",
-    data: { v: 1, status: "ready" },
-  });
-}
-
-// Metro (mobile) starts BEFORE the model edits files, and its file-watcher never observes the
-// agent's Daytona uploadFile writes in the sandbox container (no watchman + unreliable inotify —
-// the same reason the Next.js path force-polls). So its in-memory file-map keeps bundling the
-// scaffold even after the counter lands on disk, and a browser hard-refresh just re-bundles from
-// that stale map. Restarting the dev server once the edit stream completes makes a fresh Metro
-// process re-crawl the workspace and bundle the finished app. This call deliberately replaces the
-// project's stable dev-server slot; the authenticated preview wake path keeps the same port.
-// Mobile only — web/Next.js hot-reloads via polling.
-export async function restartMobilePreview(
-  options: Pick<RunAppBuilderOptions, "append" | "input" | "logger" | "sandbox" | "setRunStage">,
-): Promise<void> {
-  const { append, input, logger, sandbox, setRunStage } = options;
-  await setRunStage("Reloading the preview.");
-  const workspace = await resolveAppWorkspace(sandbox, input, logger);
-  await startExpoDevServer(sandbox, logger, workspace);
   await append({
     type: "data-sandbox-status",
     data: { v: 1, status: "ready" },
@@ -538,19 +516,14 @@ async function startExpoDevServer(
       // build as a real web page at `/` (iframe-renderable in the Computer panel),
       // while the SAME server keeps answering exp:// manifests for Expo Go — so we
       // get both the in-panel preview and the QR from one process on the project port.
-      // `-c` clears Metro's transform/file-map cache on start (boolean flag, order-
-      // independent among the other flags): harmless on the initial boot, and what
-      // makes the post-edit restart (restartMobilePreview) re-crawl from a clean slate.
-      command: [
-        EXPO_RUNTIME_BIN,
-        "start",
-        "-c",
-        "--web",
-        "--host",
-        "lan",
-        "--port",
-        String(workspace.port),
-      ],
+      // Metro runs against the same supervised native-disk source mirror as Next. Durable
+      // workspace edits reach that mirror atomically, so Metro's native watcher hot-reloads them
+      // without the old post-run restart.
+      command: localExpoPreviewCommand({
+        port: workspace.port,
+        sourceDir: workspace.dir,
+        workspaceSlug: workspace.slug,
+      }),
       cwd: workspace.dir,
       env: {
         CHEATCODE_APP_RUNTIME: "expo",

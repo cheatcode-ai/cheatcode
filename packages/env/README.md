@@ -70,6 +70,9 @@ The root setup wizard and `scripts/dev.ts` share one scalar local-environment
 contract for required keys, forbidden cloud credentials, development value
 pins, secret distinctness, and Supabase pooler topology. `pnpm dev:setup --check`
 uses that same surface without mutating files or database state.
+`MORPH_API_KEY` is a required Worker-only input in that shared contract: the wizard
+collects it masked, generated local Wrangler config exposes it only to agent-worker,
+and production resolves the matching `morph-api-key` Secrets Store binding.
 
 Destructive Worker-to-Worker calls use named Cloudflare RPC entrypoints with
 static authenticated caller/capability properties. The gateway receives only

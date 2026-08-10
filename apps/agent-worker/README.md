@@ -12,6 +12,8 @@ user header.
 The Worker implements the provider-neutral sandbox and artifact ports from
 `@cheatcode/sandbox-contracts`. Daytona control-plane and toolbox details remain
 behind `@cheatcode/agent-core/tools/code` and do not load the root Mastra surface.
+Mastra's optional local-process dependency is mapped to a fail-fast module at the
+Wrangler boundary because process spawning is unavailable and unused in the Worker.
 
 Generated artifacts use a crash-consistent Postgres/R2 protocol. Content determines the output
 UUID, object key, and SHA-256 metadata. The Worker durably reserves that identity,
@@ -159,11 +161,12 @@ registers the managed preview even when the selected model would otherwise attem
 work and finish without a Computer target.
 The starter page is an internal server-readiness target, not user-facing generated content. A
 fresh template run emits the typed `app-preview-status` transition from `building` to `ready` only
-after model execution (and the mobile preview restart, when applicable), so the web client can keep
+after model execution, so the web client can keep
 the branded loading surface over the scaffold without relying on timers or iframe inspection.
 The canonical app source remains on the durable `/workspace` volume. Managed Next.js previews
-compile from a sandbox-local one-way mirror because Daytona's object-store FUSE mount can stall
-webpack compilation even after the listening socket opens. A baked Python synchronizer compares
+and Expo/Metro previews compile from a sandbox-local one-way mirror because Daytona's object-store
+FUSE mount can stall compilation and does not provide reliable native file-watcher events. A baked
+Python synchronizer compares
 content identities rather than unrelated FUSE/native-disk timestamps, performs atomic replacement
 on native disk and checksum-verified direct overwrites on the non-POSIX durable mount, and mirrors
 subsequent writes and deletions within 250 ms, including equal-size and
@@ -230,8 +233,9 @@ after a cold sandbox start; the default remains atomic replacement. The comparis
 policy, port, working directory, and a one-way environment digest, so request-scoped environment
 values are neither persisted nor ignored. Follow-up web app-builder runs opt into reuse and
 therefore keep a healthy preview and its build cache alive until an actual configuration change
-requires replacement; Expo retains replacement semantics because its signed launch environment is
-ephemeral and its post-edit file-map must be rebuilt.
+requires replacement. Expo retains replacement semantics because its signed launch environment is
+ephemeral, but its native-disk source feed hot-reloads durable edits without a second post-run
+Metro restart.
 At capacity, ProjectSandbox reconciles the
 bounded record set against Daytona, removes missing or completed sessions and their port state,
 and rejects a new distinct slot only when all 32 remain live.

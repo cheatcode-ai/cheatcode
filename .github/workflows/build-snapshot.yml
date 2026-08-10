@@ -321,6 +321,55 @@ jobs:
             test -x /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo
             NODE_PATH=/home/node/.cheatcode/app-runtimes/next/node_modules node -e "require.resolve(\"next\");require.resolve(\"react\");require.resolve(\"react-dom\")"
             NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules node -e "require.resolve(\"expo\");require.resolve(\"react-native-web\");require.resolve(\"@expo/metro-runtime\")"
+
+            expo_test_dir="$(mktemp -d)"
+            expo_source="$expo_test_dir/durable"
+            expo_mirror="$expo_test_dir/mirror"
+            expo_lock="$expo_test_dir/project.lock"
+            expo_log="$expo_test_dir/expo.log"
+            expo_pid=""
+            cleanup_expo_test() {
+              if [ -n "$expo_pid" ]; then
+                kill "$expo_pid" 2>/dev/null || true
+                wait "$expo_pid" 2>/dev/null || true
+              fi
+              rm -rf "$expo_test_dir"
+            }
+            trap cleanup_expo_test EXIT
+            mkdir -p "$expo_source" "$expo_mirror"
+            cp -R /home/node/cheatcode-expo-template/. "$expo_source/"
+            CI=1 EXPO_NO_TELEMETRY=1 NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules \
+              /opt/cheatcode/project-source-sync.py preview-run \
+              "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" \
+              /home/node/cheatcode-expo-template -- \
+              /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo \
+              start -c --web --host lan --port 5201 > "$expo_log" 2>&1 &
+            expo_pid="$!"
+            expo_attempt=0
+            until curl --fail --silent --output /dev/null http://127.0.0.1:5201; do
+              if ! kill -0 "$expo_pid" 2>/dev/null || [ "$expo_attempt" -ge 90 ]; then
+                sed -n "1,240p" "$expo_log" >&2
+                exit 1
+              fi
+              sleep 1
+              expo_attempt=$((expo_attempt + 1))
+            done
+            printf "%s\n" "mobile source synchronization works" > "$expo_source/.cheatcode-mobile-sync-smoke"
+            expo_sync_attempt=0
+            until test -f "$expo_mirror/.cheatcode-mobile-sync-smoke" && \
+              cmp -s "$expo_source/.cheatcode-mobile-sync-smoke" "$expo_mirror/.cheatcode-mobile-sync-smoke"; do
+              if ! kill -0 "$expo_pid" 2>/dev/null || [ "$expo_sync_attempt" -ge 20 ]; then
+                sed -n "1,240p" "$expo_log" >&2
+                exit 1
+              fi
+              sleep 1
+              expo_sync_attempt=$((expo_sync_attempt + 1))
+            done
+            test -n "$(pgrep -P "$expo_pid" -f "project-source-sync.py preview-loop" | head -n 1)"
+            echo "Expo native-mirror preview smoke passed in ${expo_attempt}s"
+            cleanup_expo_test
+            trap - EXIT
+
             test -f /home/node/.cheatcode/default-skills/browser-use/SKILL.md
             test -f /home/node/.cheatcode/default-skills/pptx/SKILL.md
             test -f /home/node/.cheatcode/default-skills/pptx/scripts/thumbnail.py

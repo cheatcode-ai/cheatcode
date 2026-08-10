@@ -1,7 +1,7 @@
 import type { createLogger } from "@cheatcode/observability";
 import type { CodeRuntimeContext, WorkspaceResolver } from "@cheatcode/sandbox-contracts";
 import type { UIMessageChunk } from "ai";
-import { restartMobilePreview, runAppBuilder, warmSandbox } from "./agent-run-app-builder";
+import { runAppBuilder, warmSandbox } from "./agent-run-app-builder";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 
@@ -55,26 +55,10 @@ export async function finalizeAppBuilderRun(prepared: {
   waitsForGeneratedPreview: boolean;
 }): Promise<void> {
   const options = { ...prepared.options, input: requireProjectBinding(prepared.options.input) };
-  await restartMobilePreviewIfNeeded(options);
   if (prepared.waitsForGeneratedPreview) {
     await options.append({
       type: "data-app-preview-status",
       data: { v: 1, status: "ready" },
-    });
-  }
-}
-
-async function restartMobilePreviewIfNeeded(
-  options: ProjectBoundAppBuilderRunOptions,
-): Promise<void> {
-  if (options.input.projectMode !== "app-builder-mobile") {
-    return;
-  }
-  try {
-    await restartMobilePreview(options);
-  } catch (error) {
-    options.logger.warn("mobile_preview_restart_failed", {
-      error,
     });
   }
 }

@@ -4,6 +4,11 @@ import { z } from "zod";
 import { mastra } from "./index";
 import { cheatcodeTools } from "./tool-defs/tool-set";
 
+// DeepSeek leaves max_tokens at a much smaller API default when callers omit it even though the
+// selected V4 Pro model supports a 384K output window. Use the model's advertised maximum so tool
+// arguments are not truncated by a transport default; semantic completion still controls the loop.
+const DEEPSEEK_V4_PRO_MAX_OUTPUT_TOKENS = 384_000;
+
 export const GeneralAgentFinishReasonSchema = z.enum([
   "stop",
   "length",
@@ -57,6 +62,9 @@ export async function generateGeneralAgentStep(
     clientTools: cheatcodeTools,
     ...(options.isDeepSeek
       ? { providerOptions: { deepseek: { thinking: { type: "disabled" as const } } } }
+      : {}),
+    ...(options.isDeepSeek
+      ? { modelSettings: { maxOutputTokens: DEEPSEEK_V4_PRO_MAX_OUTPUT_TOKENS } }
       : {}),
     requestContext: options.requestContext,
     runId: options.runId,

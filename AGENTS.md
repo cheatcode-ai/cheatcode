@@ -26,7 +26,7 @@ current architecture.
 |---|---|
 | Backend | Cloudflare Workers, Durable Objects, and Workflows |
 | Frontend | Next.js 16.2.11, React 19.2.7, Tailwind CSS 4.3.2, AI Elements, and Streamdown on Vercel |
-| Agent framework | Mastra 1.51.0 on Vercel AI SDK 6.0.205 |
+| Agent framework | Mastra 1.57.0 on Vercel AI SDK 7.0.58 |
 | Sandbox | Per-user Daytona sandboxes through a bounded REST-over-fetch client |
 | Browser runtime | Stagehand 3.7.0 in local mode inside the Daytona sandbox |
 | Database | Supabase Postgres only, through Cloudflare Hyperdrive and Drizzle ORM 0.45.2 |

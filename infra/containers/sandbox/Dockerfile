@@ -272,7 +272,7 @@ RUN set -eux; \
   cp /home/node/.cheatcode-template-manifests/expo/pnpm-lock.yaml /home/node/cheatcode-expo-template/pnpm-lock.yaml; \
   cp /home/node/.cheatcode-template-manifests/expo/pnpm-workspace.yaml /home/node/cheatcode-expo-template/pnpm-workspace.yaml; \
   cd /home/node/cheatcode-expo-template; \
-  node -e 'const fs=require("node:fs");const j=JSON.parse(fs.readFileSync("app.json","utf8"));j.expo??={};j.expo.name="cheatcode-expo-template";j.expo.slug="cheatcode-expo-template";j.expo.web={...(j.expo.web??{}),bundler:"metro",output:"single"};fs.writeFileSync("app.json",JSON.stringify(j,null,2)+"\n")'; \
+  node /home/node/.cheatcode-app-generators/configure-expo-template.mjs app.json; \
   rm -rf .git .expo node_modules package-lock.json AGENTS.md CLAUDE.md .claude; \
   cp -a /home/node/cheatcode-expo-template /home/node/.cheatcode/app-runtimes/expo; \
   cd /home/node/.cheatcode/app-runtimes/expo; \

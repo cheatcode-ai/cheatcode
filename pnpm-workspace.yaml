@@ -22,7 +22,6 @@ minimumReleaseAgeExclude:
   - '@clerk/react@6.12.4'
   - '@clerk/shared@4.25.4'
   - '@clerk/ui@1.25.4'
-  - '@cloudflare/workers-types@5.20260716.1'
   - '@vercel/backends@0.8.24'
   - '@vercel/build-utils@13.33.1'
   - '@vercel/cervel@0.1.32'
@@ -73,19 +72,11 @@ overrides:
   'uuid@<11.1.1': 11.1.1
   'vercel@56.2.1>undici': 6.28.0
 
-# Mastra 1.51 uses these AI SDK v5 packages only for its v5 message types, but
-# their stale manifests still exclude Zod 4. Mastra itself supports Zod 4; keep
-# this exact, removable allowance until upstream mastra-ai/mastra#16994 ships.
-peerDependencyRules:
-  allowedVersions:
-    '@ai-sdk/provider-utils@2.2.8>zod': '^4.0.0'
-    '@ai-sdk/ui-utils@1.2.11>zod': '^4.0.0'
-
 catalog:
-  '@ai-sdk/anthropic': 3.0.107
-  '@ai-sdk/deepseek': 2.0.39
-  '@ai-sdk/openai': 3.0.71
-  '@ai-sdk/react': 3.0.207
+  '@ai-sdk/anthropic': 4.0.36
+  '@ai-sdk/deepseek': 3.0.26
+  '@ai-sdk/openai': 4.0.36
+  '@ai-sdk/react': 4.0.61
   # 2.5.3-2.5.4 panic in the type-aware module resolver (biomejs/biome#10885).
   # Keep the last non-panicking patch until the upstream fix is released.
   '@biomejs/biome': 2.5.2
@@ -93,14 +84,14 @@ catalog:
   '@clerk/backend': 3.11.6
   '@clerk/nextjs': 7.5.19
   '@clerk/ui': 1.25.4
-  '@cloudflare/workers-types': 5.20260716.1
+  '@cloudflare/workers-types': 5.20260722.1
   '@commitlint/cli': 21.2.1
   '@commitlint/config-conventional': 21.2.0
   '@hookform/resolvers': 5.4.0
-  '@google/genai': 2.12.0
-  '@mastra/core': 1.51.0
+  '@google/genai': 2.16.0
+  '@mastra/core': 1.57.0
   '@next/env': 16.2.11
-  '@openrouter/ai-sdk-provider': 2.9.1
+  '@openrouter/ai-sdk-provider': 3.0.0
   '@polar-sh/sdk': 0.48.1
   '@streamdown/code': 1.1.1
   '@streamdown/math': 1.0.2
@@ -113,7 +104,7 @@ catalog:
   '@types/pg': 8.20.0
   '@types/react': 19.2.17
   '@types/react-dom': 19.2.3
-  ai: 6.0.205
+  ai: 7.0.58
   arquero: 8.0.3
   cmdk: 1.1.1
   dependency-cruiser: 18.1.0
