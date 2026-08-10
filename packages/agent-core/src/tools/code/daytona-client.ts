@@ -193,6 +193,14 @@ const FileInfoSchema = z
   })
   .strip();
 
+const UploadedFileSchema = z
+  .object({
+    name: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS),
+    path: z.string().min(1).max(DAYTONA_PATH_MAX_CHARACTERS),
+    type: z.literal("file"),
+  })
+  .strip();
+
 export type DaytonaFileInfo = z.infer<typeof FileInfoSchema>;
 
 export interface SandboxDestroyResult {
@@ -506,18 +514,32 @@ export class DaytonaClient {
   }
 
   async uploadFile(id: string, path: string, bytes: Uint8Array): Promise<void> {
-    const form = new FormData();
-    form.append("file", new Blob([bytes as BlobPart]), basename(path));
     const response = await this.rawToolbox(
       "POST",
       id,
-      `/files/upload?path=${encodeURIComponent(path)}`,
+      `/files/upload-v2?path=${encodeURIComponent(path)}`,
       {
-        body: form,
+        body: new Blob([bytes as BlobPart], { type: "application/octet-stream" }),
         timeoutMs: DAYTONA_FILE_TRANSFER_TIMEOUT_MS,
       },
     );
-    await response.body?.cancel().catch(() => undefined);
+    const text = await readBoundedResponseText(response, DAYTONA_ERROR_RESPONSE_MAX_BYTES);
+    let uploaded: z.infer<typeof UploadedFileSchema>;
+    try {
+      uploaded = UploadedFileSchema.parse(JSON.parse(text));
+    } catch {
+      throw new DaytonaApiError(502, "Daytona returned an invalid file upload response", {
+        code: "daytona_invalid_response",
+        retriable: false,
+      });
+    }
+    if (uploaded.path !== path || uploaded.name !== fileBasename(path)) {
+      throw new DaytonaApiError(502, "Daytona uploaded a file to an unexpected path", {
+        code: "daytona_invalid_response",
+        details: { expectedPath: path, uploadedPath: uploaded.path },
+        retriable: false,
+      });
+    }
   }
 
   async createFolder(id: string, path: string, mode = "0755"): Promise<void> {
@@ -718,7 +740,7 @@ function stripTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
 
-function basename(path: string): string {
+function fileBasename(path: string): string {
   const index = path.lastIndexOf("/");
   return index === -1 ? path : path.slice(index + 1) || "file";
 }

@@ -145,7 +145,7 @@ export const mastraFsRead = createTool({
 export const mastraFsWrite = createTool({
   id: "fs_write",
   description:
-    "Create a new file or intentionally replace an entire file under /workspace; every call requires both path and the complete content to write. For focused changes to an existing text file, use fs_apply so unchanged code is preserved without regenerating the whole file.",
+    "Create a new file, write binary content, or deliberately regenerate an entire file under /workspace; every call requires both path and the complete content. Use fs_apply for every focused or multi-section edit to an existing text file. Never use fs_write merely as a fallback after fs_apply reports an infrastructure or stale-file error.",
   inputSchema: WriteFileInputSchema,
   outputSchema: WriteFileOutputSchema,
   execute: async (input, context) =>
@@ -156,7 +156,7 @@ export const mastraFsWrite = createTool({
 export const mastraFsApply = createTool({
   id: "fs_apply",
   description:
-    "Edit an existing UTF-8 file under /workspace by showing only the changed lines. Read the file first. ALWAYS use the exact // ... existing code ... marker for every unchanged section; omitting it deletes that section. Preserve indentation, include only enough surrounding context to locate each edit, and batch multiple changes to the same file in one call. Use fs_write only for new files, binary files, or intentional complete replacements.",
+    "Edit an existing UTF-8 file under /workspace, including broad multi-section changes, by showing only the changed lines. Read the file first. ALWAYS use the exact // ... existing code ... marker for every unchanged section; omitting it deletes that section. Preserve indentation, include only enough surrounding context to locate each edit, and batch every change to the same file in one call. On a stale-file error, re-read and retry fs_apply. Use fs_write only for new files, binary files, or a genuinely intentional whole-file rewrite.",
   inputSchema: ApplyFileInputSchema,
   outputSchema: ApplyFileOutputSchema,
   execute: async (input, context) => {
@@ -165,6 +165,7 @@ export const mastraFsApply = createTool({
       input,
       await workspaceRuntimeFromContext(context),
       await resolveMorphApplyRuntime(requestContext),
+      context.abortSignal,
     );
   },
 });
