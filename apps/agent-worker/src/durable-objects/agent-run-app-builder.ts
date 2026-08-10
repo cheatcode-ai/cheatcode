@@ -16,7 +16,11 @@ import {
   scaffoldExpoApp,
   writeAppBuilderFiles,
 } from "./agent-run-app-builder-scaffold";
-import { localExpoPreviewCommand, localNextPreviewCommand } from "./app-builder-local-preview";
+import {
+  expoPreviewEnvironment,
+  localExpoPreviewCommand,
+  localNextPreviewCommand,
+} from "./app-builder-local-preview";
 import {
   EXPO_TEMPLATE_DIR,
   NEXT_TEMPLATE_DIR,
@@ -516,12 +520,10 @@ async function startExpoDevServer(
       sourceDir: workspace.dir,
       workspaceSlug: workspace.slug,
     }),
-    env: {
-      CHEATCODE_APP_RUNTIME: "expo",
-      CI: "1",
-      EXPO_NO_TELEMETRY: "1",
-      ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
-    },
+    env: expoPreviewEnvironment({
+      port: workspace.port,
+      ...(signedUrl ? { proxyUrl: signedUrl } : {}),
+    }),
     shouldReuseMatchingProcess: false,
   });
 }

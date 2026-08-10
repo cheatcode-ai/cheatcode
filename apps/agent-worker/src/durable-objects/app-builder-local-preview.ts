@@ -13,6 +13,21 @@ interface LocalPreviewCommandInput {
   workspaceSlug: string;
 }
 
+interface ExpoPreviewEnvironmentInput {
+  port: number;
+  proxyUrl?: string | undefined;
+}
+
+/** Centralizes long-lived Expo settings without CI, which disables Metro's incremental watcher. */
+export function expoPreviewEnvironment(input: ExpoPreviewEnvironmentInput): Record<string, string> {
+  return {
+    CHEATCODE_APP_RUNTIME: "expo",
+    EXPO_NO_TELEMETRY: "1",
+    PORT: String(input.port),
+    ...(input.proxyUrl ? { EXPO_PACKAGER_PROXY_URL: input.proxyUrl } : {}),
+  };
+}
+
 /** Runs Next from native sandbox disk while `/workspace` remains the durable project source. */
 export function localNextPreviewCommand(input: LocalPreviewCommandInput): string[] {
   const runtime = requireLocalPreviewRuntime(input);

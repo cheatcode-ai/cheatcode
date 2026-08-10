@@ -2,6 +2,7 @@ import { type DaytonaSandbox, WorkspacePathSchema } from "@cheatcode/agent-core/
 import { APIError } from "@cheatcode/observability";
 import { z } from "zod";
 import { shellQuote } from "../sandbox-support";
+import { expoPreviewEnvironment } from "./app-builder-local-preview";
 import type { ProjectStartProcessInputSchema } from "./project-sandbox-runtime";
 
 export const APP_PREVIEW_SLOT_PREFIX = "app-preview:";
@@ -205,12 +206,7 @@ export function restartEnvironment(
     return undefined;
   }
   if (record.isMobile) {
-    return {
-      CHEATCODE_APP_RUNTIME: "expo",
-      CI: "1",
-      EXPO_NO_TELEMETRY: "1",
-      PORT: String(record.port),
-    };
+    return expoPreviewEnvironment({ port: record.port });
   }
   return {
     CHEATCODE_APP_RUNTIME: "next",
