@@ -1,8 +1,4 @@
-import {
-  executeShellExec,
-  executeShellTerminal,
-  executeStartDevServer,
-} from "@cheatcode/agent-core/tools/code";
+import { executeShellExec, executeShellTerminal } from "@cheatcode/agent-core/tools/code";
 import {
   type AnalyticsBindings,
   APIError,
@@ -56,6 +52,9 @@ const DEFAULT_MOBILE_PORT = 8081;
 // Keep the header-free Expo Go capability short-lived. It is re-minted whenever
 // the preview wakes, so a fresh QR is available without leaving a day-long URL live.
 const SIGNED_PREVIEW_TTL_SECONDS = 60 * 60;
+const PREVIEW_KEEP_ALIVE_MS = 60 * 60 * 1_000;
+const PREVIEW_MAX_RESTARTS = 3;
+const PREVIEW_START_TIMEOUT_MS = 180_000;
 
 type AppendChunk = (chunk: UIMessageChunk) => Promise<void>;
 
@@ -510,34 +509,23 @@ async function startExpoDevServer(
   // header-free URL, and Metro must know its public host (EXPO_PACKAGER_PROXY_URL) so the manifest's
   // launchAsset/bundle URLs point at the signed host instead of 127.0.0.1 (which Expo Go can't hit).
   const signedUrl = await getSignedMetroUrl(sandbox, logger, workspace.port);
-  await executeStartDevServer(
-    {
-      // `--web` makes the single Metro dev server also serve the react-native-web
-      // build as a real web page at `/` (iframe-renderable in the Computer panel),
-      // while the SAME server keeps answering exp:// manifests for Expo Go — so we
-      // get both the in-panel preview and the QR from one process on the project port.
-      // Metro runs against the same supervised native-disk source mirror as Next. Durable
-      // workspace edits reach that mirror atomically, so Metro's native watcher hot-reloads them
-      // without the old post-run restart.
-      command: localExpoPreviewCommand({
-        port: workspace.port,
-        sourceDir: workspace.dir,
-        workspaceSlug: workspace.slug,
-      }),
-      cwd: workspace.dir,
-      env: {
-        CHEATCODE_APP_RUNTIME: "expo",
-        CI: "1",
-        EXPO_NO_TELEMETRY: "1",
-        ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
-      },
-      isMobile: true,
-      name: workspace.slot,
+  // `--web` makes the single Metro dev server also serve the react-native-web build as a real page
+  // in Computer while the same process answers Expo Go manifests. This command is already the
+  // trusted native-mirror launcher, so it must not pass through model-command normalization.
+  await startManagedPreview(sandbox, workspace, {
+    command: localExpoPreviewCommand({
       port: workspace.port,
-      timeoutMs: 180_000,
+      sourceDir: workspace.dir,
+      workspaceSlug: workspace.slug,
+    }),
+    env: {
+      CHEATCODE_APP_RUNTIME: "expo",
+      CI: "1",
+      EXPO_NO_TELEMETRY: "1",
+      ...(signedUrl ? { EXPO_PACKAGER_PROXY_URL: signedUrl } : {}),
     },
-    { sandbox, workspaceDir: workspace.dir, workspaceSlug: workspace.slug },
-  );
+    shouldReuseMatchingProcess: false,
+  });
 }
 
 // Best-effort Metro bootstrap capability. It is passed only to the live process so Metro emits
@@ -566,28 +554,54 @@ async function startAppBuilderDevServer(
   sandbox: ProjectSandboxStub,
   workspace: AppBuilderWorkspace,
 ): Promise<void> {
-  await executeStartDevServer(
-    {
-      command: localNextPreviewCommand({
-        port: workspace.port,
-        sourceDir: workspace.dir,
-        workspaceSlug: workspace.slug,
-      }),
-      cwd: workspace.dir,
-      env: {
-        CHEATCODE_APP_RUNTIME: "next",
-        CHEATCODE_NEXT_DIST_DIR: "../cache/next",
-        CHOKIDAR_USEPOLLING: "true",
-        WATCHPACK_POLLING: "1000",
-      },
-      isMobile: false,
-      name: workspace.slot,
+  await startManagedPreview(sandbox, workspace, {
+    command: localNextPreviewCommand({
       port: workspace.port,
-      shouldReuseMatchingProcess: true,
-      timeoutMs: 180_000,
+      sourceDir: workspace.dir,
+      workspaceSlug: workspace.slug,
+    }),
+    env: {
+      CHEATCODE_APP_RUNTIME: "next",
+      CHEATCODE_NEXT_DIST_DIR: "../cache/next",
+      CHOKIDAR_USEPOLLING: "true",
+      WATCHPACK_POLLING: "1000",
     },
-    { sandbox, workspaceDir: workspace.dir, workspaceSlug: workspace.slug },
-  );
+    shouldReuseMatchingProcess: true,
+  });
+}
+
+interface ManagedPreviewOptions {
+  command: string[];
+  env: Record<string, string>;
+  shouldReuseMatchingProcess: boolean;
+}
+
+async function startManagedPreview(
+  sandbox: ProjectSandboxStub,
+  workspace: AppBuilderWorkspace,
+  options: ManagedPreviewOptions,
+): Promise<void> {
+  await sandbox.startProcess({
+    command: options.command,
+    cwd: workspace.dir,
+    env: {
+      ...options.env,
+      HOST: "0.0.0.0",
+      HOSTNAME: "0.0.0.0",
+      PORT: String(workspace.port),
+    },
+    isMobile: workspace.mobile,
+    keepAliveTimeoutMs: PREVIEW_KEEP_ALIVE_MS,
+    maxRestarts: PREVIEW_MAX_RESTARTS,
+    processId: workspace.slot,
+    restartOnFailure: true,
+    shouldReuseMatchingProcess: options.shouldReuseMatchingProcess,
+    timeoutMs: PREVIEW_START_TIMEOUT_MS,
+    waitForPort: {
+      port: workspace.port,
+      timeoutMs: PREVIEW_START_TIMEOUT_MS,
+    },
+  });
 }
 
 async function hasExistingAppBuilderWorkspace(

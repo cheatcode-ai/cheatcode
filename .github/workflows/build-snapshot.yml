@@ -341,7 +341,7 @@ jobs:
             CI=1 EXPO_NO_TELEMETRY=1 NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules \
               /opt/cheatcode/project-source-sync.py preview-run \
               "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" \
-              /home/node/cheatcode-expo-template -- \
+              /home/node/.cheatcode/app-runtimes/expo -- \
               /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo \
               start -c --web --host lan --port 5201 > "$expo_log" 2>&1 &
             expo_pid="$!"
@@ -354,6 +354,9 @@ jobs:
               sleep 1
               expo_attempt=$((expo_attempt + 1))
             done
+            test -L "$expo_mirror/node_modules"
+            test "$(readlink -f "$expo_mirror/node_modules")" = \
+              /home/node/.cheatcode/app-runtimes/expo/node_modules
             printf "%s\n" "mobile source synchronization works" > "$expo_source/.cheatcode-mobile-sync-smoke"
             expo_sync_attempt=0
             until test -f "$expo_mirror/.cheatcode-mobile-sync-smoke" && \

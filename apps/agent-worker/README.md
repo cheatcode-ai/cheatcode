@@ -181,6 +181,9 @@ server starts. Exact scaffold manifests link the disposable mirror to the matchi
 dependency tree; the package boundary detaches that link before any dependency mutation. A
 package/lock/config digest skips the install entirely when a project-local dependency tree is current;
 automatic preview restoration does not create a durable lockfile.
+The app-builder harness launches its already-resolved native-mirror command directly through the
+sandbox contract. Model-supplied dev-server commands continue through framework and package-manager
+normalization; trusted harness commands are not reinterpreted as user shell input.
 The immutable sandbox exposes that synchronizer as the root-owned
 `/opt/cheatcode/project-source-sync.py` helper, keeping Worker-to-sandbox command arguments small
 and making the snapshot the source of truth for executable sandbox runtime code.
