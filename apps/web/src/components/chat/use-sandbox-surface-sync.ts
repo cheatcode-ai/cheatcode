@@ -26,6 +26,10 @@ export interface SandboxStatusActions {
   setSandboxStatus: (status: SandboxState) => void;
 }
 
+interface WorkspaceSurfaceActions extends SandboxStatusActions {
+  bumpPreviewReloadToken: () => void;
+}
+
 interface SandboxSurfaceSyncInput extends SandboxStatusActions {
   chatStatus: ChatStatus;
   messages: readonly CheatcodeUIMessage[];
@@ -41,14 +45,14 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
 export type SurfaceCommand =
   | { kind: "preview-status"; status: AppPreviewStatusData["status"] }
   | { kind: "status"; status: SandboxStatusData["status"] }
-  | { kind: "open-browser-preview"; toolCallId: string };
+  | { kind: "open-browser-preview"; shouldReload: boolean; toolCallId: string };
 
 export interface WorkspaceSurfaceApplier {
   apply: (command: SurfaceCommand) => void;
   reset: () => void;
 }
 
-interface WorkspaceSurfaceApplierInput extends SandboxStatusActions {
+interface WorkspaceSurfaceApplierInput extends WorkspaceSurfaceActions {
   projectId: string | null;
   threadId: string;
 }
@@ -74,12 +78,14 @@ export function useWorkspaceSurfaceApplier(
   }
   const actions = useMemo(
     () => ({
+      bumpPreviewReloadToken: input.bumpPreviewReloadToken,
       setActivePreviewTab: input.setActivePreviewTab,
       setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
     [
+      input.bumpPreviewReloadToken,
       input.setActivePreviewTab,
       input.setAppPreviewStatus,
       input.setPreviewPanelOpen,
@@ -142,7 +148,11 @@ export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
   }
   const parsed = CHEATCODE_DATA_SCHEMAS.tool.safeParse(part["data"]);
   return parsed.success && isBrowserToolName(parsed.data.toolName)
-    ? { kind: "open-browser-preview", toolCallId: parsed.data.toolCallId }
+    ? {
+        kind: "open-browser-preview",
+        shouldReload: parsed.data.toolName === "browser_open",
+        toolCallId: parsed.data.toolCallId,
+      }
     : null;
 }
 
@@ -248,7 +258,7 @@ function applyWorkspaceSurfaceCommand(
   command: SurfaceCommand,
   threadId: string,
   state: SurfaceCommandState,
-  actions: SandboxStatusActions,
+  actions: WorkspaceSurfaceActions,
 ): void {
   if (command.kind === "status") {
     if (useAppStore.getState().sandboxStatus !== command.status) {
@@ -267,6 +277,9 @@ function applyWorkspaceSurfaceCommand(
     return;
   }
   state.openedBrowserToolKeys.add(onceKey);
+  if (command.shouldReload) {
+    actions.bumpPreviewReloadToken();
+  }
   actions.setActivePreviewTab("app");
   actions.setPreviewPanelOpen(true);
 }

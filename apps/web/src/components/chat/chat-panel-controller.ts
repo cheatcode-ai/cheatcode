@@ -66,6 +66,7 @@ export function useChatPanelController(input: ChatPanelProps) {
 function useChatPanelRuntime(input: ChatPanelProps) {
   const store = useChatPanelStore(input.threadId);
   const surfaceApplier = useWorkspaceSurfaceApplier({
+    bumpPreviewReloadToken: store.bumpPreviewReloadToken,
     projectId: input.project?.id ?? null,
     setActivePreviewTab: store.setActivePreviewTab,
     setAppPreviewStatus: store.setAppPreviewStatus,
@@ -267,6 +268,7 @@ function chatPanelState(input: ChatPanelProps, runtime: ReturnType<typeof useCha
 function useChatPanelStore(threadId: string) {
   return {
     agentModelId: useAppStore((state) => state.agentModelId),
+    bumpPreviewReloadToken: useAppStore((state) => state.bumpPreviewReloadToken),
     draft: useAppStore((state) => state.draftByThread[threadId] ?? ""),
     resetConsole: useAppStore((state) => state.resetConsole),
     resetPreviewNavigation: useAppStore((state) => state.resetPreviewNavigation),
