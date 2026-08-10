@@ -232,7 +232,9 @@ function panelBodyProps(
     hasProject: project !== null,
     isMobile: controller.isMobile,
     isRunActive: controller.isRunActive,
+    previewAuthorizeNavigation: controller.previewLive.authorizeNavigation,
     previewPhase: controller.previewLive.phase,
+    previewReload: controller.previewLive.reload,
     previewRetry: controller.previewLive.retry,
     previewReloadToken: controller.previewReloadToken,
     previewUrl: controller.previewUrl,
@@ -251,7 +253,9 @@ interface PanelBodyProps {
   hasProject: boolean;
   isMobile: boolean;
   isRunActive: boolean;
+  previewAuthorizeNavigation: () => Promise<boolean>;
   previewPhase: PreviewLivePhase;
+  previewReload: () => Promise<void>;
   previewRetry: () => Promise<void>;
   previewReloadToken: number;
   previewUrl: string | null;
@@ -269,7 +273,9 @@ function PanelBody({
   hasProject,
   isMobile,
   isRunActive,
+  previewAuthorizeNavigation,
   previewPhase,
+  previewReload,
   previewRetry,
   previewReloadToken,
   previewUrl,
@@ -290,7 +296,9 @@ function PanelBody({
             appPreviewStatus={appPreviewStatus}
             isMobile={isMobile}
             isRunActive={isRunActive}
+            previewAuthorizeNavigation={previewAuthorizeNavigation}
             previewPhase={previewPhase}
+            previewReload={previewReload}
             previewRetry={previewRetry}
             previewReloadToken={previewReloadToken}
             previewUrl={previewUrl}
@@ -321,7 +329,9 @@ function AppTab({
   hasProject,
   isMobile,
   isRunActive,
+  previewAuthorizeNavigation,
   previewPhase,
+  previewReload,
   previewRetry,
   previewReloadToken,
   previewUrl,
@@ -348,7 +358,13 @@ function AppTab({
     );
   }
   return (
-    <AppTabLayout expoUrl={expoUrl} isError={previewPhase === "error"} previewUrl={previewUrl}>
+    <AppTabLayout
+      expoUrl={expoUrl}
+      isError={previewPhase === "error"}
+      onAuthorizeNavigation={previewAuthorizeNavigation}
+      onRefresh={previewReload}
+      previewUrl={previewUrl}
+    >
       <AppTabContent
         frameDevice={frameDevice}
         iframeUrl={iframeUrl}
@@ -367,16 +383,24 @@ function AppTabLayout({
   children,
   expoUrl,
   isError,
+  onAuthorizeNavigation,
+  onRefresh,
   previewUrl,
 }: {
   children: ReactNode;
   expoUrl: string | null;
   isError: boolean;
+  onAuthorizeNavigation: () => Promise<boolean>;
+  onRefresh: () => Promise<void>;
   previewUrl: string | null;
 }) {
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      <PreviewUrlBar previewUrl={previewUrl} />
+      <PreviewUrlBar
+        onAuthorizeNavigation={onAuthorizeNavigation}
+        onRefresh={onRefresh}
+        previewUrl={previewUrl}
+      />
       <div
         className={cn(
           "relative flex min-h-0 flex-1 overflow-hidden rounded-[20.5px]",

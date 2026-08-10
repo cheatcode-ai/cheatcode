@@ -39,6 +39,11 @@ does not create or wake Daytona merely because the user opens it.
 Computer preview wakeups rotate the preview session and reload the visible iframe
 once after an actual sandbox/process recovery. Silent capability rotation keeps the
 live iframe mounted so application state is preserved during ordinary use.
+Every user-requested preview navigation—reload, path entry, Back, or opening the
+preview externally—first acquires a fresh one-minute handoff from the authenticated
+wake boundary. The action proceeds only after renewal, so the client never reuses
+the expired handoff embedded in an older preview URL. Concurrent renewal requests
+share one in-flight wake operation.
 Fresh app-builder projects keep the animated Cheatcode mark visible while the internal starter
 scaffold boots and the model generates the requested app. The persisted `app-preview-status`
 stream part reveals the iframe only when generated content is ready, and an iframe-load guard keeps
