@@ -102,7 +102,11 @@ command instead of transporting executable source through sandbox command argume
 It uses content hashes and atomic replacement across the FUSE/native-disk boundary.
 Direct pnpm invocations execute inside one `flock`-guarded transaction; process death
 releases that lock automatically, and successful source changes commit only after a
-three-way conflict check against the durable tree.
+three-way conflict check against the durable tree. Long-lived previews invoke the same helper as
+direct argv: it synchronizes source, restores dependencies under the project lock, supervises the
+native-disk app and sync-loop children, and forwards termination signals. The Worker therefore does
+not transport an executable shell wrapper or make trusted bootstrap commands indistinguishable from
+model-supplied shell input.
 
 Open VSX currently publishes Parquet Viewer 3.1.0 with vulnerable Thrift and WebSocket
 runtimes. The image keeps the extension feature but replaces those two runtime packages

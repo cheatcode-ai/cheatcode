@@ -5,6 +5,7 @@ import fcntl
 import hashlib
 import os
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -189,10 +190,7 @@ def commit_local_changes(durable_root, local_root, baseline):
 
 
 def package_run(source, target, lock_path, local_cwd, command):
-    normalized_target = os.path.realpath(target)
-    normalized_cwd = os.path.realpath(local_cwd)
-    if os.path.commonpath([normalized_target, normalized_cwd]) != normalized_target:
-        raise ValueError("package cwd must be inside the local project mirror")
+    validate_local_cwd(target, local_cwd)
     with open_lock(lock_path) as lock:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         sync_directory(source, target)
@@ -208,6 +206,108 @@ def package_run(source, target, lock_path, local_cwd, command):
     return 0
 
 
+def validate_local_cwd(target, local_cwd):
+    normalized_target = os.path.realpath(target)
+    normalized_cwd = os.path.realpath(local_cwd)
+    if os.path.commonpath([normalized_target, normalized_cwd]) != normalized_target:
+        raise ValueError("package cwd must be inside the local project mirror")
+
+
+def files_equal(left, right):
+    return (
+        os.path.isfile(left)
+        and os.path.isfile(right)
+        and os.path.getsize(left) == os.path.getsize(right)
+        and file_digest(left) == file_digest(right)
+    )
+
+
+def restore_pnpm_dependencies(local_cwd, dependency_template):
+    package_path = os.path.join(local_cwd, "package.json")
+    lock_path = os.path.join(local_cwd, "pnpm-lock.yaml")
+    if not os.path.isfile(package_path):
+        return 0
+    if dependency_template and files_equal(
+        package_path, os.path.join(dependency_template, "package.json")
+    ) and files_equal(lock_path, os.path.join(dependency_template, "pnpm-lock.yaml")):
+        return 0
+    common = ["install", "--prefer-offline", "--network-concurrency", "4"]
+    if not os.path.isfile(lock_path):
+        return subprocess.run(["pnpm", *common], cwd=local_cwd, check=False).returncode
+    offline = subprocess.run(
+        ["pnpm", "install", "--frozen-lockfile", "--offline"],
+        cwd=local_cwd,
+        check=False,
+    )
+    if offline.returncode == 0:
+        return 0
+    return subprocess.run(
+        ["pnpm", "install", "--frozen-lockfile", *common[1:]],
+        cwd=local_cwd,
+        check=False,
+    ).returncode
+
+
+def stop_process(process):
+    if process and process.poll() is None:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            process.terminate()
+
+
+def reap_process(process):
+    if not process:
+        return
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        except PermissionError:
+            process.kill()
+        process.wait()
+
+
+def preview_run(source, target, lock_path, local_cwd, dependency_template, command):
+    validate_local_cwd(target, local_cwd)
+    if not command:
+        raise ValueError("preview-run requires an app command")
+    with open_lock(lock_path) as lock:
+        fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+        sync_directory(source, target)
+        dependency_status = restore_pnpm_dependencies(local_cwd, dependency_template)
+        if dependency_status != 0:
+            return dependency_status
+
+    sync_process = subprocess.Popen(
+        [sys.executable, os.path.realpath(__file__), "preview-loop", source, target, lock_path],
+        start_new_session=True,
+    )
+    app_process = None
+    previous_handlers = {}
+
+    def terminate_children(_signum=None, _frame=None):
+        stop_process(app_process)
+        stop_process(sync_process)
+
+    try:
+        for signal_number in (signal.SIGHUP, signal.SIGINT, signal.SIGTERM):
+            previous_handlers[signal_number] = signal.signal(signal_number, terminate_children)
+        app_process = subprocess.Popen(command, cwd=local_cwd, start_new_session=True)
+        return app_process.wait()
+    finally:
+        terminate_children()
+        reap_process(app_process)
+        reap_process(sync_process)
+        for signal_number, handler in previous_handlers.items():
+            signal.signal(signal_number, handler)
+
+
 def main():
     if len(sys.argv) < 5:
         raise ValueError("missing local source synchronization arguments")
@@ -219,6 +319,20 @@ def main():
         if len(sys.argv) < 8 or sys.argv[6] != "--":
             raise ValueError("package-run requires a cwd and argv after --")
         raise SystemExit(package_run(source, target, lock_path, sys.argv[5], sys.argv[7:]))
+    if mode == "preview-run":
+        if len(sys.argv) < 9 or sys.argv[7] != "--":
+            raise ValueError("preview-run requires a cwd, dependency template, and argv after --")
+        dependency_template = None if sys.argv[6] == "-" else sys.argv[6]
+        raise SystemExit(
+            preview_run(
+                source,
+                target,
+                lock_path,
+                sys.argv[5],
+                dependency_template,
+                sys.argv[8:],
+            )
+        )
     raise ValueError("unknown local source synchronization mode")
 
 
