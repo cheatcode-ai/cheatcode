@@ -127,6 +127,8 @@ export interface SandboxStartProcessInput extends SandboxExecInput {
   /** Stable idempotency slot used to replace, inspect, and reap this process. */
   processId: string;
   restartOnFailure?: boolean;
+  /** Reuse a healthy process, or relaunch it after a cold start, when its safe launch intent matches. */
+  shouldReuseMatchingProcess?: boolean;
   waitForPort?: {
     path?: string;
     port: number;

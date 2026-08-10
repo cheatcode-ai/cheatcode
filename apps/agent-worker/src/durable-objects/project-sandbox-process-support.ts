@@ -22,6 +22,11 @@ export const ProcessRecordSchema = z.strictObject({
     .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]*$/u),
   cmdId: z.string(),
   command: z.string(),
+  environmentSha256: z
+    .string()
+    .length(64)
+    .regex(/^[0-9a-f]+$/u)
+    .optional(),
   port: z.number().optional(),
   isMobile: z.boolean().optional(),
   keepAliveTimeoutMs: z.number().int().nonnegative().optional(),
@@ -92,7 +97,7 @@ export function assertValidProcessStart(input: ParsedProcessStartInput): void {
 export function processRecordFromLaunch(
   input: ParsedProcessStartInput,
   policy: ProcessPolicy,
-  launch: Pick<ProcessRecord, "cmdId" | "command" | "cwd" | "sessionId">,
+  launch: Pick<ProcessRecord, "cmdId" | "command" | "cwd" | "environmentSha256" | "sessionId">,
 ): ProcessRecord {
   return {
     ...launch,

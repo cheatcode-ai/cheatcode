@@ -373,7 +373,6 @@ async function startProcess(
   const id = await context.runtime.ensureSandbox();
   const name = parsed.processId;
   const sessionId = `cc-${name}`;
-  await context.control.prepareProcessSlot(id, name, parsed);
   const cwd = parsed.cwd ?? WORKSPACE_DIR;
   const serializedCommand = commandToShellString(parsed.command);
   const packageRuntime = projectPnpmRuntime(cwd, parsed.command);
@@ -387,18 +386,95 @@ async function startProcess(
         ),
       ])
     : serializedCommand;
+  const requestedEnvironment = projectPackageEnvironment(cwd, parsed.env);
   const policy = processPolicy(parsed);
+  const environmentDigest = parsed.shouldReuseMatchingProcess
+    ? await environmentSha256(requestedEnvironment)
+    : undefined;
   const provisional = processRecordFromLaunch(parsed, policy, {
     cmdId: sessionId,
     command: rawCommand,
     cwd,
+    ...(environmentDigest ? { environmentSha256: environmentDigest } : {}),
     sessionId,
   });
+  const reused = await reuseMatchingProcess(context, id, name, parsed, provisional, parsed.env);
+  if (reused) {
+    await recordSandboxUsageBestEffort(await context.runtime.meteringContext());
+    return processResult(reused, name);
+  }
+  await context.control.prepareProcessSlot(id, name, parsed);
   await context.control.persistProcessOwnershipIntent(name, provisional);
-  const record = await launchProcess(context, id, name, sessionId, parsed, provisional);
+  const record = await launchProcess(
+    context,
+    id,
+    name,
+    sessionId,
+    parsed,
+    provisional,
+    requestedEnvironment,
+  );
   await context.control.persistStartedProcess(id, name, record, parsed.waitForPort);
   await recordSandboxUsageBestEffort(await context.runtime.meteringContext());
+  return processResult(record, name);
+}
+
+async function reuseMatchingProcess(
+  context: ProcessContext,
+  id: string,
+  name: string,
+  input: ParsedProcessStartInput,
+  candidate: ProcessRecord,
+  requestedEnvironment: Record<string, string> | undefined,
+): Promise<ProcessRecord | null> {
+  if (input.shouldReuseMatchingProcess !== true || input.stdin !== undefined) return null;
+  const existing = await context.control.processRecord(name);
+  if (!existing || !hasSameLaunchIntent(existing, candidate) || existing.port === undefined) {
+    return null;
+  }
+  if (await context.control.isPortAlive(id, existing.port)) return existing;
+  const relaunched = await context.control.relaunchDevServer(
+    id,
+    name,
+    existing,
+    requestedEnvironment,
+  );
+  await context.control.waitForPort(
+    id,
+    existing.port,
+    input.waitForPort?.path,
+    input.waitForPort?.timeoutMs,
+    { cmdId: relaunched.cmdId, sessionId: relaunched.sessionId },
+  );
+  return relaunched;
+}
+
+function hasSameLaunchIntent(existing: ProcessRecord, candidate: ProcessRecord): boolean {
+  return (
+    existing.command === candidate.command &&
+    existing.cwd === candidate.cwd &&
+    existing.environmentSha256 === candidate.environmentSha256 &&
+    existing.isMobile === candidate.isMobile &&
+    existing.keepAliveTimeoutMs === candidate.keepAliveTimeoutMs &&
+    existing.maxRestarts === candidate.maxRestarts &&
+    existing.port === candidate.port &&
+    existing.restartOnFailure === candidate.restartOnFailure
+  );
+}
+
+function processResult(record: ProcessRecord, name: string): SandboxProcessResult {
   return { command: record.command, id: name, status: "running" };
+}
+
+async function environmentSha256(
+  environment: Record<string, string> | undefined,
+): Promise<string | undefined> {
+  if (!environment) return undefined;
+  const canonical = JSON.stringify(
+    Object.entries(environment).sort(([left], [right]) => left.localeCompare(right)),
+  );
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(canonical));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function assertSupportedProjectPackageManager(cwd: string, command: readonly string[]): void {
@@ -435,6 +511,7 @@ async function launchProcess(
   sessionId: string,
   input: ParsedProcessStartInput,
   provisional: ProcessRecord,
+  environment: Record<string, string> | undefined,
 ): Promise<ProcessRecord> {
   try {
     const execution = await context.control.launchSessionProcess(
@@ -443,7 +520,7 @@ async function launchProcess(
       name,
       provisional.cwd,
       supervisedProcessCommand(provisional.command, provisional),
-      projectPackageEnvironment(provisional.cwd, input.env),
+      environment,
       input.stdin,
     );
     return { ...provisional, cmdId: execution.cmdId ?? sessionId };

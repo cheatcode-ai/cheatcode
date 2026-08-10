@@ -209,7 +209,14 @@ Agent-worker owns the custom-skill capacity decision and applies it inside the d
 per-user locked catalog transaction before inserting a new skill.
 
 Managed processes use required stable IDs and a maximum of 32 live metadata slots per user
-sandbox. Reusing an ID atomically replaces that slot. At capacity, ProjectSandbox reconciles the
+sandbox. Callers can explicitly reuse a matching healthy slot or relaunch its persisted command
+after a cold sandbox start; the default remains atomic replacement. The comparison uses the command,
+policy, port, working directory, and a one-way environment digest, so request-scoped environment
+values are neither persisted nor ignored. Follow-up web app-builder runs opt into reuse and
+therefore keep a healthy preview and its build cache alive until an actual configuration change
+requires replacement; Expo retains replacement semantics because its signed launch environment is
+ephemeral and its post-edit file-map must be rebuilt.
+At capacity, ProjectSandbox reconciles the
 bounded record set against Daytona, removes missing or completed sessions and their port state,
 and rejects a new distinct slot only when all 32 remain live.
 App-preview identity and port allocation derive from the canonical project workspace root, while

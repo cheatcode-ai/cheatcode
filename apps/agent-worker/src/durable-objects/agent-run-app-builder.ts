@@ -159,10 +159,6 @@ export async function runAppBuilder(options: RunAppBuilderOptions): Promise<AppB
   const { input, logger, sandbox } = options;
   throwIfRunCanceled(options.abortSignal);
   const workspace = await resolveAppWorkspace(sandbox, input, logger);
-  // Stop only THIS project's dev server before rebuilding — other projects in the per-user sandbox
-  // keep running (Cheatcode parity: every project's dev server persists on its own port).
-  await stopProjectPreview(sandbox, logger, workspace.slot);
-  throwIfRunCanceled(options.abortSignal);
   const workspaceOptions: WorkspaceOptions = { ...options, workspace };
   // Marker/.git gate runs FIRST: an imported repo (any framework shape) must
   // never fall back into the destructive reset + re-clone scaffold path on a
@@ -200,7 +196,9 @@ async function runTemplateAppBuilder(
   }
   await prepareTemplateWorkspace(options);
   throwIfRunCanceled(options.abortSignal);
-  await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
+  if (shouldBootstrap) {
+    await clearBuildCache(sandbox, workspace.dir, workspace.mobile);
+  }
   throwIfRunCanceled(options.abortSignal);
   await startTemplatePreview(options);
   return { agentContextNote: templateContextNote(workspace) };
@@ -267,9 +265,9 @@ async function startTemplatePreview(options: WorkspaceOptions): Promise<void> {
 // the same reason the Next.js path force-polls). So its in-memory file-map keeps bundling the
 // scaffold even after the counter lands on disk, and a browser hard-refresh just re-bundles from
 // that stale map. Restarting the dev server once the edit stream completes makes a fresh Metro
-// process re-crawl the workspace and bundle the finished app. startProcess reuses this project's
-// dev-server slot (it kills the old process + frees its port), so the restart is transparent to
-// the authenticated preview wake path. Mobile only — web/Next.js hot-reloads via polling.
+// process re-crawl the workspace and bundle the finished app. This call deliberately replaces the
+// project's stable dev-server slot; the authenticated preview wake path keeps the same port.
+// Mobile only — web/Next.js hot-reloads via polling.
 export async function restartMobilePreview(
   options: Pick<RunAppBuilderOptions, "append" | "input" | "logger" | "sandbox" | "setRunStage">,
 ): Promise<void> {
@@ -612,6 +610,7 @@ async function startAppBuilderDevServer(
       isMobile: false,
       name: workspace.slot,
       port: workspace.port,
+      shouldReuseMatchingProcess: true,
       timeoutMs: 180_000,
     },
     { sandbox, workspaceDir: workspace.dir, workspaceSlug: workspace.slug },
@@ -723,19 +722,4 @@ async function clearBuildCache(
     },
     { sandbox },
   );
-}
-
-async function stopProjectPreview(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-  slot: string,
-): Promise<void> {
-  try {
-    await sandbox.killProcess({ processId: slot });
-    logger.info("sandbox_project_preview_stopped", { slot });
-  } catch (error) {
-    logger.warn("sandbox_process_stop_failed", {
-      error,
-    });
-  }
 }

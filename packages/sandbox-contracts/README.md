@@ -26,7 +26,10 @@ project's Deliverables catalog.
 
 Long-running processes require a caller-owned stable `processId`. The sandbox uses that identity
 as an idempotency slot for replacement, inspection, cleanup, and bounded record reaping; anonymous
-fire-and-forget process records are not part of the contract.
+fire-and-forget process records are not part of the contract. Replacement remains the default;
+callers that set `shouldReuseMatchingProcess` ask the implementation to retain a healthy matching
+launch or relaunch it after a cold sandbox start. This opt-in fingerprints the effective environment
+without retaining its values, so it is reserved for caller-owned, non-secret process configuration.
 Project-backed `CodeRuntimeContext` values carry both the canonical `workspaceDir` and the explicit
 `workspaceSlug`. Process ownership uses the slug even when the command runs from a nested directory.
 Project preview ports have separate allocate and read capabilities so browser
