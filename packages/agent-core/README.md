@@ -49,9 +49,11 @@ so a weaker model cannot accidentally leave durable files outside a project. The
 REST adapter maps request-scoped command environment variables to the provider's `envs` wire field;
 generated code can therefore cross the process boundary without entering argv or persistent files.
 Focused edits to existing UTF-8 files use the request-scoped Morph FastApply runtime and a
-sandbox-side compare-and-swap write. The agent sends only the existing file, sparse edit, and
-instruction to Morph; the deployment key remains in Cloudflare Secrets Store. New files, binary
-files, and intentional full replacements continue to use the deterministic file writer.
+sandbox-side checksum-guarded write. The agent sends only the existing file, sparse edit, and
+instruction to Morph; the deployment key remains in Cloudflare Secrets Store, and the Mastra tool
+abort signal is forwarded through the Morph request. Focused and multi-section edits to an existing
+text file use FastApply; new files, binary files, and intentional whole-file rewrites continue to
+use the deterministic file writer.
 App-builder runs receive an existing framework workspace and managed preview before model
 execution. Their shell tools reject app-initialization commands so a model cannot replace that
 canonical root with another scaffold or a nested project; ordinary package installation and build

@@ -125,6 +125,13 @@ requests retain the requested logical ID, while included DeepSeek and automatic 
 attempts use their own canonical IDs. AgentRun writes that resolved logical ID to Postgres and
 its Durable Object immediately before every stream attempt.
 
+FastApply writes re-download the current file through Daytona, verify its exact SHA-256 against
+the version sent to Morph, and overwrite it through Daytona's current `upload-v2` filesystem API.
+The mounted durable workspace deliberately is not treated as a normal POSIX filesystem: its files
+can reject ownership changes and do not implement replacement renames. Stale edits therefore fail
+before the provider-supported overwrite instead of depending on unsupported `chmod` or `rename`
+behavior inside the sandbox.
+
 Before model execution, AgentRun loads the newest complete user/assistant transcript suffix
 under the caller's Postgres context. PostgreSQL skips an individually oversized logical turn,
 then bounds the result to 33 complete turns and 256 KiB of serialized segment records before

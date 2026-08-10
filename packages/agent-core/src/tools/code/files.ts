@@ -175,8 +175,10 @@ export async function executeApplyFile(
   input: ApplyFileInput,
   runtimeContext: CodeRuntimeContextFor<"compareAndSwapFile" | "readFile">,
   morph: MorphApplyRuntime,
+  abortSignal?: AbortSignal,
 ): Promise<ApplyFileOutput> {
   const parsedInput = ApplyFileInputSchema.parse(input);
+  abortSignal?.throwIfAborted();
   const path = resolveProjectWorkspacePath(parsedInput.path, runtimeContext.workspaceDir);
   const existing = await runtimeContext.sandbox.readFile({ encoding: "utf8", path });
   assertEditableText(existing.content);
@@ -186,10 +188,12 @@ export async function executeApplyFile(
       codeEdit: parsedInput.codeEdit,
       instruction: parsedInput.instruction,
       originalCode: existing.content,
+      ...(abortSignal ? { abortSignal } : {}),
     },
     MORPH_APPLY_TIMEOUT_MS,
   );
   assertValidAppliedFile(existing.content, applied.mergedCode);
+  abortSignal?.throwIfAborted();
   const output = ApplyFileOutputSchema.parse(
     await runtimeContext.sandbox.compareAndSwapFile({
       content: applied.mergedCode,

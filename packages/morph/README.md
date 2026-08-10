@@ -2,7 +2,7 @@
 
 Bounded Cloudflare-compatible client for Morph FastApply. It owns the fixed
 Morph API origin, model selection, response validation, byte limits, deadlines,
-and transient retry policy used by the agent's existing-file edit tool.
+transient retry policy, and caller cancellation used by the agent's existing-file edit tool.
 
 The package intentionally does not use Morph's pre-1.0 SDK. Keeping this small
 transport boundary first-party avoids pulling an OpenAI client and unrelated
