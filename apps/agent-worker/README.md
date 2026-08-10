@@ -173,7 +173,11 @@ subsequent writes and deletions within 250 ms, including equal-size and
 shell-based edits. Transient read contention on the durable source is retried within a bounded grace
 period; sustained source failure or a terminated synchronizer fails the whole managed preview so the
 existing bounded process restart policy restores both the app and its source feed instead of reusing
-a stale listening port. The local source,
+a stale listening port. Long-lived Expo processes deliberately run without the `CI` environment
+flag: Expo uses it for automation, but Metro consequently disables its incremental file map watcher
+and would keep serving the first bundle after synchronized source edits. Telemetry remains disabled
+independently, while the snapshot smoke proves a durable-source edit reaches both the next Metro
+bundle and a fresh browser render. The local source,
 dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the

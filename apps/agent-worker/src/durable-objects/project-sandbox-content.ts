@@ -9,6 +9,7 @@ import type {
   SandboxWriteFileResult,
 } from "@cheatcode/sandbox-contracts";
 import { encodeBase64, shellQuote } from "../sandbox-support";
+import { expoPreviewEnvironment } from "./app-builder-local-preview";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   CODE_SERVER_DISPLAY_DIR,
@@ -559,13 +560,7 @@ async function mobileExpoProxy(
   if (!signed) return null;
   return {
     expoUrl: signedUrlToExpo(signed.url),
-    restartEnv: {
-      CHEATCODE_APP_RUNTIME: "expo",
-      CI: "1",
-      EXPO_NO_TELEMETRY: "1",
-      EXPO_PACKAGER_PROXY_URL: signed.url,
-      PORT: String(record.port),
-    },
+    restartEnv: expoPreviewEnvironment({ port: record.port, proxyUrl: signed.url }),
   };
 }
 

@@ -346,7 +346,20 @@ jobs:
                 "$expo_mirror/node_modules" \
                 /home/node/.cheatcode/app-runtimes/expo/node_modules
             )
-            CI=1 EXPO_NO_TELEMETRY=1 NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules \
+            fetch_expo_bundle() {
+              curl --fail --silent --show-error --get \
+                --output "$1" \
+                --data-urlencode platform=web \
+                --data-urlencode dev=true \
+                --data-urlencode hot=false \
+                --data-urlencode lazy=true \
+                --data-urlencode transform.engine=hermes \
+                --data-urlencode transform.routerRoot=src/app \
+                --data-urlencode transform.reactCompiler=true \
+                --data-urlencode unstable_transformProfile=hermes-stable \
+                http://127.0.0.1:5201/node_modules/expo-router/entry.bundle
+            }
+            EXPO_NO_TELEMETRY=1 NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules \
               /opt/cheatcode/project-source-sync.py preview-run \
               "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" \
               /home/node/.cheatcode/app-runtimes/expo -- \
@@ -366,17 +379,7 @@ jobs:
             test "$(readlink -f "$expo_mirror/node_modules")" = \
               /home/node/.cheatcode/app-runtimes/expo/node_modules
             expo_bundle="$expo_test_dir/entry.bundle.js"
-            curl --fail --silent --show-error --get \
-              --output "$expo_bundle" \
-              --data-urlencode platform=web \
-              --data-urlencode dev=true \
-              --data-urlencode hot=false \
-              --data-urlencode lazy=true \
-              --data-urlencode transform.engine=hermes \
-              --data-urlencode transform.routerRoot=src/app \
-              --data-urlencode transform.reactCompiler=true \
-              --data-urlencode unstable_transformProfile=hermes-stable \
-              http://127.0.0.1:5201/node_modules/expo-router/entry.bundle
+            fetch_expo_bundle "$expo_bundle"
             grep --fixed-strings --quiet "Welcome to" "$expo_bundle"
             expo_dom="$expo_test_dir/expo-dom.html"
             expo_chrome_log="$expo_test_dir/chromium.log"
@@ -395,6 +398,42 @@ jobs:
               sed -n "1,240p" "$expo_log" >&2
               sed -n "1,240p" "$expo_chrome_log" >&2
               sed -n "1,240p" "$expo_dom" >&2
+              exit 1
+            fi
+            expo_watch_source="$(
+              grep --recursive --files-with-matches --fixed-strings \
+                "Welcome to" "$expo_source/src/app" | head -n 1
+            )"
+            test -n "$expo_watch_source"
+            sed -i "s/Welcome to/Metro watcher refreshed/" "$expo_watch_source"
+            expo_watch_bundle="$expo_test_dir/entry-watch.bundle.js"
+            expo_watch_attempt=0
+            until fetch_expo_bundle "$expo_watch_bundle" && \
+              grep --fixed-strings --quiet "Metro watcher refreshed" "$expo_watch_bundle"; do
+              if ! kill -0 "$expo_pid" 2>/dev/null || [ "$expo_watch_attempt" -ge 20 ]; then
+                sed -n "1,240p" "$expo_log" >&2
+                exit 1
+              fi
+              sleep 1
+              expo_watch_attempt=$((expo_watch_attempt + 1))
+            done
+            expo_watch_dom="$expo_test_dir/expo-watch-dom.html"
+            expo_watch_chrome_log="$expo_test_dir/chromium-watch.log"
+            if ! timeout 30 "$CHROME_PATH" \
+              --headless \
+              --no-sandbox \
+              --disable-dev-shm-usage \
+              --disable-gpu \
+              --virtual-time-budget=10000 \
+              --dump-dom \
+              http://127.0.0.1:5201 > "$expo_watch_dom" 2> "$expo_watch_chrome_log"; then
+              sed -n "1,240p" "$expo_watch_chrome_log" >&2
+              exit 1
+            fi
+            if ! grep --fixed-strings --quiet "Metro watcher refreshed" "$expo_watch_dom"; then
+              sed -n "1,240p" "$expo_log" >&2
+              sed -n "1,240p" "$expo_watch_chrome_log" >&2
+              sed -n "1,240p" "$expo_watch_dom" >&2
               exit 1
             fi
             printf "%s\n" "mobile source synchronization works" > "$expo_source/.cheatcode-mobile-sync-smoke"
