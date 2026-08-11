@@ -92,10 +92,7 @@ interface AppStoreActions {
 
 interface AppStore extends AppStoreState, AppStoreActions {}
 
-type PersistedAppStore = Pick<
-  AppStore,
-  "activeComputerTab" | "agentModelId" | "previewDevice" | "sidebarCollapsed"
->;
+type PersistedAppStore = Pick<AppStore, "agentModelId" | "previewDevice" | "sidebarCollapsed">;
 
 export const useAppStore = create<AppStore>()(
   persist(createAppStore, {
@@ -104,7 +101,6 @@ export const useAppStore = create<AppStore>()(
     // Preview and Expo URLs are bearer capabilities. They must remain memory-only and are
     // reacquired from authenticated endpoints whenever the corresponding panel opens.
     partialize: (state): PersistedAppStore => ({
-      activeComputerTab: state.activeComputerTab,
       agentModelId: state.agentModelId,
       previewDevice: state.previewDevice,
       sidebarCollapsed: state.sidebarCollapsed,
@@ -128,7 +124,7 @@ function createAppStore(set: AppStoreSet): AppStore {
 
 function initialAppStoreState(): AppStoreState {
   return {
-    activeComputerTab: "browser",
+    activeComputerTab: "files",
     agentModelId: DEFAULT_AGENT_MODEL_ID,
     appPreviewStatus: "idle",
     connectionState: "online",
@@ -264,10 +260,6 @@ function mergePersistedAppStore(persisted: unknown, current: AppStore): AppStore
   }
   return {
     ...current,
-    activeComputerTab:
-      persisted["activeComputerTab"] === "browser" || persisted["activeComputerTab"] === "files"
-        ? persisted["activeComputerTab"]
-        : current.activeComputerTab,
     agentModelId: isAgentModelId(persisted["agentModelId"])
       ? persisted["agentModelId"]
       : current.agentModelId,

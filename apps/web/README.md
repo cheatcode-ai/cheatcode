@@ -89,8 +89,10 @@ The composer keeps three independent product concepts separate:
   non-app work intent remains a `general` project and can still create typed
   Deliverables.
 - `ComputerTab` is only the visible workspace view: `browser` or `files`.
-  Artifact kind and MIME type decide how an output renders; neither work intent
-  nor app target selects the Computer tab.
+  Artifact kind and MIME type decide how an output renders. A generated artifact selects Files,
+  while an actual browser action selects Browser; the latest real activity wins when a transcript
+  is restored. Neither work intent nor app target guesses the Computer tab, and the selected tab is
+  not persisted across unrelated chats.
 
 Signed-out launch handoff validates and restores `buildTarget`, model, and
 public GitHub repository state before chat creation. The opaque prompt and

@@ -45,6 +45,7 @@ interface SandboxComputerSyncInput extends SandboxStatusActions {
 export type ComputerViewCommand =
   | { kind: "preview-status"; status: AppPreviewStatusData["status"] }
   | { kind: "status"; status: SandboxStatusData["status"] }
+  | { artifactId: string; kind: "open-files" }
   | { kind: "open-browser-preview"; shouldReload: boolean; toolCallId: string };
 
 export interface ComputerViewApplier {
@@ -58,14 +59,14 @@ interface ComputerViewApplierInput extends ComputerViewActions {
 }
 
 interface ComputerViewCommandState {
-  openedBrowserToolKeys: Set<string>;
+  appliedSurfaceKeys: Set<string>;
   scopeKey: string;
 }
 
 interface HydratedComputerViewCommands {
-  browser: ComputerViewCommand | null;
   preview: ComputerViewCommand | null;
   status: ComputerViewCommand | null;
+  surface: ComputerViewCommand | null;
 }
 
 export function useComputerViewApplier(input: ComputerViewApplierInput): ComputerViewApplier {
@@ -125,7 +126,7 @@ export function useSandboxComputerSync(input: SandboxComputerSyncInput): void {
   useHydratedComputerViewCommand(commands.status, input.viewApplier);
   useHydratedComputerViewCommand(commands.preview, input.viewApplier);
   useProjectFilesDefault(input.project, status, actions, defaultedProjectFilesRef);
-  useHydratedComputerViewCommand(commands.browser, input.viewApplier);
+  useHydratedComputerViewCommand(commands.surface, input.viewApplier);
   useCompletionPreview(input.chatStatus, previousStatusRef);
 }
 
@@ -140,6 +141,10 @@ export function computerViewEffect(part: unknown): ComputerViewCommand | null {
   if (part["type"] === "data-app-preview-status") {
     const parsed = CHEATCODE_DATA_SCHEMAS["app-preview-status"].safeParse(part["data"]);
     return parsed.success ? { kind: "preview-status", status: parsed.data.status } : null;
+  }
+  if (part["type"] === "data-artifact") {
+    const parsed = CHEATCODE_DATA_SCHEMAS.artifact.safeParse(part["data"]);
+    return parsed.success ? { artifactId: parsed.data.outputId, kind: "open-files" } : null;
   }
   if (part["type"] !== "data-tool") {
     return null;
@@ -163,10 +168,12 @@ function useResetSandboxComputer(input: SandboxComputerSyncInput): void {
     input.setPreviewUrl(null);
     input.setExpoUrl(null);
     input.setPreviewPanelOpen(false);
+    input.setActiveComputerTab("files");
     input.setSandboxStatus("cold");
   }, [
     input.resetConsole,
     input.resetPreviewNavigation,
+    input.setActiveComputerTab,
     input.setExpoUrl,
     input.setAppPreviewStatus,
     input.setPreviewPanelOpen,
@@ -223,7 +230,7 @@ function useCompletionPreview(
 function hydratedComputerViewCommands(
   messages: readonly CheatcodeUIMessage[],
 ): HydratedComputerViewCommands {
-  const commands: HydratedComputerViewCommands = { browser: null, preview: null, status: null };
+  const commands: HydratedComputerViewCommands = { preview: null, status: null, surface: null };
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
     const message = messages[messageIndex];
     if (!message) {
@@ -250,7 +257,9 @@ function recordHydratedComputerViewCommand(
   } else if (command?.kind === "preview-status") {
     commands.preview = command;
   } else if (command?.kind === "open-browser-preview") {
-    commands.browser = command;
+    commands.surface = command;
+  } else if (command?.kind === "open-files") {
+    commands.surface = command;
   }
 }
 
@@ -272,11 +281,17 @@ function applyComputerViewCommand(
     }
     return;
   }
-  const onceKey = `${threadId}:${command.toolCallId}`;
-  if (state.openedBrowserToolKeys.has(onceKey)) {
+  const surfaceId = command.kind === "open-files" ? command.artifactId : command.toolCallId;
+  const onceKey = `${threadId}:${command.kind}:${surfaceId}`;
+  if (state.appliedSurfaceKeys.has(onceKey)) {
     return;
   }
-  state.openedBrowserToolKeys.add(onceKey);
+  state.appliedSurfaceKeys.add(onceKey);
+  if (command.kind === "open-files") {
+    actions.setActiveComputerTab("files");
+    actions.setPreviewPanelOpen(true);
+    return;
+  }
   if (command.shouldReload) {
     actions.requestPreviewReload();
   }
@@ -285,7 +300,7 @@ function applyComputerViewCommand(
 }
 
 function createComputerViewCommandState(scopeKey: string): ComputerViewCommandState {
-  return { openedBrowserToolKeys: new Set<string>(), scopeKey };
+  return { appliedSurfaceKeys: new Set<string>(), scopeKey };
 }
 
 function isBrowserToolName(toolName: string): boolean {
