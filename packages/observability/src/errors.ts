@@ -1,4 +1,4 @@
-import type { ErrorCode } from "@cheatcode/types";
+import { type ErrorCode, ErrorCodeSchema } from "@cheatcode/types";
 
 const RETRIABLE_CODES = new Set<ErrorCode>([
   "rate_limit_exceeded",
@@ -110,13 +110,70 @@ export function safeErrorTelemetry(error: unknown): SafeErrorTelemetry {
 }
 
 export function toAPIError(error: unknown): APIError {
-  if (error instanceof APIError) {
-    return error;
+  return (
+    findAPIError(error) ??
+    new APIError(500, "internal_service_error", "Internal error", {
+      hint: "Retry the request. If it persists, check Workers Logs with the request_id.",
+      retriable: true,
+    })
+  );
+}
+
+/** Recovers repository-owned API errors after framework serialization or wrapping. */
+export function findAPIError(error: unknown): APIError | undefined {
+  for (const candidate of errorChain(error)) {
+    if (candidate instanceof APIError) {
+      return candidate;
+    }
+    const reconstructed = serializedAPIError(candidate);
+    if (reconstructed) {
+      return reconstructed;
+    }
   }
-  return new APIError(500, "internal_service_error", "Internal error", {
-    hint: "Retry the request. If it persists, check Workers Logs with the request_id.",
-    retriable: true,
+  return undefined;
+}
+
+function serializedAPIError(record: Record<string, unknown>): APIError | undefined {
+  const code = ErrorCodeSchema.safeParse(readProperty(record, "code"));
+  const status = readStatus(record);
+  const message = boundedErrorText(readProperty(record, "message"), 8_000);
+  if (!code.success || status === undefined || message === undefined) {
+    return undefined;
+  }
+  const options = readRecord(record, "opts");
+  const retriable = readRetriable(record, options);
+  const hint = boundedErrorText(options ? readProperty(options, "hint") : undefined, 2_000);
+  return new APIError(status, code.data, message, {
+    cause: record,
+    ...(hint ? { hint } : {}),
+    ...(retriable === undefined ? {} : { retriable }),
   });
+}
+
+function errorChain(error: unknown): Record<string, unknown>[] {
+  if (!isRecord(error)) {
+    return [];
+  }
+  const chain: Record<string, unknown>[] = [];
+  const seen = new Set<object>();
+  let candidate: unknown = error;
+  while (isRecord(candidate) && chain.length <= MAX_CAUSE_DEPTH && !seen.has(candidate)) {
+    seen.add(candidate);
+    chain.push(candidate);
+    candidate = readProperty(candidate, "cause");
+  }
+  return chain;
+}
+
+function boundedErrorText(value: unknown, maximum: number): string | undefined {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > maximum || trimmed.includes("\0")) {
+    return undefined;
+  }
+  return trimmed;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -93,7 +93,8 @@ and explicit retry policy. Sandbox failures may also include bounded command out
 managed-process logs. The next model turn can therefore correct a retriable failure once while
 treating plan, permission, validation, and other non-retriable failures as terminal for that
 operation instead of looping. Those internal diagnostics are not promoted into user-facing
-assistant text.
+assistant text. Repository-owned API errors retain that classification even after Mastra wraps or
+serializes a nested workflow failure; unknown thrown values still collapse to the generic tool error.
 Tool steps resolve only the credentials required by the invoked capability: ordinary data, file,
 code, and document work does not open research-key or connected-app database transactions. User
 skill packages are restored lazily when a skill is invoked instead of being projected into the

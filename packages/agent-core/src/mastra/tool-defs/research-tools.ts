@@ -1,3 +1,4 @@
+import { APIError, findAPIError } from "@cheatcode/observability";
 import { createTool, type ToolExecutionContext } from "@mastra/core/tools";
 import { z } from "zod/v4";
 import { executeGenerateMarkdownPdf } from "../../tools/docs/execute";
@@ -93,9 +94,14 @@ async function runResearchWorkflow({
     await cancellation.assertNotCanceled();
     const result = WorkflowResultSchema.parse(workflowResult);
     if (result.status !== "success" || !result.result) {
-      const message =
-        result.error instanceof Error ? result.error.message : `${workflowName} workflow failed.`;
-      throw new Error(message);
+      const workflowError = findAPIError(result.error);
+      if (workflowError) {
+        throw workflowError;
+      }
+      throw new APIError(502, "upstream_provider_outage", "Research workflow failed", {
+        cause: result.error,
+        retriable: true,
+      });
     }
     return ResearchReportSchema.parse(result.result);
   } finally {

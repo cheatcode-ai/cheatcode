@@ -5,7 +5,7 @@ export {
   emitPerformanceMetric,
   emitUserEvent,
 } from "./analytics";
-export { APIError, safeErrorTelemetry, toAPIError } from "./errors";
+export { APIError, findAPIError, safeErrorTelemetry, toAPIError } from "./errors";
 export {
   readBoundedRequestBytes,
   readBoundedRequestText,

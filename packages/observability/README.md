@@ -24,6 +24,9 @@ positions.
 - `createLogger` and the `Logger` contract
 - `redactSecrets`
 - `APIError`
+- `findAPIError` and `toAPIError` recover repository-owned error codes, status,
+  retry policy, and bounded messages after framework wrapping or serialization;
+  unrecognized exceptions remain internal errors
 - `safeErrorTelemetry` for allowlisted error metadata (`name`, `code`,
   `constraint`, `status`, and `retriable`) without messages, stacks, SQL, or
   query parameters
