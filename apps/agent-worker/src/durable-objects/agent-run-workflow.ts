@@ -543,7 +543,7 @@ function toolResultMessage(results: WorkflowToolStepResult[]): ModelMessage {
 }
 
 function toolModelOutput(result: WorkflowToolStepResult): ToolResultPart["output"] {
-  if (result.error) return { type: "error-text", value: result.error };
+  if (result.error) return { type: "error-json", value: result.error };
   if (typeof result.output === "string") return { type: "text", value: result.output };
   return { type: "json", value: JsonValueSchema.parse(result.output ?? null) };
 }

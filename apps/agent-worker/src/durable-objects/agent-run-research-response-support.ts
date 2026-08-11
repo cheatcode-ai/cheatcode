@@ -11,7 +11,7 @@ interface ToolCallLike {
 }
 
 interface ToolResultLike {
-  error?: string | undefined;
+  error?: unknown;
   output?: unknown;
   toolCall: ToolCallLike;
 }

@@ -1,4 +1,6 @@
 import { APIError } from "@cheatcode/observability";
+import { ErrorCodeSchema } from "@cheatcode/types";
+import { z } from "zod";
 
 const MAX_TOOL_ERROR_CHARACTERS = 8_000;
 const MAX_TOOL_ERROR_OUTPUT_CHARACTERS = 3_000;
@@ -8,17 +10,38 @@ const SANDBOX_DIAGNOSTIC_CODES = new Set([
   "upstream_sandbox_timeout",
 ]);
 
-/** Preserves bounded, user-scoped execution diagnostics for the model's next turn. */
-export function agentToolErrorText(error: unknown): string {
+export const AgentToolErrorOutputSchema = z.strictObject({
+  code: ErrorCodeSchema,
+  diagnostics: z.string().optional(),
+  hint: z.string().optional(),
+  message: z.string(),
+  retriable: z.boolean(),
+});
+
+export type AgentToolErrorOutput = z.infer<typeof AgentToolErrorOutputSchema>;
+
+/** Preserves retry policy and bounded, user-scoped diagnostics for the model's next turn. */
+export function agentToolErrorOutput(error: unknown): AgentToolErrorOutput {
   if (!(error instanceof APIError)) {
-    return error instanceof Error ? error.message : "Tool execution failed.";
+    return AgentToolErrorOutputSchema.parse({
+      code: "tool_execution_failed",
+      message: clamp(
+        error instanceof Error ? error.message : "Tool execution failed.",
+        MAX_TOOL_ERROR_CHARACTERS,
+      ),
+      retriable: false,
+    });
   }
-  const lines = [`${error.code}: ${error.message}`];
-  if (error.opts.hint) lines.push(`Hint: ${error.opts.hint}`);
-  if (SANDBOX_DIAGNOSTIC_CODES.has(error.code)) {
-    lines.push(...sandboxDiagnosticLines(error.opts.details));
-  }
-  return clamp(lines.join("\n"), MAX_TOOL_ERROR_CHARACTERS);
+  const diagnostics = SANDBOX_DIAGNOSTIC_CODES.has(error.code)
+    ? sandboxDiagnosticLines(error.opts.details).join("\n")
+    : "";
+  return AgentToolErrorOutputSchema.parse({
+    code: error.code,
+    ...(diagnostics ? { diagnostics: clamp(diagnostics, MAX_TOOL_ERROR_CHARACTERS) } : {}),
+    ...(error.opts.hint ? { hint: clamp(error.opts.hint, MAX_TOOL_ERROR_CHARACTERS) } : {}),
+    message: clamp(error.message, MAX_TOOL_ERROR_CHARACTERS),
+    retriable: error.retriable,
+  });
 }
 
 function sandboxDiagnosticLines(details: Record<string, unknown> | undefined): string[] {

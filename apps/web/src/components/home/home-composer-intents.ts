@@ -37,7 +37,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "slides",
     label: "Slides",
     placeholder: "What's the deck about? Audience and key points help",
-    skill: "pitch-deck",
+    skill: "pptx",
   },
   {
     appBuildTarget: null,
