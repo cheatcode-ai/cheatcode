@@ -21,6 +21,7 @@ import {
 import { ProjectList } from "@/components/shell/sidebar-project-list";
 import { ChevronDown } from "@/components/ui";
 import { isNavItemActive, type NavItem } from "@/lib/navigation/nav-model";
+import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
 const PRIMARY_SIDEBAR_NAV = PRIMARY_NAV.filter((item) => item.id !== "projects");
@@ -161,6 +162,7 @@ function SidebarCollapseRegion({ children, open }: { children: ReactNode; open: 
 }
 
 function SidebarNavRow({ item, pathname }: { item: NavItem; pathname: string }) {
+  const resetHomeComposer = useAppStore((state) => state.resetHomeComposer);
   if (item.target.kind !== "route") return null;
   const active = isNavItemActive(item, pathname);
   return (
@@ -173,6 +175,7 @@ function SidebarNavRow({ item, pathname }: { item: NavItem; pathname: string }) 
           : "text-fg-secondary hover:bg-background hover:text-foreground dark:hover:bg-white/5",
       )}
       href={item.target.href}
+      {...(item.id === "new-task" ? { onClick: resetHomeComposer } : {})}
     >
       <span className="flex h-4 w-4 shrink-0 items-center justify-center">
         <item.icon aria-hidden="true" className="h-3.5 w-3.5" />

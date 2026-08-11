@@ -9,6 +9,7 @@ import {
 import { PRIMARY_NAV, WORKSPACE_SECTION_NAV } from "@/components/shell/sidebar-navigation-model";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { isNavItemActive, type NavItem } from "@/lib/navigation/nav-model";
+import { useAppStore } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
 const NEW_TASK_ITEM = PRIMARY_NAV.find((item) => item.id === "new-task");
@@ -111,6 +112,7 @@ export function SidebarRailLink({
   onNavigate?: () => void;
   pathname: string;
 }) {
+  const resetHomeComposer = useAppStore((state) => state.resetHomeComposer);
   if (item.target.kind !== "route") return null;
   const active = isNavItemActive(item, pathname);
   return (
@@ -125,7 +127,10 @@ export function SidebarRailLink({
             : "text-fg-secondary hover:bg-background hover:text-foreground dark:hover:bg-white/5",
         )}
         href={item.target.href}
-        {...(onNavigate ? { onClick: onNavigate } : {})}
+        onClick={() => {
+          if (item.id === "new-task") resetHomeComposer();
+          onNavigate?.();
+        }}
       >
         <item.icon
           aria-hidden="true"

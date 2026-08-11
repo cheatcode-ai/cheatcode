@@ -135,7 +135,7 @@ async function launchExistingProject(
       runtime.endSubmitting();
       return;
     }
-    navigateToChat(runtime.router, result.threadId, snapshot.prompt, snapshot.intent);
+    navigateToChat(runtime, result.threadId, snapshot.prompt, snapshot.intent);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not open that project.");
     runtime.endSubmitting();
@@ -159,7 +159,7 @@ async function startNewChat(
       ...(snapshot.repoUrl ? { importRepoUrl: snapshot.repoUrl } : {}),
       ...(snapshot.model ? { defaultModel: snapshot.model } : {}),
     });
-    navigateToChat(runtime.router, thread.id, snapshot.prompt, snapshot.intent);
+    navigateToChat(runtime, thread.id, snapshot.prompt, snapshot.intent);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not start that chat.");
     runtime.endSubmitting();
@@ -186,11 +186,15 @@ function preservePromptForSignIn(
 }
 
 function navigateToChat(
-  router: SubmissionRuntime["router"],
+  runtime: SubmissionRuntime,
   threadId: string,
   prompt: string,
   intent: RunIntent | null,
 ): void {
   const handoff = buildExistingProjectParams(prompt, intent).toString();
-  router.push(`/chats/${encodeURIComponent(threadId)}?${handoff}`);
+  // A soft navigation may preserve this page in the Next.js route cache. Release
+  // the submission lock before leaving so restoring the page can never revive a
+  // permanently disabled composer.
+  runtime.endSubmitting();
+  runtime.router.push(`/chats/${encodeURIComponent(threadId)}?${handoff}`);
 }

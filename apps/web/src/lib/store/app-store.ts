@@ -42,6 +42,7 @@ interface AppStoreState {
   draftByThread: Record<string, string>;
   expoUrl: string | null;
   filesOpenRequest: FilesOpenRequest | null;
+  homeComposerResetToken: number;
   previewDevice: PreviewDevice;
   previewPanelOpen: boolean;
   previewPath: string;
@@ -68,6 +69,7 @@ interface AppStoreActions {
   goBackPreviewPath: () => void;
   navigatePreviewPath: (path: string) => void;
   resetConsole: () => void;
+  resetHomeComposer: () => void;
   resetIdentityState: () => void;
   resetPreviewNavigation: () => void;
   requestFileOpen: (threadId: string, path: string) => void;
@@ -138,6 +140,7 @@ function initialAppStoreState(): AppStoreState {
     draftByThread: {},
     expoUrl: null,
     filesOpenRequest: null,
+    homeComposerResetToken: 0,
     previewDevice: "desktop",
     previewPanelOpen: false,
     previewPath: "/",
@@ -244,6 +247,8 @@ function navigatePreviewPath(state: AppStore, path: string): Partial<AppStore> {
 function createUiActions(set: AppStoreSet) {
   return {
     resetIdentityState: () => set(identityScopedInitialState()),
+    resetHomeComposer: () =>
+      set((state) => ({ homeComposerResetToken: state.homeComposerResetToken + 1 })),
     setAgentModelId: (agentModelId: AgentModelId) => set({ agentModelId }),
     setConnectionState: (connectionState: ConnectionState) => set({ connectionState }),
     setSandboxStatus: (sandboxStatus: SandboxState) => set({ sandboxStatus }),
