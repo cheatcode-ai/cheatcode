@@ -46,13 +46,16 @@ interface SandboxArtifact extends Omit<SandboxArtifactMetadata, "path"> {
   base64: string;
 }
 
+interface GeneratedArtifactResult extends ArtifactUploadResult {
+  filePath: string | null;
+}
+
 interface ArtifactStaging {
   content: string;
   inputPath: string;
   outputPath: string;
 }
 
-const MAX_WORKSPACE_ARTIFACT_BASE64_CHARS = 2_000_000;
 const MAX_STAGED_INPUT_CHARACTERS = 1_900_000;
 const WORKSPACE_ROOT = "/workspace";
 const ARTIFACT_STAGING_DIRECTORY = ".cheatcode/artifact-staging";
@@ -156,7 +159,7 @@ async function runArtifactScript(
   runtimeContext: CodeRuntimeContext,
   kind: ArtifactKind,
   buildScript: (inputPath: string, outputPath: string) => string,
-): Promise<ArtifactUploadResult> {
+): Promise<GeneratedArtifactResult> {
   if (!runtimeContext.artifacts) {
     throw new APIError(500, "internal_service_error", "Artifact storage is unavailable", {
       retriable: true,
@@ -187,14 +190,17 @@ async function runArtifactScript(
 
     const metadata = parseSandboxArtifact(result.stdout, staging.outputPath);
     const generated = await readSandboxArtifact(runtimeContext, metadata);
-    await writeWorkspaceArtifact(runtimeContext, generated);
-    return await runtimeContext.artifacts.put({
+    const uploaded = await runtimeContext.artifacts.put({
       contentType: generated.mimeType,
       data: base64ToBytes(generated.base64),
       exposure: "deliverable",
       filename: generated.filename,
       kind,
     });
+    return {
+      ...uploaded,
+      filePath: await materializeWorkspaceArtifact(runtimeContext, metadata.path, uploaded),
+    };
   } finally {
     await runtimeContext.sandbox.deleteFile({ path: staging.inputPath }).catch(() => undefined);
     await runtimeContext.sandbox.deleteFile({ path: staging.outputPath }).catch(() => undefined);
@@ -229,28 +235,23 @@ function createArtifactStaging(input: unknown, workspaceDir: string): ArtifactSt
   };
 }
 
-async function writeWorkspaceArtifact(
+async function materializeWorkspaceArtifact(
   runtimeContext: CodeRuntimeContext,
-  artifact: SandboxArtifact,
-): Promise<void> {
-  if (!runtimeContext.sandbox.writeFile) {
-    return;
-  }
-  if (artifact.base64.length > MAX_WORKSPACE_ARTIFACT_BASE64_CHARS) {
-    return;
-  }
+  sourcePath: string,
+  artifact: ArtifactUploadResult,
+): Promise<string | null> {
+  const directory = runtimeContext.workspaceDir ?? WORKSPACE_ROOT;
+  const filePath = `${directory}/deliverables/${artifact.outputId}/${artifact.filename}`;
   try {
-    // The run's own project folder is authoritative in the shared per-user sandbox — write the
-    // live file there so it shows in THIS project's Files/Computer tab instead of leaking into a
-    // sibling project's /workspace/<slug> (matches the code tool's resolveWorkspaceDir).
-    const directory = runtimeContext.workspaceDir ?? WORKSPACE_ROOT;
-    await runtimeContext.sandbox.writeFile({
-      content: artifact.base64,
-      encoding: "base64",
-      path: `${directory}/${artifact.filename}`,
+    const result = await runtimeContext.sandbox.exec({
+      command: ["install", "-D", "-m", "0444", sourcePath, filePath],
+      cwd: directory,
+      timeoutMs: 30_000,
     });
+    return result.exitCode === 0 ? filePath : null;
   } catch {
-    // Artifact storage is the durable deliverable path; workspace writes are a live-files convenience.
+    // R2 remains authoritative when the live sandbox copy cannot be materialized.
+    return null;
   }
 }
 

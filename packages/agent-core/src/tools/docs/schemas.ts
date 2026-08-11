@@ -3,6 +3,13 @@ import { z } from "zod";
 const TextValueSchema = z.string().trim().min(1).max(5_000);
 
 const ArtifactOutputSchema = z.strictObject({
+  filePath: z
+    .string()
+    .min(1)
+    .nullable()
+    .describe(
+      "Exact read-only project path for inspecting the generated file, or null when the live workspace copy could not be materialized.",
+    ),
   filename: z.string().min(1),
   kind: z.enum(["docx", "pdf", "slide", "xlsx"]),
   mimeType: z.string().min(1),

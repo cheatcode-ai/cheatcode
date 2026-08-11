@@ -24,7 +24,8 @@ packages unless an actual missing-dependency error proves the runtime is incompl
 
 - For a concise presentation with ordinary text, callouts, and simple structure, use
   `docs_generate_slides`. Preserve the user's exact requested slide count. Its returned
-  `slideCount` is the authoritative structural check.
+  `slideCount` is the authoritative structural check, and `filePath` is the canonical project
+  location. Do not search the filesystem for it.
 - For a custom visual system, complex diagrams, a supplied template, or detailed layout control,
   use the sandbox workflow described below.
 - Do not add research, extra sections, speaker notes, or a title slide unless the user asks for
@@ -160,11 +161,11 @@ Choose colors that match your topic — don't default to generic blue. Use these
 
 Match verification effort to how the deck was made and the risk of the request.
 
-- For `docs_generate_slides`, confirm its returned `slideCount`, convert the deck to PDF, and render
-  one representative slide. If the count is exact and that render has no clipping, overlap,
-  placeholder text, or contrast problem, finish.
+- For `docs_generate_slides`, confirm its returned `slideCount` and finish. Its deterministic,
+  bounded layout is the production verification path for routine structured decks; do not convert,
+  serve, or screenshot the file again.
 - Inspect every slide when the deck uses custom or template-driven layout, is high-stakes, the user
-  asks for exhaustive visual QA, or the representative render reveals a defect.
+  asks for visual QA, or an actual render reveals a defect.
 - After a defect is fixed, re-render only the affected slide unless the change alters a shared
   theme or layout.
 - A clean first inspection is a valid pass. Never invent a defect or perform a cosmetic rewrite

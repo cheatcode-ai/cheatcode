@@ -126,7 +126,10 @@ the durable artifact, and removes both staging files. Document generators stage
 their bounded structured input in a hidden, project-local temporary file instead of
 embedding it in the sandbox command line, then delete that input after rendering;
 this keeps large reports within the sandbox process contract without retaining
-source payloads.
+source payloads. After the durable upload commits, the generator materializes the exact same bytes
+at the canonical read-only `deliverables/<output-id>/<filename>` project path and returns that path
+to the agent. Structured output counts and bounded layouts are authoritative for routine generation,
+so the agent does not rediscover, convert, or screenshot the same file before finishing.
 
 Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
