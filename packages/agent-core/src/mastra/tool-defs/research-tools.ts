@@ -260,12 +260,13 @@ export const mastraDeepResearch = createTool({
   outputSchema: ResearchReportArtifactSchema,
   execute: async (input, context) => {
     const parsedInput = DeepResearchInputSchema.parse(input);
+    const workspaceRuntime = await workspaceRuntimeFromContext(context);
     const report = await runResearchWorkflow({
       context,
       inputData: parsedInput,
       workflowName: "deepResearch",
     });
-    return createResearchReportArtifact(report, parsedInput.topic, context);
+    return createResearchReportArtifact(report, parsedInput.topic, context, workspaceRuntime);
   },
 });
 
@@ -277,12 +278,13 @@ export const mastraResearchFanout = createTool({
   outputSchema: ResearchReportArtifactSchema,
   execute: async (input, context) => {
     const parsedInput = DeepResearchFanoutInputSchema.parse(input);
+    const workspaceRuntime = await workspaceRuntimeFromContext(context);
     const report = await runResearchWorkflow({
       context,
       inputData: parsedInput,
       workflowName: "deepResearchFanout",
     });
-    return createResearchReportArtifact(report, parsedInput.goal, context);
+    return createResearchReportArtifact(report, parsedInput.goal, context, workspaceRuntime);
   },
 });
 
@@ -290,11 +292,12 @@ async function createResearchReportArtifact(
   report: ResearchReport,
   topic: string,
   context: ToolExecutionContext,
+  workspaceRuntime: Awaited<ReturnType<typeof workspaceRuntimeFromContext>>,
 ) {
   context.abortSignal?.throwIfAborted();
   const artifact = await executeGenerateMarkdownPdf(
     buildResearchMarkdownPdfInput(report.report, topic),
-    await workspaceRuntimeFromContext(context),
+    workspaceRuntime,
   );
   return ResearchReportArtifactSchema.parse({ artifact, report: report.report });
 }

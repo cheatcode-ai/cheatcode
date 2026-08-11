@@ -111,14 +111,14 @@ one-to-one relationship between inline citations and the final Sources list. It 
 operational timeout and one in-memory retry for transient provider or invalid Markdown
 failures; request cancellation always wins and no secret-bearing state is snapshotted.
 Prose URL scraping is not an accepted provenance boundary.
-Successful top-level deep-research and fan-out tools render the validated report's
+Top-level deep-research and fan-out tools resolve their project workspace before
+making provider calls, so plan or project-capacity failures cannot consume a research run.
+Successful tools render the validated report's
 canonical GitHub-flavored Markdown directly into a PDF artifact. The chat response
 and PDF therefore preserve the same headings, prose, lists, tables, links, citations,
 and ordering; only print-safe pagination and document chrome differ. Multi-line list
 rows retain their intrinsic height so consecutive Markdown items cannot overlap in
-the rendered document. The project
-workspace is resolved only after remote research succeeds;
-the PDF is then stored both in the live project files and the durable
+the rendered document. The PDF is stored both in the live project files and the durable
 generated-output store. Sandbox renderers write binary output to a bounded staging
 file and delimit only its small metadata object with an internal stdout marker. The
 host validates that path, reads the bytes through the sandbox file boundary, uploads
