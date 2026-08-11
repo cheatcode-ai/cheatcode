@@ -59,8 +59,9 @@ type PreviewRefreshMode = "authorize" | "recover" | "reload" | "rotate";
  * drives the panel's "Starting preview…" loading state.
  *
  * The authenticated wake response is the only source of preview capabilities. `active` should be
- * true while a project Computer panel is open, including before a URL has been acquired. A project
- * without a tracked dev server is switched to Files without retaining a stale capability.
+ * true only while a project's Browser surface is visible, including before a URL has been
+ * acquired. Files never wakes a preview. A Browser surface without a tracked dev server is
+ * switched to Files without retaining a stale capability.
  */
 export function useEnsurePreviewLive(
   threadId: string | null,
@@ -358,12 +359,8 @@ function applyPreviewRefreshResult(
   setPhase: (phase: PreviewLivePhase) => void,
 ): number {
   if (result.url) {
-    const shouldActivateApp = useAppStore.getState().previewUrl === null;
     deps.setPreviewUrl(result.url);
     deps.setExpoUrl(result.expoUrl ?? null);
-    if (shouldActivateApp) {
-      deps.setActiveComputerTab("browser");
-    }
   } else {
     deps.setPreviewUrl(null);
     deps.setExpoUrl(null);

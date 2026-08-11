@@ -72,15 +72,18 @@ function usePreviewPanelController(
   const isMobile = project?.mode === "app-builder-mobile" || store.expoUrl !== null;
   const isRunActive = activeRunId !== null;
   const isFreshPreviewBuilding = store.appPreviewStatus === "building" && isRunActive;
-  // The authenticated wake endpoint is the only source of preview capabilities. Opening any
-  // project Computer panel asks it for a fresh handoff; projects without a dev server fall back to
-  // Files. Fresh scaffolds wait until generated content is ready so their one-minute handoff is
-  // minted immediately before the iframe mounts. Daytona idle-stops are revived through the same
-  // path.
+  // The authenticated wake endpoint is the only source of preview capabilities. Only an active
+  // Browser surface asks it for a fresh handoff; opening Files must never revive an unrelated dev
+  // server or race the artifact-driven tab selection. Fresh scaffolds wait until generated content
+  // is ready so their one-minute handoff is minted immediately before the iframe mounts. Daytona
+  // idle-stops are revived through the same path.
   const previewLive = useEnsurePreviewLive(
     threadId,
     getToken,
-    store.previewPanelOpen && project !== null && !isFreshPreviewBuilding,
+    store.previewPanelOpen &&
+      store.activeComputerTab === "browser" &&
+      project !== null &&
+      !isFreshPreviewBuilding,
     store.sandboxStatus,
   );
   useRequestedPreviewReload(store.previewReloadRequestToken, previewLive.reload);
