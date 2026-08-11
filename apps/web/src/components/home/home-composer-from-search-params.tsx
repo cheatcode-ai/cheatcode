@@ -6,6 +6,7 @@ import { GitHubRepoUrlSchema } from "@cheatcode/types/api";
 import { useEffect, useState } from "react";
 import { type AgentModelId, isAgentModelId } from "@/lib/agent-models";
 import { type AppBuildTarget, isAppBuildTarget } from "@/lib/app-build-target";
+import { useAppStore } from "@/lib/store/app-store";
 import { HomeComposer } from "./home-composer";
 
 type InitialComposerParams = {
@@ -24,6 +25,7 @@ export function HomeComposerFromSearchParams({
   quickActionsSlot?: HTMLElement | null | undefined;
 }) {
   const [params, setParams] = useState<InitialComposerParams | null>(null);
+  const resetToken = useAppStore((state) => state.homeComposerResetToken);
 
   useEffect(() => {
     const searchParams = new URLSearchParams(window.location.search);
@@ -39,7 +41,7 @@ export function HomeComposerFromSearchParams({
   }, []);
 
   if (!params) {
-    return <HomeComposer quickActionsSlot={quickActionsSlot} />;
+    return <HomeComposer key={resetToken} quickActionsSlot={quickActionsSlot} />;
   }
 
   return (
@@ -50,7 +52,7 @@ export function HomeComposerFromSearchParams({
       initialRepoUrl={params.repoUrl}
       initialSkill={params.skill}
       initialTool={params.tool}
-      key={`${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}:${params.appBuildTarget ?? ""}:${params.model ?? ""}:${params.repoUrl ?? ""}:${params.skillCreator ? "sc" : ""}`}
+      key={`${resetToken}:${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}:${params.appBuildTarget ?? ""}:${params.model ?? ""}:${params.repoUrl ?? ""}:${params.skillCreator ? "sc" : ""}`}
       quickActionsSlot={quickActionsSlot}
       skillCreator={params.skillCreator}
     />
