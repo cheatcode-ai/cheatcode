@@ -12,6 +12,12 @@ export {
 } from "./daytona-client";
 
 export {
+  executePublishDeliverable,
+  PublishDeliverableInputSchema,
+  PublishDeliverableOutputSchema,
+} from "./deliverable";
+
+export {
   ApplyFileInputSchema,
   ApplyFileOutputSchema,
   DeleteFileInputSchema,

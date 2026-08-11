@@ -18,9 +18,15 @@ const SlideItemSchema = z.strictObject({
 
 export const GenerateSlidesInputSchema = z.strictObject({
   filename: z.string().trim().min(1).max(160).optional(),
-  slides: z.array(SlideItemSchema).min(1).max(40),
+  slides: z
+    .array(SlideItemSchema)
+    .min(1)
+    .max(40)
+    .describe(
+      "Every visible slide in order, including any title slide. The deck title is metadata and does not create an extra slide.",
+    ),
   theme: z.enum(["minimal", "corporate", "creative"]).default("minimal"),
-  title: TextValueSchema,
+  title: TextValueSchema.describe("Deck title metadata; this does not add a visible slide."),
 });
 
 const DocumentSectionSchema = z.strictObject({

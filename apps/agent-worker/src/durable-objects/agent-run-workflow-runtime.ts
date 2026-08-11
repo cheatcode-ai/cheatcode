@@ -298,7 +298,10 @@ async function executePreparedWorkflowTool(input: {
     sandbox: input.sandbox,
     stub: input.stub,
   });
-  const prepared = await prepareMastraContext(runtime.mastraOptions(credential));
+  const prepared = await prepareMastraContext(
+    runtime.mastraOptions(credential),
+    input.toolCall.toolName,
+  );
   const requestContext = createAgentRequestContext(runtime.mastraOptions(credential), prepared);
   try {
     const output = await executeGeneralAgentTool({

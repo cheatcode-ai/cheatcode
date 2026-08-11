@@ -29,6 +29,10 @@ DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media and Googl
 browser tools resolve the user's Google AI BYOK key lazily when invoked. All three receive
 sandbox and R2 artifact capabilities through request-scoped contracts; they do
 not read environment variables, persist credentials, or log keys.
+Files produced through the general file or shell surfaces cross into durable user output only
+through `deliverable_publish`. The tool reads one project-confined finished file, derives its
+bounded artifact type from an explicit supported extension, and publishes it through the same
+R2-backed artifact runtime as native document, chart, research, and media generators.
 
 Tools execute autonomously inside the active request context. Sandbox operations
 remain project-root confined, browser actions remain origin-bound, connected-app

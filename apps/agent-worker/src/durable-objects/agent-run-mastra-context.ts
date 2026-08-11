@@ -17,8 +17,9 @@ type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
 type ResolvedToolCredentials = Awaited<ReturnType<typeof resolveAgentToolCredentials>>;
 type ResolvedUserSkillContext = Awaited<ReturnType<typeof resolveUserSkillContext>>;
 
-export interface PreparedMastraContext extends ResolvedUserSkillContext {
+export interface PreparedMastraContext extends Partial<ResolvedUserSkillContext> {
   toolCredentials: ResolvedToolCredentials;
+  userSkills: ResolvedUserSkillContext["userSkills"];
 }
 
 export interface MastraContextOptions {
@@ -35,23 +36,30 @@ export interface MastraContextOptions {
 /** Resolves request-scoped credentials and user skills inside the active Workflow step. */
 export async function prepareMastraContext(
   options: MastraContextOptions,
+  toolName?: string,
 ): Promise<PreparedMastraContext> {
   const toolCredentials = await resolveAgentToolCredentials({
     env: options.env,
     logger: options.logger,
     run: options.input,
     setRunStage: options.setRunStage,
+    ...(toolName ? { toolName } : {}),
   });
-  const userSkillContext = await resolveUserSkillContext(
-    options.env,
-    options.input.userId,
-    options.sandbox,
-  );
-  options.logger.info("agent_tool_credentials_resolved", {
-    composioConfigured: Boolean(toolCredentials.composioApiKey),
-    exaConfigured: Boolean(toolCredentials.exaApiKey),
-    firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
-  });
+  const userSkillContext =
+    !toolName || toolName.startsWith("skill_")
+      ? await resolveUserSkillContext(options.env, options.input.userId, options.sandbox)
+      : { userSkills: [] };
+  if (
+    toolCredentials.composioApiKey ||
+    toolCredentials.exaApiKey ||
+    toolCredentials.firecrawlApiKey
+  ) {
+    options.logger.info("agent_tool_credentials_resolved", {
+      composioConfigured: Boolean(toolCredentials.composioApiKey),
+      exaConfigured: Boolean(toolCredentials.exaApiKey),
+      firecrawlConfigured: Boolean(toolCredentials.firecrawlApiKey),
+    });
+  }
   return { ...userSkillContext, toolCredentials };
 }
 

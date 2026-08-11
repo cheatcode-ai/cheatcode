@@ -44,6 +44,12 @@ export const TOOL_CAPABILITIES = [
   tool("data", "data_analyze_csv", "Profile and summarize CSV data.", REMOTE_TOOL),
   tool("data", "data_chart", "Render an accessible SVG chart artifact.", DELIVERABLE_TOOL),
   tool("data", "data_scrape_to_csv", "Normalize extracted records to CSV.", REMOTE_TOOL),
+  tool(
+    "code",
+    "deliverable_publish",
+    "Publish a finished workspace file as a durable Deliverable.",
+    DELIVERABLE_TOOL,
+  ),
   tool("docs", "docs_generate_docx", "Generate a signed DOCX artifact.", DELIVERABLE_TOOL),
   tool("docs", "docs_generate_pdf", "Generate a signed PDF artifact.", DELIVERABLE_TOOL),
   tool("docs", "docs_generate_slides", "Generate a signed PPTX artifact.", DELIVERABLE_TOOL),

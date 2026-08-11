@@ -59,6 +59,7 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   data_analyze_csv: { verb: "Analyzed", argKeys: ["path", "file"] },
   data_chart: { verb: "Built a chart" },
   data_scrape_to_csv: { verb: "Scraped to CSV", argKeys: ["url"] },
+  deliverable_publish: { verb: "Published", argKeys: ["filename", "path"] },
   docs_generate_docx: { verb: "Generated a document" },
   docs_generate_pdf: { verb: "Generated a PDF" },
   docs_generate_slides: { verb: "Generated slides" },
