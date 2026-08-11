@@ -62,7 +62,7 @@ export function HomeWorkspace() {
           }
           computerOpen={computerVisible}
           content={<HomeContentPane computerOpen={computerVisible} />}
-          hasPreviewSurface={hasComputer}
+          hasComputer={hasComputer}
         />
       </SidebarContentFrame>
     </main>

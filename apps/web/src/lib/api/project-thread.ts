@@ -3,7 +3,6 @@
 import { CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage, toAgentRunId } from "@cheatcode/types";
 import {
   Paginated,
-  type ProjectMode,
   type ProjectSummary,
   ProjectSummarySchema,
   RecentThreadsResponseSchema,
@@ -478,14 +477,6 @@ function uiMessageRole(value: string): CheatcodeUIMessage["role"] | null {
     return value;
   }
   return null;
-}
-
-/** Maps the composer's preview/runtime choice to the persisted project mode. */
-export function buildSurfaceToMode(buildSurface: string | null): ProjectMode {
-  if (buildSurface === "mobile") {
-    return "app-builder-mobile";
-  }
-  return buildSurface === "web" ? "app-builder" : "general";
 }
 
 /** Derives a chat's title from its first prompt; an empty/absent prompt reads "New chat". */

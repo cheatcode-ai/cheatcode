@@ -3,12 +3,16 @@
 import type { IntegrationName } from "@cheatcode/types";
 import type { ProjectSummary } from "@cheatcode/types/api";
 import { useCallback, useState } from "react";
-import { COMPOSER_INTENTS, type IntentId } from "@/components/home/home-composer-intents";
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
+import { COMPOSER_WORK_INTENTS } from "@/components/home/home-composer-intents";
 import { resolveInitialSkill } from "@/components/home/use-initial-skill";
+import type { AppBuildTarget } from "@/lib/app-build-target";
 
 interface InitialSelection {
+  appBuildTarget: AppBuildTarget | null;
   initialSkill: ReturnType<typeof resolveInitialSkill>;
   initialTool: IntegrationName | null;
+  repoUrl: string | null;
   skillCreator: boolean;
 }
 
@@ -31,13 +35,15 @@ export function useHomeComposerSelection(initial: InitialSelection, focusTextare
 }
 
 function useHomeSelectionState(initial: InitialSelection) {
-  const [intentId, setIntentId] = useState<IntentId | null>(initial.initialSkill.intent);
+  const [intentId, setIntentId] = useState<ComposerWorkIntentId | null>(
+    initial.initialSkill.intent ?? appBuildTargetIntent(initial.appBuildTarget),
+  );
   const [skillChip, setSkillChip] = useState<string | null>(initial.initialSkill.chip);
   const [toolChip, setToolChip] = useState<IntegrationName | null>(initial.initialTool);
   const [selectedProject, setSelectedProject] = useState<ProjectSummary | null>(null);
-  const [repoUrl, setRepoUrl] = useState<string | null>(null);
+  const [repoUrl, setRepoUrl] = useState<string | null>(initial.repoUrl);
   const [skillCreatorMode, setSkillCreatorMode] = useState(initial.skillCreator);
-  const intent = COMPOSER_INTENTS.find((candidate) => candidate.id === intentId) ?? null;
+  const intent = COMPOSER_WORK_INTENTS.find((candidate) => candidate.id === intentId) ?? null;
   return {
     intent,
     intentId,
@@ -61,8 +67,8 @@ function useIntentSelectionActions(
 ) {
   const { intent, intentId, repoUrl, setIntentId, setRepoUrl, setSkillChip, skillChip } = state;
   const toggleIntent = useCallback(
-    (nextId: IntentId) => {
-      const nextIntent = COMPOSER_INTENTS.find((candidate) => candidate.id === nextId) ?? null;
+    (nextId: ComposerWorkIntentId) => {
+      const nextIntent = COMPOSER_WORK_INTENTS.find((candidate) => candidate.id === nextId) ?? null;
       const isClearing = intentId === nextId;
       setIntentId(isClearing ? null : nextId);
       setSkillChip(isClearing ? null : (nextIntent?.skill ?? null));
@@ -82,13 +88,18 @@ function useIntentSelectionActions(
   }, [focusTextarea, intent, setIntentId, setSkillChip, skillChip]);
 
   const selectQuickIntent = useCallback(
-    (nextId: IntentId) => {
+    (nextId: ComposerWorkIntentId) => {
       toggleIntent(nextId);
       window.requestAnimationFrame(focusTextarea);
     },
     [focusTextarea, toggleIntent],
   );
   return { clearIntent, selectQuickIntent, toggleIntent };
+}
+
+function appBuildTargetIntent(target: AppBuildTarget | null): ComposerWorkIntentId | null {
+  if (target === "mobile") return "mobile-app";
+  return target === "web" ? "web-app" : null;
 }
 
 function useResourceSelectionActions(state: ReturnType<typeof useHomeSelectionState>) {

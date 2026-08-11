@@ -8,7 +8,7 @@ import { ConsoleStrip } from "@/components/preview/console-strip";
 import { PreviewUrlBar } from "@/components/preview/preview-url-bar";
 import { SandboxIdeTab } from "@/components/preview/sandbox-ide-tab";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
-import type { PreviewTab } from "@/lib/store/app-store";
+import type { ComputerTab } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 
 /** The user-scoped Computer shown on home before a chat or project is selected. */
@@ -21,7 +21,7 @@ export function HomeComputerPane({
   onClose: () => void;
   onOpen: () => void;
 }) {
-  const [activeTab, setActiveTab] = useState<PreviewTab>("files");
+  const [activeTab, setActiveTab] = useState<ComputerTab>("files");
 
   return (
     <>
@@ -42,10 +42,10 @@ function HomeComputerAside({
   onClose,
   setActiveTab,
 }: {
-  activeTab: PreviewTab;
+  activeTab: ComputerTab;
   computerOpen: boolean;
   onClose: () => void;
-  setActiveTab: (tab: PreviewTab) => void;
+  setActiveTab: (tab: ComputerTab) => void;
 }) {
   return (
     <aside
@@ -70,19 +70,19 @@ function HomeComputerBody({
   onClose,
   setActiveTab,
 }: {
-  activeTab: PreviewTab;
+  activeTab: ComputerTab;
   computerOpen: boolean;
   onClose: () => void;
-  setActiveTab: (tab: PreviewTab) => void;
+  setActiveTab: (tab: ComputerTab) => void;
 }) {
   return (
     <div className="flex h-full max-h-full w-full min-w-0 flex-col gap-2 overflow-hidden bg-background">
       <ComputerPanelTabs
-        activePreviewTab={activeTab}
+        activeComputerTab={activeTab}
         deliverableCount={0}
         projectId={null}
         projectName={null}
-        setActivePreviewTab={setActiveTab}
+        setActiveComputerTab={setActiveTab}
         setPreviewPanelOpen={(open) => {
           if (!open) onClose();
         }}
@@ -102,7 +102,7 @@ function HomeComputerTabContent({
   activeTab,
   computerOpen,
 }: {
-  activeTab: PreviewTab;
+  activeTab: ComputerTab;
   computerOpen: boolean;
 }) {
   return (
@@ -114,7 +114,7 @@ function HomeComputerTabContent({
           threadId={null}
         />
       </Activity>
-      <Activity mode={activeTab === "app" ? "visible" : "hidden"}>
+      <Activity mode={activeTab === "browser" ? "visible" : "hidden"}>
         <HomeBrowserEmpty />
       </Activity>
     </div>

@@ -1,72 +1,86 @@
 import type { ComponentType } from "react";
-import { skillBuildSurface } from "@/components/home/use-initial-skill";
-import { Globe, Smartphone, Star, TrendingUp } from "@/components/ui";
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
+import { skillAppBuildTarget } from "@/components/home/use-initial-skill";
+import { FileText, Globe, Image, Smartphone, Star, TrendingUp } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
+import type { AppBuildTarget } from "@/lib/app-build-target";
 
-export type IntentId = "data" | "mobile-app" | "research" | "slides" | "web-app";
-
-/** Runtime/preview topology only; research, data, and slides remain work intents. */
-export type BuildSurface = "mobile" | "web";
-
-export type ComposerIntent = {
+export type ComposerWorkIntent = {
   icon: ComponentType<{ className?: string; "aria-hidden"?: boolean | "false" | "true" }>;
-  id: IntentId;
+  id: ComposerWorkIntentId;
   label: string;
   placeholder: string;
   skill: null | string;
-  buildSurface: BuildSurface | null;
+  appBuildTarget: AppBuildTarget | null;
 };
 
-export const COMPOSER_INTENTS: readonly ComposerIntent[] = [
+export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
   {
+    appBuildTarget: "mobile",
     icon: Smartphone,
     id: "mobile-app",
     label: "Mobile app",
     placeholder: "Describe the app - I'll build it with a live phone preview",
     skill: null,
-    buildSurface: "mobile",
   },
   {
+    appBuildTarget: "web",
     icon: Globe,
     id: "web-app",
     label: "Web app",
     placeholder: "Describe the site or web app - I'll build and preview it",
     skill: null,
-    buildSurface: "web",
   },
   {
+    appBuildTarget: null,
     icon: Star,
     id: "slides",
     label: "Slides",
     placeholder: "What's the deck about? Audience and key points help",
     skill: "pitch-deck",
-    buildSurface: null,
   },
   {
+    appBuildTarget: null,
     icon: CheatcodeMark,
     id: "research",
     label: "Research",
     placeholder: "What should I research? I'll fan out agents and cite sources",
     skill: "deep-research",
-    buildSurface: null,
   },
   {
+    appBuildTarget: null,
     icon: TrendingUp,
     id: "data",
     label: "Data",
     placeholder: "Attach or describe the data - I'll profile and chart it",
     skill: "csv-analyst",
-    buildSurface: null,
+  },
+  {
+    appBuildTarget: null,
+    icon: FileText,
+    id: "documents",
+    label: "Documents",
+    placeholder: "Describe the report, memo, PDF, or document you need",
+    skill: null,
+  },
+  {
+    appBuildTarget: null,
+    icon: Image,
+    id: "media",
+    label: "Media",
+    placeholder: "Describe the image or video you want to create or edit",
+    skill: "generate-media",
   },
 ] as const;
 
-export const QUICK_ACTION_PRIMARY_INTENTS = COMPOSER_INTENTS.slice(0, 2);
-export const QUICK_ACTION_SECONDARY_INTENTS = COMPOSER_INTENTS.slice(2);
+export const QUICK_ACTION_PRIMARY_INTENTS = COMPOSER_WORK_INTENTS.slice(0, 2);
+export const QUICK_ACTION_SECONDARY_INTENTS = COMPOSER_WORK_INTENTS.slice(2, 5);
+export const QUICK_ACTION_TERTIARY_INTENTS = COMPOSER_WORK_INTENTS.slice(5);
 
 /** The skill to attach on submit — a repo import carries no skill. */
 export function resolveSubmitSkill(
   repoUrl: string | null,
-  intent: ComposerIntent | null,
+  intent: ComposerWorkIntent | null,
   skillChip: string | null,
 ): string | null {
   if (repoUrl) {
@@ -75,15 +89,15 @@ export function resolveSubmitSkill(
   return intent?.skill ?? skillChip;
 }
 
-/** The build surface (mobile/web/null) implied by the current intent or imported repo. */
-export function resolveSubmitBuildSurface(
+/** The app target implied by the current intent, skill, or imported repository. */
+export function resolveSubmitAppBuildTarget(
   repoUrl: string | null,
-  intentId: IntentId | null,
-  intent: ComposerIntent | null,
+  intentId: ComposerWorkIntentId | null,
+  intent: ComposerWorkIntent | null,
   skillChip: string | null,
-): BuildSurface | null {
+): AppBuildTarget | null {
   if (repoUrl) {
     return intentId === "mobile-app" ? "mobile" : "web";
   }
-  return intent ? intent.buildSurface : skillBuildSurface(skillChip);
+  return intent ? intent.appBuildTarget : skillAppBuildTarget(skillChip);
 }

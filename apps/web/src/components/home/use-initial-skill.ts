@@ -1,17 +1,24 @@
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
+import type { AppBuildTarget } from "@/lib/app-build-target";
 
-type SkillIntent = "data" | "research" | "slides";
-export type SkillBuildSurface = "mobile" | "web";
+type SkillIntent = Extract<
+  ComposerWorkIntentId,
+  "data" | "documents" | "media" | "research" | "slides"
+>;
 
-// Skills that map onto an existing intent pill (the design's slide/research/data lanes).
+// Skills that map onto an existing composer work-intent choice.
 const SKILL_TO_INTENT: Record<string, SkillIntent> = {
   "csv-analyst": "data",
   "deep-research": "research",
+  docx: "documents",
+  "generate-media": "media",
+  pdf: "documents",
   "pitch-deck": "slides",
 };
 
-// Skills that fix the build surface but have no intent pill.
-const SKILL_TO_BUILD_SURFACE: Record<string, SkillBuildSurface> = {
+// Skills that imply an app runtime target without becoming a durable project mode themselves.
+const SKILL_TO_APP_BUILD_TARGET: Record<string, AppBuildTarget> = {
   "mobile-app": "mobile",
 };
 
@@ -39,6 +46,6 @@ export function resolveInitialSkill(skill: string | null | undefined): InitialSk
   return { chip: skill, intent: null };
 }
 
-export function skillBuildSurface(skill: string | null): SkillBuildSurface | null {
-  return skill ? (SKILL_TO_BUILD_SURFACE[skill] ?? null) : null;
+export function skillAppBuildTarget(skill: string | null): AppBuildTarget | null {
+  return skill ? (SKILL_TO_APP_BUILD_TARGET[skill] ?? null) : null;
 }

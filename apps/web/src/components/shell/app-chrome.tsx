@@ -71,7 +71,7 @@ function MobileRouteHeader({ pathname }: { pathname: string }) {
         <Link
           aria-label="Create skill"
           className="ml-auto flex size-8 items-center justify-center rounded-full text-fg-secondary transition-colors hover:bg-secondary hover:text-foreground"
-          href="/?mode=skill-creator"
+          href="/?intent=skill-creator"
         >
           <Plus aria-hidden="true" className="size-4" />
         </Link>

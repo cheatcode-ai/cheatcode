@@ -32,8 +32,9 @@ export async function launchIntoProject(
 /**
  * Builds the opaque `?promptKey=…` handoff query for routing into a chat
  * (`/chats/{threadId}`) so the workspace auto-runs the first message. The chat id
- * rides the path, not the query. Carries no `surface`/`model` — the chat's launch
- * intent owns the build surface and a per-run model choice rides the zustand store.
+ * rides the path, not the query. App target, repository import, and default model
+ * are already persisted on the newly created chat; this handoff carries only the
+ * prompt and constrained run intent consumed by the chat workspace.
  */
 export function buildExistingProjectParams(
   prompt: string,

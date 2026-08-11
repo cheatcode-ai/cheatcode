@@ -7,7 +7,7 @@ import {
 import type { ProjectSummary } from "@cheatcode/types/api";
 import type { ChatStatus } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
-import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
+import { type ComputerTab, useAppStore } from "@/lib/store/app-store";
 
 type SandboxStatusData = Extract<
   CheatcodeUIMessage["parts"][number],
@@ -20,17 +20,17 @@ type AppPreviewStatusData = Extract<
 >["data"];
 
 export interface SandboxStatusActions {
-  setActivePreviewTab: (tab: PreviewTab) => void;
+  setActiveComputerTab: (tab: ComputerTab) => void;
   setAppPreviewStatus: (status: AppPreviewStatusData["status"] | "idle") => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setSandboxStatus: (status: SandboxState) => void;
 }
 
-interface WorkspaceSurfaceActions extends SandboxStatusActions {
+interface ComputerViewActions extends SandboxStatusActions {
   requestPreviewReload: () => void;
 }
 
-interface SandboxSurfaceSyncInput extends SandboxStatusActions {
+interface SandboxComputerSyncInput extends SandboxStatusActions {
   chatStatus: ChatStatus;
   messages: readonly CheatcodeUIMessage[];
   project: ProjectSummary | null;
@@ -39,99 +39,97 @@ interface SandboxSurfaceSyncInput extends SandboxStatusActions {
   setExpoUrl: (url: null | string) => void;
   setPreviewPanelOpen: (open: boolean) => void;
   setPreviewUrl: (url: null | string) => void;
-  surfaceApplier: WorkspaceSurfaceApplier;
+  viewApplier: ComputerViewApplier;
 }
 
-export type SurfaceCommand =
+export type ComputerViewCommand =
   | { kind: "preview-status"; status: AppPreviewStatusData["status"] }
   | { kind: "status"; status: SandboxStatusData["status"] }
   | { kind: "open-browser-preview"; shouldReload: boolean; toolCallId: string };
 
-export interface WorkspaceSurfaceApplier {
-  apply: (command: SurfaceCommand) => void;
+export interface ComputerViewApplier {
+  apply: (command: ComputerViewCommand) => void;
   reset: () => void;
 }
 
-interface WorkspaceSurfaceApplierInput extends WorkspaceSurfaceActions {
+interface ComputerViewApplierInput extends ComputerViewActions {
   projectId: string | null;
   threadId: string;
 }
 
-interface SurfaceCommandState {
+interface ComputerViewCommandState {
   openedBrowserToolKeys: Set<string>;
   scopeKey: string;
 }
 
-interface HydratedSurfaceCommands {
-  browser: SurfaceCommand | null;
-  preview: SurfaceCommand | null;
-  status: SurfaceCommand | null;
+interface HydratedComputerViewCommands {
+  browser: ComputerViewCommand | null;
+  preview: ComputerViewCommand | null;
+  status: ComputerViewCommand | null;
 }
 
-export function useWorkspaceSurfaceApplier(
-  input: WorkspaceSurfaceApplierInput,
-): WorkspaceSurfaceApplier {
+export function useComputerViewApplier(input: ComputerViewApplierInput): ComputerViewApplier {
   const scopeKey = `${input.threadId}:${input.projectId ?? ""}`;
-  const stateRef = useRef<SurfaceCommandState>(createSurfaceCommandState(scopeKey));
+  const stateRef = useRef<ComputerViewCommandState>(createComputerViewCommandState(scopeKey));
   if (stateRef.current.scopeKey !== scopeKey) {
-    stateRef.current = createSurfaceCommandState(scopeKey);
+    stateRef.current = createComputerViewCommandState(scopeKey);
   }
   const actions = useMemo(
     () => ({
       requestPreviewReload: input.requestPreviewReload,
-      setActivePreviewTab: input.setActivePreviewTab,
+      setActiveComputerTab: input.setActiveComputerTab,
       setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
     [
       input.requestPreviewReload,
-      input.setActivePreviewTab,
+      input.setActiveComputerTab,
       input.setAppPreviewStatus,
       input.setPreviewPanelOpen,
       input.setSandboxStatus,
     ],
   );
   const apply = useCallback(
-    (command: SurfaceCommand) =>
-      applyWorkspaceSurfaceCommand(command, input.threadId, stateRef.current, actions),
+    (command: ComputerViewCommand) =>
+      applyComputerViewCommand(command, input.threadId, stateRef.current, actions),
     [actions, input.threadId],
   );
   const reset = useCallback(() => {
-    stateRef.current = createSurfaceCommandState(scopeKey);
+    stateRef.current = createComputerViewCommandState(scopeKey);
   }, [scopeKey]);
   return useMemo(() => ({ apply, reset }), [apply, reset]);
 }
 
-export function useSandboxSurfaceSync(input: SandboxSurfaceSyncInput): void {
-  const commands = useMemo(() => hydratedSurfaceCommands(input.messages), [input.messages]);
+export function useSandboxComputerSync(input: SandboxComputerSyncInput): void {
+  const commands = useMemo(() => hydratedComputerViewCommands(input.messages), [input.messages]);
   const status = commands.status?.kind === "status" ? commands.status.status : null;
   const defaultedProjectFilesRef = useRef<string | null>(null);
   const previousStatusRef = useRef(input.chatStatus);
   const actions = useMemo(
     () => ({
-      setActivePreviewTab: input.setActivePreviewTab,
+      setActiveComputerTab: input.setActiveComputerTab,
       setAppPreviewStatus: input.setAppPreviewStatus,
       setPreviewPanelOpen: input.setPreviewPanelOpen,
       setSandboxStatus: input.setSandboxStatus,
     }),
     [
-      input.setActivePreviewTab,
+      input.setActiveComputerTab,
       input.setAppPreviewStatus,
       input.setPreviewPanelOpen,
       input.setSandboxStatus,
     ],
   );
 
-  useResetSandboxSurface(input);
-  useHydratedSurfaceCommand(commands.status, input.surfaceApplier);
-  useHydratedSurfaceCommand(commands.preview, input.surfaceApplier);
+  useResetSandboxComputer(input);
+  useHydratedComputerViewCommand(commands.status, input.viewApplier);
+  useHydratedComputerViewCommand(commands.preview, input.viewApplier);
   useProjectFilesDefault(input.project, status, actions, defaultedProjectFilesRef);
-  useHydratedSurfaceCommand(commands.browser, input.surfaceApplier);
+  useHydratedComputerViewCommand(commands.browser, input.viewApplier);
   useCompletionPreview(input.chatStatus, previousStatusRef);
 }
 
-export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
+export function computerViewEffect(part: unknown): ComputerViewCommand | null {
   if (!isRecord(part)) {
     return null;
   }
@@ -156,9 +154,9 @@ export function workspaceSurfaceEffect(part: unknown): SurfaceCommand | null {
     : null;
 }
 
-function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
+function useResetSandboxComputer(input: SandboxComputerSyncInput): void {
   useEffect(() => {
-    input.surfaceApplier.reset();
+    input.viewApplier.reset();
     input.resetConsole();
     input.resetPreviewNavigation();
     input.setAppPreviewStatus("idle");
@@ -174,13 +172,13 @@ function useResetSandboxSurface(input: SandboxSurfaceSyncInput): void {
     input.setPreviewPanelOpen,
     input.setPreviewUrl,
     input.setSandboxStatus,
-    input.surfaceApplier,
+    input.viewApplier,
   ]);
 }
 
-function useHydratedSurfaceCommand(
-  command: SurfaceCommand | null,
-  applier: WorkspaceSurfaceApplier,
+function useHydratedComputerViewCommand(
+  command: ComputerViewCommand | null,
+  applier: ComputerViewApplier,
 ): void {
   useEffect(() => {
     if (command) {
@@ -200,7 +198,7 @@ function useProjectFilesDefault(
       return;
     }
     defaultedProjectFilesRef.current = project.id;
-    actions.setActivePreviewTab("files");
+    actions.setActiveComputerTab("files");
   }, [actions, defaultedProjectFilesRef, project, status]);
 }
 
@@ -222,8 +220,10 @@ function useCompletionPreview(
   }, [previousStatusRef, status]);
 }
 
-function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): HydratedSurfaceCommands {
-  const commands: HydratedSurfaceCommands = { browser: null, preview: null, status: null };
+function hydratedComputerViewCommands(
+  messages: readonly CheatcodeUIMessage[],
+): HydratedComputerViewCommands {
+  const commands: HydratedComputerViewCommands = { browser: null, preview: null, status: null };
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
     const message = messages[messageIndex];
     if (!message) {
@@ -235,15 +235,15 @@ function hydratedSurfaceCommands(messages: readonly CheatcodeUIMessage[]): Hydra
       if (!part) {
         continue;
       }
-      recordHydratedSurfaceCommand(commands, workspaceSurfaceEffect(part));
+      recordHydratedComputerViewCommand(commands, computerViewEffect(part));
     }
   }
   return commands;
 }
 
-function recordHydratedSurfaceCommand(
-  commands: HydratedSurfaceCommands,
-  command: SurfaceCommand | null,
+function recordHydratedComputerViewCommand(
+  commands: HydratedComputerViewCommands,
+  command: ComputerViewCommand | null,
 ): void {
   if (command?.kind === "status") {
     commands.status = command;
@@ -254,11 +254,11 @@ function recordHydratedSurfaceCommand(
   }
 }
 
-function applyWorkspaceSurfaceCommand(
-  command: SurfaceCommand,
+function applyComputerViewCommand(
+  command: ComputerViewCommand,
   threadId: string,
-  state: SurfaceCommandState,
-  actions: WorkspaceSurfaceActions,
+  state: ComputerViewCommandState,
+  actions: ComputerViewActions,
 ): void {
   if (command.kind === "status") {
     if (useAppStore.getState().sandboxStatus !== command.status) {
@@ -280,11 +280,11 @@ function applyWorkspaceSurfaceCommand(
   if (command.shouldReload) {
     actions.requestPreviewReload();
   }
-  actions.setActivePreviewTab("app");
+  actions.setActiveComputerTab("browser");
   actions.setPreviewPanelOpen(true);
 }
 
-function createSurfaceCommandState(scopeKey: string): SurfaceCommandState {
+function createComputerViewCommandState(scopeKey: string): ComputerViewCommandState {
   return { openedBrowserToolKeys: new Set<string>(), scopeKey };
 }
 
