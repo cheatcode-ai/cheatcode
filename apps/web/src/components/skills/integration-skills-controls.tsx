@@ -31,7 +31,7 @@ export function SkillsHeader({
         <SkillsSearch onSearch={onSearch} search={search} />
         <Link
           className="relative hidden h-8 shrink-0 items-center justify-center overflow-hidden rounded-full bg-foreground px-4 py-2 font-medium text-background text-sm shadow-[inset_0_1px_0_rgba(255,255,255,.15),0_1px_3px_rgba(0,0,0,.2)] transition-transform duration-200 ease-out before:absolute before:inset-0 before:bg-gradient-to-b before:from-white/20 before:opacity-50 before:transition-opacity hover:before:opacity-0 active:scale-[.99] md:inline-flex"
-          href="/?mode=skill-creator"
+          href="/?intent=skill-creator"
         >
           Create skill
         </Link>

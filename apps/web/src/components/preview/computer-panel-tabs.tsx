@@ -14,39 +14,39 @@ import {
 } from "@/components/ui";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { downloadProjectArchive } from "@/lib/api/project-thread";
-import type { PreviewTab } from "@/lib/store/app-store";
+import type { ComputerTab } from "@/lib/store/app-store";
 import { cn } from "@/lib/ui/cn";
 import { useDismissable } from "@/lib/ui/use-dismissable";
 import { ComputerToggleButton } from "./computer-toggle-button";
 import type { BrowserTakeoverController } from "./use-browser-takeover";
 
-const TABS: ReadonlyArray<{ label: string; value: PreviewTab }> = [
+const TABS: ReadonlyArray<{ label: string; value: ComputerTab }> = [
   { label: "Files", value: "files" },
-  { label: "Browser", value: "app" },
+  { label: "Browser", value: "browser" },
 ];
 
 interface ComputerPanelTabsProps {
-  activePreviewTab: PreviewTab;
+  activeComputerTab: ComputerTab;
   browserTakeover?: BrowserTakeoverController;
   deliverableCount: number;
   projectId: string | null;
   projectName: string | null;
-  setActivePreviewTab: (tab: PreviewTab) => void;
+  setActiveComputerTab: (tab: ComputerTab) => void;
   setPreviewPanelOpen: (open: boolean) => void;
 }
 
 export function ComputerPanelTabs({
-  activePreviewTab,
+  activeComputerTab,
   browserTakeover,
   deliverableCount,
   projectId,
   projectName,
-  setActivePreviewTab,
+  setActiveComputerTab,
   setPreviewPanelOpen,
 }: ComputerPanelTabsProps) {
   return (
     <div className="relative z-20 hidden h-12 w-full shrink-0 items-center overflow-visible md:flex">
-      <ComputerTabSelector activeTab={activePreviewTab} onSelect={setActivePreviewTab} />
+      <ComputerTabSelector activeTab={activeComputerTab} onSelect={setActiveComputerTab} />
       <ComputerPanelActions
         {...(browserTakeover ? { browserTakeover } : {})}
         deliverableCount={deliverableCount}
@@ -62,8 +62,8 @@ function ComputerTabSelector({
   activeTab,
   onSelect,
 }: {
-  activeTab: PreviewTab;
-  onSelect: (tab: PreviewTab) => void;
+  activeTab: ComputerTab;
+  onSelect: (tab: ComputerTab) => void;
 }) {
   return (
     <div
@@ -234,7 +234,7 @@ function DeliverablesButton({ count }: { count: number }) {
   );
 }
 
-function computerTabStyle(activeTab: PreviewTab): CSSProperties {
+function computerTabStyle(activeTab: ComputerTab): CSSProperties {
   return {
     "--active-tab-left": activeTab === "files" ? "3px" : "57.664px",
     "--active-tab-width": activeTab === "files" ? "52.664px" : "75.383px",

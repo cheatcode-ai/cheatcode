@@ -17,6 +17,7 @@ import { ComposerTextarea } from "@/components/composer/composer-textarea";
 import { ModelMenu } from "@/components/composer/model-menu";
 import { ProjectPicker } from "@/components/composer/project-picker";
 import type { ComposerTriggers } from "@/components/composer/use-composer-triggers";
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
 import {
   type HomeComposerProps,
   useHomeComposerController,
@@ -26,7 +27,7 @@ import {
   RemovableChip,
   SkillCreatorSuggestions,
 } from "@/components/home/home-composer-controls";
-import type { ComposerIntent, IntentId } from "@/components/home/home-composer-intents";
+import type { ComposerWorkIntent } from "@/components/home/home-composer-intents";
 import { SandboxUsageBanner } from "@/components/home/home-composer-plan-banner";
 import { repoLabel } from "@/components/home/home-composer-prompt-state";
 import { ArrowUp, X } from "@/components/ui";
@@ -149,7 +150,7 @@ function HomeComposerEditor(props: HomeComposerEditorProps) {
 interface HomeComposerToolbarProps {
   attachmentInputRef: RefObject<HTMLInputElement | null>;
   canSubmit: boolean;
-  intent: ComposerIntent | null;
+  intent: ComposerWorkIntent | null;
   onAttachmentChange: (event: ChangeEvent<HTMLInputElement>) => void;
   onClearIntent: () => void;
   onOpenFilePicker: () => void;
@@ -251,8 +252,8 @@ function QuickActionsPortal({
   skillCreatorMode,
   slot,
 }: {
-  activeIntentId: IntentId | null;
-  onIntentClick: (intentId: IntentId) => void;
+  activeIntentId: ComposerWorkIntentId | null;
+  onIntentClick: (intentId: ComposerWorkIntentId) => void;
   onSkillCreatorPick: (text: string) => void;
   skillCreatorMode: boolean;
   slot: HTMLElement | null | undefined;
@@ -311,7 +312,7 @@ function HomeIntentChip({
   intent,
   onClear,
 }: {
-  intent: ComposerIntent | null;
+  intent: ComposerWorkIntent | null;
   onClear: () => void;
 }) {
   if (!intent) {

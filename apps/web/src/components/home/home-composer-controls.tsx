@@ -1,10 +1,11 @@
 "use client";
 
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
 import {
-  type ComposerIntent,
-  type IntentId,
+  type ComposerWorkIntent,
   QUICK_ACTION_PRIMARY_INTENTS,
   QUICK_ACTION_SECONDARY_INTENTS,
+  QUICK_ACTION_TERTIARY_INTENTS,
 } from "@/components/home/home-composer-intents";
 import { Puzzle, X } from "@/components/ui";
 import { cn } from "@/lib/ui/cn";
@@ -50,8 +51,8 @@ export function HomeQuickActions({
   activeIntentId,
   onIntentClick,
 }: {
-  activeIntentId: IntentId | null;
-  onIntentClick: (intentId: IntentId) => void;
+  activeIntentId: ComposerWorkIntentId | null;
+  onIntentClick: (intentId: ComposerWorkIntentId) => void;
 }) {
   return (
     <div className="paper-soft-panel mx-auto flex w-full max-w-[448px] flex-col gap-1 overflow-hidden rounded-[17px] p-1">
@@ -77,6 +78,17 @@ export function HomeQuickActions({
           />
         ))}
       </div>
+      <div className="grid w-full grid-cols-2 gap-1">
+        {QUICK_ACTION_TERTIARY_INTENTS.map((intent) => (
+          <HomeQuickAction
+            active={activeIntentId === intent.id}
+            icon={intent.icon}
+            key={intent.id}
+            label={intent.label}
+            onClick={() => onIntentClick(intent.id)}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -88,7 +100,7 @@ function HomeQuickAction({
   onClick,
 }: {
   active: boolean;
-  icon: ComposerIntent["icon"];
+  icon: ComposerWorkIntent["icon"];
   label: string;
   onClick: () => void;
 }) {

@@ -5,25 +5,23 @@ import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
 import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
-import type {
-  BuildSurface,
-  ComposerIntent,
-  IntentId,
-} from "@/components/home/home-composer-intents";
+import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
+import type { ComposerWorkIntent } from "@/components/home/home-composer-intents";
 import {
-  resolveSubmitBuildSurface,
+  resolveSubmitAppBuildTarget,
   resolveSubmitSkill,
 } from "@/components/home/home-composer-intents";
 import { buildLaunchParams } from "@/components/home/home-composer-prompt-state";
 import { type AgentModelId, agentModelRequestValue } from "@/lib/agent-models";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
-import { buildSurfaceToMode, createChat, threadTitle } from "@/lib/api/project-thread";
+import { createChat, threadTitle } from "@/lib/api/project-thread";
+import { type AppBuildTarget, appBuildTargetToProjectMode } from "@/lib/app-build-target";
 import { assertUserMessageWithinLimit } from "@/lib/input/prompt-attachments";
 
 interface HomeSubmissionState {
   agentModelId: AgentModelId;
-  intent: ComposerIntent | null;
-  intentId: IntentId | null;
+  intent: ComposerWorkIntent | null;
+  intentId: ComposerWorkIntentId | null;
   repoUrl: string | null;
   selectedProject: ProjectSummary | null;
   skillChip: string | null;
@@ -33,7 +31,7 @@ interface HomeSubmissionState {
 }
 
 interface HomeSubmissionSnapshot {
-  buildSurface: BuildSurface | null;
+  appBuildTarget: AppBuildTarget | null;
   intent: RunIntent | null;
   model: null | string;
   project: ProjectSummary | null;
@@ -98,7 +96,7 @@ function buildSubmissionSnapshot(state: HomeSubmissionState): HomeSubmissionSnap
     return null;
   }
   return {
-    buildSurface: resolveSubmitBuildSurface(
+    appBuildTarget: resolveSubmitAppBuildTarget(
       state.repoUrl,
       state.intentId,
       state.intent,
@@ -157,7 +155,7 @@ async function startNewChat(
     const thread = await createChat(runtime.getToken, {
       initialPrompt: snapshot.prompt,
       title: threadTitle(snapshot.prompt),
-      mode: buildSurfaceToMode(snapshot.buildSurface),
+      mode: appBuildTargetToProjectMode(snapshot.appBuildTarget),
       ...(snapshot.repoUrl ? { importRepoUrl: snapshot.repoUrl } : {}),
       ...(snapshot.model ? { defaultModel: snapshot.model } : {}),
     });
@@ -178,7 +176,7 @@ function preservePromptForSignIn(
       model: snapshot.model,
       prompt: snapshot.prompt,
       repo: snapshot.repoUrl,
-      buildSurface: snapshot.buildSurface,
+      appBuildTarget: snapshot.appBuildTarget,
     });
     runtime.setAuthRedirectTo(`/?${params.toString()}`);
   } catch (error) {

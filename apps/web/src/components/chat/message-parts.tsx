@@ -133,7 +133,7 @@ type SkillCreatedData = Extract<MessagePart, { type: "data-skill-created" }>["da
 function SkillCreatedBlock({ data, threadId }: { data: SkillCreatedData; threadId: string }) {
   const { getToken } = useAuth();
   const queryClient = useQueryClient();
-  const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
+  const setActiveComputerTab = useAppStore((state) => state.setActiveComputerTab);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
   const mutation = useMutation({
     mutationFn: async () => {
@@ -144,7 +144,7 @@ function SkillCreatedBlock({ data, threadId }: { data: SkillCreatedData; threadI
       toast.error(error instanceof Error ? error.message : "The skill file could not be opened."),
     onSuccess: (session) => {
       queryClient.setQueryData(["sandbox-ide", threadId], session);
-      setActivePreviewTab("files");
+      setActiveComputerTab("files");
       setPreviewPanelOpen(true);
     },
   });

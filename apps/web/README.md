@@ -74,6 +74,27 @@ Product QA is direct `agent-browser --auto-connect --session cheatcode-debug`
 interaction against the running app plus console/network/log review. Do not add
 or run browser-flow scripts for web acceptance testing.
 
+## Composer and Computer semantics
+
+The composer keeps three independent product concepts separate:
+
+- `ComposerWorkIntentId` describes what the user wants to accomplish. Web app,
+  mobile app, slides, research, data, documents, and media are discoverable
+  composer choices. These choices guide prompt context; they are not all project
+  modes.
+- `AppBuildTarget` is only the runtime topology for generated applications:
+  `web` or `mobile`. It maps to `app-builder` or `app-builder-mobile`; every
+  non-app work intent remains a `general` project and can still create typed
+  Deliverables.
+- `ComputerTab` is only the visible workspace view: `browser` or `files`.
+  Artifact kind and MIME type decide how an output renders; neither work intent
+  nor app target selects the Computer tab.
+
+Signed-out launch handoff validates and restores `buildTarget`, model, and
+public GitHub repository state before chat creation. The opaque prompt and
+constrained run intent use the same one-shot handoff path. No `surface` query
+parameter or persisted `app` tab alias is supported.
+
 ## Env
 
 - `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY`

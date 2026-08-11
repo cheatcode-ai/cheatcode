@@ -18,7 +18,7 @@ import { Monitor } from "@/components/ui";
 import { CheatcodeLoader } from "@/components/ui/cheatcode-loader";
 import { CheatcodeTooltip } from "@/components/ui/cheatcode-tooltip";
 import { RecoveryCard } from "@/components/ui/recovery-card";
-import type { PreviewDevice, PreviewTab } from "@/lib/store/app-store";
+import type { ComputerTab, PreviewDevice } from "@/lib/store/app-store";
 import { useAppStore } from "@/lib/store/app-store";
 import { emitFirstPreviewOpened } from "@/lib/telemetry/user-events";
 import { cn } from "@/lib/ui/cn";
@@ -88,15 +88,15 @@ function usePreviewPanelController(
   const browserTakeover = useBrowserTakeover(activeRunId, threadId);
   useEffect(() => {
     if (!browserTakeover.session) return;
-    store.setActivePreviewTab("app");
+    store.setActiveComputerTab("browser");
     store.setPreviewPanelOpen(true);
-  }, [browserTakeover.session, store.setActivePreviewTab, store.setPreviewPanelOpen]);
+  }, [browserTakeover.session, store.setActiveComputerTab, store.setPreviewPanelOpen]);
   return { ...store, browserTakeover, isMobile, isRunActive, previewLive };
 }
 
 function usePreviewPanelStore() {
   return {
-    activePreviewTab: useAppStore((state) => normalizeComputerTab(state.activePreviewTab)),
+    activeComputerTab: useAppStore((state) => state.activeComputerTab),
     appPreviewStatus: useAppStore((state) => state.appPreviewStatus),
     expoUrl: useAppStore((state) => state.expoUrl),
     previewDevice: useAppStore((state) => state.previewDevice),
@@ -105,7 +105,7 @@ function usePreviewPanelStore() {
     previewReloadToken: useAppStore((state) => state.previewReloadToken),
     previewUrl: useAppStore((state) => state.previewUrl),
     sandboxStatus: useAppStore((state) => state.sandboxStatus),
-    setActivePreviewTab: useAppStore((state) => state.setActivePreviewTab),
+    setActiveComputerTab: useAppStore((state) => state.setActiveComputerTab),
     setPreviewPanelOpen: useAppStore((state) => state.setPreviewPanelOpen),
   };
 }
@@ -192,16 +192,16 @@ function PreviewPanelAside({
     >
       <div className="flex h-full max-h-full w-full min-w-0 flex-col gap-2 overflow-hidden bg-background">
         <ComputerPanelTabs
-          activePreviewTab={controller.activePreviewTab}
+          activeComputerTab={controller.activeComputerTab}
           deliverableCount={deliverableCount}
           projectId={project?.id ?? null}
           projectName={project?.name ?? null}
           browserTakeover={controller.browserTakeover}
-          setActivePreviewTab={controller.setActivePreviewTab}
+          setActiveComputerTab={controller.setActiveComputerTab}
           setPreviewPanelOpen={controller.setPreviewPanelOpen}
         />
         <ComputerSurfaceFrame
-          consoleStrip={previewConsoleStrip(controller.activePreviewTab, project, threadId)}
+          consoleStrip={previewConsoleStrip(controller.activeComputerTab, project, threadId)}
         >
           <PanelBody {...panelBodyProps(controller, project, threadId)} />
         </ComputerSurfaceFrame>
@@ -220,7 +220,7 @@ function previewPanelClass(isOpen: boolean): string {
 }
 
 function previewConsoleStrip(
-  activeTab: PreviewTab,
+  activeTab: ComputerTab,
   project: ProjectSummary | null,
   threadId: string,
 ) {
@@ -235,7 +235,7 @@ function panelBodyProps(
   threadId: string,
 ): PanelBodyProps {
   return {
-    activePreviewTab: controller.activePreviewTab,
+    activeComputerTab: controller.activeComputerTab,
     appPreviewStatus: controller.appPreviewStatus,
     computerOpen: controller.previewPanelOpen,
     device: controller.previewDevice,
@@ -256,7 +256,7 @@ function panelBodyProps(
 }
 
 interface PanelBodyProps {
-  activePreviewTab: PreviewTab;
+  activeComputerTab: ComputerTab;
   appPreviewStatus: ReturnType<typeof useAppStore.getState>["appPreviewStatus"];
   computerOpen: boolean;
   device: PreviewDevice;
@@ -276,7 +276,7 @@ interface PanelBodyProps {
 }
 
 function PanelBody({
-  activePreviewTab,
+  activeComputerTab,
   appPreviewStatus,
   computerOpen,
   device,
@@ -296,7 +296,7 @@ function PanelBody({
 }: PanelBodyProps) {
   return (
     <div className="h-full min-h-0">
-      <Activity mode={activePreviewTab === "app" ? "visible" : "hidden"}>
+      <Activity mode={activeComputerTab === "browser" ? "visible" : "hidden"}>
         {browserTakeover.session ? (
           <BrowserTakeoverSurface browserTakeover={browserTakeover} />
         ) : (
@@ -317,9 +317,9 @@ function PanelBody({
           />
         )}
       </Activity>
-      <Activity mode={activePreviewTab === "files" ? "visible" : "hidden"}>
+      <Activity mode={activeComputerTab === "files" ? "visible" : "hidden"}>
         <SandboxIdeTab
-          active={computerOpen && activePreviewTab === "files"}
+          active={computerOpen && activeComputerTab === "files"}
           previewReloadToken={previewReloadToken}
           threadId={threadId}
         />
@@ -330,7 +330,7 @@ function PanelBody({
 
 type AppTabProps = Omit<
   PanelBodyProps,
-  "activePreviewTab" | "browserTakeover" | "computerOpen" | "threadId"
+  "activeComputerTab" | "browserTakeover" | "computerOpen" | "threadId"
 >;
 
 function AppTab({
@@ -529,10 +529,6 @@ function requestedPreviewIframeUrl(
   previewReloadToken: number,
 ): string | null {
   return previewUrl ? buildPreviewIframeSrc(previewUrl, previewPath, previewReloadToken) : null;
-}
-
-function normalizeComputerTab(tab: PreviewTab): PreviewTab {
-  return tab === "files" ? "files" : "app";
 }
 
 function PreviewWakeError({ onRetry }: { onRetry: () => Promise<void> }) {

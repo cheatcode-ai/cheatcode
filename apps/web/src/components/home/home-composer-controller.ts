@@ -19,11 +19,16 @@ import { useHomeComposerSelection } from "@/components/home/use-home-composer-se
 import { useHomeComposerSubmission } from "@/components/home/use-home-composer-submission";
 import { useHomePromptState } from "@/components/home/use-home-prompt-state";
 import { resolveInitialSkill } from "@/components/home/use-initial-skill";
+import type { AgentModelId } from "@/lib/agent-models";
+import type { AppBuildTarget } from "@/lib/app-build-target";
 import { usePromptHandoff } from "@/lib/hooks/use-prompt-handoff";
 import { useAppStore } from "@/lib/store/app-store";
 
 export interface HomeComposerProps {
+  initialAppBuildTarget?: AppBuildTarget | undefined;
+  initialModel?: AgentModelId | undefined;
   initialPromptKey?: string | undefined;
+  initialRepoUrl?: string | undefined;
   initialSkill?: string | undefined;
   initialTool?: IntegrationName | undefined;
   quickActionsSlot?: HTMLElement | null | undefined;
@@ -31,19 +36,11 @@ export interface HomeComposerProps {
 }
 
 export function useHomeComposerController(input: HomeComposerProps) {
-  const identity = useHomeComposerIdentity();
+  const identity = useHomeComposerIdentity(input.initialModel);
   const textarea = useHomeComposerTextarea();
   const prompt = useHomePromptState();
   useInitialPromptHandoff(input.initialPromptKey, prompt);
-  const initialSkill = useResolvedInitialSkill(input.initialSkill);
-  const selection = useHomeComposerSelection(
-    {
-      initialSkill,
-      initialTool: input.initialTool ?? null,
-      skillCreator: input.skillCreator ?? false,
-    },
-    textarea.focus,
-  );
+  const selection = useInitialHomeSelection(input, textarea.focus);
   const uploads = useProjectFileUploads({
     getToken: identity.getToken,
     latestValueRef: prompt.refs.latestValueRef,
@@ -89,12 +86,39 @@ export function useHomeComposerController(input: HomeComposerProps) {
   });
 }
 
-function useHomeComposerIdentity() {
+function useInitialHomeSelection(input: HomeComposerProps, focusTextarea: () => void) {
+  const initialSkill = useResolvedInitialSkill(input.initialSkill);
+  return useHomeComposerSelection(
+    {
+      appBuildTarget: input.initialAppBuildTarget ?? null,
+      initialSkill,
+      initialTool: input.initialTool ?? null,
+      repoUrl: input.initialRepoUrl ?? null,
+      skillCreator: input.skillCreator ?? false,
+    },
+    focusTextarea,
+  );
+}
+
+function useHomeComposerIdentity(initialModel: AgentModelId | undefined) {
   const router = useRouter();
   const { getToken: getAuthToken } = useAuth();
   const getToken = useCallback(() => resolveComposerAuthToken(getAuthToken), [getAuthToken]);
   const agentModelId = useAppStore((state) => state.agentModelId);
+  useInitialAgentModel(initialModel);
   return { agentModelId, getToken, router };
+}
+
+function useInitialAgentModel(initialModel: AgentModelId | undefined): void {
+  useEffect(() => {
+    if (!initialModel) return;
+    const applyInitialModel = () => useAppStore.getState().setAgentModelId(initialModel);
+    const unsubscribe = useAppStore.persist.onFinishHydration(applyInitialModel);
+    if (useAppStore.persist.hasHydrated()) {
+      applyInitialModel();
+    }
+    return unsubscribe;
+  }, [initialModel]);
 }
 
 function useHomeComposerTextarea() {

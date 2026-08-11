@@ -20,7 +20,7 @@ type WorkspaceStyle = CSSProperties & { "--cc-chat-pane-size": string };
 /**
  * The canonical "computer open" workspace shell shared by the chat/projects view
  * and the home page. A flex container (`.cc-agent-run-layout`) whose flex-basis
- * rules live in `globals.css` (`data-preview-surface` + `data-computer-open`):
+ * rules live in `effects.css` (`data-computer-available` + `data-computer-open`):
  *
  *   [ .cc-agent-chat-pane (content) ] [ .cc-agent-run-divider ] [ .cc-agent-computer-pane (computer) ]
  *
@@ -33,27 +33,27 @@ export function WorkspaceRunLayout({
   computer,
   computerOpen,
   content,
-  hasPreviewSurface,
+  hasComputer,
 }: {
   computer: ReactNode;
   computerOpen: boolean;
   content: ReactNode;
-  hasPreviewSurface: boolean;
+  hasComputer: boolean;
 }) {
   const pane = useWorkspacePaneSize();
 
   return (
     <div
-      className={workspaceRunLayoutClass(hasPreviewSurface)}
+      className={workspaceRunLayoutClass(hasComputer)}
+      data-computer-available={hasComputer ? "true" : "false"}
       data-computer-open={computerOpen ? "true" : "false"}
-      data-preview-surface={hasPreviewSurface ? "true" : "false"}
       ref={pane.layoutRef}
       style={pane.style}
     >
-      <section className={workspaceChatPaneClass(hasPreviewSurface)}>{content}</section>
+      <section className={workspaceChatPaneClass(hasComputer)}>{content}</section>
       <RunPanelDivider
         computerOpen={computerOpen}
-        hasPreviewSurface={hasPreviewSurface}
+        hasComputer={hasComputer}
         onReset={pane.reset}
         onResize={pane.resizeFromClientX}
         value={pane.value}
@@ -81,18 +81,15 @@ function panePercentFromClientX(element: HTMLDivElement | null, clientX: number)
   return clampPanePercent(((clientX - bounds.left) / bounds.width) * 100);
 }
 
-function workspaceRunLayoutClass(hasPreviewSurface: boolean): string {
+function workspaceRunLayoutClass(hasComputer: boolean): string {
   return cn(
     "cc-agent-run-layout flex min-h-0 min-w-0 flex-1",
-    hasPreviewSurface ? "flex-col motion-reduce:transition-none md:flex-row" : null,
+    hasComputer ? "flex-col motion-reduce:transition-none md:flex-row" : null,
   );
 }
 
-function workspaceChatPaneClass(hasPreviewSurface: boolean): string {
-  return cn(
-    "cc-agent-chat-pane flex min-w-0 flex-1 flex-col",
-    hasPreviewSurface ? "min-h-0" : null,
-  );
+function workspaceChatPaneClass(hasComputer: boolean): string {
+  return cn("cc-agent-chat-pane flex min-w-0 flex-1 flex-col", hasComputer ? "min-h-0" : null);
 }
 
 function stopPanelResize(event: PointerEvent<HTMLHRElement>) {
@@ -105,7 +102,7 @@ function stopPanelResize(event: PointerEvent<HTMLHRElement>) {
 
 interface RunPanelDividerProps {
   computerOpen: boolean;
-  hasPreviewSurface: boolean;
+  hasComputer: boolean;
   onReset: () => void;
   onResize: (clientX: number) => void;
   value: number;
@@ -113,12 +110,12 @@ interface RunPanelDividerProps {
 
 function RunPanelDivider({
   computerOpen,
-  hasPreviewSurface,
+  hasComputer,
   onReset,
   onResize,
   value,
 }: RunPanelDividerProps) {
-  if (!hasPreviewSurface) {
+  if (!hasComputer) {
     return null;
   }
   return (

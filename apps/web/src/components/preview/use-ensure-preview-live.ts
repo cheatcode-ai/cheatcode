@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getSandboxPreviewStatus, wakeSandboxPreview } from "@/lib/api/project-thread";
-import { type PreviewTab, useAppStore } from "@/lib/store/app-store";
+import { type ComputerTab, useAppStore } from "@/lib/store/app-store";
 
 export type PreviewLivePhase = "booting" | "error" | "live";
 
@@ -34,7 +34,7 @@ interface PreviewRefreshAttempt {
 interface PreviewRefreshDependencies {
   bumpPreviewReloadToken: () => void;
   getToken: () => Promise<null | string>;
-  setActivePreviewTab: (tab: PreviewTab) => void;
+  setActiveComputerTab: (tab: ComputerTab) => void;
   setExpoUrl: (url: string | null) => void;
   setPreviewUrl: (url: string | null) => void;
   threadId: null | string;
@@ -68,7 +68,7 @@ export function useEnsurePreviewLive(
   active: boolean,
   sandboxStatus: string,
 ): PreviewLiveState {
-  const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
+  const setActiveComputerTab = useAppStore((state) => state.setActiveComputerTab);
   const bumpPreviewReloadToken = useAppStore((state) => state.bumpPreviewReloadToken);
   const setPreviewUrl = useAppStore((state) => state.setPreviewUrl);
   const setExpoUrl = useAppStore((state) => state.setExpoUrl);
@@ -76,7 +76,7 @@ export function useEnsurePreviewLive(
   const runtime = usePreviewLiveRuntime(
     bumpPreviewReloadToken,
     getToken,
-    setActivePreviewTab,
+    setActiveComputerTab,
     setExpoUrl,
     setPreviewUrl,
     threadId,
@@ -97,7 +97,7 @@ export function useEnsurePreviewLive(
 function usePreviewLiveRuntime(
   bumpPreviewReloadToken: PreviewRefreshDependencies["bumpPreviewReloadToken"],
   getToken: PreviewRefreshDependencies["getToken"],
-  setActivePreviewTab: PreviewRefreshDependencies["setActivePreviewTab"],
+  setActiveComputerTab: PreviewRefreshDependencies["setActiveComputerTab"],
   setExpoUrl: PreviewRefreshDependencies["setExpoUrl"],
   setPreviewUrl: PreviewRefreshDependencies["setPreviewUrl"],
   threadId: string | null,
@@ -106,7 +106,7 @@ function usePreviewLiveRuntime(
     deps: {
       bumpPreviewReloadToken,
       getToken,
-      setActivePreviewTab,
+      setActiveComputerTab,
       setExpoUrl,
       setPreviewUrl,
       threadId,
@@ -121,12 +121,12 @@ function usePreviewLiveRuntime(
     runtimeRef.current.deps = {
       bumpPreviewReloadToken,
       getToken,
-      setActivePreviewTab,
+      setActiveComputerTab,
       setExpoUrl,
       setPreviewUrl,
       threadId,
     };
-  }, [bumpPreviewReloadToken, getToken, setActivePreviewTab, setExpoUrl, setPreviewUrl, threadId]);
+  }, [bumpPreviewReloadToken, getToken, setActiveComputerTab, setExpoUrl, setPreviewUrl, threadId]);
   return runtimeRef.current;
 }
 
@@ -362,12 +362,12 @@ function applyPreviewRefreshResult(
     deps.setPreviewUrl(result.url);
     deps.setExpoUrl(result.expoUrl ?? null);
     if (shouldActivateApp) {
-      deps.setActivePreviewTab("app");
+      deps.setActiveComputerTab("browser");
     }
   } else {
     deps.setPreviewUrl(null);
     deps.setExpoUrl(null);
-    deps.setActivePreviewTab("files");
+    deps.setActiveComputerTab("files");
     setPhase("live");
     return PREVIEW_SESSION_REFRESH_MS;
   }

@@ -7,7 +7,7 @@ import { createJSONStorage, persist } from "zustand/middleware";
 import { type AgentModelId, DEFAULT_AGENT_MODEL_ID, isAgentModelId } from "@/lib/agent-models";
 import { type ConsoleLine, mergeConsoleLines } from "@/lib/preview/console";
 
-export type PreviewTab = "app" | "files";
+export type ComputerTab = "browser" | "files";
 export type PreviewDevice = "desktop" | "tablet" | "phone";
 type ConnectionState = "online" | "offline";
 
@@ -30,7 +30,7 @@ export interface FilesOpenRequest {
 const PREVIEW_PATH_HISTORY_MAX = 50;
 
 interface AppStoreState {
-  activePreviewTab: PreviewTab;
+  activeComputerTab: ComputerTab;
   agentModelId: AgentModelId;
   appPreviewStatus: AppPreviewState;
   connectionState: ConnectionState;
@@ -72,7 +72,7 @@ interface AppStoreActions {
   resetPreviewNavigation: () => void;
   requestFileOpen: (threadId: string, path: string) => void;
   requestPreviewReload: () => void;
-  setActivePreviewTab: (tab: PreviewTab) => void;
+  setActiveComputerTab: (tab: ComputerTab) => void;
   setAgentModelId: (modelId: AgentModelId) => void;
   setAppPreviewStatus: (status: AppPreviewState) => void;
   setConnectionState: (state: ConnectionState) => void;
@@ -92,7 +92,7 @@ interface AppStore extends AppStoreState, AppStoreActions {}
 
 type PersistedAppStore = Pick<
   AppStore,
-  "activePreviewTab" | "agentModelId" | "previewDevice" | "sidebarCollapsed"
+  "activeComputerTab" | "agentModelId" | "previewDevice" | "sidebarCollapsed"
 >;
 
 export const useAppStore = create<AppStore>()(
@@ -102,7 +102,7 @@ export const useAppStore = create<AppStore>()(
     // Preview and Expo URLs are bearer capabilities. They must remain memory-only and are
     // reacquired from authenticated endpoints whenever the corresponding panel opens.
     partialize: (state): PersistedAppStore => ({
-      activePreviewTab: state.activePreviewTab,
+      activeComputerTab: state.activeComputerTab,
       agentModelId: state.agentModelId,
       previewDevice: state.previewDevice,
       sidebarCollapsed: state.sidebarCollapsed,
@@ -126,7 +126,7 @@ function createAppStore(set: AppStoreSet): AppStore {
 
 function initialAppStoreState(): AppStoreState {
   return {
-    activePreviewTab: "app",
+    activeComputerTab: "browser",
     agentModelId: DEFAULT_AGENT_MODEL_ID,
     appPreviewStatus: "idle",
     connectionState: "online",
@@ -213,7 +213,7 @@ function createPreviewActions(set: AppStoreSet) {
       }),
     requestPreviewReload: () =>
       set((state) => ({ previewReloadRequestToken: state.previewReloadRequestToken + 1 })),
-    setActivePreviewTab: (activePreviewTab: PreviewTab) => set({ activePreviewTab }),
+    setActiveComputerTab: (activeComputerTab: ComputerTab) => set({ activeComputerTab }),
     setAppPreviewStatus: (appPreviewStatus: AppPreviewState) => set({ appPreviewStatus }),
     setExpoUrl: (expoUrl: string | null) => set({ expoUrl }),
     setPreviewDevice: (previewDevice: PreviewDevice) => set({ previewDevice }),
@@ -259,10 +259,10 @@ function mergePersistedAppStore(persisted: unknown, current: AppStore): AppStore
   }
   return {
     ...current,
-    activePreviewTab:
-      persisted["activePreviewTab"] === "app" || persisted["activePreviewTab"] === "files"
-        ? persisted["activePreviewTab"]
-        : current.activePreviewTab,
+    activeComputerTab:
+      persisted["activeComputerTab"] === "browser" || persisted["activeComputerTab"] === "files"
+        ? persisted["activeComputerTab"]
+        : current.activeComputerTab,
     agentModelId: isAgentModelId(persisted["agentModelId"])
       ? persisted["agentModelId"]
       : current.agentModelId,

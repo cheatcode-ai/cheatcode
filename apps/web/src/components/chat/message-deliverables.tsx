@@ -351,7 +351,7 @@ function useDeliverableDownload(
 
 function useOpenImageInFiles(data: ArtifactData, threadId: string, afterOpen: () => void) {
   const requestFileOpen = useAppStore((state) => state.requestFileOpen);
-  const setActivePreviewTab = useAppStore((state) => state.setActivePreviewTab);
+  const setActiveComputerTab = useAppStore((state) => state.setActiveComputerTab);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
   return () => {
     const path = imageWorkspacePath(data);
@@ -360,22 +360,22 @@ function useOpenImageInFiles(data: ArtifactData, threadId: string, afterOpen: ()
       return;
     }
     requestFileOpen(threadId, path);
-    setActivePreviewTab("files");
+    setActiveComputerTab("files");
     setPreviewPanelOpen(true);
     afterOpen();
   };
 }
 
 function useAutoOpenLatestImage(items: readonly ArtifactData[], threadId: string): void {
-  const activePreviewTab = useAppStore((state) => state.activePreviewTab);
+  const activeComputerTab = useAppStore((state) => state.activeComputerTab);
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const requestFileOpen = useAppStore((state) => state.requestFileOpen);
   const latestImage = items.findLast(isImageArtifact);
   const latestImagePath = latestImage ? imageWorkspacePath(latestImage) : null;
   useEffect(() => {
-    if (!previewPanelOpen || activePreviewTab !== "files" || !latestImagePath) return;
+    if (!previewPanelOpen || activeComputerTab !== "files" || !latestImagePath) return;
     requestFileOpen(threadId, latestImagePath);
-  }, [activePreviewTab, latestImagePath, previewPanelOpen, requestFileOpen, threadId]);
+  }, [activeComputerTab, latestImagePath, previewPanelOpen, requestFileOpen, threadId]);
 }
 
 function imageWorkspacePath(data: ArtifactData): string | null {

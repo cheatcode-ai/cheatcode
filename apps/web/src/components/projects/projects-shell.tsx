@@ -29,10 +29,7 @@ import { useAppStore } from "@/lib/store/app-store";
 
 const PROMPT_URL_STATE = {
   intent: parseAsString,
-  model: parseAsString,
   promptKey: parseAsString,
-  repo: parseAsString,
-  surface: parseAsString,
 } as const;
 
 export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string }) {
@@ -70,7 +67,7 @@ function useProjectsShell(threadIdProp: string | undefined) {
   const hasProject = projectId !== null;
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const hasPreviewSurface = hasProject || sandboxStatus !== "cold";
+  const hasComputer = hasProject || sandboxStatus !== "cold";
   const deliverableCount = countDeliverables(initialMessages);
   const loadOlderMessages = useOlderThreadMessagesLoader(initialMessagesQuery);
 
@@ -89,7 +86,7 @@ function useProjectsShell(threadIdProp: string | undefined) {
       initialMessagesQuery.hasTranscriptIntegrityError ||
       projectQuery.isError ||
       threadQuery.isError,
-    hasPreviewSurface,
+    hasComputer,
     initialMessages,
     initialMessagesQuery,
     isRetrying: retry.isRetrying,
@@ -180,7 +177,7 @@ function ProjectsWorkspace({
           threadId={threadId}
         />
       }
-      hasPreviewSurface={shell.hasPreviewSurface}
+      hasComputer={shell.hasComputer}
     />
   );
 }
@@ -221,10 +218,7 @@ function useInitialChatPrompt(
     }
     void setUrlState({
       intent: null,
-      model: null,
       promptKey: null,
-      repo: null,
-      surface: null,
     });
   }, [setUrlState, urlState]);
   return { clearPromptParams, prompt, runIntent };
@@ -251,9 +245,7 @@ function useRefreshThreadProjectOnSandboxChange(input: {
 function hasPromptUrlState(
   urlState: Record<keyof typeof PROMPT_URL_STATE, null | string>,
 ): boolean {
-  return Boolean(
-    urlState.intent ?? urlState.model ?? urlState.promptKey ?? urlState.repo ?? urlState.surface,
-  );
+  return Boolean(urlState.intent ?? urlState.promptKey);
 }
 
 function useThreadQuery(getToken: () => Promise<null | string>, threadId: null | string) {

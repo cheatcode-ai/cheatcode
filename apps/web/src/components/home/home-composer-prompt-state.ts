@@ -1,11 +1,11 @@
 "use client";
 
 import type { RunIntent } from "@cheatcode/types/api";
-import type { BuildSurface } from "@/components/home/home-composer-intents";
+import type { AppBuildTarget } from "@/lib/app-build-target";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
 
 export function buildLaunchParams(input: {
-  buildSurface: BuildSurface | null;
+  appBuildTarget: AppBuildTarget | null;
   intent: RunIntent | null;
   model: null | string;
   prompt: string;
@@ -18,8 +18,8 @@ export function buildLaunchParams(input: {
   if (input.prompt.length > 0) {
     params.set("promptKey", createPromptHandoff(input.prompt).promptKey);
   }
-  if (input.buildSurface) {
-    params.set("surface", input.buildSurface);
+  if (input.appBuildTarget) {
+    params.set("buildTarget", input.appBuildTarget);
   }
   if (input.model) {
     params.set("model", input.model);

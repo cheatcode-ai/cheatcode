@@ -21,14 +21,14 @@ import {
   useVisibleStreamResume,
 } from "@/components/chat/use-chat-lifecycle";
 import { useChatSubmission } from "@/components/chat/use-chat-submission";
-import type { OlderMessagesLoadResult } from "@/components/chat/use-message-list-scroll";
 import {
+  type ComputerViewApplier,
+  computerViewEffect,
   type SandboxStatusActions,
-  useSandboxSurfaceSync,
-  useWorkspaceSurfaceApplier,
-  type WorkspaceSurfaceApplier,
-  workspaceSurfaceEffect,
-} from "@/components/chat/use-sandbox-surface-sync";
+  useComputerViewApplier,
+  useSandboxComputerSync,
+} from "@/components/chat/use-computer-view-sync";
+import type { OlderMessagesLoadResult } from "@/components/chat/use-message-list-scroll";
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
 import { invalidateChatLists, projectKeys, threadKeys } from "@/lib/api/query-keys";
@@ -65,16 +65,16 @@ export function useChatPanelController(input: ChatPanelProps) {
 
 function useChatPanelRuntime(input: ChatPanelProps) {
   const store = useChatPanelStore(input.threadId);
-  const surfaceApplier = useWorkspaceSurfaceApplier({
+  const viewApplier = useComputerViewApplier({
     projectId: input.project?.id ?? null,
     requestPreviewReload: store.requestPreviewReload,
-    setActivePreviewTab: store.setActivePreviewTab,
+    setActiveComputerTab: store.setActiveComputerTab,
     setAppPreviewStatus: store.setAppPreviewStatus,
     setPreviewPanelOpen: store.setPreviewPanelOpen,
     setSandboxStatus: store.setSandboxStatus,
     threadId: input.threadId,
   });
-  const runtime = useChatRuntimeBase(input, store, surfaceApplier);
+  const runtime = useChatRuntimeBase(input, store, viewApplier);
   const resumeStream = useSerializedResume(runtime.chat.resumeStream);
   const messages = useDeferredValue(runtime.chat.messages);
   const loadOlderMessages = useOlderMessageLoader(
@@ -88,7 +88,7 @@ function useChatPanelRuntime(input: ChatPanelProps) {
     pendingSubmissionRef: runtime.pendingSubmissionRef,
     queryClient: runtime.queryClient,
     resumeStream,
-    surfaceApplier,
+    viewApplier,
   });
   return { ...runtime, loadOlderMessages, messages, store };
 }
@@ -96,7 +96,7 @@ function useChatPanelRuntime(input: ChatPanelProps) {
 function useChatRuntimeBase(
   input: ChatPanelProps,
   store: ReturnType<typeof useChatPanelStore>,
-  surfaceApplier: WorkspaceSurfaceApplier,
+  viewApplier: ComputerViewApplier,
 ) {
   const { getToken } = useAuth();
   const router = useRouter();
@@ -127,7 +127,7 @@ function useChatRuntimeBase(
     queryClient,
     setRunStartedAt,
     sandboxActions: store,
-    surfaceApplier,
+    viewApplier,
     threadId: input.threadId,
     transport,
   });
@@ -272,7 +272,7 @@ function useChatPanelStore(threadId: string) {
     requestPreviewReload: useAppStore((state) => state.requestPreviewReload),
     resetConsole: useAppStore((state) => state.resetConsole),
     resetPreviewNavigation: useAppStore((state) => state.resetPreviewNavigation),
-    setActivePreviewTab: useAppStore((state) => state.setActivePreviewTab),
+    setActiveComputerTab: useAppStore((state) => state.setActiveComputerTab),
     setAppPreviewStatus: useAppStore((state) => state.setAppPreviewStatus),
     setDraft: useAppStore((state) => state.setDraft),
     setExpoUrl: useAppStore((state) => state.setExpoUrl),
@@ -311,7 +311,7 @@ function useChatSession(input: {
   queryClient: ReturnType<typeof useQueryClient>;
   setRunStartedAt: (value: null | number) => void;
   sandboxActions: SandboxStatusActions;
-  surfaceApplier: WorkspaceSurfaceApplier;
+  viewApplier: ComputerViewApplier;
   threadId: string;
   transport: ReturnType<typeof createChatTransport>;
 }) {
@@ -356,9 +356,9 @@ function handleStreamData(
   if (part.type === "data-seq") {
     handleSequenceData(part.data, input.threadId);
   }
-  const surfaceCommand = workspaceSurfaceEffect(part);
-  if (surfaceCommand) {
-    input.surfaceApplier.apply(surfaceCommand);
+  const viewCommand = computerViewEffect(part);
+  if (viewCommand) {
+    input.viewApplier.apply(viewCommand);
   }
   if (part.type === "data-project-created") {
     handleProjectCreatedData(part.data, input);
@@ -393,7 +393,7 @@ function handleSkillCreatedData(
   const parsed = CHEATCODE_DATA_SCHEMAS["skill-created"].safeParse(data);
   if (parsed.success) {
     void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
-    actions.setActivePreviewTab("files");
+    actions.setActiveComputerTab("files");
     actions.setPreviewPanelOpen(true);
   }
 }
@@ -405,7 +405,7 @@ function handleProjectCreated(
   input.queryClient.setQueryData<Thread>(threadKeys.detail(input.threadId), (thread) =>
     thread ? { ...thread, projectId } : thread,
   );
-  input.sandboxActions.setActivePreviewTab("files");
+  input.sandboxActions.setActiveComputerTab("files");
   input.sandboxActions.setPreviewPanelOpen(true);
   for (const queryKey of [threadKeys.detail(input.threadId), projectKeys.detail(projectId)]) {
     void input.queryClient.invalidateQueries({ queryKey });
@@ -471,22 +471,22 @@ function useChatPanelEffects(
     pendingSubmissionRef: { current: PendingSubmission | null };
     queryClient: ReturnType<typeof useQueryClient>;
     resumeStream: () => Promise<void>;
-    surfaceApplier: WorkspaceSurfaceApplier;
+    viewApplier: ComputerViewApplier;
   },
 ): void {
-  useSandboxSurfaceSync({
+  useSandboxComputerSync({
     chatStatus: chat.status,
     messages,
     project: input.project,
     resetConsole: store.resetConsole,
     resetPreviewNavigation: store.resetPreviewNavigation,
-    setActivePreviewTab: store.setActivePreviewTab,
+    setActiveComputerTab: store.setActiveComputerTab,
     setAppPreviewStatus: store.setAppPreviewStatus,
     setExpoUrl: store.setExpoUrl,
     setPreviewPanelOpen: store.setPreviewPanelOpen,
     setPreviewUrl: store.setPreviewUrl,
     setSandboxStatus: store.setSandboxStatus,
-    surfaceApplier: shared.surfaceApplier,
+    viewApplier: shared.viewApplier,
   });
   useConnectionStateSync();
   useVisibleStreamResume({
