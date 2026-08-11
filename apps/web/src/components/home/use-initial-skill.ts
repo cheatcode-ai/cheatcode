@@ -15,6 +15,7 @@ const SKILL_TO_INTENT: Record<string, SkillIntent> = {
   "generate-media": "media",
   pdf: "documents",
   "pitch-deck": "slides",
+  pptx: "slides",
 };
 
 // Skills that imply an app runtime target without becoming a durable project mode themselves.
@@ -25,7 +26,7 @@ const SKILL_TO_APP_BUILD_TARGET: Record<string, AppBuildTarget> = {
 export interface InitialSkillResolution {
   /** The selected skill chip shown in the composer. */
   chip: string | null;
-  /** Intent pill to pre-activate (pitch-deck/deep-research/csv-analyst). */
+  /** Intent pill represented by the selected bundled skill. */
   intent: SkillIntent | null;
 }
 

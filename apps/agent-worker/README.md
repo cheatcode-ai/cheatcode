@@ -88,9 +88,12 @@ provider keys and sandbox capabilities are reacquired inside the active step and
 Workflow storage. A Worker isolate or Durable Object eviction therefore resumes from the last
 completed step instead of losing an in-memory coroutine. Transcript publication uses deterministic
 event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicate visible parts.
-Failed sandbox tools return a bounded model-facing projection of their exit code, hint, command
-output, and managed-process logs, so the next model turn can correct the failure instead of
-retrying blind. Those internal diagnostics are not promoted into user-facing assistant text.
+Failed tools return a bounded structured model-facing error with its stable code, message, hint,
+and explicit retry policy. Sandbox failures may also include bounded command output and
+managed-process logs. The next model turn can therefore correct a retriable failure once while
+treating plan, permission, validation, and other non-retriable failures as terminal for that
+operation instead of looping. Those internal diagnostics are not promoted into user-facing
+assistant text.
 Tool steps resolve only the credentials required by the invoked capability: ordinary data, file,
 code, and document work does not open research-key or connected-app database transactions. User
 skill packages are restored lazily when a skill is invoked instead of being projected into the

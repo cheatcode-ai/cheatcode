@@ -8,7 +8,7 @@
   "scripts": {
     "build": "wrangler deploy --dry-run",
     "lint": "biome check .",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental false"
   },
   "dependencies": {
     "@cheatcode/auth": "workspace:*",

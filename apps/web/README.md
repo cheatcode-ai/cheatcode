@@ -81,7 +81,9 @@ The composer keeps three independent product concepts separate:
 - `ComposerWorkIntentId` describes what the user wants to accomplish. Web app,
   mobile app, slides, research, data, documents, and media are discoverable
   composer choices. These choices guide prompt context; they are not all project
-  modes.
+  modes. The generic Slides choice activates the general PPTX workflow, never the
+  fundraising-specific pitch-deck skill. Explicit PPTX and pitch-deck skill deep
+  links both select the Slides intent while preserving the skill the user chose.
 - `AppBuildTarget` is only the runtime topology for generated applications:
   `web` or `mobile`. It maps to `app-builder` or `app-builder-mobile`; every
   non-app work intent remains a `general` project and can still create typed

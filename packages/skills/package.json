@@ -20,7 +20,7 @@
     "build": "tsc -p tsconfig.json",
     "lint": "biome check .",
     "skills:build": "tsx ../../scripts/build-skills.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental false"
   },
   "devDependencies": {
     "@cheatcode/tsconfig": "workspace:*",

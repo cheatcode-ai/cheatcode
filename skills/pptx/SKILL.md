@@ -9,7 +9,8 @@ compatibility: Requires the snapshot-bundled Python Office scripts, OOXML schema
 
 # PPTX Skill
 
-Before using this skill, always install the required dependencies first or verify they are already installed.
+The presentation runtime and its document dependencies are preinstalled. Do not install or upgrade
+packages unless an actual missing-dependency error proves the runtime is incomplete.
 
 ## Quick Reference
 
@@ -18,6 +19,18 @@ Before using this skill, always install the required dependencies first or verif
 | Read/analyze content | `python -m markitdown presentation.pptx` |
 | Edit or create from template | Read [editing.md](editing.md) |
 | Create from scratch | Read [pptxgenjs.md](pptxgenjs.md) |
+
+## Choose the Right Production Path
+
+- For a concise presentation with ordinary text, callouts, and simple structure, use
+  `docs_generate_slides`. Preserve the user's exact requested slide count. Its returned
+  `slideCount` is the authoritative structural check.
+- For a custom visual system, complex diagrams, a supplied template, or detailed layout control,
+  use the sandbox workflow described below.
+- Do not add research, extra sections, speaker notes, or a title slide unless the user asks for
+  them or they are necessary to satisfy the stated outcome.
+- Do not convert a general presentation into an investor pitch. Load the `pitch-deck` skill only
+  when the user explicitly asks for a fundraising, investor, seed, or demo-day deck.
 
 ---
 
@@ -143,11 +156,19 @@ Choose colors that match your topic — don't default to generic blue. Use these
 
 ---
 
-## QA (Required)
+## QA
 
-**Assume there are problems. Your job is to find them.**
+Match verification effort to how the deck was made and the risk of the request.
 
-Your first render is almost never correct. Approach QA as a bug hunt, not a confirmation step. If you found zero issues on first inspection, you weren't looking hard enough.
+- For `docs_generate_slides`, confirm its returned `slideCount`, convert the deck to PDF, and render
+  one representative slide. If the count is exact and that render has no clipping, overlap,
+  placeholder text, or contrast problem, finish.
+- Inspect every slide when the deck uses custom or template-driven layout, is high-stakes, the user
+  asks for exhaustive visual QA, or the representative render reveals a defect.
+- After a defect is fixed, re-render only the affected slide unless the change alters a shared
+  theme or layout.
+- A clean first inspection is a valid pass. Never invent a defect or perform a cosmetic rewrite
+  solely to create a fix-and-verify cycle.
 
 ### Content QA
 
@@ -166,8 +187,6 @@ python -m markitdown output.pptx | grep -iE "xxxx|lorem|ipsum|this.*(page|slide)
 If grep returns results, fix them before declaring success.
 
 ### Visual QA
-
-**⚠️ USE SUBAGENTS** — even for 2-3 slides. You've been staring at the code and will see what you expect, not what's there. Subagents have fresh eyes.
 
 Convert slides to images (see [Converting to Images](#converting-to-images)), then use this prompt:
 
@@ -188,7 +207,7 @@ Look for:
 - Text boxes too narrow causing excessive wrapping
 - Leftover placeholder content
 
-For each slide, list issues or areas of concern, even if minor.
+Report concrete issues only. A slide that passes does not need a fabricated concern.
 
 Read and analyze these images:
 1. /path/to/slide-01.jpg (Expected: [brief description])
@@ -200,12 +219,9 @@ Report ALL issues found, including minor ones.
 ### Verification Loop
 
 1. Generate slides → Convert to images → Inspect
-2. **List issues found** (if none found, look again more critically)
-3. Fix issues
-4. **Re-verify affected slides** — one fix often creates another problem
-5. Repeat until a full pass reveals no new issues
-
-**Do not declare success until you've completed at least one fix-and-verify cycle.**
+2. If there are concrete issues, list and fix them
+3. Re-verify affected slides
+4. Finish when the required structural and visual checks pass
 
 ---
 

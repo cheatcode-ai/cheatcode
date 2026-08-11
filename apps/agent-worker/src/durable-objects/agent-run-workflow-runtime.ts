@@ -36,7 +36,7 @@ import {
 import { finalizeAppBuilderRun, prepareAppBuilderRun } from "./agent-run-path";
 import { type StartRunInput, StartRunInputSchema } from "./agent-run-schemas";
 import { guardSkillRuntimeCapabilities } from "./agent-run-skill-runtime";
-import { agentToolErrorText } from "./agent-run-tool-error-support";
+import { AgentToolErrorOutputSchema, agentToolErrorOutput } from "./agent-run-tool-error-support";
 import {
   AGENT_RUN_WORKFLOW_MAX_RESPONSE_BYTES,
   type AgentRunWorkflowCallbackInput,
@@ -97,7 +97,7 @@ export const WorkflowModelStepResultSchema = z.strictObject({
 
 export const WorkflowToolStepResultSchema = z.strictObject({
   durationMs: z.number().int().nonnegative(),
-  error: z.string().optional(),
+  error: AgentToolErrorOutputSchema.optional(),
   input: StartRunInputSchema,
   output: WorkflowJsonValueSchema.optional(),
   toolCall: WorkflowToolCallSchema,
@@ -321,7 +321,7 @@ async function executePreparedWorkflowTool(input: {
   } catch (error) {
     return WorkflowToolStepResultSchema.parse({
       durationMs: Date.now() - startedAt,
-      error: agentToolErrorText(error),
+      error: agentToolErrorOutput(error),
       input: input.input,
       toolCall: input.toolCall,
     });
