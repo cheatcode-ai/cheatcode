@@ -43,7 +43,6 @@
     "@mastra/core": "catalog:",
     "@openrouter/ai-sdk-provider": "catalog:",
     "ai": "catalog:",
-    "arquero": "catalog:",
     "marked": "catalog:",
     "zod": "catalog:"
   },

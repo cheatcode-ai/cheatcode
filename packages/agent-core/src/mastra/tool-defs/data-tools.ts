@@ -15,7 +15,7 @@ import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 export const mastraDataAnalyzeCsv = createTool({
   id: "data_analyze_csv",
   description:
-    "Profile CSV text with Arquero parsing. Returns column types, missing counts, numeric summaries, top values, samples, and optional grouped aggregates.",
+    "Profile CSV text with deterministic Worker-safe parsing. Returns column types, missing counts, numeric summaries, top values, samples, and optional grouped aggregates.",
   inputSchema: AnalyzeCsvInputSchema,
   outputSchema: AnalyzeCsvOutputSchema,
   execute: async (input) => executeAnalyzeCsv(AnalyzeCsvInputSchema.parse(input)),

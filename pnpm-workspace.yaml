@@ -105,7 +105,6 @@ catalog:
   '@types/react': 19.2.17
   '@types/react-dom': 19.2.3
   ai: 7.0.58
-  arquero: 8.0.3
   cmdk: 1.1.1
   dependency-cruiser: 18.1.0
   drizzle-kit: 0.31.10

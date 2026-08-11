@@ -5,6 +5,13 @@ const DataCellSchema = z.union([z.string().max(10_000), z.number(), z.boolean(),
 const DataEntrySchema = z
   .record(z.string().min(1).max(200), DataCellSchema)
   .refine((value) => Object.keys(value).length <= 100, { message: "Record has too many fields." });
+const CsvDelimiterSchema = z
+  .string()
+  .min(1)
+  .max(4)
+  .refine((value) => !/[\r\n"]/u.test(value), {
+    message: "CSV delimiter cannot contain quotes or line breaks.",
+  });
 
 const ColumnKindSchema = z.enum(["boolean", "date", "empty", "mixed", "number", "string"]);
 
@@ -46,7 +53,7 @@ const GroupSummarySchema = z.strictObject({
 
 export const AnalyzeCsvInputSchema = z.strictObject({
   csv: z.string().min(1).max(1_000_000).describe("CSV text to profile."),
-  delimiter: z.string().min(1).max(4).default(",").describe("CSV delimiter."),
+  delimiter: CsvDelimiterSchema.default(",").describe("CSV delimiter."),
   groupBy: z
     .string()
     .min(1)
@@ -80,7 +87,7 @@ export const DataChartInputSchema = z
   .strictObject({
     chartType: ChartTypeSchema.default("bar").describe("SVG chart family to render."),
     csv: z.string().min(1).max(1_000_000).optional().describe("CSV text to chart."),
-    delimiter: z.string().min(1).max(4).default(",").describe("CSV delimiter when csv is used."),
+    delimiter: CsvDelimiterSchema.default(",").describe("CSV delimiter when csv is used."),
     filename: z
       .string()
       .min(1)

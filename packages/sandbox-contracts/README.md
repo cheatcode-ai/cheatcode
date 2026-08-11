@@ -23,6 +23,9 @@ Artifact uploads declare their exposure. `deliverable` outputs are user files;
 `internal` outputs use the reserved `.cheatcode-internal-` filename namespace and
 support durable agent UI such as browser-step screenshots without entering the
 project's Deliverables catalog.
+The `file` artifact kind covers bounded general outputs such as CSV, JSON, text,
+and archives; format-specific document, image, video, and spreadsheet kinds keep
+their richer UI presentation.
 
 Long-running processes require a caller-owned stable `processId`. The sandbox uses that identity
 as an idempotency slot for replacement, inspection, cleanup, and bounded record reaping; anonymous

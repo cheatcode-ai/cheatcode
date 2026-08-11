@@ -96,9 +96,6 @@ catalogs:
     ai:
       specifier: 7.0.58
       version: 7.0.58
-    arquero:
-      specifier: 8.0.3
-      version: 8.0.3
     cmdk:
       specifier: 1.1.1
       version: 1.1.1
@@ -624,9 +621,6 @@ importers:
       ai:
         specifier: 'catalog:'
         version: 7.0.58(zod@4.4.3)
-      arquero:
-        specifier: 'catalog:'
-        version: 8.0.3
       marked:
         specifier: 'catalog:'
         version: 17.0.6
@@ -3649,9 +3643,6 @@ packages:
   '@upsetjs/venn.js@2.0.0':
     resolution: {integrity: sha512-WbBhLrooyePuQ1VZxrJjtLvTc4NVfpOyKx0sKqioq9bX1C1m7Jgykkn8gLrtwumBioXIqam8DLxp88Adbue6Hw==}
 
-  '@uwdata/flechette@2.5.0':
-    resolution: {integrity: sha512-NSB9xIPVsxpEcnEvtLfbvH/tEqZWiD4bfdz/yBUAUBEe0Z0C3zmA/Y4GOCsLZe4ChxiHaedFBZzVdUxQ+NVcMA==}
-
   '@vercel/oidc@3.2.0':
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
     engines: {node: '>= 20'}
@@ -3777,9 +3768,6 @@ packages:
   aria-hidden@1.2.6:
     resolution: {integrity: sha512-ik3ZgC9dY/lYVVM++OISsaYDeg1tb0VtP5uL3ouh1koGOaUMDPpbFIei4JkFimWUFPn90sbMNMXQAIVOlnYKJA==}
     engines: {node: '>=10'}
-
-  arquero@8.0.3:
-    resolution: {integrity: sha512-7YQwe/GPVBUiahaPwEwgvu6VHyuhX0Ut61JZlIJYsAobOH5unLBwTmh43BobhX/N4dW1sb8WyKlQ8GjFq2whzQ==}
 
   asap@2.0.6:
     resolution: {integrity: sha512-BSHWgDSAiKs50o2Re8ppvp3seVHXSRM44cdSsT9FfNEUUZLOGWVCsiWaRPWM1Znn+mqZ1OfVZ3z3DWEzSp7hRA==}
@@ -9436,8 +9424,6 @@ snapshots:
       d3-selection: 3.0.0
       d3-transition: 3.0.1(d3-selection@3.0.0)
 
-  '@uwdata/flechette@2.5.0': {}
-
   '@vercel/oidc@3.2.0': {}
 
   '@wallet-standard/app@1.1.1':
@@ -9545,11 +9531,6 @@ snapshots:
   aria-hidden@1.2.6:
     dependencies:
       tslib: 2.8.1
-
-  arquero@8.0.3:
-    dependencies:
-      '@uwdata/flechette': 2.5.0
-      acorn: 8.17.0
 
   asap@2.0.6: {}
 

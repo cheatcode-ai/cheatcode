@@ -149,7 +149,11 @@ function createSynthesisStep(id: string, config: ResearchWorkflowPrompts) {
       const claims = validateSynthesisClaims(mergeResearchClaims(inputData), sources);
       return generateResearchOutput(abortSignal, async (generationSignal) => {
         const response = await agent.generate(
-          researchSynthesisPrompt(config, synthesisEvidence(inputData)),
+          researchSynthesisPrompt(
+            config,
+            synthesisEvidence(inputData),
+            taskMessageFromContext(requestContext),
+          ),
           {
             activeTools: [],
             abortSignal: generationSignal,
@@ -256,16 +260,30 @@ async function fetchPrimaryPageEvidence(
   }
 }
 
-function researchSynthesisPrompt(config: ResearchWorkflowPrompts, evidence: unknown): string {
+function researchSynthesisPrompt(
+  config: ResearchWorkflowPrompts,
+  evidence: unknown,
+  taskMessage: string | undefined,
+): string {
   return [
     config.synthesisPrompt(evidence),
+    taskMessage
+      ? `The user's exact request is ${JSON.stringify(taskMessage)}. Preserve every requested scope, count, distinction, title, and output constraint exactly. Do not expand a deliberately narrow answer into the default long-form template.`
+      : "",
     "Return only the complete report Markdown, with no JSON wrapper, preamble, or enclosing code fence.",
     "Start with one level-one heading. The returned Markdown is displayed unchanged in chat and rendered unchanged into the PDF.",
     "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
     "Cite factual claims with descriptive Markdown links to the exact source URLs in the evidence.",
     "Finish with exactly one level-two Sources heading. Under it, include one bullet per cited URL, formatted only as a descriptive Markdown link. Every inline citation must appear in that list, and every listed source must be cited inline.",
-  ].join("\n");
+  ]
+    .filter((part) => part.length > 0)
+    .join("\n");
+}
+
+function taskMessageFromContext(requestContext: RequestContextReader): string | undefined {
+  const value = requestContext.get(CONTEXT.promptTaskMessage);
+  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
 }
 
 function researchFindingFromEvidence(

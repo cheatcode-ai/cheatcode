@@ -12,6 +12,7 @@ import {
   executePreparedGitCommit,
   executePreparedGitPush,
   executePreparedStartDevServer,
+  executePublishDeliverable,
   executeReadFile,
   executeRunCode,
   executeSearchFiles,
@@ -26,6 +27,8 @@ import {
   GitStatusInputSchema,
   ListFilesInputSchema,
   ListFilesOutputSchema,
+  PublishDeliverableInputSchema,
+  PublishDeliverableOutputSchema,
   prepareGitCommit,
   prepareGitPush,
   prepareStartDevServer,
@@ -150,6 +153,16 @@ export const mastraFsWrite = createTool({
   outputSchema: WriteFileOutputSchema,
   execute: async (input, context) =>
     executeWriteFile(input, await workspaceRuntimeFromContext(context)),
+});
+
+export const mastraPublishDeliverable = createTool({
+  id: "deliverable_publish",
+  description:
+    "Publish one finished file already created under /workspace as a durable user Deliverable. Use this once per requested output file when shell or file tools created the final artifact; document, chart, research, and media generators already publish their own outputs.",
+  inputSchema: PublishDeliverableInputSchema,
+  outputSchema: PublishDeliverableOutputSchema,
+  execute: async (input, context) =>
+    executePublishDeliverable(input, await workspaceRuntimeFromContext(context)),
 });
 
 /** Applies a sparse model-authored edit to one existing text file without rewriting it wholesale. */

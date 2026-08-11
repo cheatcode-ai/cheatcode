@@ -16,6 +16,7 @@ export {
   mastraGitCommit,
   mastraGitPush,
   mastraGitStatus,
+  mastraPublishDeliverable,
   mastraRunCode,
   mastraShellExec,
   mastraShellKillProcess,

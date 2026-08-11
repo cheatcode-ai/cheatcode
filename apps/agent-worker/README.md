@@ -91,6 +91,10 @@ event keys and an atomic SQLite receipt, so Workflow step replay cannot duplicat
 Failed sandbox tools return a bounded model-facing projection of their exit code, hint, command
 output, and managed-process logs, so the next model turn can correct the failure instead of
 retrying blind. Those internal diagnostics are not promoted into user-facing assistant text.
+Tool steps resolve only the credentials required by the invoked capability: ordinary data, file,
+code, and document work does not open research-key or connected-app database transactions. User
+skill packages are restored lazily when a skill is invoked instead of being projected into the
+sandbox before every model and tool step.
 Preparation uses a multi-minute durable exponential-backoff window for transient provider
 failures. Daytona's explicit host-recovery start rejection is treated as a runtime failover signal:
 the Daytona adapter normalizes the provider's structured `503` response to an internal error code,

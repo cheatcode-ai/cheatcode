@@ -19,7 +19,6 @@ import {
   resolveUserSkillMirror,
   serializeUserSkillMarkdown,
   userSkillSlug,
-  writeUserSkillMirror,
 } from "../user-skill-files";
 import {
   collectUserSkillPackageFromSandbox,
@@ -48,7 +47,6 @@ export async function resolveUserSkillContext(
 ): Promise<ResolvedUserSkillContext> {
   const userId = toUserId(userIdRaw);
   const skillRecords = await readUserSkills(env, userId);
-  await projectUserSkillPackages(env, userId, sandbox, skillRecords);
   const userSkills = skillRecords.map(runtimeSkillSummary);
   const userSkillLoader: UserSkillLoader = {
     load: async (name) => loadUserSkill(env, userId, sandbox, name),
@@ -107,6 +105,10 @@ async function loadUserSkill(
 ): Promise<UserSkillDefinition | null> {
   const skill = await readUserSkill(env, userId, name);
   if (!skill) return null;
+  const packageValue = await readUserSkillPackage(env.R2_OUTPUTS, userId, skill.id);
+  if (packageValue) {
+    await writeUserSkillPackageMirror(sandbox, skill, packageValue);
+  }
   const resolution = await resolveUserSkillMirror(sandbox, skill);
   const resolved =
     resolution.kind === "promote"
@@ -119,22 +121,6 @@ async function readUserSkills(env: AgentRunEnv, userId: UserId): Promise<UserSki
   return withUserDb(env, userId, async ({ transaction }) => {
     return await transaction((tx) => listUserSkillRecords(tx, userId, MAX_USER_SKILLS));
   });
-}
-
-async function projectUserSkillPackages(
-  env: AgentRunEnv,
-  userId: UserId,
-  sandbox: SandboxLike,
-  skills: UserSkillRecord[],
-): Promise<void> {
-  for (const skill of skills) {
-    const packageValue = await readUserSkillPackage(env.R2_OUTPUTS, userId, skill.id);
-    if (packageValue) {
-      await writeUserSkillPackageMirror(sandbox, skill, packageValue);
-    } else {
-      await writeUserSkillMirror(sandbox, skill);
-    }
-  }
 }
 
 async function readUserSkill(

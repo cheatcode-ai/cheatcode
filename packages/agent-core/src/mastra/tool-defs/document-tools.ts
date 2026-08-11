@@ -19,7 +19,7 @@ import { workspaceRuntimeFromContext } from "./tool-runtime-context";
 export const mastraDocsGenerateSlides = createTool({
   id: "docs_generate_slides",
   description:
-    "Generate a PowerPoint deck from a structured title and slides. Returns a short-lived R2 download URL.",
+    "Generate a PowerPoint deck from an ordered array containing every visible slide, including any title slide. The title field is deck metadata and never adds another slide. Publishes the finished PPTX as a Deliverable.",
   inputSchema: GenerateSlidesInputSchema,
   outputSchema: GenerateSlidesOutputSchema,
   execute: async (input, context) =>

@@ -9,14 +9,14 @@ compatibility: Requires Exa and Firecrawl research tools; fan-out mode requires 
 
 # Deep Research
 
-Answer complex questions with sourced synthesis. The output should read like an analyst brief: clear thesis, cited evidence, disagreement handling, and confidence notes. Every run produces a complete PDF deliverable in the user's project in addition to a concise chat summary. When the question spans many entities or angles, use Fan-out Mode.
+Answer complex questions with sourced synthesis. The output should read like an analyst brief: clear thesis, cited evidence, disagreement handling, and confidence notes. Preserve the user's exact scope, requested count, distinctions, title, and exclusions; a narrow requested report stays narrow. Every run produces one canonical Markdown report that is shown unchanged in chat and rendered unchanged into the PDF deliverable. When the question spans many entities or angles, use Fan-out Mode.
 
 ## Quick Start
 
 1. Scope the user's ask, timeframe, geography, and decision use.
 2. Run the request through `research_deep`; use 3 queries for concise or narrow reports, 4 by default, and 5-6 only when the user explicitly asks for deeper coverage. It validates citations and creates the PDF deliverable.
-3. Return the key conclusion and important caveats in chat, with a short source list.
-4. Refer to the PDF naturally as ready below. Do not call a separate document tool or recreate the report.
+3. The workflow returns the complete report in chat and the same report as a PDF. Do not add a second summary.
+4. Do not call a separate document tool or recreate the report.
 5. Call the workflow once per user request. If it fails, explain the failure instead of immediately rerunning it.
 
 ## Fan-out Mode
@@ -49,6 +49,7 @@ Use breadth first when the ask covers many independent entities (companies, tool
 ## QA
 
 - Every key claim has a citation.
+- Every explicit user constraint is satisfied, including exact item counts and requested fact-versus-synthesis distinctions.
 - The report includes what would change the conclusion.
 - Contradictions are explained, not hidden.
 - The answer distinguishes fact, estimate, and inference.
@@ -56,7 +57,7 @@ Use breadth first when the ask covers many independent entities (companies, tool
 ## Deliverables
 
 - PDF research report saved in the project and shown in Deliverables
-- Concise chat summary with the main conclusion and caveats
+- The canonical report Markdown displayed unchanged in chat
 - Claim-to-source evidence map and source list inside the PDF
 - Confidence and gaps
 

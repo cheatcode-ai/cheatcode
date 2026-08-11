@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 /** Exact artifact kinds that can be stored, streamed, and rendered by V2. */
-const ARTIFACT_KINDS = ["docx", "image", "pdf", "slide", "video", "xlsx"] as const;
+const ARTIFACT_KINDS = ["docx", "file", "image", "pdf", "slide", "video", "xlsx"] as const;
 
 /** Reserved filename namespace for durable outputs that support the agent UI, not the user. */
 export const INTERNAL_OUTPUT_FILENAME_PREFIX = ".cheatcode-internal-";
