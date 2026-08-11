@@ -224,9 +224,7 @@ async function runAgentLoop(
       ...state,
       messages: [...state.messages, workflowJsonValue(toolResultMessage(toolTurn.results))],
     });
-    if (toolTurn.results.some((result) => canonicalResearchReport(result) !== undefined)) {
-      return;
-    }
+    if (researchToolTurnIsTerminal(toolTurn.results)) return;
     if (
       state.input.runIntent === "skill-creator" &&
       toolTurn.results.some(
@@ -237,6 +235,31 @@ async function runAgentLoop(
       return;
     }
   }
+}
+
+function researchToolTurnIsTerminal(results: WorkflowToolStepResult[]): boolean {
+  const result = results.find((candidate) => isResearchReportTool(candidate.toolCall.toolName));
+  if (!result) return false;
+  if (canonicalResearchReport(result) !== undefined) return true;
+  throw terminalResearchToolError(result);
+}
+
+function terminalResearchToolError(result: WorkflowToolStepResult): APIError {
+  const error = result.error;
+  if (!error) {
+    return new APIError(502, "tool_execution_failed", "Research did not produce a report.", {
+      retriable: true,
+    });
+  }
+  return new APIError(
+    error.code === "permission_plan_required" ? 403 : 502,
+    error.code,
+    error.message,
+    {
+      ...(error.hint ? { hint: error.hint } : {}),
+      retriable: error.retriable,
+    },
+  );
 }
 
 function continueTruncatedModelTurn(state: WorkflowAgentState): WorkflowAgentState {

@@ -114,10 +114,12 @@ The Worker pins Cloudflare's paid-plan maximum subrequest allowance because exte
 Daytona, Hyperdrive, R2, and Durable Object requests share one Workflow-instance budget. That
 platform transport budget must accommodate the configured 25,000 durable steps rather than become
 an earlier, workload-dependent product limit.
-Successful deep-research tools are terminal response producers: the Workflow suppresses the model's
-pre-tool narration, publishes the tool's validated canonical Markdown directly as the assistant text,
-and completes without asking a second model turn to copy or summarize it. The same Markdown is the
-input to the PDF renderer, so chat and deliverable content cannot diverge by model behavior.
+Deep-research tools are terminal response producers. On success, the Workflow suppresses the
+model's pre-tool narration, publishes the tool's validated canonical Markdown directly as the
+assistant text, and completes without asking a second model turn to copy or summarize it. A failed
+research tool also ends that semantic run with its structured error instead of allowing the model
+to repeat an expensive, non-idempotent workflow or substitute workspace probing. The same Markdown
+is the input to the PDF renderer, so chat and deliverable content cannot diverge by model behavior.
 
 The run-keyed Durable Object is the authoritative status, cancellation, transcript, and stream
 store. It validates every Workflow callback against the stored input hash and deterministic
