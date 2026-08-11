@@ -106,8 +106,10 @@ Firecrawl extraction of its primary result. Provider-owned IDs, URLs, excerpts, 
 the durable claim map are assembled deterministically instead of asking a model to
 reproduce citation identifiers. The sole tool-free model call writes only the canonical
 Markdown report from those byte-bounded evidence packs. Before publication, the workflow
-rejects truncated generations and validates the heading structure, citation URLs, and the
-one-to-one relationship between inline citations and the final Sources list. It has an
+rejects truncated generations and validates the heading structure and citation URLs. It
+then deterministically replaces the model-authored Sources tail with one canonical list
+derived from the validated inline citations, avoiding a second probabilistic generation
+for presentation-only list differences while preserving the evidence boundary. It has an
 operational timeout and one in-memory retry for transient provider or invalid Markdown
 failures; request cancellation always wins and no secret-bearing state is snapshotted.
 Prose URL scraping is not an accepted provenance boundary.

@@ -1,4 +1,4 @@
-import { APIError } from "@cheatcode/observability";
+import { APIError, createLogger } from "@cheatcode/observability";
 import { lexer, type Token, type Tokens } from "marked";
 import { z } from "zod/v4";
 import type { ResearchSource } from "./research-schemas";
@@ -12,19 +12,17 @@ interface ParseResearchMarkdownOptions {
   value: unknown;
 }
 
-/** Validates the complete, evidence-bound Markdown contract before artifact publication. */
+/** Validates evidence-bound prose and deterministically canonicalizes its Sources section. */
 export function parseResearchMarkdown(options: ParseResearchMarkdownOptions): string {
   if (options.finishReason && REJECTED_FINISH_REASONS.has(options.finishReason)) {
-    throw invalidResearchMarkdown();
+    throw invalidResearchMarkdown("incomplete_generation");
   }
   const parsed = ResearchMarkdownSchema.safeParse(options.value);
   if (!parsed.success) {
-    throw invalidResearchMarkdown();
+    throw invalidResearchMarkdown("document_shape");
   }
   const tokens = lexer(parsed.data, { gfm: true });
-  validateHeadingStructure(tokens);
-  validateCitationStructure(tokens, options.sources);
-  return parsed.data;
+  return canonicalizeCitationStructure(tokens, options.sources);
 }
 
 function validateHeadingStructure(tokens: Token[]): void {
@@ -34,43 +32,40 @@ function validateHeadingStructure(tokens: Token[]): void {
     (token) => isHeadingToken(token) && token.depth === 1,
   );
   if (!first || !isHeadingToken(first) || first.depth !== 1 || levelOneHeadings.length !== 1) {
-    throw invalidResearchMarkdown();
+    throw invalidResearchMarkdown("heading_structure");
   }
 }
 
-function validateCitationStructure(tokens: Token[], sources: ResearchSource[]): void {
-  const sourceHeadingIndexes = tokens.flatMap((token, index) =>
-    isHeadingToken(token) && token.depth === 2 && token.text.trim().toLowerCase() === "sources"
-      ? [index]
-      : [],
+function canonicalizeCitationStructure(tokens: Token[], sources: ResearchSource[]): string {
+  const sourceHeadingIndex = tokens.findIndex(
+    (token) =>
+      isHeadingToken(token) && token.depth === 2 && token.text.trim().toLowerCase() === "sources",
   );
-  if (sourceHeadingIndexes.length !== 1) {
-    throw invalidResearchMarkdown();
+  const bodyTokens = sourceHeadingIndex < 0 ? tokens : tokens.slice(0, sourceHeadingIndex);
+  validateHeadingStructure(bodyTokens);
+  if (containsUnparsedMarkdownLink(bodyTokens)) {
+    throw invalidResearchMarkdown("malformed_link");
   }
-  const sourceHeadingIndex = sourceHeadingIndexes[0];
-  if (sourceHeadingIndex === undefined) {
-    throw invalidResearchMarkdown();
+  const allowedSources = new Map(
+    sources.map((source) => [canonicalHttpUrl(source.url), source] as const),
+  );
+  const citedUrls = validateAllowedLinks(bodyTokens, new Set(allowedSources.keys()));
+  if (citedUrls.size === 0) {
+    throw invalidResearchMarkdown("missing_inline_citation");
   }
-  const sourceBlocks = tokens
-    .slice(sourceHeadingIndex + 1)
-    .filter((token) => token.type !== "space");
-  const sourceList = sourceBlocks[0];
-  if (
-    sourceBlocks.length !== 1 ||
-    !isListToken(sourceList) ||
-    sourceList.ordered ||
-    sourceList.items.length === 0 ||
-    containsUnparsedMarkdownLink(tokens)
-  ) {
-    throw invalidResearchMarkdown();
-  }
-
-  const allowedUrls = new Set(sources.map((source) => canonicalHttpUrl(source.url)));
-  const bodyUrls = validateAllowedLinks(tokens.slice(0, sourceHeadingIndex), allowedUrls);
-  const listedUrls = validateSourceList(sourceList, allowedUrls);
-  if (bodyUrls.size === 0 || !setsEqual(bodyUrls, listedUrls)) {
-    throw invalidResearchMarkdown();
-  }
+  const body = bodyTokens
+    .map((token) => token.raw)
+    .join("")
+    .trimEnd();
+  const sourceList = [...citedUrls].map((url) => {
+    const source = allowedSources.get(url);
+    if (!source) {
+      throw invalidResearchMarkdown("uncollected_source");
+    }
+    const label = markdownLinkLabel(source.title ?? source.url);
+    return `- [${label}](<${source.url}>)`;
+  });
+  return `${body}\n\n## Sources\n\n${sourceList.join("\n")}`;
 }
 
 function validateAllowedLinks(tokens: Token[], allowedUrls: Set<string>): Set<string> {
@@ -78,23 +73,7 @@ function validateAllowedLinks(tokens: Token[], allowedUrls: Set<string>): Set<st
   for (const link of collectLinks(tokens)) {
     const url = canonicalHttpUrl(link.href);
     if (!allowedUrls.has(url)) {
-      throw invalidResearchMarkdown();
-    }
-    urls.add(url);
-  }
-  return urls;
-}
-
-function validateSourceList(sourceList: Tokens.List, allowedUrls: Set<string>): Set<string> {
-  const urls = new Set<string>();
-  for (const item of sourceList.items) {
-    const links = collectLinks(item.tokens);
-    if (links.length !== 1 || textOutsideLinks(item.tokens).trim()) {
-      throw invalidResearchMarkdown();
-    }
-    const url = canonicalHttpUrl(links[0]?.href);
-    if (!allowedUrls.has(url) || urls.has(url)) {
-      throw invalidResearchMarkdown();
+      throw invalidResearchMarkdown("uncollected_source");
     }
     urls.add(url);
   }
@@ -114,21 +93,6 @@ function collectLinks(tokens: Token[]): Tokens.Link[] {
     }
   }
   return links;
-}
-
-function textOutsideLinks(tokens: Token[]): string {
-  return tokens
-    .map((token) => {
-      if (token.type === "link" || token.type === "space") {
-        return "";
-      }
-      const children = childTokens(token);
-      if (children.length > 0) {
-        return textOutsideLinks(children);
-      }
-      return "text" in token && typeof token.text === "string" ? token.text : "";
-    })
-    .join("");
 }
 
 function containsUnparsedMarkdownLink(tokens: Token[]): boolean {
@@ -184,27 +148,47 @@ function canonicalHttpUrl(value: string | undefined): string {
   try {
     const url = new URL(value ?? "");
     if (url.protocol !== "http:" && url.protocol !== "https:") {
-      throw invalidResearchMarkdown();
+      throw invalidResearchMarkdown("invalid_url");
+    }
+    url.hash = "";
+    if (url.pathname.length > 1 && url.pathname.endsWith("/")) {
+      url.pathname = url.pathname.slice(0, -1);
     }
     return url.href;
   } catch (error) {
     if (error instanceof APIError) {
       throw error;
     }
-    throw invalidResearchMarkdown();
+    throw invalidResearchMarkdown("invalid_url");
   }
 }
 
-function setsEqual(left: Set<string>, right: Set<string>): boolean {
-  return left.size === right.size && [...left].every((value) => right.has(value));
+function markdownLinkLabel(value: string): string {
+  return value
+    .replace(/\s+/gu, " ")
+    .trim()
+    .replaceAll("\\", "\\\\")
+    .replaceAll("[", "\\[")
+    .replaceAll("]", "\\]");
 }
 
-function invalidResearchMarkdown(): APIError {
+type ResearchMarkdownValidationReason =
+  | "document_shape"
+  | "heading_structure"
+  | "incomplete_generation"
+  | "invalid_url"
+  | "malformed_link"
+  | "missing_inline_citation"
+  | "uncollected_source";
+
+function invalidResearchMarkdown(reason: ResearchMarkdownValidationReason): APIError {
+  createLogger().warn("research_markdown_validation_failed", { reason });
   return new APIError(
     502,
     "upstream_provider_outage",
     "Research synthesis returned invalid Markdown",
     {
+      details: { reason },
       retriable: true,
     },
   );

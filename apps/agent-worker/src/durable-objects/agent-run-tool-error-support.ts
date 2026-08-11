@@ -1,4 +1,4 @@
-import { APIError } from "@cheatcode/observability";
+import { findAPIError } from "@cheatcode/observability";
 import { ErrorCodeSchema } from "@cheatcode/types";
 import { z } from "zod";
 
@@ -22,7 +22,8 @@ export type AgentToolErrorOutput = z.infer<typeof AgentToolErrorOutputSchema>;
 
 /** Preserves retry policy and bounded, user-scoped diagnostics for the model's next turn. */
 export function agentToolErrorOutput(error: unknown): AgentToolErrorOutput {
-  if (!(error instanceof APIError)) {
+  const apiError = findAPIError(error);
+  if (!apiError) {
     return AgentToolErrorOutputSchema.parse({
       code: "tool_execution_failed",
       message: clamp(
@@ -32,15 +33,15 @@ export function agentToolErrorOutput(error: unknown): AgentToolErrorOutput {
       retriable: false,
     });
   }
-  const diagnostics = SANDBOX_DIAGNOSTIC_CODES.has(error.code)
-    ? sandboxDiagnosticLines(error.opts.details).join("\n")
+  const diagnostics = SANDBOX_DIAGNOSTIC_CODES.has(apiError.code)
+    ? sandboxDiagnosticLines(apiError.opts.details).join("\n")
     : "";
   return AgentToolErrorOutputSchema.parse({
-    code: error.code,
+    code: apiError.code,
     ...(diagnostics ? { diagnostics: clamp(diagnostics, MAX_TOOL_ERROR_CHARACTERS) } : {}),
-    ...(error.opts.hint ? { hint: clamp(error.opts.hint, MAX_TOOL_ERROR_CHARACTERS) } : {}),
-    message: clamp(error.message, MAX_TOOL_ERROR_CHARACTERS),
-    retriable: error.retriable,
+    ...(apiError.opts.hint ? { hint: clamp(apiError.opts.hint, MAX_TOOL_ERROR_CHARACTERS) } : {}),
+    message: clamp(apiError.message, MAX_TOOL_ERROR_CHARACTERS),
+    retriable: apiError.retriable,
   });
 }
 
