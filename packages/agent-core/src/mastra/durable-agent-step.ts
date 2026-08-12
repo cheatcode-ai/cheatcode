@@ -35,13 +35,16 @@ interface GeneralAgentStepResult {
 
 interface GenerateGeneralAgentStepOptions {
   abortSignal?: AbortSignal;
-  activeTools?: string[];
-  excludedTools?: string[];
+  excludedTools?: readonly CheatcodeToolName[];
+  includedTools?: readonly CheatcodeToolName[];
   isDeepSeek: boolean;
   messages: JSONValue[];
   requestContext: RequestContext;
   runId: string;
 }
+
+type CheatcodeToolName = keyof typeof cheatcodeTools;
+type CheatcodeToolSubset = Partial<typeof cheatcodeTools>;
 
 interface ExecuteGeneralAgentToolOptions {
   abortSignal?: AbortSignal;
@@ -57,11 +60,10 @@ export async function generateGeneralAgentStep(
   options: GenerateGeneralAgentStepOptions,
 ): Promise<GeneralAgentStepResult> {
   const messages = options.messages.map((message) => modelMessageSchema.parse(message));
-  const activeTools = resolveActiveTools(options);
+  const clientTools = resolveClientTools(options);
   const result = await mastra.getAgent("generalStep").generate(messages as never, {
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-    ...(activeTools ? { activeTools } : {}),
-    clientTools: cheatcodeTools,
+    clientTools,
     ...(options.isDeepSeek
       ? { providerOptions: { deepseek: { thinking: { type: "disabled" as const } } } }
       : {}),
@@ -83,14 +85,19 @@ export async function generateGeneralAgentStep(
   };
 }
 
-function resolveActiveTools(options: GenerateGeneralAgentStepOptions): string[] | undefined {
-  if (options.activeTools && options.excludedTools) {
+function resolveClientTools(options: GenerateGeneralAgentStepOptions): CheatcodeToolSubset {
+  if (options.includedTools && options.excludedTools) {
     throw new Error("Agent tools cannot be included and excluded in the same model step.");
   }
-  if (options.activeTools) return options.activeTools;
-  if (!options.excludedTools || options.excludedTools.length === 0) return undefined;
-  const excludedTools = new Set(options.excludedTools);
-  return Object.keys(cheatcodeTools).filter((toolName) => !excludedTools.has(toolName));
+  if (!options.includedTools && (!options.excludedTools || options.excludedTools.length === 0)) {
+    return cheatcodeTools;
+  }
+  const toolNames = options.includedTools
+    ? options.includedTools
+    : (Object.keys(cheatcodeTools) as CheatcodeToolName[]).filter(
+        (toolName) => !options.excludedTools?.includes(toolName),
+      );
+  return Object.fromEntries(toolNames.map((toolName) => [toolName, cheatcodeTools[toolName]]));
 }
 
 function toJsonValues(values: ModelMessage[]): JSONValue[] {

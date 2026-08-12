@@ -10,6 +10,10 @@ const SHELL_SCAFFOLD_COMMAND =
   /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:(?:npm|pnpm|yarn|bun)\s+(?:create|init)\b|(?:npx|pnpx|bunx)\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:create(?:-[^\s;&|()]+)?|create-next-app|expo\s+init)\b|pnpm\s+(?:dlx|exec)\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:create(?:-[^\s;&|()]+)?|create-next-app|expo\s+init)\b)/iu;
 const MANAGED_PREVIEW_START_COMMAND =
   /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|web)\b|(?:npx|pnpx|bunx|pnpm\s+(?:dlx|exec))\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:expo\s+start|next\s+dev|vite)\b|(?:expo\s+start|next\s+dev|vite)(?:\s|$))/iu;
+const MANAGED_DEPENDENCY_REINSTALL =
+  /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:npm|pnpm|bun)\s+install\b|(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?yarn(?:\s|$)/iu;
+const MANAGED_NON_PNPM_COMMAND =
+  /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:npm|npx|pnpx|yarn|bun|bunx)\b/iu;
 
 /** Prevents model-authored scaffolds from replacing the prepared app-builder workspace. */
 export function assertAppBuilderShellCommandAllowed(
@@ -30,18 +34,31 @@ export function assertAppBuilderShellCommandAllowed(
       },
     );
   }
-  if (
-    requestContext.get(CONTEXT.appBuilderManagedPreview) !== true ||
-    !isManagedPreviewStartCommand(command)
-  ) {
-    return;
+  if (requestContext.get(CONTEXT.appBuilderManagedPreview) !== true) return;
+  if (isManagedPreviewStartCommand(command)) {
+    throw new APIError(
+      422,
+      "tool_validation_failed",
+      "This app's managed preview is already running.",
+      {
+        hint: "Edit the existing source files and verify the running preview in the browser.",
+        retriable: false,
+      },
+    );
   }
+  if (usesNonPnpmPackageManager(command)) {
+    throw new APIError(422, "tool_validation_failed", "This managed app uses pnpm.", {
+      hint: "Use pnpm for an explicit dependency change. The existing dependencies are already installed.",
+      retriable: false,
+    });
+  }
+  if (!isManagedDependencyReinstall(command)) return;
   throw new APIError(
     422,
     "tool_validation_failed",
-    "This app's managed preview is already running.",
+    "This managed app's dependencies are already installed.",
     {
-      hint: "Edit the existing source files and verify the running preview in the browser.",
+      hint: "Continue editing. Use pnpm add or pnpm remove only when the app needs a dependency change.",
       retriable: false,
     },
   );
@@ -92,6 +109,23 @@ function isManagedPreviewStartCommand(command: readonly string[] | string): bool
   }
   if (PACKAGE_RUNNERS.has(executable)) return runnerStartsPreview(args);
   return runnerStartsPreview([executable, ...args]);
+}
+
+function isManagedDependencyReinstall(command: readonly string[] | string): boolean {
+  if (typeof command === "string") return MANAGED_DEPENDENCY_REINSTALL.test(command);
+  const normalized = unwrapCommand(command.map((argument) => argument.toLowerCase()));
+  const executable = basename(normalized[0]);
+  const commandName = normalized.slice(1).find((argument) => !argument.startsWith("-"));
+  return (
+    executable === "yarn" ||
+    (["bun", "npm", "pnpm"].includes(executable) && commandName === "install")
+  );
+}
+
+function usesNonPnpmPackageManager(command: readonly string[] | string): boolean {
+  if (typeof command === "string") return MANAGED_NON_PNPM_COMMAND.test(command);
+  const executable = basename(unwrapCommand(command.map((argument) => argument.toLowerCase()))[0]);
+  return ["bun", "bunx", "npm", "npx", "pnpx", "yarn"].includes(executable);
 }
 
 function runnerStartsPreview(args: readonly string[]): boolean {

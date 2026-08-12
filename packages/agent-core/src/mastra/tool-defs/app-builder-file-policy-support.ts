@@ -19,27 +19,35 @@ const FRAMEWORK_MANIFESTS = new Set([
   "tsconfig.json",
   "yarn.lock",
 ]);
+const INCOMPATIBLE_TEMPLATE_ENTRYPOINT =
+  /(?:^|\/)(?:index\.html|src\/main\.[cm]?[jt]sx?|vite\.config\.[cm]?[jt]s)$/u;
 
 /** Keeps the managed Next.js or Expo runtime immutable while source files remain fully editable. */
 export function assertManagedAppFrameworkFileMutable(context: unknown, path: string): void {
   const requestContext = requestContextFromToolContext(context);
   if (requestContext.get(CONTEXT.appBuilderManagedPreview) !== true) return;
-  if (!isProjectRootFrameworkManifest(requestContext.get(CONTEXT.promptWorkspaceDir), path)) return;
+  if (!isManagedFrameworkPath(requestContext.get(CONTEXT.promptWorkspaceDir), path)) return;
   throw new APIError(
     422,
     "tool_validation_failed",
-    "The managed app framework manifest cannot be replaced or deleted.",
+    "The managed app framework cannot be replaced or bypassed.",
     {
-      hint: "Edit application source files. Use pnpm add or pnpm remove when dependencies need to change.",
+      hint: "Edit the existing Next.js or Expo app/ source files. Use pnpm add or pnpm remove when dependencies need to change.",
       retriable: false,
     },
   );
 }
 
-function isProjectRootFrameworkManifest(workspaceDir: unknown, path: string): boolean {
+function isManagedFrameworkPath(workspaceDir: unknown, path: string): boolean {
   const normalized = path.replace(/\/+$/u, "");
+  const workspace = typeof workspaceDir === "string" ? workspaceDir.replace(/\/+$/u, "") : null;
   const filename = normalized.slice(normalized.lastIndexOf("/") + 1);
-  if (!FRAMEWORK_MANIFESTS.has(filename)) return false;
-  const parent = normalized.slice(0, normalized.lastIndexOf("/")) || "/";
-  return parent === "/workspace" || (typeof workspaceDir === "string" && parent === workspaceDir);
+  if (FRAMEWORK_MANIFESTS.has(filename)) return true;
+  const relativePath =
+    workspace && normalized.startsWith(`${workspace}/`)
+      ? normalized.slice(workspace.length + 1)
+      : normalized.startsWith("/workspace/")
+        ? normalized.slice("/workspace/".length)
+        : normalized;
+  return INCOMPATIBLE_TEMPLATE_ENTRYPOINT.test(relativePath);
 }
