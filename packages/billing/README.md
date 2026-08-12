@@ -13,7 +13,6 @@ plan catalog, and resource-entitlement helpers.
 - `getPolarCustomerState`
 - `updateCustomerProfile`
 - `entitlementCacheFromValues`
-- `entitlementValuesForTier`
 - `PLAN_CATALOG`
 - sandbox-hour quota helpers
 - `@cheatcode/billing/quota-runtime`: worker-only `QuotaTrackerRuntime`; this

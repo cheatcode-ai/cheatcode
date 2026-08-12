@@ -34,7 +34,7 @@ interface TierLimits {
   quotaSandboxHours: number | null;
 }
 
-export interface EntitlementValues {
+interface EntitlementValues {
   maxProjects: number;
   quotaComposioCalls: number;
   quotaSandboxHours: string;
@@ -316,7 +316,7 @@ function tierLimits(tier: BillingTier): TierLimits {
   return TIER_LIMITS[tier];
 }
 
-export function entitlementValuesForTier(tier: BillingTier): EntitlementValues {
+function defaultEntitlementValuesForTier(tier: BillingTier): EntitlementValues {
   const limits = tierLimits(tier);
   return {
     maxProjects: integerLimit(limits.maxProjects),
@@ -328,7 +328,7 @@ export function entitlementValuesForTier(tier: BillingTier): EntitlementValues {
 
 export function entitlementCacheFromValues(input: EntitlementCacheInput): EntitlementCache {
   const tier = parseTier(input.tier);
-  const defaults = entitlementValuesForTier(tier);
+  const defaults = defaultEntitlementValuesForTier(tier);
   return EntitlementCacheSchema.parse({
     currentPeriodEnd: isoDateOrNull(input.currentPeriodEnd),
     currentPeriodStart: isoDateOrNull(input.currentPeriodStart),

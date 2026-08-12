@@ -1,4 +1,4 @@
-import { entitlementValuesForTier } from "@cheatcode/billing";
+import { entitlementCacheFromValues } from "@cheatcode/billing";
 import { materializeThreadProject, withUserDb, workspacePathForSlug } from "@cheatcode/db";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import type {
@@ -6,7 +6,7 @@ import type {
   WorkspaceBinding,
   WorkspaceResolver,
 } from "@cheatcode/sandbox-contracts";
-import { BillingTierSchema, toThreadId, toUserId } from "@cheatcode/types";
+import { toThreadId, toUserId } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
@@ -83,9 +83,7 @@ async function materializeWorkspaceProject(input: WorkspaceResolverInput) {
           threadId: toThreadId(input.input.threadId),
           userId,
         },
-        (entitlement) =>
-          entitlementValuesForTier(BillingTierSchema.parse(entitlement?.tier ?? "free"))
-            .maxProjects,
+        (entitlement) => entitlementCacheFromValues(entitlement ?? { tier: "free" }).maxProjects,
       ),
     );
   });
