@@ -151,6 +151,7 @@ interface RunAppBuilderOptions {
 
 interface AppBuilderSetup {
   agentContextNote?: string;
+  usesManagedPreview: boolean;
   waitsForGeneratedPreview: boolean;
 }
 
@@ -168,6 +169,7 @@ export async function runAppBuilder(options: RunAppBuilderOptions): Promise<AppB
   if (await hasImportedAppWorkspace(sandbox, workspace.dir)) {
     return {
       ...(await restoreImportedWorkspace(workspaceOptions)),
+      usesManagedPreview: false,
       waitsForGeneratedPreview: false,
     };
   }
@@ -175,11 +177,13 @@ export async function runAppBuilder(options: RunAppBuilderOptions): Promise<AppB
   if (shouldBootstrap && input.importRepoUrl) {
     return {
       ...(await importRepoWorkspace({ ...workspaceOptions, repoUrl: input.importRepoUrl })),
+      usesManagedPreview: false,
       waitsForGeneratedPreview: false,
     };
   }
   return {
     ...(await runTemplateAppBuilder({ ...workspaceOptions, shouldBootstrap })),
+    usesManagedPreview: true,
     waitsForGeneratedPreview: shouldBootstrap,
   };
 }

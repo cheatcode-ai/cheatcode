@@ -69,6 +69,7 @@ const WorkflowToolCallSchema = z.strictObject({
 });
 
 export const WorkflowAgentStateSchema = z.strictObject({
+  appBuilderUsesManagedPreview: z.boolean(),
   appBuilderWaitsForPreview: z.boolean(),
   hasArtifact: z.boolean(),
   hasVisibleText: z.boolean(),
@@ -138,6 +139,7 @@ export async function prepareWorkflowAgentRun(
   const preparedApp = await prepareAppBuilderRun(runtime.pathOptions);
   const threadContext = await loadWorkflowThreadContext(env, input, preparedApp?.agentContextNote);
   return WorkflowAgentStateSchema.parse({
+    appBuilderUsesManagedPreview: preparedApp?.usesManagedPreview ?? false,
     appBuilderWaitsForPreview: preparedApp?.waitsForGeneratedPreview ?? false,
     hasArtifact: false,
     hasVisibleText: false,
@@ -175,6 +177,7 @@ export async function generateWorkflowModelStep(
       primary,
       sandbox,
       stub,
+      usesManagedPreview: state.appBuilderUsesManagedPreview,
     });
   } catch (error) {
     if (!shouldFallbackToOpenAI(input.isModelExplicit, primary, false, error)) throw error;
@@ -190,6 +193,7 @@ export async function generateWorkflowModelStep(
       primary: fallback,
       sandbox,
       stub,
+      usesManagedPreview: state.appBuilderUsesManagedPreview,
     });
     return {
       ...generated,
@@ -235,6 +239,7 @@ export async function executeWorkflowToolStep(
           selectedLogicalModelId: state.selectedLogicalModelId,
           stub,
           toolCall,
+          usesManagedPreview: state.appBuilderUsesManagedPreview,
         }),
       run: input,
       sandbox,
@@ -281,6 +286,7 @@ async function executePreparedWorkflowTool(input: {
   selectedLogicalModelId: LogicalModelId | undefined;
   stub: DurableObjectStub<AgentRun>;
   toolCall: GeneralAgentToolCall;
+  usesManagedPreview: boolean;
 }): Promise<WorkflowToolStepResult> {
   const startedAt = Date.now();
   const credential = await resolveCredentialForState(
@@ -297,6 +303,7 @@ async function executePreparedWorkflowTool(input: {
     logger: input.logger,
     sandbox: input.sandbox,
     stub: input.stub,
+    usesManagedPreview: input.usesManagedPreview,
   });
   const prepared = await prepareMastraContext(
     runtime.mastraOptions(credential),
@@ -394,6 +401,7 @@ async function generateWithCredential(input: {
   primary: LlmCredential;
   sandbox: ProjectSandboxStub;
   stub: DurableObjectStub<AgentRun>;
+  usesManagedPreview: boolean;
 }): Promise<WorkflowModelStepResult> {
   const runtime = workflowRuntimeOptions({
     callback: input.callback,
@@ -403,6 +411,7 @@ async function generateWithCredential(input: {
     logger: input.logger,
     sandbox: input.sandbox,
     stub: input.stub,
+    usesManagedPreview: input.usesManagedPreview,
   });
   const options = runtime.mastraOptions(input.primary);
   const prepared = await prepareMastraContext(options);
@@ -423,6 +432,7 @@ async function generateWithCredential(input: {
           ],
         }
       : {}),
+    ...(input.usesManagedPreview ? { excludedTools: ["code_start_dev_server"] } : {}),
     isDeepSeek: input.primary.transportProvider === "deepseek",
     messages: input.messages,
     requestContext,
@@ -443,6 +453,7 @@ function workflowRuntimeOptions(input: {
   logger: ReturnType<typeof createLogger>;
   sandbox: ProjectSandboxStub;
   stub: DurableObjectStub<AgentRun>;
+  usesManagedPreview?: boolean;
 }) {
   const append = async (chunk: UIMessageChunk) => {
     const event: AgentRunWorkflowEventInput = {
@@ -487,6 +498,7 @@ function workflowRuntimeOptions(input: {
       logger: input.logger,
       sandbox: input.sandbox,
       setRunStage,
+      usesManagedPreview: input.usesManagedPreview ?? false,
       workspaceResolver,
     }),
   };

@@ -31,6 +31,7 @@ type ProjectBoundAppBuilderRunOptions = AppBuilderRunOptions & {
 export interface PreparedAppBuilderRun {
   agentContextNote?: string;
   options: ProjectBoundAppBuilderRunOptions;
+  usesManagedPreview: boolean;
   waitsForGeneratedPreview: boolean;
 }
 
@@ -44,7 +45,7 @@ export async function prepareAppBuilderRun(
   const boundOptions = { ...options, input: requireProjectBinding(options.input) };
   await warmSandbox(boundOptions.sandbox, boundOptions.logger);
   if (boundOptions.isCanceled()) {
-    return { options: boundOptions, waitsForGeneratedPreview: false };
+    return { options: boundOptions, usesManagedPreview: false, waitsForGeneratedPreview: false };
   }
   const prepared = await runAppBuilder(boundOptions);
   return { ...prepared, options: boundOptions };

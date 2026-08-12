@@ -13,6 +13,7 @@ type MorphApplyResolver = () => Promise<MorphApplyRuntime>;
 interface CodeRequestContextOptions {
   agentDisplayName?: string | undefined;
   anthropicApiKey?: string | undefined;
+  appBuilderManagedPreview?: boolean | undefined;
   composioApiKey?: string | undefined;
   composioConnectedAccounts?: ComposioConnectedAccounts | undefined;
   composioQuotaMeter?: ComposioQuotaMeter | undefined;
@@ -56,6 +57,7 @@ function contextEntries(
     [CONTEXT.llmProvider, options.llmProvider],
     [CONTEXT.llmModelId, options.modelId],
     [CONTEXT.agentDisplayName, options.agentDisplayName],
+    [CONTEXT.appBuilderManagedPreview, options.appBuilderManagedPreview],
     [CONTEXT.globalMemory, options.globalMemory],
     [CONTEXT.promptProjectMode, options.projectMode],
     [CONTEXT.runIntent, options.runIntent],

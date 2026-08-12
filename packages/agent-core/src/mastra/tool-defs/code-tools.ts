@@ -49,7 +49,11 @@ import {
   WriteFileOutputSchema,
 } from "../../tools/code";
 import { containsWorkspaceReference } from "../../tools/code/workspace-paths";
-import { assertAppBuilderShellCommandAllowed } from "./app-builder-shell-policy-support";
+import { assertManagedAppFrameworkFileMutable } from "./app-builder-file-policy-support";
+import {
+  assertAppBuilderShellCommandAllowed,
+  assertManagedAppDevServerStartAllowed,
+} from "./app-builder-shell-policy-support";
 import { resolveMorphApplyRuntime } from "./request-context";
 import {
   codeRuntimeFromContext,
@@ -104,6 +108,7 @@ export const mastraShellStartProcess = createTool({
   outputSchema: ShellProcessOutputSchema,
   execute: async (input, context) => {
     const parsedInput = ShellStartProcessInputSchema.parse(input);
+    assertAppBuilderShellCommandAllowed(context, parsedInput.command);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executeShellStartProcess(parsedInput, runtimeContext);
   },
@@ -151,8 +156,11 @@ export const mastraFsWrite = createTool({
     "Create a new file, write binary content, or deliberately regenerate an entire file under /workspace; every call requires both path and the complete content. Use fs_apply for every focused or multi-section edit to an existing text file. Never use fs_write merely as a fallback after fs_apply reports an infrastructure or stale-file error.",
   inputSchema: WriteFileInputSchema,
   outputSchema: WriteFileOutputSchema,
-  execute: async (input, context) =>
-    executeWriteFile(input, await workspaceRuntimeFromContext(context)),
+  execute: async (input, context) => {
+    const parsedInput = WriteFileInputSchema.parse(input);
+    assertManagedAppFrameworkFileMutable(context, parsedInput.path);
+    return executeWriteFile(parsedInput, await workspaceRuntimeFromContext(context));
+  },
 });
 
 export const mastraPublishDeliverable = createTool({
@@ -173,9 +181,11 @@ export const mastraFsApply = createTool({
   inputSchema: ApplyFileInputSchema,
   outputSchema: ApplyFileOutputSchema,
   execute: async (input, context) => {
+    const parsedInput = ApplyFileInputSchema.parse(input);
+    assertManagedAppFrameworkFileMutable(context, parsedInput.path);
     const requestContext = requestContextFromToolContext(context);
     return executeApplyFile(
-      input,
+      parsedInput,
       await workspaceRuntimeFromContext(context),
       await resolveMorphApplyRuntime(requestContext),
       context.abortSignal,
@@ -208,6 +218,7 @@ export const mastraFsDelete = createTool({
   outputSchema: DeleteFileOutputSchema,
   execute: async (input, context) => {
     const parsedInput = DeleteFileInputSchema.parse(input);
+    assertManagedAppFrameworkFileMutable(context, parsedInput.path);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executeDeleteFile(parsedInput, runtimeContext);
   },
@@ -269,6 +280,7 @@ export const mastraStartDevServer = createTool({
   outputSchema: StartDevServerOutputSchema,
   execute: async (input, context) => {
     const parsedInput = StartDevServerInputSchema.parse(input);
+    assertManagedAppDevServerStartAllowed(context);
     const runtimeContext = await workspaceRuntimeFromContext(context);
     return executePreparedStartDevServer(
       await prepareStartDevServer(

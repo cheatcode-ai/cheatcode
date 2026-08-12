@@ -8,6 +8,8 @@ const PACKAGE_RUNNERS = new Set(["bunx", "npx", "pnpx"]);
 const SCAFFOLD_EXECUTABLE = /^(?:create(?:-[a-z0-9@._/-]+)?|create-next-app)$/u;
 const SHELL_SCAFFOLD_COMMAND =
   /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:(?:npm|pnpm|yarn|bun)\s+(?:create|init)\b|(?:npx|pnpx|bunx)\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:create(?:-[^\s;&|()]+)?|create-next-app|expo\s+init)\b|pnpm\s+(?:dlx|exec)\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:create(?:-[^\s;&|()]+)?|create-next-app|expo\s+init)\b)/iu;
+const MANAGED_PREVIEW_START_COMMAND =
+  /(?:^|&&|\|\||;|\n|\()\s*(?:(?:[A-Za-z_][A-Za-z0-9_]*=[^\s;&|()]+)\s+)*(?:command\s+)?(?:sudo\s+)?(?:corepack\s+)?(?:(?:npm|pnpm|yarn|bun)\s+(?:run\s+)?(?:dev|start|web)\b|(?:npx|pnpx|bunx|pnpm\s+(?:dlx|exec))\s+(?:--[a-z-]+(?:=[^\s]+)?\s+)*(?:expo\s+start|next\s+dev|vite)\b|(?:expo\s+start|next\s+dev|vite)(?:\s|$))/iu;
 
 /** Prevents model-authored scaffolds from replacing the prepared app-builder workspace. */
 export function assertAppBuilderShellCommandAllowed(
@@ -17,13 +19,44 @@ export function assertAppBuilderShellCommandAllowed(
   const requestContext = requestContextFromToolContext(context);
   const projectMode = requestContext.get(CONTEXT.promptProjectMode);
   if (typeof projectMode !== "string" || !APP_BUILDER_MODES.has(projectMode)) return;
-  if (!isScaffoldCommand(command)) return;
+  if (isScaffoldCommand(command)) {
+    throw new APIError(
+      422,
+      "tool_validation_failed",
+      "This app workspace is already scaffolded at the project root.",
+      {
+        hint: "Inspect and edit the existing root files. Do not initialize another app or nested project.",
+        retriable: false,
+      },
+    );
+  }
+  if (
+    requestContext.get(CONTEXT.appBuilderManagedPreview) !== true ||
+    !isManagedPreviewStartCommand(command)
+  ) {
+    return;
+  }
   throw new APIError(
     422,
     "tool_validation_failed",
-    "This app workspace is already scaffolded at the project root.",
+    "This app's managed preview is already running.",
     {
-      hint: "Inspect and edit the existing root files. Do not initialize another app or nested project.",
+      hint: "Edit the existing source files and verify the running preview in the browser.",
+      retriable: false,
+    },
+  );
+}
+
+/** Prevents a stale or unadvertised dev-server call from replacing a managed template preview. */
+export function assertManagedAppDevServerStartAllowed(context: unknown): void {
+  const requestContext = requestContextFromToolContext(context);
+  if (requestContext.get(CONTEXT.appBuilderManagedPreview) !== true) return;
+  throw new APIError(
+    422,
+    "tool_validation_failed",
+    "This app's managed preview is already running.",
+    {
+      hint: "Edit the existing source files and verify the running preview in the browser.",
       retriable: false,
     },
   );
@@ -42,6 +75,34 @@ function isScaffoldCommand(command: readonly string[] | string): boolean {
     return false;
   }
   return PACKAGE_RUNNERS.has(executable) && runnerStartsScaffold(args);
+}
+
+function isManagedPreviewStartCommand(command: readonly string[] | string): boolean {
+  if (typeof command === "string") return MANAGED_PREVIEW_START_COMMAND.test(command);
+  const normalized = unwrapCommand(command.map((argument) => argument.toLowerCase()));
+  const executable = basename(normalized[0]);
+  const args = normalized.slice(1).filter((argument) => !argument.startsWith("-"));
+  if (["bun", "npm", "pnpm", "yarn"].includes(executable)) {
+    const commandName = args[0] === "run" ? args[1] : args[0];
+    if (["dev", "start", "web"].includes(commandName ?? "")) return true;
+    if (executable === "pnpm" && ["dlx", "exec"].includes(args[0] ?? "")) {
+      return runnerStartsPreview(args.slice(1));
+    }
+    return false;
+  }
+  if (PACKAGE_RUNNERS.has(executable)) return runnerStartsPreview(args);
+  return runnerStartsPreview([executable, ...args]);
+}
+
+function runnerStartsPreview(args: readonly string[]): boolean {
+  const executableIndex = args.findIndex((argument) => !argument.startsWith("-"));
+  const executable = args[executableIndex];
+  const command = args.slice(executableIndex + 1).find((argument) => !argument.startsWith("-"));
+  return (
+    executable === "vite" ||
+    (executable === "next" && command === "dev") ||
+    (executable === "expo" && command === "start")
+  );
 }
 
 function unwrapCommand(command: readonly string[]): readonly string[] {

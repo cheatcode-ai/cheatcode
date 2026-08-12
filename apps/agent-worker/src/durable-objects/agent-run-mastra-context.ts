@@ -31,6 +31,7 @@ export interface MastraContextOptions {
   sandbox: ProjectSandboxStub;
   setRunStage: (stage: string) => Promise<void>;
   workspaceResolver: WorkspaceResolver;
+  usesManagedPreview: boolean;
 }
 
 /** Resolves request-scoped credentials and user skills inside the active Workflow step. */
@@ -92,6 +93,7 @@ export function createAgentRequestContext(
   return createCodeRequestContext(codeRuntime, {
     agentDisplayName: input.agentDisplayName,
     anthropicApiKey: credential.transportProvider === "anthropic" ? credential.apiKey : undefined,
+    appBuilderManagedPreview: options.usesManagedPreview,
     composioApiKey: toolCredentials.composioApiKey,
     composioConnectedAccounts: toolCredentials.composioConnectedAccounts,
     composioQuotaMeter: toolCredentials.composioQuotaMeter,

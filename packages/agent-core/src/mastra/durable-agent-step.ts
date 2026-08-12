@@ -36,6 +36,7 @@ interface GeneralAgentStepResult {
 interface GenerateGeneralAgentStepOptions {
   abortSignal?: AbortSignal;
   activeTools?: string[];
+  excludedTools?: string[];
   isDeepSeek: boolean;
   messages: JSONValue[];
   requestContext: RequestContext;
@@ -56,9 +57,10 @@ export async function generateGeneralAgentStep(
   options: GenerateGeneralAgentStepOptions,
 ): Promise<GeneralAgentStepResult> {
   const messages = options.messages.map((message) => modelMessageSchema.parse(message));
+  const activeTools = resolveActiveTools(options);
   const result = await mastra.getAgent("generalStep").generate(messages as never, {
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
-    ...(options.activeTools ? { activeTools: options.activeTools } : {}),
+    ...(activeTools ? { activeTools } : {}),
     clientTools: cheatcodeTools,
     ...(options.isDeepSeek
       ? { providerOptions: { deepseek: { thinking: { type: "disabled" as const } } } }
@@ -79,6 +81,16 @@ export async function generateGeneralAgentStep(
       toolName: call.payload.toolName,
     })),
   };
+}
+
+function resolveActiveTools(options: GenerateGeneralAgentStepOptions): string[] | undefined {
+  if (options.activeTools && options.excludedTools) {
+    throw new Error("Agent tools cannot be included and excluded in the same model step.");
+  }
+  if (options.activeTools) return options.activeTools;
+  if (!options.excludedTools || options.excludedTools.length === 0) return undefined;
+  const excludedTools = new Set(options.excludedTools);
+  return Object.keys(cheatcodeTools).filter((toolName) => !excludedTools.has(toolName));
 }
 
 function toJsonValues(values: ModelMessage[]): JSONValue[] {
