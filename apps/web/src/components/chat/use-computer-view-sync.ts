@@ -4,7 +4,7 @@ import {
   reconstructedTranscriptUIMessage,
   type SandboxState,
 } from "@cheatcode/types";
-import type { ProjectSummary } from "@cheatcode/types/api";
+import type { ProjectMode, ProjectSummary } from "@cheatcode/types/api";
 import type { ChatStatus } from "ai";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { type ComputerTab, useAppStore } from "@/lib/store/app-store";
@@ -55,6 +55,7 @@ export interface ComputerViewApplier {
 
 interface ComputerViewApplierInput extends ComputerViewActions {
   projectId: string | null;
+  projectMode: ProjectMode | null;
   threadId: string;
 }
 
@@ -70,7 +71,7 @@ interface HydratedComputerViewCommands {
 }
 
 export function useComputerViewApplier(input: ComputerViewApplierInput): ComputerViewApplier {
-  const scopeKey = `${input.threadId}:${input.projectId ?? ""}`;
+  const scopeKey = `${input.threadId}:${input.projectId ?? ""}:${input.projectMode ?? ""}`;
   const stateRef = useRef<ComputerViewCommandState>(createComputerViewCommandState(scopeKey));
   if (stateRef.current.scopeKey !== scopeKey) {
     stateRef.current = createComputerViewCommandState(scopeKey);
@@ -93,8 +94,14 @@ export function useComputerViewApplier(input: ComputerViewApplierInput): Compute
   );
   const apply = useCallback(
     (command: ComputerViewCommand) =>
-      applyComputerViewCommand(command, input.threadId, stateRef.current, actions),
-    [actions, input.threadId],
+      applyComputerViewCommand(
+        command,
+        input.threadId,
+        input.projectMode,
+        stateRef.current,
+        actions,
+      ),
+    [actions, input.projectMode, input.threadId],
   );
   const reset = useCallback(() => {
     stateRef.current = createComputerViewCommandState(scopeKey);
@@ -103,7 +110,10 @@ export function useComputerViewApplier(input: ComputerViewApplierInput): Compute
 }
 
 export function useSandboxComputerSync(input: SandboxComputerSyncInput): void {
-  const commands = useMemo(() => hydratedComputerViewCommands(input.messages), [input.messages]);
+  const commands = useMemo(
+    () => hydratedComputerViewCommands(input.messages, input.project?.mode ?? null),
+    [input.messages, input.project?.mode],
+  );
   const status = commands.status?.kind === "status" ? commands.status.status : null;
   const defaultedProjectFilesRef = useRef<string | null>(null);
   const previousStatusRef = useRef(input.chatStatus);
@@ -229,6 +239,7 @@ function useCompletionPreview(
 
 function hydratedComputerViewCommands(
   messages: readonly CheatcodeUIMessage[],
+  projectMode: ProjectMode | null,
 ): HydratedComputerViewCommands {
   const commands: HydratedComputerViewCommands = { preview: null, status: null, surface: null };
   for (let messageIndex = 0; messageIndex < messages.length; messageIndex += 1) {
@@ -242,7 +253,7 @@ function hydratedComputerViewCommands(
       if (!part) {
         continue;
       }
-      recordHydratedComputerViewCommand(commands, computerViewEffect(part));
+      recordHydratedComputerViewCommand(commands, computerViewEffect(part), projectMode);
     }
   }
   return commands;
@@ -251,7 +262,11 @@ function hydratedComputerViewCommands(
 function recordHydratedComputerViewCommand(
   commands: HydratedComputerViewCommands,
   command: ComputerViewCommand | null,
+  projectMode: ProjectMode | null,
 ): void {
+  if (!shouldApplyComputerViewCommand(command, projectMode)) {
+    return;
+  }
   if (command?.kind === "status") {
     commands.status = command;
   } else if (command?.kind === "preview-status") {
@@ -266,6 +281,7 @@ function recordHydratedComputerViewCommand(
 function applyComputerViewCommand(
   command: ComputerViewCommand,
   threadId: string,
+  projectMode: ProjectMode | null,
   state: ComputerViewCommandState,
   actions: ComputerViewActions,
 ): void {
@@ -279,6 +295,9 @@ function applyComputerViewCommand(
     if (useAppStore.getState().appPreviewStatus !== command.status) {
       actions.setAppPreviewStatus(command.status);
     }
+    return;
+  }
+  if (!shouldApplyComputerViewCommand(command, projectMode)) {
     return;
   }
   const surfaceId = command.kind === "open-files" ? command.artifactId : command.toolCallId;
@@ -297,6 +316,13 @@ function applyComputerViewCommand(
   }
   actions.setActiveComputerTab("browser");
   actions.setPreviewPanelOpen(true);
+}
+
+function shouldApplyComputerViewCommand(
+  command: ComputerViewCommand | null,
+  projectMode: ProjectMode | null,
+): boolean {
+  return command !== null && (command.kind !== "open-browser-preview" || projectMode !== "general");
 }
 
 function createComputerViewCommandState(scopeKey: string): ComputerViewCommandState {

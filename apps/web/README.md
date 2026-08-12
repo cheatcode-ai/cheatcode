@@ -55,11 +55,12 @@ the same mark in place until the final document has loaded. Preview wake and cap
 paused during fresh scaffold generation; readiness acquires a new one-minute handoff immediately
 before the iframe mounts and exchanges it for the renewable ten-minute host cookie. Existing project
 edits remain visible and continue hot-reloading normally.
-When the agent completes a browser-open action, the Browser panel requests one authenticated reload
-so the user sees the same freshly verified build. The preview owner first renews the short-lived
-handoff capability and only then remounts the entry document; an old capability is never reused.
-Read-only extraction, screenshots, and browser interactions still open the panel without repeatedly
-resetting the user's live preview state.
+When the agent completes a browser-open action for an app-builder project, the Browser panel requests
+one authenticated reload so the user sees the same freshly verified build. The preview owner first
+renews the short-lived handoff capability and only then remounts the entry document; an old capability
+is never reused. Read-only extraction, screenshots, and browser interactions in app-builder projects
+still open the panel without repeatedly resetting the user's live preview state. Internal browser work
+in a general project never displaces its Files workspace; explicit browser takeover remains visible.
 
 ## Public exports
 
@@ -93,10 +94,11 @@ The composer keeps three independent product concepts separate:
   non-app work intent remains a `general` project and can still create typed
   Deliverables.
 - `ComputerTab` is only the visible workspace view: `browser` or `files`.
-  Artifact kind and MIME type decide how an output renders. A generated artifact selects Files,
-  while an actual browser action selects Browser; the latest real activity wins when a transcript
-  is restored. Neither work intent nor app target guesses the Computer tab, and the selected tab is
-  not persisted across unrelated chats.
+  Artifact kind and MIME type decide how an output renders. A generated artifact selects Files.
+  Browser actions automatically select Browser only for web/mobile app project modes, where that
+  surface is the product result; browser tools used internally by a general project do not steal
+  focus from Files. Explicit browser takeover still selects Browser. The selected tab is not persisted
+  across unrelated chats.
 
 Signed-out launch handoff validates and restores `buildTarget`, model, and
 public GitHub repository state before chat creation. The opaque prompt and
