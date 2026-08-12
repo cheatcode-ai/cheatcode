@@ -10,13 +10,45 @@
   "workspaces": {
     ".": {
       // Skill TypeScript files are executable snapshot entrypoints discovered by
-      // `cheatcode-skills`; the container scripts are invoked by the sandbox Dockerfile
-      // or its Python supervisor. These edges sit outside the pnpm workspace graph.
+      // `cheatcode-skills`; the container scripts are invoked by the sandbox image.
+      // These edges sit outside the pnpm workspace graph.
       "entry": [
         "skills/**/*.ts",
-        "infra/containers/sandbox/app-generators/configure-expo-template.mjs",
         "infra/containers/sandbox/scripts/configure-expo-runtime.mjs",
         "infra/containers/sandbox/scripts/pnpm-build-policy.mjs"
+      ]
+    },
+    "infra/containers/sandbox/app-templates/expo": {
+      // Expo Router loads these default exports by filesystem convention after the
+      // Docker image copies this reviewed scaffold into a user workspace. The extra
+      // Expo modules form the preinstalled mobile-builder palette consumed by generated
+      // user code, so the minimal starter route intentionally does not import them.
+      "entry": ["src/app/*.tsx"],
+      "includeEntryExports": false,
+      // Expo CLI is invoked by package scripts rather than imported by source.
+      "ignoreBinaries": ["expo"],
+      "ignoreDependencies": [
+        "@expo/metro-runtime",
+        "@expo/ui",
+        "@types/react",
+        "expo-constants",
+        "expo-device",
+        "expo-font",
+        "expo-glass-effect",
+        "expo-image",
+        "expo-linking",
+        "expo-splash-screen",
+        "expo-symbols",
+        "expo-updates",
+        "expo-web-browser",
+        "react",
+        "react-dom",
+        "react-native-gesture-handler",
+        "react-native-reanimated",
+        "react-native-safe-area-context",
+        "react-native-screens",
+        "react-native-web",
+        "react-native-worklets"
       ]
     },
     "apps/agent-worker": {

@@ -229,15 +229,11 @@ COPY --chown=node:node skill-runtime/tsconfig.json /home/node/.cheatcode/tsconfi
 COPY --chown=node:node app-templates/ /home/node/.cheatcode-template-manifests/
 COPY --chown=node:node app-generators/ /home/node/.cheatcode-app-generators/
 
-# The generators provide source files only. Reviewed manifests and lockfiles are
-# copied over them, then the exact dependency graph is installed into immutable,
+# The Next generator provides source files only. Reviewed manifests and lockfiles are
+# copied over it, then both exact dependency graphs are installed into immutable,
 # sandbox-local runtimes. Persistent /workspace is Daytona object-store FUSE: it is
-# the right home for user source, but copying dependency trees there is both slow and
-# non-atomic. The source-only templates stay separate so project creation copies only
-# editable files. The Expo template artifact itself is pinned: create-expo-app's
-# mutable "default" alias is intentionally not used.
-ARG EXPO_TEMPLATE_VERSION=57.0.6
-ARG EXPO_TEMPLATE_SHA256=4c2a276f05db27f4a4dfaa326123e72be33d7ad6878fdd46b8df7eb3376def3b
+# the right home for user source, but copying dependency trees or generator demo assets
+# there is both slow and non-atomic. The reviewed Expo scaffold is intentionally minimal.
 
 RUN set -eux; \
   cd /home/node/.cheatcode-app-generators; \
@@ -257,29 +253,12 @@ RUN set -eux; \
   cp -a /home/node/cheatcode-next-template /home/node/.cheatcode/app-runtimes/next; \
   cd /home/node/.cheatcode/app-runtimes/next; \
   pnpm install --frozen-lockfile; \
-  cd /workspace; \
-  curl -fsSL \
-    "https://registry.npmjs.org/expo-template-default/-/expo-template-default-${EXPO_TEMPLATE_VERSION}.tgz" \
-    -o /tmp/expo-template-default.tgz; \
-  echo "${EXPO_TEMPLATE_SHA256}  /tmp/expo-template-default.tgz" | sha256sum --check --strict; \
-  mkdir -p /home/node/.cheatcode-expo-template-source; \
-  tar -xzf /tmp/expo-template-default.tgz \
-    --strip-components=1 -C /home/node/.cheatcode-expo-template-source; \
-  mv /home/node/.cheatcode-expo-template-source /home/node/cheatcode-expo-template; \
-  mv /home/node/cheatcode-expo-template/gitignore /home/node/cheatcode-expo-template/.gitignore; \
-  mv /home/node/cheatcode-expo-template/_vscode /home/node/cheatcode-expo-template/.vscode; \
-  cp /home/node/.cheatcode-template-manifests/expo/package.json /home/node/cheatcode-expo-template/package.json; \
-  cp /home/node/.cheatcode-template-manifests/expo/pnpm-lock.yaml /home/node/cheatcode-expo-template/pnpm-lock.yaml; \
-  cp /home/node/.cheatcode-template-manifests/expo/pnpm-workspace.yaml /home/node/cheatcode-expo-template/pnpm-workspace.yaml; \
-  cd /home/node/cheatcode-expo-template; \
-  node /home/node/.cheatcode-app-generators/configure-expo-template.mjs app.json; \
-  rm -rf .git .expo node_modules package-lock.json AGENTS.md CLAUDE.md .claude; \
+  mv /home/node/.cheatcode-template-manifests/expo /home/node/cheatcode-expo-template; \
   cp -a /home/node/cheatcode-expo-template /home/node/.cheatcode/app-runtimes/expo; \
   cd /home/node/.cheatcode/app-runtimes/expo; \
   pnpm install --frozen-lockfile; \
   cd /workspace; \
   rm -rf \
-    /tmp/expo-template-default.tgz \
     /home/node/.cache \
     /home/node/.npm \
     /home/node/.cheatcode-app-generators \

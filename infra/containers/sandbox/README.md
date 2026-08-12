@@ -71,8 +71,10 @@ agent-worker `DAYTONA_SANDBOX_SNAPSHOT` var. The authoritative current default i
 
 When updating code-server, an Open VSX extension, or the Daytona CLI, update its exact
 version and SHA-256 together. The remote build fails closed when downloaded bytes do
-not match the reviewed checksum. `create-next-app` and the Expo template tarball are
-also version-pinned so a rebuild cannot silently switch template generations. The Node
+not match the reviewed checksum. `create-next-app` is lock-pinned, while the Expo
+scaffold is a reviewed, minimal source tree committed beside its exact package lock so
+a rebuild cannot silently switch template generations or copy demo assets into a user's
+durable workspace. The Node
 base image uses an OCI digest and apt resolves both the main and security repositories
 from the reviewed `DEBIAN_SNAPSHOT`; update those pins deliberately to take security
 patches.
@@ -93,10 +95,11 @@ Exact scaffold projects link their disposable native-disk mirror to the matching
 runtime dependency tree, avoiding both package copies and installs during startup. The helper
 detaches that link before a package mutation or non-template restore; additional dependencies then
 use a project-scoped local modules directory and can be restored from the reviewed package store
-after a sandbox replacement. Expo uses an exact
-`expo-template-default` tarball with a reviewed SHA-256 rather than the mutable
-`default` alias. These locks prevent a snapshot rebuild from resolving a different
-dependency tree while the application source stays unchanged.
+after a sandbox replacement. The minimal Expo scaffold intentionally contains no
+generated images: only manifests and the starter route cross the persistent object-store
+boundary. Its dependency tree remains the exact reviewed runtime installed on native
+sandbox disk. These locks prevent a snapshot rebuild from resolving a different dependency
+tree while the application source stays unchanged.
 
 The root-owned `/opt/cheatcode/project-source-sync.py` helper is the single runtime
 boundary between persistent project source and the native-disk project mirror. It is
@@ -106,8 +109,8 @@ It uses content hashes and atomic replacement on native disk. Writes back to Day
 object-store FUSE use direct overwrite plus checksum verification because that mount does
 not implement replacement renames or portable chmod semantics.
 The adjacent root-owned `/opt/cheatcode/configure-expo-runtime.mjs` helper preserves the
-checksum-pinned Expo template's source and asset aliases while adding only the disposable local
-and immutable dependency locations. Snapshot smoke testing runs that same helper, compiles the
+reviewed Expo template's source aliases while adding only the disposable local and immutable
+dependency locations. Snapshot smoke testing runs that same helper, compiles the
 real Expo Router bundle, and renders the template in headless Chromium; a listening Metro port
 without an executable app is not considered healthy.
 Direct pnpm invocations execute inside one `flock`-guarded transaction; process death
