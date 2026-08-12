@@ -37,15 +37,6 @@ const BrowserValueActionMethodSchema = z.enum([
   "type",
 ]);
 
-interface BrowserActInput {
-  method: z.infer<typeof BrowserActionMethodSchema>;
-  ref: string;
-  targetRef: string | null;
-  value: string | null;
-}
-
-type BrowserValueActionMethod = z.infer<typeof BrowserValueActionMethodSchema>;
-
 export const BrowserBoundActionSchema = z.union([
   z.strictObject({
     method: BrowserNoValueActionMethodSchema.describe(
@@ -70,76 +61,14 @@ export const BrowserBoundActionSchema = z.union([
   }),
 ]);
 
-export const BrowserActInputSchema = z
-  .strictObject({
-    method: BrowserActionMethodSchema.describe(
-      "Deterministic action to perform on the exact ref from the latest browser tree.",
-    ),
-    ref: BrowserElementRefSchema,
-    targetRef: BrowserElementRefSchema.nullable().describe(
-      "Destination ref for dragAndDrop; null for every other method.",
-    ),
-    value: z
-      .string()
-      .min(1)
-      .max(2_000)
-      .nullable()
-      .describe(
-        "Text, key, option, or percentage for fill, press, scrollTo, selectOptionFromDropdown, and type; null for every other method.",
-      ),
-  })
-  .superRefine(validateBrowserActInput);
-
-function validateBrowserActInput(input: BrowserActInput, context: z.RefinementCtx): void {
-  if (input.method === "dragAndDrop") {
-    requireDragTarget(input, context);
-    return;
-  }
-  if (isValueActionMethod(input.method)) {
-    if (input.value === null) {
-      addIssue(context, "value", `${input.method} requires value.`);
-    }
-  } else if (input.value !== null) {
-    addIssue(context, "value", `${input.method} does not accept value.`);
-  }
-  if (input.targetRef !== null) {
-    addIssue(context, "targetRef", `${input.method} does not accept targetRef.`);
-  }
-}
-
-function requireDragTarget(input: BrowserActInput, context: z.RefinementCtx): void {
-  if (input.targetRef === null) {
-    addIssue(context, "targetRef", "dragAndDrop requires targetRef.");
-  }
-  if (input.value !== null) {
-    addIssue(context, "value", "dragAndDrop does not accept value.");
-  }
-}
-
-function addIssue(context: z.RefinementCtx, path: "targetRef" | "value", message: string): void {
-  context.addIssue({ code: "custom", message, path: [path] });
-}
+// Provider and driver share one method-specific contract. Placeholder nulls add no runtime safety
+// and are emitted inconsistently across otherwise compatible model transports.
+export const BrowserActInputSchema = BrowserBoundActionSchema.describe(
+  "One method-specific action using an exact ref from the latest browser tree.",
+);
 
 export function browserBoundActionFromInput(
   input: z.infer<typeof BrowserActInputSchema>,
 ): z.infer<typeof BrowserBoundActionSchema> {
-  if (input.method === "dragAndDrop") {
-    if (input.targetRef === null) {
-      throw new Error("Validated dragAndDrop input is missing targetRef.");
-    }
-    return { method: input.method, ref: input.ref, targetRef: input.targetRef };
-  }
-  if (isValueActionMethod(input.method)) {
-    if (input.value === null) {
-      throw new Error(`Validated ${input.method} input is missing value.`);
-    }
-    return { method: input.method, ref: input.ref, value: input.value };
-  }
-  return { method: input.method, ref: input.ref };
-}
-
-function isValueActionMethod(
-  method: BrowserActInput["method"],
-): method is BrowserValueActionMethod {
-  return BrowserValueActionMethodSchema.options.some((candidate) => candidate === method);
+  return BrowserBoundActionSchema.parse(input);
 }

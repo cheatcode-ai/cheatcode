@@ -51,10 +51,9 @@ the returned post-action tree as the next actionable state. A click or fill ther
 invoke a hidden model decision, expose a selector, reuse a stale ref, or cross the active origin.
 Every first-party browser tool advertises its strict JSON schema to providers that support strict
 tool calling, while the same Zod contract remains the provider-independent runtime boundary.
-The model-facing action schema is a flat four-field object: method and ref are always present, while
-unused value and targetRef fields are explicitly null. Runtime refinement maps that contract to the
-driver's no-value, value, or drag shape, so operational timeout policy cannot become a substitute
-for the action itself. A tool-validation or driver failure is verification
+The model-facing action schema is the same method-specific union used by the driver: every action
+has method and ref, value-taking actions add value, and dragAndDrop adds targetRef. Operational
+timeout policy cannot become a substitute for the action itself. A tool-validation or driver failure is verification
 failure, not evidence that generated application state is broken; app-builder agents preserve the
 framework event model and correct the browser call instead of injecting page scripts.
 The managed
@@ -82,9 +81,10 @@ text file use FastApply; new files, binary files, and intentional whole-file rew
 use the deterministic file writer.
 App-builder runs receive an existing framework workspace and managed preview before model
 execution. Managed template runs do not advertise the dev-server tool, and their shell and file
-boundaries reject alternate server launches or replacement of root framework manifests. A model
-therefore cannot replace the canonical Next.js or Expo root with another scaffold, package manifest,
-or nested project; ordinary source edits, package installation, and build commands remain available.
+boundaries reject alternate server launches, redundant dependency reinstalls, and replacement or
+bypass of the root framework. A model therefore cannot replace the canonical Next.js or Expo root
+with another scaffold, package manifest, Vite entrypoint, or nested project; ordinary source edits,
+explicit dependency changes, and build commands remain available.
 Imported repositories keep their own dev-server and framework-file capabilities because their stack
 is intentionally user-owned rather than image-owned.
 

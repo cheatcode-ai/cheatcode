@@ -420,7 +420,7 @@ async function generateWithCredential(input: {
     abortSignal: AbortSignal.timeout(MODEL_STEP_TIMEOUT_MS),
     ...(input.input.runIntent === "skill-creator"
       ? {
-          activeTools: [
+          includedTools: [
             "fs_apply",
             "fs_delete",
             "fs_list",

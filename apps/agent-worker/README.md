@@ -170,9 +170,10 @@ high-confidence fallback materializes the project, scaffolds its canonical works
 registers the managed preview even when the selected model would otherwise attempt generic shell
 work and finish without a Computer target.
 Template preparation records managed-preview ownership in checkpointed Workflow state. Every model
-turn excludes the generic dev-server tool in that state, and every tool execution receives the same
-request-scoped policy marker so stale tool calls cannot restart the server or replace root framework
-manifests. Imported repositories use the separate unmanaged path and retain those capabilities.
+turn removes the generic dev-server tool from the provider-facing registry in that state, and every
+tool execution receives the same request-scoped policy marker so stale tool calls cannot restart the
+server, reinstall its prepared dependencies, or replace and bypass the root framework. Imported
+repositories use the separate unmanaged path and retain those capabilities.
 The starter page is an internal server-readiness target, not user-facing generated content. A
 fresh template run emits the typed `app-preview-status` transition from `building` to `ready` only
 after model execution, so the web client can keep
