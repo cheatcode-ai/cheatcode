@@ -31,8 +31,7 @@ jobs:
             --field event=push \
             --field head_sha="$GITHUB_SHA" \
             --field per_page=1 \
-            --field status=success \
-            --jq '.total_count')"
+            --jq '[.workflow_runs[] | select(.conclusion == "success")] | length')"
           if [ "$successful_runs" -lt 1 ]; then
             echo "Static Checks has not succeeded for $GITHUB_SHA on main." >&2
             exit 1
