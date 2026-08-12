@@ -119,9 +119,42 @@ export function shouldFallbackToOpenAI(
     message.includes("insufficient");
   const opaqueProviderStreamFailure =
     message === "unknown mastra stream error." || message === "mastra stream error.";
+  const providerTimeout = isProviderTimeout(error);
   return (
-    (providerFailure || opaqueProviderStreamFailure) &&
-    (statusCode === null || [400, 401, 403, 429].includes(statusCode))
+    ((providerFailure || opaqueProviderStreamFailure) &&
+      (statusCode === null || [400, 401, 403, 429].includes(statusCode))) ||
+    (providerTimeout &&
+      (statusCode === null || statusCode === 408 || (statusCode >= 500 && statusCode <= 504)))
+  );
+}
+
+function isProviderTimeout(error: unknown): boolean {
+  const pending: unknown[] = [error];
+  const seen = new Set<unknown>();
+  while (pending.length > 0 && seen.size < 12) {
+    const candidate = pending.shift();
+    if (candidate === undefined || candidate === null || seen.has(candidate)) continue;
+    seen.add(candidate);
+    if (timeoutSignal(candidate)) return true;
+    if (!isRecord(candidate)) continue;
+    pending.push(candidate["cause"], candidate["lastError"]);
+    const nested = candidate["errors"];
+    if (Array.isArray(nested)) pending.push(...nested.slice(0, 4));
+  }
+  return false;
+}
+
+function timeoutSignal(error: unknown): boolean {
+  if (!isRecord(error)) return false;
+  const name = typeof error["name"] === "string" ? error["name"].toLowerCase() : "";
+  const code = typeof error["code"] === "string" ? error["code"].toLowerCase() : "";
+  const message = typeof error["message"] === "string" ? error["message"].toLowerCase() : "";
+  return (
+    name === "timeouterror" ||
+    code === "etimedout" ||
+    code.includes("timeout") ||
+    message.includes("timed out") ||
+    message.includes("timeout")
   );
 }
 
