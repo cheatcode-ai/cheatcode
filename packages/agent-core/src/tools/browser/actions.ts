@@ -52,7 +52,7 @@ const BrowserElementRefSchema = z
   .string()
   .regex(/^\d+-\d+$/u)
   .max(64)
-  .describe("Exact hyphenated element ref from the latest browser_observe tree.");
+  .describe("Exact hyphenated element ref from the latest browser_observe or browser_act tree.");
 
 const BrowserActionMethodSchema = z.enum([
   "click",
@@ -126,7 +126,7 @@ const BrowserBoundActionSchema = z
 
 export const BrowserActInputSchema = z.strictObject({
   action: BrowserBoundActionSchema.describe(
-    "A ref-bound action chosen from the immediately preceding browser_observe tree.",
+    "A ref-bound action chosen from the latest tree returned by browser_observe or browser_act.",
   ),
   timeoutMs: z
     .number()

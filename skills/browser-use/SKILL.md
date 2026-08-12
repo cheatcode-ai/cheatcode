@@ -42,8 +42,10 @@ examples in this document into `shell_terminal` calls. If `cheatcode-browser` is
 fall back to the native browser tools without creating a project. Open the page, call
 `browser_observe` once, choose one exact hyphenated element ref from its accessibility tree, and
 call `browser_act` with that ref plus the required method/value. Native refs are page-bound and
-single-use, and `browser_act` returns the post-action page tree for verification. Never invent a ref
-or selector, and observe again before any later interaction after a DOM or navigation change.
+single-use, and `browser_act` returns an actionable post-action page tree for verification and any
+required next interaction. Never invent a ref or selector. Chain the next action from the fresh
+post-action refs; observe again only after navigation, a change outside `browser_act`, or when the
+returned tree does not contain the required element.
 
 ## Before You Act — THINK FIRST
 
