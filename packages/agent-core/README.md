@@ -16,7 +16,9 @@ or removed without updating that shared contract. Sandbox-status and
 artifact-stream routing derive from the catalog's exact runtime traits.
 Artifact presentation is explicit: finished user files are Deliverables, while
 browser screenshots are durable tool evidence rendered inside the browser
-action that captured them.
+action that captured them. Transient screenshot bytes are inspected against the
+tool call's visual acceptance criterion with the request-scoped browser credential;
+only the bounded textual assessment enters durable Workflow state.
 Sandbox and artifact capabilities cross tool-domain boundaries only through
 `@cheatcode/sandbox-contracts`; concrete code-tool executors remain in
 `src/tools/code` and are available to deployables through the
@@ -29,6 +31,9 @@ DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media and Googl
 browser tools resolve the user's Google AI BYOK key lazily when invoked. All three receive
 sandbox and R2 artifact capabilities through request-scoped contracts; they do
 not read environment variables, persist credentials, or log keys.
+Published media is rendered automatically in the chat artifact card and is available in Files;
+the agent does not treat the media's sandbox path as a browser URL or tell the user that the
+published result cannot be previewed.
 Files produced through the general file or shell surfaces cross into durable user output only
 through `deliverable_publish`. The tool reads one project-confined finished file, derives its
 bounded artifact type from an explicit supported extension, and publishes it through the same

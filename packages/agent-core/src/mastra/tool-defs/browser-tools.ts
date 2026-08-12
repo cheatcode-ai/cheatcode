@@ -69,7 +69,7 @@ export const mastraBrowserExtract = createTool({
 export const mastraBrowserScreenshot = createTool({
   id: "browser_screenshot",
   description:
-    "Capture the current sandbox browser page as durable visual evidence for this tool step. The screenshot appears inside the expanded browser action and is not a user deliverable.",
+    "Capture and visually assess the current sandbox browser page against one explicit acceptance criterion. The image appears inside the expanded browser action as internal evidence, never as a user deliverable.",
   inputSchema: BrowserScreenshotInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>

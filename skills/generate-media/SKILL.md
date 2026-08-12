@@ -216,6 +216,7 @@ reference_images: ["/path/to/dress.png", "/path/to/woman.png", "/path/to/sunglas
 6. **Camera language for composition**: Use terms like `wide-angle shot`, `macro shot`, `low-angle perspective`, `dolly shot`, `aerial view`.
 7. **For edits, state invariants explicitly**: "Change only the background; keep the product, edges, and shadows unchanged."
 8. **Re-state invariants on each iteration**: Gemini can drift on follow-ups; repeat what must stay the same.
+9. **Finish from the published asset**: A successful result is already shown to the user in the chat and can be opened in Files. Refer to that preview naturally; do not try to open the sandbox path in the browser and do not say the asset cannot be previewed.
 
 ## Common Mistakes
 
@@ -226,3 +227,4 @@ reference_images: ["/path/to/dress.png", "/path/to/woman.png", "/path/to/sunglas
 - Providing too many references for video (max 3 for video, max 8 for images)
 - Using `duration` for image generation (video-only parameter)
 - Forgetting to specify `type` — always required
+- Trying to preview the returned sandbox path in the browser. Local project paths are not browser URLs, and the product already renders the published asset in chat and Files.
