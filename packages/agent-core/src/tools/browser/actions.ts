@@ -48,8 +48,45 @@ export const BrowserOpenInputSchema = z.strictObject({
   waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
 });
 
+const BrowserObservedActionSchema = z.strictObject({
+  arguments: z
+    .array(z.string().max(2_000))
+    .max(10)
+    .optional()
+    .describe("Arguments returned by browser_observe. Pass them through unchanged."),
+  backendNodeId: z.number().int().positive().optional(),
+  description: z
+    .string()
+    .min(1)
+    .max(2_000)
+    .describe("Action description returned by browser_observe."),
+  method: z
+    .enum([
+      "click",
+      "doubleClick",
+      "dragAndDrop",
+      "fill",
+      "hover",
+      "nextChunk",
+      "press",
+      "prevChunk",
+      "scrollTo",
+      "selectOptionFromDropdown",
+      "type",
+    ])
+    .describe("Action method returned by browser_observe."),
+  selector: z
+    .string()
+    .min(1)
+    .max(4_096)
+    .startsWith("xpath=", "Use the exact XPath selector returned by browser_observe.")
+    .describe("Exact XPath selector returned by browser_observe."),
+});
+
 export const BrowserActInputSchema = z.strictObject({
-  instruction: z.string().min(1).max(2_000).describe("Natural-language browser action."),
+  action: BrowserObservedActionSchema.describe(
+    "One exact action returned by the immediately preceding browser_observe call.",
+  ),
   timeoutMs: z
     .number()
     .int()
@@ -95,10 +132,10 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
     waitUntil: WaitUntilSchema.default("domcontentloaded"),
   }),
   z.strictObject({
+    action: BrowserObservedActionSchema,
     allowedOrigin: BrowserUrlSchema,
     expectedUrl: BrowserUrlSchema,
     type: z.literal("act"),
-    instruction: z.string().min(1).max(2_000),
     timeoutMs: z.number().int().positive().max(120_000).default(10_000),
   }),
   z.strictObject({
@@ -203,10 +240,10 @@ export async function executeBrowserAct(
     {
       actions: [
         {
+          action: parsedInput.action,
           allowedOrigin: parsedGuard.allowedOrigin,
           expectedUrl: parsedGuard.expectedUrl,
           type: "act",
-          instruction: parsedInput.instruction,
           timeoutMs: parsedInput.timeoutMs,
         },
       ],

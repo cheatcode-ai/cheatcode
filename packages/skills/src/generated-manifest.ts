@@ -191,7 +191,7 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
   },
   {
     "name": "webapp-testing",
-    "description": "Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.",
+    "description": "Verify a running local web application through Cheatcode's managed headed browser without creating a second test harness or browser process.",
     "category": "Builder & Apps",
     "tags": [
       "qa",

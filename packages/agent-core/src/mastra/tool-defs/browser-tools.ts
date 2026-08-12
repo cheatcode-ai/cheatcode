@@ -28,7 +28,7 @@ export const mastraBrowserOpen = createTool({
 export const mastraBrowserAct = createTool({
   id: "browser_act",
   description:
-    "Perform a natural-language browser action in the sandbox's local headed Chromium browser.",
+    "Execute one exact action returned by the immediately preceding browser_observe call. Pass the returned action object unchanged; invented or stale actions are rejected.",
   inputSchema: BrowserActInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) => {
@@ -49,7 +49,7 @@ export const mastraBrowserAct = createTool({
 export const mastraBrowserObserve = createTool({
   id: "browser_observe",
   description:
-    "Observe available UI elements or page state in the sandbox's local headed Chromium browser.",
+    "Find executable actions for one explicit interaction in the current sandbox browser page. Select one returned action and pass it unchanged to browser_act.",
   inputSchema: BrowserObserveInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>

@@ -39,8 +39,11 @@ must be sent to `shell_exec` as:
 
 Issue sequential `shell_exec` calls when commands depend on earlier output. Do not turn `&&`
 examples in this document into `shell_terminal` calls. If `cheatcode-browser` is unavailable,
-fall back directly to the native `browser_open`, `browser_observe`, `browser_act`,
-`browser_extract`, and `browser_screenshot` tools without creating a project.
+fall back to the native browser tools without creating a project. Open the page, call
+`browser_observe` for one exact interaction, pass one returned action object unchanged to
+`browser_act`, and use `browser_extract` to verify the resulting state. Native observed actions are
+page-bound and single-use: observe again after a DOM or navigation change. Never invent a selector,
+edit an observed action, or send prose directly to `browser_act`.
 
 ## Before You Act — THINK FIRST
 

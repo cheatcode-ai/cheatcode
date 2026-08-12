@@ -1,103 +1,29 @@
 ---
 name: webapp-testing
-description: Toolkit for interacting with and testing local web applications using Playwright. Supports verifying frontend functionality, debugging UI behavior, capturing browser screenshots, and viewing browser logs.
+description: Verify a running local web application through Cheatcode's managed headed browser without creating a second test harness or browser process.
 category: Builder & Apps
 tags: qa, browser, webapp, responsive
-compatibility: Requires the preinstalled headed Chromium, Playwright, and cheatcode-browser CLI.
+compatibility: Requires the managed headed Chromium browser.
+allowed-tools: browser_open browser_observe browser_act browser_extract browser_screenshot
 ---
-
-## Dependency Check
-
-Before using this skill, first verify that any external commands, libraries, browsers, or packages it depends on are installed in the current environment.
-If a required dependency is missing, install it first in the appropriate scope before continuing.
 
 # Web Application Testing
 
-To test local web applications, write native Python Playwright scripts.
+Use the already-running managed preview and the native browser tools. Never install a browser,
+launch a second browser process, write a Playwright/Python test harness, or start another dev server.
 
-**Helper Scripts Available**:
-- `scripts/with_server.py` - Manages server lifecycle (supports multiple servers)
+## Verification flow
 
-**Always run scripts with `--help` first** to see usage. DO NOT read the source until you try running the script first and find that a customized solution is absolutely necessary. These scripts can be very large and thus pollute your context window. They exist to be called directly as black-box scripts rather than ingested into your context window.
+1. Open the app's internal `http://localhost:<port>` URL once.
+2. Capture one screenshot with one explicit visual acceptance criterion. Use its PASS/FAIL
+   assessment instead of inferring quality from image size.
+3. For one representative functional interaction, call `browser_observe` with the exact action
+   needed. Choose one returned action and pass that action object unchanged to `browser_act`.
+4. Call `browser_extract` once to read the resulting state and decide whether the criterion passed.
+5. If a criterion fails, fix the concrete app defect and repeat only that changed criterion once.
 
-## Decision Tree: Choosing Your Approach
+Observed actions are page-bound and single-use. Observe again after a DOM or navigation change.
+Never invent a selector, edit an observed action, or send prose directly to `browser_act`.
 
-```
-User task → Is it static HTML?
-    ├─ Yes → Read HTML file directly to identify selectors
-    │         ├─ Success → Write Playwright script using selectors
-    │         └─ Fails/Incomplete → Treat as dynamic (below)
-    │
-    └─ No (dynamic webapp) → Is the server already running?
-        ├─ No → Run: python scripts/with_server.py --help
-        │        Then use the helper + write simplified Playwright script
-        │
-        └─ Yes → Reconnaissance-then-action:
-            1. Navigate and wait for networkidle
-            2. Take screenshot or inspect DOM
-            3. Identify selectors from rendered state
-            4. Execute actions with discovered selectors
-```
-
-## Example: Using with_server.py
-
-To start a server, run `--help` first, then use the helper:
-
-**Single server:**
-```bash
-python scripts/with_server.py --server "npm run dev" --port 5173 -- python your_automation.py
-```
-
-**Multiple servers (e.g., backend + frontend):**
-```bash
-python scripts/with_server.py \
-  --server "cd backend && python server.py" --port 3000 \
-  --server "cd frontend && npm run dev" --port 5173 \
-  -- python your_automation.py
-```
-
-To create an automation script, include only Playwright logic (servers are managed automatically):
-```python
-from playwright.sync_api import sync_playwright
-
-with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True) # Always launch chromium in headless mode
-    page = browser.new_page()
-    page.goto('http://localhost:5173') # Server already running and ready
-    page.wait_for_load_state('networkidle') # CRITICAL: Wait for JS to execute
-    # ... your automation logic
-    browser.close()
-```
-
-## Reconnaissance-Then-Action Pattern
-
-1. **Inspect rendered DOM**:
-   ```python
-   page.screenshot(path='/tmp/inspect.png', full_page=True)
-   content = page.content()
-   page.locator('button').all()
-   ```
-
-2. **Identify selectors** from inspection results
-
-3. **Execute actions** using discovered selectors
-
-## Common Pitfall
-
-- **Don't** inspect the DOM before waiting for `networkidle` on dynamic apps
-- **Do** wait for `page.wait_for_load_state('networkidle')` before inspection
-
-## Best Practices
-
-- **Use bundled scripts as black boxes** - To accomplish a task, consider whether one of the scripts available in `scripts/` can help. These scripts handle common, complex workflows reliably without cluttering the context window. Use `--help` to see usage, then invoke directly.
-- Use `sync_playwright()` for synchronous scripts
-- Always close the browser when done
-- Use descriptive selectors: `text=`, `role=`, CSS selectors, or IDs
-- Add appropriate waits: `page.wait_for_selector()` or `page.wait_for_timeout()`
-
-## Reference Files
-
-- **examples/** - Examples showing common patterns:
-  - `element_discovery.py` - Discovering buttons, links, and inputs on a page
-  - `static_html_automation.py` - Using file:// URLs for local HTML
-  - `console_logging.py` - Capturing console logs during automation
+Finish as soon as the requested content renders, the representative interaction passes, and no
+blocking browser error remains. Do not repeat equivalent screenshots, actions, or extractions.
