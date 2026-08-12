@@ -4,6 +4,7 @@
 import errno
 import fcntl
 import hashlib
+import json
 import os
 import shutil
 import signal
@@ -19,7 +20,20 @@ LOCAL_ONLY_NAMES = IGNORED_DIRS | {"next-env.d.ts"}
 PACKAGE_CONFLICT_EXIT = 74
 PREVIEW_SYNC_FAILURE_EXIT = 75
 DEPENDENCY_STATE_FILENAME = ".cheatcode-dependency-state"
+DEPENDENCY_GENERATION_FILENAME = "dependency-generation"
 PNPM_BUILD_POLICY_BINARY = "/opt/cheatcode/pnpm-build-policy.mjs"
+READ_ONLY_PNPM_COMMANDS = {
+    "exec",
+    "list",
+    "ls",
+    "outdated",
+    "root",
+    "run",
+    "run-script",
+    "start",
+    "test",
+    "why",
+}
 PREVIEW_SYNC_INTERVAL_SECONDS = 0.25
 SOURCE_FAILURE_GRACE_SECONDS = 10
 SOURCE_READ_RETRY_DELAYS_SECONDS = (0.05, 0.1, 0.2)
@@ -279,8 +293,22 @@ def package_run(source, target, lock_path, local_cwd, command):
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         sync_directory(source, target)
         baseline = tree_state(target)
-        detach_runtime_dependencies(local_cwd)
-        completed = subprocess.run(command, cwd=local_cwd, check=False)
+        preserve_dependencies = pnpm_command_is_read_only(local_cwd, command)
+        dependencies_before = dependency_runtime_state(local_cwd, target)
+        if not preserve_dependencies:
+            publish_dependency_generation(lock_path)
+            detach_runtime_dependencies(local_cwd)
+        command_environment = os.environ.copy()
+        if preserve_dependencies:
+            command_environment["pnpm_config_verify_deps_before_run"] = "false"
+        completed = subprocess.run(
+            command,
+            cwd=local_cwd,
+            env=command_environment,
+            check=False,
+        )
+        if preserve_dependencies and dependency_runtime_state(local_cwd, target) != dependencies_before:
+            publish_dependency_generation(lock_path)
         if completed.returncode != 0:
             return completed.returncode
         record_dependency_state(local_cwd, target)
@@ -329,6 +357,80 @@ def dependency_state_path(local_cwd):
     return os.path.join(local_cwd, "node_modules", DEPENDENCY_STATE_FILENAME)
 
 
+def dependency_generation_path(lock_path):
+    return os.path.join(os.path.dirname(lock_path), DEPENDENCY_GENERATION_FILENAME)
+
+
+def read_dependency_generation(lock_path):
+    try:
+        with open(dependency_generation_path(lock_path), "r", encoding="ascii") as source:
+            return source.read().strip()
+    except (FileNotFoundError, OSError, UnicodeError):
+        return ""
+
+
+def publish_dependency_generation(lock_path):
+    target = dependency_generation_path(lock_path)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    descriptor, temporary = tempfile.mkstemp(
+        prefix=".cheatcode-dependency-generation-",
+        dir=os.path.dirname(target),
+    )
+    try:
+        with os.fdopen(descriptor, "w", encoding="ascii") as output:
+            output.write(f"{time.time_ns()}-{os.getpid()}\n")
+        os.replace(temporary, target)
+    finally:
+        try:
+            os.unlink(temporary)
+        except FileNotFoundError:
+            pass
+
+
+def pnpm_command_is_read_only(local_cwd, command):
+    if not command:
+        return False
+    executable = os.path.basename(command[0])
+    if executable == "pnpx":
+        return True
+    subcommand = next(
+        (argument for argument in command[1:] if argument != "--" and not argument.startswith("-")),
+        "",
+    )
+    if subcommand in READ_ONLY_PNPM_COMMANDS:
+        return True
+    try:
+        with open(os.path.join(local_cwd, "package.json"), "r", encoding="utf-8") as source:
+            manifest = json.load(source)
+    except (FileNotFoundError, OSError, UnicodeError, json.JSONDecodeError):
+        return False
+    if not isinstance(manifest, dict):
+        return False
+    scripts = manifest.get("scripts", {})
+    return isinstance(scripts, dict) and subcommand in scripts
+
+
+def dependency_runtime_state(local_cwd, local_root):
+    modules = os.path.join(local_cwd, "node_modules")
+    if os.path.islink(modules):
+        modules_state = ("link", os.path.realpath(modules))
+    elif not os.path.isdir(modules):
+        modules_state = ("missing",)
+    else:
+        entries = []
+        for entry in sorted(os.scandir(modules), key=lambda value: value.name):
+            if entry.is_symlink():
+                entries.append((entry.name, "link", os.readlink(entry.path)))
+            elif entry.name in {".modules.yaml", DEPENDENCY_STATE_FILENAME} and entry.is_file(
+                follow_symlinks=False
+            ):
+                entries.append((entry.name, "file", file_digest(entry.path)))
+            else:
+                entries.append((entry.name, "entry"))
+        modules_state = ("directory", tuple(entries))
+    return (dependency_state(local_cwd, local_root), modules_state)
+
+
 def dependencies_are_current(local_cwd, local_root):
     modules = os.path.join(local_cwd, "node_modules")
     if os.path.islink(modules):
@@ -343,7 +445,7 @@ def dependencies_are_current(local_cwd, local_root):
 
 def record_dependency_state(local_cwd, local_root):
     modules = os.path.join(local_cwd, "node_modules")
-    if not os.path.isdir(modules):
+    if os.path.islink(modules) or not os.path.isdir(modules):
         return
     descriptor, temporary = tempfile.mkstemp(prefix=".cheatcode-dependency-", dir=modules)
     try:
@@ -512,6 +614,7 @@ def preview_run(source, target, lock_path, local_cwd, dependency_runtime, comman
         dependency_status = restore_pnpm_dependencies(local_cwd, target, dependency_runtime)
         if dependency_status != 0:
             return dependency_status
+        observed_dependency_generation = read_dependency_generation(lock_path)
 
     sync_process = subprocess.Popen(
         [sys.executable, os.path.realpath(__file__), "preview-loop", source, target, lock_path],
@@ -529,13 +632,18 @@ def preview_run(source, target, lock_path, local_cwd, dependency_runtime, comman
             previous_handlers[signal_number] = signal.signal(signal_number, terminate_children)
         app_environment = os.environ.copy()
         app_environment["pnpm_config_verify_deps_before_run"] = "false"
-        app_process = subprocess.Popen(
-            command,
-            cwd=local_cwd,
-            env=app_environment,
-            start_new_session=True,
-        )
+        app_process = start_preview_app(command, local_cwd, app_environment)
         while True:
+            dependency_generation = read_dependency_generation(lock_path)
+            if dependency_generation != observed_dependency_generation:
+                with open_lock(lock_path) as lock:
+                    fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+                    dependency_generation = read_dependency_generation(lock_path)
+                    if dependency_generation != observed_dependency_generation:
+                        stop_process(app_process)
+                        reap_process(app_process)
+                        app_process = start_preview_app(command, local_cwd, app_environment)
+                        observed_dependency_generation = dependency_generation
             app_status = app_process.poll()
             if app_status is not None:
                 return app_status
@@ -556,6 +664,15 @@ def preview_run(source, target, lock_path, local_cwd, dependency_runtime, comman
         reap_process(sync_process)
         for signal_number, handler in previous_handlers.items():
             signal.signal(signal_number, handler)
+
+
+def start_preview_app(command, local_cwd, environment):
+    return subprocess.Popen(
+        command,
+        cwd=local_cwd,
+        env=environment,
+        start_new_session=True,
+    )
 
 
 def main():
