@@ -29,13 +29,23 @@ export const mastraBrowserOpen = createTool({
 export const mastraBrowserAct = createTool({
   id: "browser_act",
   description:
-    "Execute one deterministic action against an exact element ref from the latest browser_observe or browser_act tree. The consumed ref is page-bound and single-use; the result includes an actionable post-action page tree for the next step.",
+    "Execute one deterministic action against an exact element ref from the latest browser_observe or browser_act tree. Always provide method, ref, targetRef, and value; use null for fields the selected method does not use. The consumed ref is page-bound and single-use; the result includes an actionable post-action page tree for the next step.",
   inputSchema: BrowserActInputSchema,
   inputExamples: [
     {
       input: {
-        action: { method: "click", ref: "1-2" },
-        timeoutMs: 10_000,
+        method: "click",
+        ref: "1-2",
+        targetRef: null,
+        value: null,
+      },
+    },
+    {
+      input: {
+        method: "fill",
+        ref: "1-3",
+        targetRef: null,
+        value: "Ada Lovelace",
       },
     },
   ],

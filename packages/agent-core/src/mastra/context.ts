@@ -1,6 +1,7 @@
 export const CONTEXT = {
   agentDisplayName: "agentDisplayName",
   anthropicApiKey: "anthropicApiKey",
+  appBuilderManagedPreview: "appBuilderManagedPreview",
   browserRunId: "browserRunId",
   codeRuntime: "codeRuntime",
   composioApiKey: "composioApiKey",

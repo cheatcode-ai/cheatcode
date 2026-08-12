@@ -51,8 +51,10 @@ the returned post-action tree as the next actionable state. A click or fill ther
 invoke a hidden model decision, expose a selector, reuse a stale ref, or cross the active origin.
 Every first-party browser tool advertises its strict JSON schema to providers that support strict
 tool calling, while the same Zod contract remains the provider-independent runtime boundary.
-Action methods use explicit no-value, value, and drag shapes, so a model cannot omit a required ref
-or value and still produce an executable call. A tool-validation or driver failure is verification
+The model-facing action schema is a flat four-field object: method and ref are always present, while
+unused value and targetRef fields are explicitly null. Runtime refinement maps that contract to the
+driver's no-value, value, or drag shape, so operational timeout policy cannot become a substitute
+for the action itself. A tool-validation or driver failure is verification
 failure, not evidence that generated application state is broken; app-builder agents preserve the
 framework event model and correct the browser call instead of injecting page scripts.
 The managed
@@ -79,9 +81,12 @@ abort signal is forwarded through the Morph request. Focused and multi-section e
 text file use FastApply; new files, binary files, and intentional whole-file rewrites continue to
 use the deterministic file writer.
 App-builder runs receive an existing framework workspace and managed preview before model
-execution. Their shell tools reject app-initialization commands so a model cannot replace that
-canonical root with another scaffold or a nested project; ordinary package installation and build
-commands remain available.
+execution. Managed template runs do not advertise the dev-server tool, and their shell and file
+boundaries reject alternate server launches or replacement of root framework manifests. A model
+therefore cannot replace the canonical Next.js or Expo root with another scaffold, package manifest,
+or nested project; ordinary source edits, package installation, and build commands remain available.
+Imported repositories keep their own dev-server and framework-file capabilities because their stack
+is intentionally user-owned rather than image-owned.
 
 ## Code Checks
 

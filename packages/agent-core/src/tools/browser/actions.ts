@@ -2,9 +2,16 @@ import { APIError } from "@cheatcode/observability";
 import type { ArtifactUploadResult } from "@cheatcode/sandbox-contracts";
 import { INTERNAL_OUTPUT_FILENAME_PREFIX } from "@cheatcode/types/artifacts";
 import { z } from "zod";
+import {
+  BrowserActInputSchema,
+  BrowserBoundActionSchema,
+  browserBoundActionFromInput,
+} from "./browser-action-contract-support";
 import type { BrowserRuntimeContext } from "./runtime";
 import { BrowserRuntimeContextSchema } from "./runtime";
 import { inspectBrowserScreenshot } from "./visual-inspection-support";
+
+export { BrowserActInputSchema } from "./browser-action-contract-support";
 
 const DRIVER_PROCESS_PREFIX = "cheatcode-browser-driver-";
 const DRIVER_LAUNCHER_PATH = "/usr/local/bin/cheatcode-browser-driver";
@@ -21,6 +28,7 @@ const MAX_BROWSER_SCREENSHOT_BASE64_CHARACTERS = Math.ceil(MAX_BROWSER_SCREENSHO
 const DRIVER_REQUEST_OVERHEAD_MS = 30_000;
 const DRIVER_REQUEST_MAX_MS = 600_000;
 const DRIVER_HEALTH_TIMEOUT_MS = 5_000;
+const BROWSER_ACT_TIMEOUT_MS = 10_000;
 
 interface BrowserDriverConnection {
   authToken: string;
@@ -46,80 +54,6 @@ const BrowserUrlSchema = z
 export const BrowserOpenInputSchema = z.strictObject({
   url: BrowserUrlSchema.describe("URL to open in the sandbox browser."),
   waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
-});
-
-const BrowserElementRefSchema = z
-  .string()
-  .regex(/^\d+-\d+$/u)
-  .max(64)
-  .describe("Exact hyphenated element ref from the latest browser_observe or browser_act tree.");
-
-const BrowserActionMethodSchema = z.enum([
-  "click",
-  "doubleClick",
-  "dragAndDrop",
-  "fill",
-  "hover",
-  "nextChunk",
-  "press",
-  "prevChunk",
-  "scrollTo",
-  "selectOptionFromDropdown",
-  "type",
-]);
-
-const BrowserNoValueActionMethodSchema = BrowserActionMethodSchema.exclude([
-  "dragAndDrop",
-  "fill",
-  "press",
-  "scrollTo",
-  "selectOptionFromDropdown",
-  "type",
-]);
-
-const BrowserValueActionMethodSchema = z.enum([
-  "fill",
-  "press",
-  "scrollTo",
-  "selectOptionFromDropdown",
-  "type",
-]);
-
-const BrowserBoundActionSchema = z.union([
-  z.strictObject({
-    method: BrowserNoValueActionMethodSchema.describe(
-      "Deterministic action to perform on the ref.",
-    ),
-    ref: BrowserElementRefSchema,
-  }),
-  z.strictObject({
-    method: BrowserValueActionMethodSchema.describe(
-      "Deterministic value-taking action to perform on the ref.",
-    ),
-    ref: BrowserElementRefSchema,
-    value: z
-      .string()
-      .max(2_000)
-      .describe("Text, key, option, or percentage required by this method."),
-  }),
-  z.strictObject({
-    method: z.literal("dragAndDrop"),
-    ref: BrowserElementRefSchema,
-    targetRef: BrowserElementRefSchema.describe("Destination ref for the drag operation."),
-  }),
-]);
-
-export const BrowserActInputSchema = z.strictObject({
-  action: BrowserBoundActionSchema.describe(
-    "A ref-bound action chosen from the latest tree returned by browser_observe or browser_act.",
-  ),
-  timeoutMs: z
-    .number()
-    .int()
-    .positive()
-    .max(120_000)
-    .default(10_000)
-    .describe("Maximum time for this browser action."),
 });
 
 const BrowserActGuardSchema = z.strictObject({
@@ -263,11 +197,11 @@ export async function executeBrowserAct(
     {
       actions: [
         {
-          action: parsedInput.action,
+          action: browserBoundActionFromInput(parsedInput),
           allowedOrigin: parsedGuard.allowedOrigin,
           expectedUrl: parsedGuard.expectedUrl,
           type: "act",
-          timeoutMs: parsedInput.timeoutMs,
+          timeoutMs: BROWSER_ACT_TIMEOUT_MS,
         },
       ],
     },
