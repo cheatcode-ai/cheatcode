@@ -3,7 +3,7 @@ import type { BillingTier } from "@cheatcode/types/billing";
 /**
  * Single source of truth for plan tier id, display name, monthly price, the
  * user-facing sandbox-hour allowance, and every operational `TierLimits` field.
- * `TIER_LIMITS` / `entitlementValuesForTier` in ./index derive from this.
+ * `TIER_LIMITS` / `defaultEntitlementValuesForTier` in ./index derive from this.
  *
  * Sandbox tenancy is a product invariant: every account has one shared private
  * computer, so it is not represented as a plan entitlement.
