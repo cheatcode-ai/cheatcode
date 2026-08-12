@@ -28,7 +28,7 @@ export const mastraBrowserOpen = createTool({
 export const mastraBrowserAct = createTool({
   id: "browser_act",
   description:
-    "Execute one deterministic action against an exact element ref from the immediately preceding browser_observe tree. The ref is page-bound and single-use; the result includes the post-action page tree.",
+    "Execute one deterministic action against an exact element ref from the latest browser_observe or browser_act tree. The consumed ref is page-bound and single-use; the result includes an actionable post-action page tree for the next step.",
   inputSchema: BrowserActInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) => {

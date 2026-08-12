@@ -458,18 +458,19 @@ async function runGuardedAct(runtime, page, action) {
     originInterceptor = await installOriginInterceptor(stagehand, action.allowedOrigin);
     await originInterceptor.assertHealthy();
     assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
-    const result = await stagehand.act(observedAction, {
+    await stagehand.act(observedAction, {
       page,
       timeout: action.timeoutMs || 10000,
     });
     await originInterceptor.assertHealthy();
     const activePage = await stagehand.context.awaitActivePage();
     assertAllowedBrowserOrigin(activePage.url(), action.allowedOrigin);
+    const observation = await capturePageObservation(activePage);
+    latestObservation = observation.boundary;
     response = {
       result: {
         action: { method: action.action.method, ref: action.action.ref },
-        stagehand: result,
-        state: await capturePageState(activePage),
+        state: observation.state,
       },
       type: action.type,
       url: activePage.url(),
@@ -501,11 +502,6 @@ async function capturePageObservation(page) {
     },
     state,
   };
-}
-
-async function capturePageState(page) {
-  const snapshot = await page.snapshot({ includeIframes: true });
-  return boundedSnapshotState(snapshot.formattedTree);
 }
 
 function requireBoundAction(action, pageUrl) {
@@ -576,6 +572,7 @@ function snapshotRefMap(tree, xpathMap) {
 }
 
 async function discardBrowserRuntime(runtime) {
+  latestObservation = undefined;
   const pending = browserRuntimePromise;
   browserRuntimePromise = undefined;
   browserRuntimeStatus = "initializing";

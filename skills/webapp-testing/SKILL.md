@@ -20,11 +20,14 @@ launch a second browser process, write a Playwright/Python test harness, or star
 3. For one representative functional interaction, call `browser_observe` once. Choose one exact
    hyphenated element ref from its accessibility tree and call `browser_act` with that ref plus the
    required method/value.
-4. Read the post-action tree returned by `browser_act` to decide whether the criterion passed.
+4. Read the post-action tree returned by `browser_act` to decide whether the criterion passed. If
+   the user explicitly requires another interaction, use its fresh ref directly with `browser_act`.
 5. If a criterion fails, fix the concrete app defect and repeat only that changed criterion once.
 
-Observed refs are page-bound and single-use. Observe again before any later interaction after a DOM
-or navigation change. Never invent a ref or selector.
+Each ref is page-bound and single-use. A successful `browser_act` atomically replaces the consumed
+observation with its post-action tree, so chain required interactions from those fresh refs without
+re-observing. Observe again only when the page changed outside `browser_act`, navigated, or the
+returned tree does not contain the required element. Never invent a ref or selector.
 
 Finish as soon as the requested content renders, the representative interaction passes, and no
 blocking browser error remains. Do not repeat equivalent screenshots, actions, or extractions.

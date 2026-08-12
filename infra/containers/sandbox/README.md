@@ -158,8 +158,9 @@ low-severity report.
 
 Browser interaction uses Stagehand's native accessibility snapshot followed by deterministic act.
 The driver returns hyphenated page refs while retaining their XPath map server-side, then accepts
-one bounded method/value against a single-use ref from the latest active-page observation. The act
-result includes a fresh post-action tree, so verification needs no second observation inference.
+one bounded method/value against a single-use ref from the latest active-page state. Successful acts
+atomically replace the consumed ref map with the fresh post-action tree and its server-held map, so
+multi-step verification chains without another observation inference.
 Stagehand observation inference, natural-language actions, and self-healing are disabled; browser
 behavior is independent of the selected model's structured-output quirks. Navigation clears the
 observation, and origin interception remains active for deterministic execution.
