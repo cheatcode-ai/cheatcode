@@ -11,7 +11,6 @@ import {
   executeBrowserObserve,
   executeBrowserOpen,
   executeBrowserScreenshot,
-  inspectBrowserPage,
 } from "../../tools/browser";
 import { browserRuntimeFromContext } from "./tool-runtime-context";
 
@@ -48,19 +47,8 @@ export const mastraBrowserAct = createTool({
   ],
   outputSchema: BrowserActionsOutputSchema,
   strict: true,
-  execute: async (input, context) => {
-    const parsedInput = BrowserActInputSchema.parse(input);
-    const runtimeContext = await browserRuntimeFromContext(context);
-    const page = await inspectBrowserPage(runtimeContext);
-    const expectedUrl = new URL(page.url);
-    if (expectedUrl.username || expectedUrl.password) {
-      throw new Error("Browser action URL must not contain embedded credentials.");
-    }
-    return executeBrowserAct(parsedInput, runtimeContext, {
-      allowedOrigin: expectedUrl.origin,
-      expectedUrl: page.url,
-    });
-  },
+  execute: async (input, context) =>
+    executeBrowserAct(input, await browserRuntimeFromContext(context)),
 });
 
 export const mastraBrowserObserve = createTool({

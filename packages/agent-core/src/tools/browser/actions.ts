@@ -56,11 +56,6 @@ export const BrowserOpenInputSchema = z.strictObject({
   waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
 });
 
-const BrowserActGuardSchema = z.strictObject({
-  allowedOrigin: BrowserUrlSchema,
-  expectedUrl: BrowserUrlSchema,
-});
-
 export const BrowserObserveInputSchema = z.strictObject({});
 
 export const BrowserExtractInputSchema = z.strictObject({
@@ -91,8 +86,6 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     action: BrowserBoundActionSchema,
-    allowedOrigin: BrowserUrlSchema,
-    expectedUrl: BrowserUrlSchema,
     type: z.literal("act"),
     timeoutMs: z.number().int().positive().max(120_000).default(10_000),
   }),
@@ -165,7 +158,6 @@ const BrowserDriverErrorSchema = z
 
 type BrowserOpenInput = z.input<typeof BrowserOpenInputSchema>;
 type BrowserActInput = z.input<typeof BrowserActInputSchema>;
-type BrowserActGuard = z.infer<typeof BrowserActGuardSchema>;
 type BrowserObserveInput = z.input<typeof BrowserObserveInputSchema>;
 type BrowserExtractInput = z.input<typeof BrowserExtractInputSchema>;
 type BrowserScreenshotInput = z.input<typeof BrowserScreenshotInputSchema>;
@@ -189,17 +181,13 @@ export async function executeBrowserOpen(
 export async function executeBrowserAct(
   input: BrowserActInput,
   runtimeContext: BrowserRuntimeContext,
-  guard: BrowserActGuard,
 ): Promise<BrowserActionsOutput> {
   const parsedInput = BrowserActInputSchema.parse(input);
-  const parsedGuard = BrowserActGuardSchema.parse(guard);
   return executeBrowserActions(
     {
       actions: [
         {
           action: browserBoundActionFromInput(parsedInput),
-          allowedOrigin: parsedGuard.allowedOrigin,
-          expectedUrl: parsedGuard.expectedUrl,
           type: "act",
           timeoutMs: BROWSER_ACT_TIMEOUT_MS,
         },
@@ -207,25 +195,6 @@ export async function executeBrowserAct(
     },
     runtimeContext,
   );
-}
-
-/** Reads the exact active-page URL used to classify and bind a browser action. */
-export async function inspectBrowserPage(
-  runtimeContext: BrowserRuntimeContext,
-): Promise<{ url: string }> {
-  const ready = await readyBrowserDriver(runtimeContext);
-  const result = await requestBrowserDriver(
-    null,
-    "/state",
-    ready.runtimeContext,
-    ready.connection,
-    30_000,
-  );
-  if (!result.success) {
-    throw browserDriverRequestError(result);
-  }
-  const state = BrowserDriverStateSchema.parse(result.body);
-  return { url: state.url };
 }
 
 export async function executeBrowserObserve(
@@ -652,11 +621,6 @@ const BrowserDriverHealthSchema = z.strictObject({
   model: z.string().min(1),
   ok: z.literal(true),
   runId: z.string().min(1),
-});
-
-const BrowserDriverStateSchema = z.strictObject({
-  ok: z.literal(true),
-  url: BrowserUrlSchema,
 });
 
 function stagehandModel(credential: BrowserRuntimeContext["credential"]): string {

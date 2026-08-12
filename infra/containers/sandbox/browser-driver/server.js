@@ -448,48 +448,86 @@ async function runAction(runtime, action) {
 
 async function runGuardedAct(runtime, page, action) {
   const { stagehand } = runtime;
-  assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
-  const observedAction = requireBoundAction(action.action, page.url());
+  const binding = requireBoundAction(action.action, page.url());
   latestObservation = undefined;
-  let failure;
-  let originInterceptor;
-  let response;
+  const interceptor = await requireOriginInterceptor(runtime, binding.allowedOrigin);
+  const actionResult = await runBoundAction(stagehand, page, action, binding, interceptor);
+  await closeOriginInterceptor(runtime, interceptor);
+  if (actionResult.integrityError) {
+    await discardBrowserRuntime(runtime);
+    throw actionResult.integrityError;
+  }
+  const activePage = await requireAllowedActivePage(runtime, binding.allowedOrigin);
+  if (actionResult.actionError) {
+    throw new RequestError(
+      409,
+      "Browser action did not complete; observe the current page before retrying",
+    );
+  }
+
+  const observation = await capturePageObservation(activePage);
+  latestObservation = observation.boundary;
+  return {
+    result: {
+      action: { method: action.action.method, ref: action.action.ref },
+      state: observation.state,
+    },
+    type: action.type,
+    url: activePage.url(),
+  };
+}
+
+async function requireOriginInterceptor(runtime, allowedOrigin) {
   try {
-    originInterceptor = await installOriginInterceptor(stagehand, action.allowedOrigin);
-    await originInterceptor.assertHealthy();
-    assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
-    await stagehand.act(observedAction, {
+    return await installOriginInterceptor(runtime.stagehand, allowedOrigin);
+  } catch (error) {
+    await discardBrowserRuntime(runtime);
+    throw error;
+  }
+}
+
+async function runBoundAction(stagehand, page, action, binding, interceptor) {
+  try {
+    await interceptor.assertHealthy();
+    assertExpectedBrowserTarget(page.url(), binding.expectedUrl, binding.allowedOrigin);
+  } catch (integrityError) {
+    return { integrityError };
+  }
+  let actionError;
+  try {
+    await stagehand.act(binding.action, {
       page,
       timeout: action.timeoutMs || 10000,
     });
-    await originInterceptor.assertHealthy();
-    const activePage = await stagehand.context.awaitActivePage();
-    assertAllowedBrowserOrigin(activePage.url(), action.allowedOrigin);
-    const observation = await capturePageObservation(activePage);
-    latestObservation = observation.boundary;
-    response = {
-      result: {
-        action: { method: action.action.method, ref: action.action.ref },
-        state: observation.state,
-      },
-      type: action.type,
-      url: activePage.url(),
-    };
   } catch (error) {
-    failure = error;
+    actionError = error;
   }
-  if (originInterceptor) {
-    try {
-      await originInterceptor.close();
-    } catch (error) {
-      failure ??= error;
-    }
+  try {
+    await interceptor.assertHealthy();
+  } catch (integrityError) {
+    return { actionError, integrityError };
   }
-  if (failure) {
+  return { actionError };
+}
+
+async function closeOriginInterceptor(runtime, interceptor) {
+  try {
+    await interceptor.close();
+  } catch (error) {
     await discardBrowserRuntime(runtime);
-    throw failure;
+    throw error;
   }
-  return response;
+}
+
+async function requireAllowedActivePage(runtime, allowedOrigin) {
+  try {
+    const activePage = await runtime.stagehand.context.awaitActivePage();
+    assertAllowedBrowserOrigin(activePage.url(), allowedOrigin);
+    return activePage;
+  } catch (error) {
+    await discardBrowserRuntime(runtime);
+    throw error;
+  }
 }
 
 async function capturePageObservation(page) {
@@ -516,11 +554,32 @@ function requireBoundAction(action, pageUrl) {
   const selector = observedSelector(observation.refs, normalized.ref);
   const args = browserActionArguments(observation.refs, normalized);
   return {
-    arguments: args,
-    description: `${normalized.method} observed element [${normalized.ref}]`,
-    method: normalized.method,
-    selector,
+    action: {
+      arguments: args,
+      description: `${normalized.method} observed element [${normalized.ref}]`,
+      method: normalized.method,
+      selector,
+    },
+    allowedOrigin: observedHttpOrigin(observation.url),
+    expectedUrl: observation.url,
   };
+}
+
+function observedHttpOrigin(value) {
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RequestError(409, "Browser action requires an observed HTTP page");
+  }
+  if (
+    (url.protocol !== "http:" && url.protocol !== "https:") ||
+    url.username ||
+    url.password
+  ) {
+    throw new RequestError(409, "Browser action requires an observed HTTP page");
+  }
+  return url.origin;
 }
 
 function observedSelector(refs, ref) {
@@ -676,11 +735,6 @@ function validateAction(action) {
   }
   if (action.type === "act") {
     action.action = validateBoundAction(action.action);
-    const expectedUrl = assertHttpUrl(action.expectedUrl);
-    const allowedOrigin = assertHttpUrl(action.allowedOrigin);
-    if (allowedOrigin.href !== `${allowedOrigin.origin}/` || expectedUrl.origin !== allowedOrigin.origin) {
-      throw new RequestError(400, "Browser action origin guard is invalid");
-    }
     if (
       action.timeoutMs !== undefined &&
       (!Number.isInteger(action.timeoutMs) || action.timeoutMs < 1 || action.timeoutMs > 120_000)
@@ -776,13 +830,6 @@ const server = createServer(async (request, response) => {
         ok: true,
         runId: RUN_ID,
       });
-      return;
-    }
-
-    if (request.method === "GET" && request.url === "/state") {
-      const { stagehand } = await browserRuntime();
-      const page = await stagehand.context.awaitActivePage();
-      jsonResponse(response, 200, { ok: true, url: page.url() });
       return;
     }
 

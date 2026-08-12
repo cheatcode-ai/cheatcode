@@ -47,8 +47,11 @@ ports and Git destinations stable between resolution and execution. The managed 
 the same boundary: observation reads Stagehand's native accessibility snapshot without model
 inference and returns page-bound element refs. Execution accepts only a single-use ref from the
 latest state tree plus a bounded method/value, resolves its server-held XPath, and atomically binds
-the returned post-action tree as the next actionable state. A click or fill therefore cannot
-invoke a hidden model decision, expose a selector, reuse a stale ref, or cross the active origin.
+the returned post-action tree as the next actionable state. The sandbox driver derives the exact
+URL and allowed origin from that same server-held observation inside the serialized action request;
+the Worker cannot supply or inspect that security binding in a separate request. A click or fill
+therefore cannot invoke a hidden model decision, expose a selector, reuse a stale ref, or cross the
+active origin.
 Every first-party browser tool advertises its strict JSON schema to providers that support strict
 tool calling, while the same Zod contract remains the provider-independent runtime boundary.
 The model-facing action schema is the same method-specific union used by the driver: every action
