@@ -1,5 +1,6 @@
 "use client";
 
+import type { IntegrationName } from "@cheatcode/types";
 import type { RunIntent } from "@cheatcode/types/api";
 import type { AppBuildTarget } from "@/lib/app-build-target";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
@@ -10,6 +11,8 @@ export function buildLaunchParams(input: {
   model: null | string;
   prompt: string;
   repo: null | string;
+  selectedSkill: null | string;
+  selectedTool: IntegrationName | null;
 }): URLSearchParams {
   const params = new URLSearchParams();
   if (input.intent) {
@@ -26,6 +29,12 @@ export function buildLaunchParams(input: {
   }
   if (input.repo) {
     params.set("repo", input.repo);
+  }
+  if (input.selectedSkill) {
+    params.set("skill", input.selectedSkill);
+  }
+  if (input.selectedTool) {
+    params.set("tool", input.selectedTool);
   }
   return params;
 }

@@ -1,5 +1,9 @@
-import { CatalogModelIdSchema, LogicalModelIdSchema } from "@cheatcode/types";
-import { ProjectModeSchema, RunIntentSchema } from "@cheatcode/types/api";
+import {
+  CatalogModelIdSchema,
+  IntegrationNameSchema,
+  LogicalModelIdSchema,
+} from "@cheatcode/types";
+import { ProjectModeSchema, RunIntentSchema, SelectedSkillSchema } from "@cheatcode/types/api";
 import { z } from "zod";
 
 export const StartRunInputSchema = z
@@ -16,6 +20,8 @@ export const StartRunInputSchema = z
     // automatic provider fallback so a pinned model is never silently replaced.
     isModelExplicit: z.boolean(),
     runIntent: RunIntentSchema.optional(),
+    selectedSkill: SelectedSkillSchema.optional(),
+    selectedTool: IntegrationNameSchema.optional(),
     projectMode: ProjectModeSchema.default("general"),
     isFirstRun: z.boolean().default(false),
     agentDisplayName: z.string().trim().min(1).max(80).optional(),

@@ -110,6 +110,8 @@ export function createAgentRequestContext(
     openrouterApiKey: credential.transportProvider === "openrouter" ? credential.apiKey : undefined,
     projectMode: input.projectMode,
     runIntent: input.runIntent,
+    selectedSkill: input.selectedSkill,
+    selectedTool: input.selectedTool,
     runId: input.runId,
     taskMessage: input.messageText,
     ...(isSkillCreator ? { userSkillCreator } : {}),

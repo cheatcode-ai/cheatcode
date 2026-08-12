@@ -1,5 +1,5 @@
-import type { CheatcodeUIMessage } from "@cheatcode/types";
-import type { ProjectSummary, ThreadMessage } from "@cheatcode/types/api";
+import type { CheatcodeUIMessage, IntegrationName } from "@cheatcode/types";
+import type { ProjectSummary, RunIntent, ThreadMessage } from "@cheatcode/types/api";
 import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { buildExistingProjectParams, launchIntoProject } from "@/lib/api/home-launch";
@@ -11,6 +11,12 @@ import {
   updateThread,
 } from "@/lib/api/project-thread";
 import { sidebarKeys, threadKeys } from "@/lib/api/query-keys";
+
+export interface ChatSubmissionSelection {
+  intent: RunIntent | null;
+  selectedSkill: string | null;
+  selectedTool: IntegrationName | null;
+}
 
 export interface PendingSubmission {
   messageId: string;
@@ -70,6 +76,7 @@ export async function routePromptToProjectTarget(input: {
   queryClient: QueryClient;
   router: PromptRouter;
   selectedModel: null | string;
+  selection: Partial<ChatSubmissionSelection>;
   setDraft: (threadId: string, value: string) => void;
   targetProject: ProjectSummary | null;
   threadId: string;
@@ -144,7 +151,12 @@ function completeProjectTargetNavigation(
   input: Parameters<typeof routePromptToProjectTarget>[0],
   targetThreadId: string,
 ): void {
-  const handoff = buildExistingProjectParams(input.prompt).toString();
+  const handoff = buildExistingProjectParams({
+    prompt: input.prompt,
+    ...(input.selection.intent ? { intent: input.selection.intent } : {}),
+    ...(input.selection.selectedSkill ? { selectedSkill: input.selection.selectedSkill } : {}),
+    ...(input.selection.selectedTool ? { selectedTool: input.selection.selectedTool } : {}),
+  }).toString();
   input.setDraft(input.threadId, "");
   void input.queryClient.invalidateQueries({ queryKey: sidebarKeys.chats });
   void input.queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads });

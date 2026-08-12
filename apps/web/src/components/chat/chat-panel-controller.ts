@@ -9,6 +9,7 @@ import type { ChatOnDataCallback, ChatStatus } from "ai";
 import { useRouter } from "next/navigation";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
+import type { ChatSubmissionSelection } from "@/components/chat/chat-panel-submission";
 import {
   mergeLoadedMessageHistory,
   type PendingSubmission,
@@ -44,6 +45,8 @@ export interface ChatPanelProps {
   hasOlderMessages: boolean;
   initialMessages?: CheatcodeUIMessage[] | undefined;
   initialRunIntent?: import("@cheatcode/types/api").RunIntent | null | undefined;
+  initialSelectedSkill?: null | string | undefined;
+  initialSelectedTool?: import("@cheatcode/types").IntegrationName | null | undefined;
   isLoadingOlderMessages: boolean;
   latestModelId: null | string;
   onLoadOlderMessages: () => Promise<CheatcodeUIMessage[]>;
@@ -161,7 +164,6 @@ function usePanelSubmission(
       getToken: runtime.getToken,
       hasReceivedStreamDataRef: runtime.hasReceivedStreamDataRef,
       hasSubmittedRef: runtime.hasSubmittedRef,
-      initialRunIntent: input.initialRunIntent ?? null,
       onSubmitDraft: input.onSubmitDraft,
       pendingSubmissionRef: runtime.pendingSubmissionRef,
       project: input.project,
@@ -178,7 +180,6 @@ function usePanelSubmission(
     [
       input.activeRunId,
       input.onSubmitDraft,
-      input.initialRunIntent,
       input.project,
       input.threadId,
       input.threadTitle,
@@ -213,11 +214,19 @@ function useAutoSubmitPrompt(
     if (runtime.store.draft.trim() !== prompt) {
       runtime.store.setDraft(input.threadId, prompt);
     }
-    if (submitText(prompt, input.project)) {
+    const selection: ChatSubmissionSelection = {
+      intent: input.initialRunIntent ?? null,
+      selectedSkill: input.initialSelectedSkill ?? null,
+      selectedTool: input.initialSelectedTool ?? null,
+    };
+    if (submitText(prompt, input.project, selection)) {
       autoSubmittedPromptRef.current = prompt;
     }
   }, [
     input.autoSubmitPrompt,
+    input.initialRunIntent,
+    input.initialSelectedSkill,
+    input.initialSelectedTool,
     input.project,
     input.threadId,
     runtime.store.draft,

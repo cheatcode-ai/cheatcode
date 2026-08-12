@@ -1,6 +1,7 @@
 import type { MorphApplyRuntime } from "@cheatcode/morph";
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
 import type { RunIntent } from "@cheatcode/types/api";
+import type { IntegrationName } from "@cheatcode/types/integrations";
 import { RequestContext } from "@mastra/core/request-context";
 import type { ComposioConnectedAccounts, ComposioQuotaMeter } from "../composio-context";
 import { CONTEXT, type ContextKey } from "../context";
@@ -30,6 +31,8 @@ interface CodeRequestContextOptions {
   openrouterApiKey?: string | undefined;
   projectMode?: string | undefined;
   runIntent?: RunIntent | undefined;
+  selectedSkill?: string | undefined;
+  selectedTool?: IntegrationName | undefined;
   runId?: string | undefined;
   taskMessage?: string | undefined;
   userSkills?: UserSkillRuntime[] | undefined;
@@ -61,6 +64,8 @@ function contextEntries(
     [CONTEXT.globalMemory, options.globalMemory],
     [CONTEXT.promptProjectMode, options.projectMode],
     [CONTEXT.runIntent, options.runIntent],
+    [CONTEXT.selectedSkill, options.selectedSkill],
+    [CONTEXT.selectedTool, options.selectedTool],
     [CONTEXT.promptTaskMessage, options.taskMessage],
     [CONTEXT.anthropicApiKey, options.anthropicApiKey],
     [CONTEXT.composioApiKey, options.composioApiKey],

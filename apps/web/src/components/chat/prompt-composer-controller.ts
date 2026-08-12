@@ -13,7 +13,6 @@ import {
   useState,
 } from "react";
 import type { RunStatus } from "@/components/chat/status-pill";
-import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 import {
   type ComposerMenuController,
@@ -30,7 +29,11 @@ type ComposerControlMenu = "model";
 export interface PromptComposerProps {
   onChange: (value: string) => void;
   onStop: () => void;
-  onSubmit: (value: string, project: ProjectSummary | null) => boolean;
+  onSubmit: (
+    value: string,
+    project: ProjectSummary | null,
+    selection: { selectedSkill: string | null; selectedTool: IntegrationName | null },
+  ) => boolean;
   project: ProjectSummary | null;
   resolvedModelId: null | string;
   status: RunStatus;
@@ -231,14 +234,10 @@ function createComposerSubmission({
   value,
 }: ComposerSubmissionOptions) {
   function submitComposerValue() {
-    const wasAccepted = onSubmit(
-      composePromptWithComposerContext({
-        prompt: value,
-        skill: selection.selectedSkill,
-        tool: selection.selectedTool,
-      }),
-      project,
-    );
+    const wasAccepted = onSubmit(value.trim(), project, {
+      selectedSkill: selection.selectedSkill,
+      selectedTool: selection.selectedTool,
+    });
     if (wasAccepted) {
       selection.setSelectedSkill(null);
       selection.setSelectedTool(null);

@@ -1,7 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
-import type { ProjectSummary } from "@cheatcode/types/api";
+import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import { useCallback, useState } from "react";
 import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
 import { COMPOSER_WORK_INTENTS } from "@/components/home/home-composer-intents";
@@ -13,6 +13,7 @@ interface InitialSelection {
   initialSkill: ReturnType<typeof resolveInitialSkill>;
   initialTool: IntegrationName | null;
   repoUrl: string | null;
+  runIntent: RunIntent | null;
   skillCreator: boolean;
 }
 
@@ -36,7 +37,9 @@ export function useHomeComposerSelection(initial: InitialSelection, focusTextare
 
 function useHomeSelectionState(initial: InitialSelection) {
   const [intentId, setIntentId] = useState<ComposerWorkIntentId | null>(
-    initial.initialSkill.intent ?? appBuildTargetIntent(initial.appBuildTarget),
+    initial.initialSkill.intent ??
+      appBuildTargetIntent(initial.appBuildTarget) ??
+      runIntentWorkIntent(initial.runIntent),
   );
   const [skillChip, setSkillChip] = useState<string | null>(initial.initialSkill.chip);
   const [toolChip, setToolChip] = useState<IntegrationName | null>(initial.initialTool);
@@ -100,6 +103,15 @@ function useIntentSelectionActions(
 function appBuildTargetIntent(target: AppBuildTarget | null): ComposerWorkIntentId | null {
   if (target === "mobile") return "mobile-app";
   return target === "web" ? "web-app" : null;
+}
+
+function runIntentWorkIntent(intent: RunIntent | null): ComposerWorkIntentId | null {
+  if (intent === "data") return "data";
+  if (intent === "documents") return "documents";
+  if (intent === "media") return "media";
+  if (intent === "research") return "research";
+  if (intent === "slides") return "slides";
+  return null;
 }
 
 function useResourceSelectionActions(state: ReturnType<typeof useHomeSelectionState>) {

@@ -1,6 +1,7 @@
 "use client";
 
 import type { IntegrationName } from "@cheatcode/types";
+import type { RunIntent } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useRouter } from "next/navigation";
 import {
@@ -29,6 +30,7 @@ export interface HomeComposerProps {
   initialModel?: AgentModelId | undefined;
   initialPromptKey?: string | undefined;
   initialRepoUrl?: string | undefined;
+  initialRunIntent?: RunIntent | undefined;
   initialSkill?: string | undefined;
   initialTool?: IntegrationName | undefined;
   quickActionsSlot?: HTMLElement | null | undefined;
@@ -93,6 +95,7 @@ function useInitialHomeSelection(input: HomeComposerProps, focusTextarea: () => 
       appBuildTarget: input.initialAppBuildTarget ?? null,
       initialSkill,
       initialTool: input.initialTool ?? null,
+      runIntent: input.initialRunIntent ?? null,
       repoUrl: input.initialRepoUrl ?? null,
       skillCreator: input.skillCreator ?? false,
     },

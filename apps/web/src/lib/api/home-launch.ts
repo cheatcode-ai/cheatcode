@@ -1,3 +1,4 @@
+import type { IntegrationName } from "@cheatcode/types";
 import type { RunIntent } from "@cheatcode/types/api";
 import { createChat, listProjectThreadsPage, threadTitle } from "@/lib/api/project-thread";
 import { createPromptHandoff } from "@/lib/input/prompt-handoff";
@@ -36,14 +37,22 @@ export async function launchIntoProject(
  * are already persisted on the newly created chat; this handoff carries only the
  * prompt and constrained run intent consumed by the chat workspace.
  */
-export function buildExistingProjectParams(
-  prompt: string,
-  intent: RunIntent | null = null,
-): URLSearchParams {
+export function buildExistingProjectParams(input: {
+  intent?: RunIntent | null;
+  prompt: string;
+  selectedSkill?: string | null;
+  selectedTool?: IntegrationName | null;
+}): URLSearchParams {
   const params = new URLSearchParams();
-  params.set("promptKey", createPromptHandoff(prompt).promptKey);
-  if (intent) {
-    params.set("intent", intent);
+  params.set("promptKey", createPromptHandoff(input.prompt).promptKey);
+  if (input.intent) {
+    params.set("intent", input.intent);
+  }
+  if (input.selectedSkill) {
+    params.set("skill", input.selectedSkill);
+  }
+  if (input.selectedTool) {
+    params.set("tool", input.selectedTool);
   }
   return params;
 }

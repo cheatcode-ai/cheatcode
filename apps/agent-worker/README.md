@@ -73,7 +73,10 @@ the existing account state and R2 lifecycle phases.
 
 Run creation validates the gateway payload with the shared `CreateRunSchema` from
 `packages/types` before selecting the run-scoped `AgentRun` Durable Object. The
-database binds a gateway-hashed idempotency key to the exact body and thread. After the
+validated request keeps the user's exact message separate from explicit non-app run intent,
+selected skill, and selected connected-app metadata. Those selections remain in the
+checkpointed Workflow input and request context; they are never encoded into visible prompt text.
+The database binds a gateway-hashed idempotency key to the exact body and thread. After the
 pending run and thread pointer commit, start delivery is retried and then reconciled through
 an ordered run-key presence probe. A present object reconnects its stream (and finalizes a
 durable Workflow admission first); only an authoritative empty response fails the nonterminal database run

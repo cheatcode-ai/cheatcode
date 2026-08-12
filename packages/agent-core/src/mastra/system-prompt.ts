@@ -1,5 +1,11 @@
 import { buildSystemPromptSection, getSkillByName, SKILLS } from "@cheatcode/skills";
-import { MAX_USER_SKILLS, type RunIntent } from "@cheatcode/types/api";
+import {
+  MAX_USER_SKILLS,
+  type RunIntent,
+  RunIntentSchema,
+  SelectedSkillSchema,
+} from "@cheatcode/types/api";
+import { type IntegrationName, IntegrationNameSchema } from "@cheatcode/types/integrations";
 import { CONTEXT } from "./context";
 import type { UserSkillRuntime } from "./user-skill-runtime";
 
@@ -14,6 +20,8 @@ export interface PromptRuntimeContext {
   /** app-builder / app-builder-mobile / general — selects the domain module. */
   projectMode?: string;
   runIntent?: RunIntent;
+  selectedSkill?: string;
+  selectedTool?: IntegrationName;
   /** The user's request text, classified to select domain modules on the general path. */
   taskMessage?: string;
   /** The run's project folder in the sandbox (/workspace/<slug>) — the agent's working directory. */
@@ -67,9 +75,23 @@ export function promptRuntimeContextFromRequestContext(
   if (projectMode) {
     context.projectMode = projectMode;
   }
-  const runIntent = trimmedContextValue(requestContext, CONTEXT.runIntent);
-  if (runIntent === "skill-creator") {
-    context.runIntent = runIntent;
+  const runIntent = RunIntentSchema.safeParse(
+    trimmedContextValue(requestContext, CONTEXT.runIntent),
+  );
+  if (runIntent.success) {
+    context.runIntent = runIntent.data;
+  }
+  const selectedSkill = SelectedSkillSchema.safeParse(
+    trimmedContextValue(requestContext, CONTEXT.selectedSkill),
+  );
+  if (selectedSkill.success) {
+    context.selectedSkill = selectedSkill.data;
+  }
+  const selectedTool = IntegrationNameSchema.safeParse(
+    trimmedContextValue(requestContext, CONTEXT.selectedTool),
+  );
+  if (selectedTool.success) {
+    context.selectedTool = selectedTool.data;
   }
   const taskMessage = trimmedContextValue(requestContext, CONTEXT.promptTaskMessage);
   if (taskMessage) {
@@ -111,7 +133,13 @@ export function buildSystemPrompt(runtimeContext: PromptRuntimeContext = {}): st
     runtimeContext.workspaceDir
       ? `Your project workspace is \`${runtimeContext.workspaceDir}\`. Create, edit, and run everything there (it's your project's folder in the shared computer). Use it as the working directory for shell commands and the dev server.`
       : "",
-    ...selectDomainModules(runtimeContext.projectMode, runtimeContext.taskMessage),
+    ...selectDomainModules(
+      runtimeContext.projectMode,
+      runtimeContext.taskMessage,
+      runtimeContext.runIntent,
+    ),
+    buildSelectedSkillDirective(runtimeContext.selectedSkill),
+    buildSelectedToolDirective(runtimeContext.selectedTool),
     FINISHING,
     runtimeContext.globalMemory ? `## User Memory\n${runtimeContext.globalMemory}` : "",
     buildSystemPromptSection(GENERAL_SKILLS),
@@ -150,6 +178,26 @@ function requiredBundledSkillInstructions(name: string): string {
     throw new Error(`Required bundled skill is unavailable: ${name}`);
   }
   return skill.body;
+}
+
+function buildSelectedSkillDirective(selectedSkill: string | undefined): string {
+  if (!selectedSkill) {
+    return "";
+  }
+  return [
+    "## User-selected skill",
+    `The user selected the ${JSON.stringify(selectedSkill)} skill in the composer. Before doing the work, call \`skill_invoke\` with exactly that skill name and follow the returned instructions. The user's visible message is their complete request; do not mention this internal selection or rewrite their request as a slash command.`,
+  ].join("\n");
+}
+
+function buildSelectedToolDirective(selectedTool: IntegrationName | undefined): string {
+  if (!selectedTool) {
+    return "";
+  }
+  return [
+    "## User-selected connected app",
+    `The user selected the connected ${JSON.stringify(selectedTool)} app in the composer. Use that integration for any external-app action required by the request. Discover the narrow action first, then execute it. Do not mention the internal toolkit slug unless the user asks.`,
+  ].join("\n");
 }
 
 const CORE_IDENTITY = [
@@ -272,15 +320,31 @@ const DOMAIN_MODULES: Record<DomainKey, string> = {
  * path classifies the message and falls back to the compact all-domains pointer when the
  * intent is ambiguous (so the model is never blind — the classifier favours precision).
  */
-function selectDomainModules(projectMode?: string, taskMessage?: string): string[] {
+function selectDomainModules(
+  projectMode?: string,
+  taskMessage?: string,
+  runIntent?: RunIntent,
+): string[] {
   if (projectMode === "app-builder") {
     return [WEB_MODULE, APP_BUILDER_PREVIEW_NOTE];
   }
   if (projectMode === "app-builder-mobile") {
     return [MOBILE_MODULE, APP_BUILDER_PREVIEW_NOTE];
   }
+  const intentDomain = domainForRunIntent(runIntent);
+  if (intentDomain) {
+    return [DOMAIN_MODULES[intentDomain]];
+  }
   const domains = classifyDomains(taskMessage ?? "");
   return domains.length > 0 ? domains.map((domain) => DOMAIN_MODULES[domain]) : [GENERALIST_MODULE];
+}
+
+function domainForRunIntent(runIntent: RunIntent | undefined): DomainKey | null {
+  if (runIntent === "data") return "data";
+  if (runIntent === "documents" || runIntent === "slides") return "docs";
+  if (runIntent === "media") return "media";
+  if (runIntent === "research") return "research";
+  return null;
 }
 
 const DOMAIN_PATTERNS: ReadonlyArray<readonly [DomainKey, RegExp]> = [

@@ -32,7 +32,8 @@ capability discovery contracts, error codes, and UI message types.
 The `./api` subpath also exports the canonical user-message character budget, project-file
 upload/batch/namespace limits and schemas, the discriminated upload/generated-Deliverable project
 file catalog plus deterministic Deliverable path builder, and finalized project-archive byte
-limit so browser and Worker boundaries cannot drift.
+limit so browser and Worker boundaries cannot drift. `CreateRunSchema` keeps the exact user message
+separate from validated non-app run intent, selected-skill, and connected-app metadata.
 
 ## Code Checks
 

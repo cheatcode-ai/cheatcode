@@ -2,7 +2,7 @@
 
 import { SKILL_MANIFEST } from "@cheatcode/skills/manifest";
 import { type IntegrationName, IntegrationNameSchema } from "@cheatcode/types";
-import { GitHubRepoUrlSchema } from "@cheatcode/types/api";
+import { GitHubRepoUrlSchema, type RunIntent, RunIntentSchema } from "@cheatcode/types/api";
 import { useEffect, useState } from "react";
 import { type AgentModelId, isAgentModelId } from "@/lib/agent-models";
 import { type AppBuildTarget, isAppBuildTarget } from "@/lib/app-build-target";
@@ -14,6 +14,7 @@ type InitialComposerParams = {
   model?: AgentModelId | undefined;
   promptKey?: string | undefined;
   repoUrl?: string | undefined;
+  runIntent?: RunIntent | undefined;
   skill?: string | undefined;
   skillCreator?: boolean | undefined;
   tool?: IntegrationName | undefined;
@@ -34,6 +35,7 @@ export function HomeComposerFromSearchParams({
       model: validInitialModel(searchParams.get("model")),
       promptKey: validInitialPromptKey(searchParams.get("promptKey")),
       repoUrl: validInitialRepoUrl(searchParams.get("repo")),
+      runIntent: validRunIntent(searchParams.get("intent")),
       skill: validInitialSkill(searchParams.get("skill")),
       skillCreator: searchParams.get("intent") === "skill-creator",
       tool: validInitialTool(searchParams.get("tool")),
@@ -50,6 +52,7 @@ export function HomeComposerFromSearchParams({
       initialModel={params.model}
       initialPromptKey={params.promptKey}
       initialRepoUrl={params.repoUrl}
+      initialRunIntent={params.runIntent}
       initialSkill={params.skill}
       initialTool={params.tool}
       key={`${resetToken}:${params.promptKey ?? ""}:${params.skill ?? ""}:${params.tool ?? ""}:${params.appBuildTarget ?? ""}:${params.model ?? ""}:${params.repoUrl ?? ""}:${params.skillCreator ? "sc" : ""}`}
@@ -81,6 +84,11 @@ function validInitialSkill(value: string | null): string | undefined {
 
 function validInitialTool(value: string | null): IntegrationName | undefined {
   const result = IntegrationNameSchema.safeParse(value);
+  return result.success ? result.data : undefined;
+}
+
+function validRunIntent(value: string | null): RunIntent | undefined {
+  const result = RunIntentSchema.safeParse(value);
   return result.success ? result.data : undefined;
 }
 

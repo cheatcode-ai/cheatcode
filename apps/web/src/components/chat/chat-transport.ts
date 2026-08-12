@@ -47,6 +47,8 @@ export function createChatTransport(
           intent: body?.["intent"],
           message: runRequestMessage(latestMessage),
           model: body?.["model"],
+          selectedSkill: body?.["selectedSkill"],
+          selectedTool: body?.["selectedTool"],
         },
         headers: {
           ...headers,
