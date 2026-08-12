@@ -6,6 +6,7 @@ import { Agent } from "@mastra/core/agent";
 import type { MastraModelConfig } from "@mastra/core/llm";
 import type { RequestContext } from "@mastra/core/request-context";
 import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { boundedProviderFetch } from "../../provider-fetch-support";
 import {
   ANTHROPIC_API_KEY_CONTEXT_KEY,
   DEEPSEEK_API_KEY_CONTEXT_KEY,
@@ -22,7 +23,6 @@ import {
 } from "../llm-context";
 import { buildSystemPrompt, promptRuntimeContextFromRequestContext } from "../system-prompt";
 import { cheatcodeTools } from "../tool-defs/tool-set";
-import { boundedProviderFetch } from "./provider-fetch";
 
 export type { LlmProvider, LlmTransportSelection } from "../llm-context";
 

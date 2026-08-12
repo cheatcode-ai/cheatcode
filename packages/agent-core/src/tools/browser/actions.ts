@@ -4,6 +4,7 @@ import { INTERNAL_OUTPUT_FILENAME_PREFIX } from "@cheatcode/types/artifacts";
 import { z } from "zod";
 import type { BrowserRuntimeContext } from "./runtime";
 import { BrowserRuntimeContextSchema } from "./runtime";
+import { inspectBrowserScreenshot } from "./visual-inspection-support";
 
 const DRIVER_PROCESS_PREFIX = "cheatcode-browser-driver-";
 const DRIVER_LAUNCHER_PATH = "/usr/local/bin/cheatcode-browser-driver";
@@ -77,6 +78,14 @@ export const BrowserExtractInputSchema = z.strictObject({
 
 export const BrowserScreenshotInputSchema = z.strictObject({
   fullPage: z.boolean().default(false).describe("Capture the full page when true."),
+  instruction: z
+    .string()
+    .min(1)
+    .max(1_000)
+    .default(
+      "Check that the visible page is complete, readable, polished, and free of error states.",
+    )
+    .describe("The visual acceptance criterion to assess from this screenshot."),
 });
 
 const BrowserActionSchema = z.discriminatedUnion("type", [
@@ -103,6 +112,7 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
   z.strictObject({
     type: z.literal("screenshot"),
     fullPage: z.boolean().default(false),
+    instruction: z.string().min(1).max(1_000),
   }),
 ]);
 
@@ -252,7 +262,15 @@ export async function executeBrowserScreenshot(
 ): Promise<BrowserActionsOutput> {
   const parsedInput = BrowserScreenshotInputSchema.parse(input);
   return executeBrowserActions(
-    { actions: [{ type: "screenshot", fullPage: parsedInput.fullPage }] },
+    {
+      actions: [
+        {
+          type: "screenshot",
+          fullPage: parsedInput.fullPage,
+          instruction: parsedInput.instruction,
+        },
+      ],
+    },
     runtimeContext,
   );
 }
@@ -477,6 +495,7 @@ async function postBrowserActions(
   const parsedOutput = requireBrowserDriverOutput(result);
   const normalizedResults = await normalizeBrowserActionResults(
     parsedOutput.results,
+    input.actions,
     runtimeContext,
   );
   return validateBrowserActionsOutput(normalizedResults);
@@ -516,11 +535,14 @@ function browserDriverRequestError(result: BrowserDriverHttpResult): APIError {
 
 async function normalizeBrowserActionResults(
   actions: BrowserDriverActionResult[],
+  requestedActions: BrowserActionsInput["actions"],
   runtimeContext: BrowserRuntimeContext,
 ): Promise<BrowserActionResult[]> {
   const normalizedResults: BrowserActionResult[] = [];
   for (const [index, action] of actions.entries()) {
-    normalizedResults.push(await normalizeBrowserActionResult(action, index, runtimeContext));
+    normalizedResults.push(
+      await normalizeBrowserActionResult(action, requestedActions[index], index, runtimeContext),
+    );
   }
   return normalizedResults;
 }
@@ -544,6 +566,7 @@ function validateBrowserActionsOutput(
 
 async function normalizeBrowserActionResult(
   action: BrowserDriverActionResult,
+  requestedAction: BrowserActionsInput["actions"][number] | undefined,
   index: number,
   runtimeContext: BrowserRuntimeContext,
 ): Promise<BrowserActionResult> {
@@ -572,6 +595,14 @@ async function normalizeBrowserActionResult(
     });
   }
   const bytes = decodeScreenshot(action.base64);
+  if (requestedAction?.type !== "screenshot") {
+    throw invalidDriverScreenshot();
+  }
+  const assessment = await inspectBrowserScreenshot(
+    bytes,
+    requestedAction.instruction,
+    runtimeContext.credential,
+  );
   const artifact = await runtimeContext.artifacts.put({
     contentType: "image/png",
     data: bytes,
@@ -581,6 +612,7 @@ async function normalizeBrowserActionResult(
   });
   return {
     artifact: browserArtifactResult(artifact),
+    result: { assessment },
     type: action.type,
     ...(action.url ? { url: action.url } : {}),
   };
