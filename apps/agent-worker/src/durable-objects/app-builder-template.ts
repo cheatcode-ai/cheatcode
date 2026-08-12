@@ -77,7 +77,7 @@ export default function Home() {
 }
 
 export function appBuilderTypeScriptConfigSource(workspaceSlug: string): string {
-  const localModules = `/home/node/.cheatcode/projects/${workspaceSlug}/node_modules`;
+  const localModules = `/home/node/.cheatcode/projects/${workspaceSlug}/source/node_modules`;
   const runtimeModules = "/home/node/.cheatcode/app-runtimes/next/node_modules";
   return `${JSON.stringify(
     {
@@ -102,7 +102,14 @@ export function appBuilderTypeScriptConfigSource(workspaceSlug: string): string 
         target: "ES2017",
       },
       exclude: ["node_modules"],
-      include: ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts", "**/*.mts"],
+      include: [
+        "next-env.d.ts",
+        ".next/types/**/*.ts",
+        ".next/dev/types/**/*.ts",
+        "**/*.mts",
+        "**/*.ts",
+        "**/*.tsx",
+      ],
     },
     null,
     2,

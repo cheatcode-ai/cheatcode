@@ -24,9 +24,9 @@ import {
 import {
   EXPO_TEMPLATE_DIR,
   NEXT_TEMPLATE_DIR,
-  projectLocalCacheDir,
   projectLocalModulesDir,
   projectLocalRuntimeDir,
+  projectLocalSourceDir,
 } from "./project-sandbox-package-runtime";
 
 export type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
@@ -562,7 +562,6 @@ async function startAppBuilderDevServer(
     }),
     env: {
       CHEATCODE_APP_RUNTIME: "next",
-      CHEATCODE_NEXT_DIST_DIR: "../cache/next",
       CHOKIDAR_USEPOLLING: "true",
       WATCHPACK_POLLING: "1000",
     },
@@ -700,7 +699,7 @@ async function clearBuildCache(
   mobile: boolean,
 ): Promise<void> {
   const workspaceSlug = dir.slice(dir.lastIndexOf("/") + 1);
-  const cacheDir = mobile ? `${dir}/.expo` : `${projectLocalCacheDir(workspaceSlug)}/next`;
+  const cacheDir = mobile ? `${dir}/.expo` : `${projectLocalSourceDir(workspaceSlug)}/.next`;
   await executeShellExec(
     {
       command: ["rm", "-rf", cacheDir],

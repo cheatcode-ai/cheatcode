@@ -23,12 +23,8 @@ export function projectLocalModulesDir(workspaceSlug: string): string {
   return `${projectLocalSourceDir(workspaceSlug)}/node_modules`;
 }
 
-function projectLocalSourceDir(workspaceSlug: string): string {
+export function projectLocalSourceDir(workspaceSlug: string): string {
   return `${projectLocalRuntimeDir(workspaceSlug)}/source`;
-}
-
-export function projectLocalCacheDir(workspaceSlug: string): string {
-  return `${projectLocalRuntimeDir(workspaceSlug)}/cache`;
 }
 
 export function projectLocalRuntimeDir(workspaceSlug: string): string {
@@ -114,7 +110,7 @@ function packageManagerName(value: string | undefined): string | null {
     : null;
 }
 
-/** Keeps generated dependencies and caches off persistent object-store FUSE. */
+/** Keeps generated dependencies off persistent object-store FUSE. */
 export function projectPackageEnvironment(
   cwd: string,
   requested: Record<string, string> | undefined,
@@ -123,12 +119,10 @@ export function projectPackageEnvironment(
   if (!workspaceSlug) return requested;
   const modulesDir = projectLocalModulesDir(workspaceSlug);
   const requestedNodePath = requested?.["NODE_PATH"];
-  const requestedNextDistDir = requested?.["CHEATCODE_NEXT_DIST_DIR"];
   const preferredRuntime = requested?.["CHEATCODE_APP_RUNTIME"] === "expo" ? "expo" : "next";
   const fallbackRuntime = preferredRuntime === "expo" ? "next" : "expo";
   return {
     ...requested,
-    CHEATCODE_NEXT_DIST_DIR: requestedNextDistDir ?? `${projectLocalCacheDir(workspaceSlug)}/next`,
     NODE_PATH: [
       modulesDir,
       `${APP_RUNTIME_ROOT}/${preferredRuntime}/node_modules`,
