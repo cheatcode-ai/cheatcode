@@ -113,6 +113,9 @@ reviewed Expo template's source aliases while adding only the disposable local a
 dependency locations. Snapshot smoke testing runs that same helper, compiles the
 real Expo Router bundle, and renders the template in headless Chromium; a listening Metro port
 without an executable app is not considered healthy.
+The image also declares Expo's non-interactive headless mode. Sandboxed preview servers do not
+need local-device discovery or a standalone React Native DevTools shell, so those background
+network and binary-install side effects are disabled for every generated mobile project.
 Direct pnpm invocations execute inside one `flock`-guarded transaction; process death
 releases that lock automatically, and successful source changes commit only after a
 three-way conflict check against the durable tree. Long-lived previews invoke the same helper as
