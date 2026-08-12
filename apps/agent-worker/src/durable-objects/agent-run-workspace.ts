@@ -56,13 +56,13 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
   const project = result.project;
   input.input.projectId = project.id;
   input.input.workspaceSlug = project.workspaceSlug;
-  await ensureWorkspaceDirectory(input, project.workspaceSlug);
   if (result.kind === "created") {
     await input.append({
       data: { projectId: project.id, projectName: project.name, v: 1 },
       type: "data-project-created",
     });
   }
+  await ensureWorkspaceDirectory(input, project.workspaceSlug);
   input.logger.info("agent_workspace_materialized", {
     projectId: project.id,
     workspaceSlug: project.workspaceSlug,

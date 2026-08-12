@@ -105,6 +105,10 @@ the Daytona adapter normalizes the provider's structured `503` response to an in
 then the lifecycle verifies the active-run lease and canonical volume mount before replacing the
 stopped container on the same isolated workspace-volume subpath. This preserves user files while
 avoiding an indefinite dependency on one unhealthy runner.
+Project materialization publishes its durable project-created event immediately after the database
+commit, before waiting on Daytona workspace preparation. The workspace directory operation is
+itself the sandbox readiness boundary; app-builder preparation does not issue a second synthetic
+code-execution probe after that operation succeeds.
 Provider output-length termination is nonterminal: the Workflow checkpoints the partial model turn,
 adds an internal continuation message, and resumes from that durable state. A tool-free turn completes
 the run only when the model reports an actual stop; content filtering, provider errors, and invalid

@@ -29,8 +29,8 @@ import {
   projectLocalSourceDir,
 } from "./project-sandbox-package-runtime";
 
-export type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
-export type AgentRunLogger = ReturnType<typeof createLogger>;
+type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
+type AgentRunLogger = ReturnType<typeof createLogger>;
 
 interface AgentRunAppBuilderEnv extends AnalyticsBindings {
   HYPERDRIVE: Hyperdrive;
@@ -488,21 +488,6 @@ function repoImportError(message: string): APIError {
   return new APIError(502, "repo_import_failed", message, {
     hint: "Check the URL is a public GitHub repo, then retry.",
     retriable: true,
-  });
-}
-
-export async function warmSandbox(
-  sandbox: ProjectSandboxStub,
-  logger: AgentRunLogger,
-): Promise<void> {
-  const result = await sandbox.runCode({
-    code: "print('ready')",
-    language: "python",
-  });
-  const stdout = result.stdout;
-  logger.info("sandbox_warmed", {
-    success: result.success,
-    stdoutBytes: stdout.length,
   });
 }
 

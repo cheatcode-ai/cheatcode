@@ -1,7 +1,7 @@
 import type { createLogger } from "@cheatcode/observability";
 import type { CodeRuntimeContext, WorkspaceResolver } from "@cheatcode/sandbox-contracts";
 import type { UIMessageChunk } from "ai";
-import { runAppBuilder, warmSandbox } from "./agent-run-app-builder";
+import { runAppBuilder } from "./agent-run-app-builder";
 import type { AgentRunEnv } from "./agent-run-env";
 import type { StartRunInput } from "./agent-run-schemas";
 
@@ -43,7 +43,6 @@ export async function prepareAppBuilderRun(
   options.input.projectMode = appBuilderMode;
   await options.workspaceResolver();
   const boundOptions = { ...options, input: requireProjectBinding(options.input) };
-  await warmSandbox(boundOptions.sandbox, boundOptions.logger);
   if (boundOptions.isCanceled()) {
     return { options: boundOptions, usesManagedPreview: false, waitsForGeneratedPreview: false };
   }
