@@ -22,6 +22,7 @@ import {
   DataBlock,
   ErrorRecoveryBlock,
   errorRecoveryMessage,
+  MessageStatusShell,
 } from "@/components/chat/message-part-blocks";
 import type { MessagePart } from "@/components/chat/message-parts.types";
 import {
@@ -210,21 +211,23 @@ function SkillCreatedSummaryBlock({ name }: { name: string }) {
 
 function ModelFallbackBlock({ data }: { data: ModelFallbackData }) {
   return (
-    <div className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3 text-[11px] text-thread-text-secondary">
-      <div className="mb-1 text-[10px] text-thread-text-muted">model fallback</div>
-      <div className="text-thread-text-primary">
-        Switched from {data.fromModel} to {data.toModel}
+    <MessageStatusShell>
+      <div className="text-[11px] text-thread-text-secondary">
+        <div className="mb-1 text-[10px] text-thread-text-muted">model fallback</div>
+        <div className="text-thread-text-primary">
+          Switched from {data.fromModel} to {data.toModel}
+        </div>
+        <div className="mt-1 text-[10px] text-thread-text-muted">
+          Reason: {fallbackReasonLabel(data.reason)}
+        </div>
+        <Link
+          className="mt-2 inline-block text-[11px] text-thread-accent underline-offset-4 hover:underline"
+          href="/models#api-keys"
+        >
+          Open Models &amp; Keys
+        </Link>
       </div>
-      <div className="mt-1 text-[10px] text-thread-text-muted">
-        Reason: {fallbackReasonLabel(data.reason)}
-      </div>
-      <Link
-        className="mt-2 inline-block text-[11px] text-thread-accent underline-offset-4 hover:underline"
-        href="/models#api-keys"
-      >
-        Open Models &amp; Keys
-      </Link>
-    </div>
+    </MessageStatusShell>
   );
 }
 

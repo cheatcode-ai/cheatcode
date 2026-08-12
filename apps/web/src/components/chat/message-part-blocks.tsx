@@ -1,4 +1,27 @@
+import type { ReactNode } from "react";
 import { RotateCw } from "@/components/ui";
+import { cn } from "@/lib/ui/cn";
+
+export function MessageStatusShell({
+  children,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  tone?: "danger" | "neutral";
+}) {
+  return (
+    <div className="cc-fade-in overflow-hidden rounded-[20px] border-2 border-border bg-background p-0.5">
+      <div
+        className={cn(
+          "rounded-[16px] bg-gradient-to-b to-background px-4 py-3.5",
+          tone === "danger" ? "from-danger-bg" : "from-bg-secondary",
+        )}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
 
 export function ErrorRecoveryBlock({
   message,
@@ -8,8 +31,8 @@ export function ErrorRecoveryBlock({
   onContinue?: (() => void) | undefined;
 }) {
   return (
-    <div className="cc-fade-in overflow-hidden rounded-[20px] border-2 border-border bg-background p-0.5">
-      <div className="flex min-h-[68px] items-center gap-4 rounded-[16px] bg-gradient-to-b from-danger-bg to-background px-4 py-3.5">
+    <MessageStatusShell tone="danger">
+      <div className="flex min-h-10 items-center gap-4">
         <p className="min-w-0 flex-1 text-[14px] text-danger-fg leading-5">{message}</p>
         {onContinue ? (
           <button
@@ -22,7 +45,7 @@ export function ErrorRecoveryBlock({
           </button>
         ) : null}
       </div>
-    </div>
+    </MessageStatusShell>
   );
 }
 
