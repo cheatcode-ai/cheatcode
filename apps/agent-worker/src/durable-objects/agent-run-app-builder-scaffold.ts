@@ -5,12 +5,7 @@ import {
 } from "@cheatcode/agent-core/tools/code";
 import { APIError, type createLogger } from "@cheatcode/observability";
 import type { CodeRuntimeContext } from "@cheatcode/sandbox-contracts";
-import {
-  appBuilderGlobalStylesSource,
-  appBuilderLayoutSource,
-  appBuilderPageSource,
-  appBuilderTypeScriptConfigSource,
-} from "./app-builder-template";
+import { appBuilderPageSource } from "./app-builder-template";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
   EXPO_RUNTIME_BIN,
@@ -26,7 +21,6 @@ type AgentRunLogger = ReturnType<typeof createLogger>;
 
 interface AppBuilderSeedInput {
   messageText: string;
-  workspaceSlug: string;
 }
 
 export function writeAppBuilderFiles(
@@ -34,36 +28,13 @@ export function writeAppBuilderFiles(
   sandbox: ProjectSandboxStub,
   dir: string,
 ): Promise<void> {
-  return Promise.all([
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/layout.tsx`,
-        content: appBuilderLayoutSource(),
-      },
-      { sandbox },
-    ),
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/globals.css`,
-        content: appBuilderGlobalStylesSource(),
-      },
-      { sandbox },
-    ),
-    executeWriteFile(
-      {
-        path: `${dir}/src/app/page.tsx`,
-        content: appBuilderPageSource(input.messageText),
-      },
-      { sandbox },
-    ),
-    executeWriteFile(
-      {
-        path: `${dir}/tsconfig.json`,
-        content: appBuilderTypeScriptConfigSource(input.workspaceSlug),
-      },
-      { sandbox },
-    ),
-  ]).then(() => undefined);
+  return executeWriteFile(
+    {
+      path: `${dir}/src/app/page.tsx`,
+      content: appBuilderPageSource(input.messageText),
+    },
+    { sandbox },
+  ).then(() => undefined);
 }
 
 export async function scaffoldExpoApp(

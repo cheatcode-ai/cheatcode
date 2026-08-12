@@ -102,6 +102,11 @@ generated images: only manifests and the starter route cross the persistent obje
 boundary. Its dependency tree remains the exact reviewed runtime installed on native
 sandbox disk. These locks prevent a snapshot rebuild from resolving a different dependency
 tree while the application source stays unchanged.
+The Next scaffold's production build explicitly uses webpack because its immutable dependency tree
+lives outside the project mirror; Next's Turbopack build rejects that deliberate cross-root symlink.
+Snapshot smoke runs the checked-in build script through the same native-mirror package boundary and
+requires a real production `BUILD_ID`, so preview and verification cannot silently use incompatible
+bundlers.
 
 The root-owned `/opt/cheatcode/project-source-sync.py` helper is the single runtime
 boundary between persistent project source and the native-disk project mirror. It is
