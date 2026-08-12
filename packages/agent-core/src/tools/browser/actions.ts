@@ -48,44 +48,85 @@ export const BrowserOpenInputSchema = z.strictObject({
   waitUntil: WaitUntilSchema.default("domcontentloaded").describe("Navigation wait strategy."),
 });
 
-const BrowserObservedActionSchema = z.strictObject({
-  arguments: z
-    .array(z.string().max(2_000))
-    .max(10)
-    .optional()
-    .describe("Arguments returned by browser_observe. Pass them through unchanged."),
-  backendNodeId: z.number().int().positive().optional(),
-  description: z
-    .string()
-    .min(1)
-    .max(2_000)
-    .describe("Action description returned by browser_observe."),
-  method: z
-    .enum([
-      "click",
-      "doubleClick",
-      "dragAndDrop",
-      "fill",
-      "hover",
-      "nextChunk",
-      "press",
-      "prevChunk",
-      "scrollTo",
-      "selectOptionFromDropdown",
-      "type",
-    ])
-    .describe("Action method returned by browser_observe."),
-  selector: z
-    .string()
-    .min(1)
-    .max(4_096)
-    .startsWith("xpath=", "Use the exact XPath selector returned by browser_observe.")
-    .describe("Exact XPath selector returned by browser_observe."),
-});
+const BrowserElementRefSchema = z
+  .string()
+  .regex(/^\d+-\d+$/u)
+  .max(64)
+  .describe("Exact hyphenated element ref from the latest browser_observe tree.");
+
+const BrowserActionMethodSchema = z.enum([
+  "click",
+  "doubleClick",
+  "dragAndDrop",
+  "fill",
+  "hover",
+  "nextChunk",
+  "press",
+  "prevChunk",
+  "scrollTo",
+  "selectOptionFromDropdown",
+  "type",
+]);
+
+const BROWSER_VALUE_METHODS = new Set<z.infer<typeof BrowserActionMethodSchema>>([
+  "fill",
+  "press",
+  "scrollTo",
+  "selectOptionFromDropdown",
+  "type",
+]);
+
+interface BrowserBoundActionRefinementInput {
+  method: z.infer<typeof BrowserActionMethodSchema>;
+  ref: string;
+  targetRef?: string | undefined;
+  value?: string | undefined;
+}
+
+function validateBrowserBoundAction(
+  action: BrowserBoundActionRefinementInput,
+  context: z.RefinementCtx<BrowserBoundActionRefinementInput>,
+): void {
+  const needsValue = BROWSER_VALUE_METHODS.has(action.method);
+  if (needsValue !== (action.value !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: needsValue
+        ? `${action.method} requires value`
+        : `${action.method} does not accept value`,
+      path: ["value"],
+    });
+  }
+  const needsTarget = action.method === "dragAndDrop";
+  if (needsTarget !== (action.targetRef !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: needsTarget
+        ? "dragAndDrop requires targetRef"
+        : `${action.method} does not accept targetRef`,
+      path: ["targetRef"],
+    });
+  }
+}
+
+const BrowserBoundActionSchema = z
+  .strictObject({
+    method: BrowserActionMethodSchema.describe("Deterministic action to perform on the ref."),
+    ref: BrowserElementRefSchema,
+    targetRef: BrowserElementRefSchema.optional().describe(
+      "Destination ref; required only for dragAndDrop.",
+    ),
+    value: z
+      .string()
+      .max(2_000)
+      .optional()
+      .describe("Text, key, option, or percentage required by value-taking methods."),
+  })
+  .superRefine(validateBrowserBoundAction);
 
 export const BrowserActInputSchema = z.strictObject({
-  action: BrowserObservedActionSchema.describe(
-    "One exact action returned by the immediately preceding browser_observe call.",
+  action: BrowserBoundActionSchema.describe(
+    "A ref-bound action chosen from the immediately preceding browser_observe tree.",
   ),
   timeoutMs: z
     .number()
@@ -101,9 +142,7 @@ const BrowserActGuardSchema = z.strictObject({
   expectedUrl: BrowserUrlSchema,
 });
 
-export const BrowserObserveInputSchema = z.strictObject({
-  instruction: z.string().min(1).max(2_000).describe("What to observe on the current page."),
-});
+export const BrowserObserveInputSchema = z.strictObject({});
 
 export const BrowserExtractInputSchema = z.strictObject({
   instruction: z
@@ -132,7 +171,7 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
     waitUntil: WaitUntilSchema.default("domcontentloaded"),
   }),
   z.strictObject({
-    action: BrowserObservedActionSchema,
+    action: BrowserBoundActionSchema,
     allowedOrigin: BrowserUrlSchema,
     expectedUrl: BrowserUrlSchema,
     type: z.literal("act"),
@@ -140,7 +179,6 @@ const BrowserActionSchema = z.discriminatedUnion("type", [
   }),
   z.strictObject({
     type: z.literal("observe"),
-    instruction: z.string().min(1).max(2_000),
   }),
   z.strictObject({
     type: z.literal("extract"),
@@ -275,11 +313,8 @@ export async function executeBrowserObserve(
   input: BrowserObserveInput,
   runtimeContext: BrowserRuntimeContext,
 ): Promise<BrowserActionsOutput> {
-  const parsedInput = BrowserObserveInputSchema.parse(input);
-  return executeBrowserActions(
-    { actions: [{ type: "observe", instruction: parsedInput.instruction }] },
-    runtimeContext,
-  );
+  BrowserObserveInputSchema.parse(input);
+  return executeBrowserActions({ actions: [{ type: "observe" }] }, runtimeContext);
 }
 
 export async function executeBrowserExtract(
@@ -560,13 +595,19 @@ function requireBrowserDriverOutput(result: BrowserDriverHttpResult) {
 
 function browserDriverRequestError(result: BrowserDriverHttpResult): APIError {
   const driverError = BrowserDriverErrorSchema.safeParse(result.body);
-  return new APIError(502, "tool_execution_failed", "Sandbox browser driver request failed", {
+  const isStaleObservation = result.status === 409;
+  const isRetriable = result.status === 429 || result.status >= 500;
+  const status = result.status === 400 || isStaleObservation ? result.status : 502;
+  const code = status === 400 ? "tool_validation_failed" : "tool_execution_failed";
+  return new APIError(status, code, "Sandbox browser driver request failed", {
     details: {
       responseShape: driverError.success ? "recognized" : "invalid",
       status: result.status,
     },
-    hint: "Restart the sandbox browser tool and retry the browser action.",
-    retriable: true,
+    hint: isStaleObservation
+      ? "Observe the current page once, then use an exact ref from that tree."
+      : "Restart the sandbox browser tool before retrying this action.",
+    retriable: isRetriable,
   });
 }
 

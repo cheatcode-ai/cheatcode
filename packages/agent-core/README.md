@@ -43,11 +43,12 @@ Tools execute autonomously inside the active request context. Sandbox operations
 remain project-root confined, browser actions remain origin-bound, connected-app
 actions remain scoped to the user's active account, and secret-bearing input is
 validated before execution. Deterministic prepare/execute boundaries keep dynamic
-ports and Git destinations stable between resolution and execution. The managed
-browser follows the same boundary: observation returns page-bound executable actions,
-and execution accepts only an unchanged action from the latest observation. Natural-language
-inference therefore runs once during observation; a click or fill cannot silently invoke another
-model decision, reuse a stale selector, or cross the active origin. The managed
+ports and Git destinations stable between resolution and execution. The managed browser follows
+the same boundary: observation reads Stagehand's native accessibility snapshot without model
+inference and returns page-bound element refs. Execution accepts only a single-use ref from the
+latest observation plus a bounded method/value, resolves its server-held XPath, and returns the
+post-action snapshot. A click or fill therefore cannot invoke a hidden model decision, expose a
+selector, reuse a stale ref, or cross the active origin. The managed
 preview tool owns Computer-visible dev servers, remaps a requested port to the
 project’s allocated port when necessary, injects the supported framework binding when the model
 omits it, and is distinct from generic background process tools so idle recovery always has a

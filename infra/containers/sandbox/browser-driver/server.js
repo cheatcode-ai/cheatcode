@@ -19,26 +19,56 @@ const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024 * 1024;
 // An 8 MiB PNG expands to roughly 10.7 MiB as base64 before JSON framing.
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
+const MAX_SNAPSHOT_TREE_BYTES = 140 * 1024;
 const REQUEST_BODY_TIMEOUT_MS = 30 * 1000;
-const ObservedActionSchema = z.strictObject({
-  arguments: z.array(z.string().max(2_000)).max(10).optional(),
-  backendNodeId: z.number().int().positive().optional(),
-  description: z.string().min(1).max(2_000),
-  method: z.enum([
-    "click",
-    "doubleClick",
-    "dragAndDrop",
-    "fill",
-    "hover",
-    "nextChunk",
-    "press",
-    "prevChunk",
-    "scrollTo",
-    "selectOptionFromDropdown",
-    "type",
-  ]),
-  selector: z.string().min(1).max(4_096).startsWith("xpath="),
-});
+const BrowserElementRefSchema = z.string().regex(/^\d+-\d+$/u).max(64);
+const BrowserActionMethodSchema = z.enum([
+  "click",
+  "doubleClick",
+  "dragAndDrop",
+  "fill",
+  "hover",
+  "nextChunk",
+  "press",
+  "prevChunk",
+  "scrollTo",
+  "selectOptionFromDropdown",
+  "type",
+]);
+const BROWSER_VALUE_METHODS = new Set([
+  "fill",
+  "press",
+  "scrollTo",
+  "selectOptionFromDropdown",
+  "type",
+]);
+const BoundActionSchema = z.strictObject({
+  ref: BrowserElementRefSchema,
+  targetRef: BrowserElementRefSchema.optional(),
+  value: z.string().max(2_000).optional(),
+  method: BrowserActionMethodSchema,
+}).superRefine(validateBoundActionShape);
+
+function validateBoundActionShape(action, context) {
+  const needsValue = BROWSER_VALUE_METHODS.has(action.method);
+  if (needsValue !== (action.value !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: needsValue ? `${action.method} requires value` : `${action.method} rejects value`,
+      path: ["value"],
+    });
+  }
+  const needsTarget = action.method === "dragAndDrop";
+  if (needsTarget !== (action.targetRef !== undefined)) {
+    context.addIssue({
+      code: "custom",
+      message: needsTarget
+        ? "dragAndDrop requires targetRef"
+        : `${action.method} rejects targetRef`,
+      path: ["targetRef"],
+    });
+  }
+}
 const bootstrap = await readBootstrapConfig();
 const PORT = bootstrap.port;
 const MODEL_NAME = bootstrap.modelName;
@@ -393,12 +423,9 @@ async function runAction(runtime, action) {
     return runGuardedAct(runtime, page, action);
   }
   if (action.type === "observe") {
-    const result = await stagehand.observe(action.instruction, { page });
-    latestObservation = {
-      actions: result.map(normalizeObservedAction),
-      url: page.url(),
-    };
-    return { result, type: action.type, url: page.url() };
+    const observation = await capturePageObservation(page);
+    latestObservation = observation.boundary;
+    return { result: observation.state, type: action.type, url: page.url() };
   }
   if (action.type === "extract") {
     const result = await stagehand.extract(action.instruction, { page });
@@ -422,7 +449,7 @@ async function runAction(runtime, action) {
 async function runGuardedAct(runtime, page, action) {
   const { stagehand } = runtime;
   assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
-  const observedAction = requireObservedAction(action.action, page.url());
+  const observedAction = requireBoundAction(action.action, page.url());
   latestObservation = undefined;
   let failure;
   let originInterceptor;
@@ -438,7 +465,15 @@ async function runGuardedAct(runtime, page, action) {
     await originInterceptor.assertHealthy();
     const activePage = await stagehand.context.awaitActivePage();
     assertAllowedBrowserOrigin(activePage.url(), action.allowedOrigin);
-    response = { result, type: action.type, url: activePage.url() };
+    response = {
+      result: {
+        action: { method: action.action.method, ref: action.action.ref },
+        stagehand: result,
+        state: await capturePageState(activePage),
+      },
+      type: action.type,
+      url: activePage.url(),
+    };
   } catch (error) {
     failure = error;
   }
@@ -456,32 +491,88 @@ async function runGuardedAct(runtime, page, action) {
   return response;
 }
 
-function normalizeObservedAction(action) {
-  const parsed = ObservedActionSchema.safeParse(action);
-  if (!parsed.success) {
-    throw new Error("Browser observation returned an invalid action");
-  }
-  return parsed.data;
+async function capturePageObservation(page) {
+  const snapshot = await page.snapshot({ includeIframes: true });
+  const state = boundedSnapshotState(snapshot.formattedTree);
+  return {
+    boundary: {
+      refs: snapshotRefMap(state.tree, snapshot.xpathMap),
+      url: page.url(),
+    },
+    state,
+  };
 }
 
-function requireObservedAction(action, pageUrl) {
-  const normalized = validateObservedAction(action);
+async function capturePageState(page) {
+  const snapshot = await page.snapshot({ includeIframes: true });
+  return boundedSnapshotState(snapshot.formattedTree);
+}
+
+function requireBoundAction(action, pageUrl) {
+  const normalized = validateBoundAction(action);
   const observation = latestObservation;
-  if (
-    !observation ||
-    observation.url !== pageUrl ||
-    !observation.actions.some((candidate) => actionsEqual(candidate, normalized))
-  ) {
+  if (!observation || observation.url !== pageUrl) {
     throw new RequestError(
       409,
-      "Browser action was not returned by the latest observation for this page",
+      "Browser action is not bound to the latest observation for this page",
     );
   }
-  return normalized;
+  const selector = observedSelector(observation.refs, normalized.ref);
+  const args = browserActionArguments(observation.refs, normalized);
+  return {
+    arguments: args,
+    description: `${normalized.method} observed element [${normalized.ref}]`,
+    method: normalized.method,
+    selector,
+  };
 }
 
-function actionsEqual(left, right) {
-  return JSON.stringify(left) === JSON.stringify(right);
+function observedSelector(refs, ref) {
+  const xpath = refs.get(ref);
+  if (!xpath) {
+    throw new RequestError(409, "Browser action ref is absent from the latest observation");
+  }
+  const selector = xpath.startsWith("xpath=") ? xpath : `xpath=${xpath}`;
+  if (selector.length > 4_096) {
+    throw new RequestError(409, "Browser action ref resolves to an invalid selector");
+  }
+  return selector;
+}
+
+function browserActionArguments(refs, action) {
+  if (action.method === "dragAndDrop") {
+    return [observedSelector(refs, action.targetRef)];
+  }
+  return action.value === undefined ? [] : [action.value];
+}
+
+function boundedSnapshotState(formattedTree) {
+  const tree = String(formattedTree ?? "");
+  if (Buffer.byteLength(tree) <= MAX_SNAPSHOT_TREE_BYTES) {
+    return { tree, truncated: false };
+  }
+  const suffix = "\n[Snapshot truncated: narrow the page state before observing again]";
+  const selected = [];
+  let byteLength = Buffer.byteLength(suffix);
+  for (const line of tree.split("\n")) {
+    const lineBytes = Buffer.byteLength(line) + (selected.length > 0 ? 1 : 0);
+    if (byteLength + lineBytes > MAX_SNAPSHOT_TREE_BYTES) break;
+    selected.push(line);
+    byteLength += lineBytes;
+  }
+  return { tree: `${selected.join("\n")}${suffix}`, truncated: true };
+}
+
+function snapshotRefMap(tree, xpathMap) {
+  const refs = new Map();
+  for (const match of tree.matchAll(/^\s*\[(\d+-\d+)\]/gmu)) {
+    const ref = match[1];
+    const xpath = xpathMap[ref];
+    if (typeof xpath === "string" && xpath.length > 0 && xpath.length <= 4_090) {
+      refs.set(ref, xpath);
+    }
+  }
+  return refs;
 }
 
 async function discardBrowserRuntime(runtime) {
@@ -587,7 +678,7 @@ function validateAction(action) {
     return action;
   }
   if (action.type === "act") {
-    action.action = validateObservedAction(action.action);
+    action.action = validateBoundAction(action.action);
     const expectedUrl = assertHttpUrl(action.expectedUrl);
     const allowedOrigin = assertHttpUrl(action.allowedOrigin);
     if (allowedOrigin.href !== `${allowedOrigin.origin}/` || expectedUrl.origin !== allowedOrigin.origin) {
@@ -601,7 +692,10 @@ function validateAction(action) {
     }
     return action;
   }
-  if (action.type === "observe" || action.type === "extract") {
+  if (action.type === "observe") {
+    return action;
+  }
+  if (action.type === "extract") {
     assertInstruction(action.instruction);
     return action;
   }
@@ -614,10 +708,10 @@ function validateAction(action) {
   throw new RequestError(400, "Browser action type is unsupported");
 }
 
-function validateObservedAction(action) {
-  const parsed = ObservedActionSchema.safeParse(action);
+function validateBoundAction(action) {
+  const parsed = BoundActionSchema.safeParse(action);
   if (!parsed.success) {
-    throw new RequestError(400, "Observed browser action is invalid");
+    throw new RequestError(400, "Ref-bound browser action is invalid");
   }
   return parsed.data;
 }

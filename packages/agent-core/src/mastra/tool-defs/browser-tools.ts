@@ -28,7 +28,7 @@ export const mastraBrowserOpen = createTool({
 export const mastraBrowserAct = createTool({
   id: "browser_act",
   description:
-    "Execute one exact action returned by the immediately preceding browser_observe call. Pass the returned action object unchanged; invented or stale actions are rejected.",
+    "Execute one deterministic action against an exact element ref from the immediately preceding browser_observe tree. The ref is page-bound and single-use; the result includes the post-action page tree.",
   inputSchema: BrowserActInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) => {
@@ -49,7 +49,7 @@ export const mastraBrowserAct = createTool({
 export const mastraBrowserObserve = createTool({
   id: "browser_observe",
   description:
-    "Find executable actions for one explicit interaction in the current sandbox browser page. Select one returned action and pass it unchanged to browser_act.",
+    "Read the current sandbox page as a deterministic accessibility tree with page-bound element refs. Choose an exact hyphenated ref from the tree for browser_act; no secondary model is invoked.",
   inputSchema: BrowserObserveInputSchema,
   outputSchema: BrowserActionsOutputSchema,
   execute: async (input, context) =>
