@@ -106,7 +106,9 @@ Firecrawl extraction of its primary result. Provider-owned IDs, URLs, excerpts, 
 the durable claim map are assembled deterministically instead of asking a model to
 reproduce citation identifiers. The sole tool-free model call writes only the canonical
 Markdown report from those byte-bounded evidence packs. Before publication, the workflow
-rejects truncated generations and validates the heading structure and citation URLs. It
+rejects truncated generations, emoji presentation characters that the document font contract
+cannot preserve, and invalid heading or citation structure. The synthesis prompt requires the
+same plain-text contract, so a nonconforming model response is retried before publication. It
 then deterministically replaces the model-authored Sources tail with one canonical list
 derived from the validated inline citations, avoiding a second probabilistic generation
 for presentation-only list differences while preserving the evidence boundary. It has an

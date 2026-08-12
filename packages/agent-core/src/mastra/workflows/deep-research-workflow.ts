@@ -274,6 +274,7 @@ function researchSynthesisPrompt(
     "Start with one level-one heading. The returned Markdown is displayed unchanged in chat and rendered unchanged into the PDF.",
     "Keep the report focused and complete within 1,200 words while retaining actionable findings and citations.",
     "Write report as polished GitHub-flavored Markdown for direct display and PDF rendering. Preserve a clear heading hierarchy, lists, and comparison tables where useful.",
+    "Use plain text and standard punctuation only. Do not emit emoji characters or pictographic status markers; write their meaning as words instead.",
     "Cite factual claims with descriptive Markdown links to the exact source URLs in the evidence.",
     "Finish with exactly one level-two Sources heading. Under it, include one bullet per cited URL, formatted only as a descriptive Markdown link. Every inline citation must appear in that list, and every listed source must be cited inline.",
   ]

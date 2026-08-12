@@ -5,6 +5,7 @@ import type { ResearchSource } from "./research-schemas";
 
 const ResearchMarkdownSchema = z.string().trim().min(1).max(20_000).startsWith("# ");
 const REJECTED_FINISH_REASONS = new Set(["content-filter", "error", "length", "tool-calls"]);
+const EMOJI_PRESENTATION_PATTERN = /\p{Emoji_Presentation}|\p{Emoji}\uFE0F/u;
 
 interface ParseResearchMarkdownOptions {
   finishReason: string | undefined;
@@ -20,6 +21,9 @@ export function parseResearchMarkdown(options: ParseResearchMarkdownOptions): st
   const parsed = ResearchMarkdownSchema.safeParse(options.value);
   if (!parsed.success) {
     throw invalidResearchMarkdown("document_shape");
+  }
+  if (EMOJI_PRESENTATION_PATTERN.test(parsed.data)) {
+    throw invalidResearchMarkdown("unsupported_character");
   }
   const tokens = lexer(parsed.data, { gfm: true });
   return canonicalizeCitationStructure(tokens, options.sources);
@@ -179,6 +183,7 @@ type ResearchMarkdownValidationReason =
   | "invalid_url"
   | "malformed_link"
   | "missing_inline_citation"
+  | "unsupported_character"
   | "uncollected_source";
 
 function invalidResearchMarkdown(reason: ResearchMarkdownValidationReason): APIError {
