@@ -25,16 +25,30 @@
       // user code, so the minimal starter route intentionally does not import them.
       "entry": ["src/app/*.tsx"],
       "includeEntryExports": false,
+      // Expo CLI is invoked by package scripts rather than imported by source.
+      "ignoreBinaries": ["expo"],
       "ignoreDependencies": [
+        "@expo/metro-runtime",
         "@expo/ui",
+        "@types/react",
+        "expo-constants",
         "expo-device",
         "expo-font",
         "expo-glass-effect",
         "expo-image",
+        "expo-linking",
         "expo-splash-screen",
         "expo-symbols",
         "expo-updates",
-        "expo-web-browser"
+        "expo-web-browser",
+        "react",
+        "react-dom",
+        "react-native-gesture-handler",
+        "react-native-reanimated",
+        "react-native-safe-area-context",
+        "react-native-screens",
+        "react-native-web",
+        "react-native-worklets"
       ]
     },
     "apps/agent-worker": {
