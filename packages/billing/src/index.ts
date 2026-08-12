@@ -57,6 +57,7 @@ export type EntitlementCache = z.infer<typeof EntitlementCacheSchema>;
 export interface EntitlementCacheInput {
   currentPeriodEnd?: Date | null;
   currentPeriodStart?: Date | null;
+  maxProjectsOverride?: number | null;
   subscriptionStatus?: string;
   tier?: string;
   updatedAt?: Date | null;
@@ -331,7 +332,7 @@ export function entitlementCacheFromValues(input: EntitlementCacheInput): Entitl
   return EntitlementCacheSchema.parse({
     currentPeriodEnd: isoDateOrNull(input.currentPeriodEnd),
     currentPeriodStart: isoDateOrNull(input.currentPeriodStart),
-    maxProjects: defaults.maxProjects,
+    maxProjects: input.maxProjectsOverride ?? defaults.maxProjects,
     quotaComposioCalls: defaults.quotaComposioCalls,
     quotaSandboxHours: numericQuota(defaults.quotaSandboxHours),
     subscriptionStatus: input.subscriptionStatus ?? "none",

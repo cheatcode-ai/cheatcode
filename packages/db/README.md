@@ -55,6 +55,9 @@ identity but is excluded from project Deliverables and file references.
 - Assistant transcript segments are unique by run and segment, with one final
   segment marker.
 - Provider-key rows contain Vault references and non-secret fingerprints only.
+- Nullable project-limit overrides live with the entitlement row, are applied after the plan
+  catalog, and survive Polar reconciliation so operator-granted capacity cannot be downgraded by
+  an unrelated subscription webhook.
 - Generated outputs are immutable after publication. Upload intents bind user,
   run, and project ownership while the per-user project-mutation advisory lock
   serializes reservation and finalization.

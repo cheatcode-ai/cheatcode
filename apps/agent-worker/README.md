@@ -226,6 +226,8 @@ before executing against a user-connected OAuth account.
 ProjectSandbox records elapsed sandbox-hours to the same `QuotaTracker` as a soft
 meter so Settings can show real monthly sandbox consumption without blocking
 sandbox file/process work.
+Lazy workspace materialization resolves the effective project ceiling from the authoritative
+entitlement row, including an operator-granted override when present, before creating a project.
 
 Agent code reaches `QuotaTracker` through its local namespace. External quota
 access is split across named, property-validated WorkerEntrypoints:

@@ -1,5 +1,14 @@
 import { sql } from "drizzle-orm";
-import { boolean, check, pgTable, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import {
+  boolean,
+  check,
+  integer,
+  pgTable,
+  text,
+  timestamp,
+  uniqueIndex,
+  uuid,
+} from "drizzle-orm/pg-core";
 import { v2TableName } from "./names";
 import { users } from "./users";
 
@@ -10,6 +19,7 @@ export const entitlements = pgTable(
       .primaryKey()
       .references(() => users.id, { onDelete: "cascade" }),
     tier: text("tier").notNull().default("free"),
+    maxProjectsOverride: integer("max_projects_override"),
     polarSubscriptionId: text("polar_subscription_id"),
     subscriptionStatus: text("subscription_status").notNull().default("none"),
     cancelAtPeriodEnd: boolean("cancel_at_period_end").notNull().default(false),
@@ -19,6 +29,10 @@ export const entitlements = pgTable(
   },
   (table) => [
     check("v2_entitlements_tier_check", sql`${table.tier} in ('free','pro','premium')`),
+    check(
+      "v2_entitlements_max_projects_override_check",
+      sql`${table.maxProjectsOverride} is null or ${table.maxProjectsOverride} > 0`,
+    ),
     uniqueIndex("v2_entitlements_polar_subscription_uidx")
       .on(table.polarSubscriptionId)
       .where(sql`${table.polarSubscriptionId} is not null`),

@@ -15,6 +15,8 @@ separate retryable Workflow steps, and an equal-version Clerk replay reapplies
 the idempotent Polar projection so a database commit immediately before a lost
 Workflow checkpoint cannot suppress it. Analytics carries the provider event ID
 for append-only deduplication.
+Polar reconciliation preserves operator-granted project-limit overrides and applies over-quota
+resource policy from the effective limit rather than the catalog default.
 Composio ingress is V3-only: it accepts the current `composio.trigger.message` and
 `composio.connected_account.expired` envelopes, requires the documented event-specific identity
 fields, and verifies only exact `v1,<base64>` signature tokens (including provider key-rotation

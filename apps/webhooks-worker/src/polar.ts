@@ -1,5 +1,5 @@
 import {
-  entitlementValuesForTier,
+  entitlementCacheFromValues,
   getPolarCustomerState,
   type PolarCustomerStateSubscription,
   type PolarServer,
@@ -200,7 +200,10 @@ async function writeEntitlement(
 ): Promise<BillingTier> {
   const previous = await findEntitlementByUserId(db, input.userId);
   const previousTier = parseTier(previous?.tier);
-  const values = entitlementValuesForTier(input.tier);
+  const maxProjects = entitlementCacheFromValues({
+    ...(previous ? { maxProjectsOverride: previous.maxProjectsOverride } : {}),
+    tier: input.tier,
+  }).maxProjects;
   await upsertEntitlement(db, {
     cancelAtPeriodEnd: input.cancelAtPeriodEnd ?? false,
     currentPeriodEnd: input.currentPeriodEnd ?? null,
@@ -211,7 +214,7 @@ async function writeEntitlement(
     userId: input.userId,
   });
   await applyEntitlementResourceLimits(db, {
-    ...entitlementResourcePolicy(values.maxProjects),
+    ...entitlementResourcePolicy(maxProjects),
     userId: input.userId,
   });
   return previousTier;

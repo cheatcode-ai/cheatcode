@@ -24,6 +24,7 @@ export interface EntitlementRecord {
   cancelAtPeriodEnd: boolean;
   currentPeriodEnd: Date | null;
   currentPeriodStart: Date | null;
+  maxProjectsOverride: number | null;
   polarSubscriptionId: string | null;
   subscriptionStatus: string;
   tier: string;
@@ -33,7 +34,12 @@ export interface EntitlementRecord {
 
 export type AgentEntitlementRecord = Pick<
   EntitlementRecord,
-  "currentPeriodEnd" | "currentPeriodStart" | "subscriptionStatus" | "tier" | "updatedAt"
+  | "currentPeriodEnd"
+  | "currentPeriodStart"
+  | "maxProjectsOverride"
+  | "subscriptionStatus"
+  | "tier"
+  | "updatedAt"
 >;
 
 export interface EntitlementSubscriptionStateInput {
@@ -93,6 +99,7 @@ export async function findEntitlementByUserId(
         cancelAtPeriodEnd: row.cancelAtPeriodEnd,
         currentPeriodEnd: row.currentPeriodEnd,
         currentPeriodStart: row.currentPeriodStart,
+        maxProjectsOverride: row.maxProjectsOverride,
         polarSubscriptionId: row.polarSubscriptionId,
         subscriptionStatus: row.subscriptionStatus,
         tier: row.tier,
@@ -111,6 +118,7 @@ export async function findAgentEntitlementByUserId(
     columns: {
       currentPeriodEnd: true,
       currentPeriodStart: true,
+      maxProjectsOverride: true,
       subscriptionStatus: true,
       tier: true,
       updatedAt: true,

@@ -1,7 +1,7 @@
 import type { CheatcodeUIMessage } from "@cheatcode/types";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   type PendingSubmission,
   reconcileFailedSubmission,
@@ -29,19 +29,46 @@ export function useVisibleStreamResume(input: {
   resumeStream: () => Promise<void>;
   status: ChatStatus;
 }): void {
+  const [retryAttempt, setRetryAttempt] = useState(0);
   useEffect(() => {
-    const resumeVisibleStream = () => {
-      const canResume = input.activeRunId !== null && input.status === "ready";
-      if (document.visibilityState === "visible" && canResume) {
-        void input.resumeStream();
+    if (input.activeRunId === null) {
+      if (retryAttempt !== 0) {
+        setRetryAttempt(0);
       }
+      return;
+    }
+    if (input.status === "streaming" || input.status === "submitted") {
+      if (retryAttempt !== 0) {
+        setRetryAttempt(0);
+      }
+      return;
+    }
+    const resumeVisibleStream = () => {
+      const canResume = input.status === "ready" || input.status === "error";
+      if (document.visibilityState === "visible" && canResume) {
+        const delay = input.status === "error" ? reconnectDelay(retryAttempt) : 0;
+        const timeout = window.setTimeout(() => {
+          void input.resumeStream().finally(() => setRetryAttempt((attempt) => attempt + 1));
+        }, delay);
+        return () => window.clearTimeout(timeout);
+      }
+      return undefined;
     };
-    resumeVisibleStream();
-    document.addEventListener("visibilitychange", resumeVisibleStream);
+    let cancelPendingResume = resumeVisibleStream();
+    const handleVisibilityChange = () => {
+      cancelPendingResume?.();
+      cancelPendingResume = resumeVisibleStream();
+    };
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     return () => {
-      document.removeEventListener("visibilitychange", resumeVisibleStream);
+      cancelPendingResume?.();
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [input.activeRunId, input.resumeStream, input.status]);
+  }, [input.activeRunId, input.resumeStream, input.status, retryAttempt]);
+}
+
+function reconnectDelay(attempt: number): number {
+  return Math.min(1_000 * 2 ** Math.min(attempt, 4), 15_000);
 }
 
 export function useTerminalRunReconciliation(input: {
