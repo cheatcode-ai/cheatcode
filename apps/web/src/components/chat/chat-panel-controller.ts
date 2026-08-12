@@ -67,6 +67,7 @@ function useChatPanelRuntime(input: ChatPanelProps) {
   const store = useChatPanelStore(input.threadId);
   const viewApplier = useComputerViewApplier({
     projectId: input.project?.id ?? null,
+    projectMode: input.project?.mode ?? null,
     requestPreviewReload: store.requestPreviewReload,
     setActiveComputerTab: store.setActiveComputerTab,
     setAppPreviewStatus: store.setAppPreviewStatus,
