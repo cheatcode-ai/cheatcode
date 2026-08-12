@@ -19,7 +19,7 @@
     "CHEATCODE_ENVIRONMENT": "production",
     "DAYTONA_API_URL": "https://app.daytona.io/api",
     "DAYTONA_ORG_ID": "300a0c8b-dc3b-4c5f-b31c-0f9e0344d00d",
-    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-6305819f07bc-31418301622",
+    "DAYTONA_SANDBOX_SNAPSHOT": "cheatcode-sandbox-viewer-bundle-524842b2b711-31581198909",
     "DAYTONA_WORKSPACE_VOLUME": "cheatcode-workspaces-production"
   },
   "secrets_store_secrets": [
