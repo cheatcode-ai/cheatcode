@@ -4,7 +4,6 @@ import type { IntegrationName } from "@cheatcode/types";
 import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import { useCallback, useRef, useState } from "react";
 import { toast } from "sonner";
-import { composePromptWithComposerContext } from "@/components/composer/composer-context-chips";
 import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
 import type { ComposerWorkIntent } from "@/components/home/home-composer-intents";
 import {
@@ -37,6 +36,8 @@ interface HomeSubmissionSnapshot {
   project: ProjectSummary | null;
   prompt: string;
   repoUrl: string | null;
+  selectedSkill: string | null;
+  selectedTool: IntegrationName | null;
 }
 
 interface SubmissionRuntime {
@@ -83,12 +84,7 @@ export function useHomeComposerSubmission(input: {
 }
 
 function buildSubmissionSnapshot(state: HomeSubmissionState): HomeSubmissionSnapshot | null {
-  const skill = resolveSubmitSkill(state.repoUrl, state.intent, state.skillChip);
-  const prompt = composePromptWithComposerContext({
-    prompt: state.value.trim(),
-    skill,
-    tool: state.toolChip,
-  });
+  const prompt = state.value.trim();
   try {
     assertUserMessageWithinLimit(prompt);
   } catch (error) {
@@ -102,11 +98,13 @@ function buildSubmissionSnapshot(state: HomeSubmissionState): HomeSubmissionSnap
       state.intent,
       state.skillChip,
     ),
-    intent: state.skillCreatorMode ? "skill-creator" : null,
+    intent: state.skillCreatorMode ? "skill-creator" : (state.intent?.runIntent ?? null),
     model: agentModelRequestValue(state.agentModelId) ?? null,
     project: state.selectedProject,
     prompt,
     repoUrl: state.repoUrl,
+    selectedSkill: resolveSubmitSkill(state.repoUrl, state.intent, state.skillChip),
+    selectedTool: state.repoUrl ? null : state.toolChip,
   };
 }
 
@@ -135,7 +133,7 @@ async function launchExistingProject(
       runtime.endSubmitting();
       return;
     }
-    navigateToChat(runtime, result.threadId, snapshot.prompt, snapshot.intent);
+    navigateToChat(runtime, result.threadId, snapshot);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not open that project.");
     runtime.endSubmitting();
@@ -159,7 +157,7 @@ async function startNewChat(
       ...(snapshot.repoUrl ? { importRepoUrl: snapshot.repoUrl } : {}),
       ...(snapshot.model ? { defaultModel: snapshot.model } : {}),
     });
-    navigateToChat(runtime, thread.id, snapshot.prompt, snapshot.intent);
+    navigateToChat(runtime, thread.id, snapshot);
   } catch (error) {
     toast.error(error instanceof Error ? error.message : "Could not start that chat.");
     runtime.endSubmitting();
@@ -176,6 +174,8 @@ function preservePromptForSignIn(
       model: snapshot.model,
       prompt: snapshot.prompt,
       repo: snapshot.repoUrl,
+      selectedSkill: snapshot.selectedSkill,
+      selectedTool: snapshot.selectedTool,
       appBuildTarget: snapshot.appBuildTarget,
     });
     runtime.setAuthRedirectTo(`/?${params.toString()}`);
@@ -188,10 +188,14 @@ function preservePromptForSignIn(
 function navigateToChat(
   runtime: SubmissionRuntime,
   threadId: string,
-  prompt: string,
-  intent: RunIntent | null,
+  snapshot: HomeSubmissionSnapshot,
 ): void {
-  const handoff = buildExistingProjectParams(prompt, intent).toString();
+  const handoff = buildExistingProjectParams({
+    intent: snapshot.intent,
+    prompt: snapshot.prompt,
+    selectedSkill: snapshot.selectedSkill,
+    selectedTool: snapshot.selectedTool,
+  }).toString();
   // A soft navigation may preserve this page in the Next.js route cache. Release
   // the submission lock before leaving so restoring the page can never revive a
   // permanently disabled composer.

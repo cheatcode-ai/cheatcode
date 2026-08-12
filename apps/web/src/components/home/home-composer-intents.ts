@@ -1,3 +1,4 @@
+import type { RunIntent } from "@cheatcode/types/api";
 import type { ComponentType } from "react";
 import type { ComposerWorkIntentId } from "@/components/home/home-composer.types";
 import { skillAppBuildTarget } from "@/components/home/use-initial-skill";
@@ -10,6 +11,7 @@ export type ComposerWorkIntent = {
   id: ComposerWorkIntentId;
   label: string;
   placeholder: string;
+  runIntent: RunIntent | null;
   skill: null | string;
   appBuildTarget: AppBuildTarget | null;
 };
@@ -21,6 +23,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "mobile-app",
     label: "Mobile app",
     placeholder: "Describe the app - I'll build it with a live phone preview",
+    runIntent: null,
     skill: null,
   },
   {
@@ -29,6 +32,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "web-app",
     label: "Web app",
     placeholder: "Describe the site or web app - I'll build and preview it",
+    runIntent: null,
     skill: null,
   },
   {
@@ -37,6 +41,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "slides",
     label: "Slides",
     placeholder: "What's the deck about? Audience and key points help",
+    runIntent: "slides",
     skill: "pptx",
   },
   {
@@ -45,6 +50,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "research",
     label: "Research",
     placeholder: "What should I research? I'll fan out agents and cite sources",
+    runIntent: "research",
     skill: "deep-research",
   },
   {
@@ -53,6 +59,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "data",
     label: "Data",
     placeholder: "Attach or describe the data - I'll profile and chart it",
+    runIntent: "data",
     skill: "csv-analyst",
   },
   {
@@ -61,6 +68,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "documents",
     label: "Documents",
     placeholder: "Describe the report, memo, PDF, or document you need",
+    runIntent: "documents",
     skill: null,
   },
   {
@@ -69,6 +77,7 @@ export const COMPOSER_WORK_INTENTS: readonly ComposerWorkIntent[] = [
     id: "media",
     label: "Media",
     placeholder: "Describe the image or video you want to create or edit",
+    runIntent: "media",
     skill: "generate-media",
   },
 ] as const;

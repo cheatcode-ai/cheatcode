@@ -25,6 +25,8 @@ export const CONTEXT = {
   researchWorkflowAttempted: "researchWorkflowAttempted",
   researchWorkflowActive: "researchWorkflowActive",
   runIntent: "runIntent",
+  selectedSkill: "selectedSkill",
+  selectedTool: "selectedTool",
   userSkillCreator: "userSkillCreator",
   userSkillLoader: "userSkillLoader",
   userSkills: "userSkills",

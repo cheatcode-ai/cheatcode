@@ -25,26 +25,6 @@ function toolLabel(slug: string): string {
   );
 }
 
-export function composePromptWithComposerContext({
-  prompt,
-  skill,
-  tool,
-}: {
-  prompt: string;
-  skill: string | null;
-  tool: IntegrationName | null;
-}): string {
-  const trimmed = prompt.trim();
-  let nextPrompt = skill && !trimmed.startsWith("/") ? `/${skill} ${trimmed}` : trimmed;
-  if (tool) {
-    nextPrompt = [
-      `Selected tool: ${toolLabel(tool)} (${tool}). Use the Composio integration for this request when an external app action is needed.`,
-      nextPrompt,
-    ].join("\n\n");
-  }
-  return nextPrompt.trim();
-}
-
 export function ComposerContextChips({
   className,
   onClearSkill,

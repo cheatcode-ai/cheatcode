@@ -34,9 +34,12 @@ export const GitHubRepoUrlSchema = z
 const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
 export const ProjectModeSchema = z.enum(PROJECT_MODES);
 
-/** Product modes selected by UI intent or a high-confidence projectless build imperative. */
-const RUN_INTENTS = ["skill-creator"] as const;
+/** Explicit non-app work paths selected by the composer; app topology remains a project mode. */
+const RUN_INTENTS = ["data", "documents", "media", "research", "skill-creator", "slides"] as const;
 export const RunIntentSchema = z.enum(RUN_INTENTS);
+
+/** Skill selected through the `@` picker or a curated work-intent shortcut. */
+export const SelectedSkillSchema = z.string().trim().min(1).max(80);
 
 export const CreateProjectSchema = z.strictObject({
   defaultModel: LogicalModelIdSchema.optional(),
@@ -215,6 +218,8 @@ export const CreateRunSchema = z.strictObject({
     parts: z.array(UserTextPartSchema).length(1),
   }),
   model: LogicalModelIdSchema.optional(),
+  selectedSkill: SelectedSkillSchema.optional(),
+  selectedTool: IntegrationNameSchema.optional(),
 });
 
 export const ProviderSchema = z.enum([

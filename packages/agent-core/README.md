@@ -43,7 +43,11 @@ Tools execute autonomously inside the active request context. Sandbox operations
 remain project-root confined, browser actions remain origin-bound, connected-app
 actions remain scoped to the user's active account, and secret-bearing input is
 validated before execution. Deterministic prepare/execute boundaries keep dynamic
-ports and Git destinations stable between resolution and execution. The managed browser follows
+ports and Git destinations stable between resolution and execution.
+Explicit composer intent is authoritative before message keyword classification on general-project
+runs. A selected skill or connected app arrives as validated request context, prompts the agent to
+load or use that exact capability, and never mutates the user's message into internal command syntax.
+The managed browser follows
 the same boundary: observation reads Stagehand's native accessibility snapshot without model
 inference and returns page-bound element refs. Execution accepts only a single-use ref from the
 latest state tree plus a bounded method/value, resolves its server-held XPath, and atomically binds

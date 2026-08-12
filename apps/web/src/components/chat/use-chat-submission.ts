@@ -1,10 +1,11 @@
-import type { CheatcodeUIMessage } from "@cheatcode/types";
+import type { CheatcodeUIMessage, IntegrationName } from "@cheatcode/types";
 import type { ProjectSummary, RunIntent } from "@cheatcode/types/api";
 import type { QueryClient } from "@tanstack/react-query";
 import type { ChatStatus } from "ai";
 import { useCallback } from "react";
 import { toast } from "sonner";
 import {
+  type ChatSubmissionSelection,
   type PendingSubmission,
   type PromptRouter,
   routePromptToProjectTarget,
@@ -23,7 +24,6 @@ interface ChatSubmissionInput {
   getToken: () => Promise<null | string>;
   hasReceivedStreamDataRef: { current: boolean };
   hasSubmittedRef: { current: boolean };
-  initialRunIntent: RunIntent | null;
   onSubmitDraft?: (() => void) | undefined;
   pendingSubmissionRef: { current: PendingSubmission | null };
   project: ProjectSummary | null;
@@ -40,10 +40,18 @@ interface ChatSubmissionInput {
 
 export function useChatSubmission(input: ChatSubmissionInput): {
   continueRun: () => void;
-  submitText: (text: string, targetProject: ProjectSummary | null) => boolean;
+  submitText: (
+    text: string,
+    targetProject: ProjectSummary | null,
+    selection?: Partial<ChatSubmissionSelection>,
+  ) => boolean;
 } {
   const submitText = useCallback(
-    (text: string, targetProject: ProjectSummary | null): boolean => {
+    (
+      text: string,
+      targetProject: ProjectSummary | null,
+      selection: Partial<ChatSubmissionSelection> = {},
+    ): boolean => {
       if (!isValidUserMessage(text)) {
         return false;
       }
@@ -52,10 +60,10 @@ export function useChatSubmission(input: ChatSubmissionInput): {
       }
       input.hasSubmittedRef.current = true;
       if (!isCurrentThreadTarget(input.project, targetProject)) {
-        routeSubmissionToProject(input, text, targetProject);
+        routeSubmissionToProject(input, text, targetProject, selection);
         return true;
       }
-      submitInCurrentThread(input, text);
+      submitInCurrentThread(input, text, selection);
       return true;
     },
     [input],
@@ -73,16 +81,17 @@ export function useChatSubmission(input: ChatSubmissionInput): {
     const pending = pendingSubmission(messageId, text, false);
     input.pendingSubmissionRef.current = pending;
     input.setRunStartedAt(pending.submittedAt);
-    void input.sendMessage(
-      userMessage(messageId, text, null),
-      modelBody(input.selectedModel, null),
-    );
+    void input.sendMessage(userMessage(messageId, text, null), modelBody(input.selectedModel, {}));
   }, [input]);
 
   return { continueRun, submitText };
 }
 
-function submitInCurrentThread(input: ChatSubmissionInput, text: string): void {
+function submitInCurrentThread(
+  input: ChatSubmissionInput,
+  text: string,
+  selection: Partial<ChatSubmissionSelection>,
+): void {
   if (!input.threadTitle?.trim() || input.threadTitle.trim() === "New chat") {
     void titleChatFromFirstPrompt(input.getToken, input.queryClient, input.threadId, text);
   }
@@ -92,8 +101,8 @@ function submitInCurrentThread(input: ChatSubmissionInput, text: string): void {
   input.pendingSubmissionRef.current = pending;
   input.setRunStartedAt(pending.submittedAt);
   void input.sendMessage(
-    userMessage(messageId, text, input.initialRunIntent),
-    modelBody(input.selectedModel, input.initialRunIntent),
+    userMessage(messageId, text, selection.intent ?? null),
+    modelBody(input.selectedModel, selection),
   );
   input.setDraft(input.threadId, "");
   input.onSubmitDraft?.();
@@ -103,6 +112,7 @@ function routeSubmissionToProject(
   input: ChatSubmissionInput,
   prompt: string,
   targetProject: ProjectSummary | null,
+  selection: Partial<ChatSubmissionSelection>,
 ): void {
   void routePromptToProjectTarget({
     getToken: input.getToken,
@@ -110,6 +120,7 @@ function routeSubmissionToProject(
     queryClient: input.queryClient,
     router: input.router,
     selectedModel: input.selectedModel,
+    selection,
     setDraft: input.setDraft,
     targetProject,
     threadId: input.threadId,
@@ -176,12 +187,21 @@ function userMessage(
 
 function modelBody(
   selectedModel: null | string,
-  intent: RunIntent | null,
-): { body: { intent?: RunIntent; model?: string } } {
+  selection: Partial<ChatSubmissionSelection>,
+): {
+  body: {
+    intent?: RunIntent;
+    model?: string;
+    selectedSkill?: string;
+    selectedTool?: IntegrationName;
+  };
+} {
   return {
     body: {
-      ...(intent ? { intent } : {}),
+      ...(selection.intent ? { intent: selection.intent } : {}),
       ...(selectedModel ? { model: selectedModel } : {}),
+      ...(selection.selectedSkill ? { selectedSkill: selection.selectedSkill } : {}),
+      ...(selection.selectedTool ? { selectedTool: selection.selectedTool } : {}),
     },
   };
 }

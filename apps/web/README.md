@@ -85,8 +85,10 @@ The composer keeps three independent product concepts separate:
 
 - `ComposerWorkIntentId` describes what the user wants to accomplish. Web app,
   mobile app, slides, research, data, documents, and media are discoverable
-  composer choices. These choices guide prompt context; they are not all project
-  modes. The generic Slides choice activates the general PPTX workflow, never the
+  composer choices. Non-app choices cross the run API as validated intent metadata,
+  so an explicit Documents choice cannot be reclassified as Web merely because the
+  requested document discusses a website. These choices are not all project modes.
+  The generic Slides choice activates the general PPTX workflow, never the
   fundraising-specific pitch-deck skill. Explicit PPTX and pitch-deck skill deep
   links both select the Slides intent while preserving the skill the user chose.
 - `AppBuildTarget` is only the runtime topology for generated applications:
@@ -100,9 +102,12 @@ The composer keeps three independent product concepts separate:
   focus from Files. Explicit browser takeover still selects Browser. The selected tab is not persisted
   across unrelated chats.
 
+Composer selections are request metadata: `@`-selected skills and connected apps are
+validated separately from the exact user-authored text and cross the opaque chat handoff.
+The client never rewrites a visible message with a slash command or internal toolkit preamble.
 Signed-out launch handoff validates and restores `buildTarget`, model, and
-public GitHub repository state before chat creation. The opaque prompt and
-constrained run intent use the same one-shot handoff path. No `surface` query
+public GitHub repository state before chat creation. The opaque prompt,
+constrained run intent, skill, and connected-app selection use the same one-shot handoff path. No `surface` query
 parameter or persisted `app` tab alias is supported.
 
 ## Env

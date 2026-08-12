@@ -190,6 +190,8 @@ export async function startAgentRun(
     model: run.modelId,
     isModelExplicit,
     ...(body.intent ? { runIntent: body.intent } : {}),
+    ...(body.selectedSkill ? { selectedSkill: body.selectedSkill } : {}),
+    ...(body.selectedTool ? { selectedTool: body.selectedTool } : {}),
     ...(run.projectId ? { projectId: run.projectId } : {}),
     ...(run.workspaceSlug ? { workspaceSlug: run.workspaceSlug } : {}),
     ...(run.projectMode ? { projectMode: run.projectMode } : {}),

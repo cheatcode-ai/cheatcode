@@ -4,8 +4,15 @@ import {
   type CheatcodeUIMessage,
   coalesceTranscriptUIMessages,
   hasIncompleteTranscriptUIMessages,
+  IntegrationNameSchema,
 } from "@cheatcode/types";
-import type { ProjectSummary, RunIntent, Thread } from "@cheatcode/types/api";
+import {
+  type ProjectSummary,
+  type RunIntent,
+  RunIntentSchema,
+  SelectedSkillSchema,
+  type Thread,
+} from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { parseAsString, useQueryStates } from "nuqs";
@@ -30,6 +37,8 @@ import { useAppStore } from "@/lib/store/app-store";
 const PROMPT_URL_STATE = {
   intent: parseAsString,
   promptKey: parseAsString,
+  skill: parseAsString,
+  tool: parseAsString,
 } as const;
 
 export function ProjectsShell({ threadId: threadIdProp }: { threadId?: string }) {
@@ -60,14 +69,13 @@ function useProjectsShell(threadIdProp: string | undefined) {
     () => chronologicalMessages(initialMessagesQuery.data?.pages ?? []),
     [initialMessagesQuery.data?.pages],
   );
-  const { clearPromptParams, prompt, runIntent } = useInitialChatPrompt(
-    threadQuery.data ?? null,
-    initialMessagesQuery.isPending ? null : initialMessages,
-  );
-  const hasProject = projectId !== null;
+  const { clearPromptParams, prompt, runIntent, selectedSkill, selectedTool } =
+    useInitialChatPrompt(
+      threadQuery.data ?? null,
+      initialMessagesQuery.isPending ? null : initialMessages,
+    );
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const sandboxStatus = useAppStore((state) => state.sandboxStatus);
-  const hasComputer = hasProject || sandboxStatus !== "cold";
   const deliverableCount = countDeliverables(initialMessages);
   const loadOlderMessages = useOlderThreadMessagesLoader(initialMessagesQuery);
 
@@ -86,7 +94,7 @@ function useProjectsShell(threadIdProp: string | undefined) {
       initialMessagesQuery.hasTranscriptIntegrityError ||
       projectQuery.isError ||
       threadQuery.isError,
-    hasComputer,
+    hasComputer: projectId !== null || sandboxStatus !== "cold",
     initialMessages,
     initialMessagesQuery,
     isRetrying: retry.isRetrying,
@@ -95,6 +103,8 @@ function useProjectsShell(threadIdProp: string | undefined) {
     projectQuery,
     prompt,
     runIntent,
+    selectedSkill,
+    selectedTool,
     retry: retry.run,
     threadId,
     threadQuery,
@@ -168,6 +178,8 @@ function ProjectsWorkspace({
           initialMessages={shell.initialMessages}
           isLoadingOlderMessages={shell.initialMessagesQuery.isFetchingNextPage}
           initialRunIntent={shell.runIntent}
+          initialSelectedSkill={shell.selectedSkill}
+          initialSelectedTool={shell.selectedTool}
           key={threadId}
           latestModelId={shell.threadQuery.data?.latestModelId ?? null}
           onLoadOlderMessages={shell.loadOlderMessages}
@@ -197,7 +209,13 @@ function countDeliverables(messages: readonly CheatcodeUIMessage[]): number {
 function useInitialChatPrompt(
   thread: Thread | null,
   initialMessages: CheatcodeUIMessage[] | null,
-): { clearPromptParams: () => void; prompt: null | string; runIntent: RunIntent | null } {
+): {
+  clearPromptParams: () => void;
+  prompt: null | string;
+  runIntent: RunIntent | null;
+  selectedSkill: string | null;
+  selectedTool: import("@cheatcode/types").IntegrationName | null;
+} {
   const [urlState, setUrlState] = useQueryStates(PROMPT_URL_STATE, {
     history: "replace",
     shallow: true,
@@ -211,7 +229,12 @@ function useInitialChatPrompt(
     initialMessages,
     thread,
   });
-  const runIntent = urlState.intent === "skill-creator" ? urlState.intent : null;
+  const parsedRunIntent = RunIntentSchema.safeParse(urlState.intent);
+  const runIntent = parsedRunIntent.success ? parsedRunIntent.data : null;
+  const parsedSkill = SelectedSkillSchema.safeParse(urlState.skill);
+  const selectedSkill = parsedSkill.success ? parsedSkill.data : null;
+  const parsedTool = IntegrationNameSchema.safeParse(urlState.tool);
+  const selectedTool = parsedTool.success ? parsedTool.data : null;
   const clearPromptParams = useCallback(() => {
     if (!hasPromptUrlState(urlState)) {
       return;
@@ -219,9 +242,11 @@ function useInitialChatPrompt(
     void setUrlState({
       intent: null,
       promptKey: null,
+      skill: null,
+      tool: null,
     });
   }, [setUrlState, urlState]);
-  return { clearPromptParams, prompt, runIntent };
+  return { clearPromptParams, prompt, runIntent, selectedSkill, selectedTool };
 }
 
 function useRefreshThreadProjectOnSandboxChange(input: {
@@ -245,7 +270,7 @@ function useRefreshThreadProjectOnSandboxChange(input: {
 function hasPromptUrlState(
   urlState: Record<keyof typeof PROMPT_URL_STATE, null | string>,
 ): boolean {
-  return Boolean(urlState.intent ?? urlState.promptKey);
+  return Boolean(urlState.intent ?? urlState.promptKey ?? urlState.skill ?? urlState.tool);
 }
 
 function useThreadQuery(getToken: () => Promise<null | string>, threadId: null | string) {
