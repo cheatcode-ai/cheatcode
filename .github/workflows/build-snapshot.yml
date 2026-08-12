@@ -318,13 +318,14 @@ jobs:
             test -f /home/node/cheatcode-next-template/next.config.ts
             test ! -e /home/node/cheatcode-next-template/node_modules
             test ! -e /home/node/cheatcode-expo-template/node_modules
+            test ! -e /home/node/cheatcode-expo-template/assets
             test -x /home/node/.cheatcode/app-runtimes/next/node_modules/.bin/next
             test -x /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo
             NODE_PATH=/home/node/.cheatcode/app-runtimes/next/node_modules node -e "require.resolve(\"next\");require.resolve(\"react\");require.resolve(\"react-dom\")"
             NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules node -e "require.resolve(\"expo\");require.resolve(\"react-native-web\");require.resolve(\"@expo/metro-runtime\")"
 
             expo_test_dir="$(mktemp -d)"
-            expo_source="$expo_test_dir/durable"
+            expo_source="$(mktemp -d /workspace/.cheatcode-expo-smoke.XXXXXX)"
             expo_mirror="$expo_test_dir/mirror"
             expo_lock="$expo_test_dir/project.lock"
             expo_log="$expo_test_dir/expo.log"
@@ -334,10 +335,10 @@ jobs:
                 kill "$expo_pid" 2>/dev/null || true
                 wait "$expo_pid" 2>/dev/null || true
               fi
-              rm -rf "$expo_test_dir"
+              rm -rf "$expo_test_dir" "$expo_source"
             }
             trap cleanup_expo_test EXIT
-            mkdir -p "$expo_source" "$expo_mirror"
+            mkdir -p "$expo_mirror"
             cp -R /home/node/cheatcode-expo-template/. "$expo_source/"
             (
               cd "$expo_source"
