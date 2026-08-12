@@ -156,11 +156,13 @@ suggested breaking Stagehand downgrade. Static checks fail on
 moderate-or-higher findings across every sandbox lock without hiding this
 low-severity report.
 
-Browser interaction uses Stagehand's observe-then-act boundary. The driver stores the exact
-actions from the latest observation for the active page and executes only an unchanged, single-use
-match. Direct natural-language actions and Stagehand self-healing are disabled so an interaction
-cannot trigger a second hidden model decision or keep retrying a stale selector. Navigation clears
-the observation, and origin interception remains active for the deterministic execution.
+Browser interaction uses Stagehand's native accessibility snapshot followed by deterministic act.
+The driver returns hyphenated page refs while retaining their XPath map server-side, then accepts
+one bounded method/value against a single-use ref from the latest active-page observation. The act
+result includes a fresh post-action tree, so verification needs no second observation inference.
+Stagehand observation inference, natural-language actions, and self-healing are disabled; browser
+behavior is independent of the selected model's structured-output quirks. Navigation clears the
+observation, and origin interception remains active for deterministic execution.
 
 Snapshot publication builds and scans the exact local AMD64 image before pushing it
 to Daytona. Trivy fails on every fixable medium-or-higher vulnerability and every

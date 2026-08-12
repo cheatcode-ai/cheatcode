@@ -17,13 +17,14 @@ launch a second browser process, write a Playwright/Python test harness, or star
 1. Open the app's internal `http://localhost:<port>` URL once.
 2. Capture one screenshot with one explicit visual acceptance criterion. Use its PASS/FAIL
    assessment instead of inferring quality from image size.
-3. For one representative functional interaction, call `browser_observe` with the exact action
-   needed. Choose one returned action and pass that action object unchanged to `browser_act`.
-4. Call `browser_extract` once to read the resulting state and decide whether the criterion passed.
+3. For one representative functional interaction, call `browser_observe` once. Choose one exact
+   hyphenated element ref from its accessibility tree and call `browser_act` with that ref plus the
+   required method/value.
+4. Read the post-action tree returned by `browser_act` to decide whether the criterion passed.
 5. If a criterion fails, fix the concrete app defect and repeat only that changed criterion once.
 
-Observed actions are page-bound and single-use. Observe again after a DOM or navigation change.
-Never invent a selector, edit an observed action, or send prose directly to `browser_act`.
+Observed refs are page-bound and single-use. Observe again before any later interaction after a DOM
+or navigation change. Never invent a ref or selector.
 
 Finish as soon as the requested content renders, the representative interaction passes, and no
 blocking browser error remains. Do not repeat equivalent screenshots, actions, or extractions.
