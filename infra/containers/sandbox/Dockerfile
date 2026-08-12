@@ -124,6 +124,10 @@ ENV DISPLAY=:99
 ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
 ENV CHROME_PATH=/usr/local/bin/cheatcode-chromium
 ENV NODE_PATH=/opt/cheatcode-doc-runtime/node_modules:/opt/cheatcode-skill-runtime/node_modules
+# Sandboxes serve Expo programmatically. Headless mode disables interactive
+# discovery and the background React Native DevTools binary installation.
+ENV EXPO_NO_TELEMETRY=1
+ENV EXPO_UNSTABLE_HEADLESS=1
 COPY browser-driver /opt/cheatcode-browser-driver
 WORKDIR /opt/cheatcode-browser-driver
 RUN npm ci --omit=dev --no-audit --no-fund \

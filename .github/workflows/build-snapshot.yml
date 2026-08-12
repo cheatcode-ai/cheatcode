@@ -380,7 +380,7 @@ jobs:
               /home/node/.cheatcode/app-runtimes/expo/node_modules
             expo_bundle="$expo_test_dir/entry.bundle.js"
             fetch_expo_bundle "$expo_bundle"
-            grep --fixed-strings --quiet "Welcome to" "$expo_bundle"
+            grep --fixed-strings --quiet "cheatcode" "$expo_bundle"
             expo_dom="$expo_test_dir/expo-dom.html"
             expo_chrome_log="$expo_test_dir/chromium.log"
             if ! timeout 30 "$CHROME_PATH" \
@@ -394,7 +394,7 @@ jobs:
               sed -n "1,240p" "$expo_chrome_log" >&2
               exit 1
             fi
-            if ! grep --fixed-strings --quiet "Welcome to" "$expo_dom"; then
+            if ! grep --fixed-strings --quiet "cheatcode" "$expo_dom"; then
               sed -n "1,240p" "$expo_log" >&2
               sed -n "1,240p" "$expo_chrome_log" >&2
               sed -n "1,240p" "$expo_dom" >&2
@@ -402,10 +402,10 @@ jobs:
             fi
             expo_watch_source="$(
               grep --recursive --files-with-matches --fixed-strings \
-                "Welcome to" "$expo_source/src/app" | head -n 1
+                "cheatcode" "$expo_source/src/app" | head -n 1
             )"
             test -n "$expo_watch_source"
-            sed -i "s/Welcome to/Metro watcher refreshed/" "$expo_watch_source"
+            sed -i "s/cheatcode/Metro watcher refreshed/" "$expo_watch_source"
             expo_watch_bundle="$expo_test_dir/entry-watch.bundle.js"
             expo_watch_attempt=0
             until fetch_expo_bundle "$expo_watch_bundle" && \
