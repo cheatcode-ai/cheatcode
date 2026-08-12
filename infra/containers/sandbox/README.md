@@ -182,6 +182,11 @@ The driver returns hyphenated page refs while retaining their XPath map server-s
 one bounded method/value against a single-use ref from the latest active-page state. Successful acts
 atomically replace the consumed ref map with the fresh post-action tree and its server-held map, so
 multi-step verification chains without another observation inference.
+The serialized driver derives its exact-URL and allowed-origin guards from that same retained
+observation, so no separate state request can race a browser restart or let a Worker-provided URL
+weaken the binding. If a deterministic action fails while the origin interceptor and active-page
+integrity checks remain healthy, the driver preserves the page and requires a fresh observation;
+only a failed security or browser-integrity check discards the browser runtime.
 Stagehand observation inference, natural-language actions, and self-healing are disabled; browser
 behavior is independent of the selected model's structured-output quirks. Navigation clears the
 observation, and origin interception remains active for deterministic execution.
