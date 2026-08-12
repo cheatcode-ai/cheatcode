@@ -213,7 +213,7 @@ function ModelFallbackBlock({ data }: { data: ModelFallbackData }) {
   return (
     <MessageStatusShell>
       <div className="text-[11px] text-thread-text-secondary">
-        <div className="mb-1 text-[10px] text-thread-text-muted">model fallback</div>
+        <div className="mb-1 font-medium text-[12px] text-thread-text-muted">Model Fallback</div>
         <div className="text-thread-text-primary">
           Switched from {data.fromModel} to {data.toModel}
         </div>
