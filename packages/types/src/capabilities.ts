@@ -11,9 +11,9 @@ const TOOL_EVIDENCE_TOOL = { artifactPresentation: "tool-evidence", usesSandbox:
  * update discovery in the same change.
  */
 export const TOOL_CAPABILITIES = [
-  tool("browser", "browser_act", "Perform a Stagehand browser action.", SANDBOX_TOOL),
+  tool("browser", "browser_act", "Execute an observed browser action.", SANDBOX_TOOL),
   tool("browser", "browser_extract", "Extract structured browser data.", SANDBOX_TOOL),
-  tool("browser", "browser_observe", "Observe current browser state.", SANDBOX_TOOL),
+  tool("browser", "browser_observe", "Find executable browser actions.", SANDBOX_TOOL),
   tool("browser", "browser_open", "Open a URL in the sandbox browser.", SANDBOX_TOOL),
   tool(
     "browser",

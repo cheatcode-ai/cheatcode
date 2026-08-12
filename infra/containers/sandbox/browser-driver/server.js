@@ -3,6 +3,7 @@ import { timingSafeEqual } from "node:crypto";
 import { createInterface } from "node:readline/promises";
 import { Stagehand } from "@browserbasehq/stagehand";
 import { launch as launchChrome } from "chrome-launcher";
+import { z } from "zod";
 import {
   installBrowserConnectionGuard,
   installOriginInterceptor,
@@ -19,6 +20,25 @@ const MAX_PROVIDER_RESPONSE_BYTES = 16 * 1024 * 1024;
 const MAX_RESPONSE_BYTES = 12 * 1024 * 1024;
 const MAX_SCREENSHOT_BYTES = 8 * 1024 * 1024;
 const REQUEST_BODY_TIMEOUT_MS = 30 * 1000;
+const ObservedActionSchema = z.strictObject({
+  arguments: z.array(z.string().max(2_000)).max(10).optional(),
+  backendNodeId: z.number().int().positive().optional(),
+  description: z.string().min(1).max(2_000),
+  method: z.enum([
+    "click",
+    "doubleClick",
+    "dragAndDrop",
+    "fill",
+    "hover",
+    "nextChunk",
+    "press",
+    "prevChunk",
+    "scrollTo",
+    "selectOptionFromDropdown",
+    "type",
+  ]),
+  selector: z.string().min(1).max(4_096).startsWith("xpath="),
+});
 const bootstrap = await readBootstrapConfig();
 const PORT = bootstrap.port;
 const MODEL_NAME = bootstrap.modelName;
@@ -52,6 +72,7 @@ let ownedStagehand;
 let shutdownPromise;
 let actionQueue = Promise.resolve();
 let pendingActionBatches = 0;
+let latestObservation;
 
 async function boundedProviderFetch(input, init) {
   assertProviderRequestUrl(input);
@@ -196,6 +217,7 @@ function createStagehand(cdpUrl) {
       connectTimeoutMs: 30000,
       viewport: { height: 711, width: 1288 },
     },
+    selfHeal: false,
     verbose: 0,
   });
 }
@@ -363,6 +385,7 @@ async function runAction(runtime, action) {
   const { stagehand } = runtime;
   const page = await stagehand.context.awaitActivePage();
   if (action.type === "goto") {
+    latestObservation = undefined;
     await page.goto(action.url, { waitUntil: action.waitUntil || "domcontentloaded" });
     return { type: action.type, url: page.url() };
   }
@@ -371,6 +394,10 @@ async function runAction(runtime, action) {
   }
   if (action.type === "observe") {
     const result = await stagehand.observe(action.instruction, { page });
+    latestObservation = {
+      actions: result.map(normalizeObservedAction),
+      url: page.url(),
+    };
     return { result, type: action.type, url: page.url() };
   }
   if (action.type === "extract") {
@@ -395,6 +422,8 @@ async function runAction(runtime, action) {
 async function runGuardedAct(runtime, page, action) {
   const { stagehand } = runtime;
   assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
+  const observedAction = requireObservedAction(action.action, page.url());
+  latestObservation = undefined;
   let failure;
   let originInterceptor;
   let response;
@@ -402,7 +431,7 @@ async function runGuardedAct(runtime, page, action) {
     originInterceptor = await installOriginInterceptor(stagehand, action.allowedOrigin);
     await originInterceptor.assertHealthy();
     assertExpectedBrowserTarget(page.url(), action.expectedUrl, action.allowedOrigin);
-    const result = await stagehand.act(action.instruction, {
+    const result = await stagehand.act(observedAction, {
       page,
       timeout: action.timeoutMs || 10000,
     });
@@ -425,6 +454,34 @@ async function runGuardedAct(runtime, page, action) {
     throw failure;
   }
   return response;
+}
+
+function normalizeObservedAction(action) {
+  const parsed = ObservedActionSchema.safeParse(action);
+  if (!parsed.success) {
+    throw new Error("Browser observation returned an invalid action");
+  }
+  return parsed.data;
+}
+
+function requireObservedAction(action, pageUrl) {
+  const normalized = validateObservedAction(action);
+  const observation = latestObservation;
+  if (
+    !observation ||
+    observation.url !== pageUrl ||
+    !observation.actions.some((candidate) => actionsEqual(candidate, normalized))
+  ) {
+    throw new RequestError(
+      409,
+      "Browser action was not returned by the latest observation for this page",
+    );
+  }
+  return normalized;
+}
+
+function actionsEqual(left, right) {
+  return JSON.stringify(left) === JSON.stringify(right);
 }
 
 async function discardBrowserRuntime(runtime) {
@@ -530,7 +587,7 @@ function validateAction(action) {
     return action;
   }
   if (action.type === "act") {
-    assertInstruction(action.instruction);
+    action.action = validateObservedAction(action.action);
     const expectedUrl = assertHttpUrl(action.expectedUrl);
     const allowedOrigin = assertHttpUrl(action.allowedOrigin);
     if (allowedOrigin.href !== `${allowedOrigin.origin}/` || expectedUrl.origin !== allowedOrigin.origin) {
@@ -555,6 +612,14 @@ function validateAction(action) {
     return action;
   }
   throw new RequestError(400, "Browser action type is unsupported");
+}
+
+function validateObservedAction(action) {
+  const parsed = ObservedActionSchema.safeParse(action);
+  if (!parsed.success) {
+    throw new RequestError(400, "Observed browser action is invalid");
+  }
+  return parsed.data;
 }
 
 function assertHttpUrl(value) {

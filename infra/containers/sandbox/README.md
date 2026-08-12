@@ -156,6 +156,12 @@ suggested breaking Stagehand downgrade. Static checks fail on
 moderate-or-higher findings across every sandbox lock without hiding this
 low-severity report.
 
+Browser interaction uses Stagehand's observe-then-act boundary. The driver stores the exact
+actions from the latest observation for the active page and executes only an unchanged, single-use
+match. Direct natural-language actions and Stagehand self-healing are disabled so an interaction
+cannot trigger a second hidden model decision or keep retrying a stale selector. Navigation clears
+the observation, and origin interception remains active for the deterministic execution.
+
 Snapshot publication builds and scans the exact local AMD64 image before pushing it
 to Daytona. Trivy fails on every fixable medium-or-higher vulnerability and every
 high-or-critical embedded secret; Debian findings without an available package fix
