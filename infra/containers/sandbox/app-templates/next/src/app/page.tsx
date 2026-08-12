@@ -1,5 +1,4 @@
-export function appBuilderPageSource(messageText: string): string {
-  return `const cards = [
+const cards = [
   ["Gateway", "Clerk auth and rate limits route the request."],
   ["Agent session", "Durable Object stores resumable stream parts."],
   ["Sandbox", "Daytona serves this live preview."],
@@ -16,9 +15,6 @@ export default function Home() {
           <h1 className="mt-5 max-w-3xl font-mono text-4xl tracking-tight md:text-6xl">
             Sandbox preview is live.
           </h1>
-          <p className="mt-6 max-w-2xl text-lg leading-8 text-zinc-400">
-            ${escapeForTsxText(messageText)}
-          </p>
         </div>
         <div className="grid gap-4 md:grid-cols-3">
           {cards.map(([title, body]) => (
@@ -33,10 +29,4 @@ export default function Home() {
       </section>
     </main>
   );
-}
-`;
-}
-
-function escapeForTsxText(value: string): string {
-  return value.replace(/[<>{}]/g, "");
 }

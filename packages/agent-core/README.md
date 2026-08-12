@@ -49,6 +49,12 @@ inference and returns page-bound element refs. Execution accepts only a single-u
 latest state tree plus a bounded method/value, resolves its server-held XPath, and atomically binds
 the returned post-action tree as the next actionable state. A click or fill therefore cannot
 invoke a hidden model decision, expose a selector, reuse a stale ref, or cross the active origin.
+Every first-party browser tool advertises its strict JSON schema to providers that support strict
+tool calling, while the same Zod contract remains the provider-independent runtime boundary.
+Action methods use explicit no-value, value, and drag shapes, so a model cannot omit a required ref
+or value and still produce an executable call. A tool-validation or driver failure is verification
+failure, not evidence that generated application state is broken; app-builder agents preserve the
+framework event model and correct the browser call instead of injecting page scripts.
 The managed
 preview tool owns Computer-visible dev servers, remaps a requested port to the
 project’s allocated port when necessary, injects the supported framework binding when the model

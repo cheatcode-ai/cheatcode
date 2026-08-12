@@ -192,9 +192,12 @@ dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the
 server starts. Exact scaffold manifests link the disposable mirror to the matching immutable runtime
-dependency tree. That shared runtime is image-owned and read-only. Read-only pnpm validation and
-script commands disable pnpm's pre-run dependency verification and keep the link intact, while the
-package boundary detaches it before a dependency mutation. Dependency mutations advance a
+dependency tree. The immutable scaffold also owns the TypeScript configuration; package resolution
+uses the linked `node_modules` tree rather than runtime-specific compiler path aliases, so editor,
+typecheck, and production-build resolution share one contract. That shared runtime is image-owned
+and read-only. Read-only pnpm validation and script commands disable pnpm's pre-run dependency
+verification and keep the link intact, while the package boundary detaches it before a dependency
+mutation. Dependency mutations advance a
 generation under the same package lock; the native preview supervisor observes that generation and
 restarts only the app child after the transaction releases the lock, preserving its process session,
 source synchronizer, and signed launch environment. Metro and other long-lived resolvers therefore

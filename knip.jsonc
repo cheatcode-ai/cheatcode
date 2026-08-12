@@ -4,8 +4,6 @@
   // `cloudflare:workers` and `cloudflare:workflows` are platform modules, not
   // installable package dependencies. Knip cannot infer either edge.
   "ignoreDependencies": ["@cheatcode/tsconfig", "cloudflare"],
-  // Copied into the generated Next scaffold by the sandbox Dockerfile.
-  "ignore": ["infra/containers/sandbox/app-templates/next/next.config.ts"],
   "includeEntryExports": true,
   "workspaces": {
     ".": {
@@ -50,6 +48,17 @@
         "react-native-web",
         "react-native-worklets"
       ]
+    },
+    "infra/containers/sandbox/app-templates/next": {
+      // Next loads config and App Router modules by filesystem convention after the
+      // Docker image copies this complete scaffold into a user workspace.
+      "entry": ["src/app/*.tsx"],
+      "includeEntryExports": false,
+      // Next CLI is invoked by package scripts rather than imported by source.
+      "ignoreBinaries": ["next"],
+      // Next's client runtime and generated route types consume these without a
+      // repository-owned import edge.
+      "ignoreDependencies": ["@types/react-dom", "react-dom"]
     },
     "apps/agent-worker": {
       // Wrangler reaches the platform module through its `alias` deployment

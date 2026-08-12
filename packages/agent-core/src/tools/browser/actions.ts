@@ -68,7 +68,8 @@ const BrowserActionMethodSchema = z.enum([
   "type",
 ]);
 
-const BROWSER_VALUE_METHODS = new Set<z.infer<typeof BrowserActionMethodSchema>>([
+const BrowserNoValueActionMethodSchema = BrowserActionMethodSchema.exclude([
+  "dragAndDrop",
   "fill",
   "press",
   "scrollTo",
@@ -76,53 +77,37 @@ const BROWSER_VALUE_METHODS = new Set<z.infer<typeof BrowserActionMethodSchema>>
   "type",
 ]);
 
-interface BrowserBoundActionRefinementInput {
-  method: z.infer<typeof BrowserActionMethodSchema>;
-  ref: string;
-  targetRef?: string | undefined;
-  value?: string | undefined;
-}
+const BrowserValueActionMethodSchema = z.enum([
+  "fill",
+  "press",
+  "scrollTo",
+  "selectOptionFromDropdown",
+  "type",
+]);
 
-function validateBrowserBoundAction(
-  action: BrowserBoundActionRefinementInput,
-  context: z.RefinementCtx<BrowserBoundActionRefinementInput>,
-): void {
-  const needsValue = BROWSER_VALUE_METHODS.has(action.method);
-  if (needsValue !== (action.value !== undefined)) {
-    context.addIssue({
-      code: "custom",
-      message: needsValue
-        ? `${action.method} requires value`
-        : `${action.method} does not accept value`,
-      path: ["value"],
-    });
-  }
-  const needsTarget = action.method === "dragAndDrop";
-  if (needsTarget !== (action.targetRef !== undefined)) {
-    context.addIssue({
-      code: "custom",
-      message: needsTarget
-        ? "dragAndDrop requires targetRef"
-        : `${action.method} does not accept targetRef`,
-      path: ["targetRef"],
-    });
-  }
-}
-
-const BrowserBoundActionSchema = z
-  .strictObject({
-    method: BrowserActionMethodSchema.describe("Deterministic action to perform on the ref."),
-    ref: BrowserElementRefSchema,
-    targetRef: BrowserElementRefSchema.optional().describe(
-      "Destination ref; required only for dragAndDrop.",
+const BrowserBoundActionSchema = z.union([
+  z.strictObject({
+    method: BrowserNoValueActionMethodSchema.describe(
+      "Deterministic action to perform on the ref.",
     ),
+    ref: BrowserElementRefSchema,
+  }),
+  z.strictObject({
+    method: BrowserValueActionMethodSchema.describe(
+      "Deterministic value-taking action to perform on the ref.",
+    ),
+    ref: BrowserElementRefSchema,
     value: z
       .string()
       .max(2_000)
-      .optional()
-      .describe("Text, key, option, or percentage required by value-taking methods."),
-  })
-  .superRefine(validateBrowserBoundAction);
+      .describe("Text, key, option, or percentage required by this method."),
+  }),
+  z.strictObject({
+    method: z.literal("dragAndDrop"),
+    ref: BrowserElementRefSchema,
+    targetRef: BrowserElementRefSchema.describe("Destination ref for the drag operation."),
+  }),
+]);
 
 export const BrowserActInputSchema = z.strictObject({
   action: BrowserBoundActionSchema.describe(

@@ -329,6 +329,31 @@ jobs:
             NODE_PATH=/home/node/.cheatcode/app-runtimes/next/node_modules node -e "require.resolve(\"next\");require.resolve(\"react\");require.resolve(\"react-dom\")"
             NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules node -e "require.resolve(\"expo\");require.resolve(\"react-native-web\");require.resolve(\"@expo/metro-runtime\")"
 
+            next_test_dir="$(mktemp -d)"
+            next_source="$(mktemp -d /workspace/.cheatcode-next-smoke.XXXXXX)"
+            next_mirror="$next_test_dir/mirror"
+            next_lock="$next_test_dir/project.lock"
+            cleanup_next_test() {
+              rm -rf "$next_test_dir" "$next_source"
+            }
+            trap cleanup_next_test EXIT
+            mkdir -p "$next_mirror"
+            cp -R /home/node/cheatcode-next-template/. "$next_source/"
+            /opt/cheatcode/project-source-sync.py preview-once \
+              "$next_source" "$next_mirror" "$next_lock"
+            ln -s /home/node/.cheatcode/app-runtimes/next/node_modules \
+              "$next_mirror/node_modules"
+            /opt/cheatcode/project-source-sync.py package-run \
+              "$next_source" "$next_mirror" "$next_lock" "$next_mirror" -- \
+              pnpm run build
+            test -L "$next_mirror/node_modules"
+            test "$(readlink -f "$next_mirror/node_modules")" = \
+              /home/node/.cheatcode/app-runtimes/next/node_modules
+            test -f "$next_mirror/.next/BUILD_ID"
+            echo "Next native-mirror production build smoke passed"
+            cleanup_next_test
+            trap - EXIT
+
             expo_test_dir="$(mktemp -d)"
             expo_source="$(mktemp -d /workspace/.cheatcode-expo-smoke.XXXXXX)"
             expo_mirror="$expo_test_dir/mirror"
