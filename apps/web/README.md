@@ -13,6 +13,9 @@ two seconds in the visible tab. The event stream remains the primary delivery pa
 refresh only reconciles a silently lost connection or a browser restored after the backend became
 terminal. When the run pointer clears, the client stops any stale stream, refreshes the persisted
 transcript and sidebar state, and replaces the transient chat state with that durable result.
+An accepted run whose live response disconnects reconnects from its persisted sequence cursor with
+bounded exponential backoff while the tab is visible; reconnect failures never require a page reload
+and never start a second run.
 
 Deliverable parts contain durable output identity and presentation metadata, never an expiring
 URL. A download click calls the authenticated gateway mint endpoint, validates its bounded response,

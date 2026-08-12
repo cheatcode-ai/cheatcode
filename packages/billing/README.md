@@ -22,6 +22,8 @@ plan catalog, and resource-entitlement helpers.
 
 Current tiers are `free`, `pro`, and `premium`. Entitlements
 cover sandbox hours, active projects, BYOK provider slots, and Composio calls.
+The effective project ceiling may include a nullable operator-granted override stored on the
+entitlement row; plan reconciliation preserves that override.
 Tier values, validation, and ordering come from the neutral
 `@cheatcode/types/billing` contract; this package owns only plan catalog and
 billing-provider behavior.

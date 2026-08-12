@@ -27,7 +27,9 @@ finish before a short RLS transaction begins or start after it commits; they
 are never parallelized across an open transaction. Read paths resolve the
 entitlement cache outside Postgres, while project and BYOK writes read the
 authoritative entitlement row under the same per-user advisory-lock order as
-entitlement reconciliation.
+entitlement reconciliation. A nullable operator-granted project-limit override is resolved after
+the plan catalog in that same transaction, so account-specific capacity does not bypass locking or
+tenant isolation.
 
 The agent Worker owns `QuotaTracker`. Gateway usage, activity, and limit-sync
 routes hold a named `GatewayQuotaEntrypoint` Service Binding that exposes only
