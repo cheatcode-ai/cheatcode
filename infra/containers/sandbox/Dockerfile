@@ -275,6 +275,7 @@ COPY scripts/ /opt/cheatcode/
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod -R a+rx /opt/cheatcode \
   && chmod a+rx /entrypoint.sh \
+  && chown -R root:root /home/node/.cheatcode/app-runtimes \
   && useradd --create-home --home-dir /home/cheatcode-browser \
     --shell /usr/sbin/nologin cheatcode-browser \
   && chmod 0700 /home/cheatcode-browser \

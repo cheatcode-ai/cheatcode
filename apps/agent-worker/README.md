@@ -192,7 +192,13 @@ dependency tree, and build cache are disposable;
 wake and restart reconstruct them from the durable project without changing the Files surface.
 Persisted pnpm-backed preview commands restore a missing sandbox-local dependency tree before the
 server starts. Exact scaffold manifests link the disposable mirror to the matching immutable runtime
-dependency tree; the package boundary detaches that link before any dependency mutation. A
+dependency tree. That shared runtime is image-owned and read-only. Read-only pnpm validation and
+script commands disable pnpm's pre-run dependency verification and keep the link intact, while the
+package boundary detaches it before a dependency mutation. Dependency mutations advance a
+generation under the same package lock; the native preview supervisor observes that generation and
+restarts only the app child after the transaction releases the lock, preserving its process session,
+source synchronizer, and signed launch environment. Metro and other long-lived resolvers therefore
+never retain a module graph from before an install. A
 package/lock/config digest skips the install entirely when a project-local dependency tree is current;
 automatic preview restoration does not create a durable lockfile.
 The app-builder harness launches its already-resolved native-mirror command directly through the
@@ -204,8 +210,8 @@ and making the snapshot the source of truth for executable sandbox runtime code.
 Direct pnpm commands use that same native-disk source as one OS-locked transaction: the runtime
 snapshots the durable source, executes pnpm locally without a shell, and copies only command-produced
 source changes back after verifying that the corresponding durable paths did not change concurrently.
-The kernel releases the lock if the request or package process dies, so preview synchronization cannot
-be stranded behind a stale marker. Long-running pnpm
+The kernel releases the lock if the request or package process dies, so preview synchronization and
+dependency-generation restarts cannot be stranded behind a stale marker. Long-running pnpm
 processes keep the durable-to-local mirror alive for hot reload. Shell-wrapped package managers are
 rejected because they cannot participate in this synchronization boundary; npm, Yarn, and Bun stay
 disabled for project workspaces.

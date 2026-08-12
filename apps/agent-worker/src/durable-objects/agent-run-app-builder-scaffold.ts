@@ -19,7 +19,6 @@ import {
   EXPO_TEMPLATE_DIR,
   NEXT_RUNTIME_BIN,
   NEXT_TEMPLATE_DIR,
-  projectLocalModulesDir,
 } from "./project-sandbox-package-runtime";
 
 type ProjectSandboxStub = CodeRuntimeContext["sandbox"];
@@ -164,7 +163,6 @@ export async function ensureAppBuilderRuntime(
 export async function ensureExpoWebSupport(
   sandbox: ProjectSandboxStub,
   dir: string,
-  workspaceSlug: string,
 ): Promise<void> {
   try {
     await executeShellExec(
@@ -185,11 +183,7 @@ export async function ensureExpoWebSupport(
   }
   await executeShellExec(
     {
-      command: [
-        EXPO_RUNTIME_CONFIG_BIN,
-        projectLocalModulesDir(workspaceSlug),
-        `${EXPO_RUNTIME_DIR}/node_modules`,
-      ],
+      command: [EXPO_RUNTIME_CONFIG_BIN, `${EXPO_RUNTIME_DIR}/node_modules`],
       cwd: dir,
       timeoutMs: 15_000,
     },

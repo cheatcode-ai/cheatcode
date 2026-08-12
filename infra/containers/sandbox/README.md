@@ -92,8 +92,10 @@ sandbox-local runtimes in the image. Project creation copies only source and con
 the persistent Daytona volume; dependency trees and generated compiler caches stay on
 the sandbox's local filesystem, avoiding slow, partial writes to object-store FUSE.
 Exact scaffold projects link their disposable native-disk mirror to the matching immutable
-runtime dependency tree, avoiding both package copies and installs during startup. The helper
-detaches that link before a package mutation or non-template restore; additional dependencies then
+runtime dependency tree, avoiding both package copies and installs during startup. That tree is
+root-owned and read-only. Read-only validation and project-script commands keep its link intact and
+disable pnpm's pre-run auto-install, while the helper detaches the link before a package mutation or
+non-template restore; additional dependencies then
 use a project-scoped local modules directory and can be restored from the reviewed package store
 after a sandbox replacement. The minimal Expo scaffold intentionally contains no
 generated images: only manifests and the starter route cross the persistent object-store
@@ -109,8 +111,8 @@ It uses content hashes and atomic replacement on native disk. Writes back to Day
 object-store FUSE use direct overwrite plus checksum verification because that mount does
 not implement replacement renames or portable chmod semantics.
 The adjacent root-owned `/opt/cheatcode/configure-expo-runtime.mjs` helper preserves the
-reviewed Expo template's source aliases while adding only the disposable local and immutable
-dependency locations. Snapshot smoke testing runs that same helper, compiles the
+reviewed Expo template's source aliases while pinning its TypeScript base configuration to the
+immutable runtime. Snapshot smoke testing runs that same helper, compiles the
 real Expo Router bundle, and renders the template in headless Chromium; a listening Metro port
 without an executable app is not considered healthy.
 The image also declares Expo's non-interactive headless mode. Sandboxed preview servers do not
@@ -135,6 +137,14 @@ preview disables pnpm's redundant pre-script auto-install because the helper has
 and digested that exact dependency state under the project lock. The Worker therefore does
 not transport an executable shell wrapper or make trusted bootstrap commands indistinguishable from
 model-supplied shell input.
+
+A dependency mutation advances a generation while holding the package lock. The long-lived preview
+supervisor waits for that transaction to release the lock, then replaces only its app child while
+retaining the source synchronizer and original signed environment. Metro and other module resolvers
+therefore cannot keep serving the dependency graph they cached before an install. The protected
+snapshot smoke exercises both contracts: `pnpm exec tsc` must preserve the immutable runtime and
+running Metro process, while an offline install must create a project-local dependency tree, restart
+Metro, and compile the application bundle again.
 
 Open VSX currently publishes Parquet Viewer 3.1.0 with vulnerable Thrift and WebSocket
 runtimes. The image keeps the extension feature but replaces those two runtime packages

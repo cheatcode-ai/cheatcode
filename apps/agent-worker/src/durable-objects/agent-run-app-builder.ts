@@ -226,7 +226,7 @@ async function prepareTemplateWorkspace(
       await installAppBuilderDependencies(sandbox, logger, workspace.dir, mobile);
     }
     if (mobile) {
-      await ensureExpoWebSupport(sandbox, workspace.dir, workspace.slug);
+      await ensureExpoWebSupport(sandbox, workspace.dir);
     }
     return;
   }
@@ -239,7 +239,7 @@ async function prepareTemplateWorkspace(
   }
   throwIfRunCanceled(options.abortSignal);
   if (mobile) {
-    await ensureExpoWebSupport(sandbox, workspace.dir, workspace.slug);
+    await ensureExpoWebSupport(sandbox, workspace.dir);
   } else {
     await setRunStage("Seeding the starter files.");
     await writeAppBuilderFiles(input, sandbox, workspace.dir);

@@ -321,6 +321,11 @@ jobs:
             test ! -e /home/node/cheatcode-expo-template/assets
             test -x /home/node/.cheatcode/app-runtimes/next/node_modules/.bin/next
             test -x /home/node/.cheatcode/app-runtimes/expo/node_modules/.bin/expo
+            test ! -w /home/node/.cheatcode/app-runtimes/next/package.json
+            test ! -w /home/node/.cheatcode/app-runtimes/expo/package.json
+            test ! -w /home/node/.cheatcode/app-runtimes/next/node_modules
+            test ! -w /home/node/.cheatcode/app-runtimes/expo/node_modules
+            test -z "$(find /home/node/.cheatcode/app-runtimes -not -type l -perm /022 -print -quit)"
             NODE_PATH=/home/node/.cheatcode/app-runtimes/next/node_modules node -e "require.resolve(\"next\");require.resolve(\"react\");require.resolve(\"react-dom\")"
             NODE_PATH=/home/node/.cheatcode/app-runtimes/expo/node_modules node -e "require.resolve(\"expo\");require.resolve(\"react-native-web\");require.resolve(\"@expo/metro-runtime\")"
 
@@ -343,7 +348,6 @@ jobs:
             (
               cd "$expo_source"
               /opt/cheatcode/configure-expo-runtime.mjs \
-                "$expo_mirror/node_modules" \
                 /home/node/.cheatcode/app-runtimes/expo/node_modules
             )
             fetch_expo_bundle() {
@@ -381,6 +385,50 @@ jobs:
             expo_bundle="$expo_test_dir/entry.bundle.js"
             fetch_expo_bundle "$expo_bundle"
             grep --fixed-strings --quiet "cheatcode" "$expo_bundle"
+            expo_sync_pid="$(pgrep -P "$expo_pid" -f "project-source-sync.py preview-loop" | head -n 1)"
+            expo_app_pid="$(pgrep -P "$expo_pid" | grep -v "$expo_sync_pid" | head -n 1)"
+            test -n "$expo_sync_pid"
+            test -n "$expo_app_pid"
+            generation_before="$(cat "$expo_test_dir/dependency-generation" 2>/dev/null || true)"
+            /opt/cheatcode/project-source-sync.py package-run \
+              "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" -- \
+              pnpm exec tsc --noEmit
+            test -L "$expo_mirror/node_modules"
+            test "$(readlink -f "$expo_mirror/node_modules")" = \
+              /home/node/.cheatcode/app-runtimes/expo/node_modules
+            test "$(cat "$expo_test_dir/dependency-generation" 2>/dev/null || true)" = \
+              "$generation_before"
+            test "$(pgrep -P "$expo_pid" | grep -v "$expo_sync_pid" | head -n 1)" = \
+              "$expo_app_pid"
+            fetch_expo_bundle "$expo_bundle"
+            grep --fixed-strings --quiet "cheatcode" "$expo_bundle"
+
+            /opt/cheatcode/project-source-sync.py package-run \
+              "$expo_source" "$expo_mirror" "$expo_lock" "$expo_mirror" -- \
+              pnpm install --frozen-lockfile --offline
+            test ! -L "$expo_mirror/node_modules"
+            test -f "$expo_mirror/node_modules/.cheatcode-dependency-state"
+            test -n "$(cat "$expo_test_dir/dependency-generation")"
+            expo_restart_attempt=0
+            while [ "$(pgrep -P "$expo_pid" | grep -v "$expo_sync_pid" | head -n 1)" = \
+              "$expo_app_pid" ]; do
+              if ! kill -0 "$expo_pid" 2>/dev/null || [ "$expo_restart_attempt" -ge 30 ]; then
+                sed -n "1,240p" "$expo_log" >&2
+                exit 1
+              fi
+              sleep 1
+              expo_restart_attempt=$((expo_restart_attempt + 1))
+            done
+            expo_restart_attempt=0
+            until fetch_expo_bundle "$expo_bundle" && \
+              grep --fixed-strings --quiet "cheatcode" "$expo_bundle"; do
+              if ! kill -0 "$expo_pid" 2>/dev/null || [ "$expo_restart_attempt" -ge 30 ]; then
+                sed -n "1,240p" "$expo_log" >&2
+                exit 1
+              fi
+              sleep 1
+              expo_restart_attempt=$((expo_restart_attempt + 1))
+            done
             expo_dom="$expo_test_dir/expo-dom.html"
             expo_chrome_log="$expo_test_dir/chromium.log"
             if ! timeout 30 "$CHROME_PATH" \
