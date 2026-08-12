@@ -61,11 +61,27 @@ export const BrowserBoundActionSchema = z.union([
   }),
 ]);
 
-// Provider and driver share one method-specific contract. Placeholder nulls add no runtime safety
-// and are emitted inconsistently across otherwise compatible model transports.
-export const BrowserActInputSchema = BrowserBoundActionSchema.describe(
-  "One method-specific action using an exact ref from the latest browser tree.",
-);
+// Tool providers require a top-level object schema. Keep the provider-facing shape object-based,
+// then narrow it to the driver's method-specific union before crossing the sandbox boundary.
+export const BrowserActInputSchema = z
+  .strictObject({
+    method: BrowserActionMethodSchema.describe("Deterministic action to perform on the ref."),
+    ref: BrowserElementRefSchema,
+    targetRef: BrowserElementRefSchema.optional().describe(
+      "Destination ref. Required only for dragAndDrop; omit for every other method.",
+    ),
+    value: z
+      .string()
+      .max(2_000)
+      .optional()
+      .describe(
+        "Text, key, option, or percentage. Required for fill, press, scrollTo, selectOptionFromDropdown, and type; omit otherwise.",
+      ),
+  })
+  .refine((input) => BrowserBoundActionSchema.safeParse(input).success, {
+    message: "The selected browser method requires its exact method-specific fields.",
+  })
+  .describe("One method-specific action using an exact ref from the latest browser tree.");
 
 export function browserBoundActionFromInput(
   input: z.infer<typeof BrowserActInputSchema>,
