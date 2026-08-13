@@ -143,6 +143,26 @@ export async function listAgentIntegrations(
     );
 }
 
+/** Distinct active toolkit slugs for the lightweight composer capability catalog. */
+export async function listActiveUserIntegrationNames(
+  db: Database,
+  userId: UserId,
+  limit: number,
+): Promise<string[]> {
+  const rows = await db
+    .selectDistinct({ integration: userIntegrations.integration })
+    .from(userIntegrations)
+    .where(
+      and(
+        eq(userIntegrations.userId, userId),
+        sql`lower(${userIntegrations.status}) in ('active', 'authorized', 'connected', 'enabled')`,
+      ),
+    )
+    .orderBy(userIntegrations.integration)
+    .limit(limit);
+  return rows.map((row) => row.integration);
+}
+
 export async function findUserIntegrationByConnectionId(
   db: Database,
   input: { composioConnectionId: string; integration: string; userId: UserId },

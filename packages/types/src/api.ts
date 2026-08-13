@@ -551,6 +551,9 @@ export const GreetingResponseSchema = z.strictObject({
 /** Operational ceiling that keeps the per-user skill catalog bounded. */
 export const MAX_USER_SKILLS = 100;
 
+/** Operational ceiling for connected apps exposed in the composer skill catalog. */
+export const MAX_CONNECTED_APP_SKILLS = 100;
+
 /** A user-created skill (client-safe projection; `body` only travels on detail/create). */
 export const UserSkillSchema = z.strictObject({
   category: z.string().max(80),
@@ -562,7 +565,17 @@ export const UserSkillSchema = z.strictObject({
   updatedAt: z.string().datetime(),
 });
 
+const ConnectedAppSkillSchema = z.strictObject({
+  displayName: z.string().min(1).max(200),
+  name: IntegrationNameSchema,
+});
+
 export const UserSkillsResponseSchema = z.strictObject({
+  skills: z.array(UserSkillSchema).max(MAX_USER_SKILLS),
+});
+
+export const ComposerSkillsResponseSchema = z.strictObject({
+  connectedApps: z.array(ConnectedAppSkillSchema).max(MAX_CONNECTED_APP_SKILLS),
   skills: z.array(UserSkillSchema).max(MAX_USER_SKILLS),
 });
 
@@ -605,4 +618,6 @@ export type SandboxTerminalContext = z.infer<typeof SandboxTerminalContextSchema
 export type SandboxTerminalResult = z.infer<typeof SandboxTerminalResultSchema>;
 export type ActivityHistoryResponse = z.infer<typeof ActivityHistoryResponseSchema>;
 export type ActivityRunPoint = z.infer<typeof ActivityRunPointSchema>;
+export type ComposerSkillsResponse = z.infer<typeof ComposerSkillsResponseSchema>;
+export type ConnectedAppSkill = z.infer<typeof ConnectedAppSkillSchema>;
 export type UserSkill = z.infer<typeof UserSkillSchema>;

@@ -12,6 +12,7 @@ const MAX_COMPOSIO_TOOL_PARAMETERS_CHARS = 10_000;
 const MAX_COMPOSIO_OUTPUT_NODES = 2_000;
 const MAX_COMPOSIO_OUTPUT_STRING_CHARS = 40_000;
 const MAX_COMPOSIO_OUTPUT_DEPTH = 6;
+const COMPOSIO_RELAXED_MATCH_LIMIT = 12;
 // Composio's tool-list API silently returns only its small default page (~10) at the
 // base toolkit version; request the documented max so large toolkits (github/gmail/
 // notion) are not under-enumerated. Docs: docs.composio.dev/docs/tools-direct/fetching-tools.
@@ -54,6 +55,7 @@ const ComposioListToolsInputSchema = z.strictObject({
 const ComposioListToolsOutputSchema = z.strictObject({
   error: z.string().max(1_000).nullable(),
   integration: IntegrationNameSchema,
+  searchRelaxed: z.boolean(),
   success: z.boolean(),
   toolCount: z.number().int().nonnegative(),
   toolsJson: z.string().max(MAX_COMPOSIO_OUTPUT_CHARS),
@@ -125,6 +127,7 @@ const ComposioRawToolSchema = z.object({
 
 const ComposioRawToolListSchema = z.array(ComposioRawToolSchema).max(COMPOSIO_LIST_LIMIT);
 
+type ComposioRawTool = z.infer<typeof ComposioRawToolSchema>;
 type ComposioListToolsInput = z.infer<typeof ComposioListToolsInputSchema>;
 type ComposioExecuteInput = z.infer<typeof ComposioExecuteInputSchema>;
 type ComposioExecuteOutput = z.infer<typeof ComposioExecuteOutputSchema>;
@@ -154,6 +157,12 @@ interface ComposioExecutionTarget {
   connectionId: string;
   userId: string;
   version: string;
+}
+
+interface ComposioToolDiscovery {
+  hasMore: boolean;
+  searchRelaxed: boolean;
+  tools: ComposioRawTool[];
 }
 
 function requestContextFromToolContext(context: unknown): { get(key: string): unknown } {
@@ -199,31 +208,90 @@ async function listComposioTools(
   }
 
   try {
-    const page = await new ComposioClient(runtime.apiKey).listTools(
-      {
-        limit: COMPOSIO_LIST_LIMIT,
-        ...(input.search ? { search: input.search } : {}),
-        toolkit: input.integration,
-      },
-      COMPOSIO_LIST_TIMEOUT_MS,
-    );
-    const parsed = ComposioRawToolListSchema.safeParse(page.items);
-    if (!parsed.success) {
-      return composioListFailure(input, "Composio returned an unexpected tool list shape.");
-    }
-    const bounded = boundedToolListJson(parsed.data, MAX_COMPOSIO_OUTPUT_CHARS);
+    const discovery = await discoverComposioTools(new ComposioClient(runtime.apiKey), input);
+    const bounded = boundedToolListJson(discovery.tools, MAX_COMPOSIO_OUTPUT_CHARS);
     return ComposioListToolsOutputSchema.parse({
       error: null,
       integration: input.integration,
+      searchRelaxed: discovery.searchRelaxed,
       success: true,
-      toolCount: parsed.data.length,
+      toolCount: discovery.tools.length,
       toolsJson: bounded.text,
-      toolsTruncated: bounded.truncated || page.nextCursor !== null,
+      toolsTruncated: bounded.truncated || discovery.hasMore,
     });
   } catch (error) {
     createLogger().warn("composio_tool_list_failed", { error });
     return composioListFailure(input, "Composio tool discovery failed.");
   }
+}
+
+async function discoverComposioTools(
+  client: ComposioClient,
+  input: ComposioListToolsInput,
+): Promise<ComposioToolDiscovery> {
+  const page = await client.listTools(
+    {
+      limit: COMPOSIO_LIST_LIMIT,
+      ...(input.search ? { search: input.search } : {}),
+      toolkit: input.integration,
+    },
+    COMPOSIO_LIST_TIMEOUT_MS,
+  );
+  const tools = ComposioRawToolListSchema.parse(page.items);
+  if (tools.length > 0 || !input.search) {
+    return { hasMore: page.nextCursor !== null, searchRelaxed: false, tools };
+  }
+  const broadPage = await client.listTools(
+    { limit: COMPOSIO_LIST_LIMIT, toolkit: input.integration },
+    COMPOSIO_LIST_TIMEOUT_MS,
+  );
+  const broadTools = ComposioRawToolListSchema.parse(broadPage.items);
+  const ranked = rankComposioTools(broadTools, input.search);
+  return {
+    hasMore: ranked.length < broadTools.length || broadPage.nextCursor !== null,
+    searchRelaxed: true,
+    tools: ranked,
+  };
+}
+
+function rankComposioTools(tools: readonly ComposioRawTool[], search: string): ComposioRawTool[] {
+  const terms = searchTerms(search);
+  const scored = tools
+    .filter((tool) => tool.isDeprecated !== true)
+    .map((tool, index) => ({ index, score: toolSearchScore(tool, terms), tool }))
+    .filter((entry) => entry.score > 0)
+    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .slice(0, COMPOSIO_RELAXED_MATCH_LIMIT)
+    .map((entry) => entry.tool);
+  return scored.length > 0
+    ? scored
+    : tools.filter((tool) => tool.isDeprecated !== true).slice(0, COMPOSIO_RELAXED_MATCH_LIMIT);
+}
+
+function toolSearchScore(tool: ComposioRawTool, terms: ReadonlySet<string>): number {
+  const slug = searchTerms(tool.slug);
+  const name = searchTerms(tool.name ?? "");
+  const description = searchTerms(tool.description ?? "");
+  let score = 0;
+  for (const term of terms) {
+    if (slug.has(term)) score += 12;
+    if (name.has(term)) score += 8;
+    if (description.has(term)) score += 2;
+  }
+  return score;
+}
+
+function searchTerms(value: string): Set<string> {
+  return new Set(
+    (value.toLowerCase().match(/[a-z0-9]+/gu) ?? [])
+      .map(normalizeSearchTerm)
+      .filter((term) => term.length > 1),
+  );
+}
+
+function normalizeSearchTerm(term: string): string {
+  if (term.length > 4 && term.endsWith("ies")) return `${term.slice(0, -3)}y`;
+  return term.length > 3 && term.endsWith("s") ? term.slice(0, -1) : term;
 }
 
 async function executeComposioAction(
@@ -332,6 +400,7 @@ function composioListFailure(
   return ComposioListToolsOutputSchema.parse({
     error,
     integration: input.integration,
+    searchRelaxed: false,
     success: false,
     toolCount: 0,
     toolsJson: "[]",
@@ -523,7 +592,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 export const mastraComposioListTools = createTool({
   id: "composio_list_tools",
   description:
-    "List available Composio action tools for a user-connected integration before choosing an exact action slug. If toolsTruncated is true, call again with a `search` keyword to narrow to the action you need.",
+    "List available Composio action tools for a user-connected integration before choosing an exact action slug. Natural-language searches that are too strict are relaxed automatically; inspect searchRelaxed and the returned candidates. If toolsTruncated is true and no candidate fits, call again with a shorter action or object keyword.",
   inputSchema: ComposioListToolsInputSchema,
   outputSchema: ComposioListToolsOutputSchema,
   execute: async (input, context) => listComposioTools(input, composioRuntimeFromContext(context)),

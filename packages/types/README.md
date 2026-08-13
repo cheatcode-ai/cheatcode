@@ -16,6 +16,7 @@ capability discovery contracts, error codes, and UI message types.
   response URL validation without loading the general API contract barrel
 - `errors.ts`: locked error code catalog
 - `@cheatcode/types/integrations`: canonical open Composio toolkit-slug schema and constraints
+- `/v1/skills` and `/v1/composer/skills` response contracts for custom skills and active connected-app entries
 - `@cheatcode/types/internal`: Worker-only Gateway-to-Agent route manifest,
   service-binding deletion contracts, and workspace/sandbox-transition evidence
 - `models.ts`: catalog IDs plus the open provider-prefixed logical-model schema

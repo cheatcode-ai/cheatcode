@@ -99,6 +99,7 @@ Public exports include:
 - project-scoped generated-output catalog and exact referenced-output reads
 - model-context suffix reads with logical-turn and byte bounds
 - BYOK and integration helpers
+- a distinct active-integration projection for the composer capability catalog
 - entitlement and usage helpers
 - caller-configured user-skill list primitives plus locked count/insert/update composition
 - entitlement-read/project-lock composition for billing-owned lazy-materialization limits and

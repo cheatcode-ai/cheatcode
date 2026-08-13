@@ -179,5 +179,10 @@ Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
 Toolkit names use the shared open-slug contract from
 `@cheatcode/types/integrations` across API, context, and tool boundaries.
+Discovery first uses Composio's full-text query. Because that query can return zero for an
+over-specific natural-language phrase even when the toolkit has the required action, a zero-result
+search performs one broad toolkit fetch and deterministically ranks bounded candidates by the
+action, object, name, slug, and description terms. The agent still executes only an exact returned
+slug and concrete toolkit version.
 Callers must honor the returned truncation
 flag and narrow tool discovery with `search` when a schema does not fit.

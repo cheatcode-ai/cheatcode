@@ -4,14 +4,14 @@ import type { IntegrationName } from "@cheatcode/types";
 import { useQuery } from "@tanstack/react-query";
 import type { KeyboardEvent, RefObject } from "react";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
+import { mentionSkillItems } from "@/components/composer/mention-skill-source";
 import { useProjectFileItems } from "@/components/composer/project-file-source";
-import { slashSkillItems } from "@/components/composer/slash-skill-source";
 import {
   type ComposerTriggers,
   type TriggerDetector,
   useComposerTriggers,
 } from "@/components/composer/use-composer-triggers";
-import { listUserSkills, USER_SKILLS_QUERY } from "@/lib/api/skills";
+import { COMPOSER_SKILLS_QUERY, fetchComposerSkills } from "@/lib/api/skills";
 import { detectMentionToken, detectSlashToken } from "@/lib/input/caret-tokens";
 import { emitComposerEvent } from "@/lib/telemetry/user-events";
 
@@ -39,9 +39,9 @@ export interface ComposerMenuController {
 }
 
 export function useComposerMenu(options: UseComposerMenuOptions): ComposerMenuController {
-  const userSkills = useQuery({
-    queryFn: ({ signal }) => listUserSkills(options.getToken, signal),
-    queryKey: USER_SKILLS_QUERY,
+  const skillsCatalog = useQuery({
+    queryFn: ({ signal }) => fetchComposerSkills(options.getToken, signal),
+    queryKey: COMPOSER_SKILLS_QUERY,
     staleTime: 60_000,
   });
   const triggers = useComposerTriggers({
@@ -67,7 +67,7 @@ export function useComposerMenu(options: UseComposerMenuOptions): ComposerMenuCo
   const items =
     triggers.kind === "slash"
       ? fileItems
-      : skillMenuItems(triggers.query, userSkills.data ?? [], userSkills.isPending);
+      : skillMenuItems(triggers.query, skillsCatalog.data, skillsCatalog.isPending);
   return {
     ariaLabel: triggers.kind === "slash" ? "Project files" : "Skills",
     handleKeyDown: (event) => triggers.handleMenuKeyDown(event, items),
@@ -91,10 +91,10 @@ function selectComposerItem(
 
 function skillMenuItems(
   query: string,
-  userSkills: Parameters<typeof slashSkillItems>[1],
+  catalog: Awaited<ReturnType<typeof fetchComposerSkills>> | undefined,
   isPending: boolean,
 ): ComposerMenuItem[] {
-  const items = slashSkillItems(query, userSkills);
+  const items = mentionSkillItems(query, catalog?.skills, catalog?.connectedApps);
   if (items.length > 0) {
     return items;
   }
