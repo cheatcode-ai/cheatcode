@@ -612,8 +612,8 @@ export const mastraComposioExecute = createTool({
 });
 
 function composioQuotaEventId(context: unknown): string {
-  const record = typeof context === "object" && context !== null ? context : {};
-  const candidate = (record as Record<string, unknown>)["toolCallId"];
+  const requestContext = requestContextFromToolContext(context);
+  const candidate = requestContext.get(CONTEXT.toolCallId);
   if (typeof candidate !== "string" || candidate.length === 0 || candidate.length > 180) {
     throw new Error("Composio execution requires a bounded tool-call id.");
   }

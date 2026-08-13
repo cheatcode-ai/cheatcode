@@ -1,6 +1,7 @@
 import type { RequestContext } from "@mastra/core/request-context";
 import { type JSONValue, type ModelMessage, modelMessageSchema } from "ai";
 import { z } from "zod";
+import { CONTEXT } from "./context";
 import { mastra } from "./index";
 import { cheatcodeTools } from "./tool-defs/tool-set";
 
@@ -122,6 +123,10 @@ export async function executeGeneralAgentTool(
   if (!tool?.execute) {
     throw new Error(`Unknown or non-executable agent tool: ${options.toolName}`);
   }
+  // Mastra's execution wrapper does not preserve arbitrary top-level compatibility
+  // fields. Bind the durable call identity explicitly so request-scoped tools can
+  // derive stable idempotency keys without serializing them into model arguments.
+  options.requestContext.set(CONTEXT.toolCallId, options.toolCallId);
   return tool.execute(options.input, {
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     // Repository tools use requestContext for their runtime dependencies and

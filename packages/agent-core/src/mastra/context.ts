@@ -27,6 +27,7 @@ export const CONTEXT = {
   runIntent: "runIntent",
   selectedSkill: "selectedSkill",
   selectedTool: "selectedTool",
+  toolCallId: "toolCallId",
   userSkillCreator: "userSkillCreator",
   userSkillLoader: "userSkillLoader",
   userSkills: "userSkills",
