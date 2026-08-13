@@ -53,7 +53,7 @@ const CONTENT_SECURITY_POLICY = [
   "style-src 'self' 'unsafe-inline'",
   `img-src 'self' data: blob: https://img.clerk.com ${INTEGRATION_LOGO_ORIGIN}`,
   "font-src 'self' data:",
-  "media-src 'self' data: blob:",
+  `media-src 'self' data: blob: ${GATEWAY_ORIGIN}`,
   `connect-src 'self' ${GATEWAY_ORIGIN} ${PREVIEW_HTTPS_ORIGIN} ${PREVIEW_WSS_ORIGIN} ${CLERK_FRONTEND_ORIGIN} ${CLERK_WEBSOCKET_ORIGIN}`,
   `frame-src 'self' ${PREVIEW_HTTPS_ORIGIN} https://challenges.cloudflare.com`,
   "worker-src 'self' blob:",
