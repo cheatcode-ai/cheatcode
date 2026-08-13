@@ -32,7 +32,7 @@ export const mastraDocsGenerateSlides = createTool({
 export const mastraDocsGenerateDocx = createTool({
   id: "docs_generate_docx",
   description:
-    "Generate a DOCX document from titled sections and paragraphs. Publishes it as a Deliverable and returns its exact project filePath.",
+    "Generate a structurally validated DOCX document from titled sections and paragraphs. Publishes the finished DOCX as a Deliverable and returns its exact project filePath. For routine memos, reports, letters, briefs, and one-pagers, the returned sectionCount is authoritative; do not write a custom generator, run dependency probes, convert the document, search for the file, or screenshot it unless the user explicitly requests custom layout or visual inspection.",
   inputSchema: GenerateDocumentInputSchema,
   outputSchema: GenerateDocxOutputSchema,
   execute: async (input, context) =>
