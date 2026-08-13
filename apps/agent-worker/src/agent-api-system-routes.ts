@@ -204,13 +204,14 @@ function resolveOutputRange(
   objectSize: number,
 ): { end: number; length: number; offset: number } | undefined {
   if (!range) return undefined;
-  if ("suffix" in range) {
+  if ("suffix" in range && typeof range.suffix === "number") {
     const length = Math.min(range.suffix, objectSize);
     const offset = objectSize - length;
     return { end: objectSize - 1, length, offset };
   }
-  const offset = range.offset ?? 0;
-  const boundedLength = Math.min(range.length ?? objectSize - offset, objectSize - offset);
+  const offset = "offset" in range && typeof range.offset === "number" ? range.offset : 0;
+  const length = "length" in range && typeof range.length === "number" ? range.length : undefined;
+  const boundedLength = Math.min(length ?? objectSize - offset, objectSize - offset);
   return { end: offset + boundedLength - 1, length: boundedLength, offset };
 }
 
