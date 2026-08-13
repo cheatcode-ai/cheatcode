@@ -322,7 +322,12 @@ function shouldApplyComputerViewCommand(
   command: ComputerViewCommand | null,
   projectMode: ProjectMode | null,
 ): boolean {
-  return command !== null && (command.kind !== "open-browser-preview" || projectMode !== "general");
+  return (
+    command !== null &&
+    (command.kind !== "open-browser-preview" ||
+      projectMode === "app-builder" ||
+      projectMode === "app-builder-mobile")
+  );
 }
 
 function createComputerViewCommandState(scopeKey: string): ComputerViewCommandState {

@@ -3,6 +3,7 @@ import {
   GeneralAgentFinishReasonSchema,
   type GeneralAgentToolCall,
   generateGeneralAgentStep,
+  resolveAgentToolPolicy,
 } from "@cheatcode/agent-core";
 import {
   createLogger,
@@ -416,23 +417,15 @@ async function generateWithCredential(input: {
   const options = runtime.mastraOptions(input.primary);
   const prepared = await prepareMastraContext(options);
   const requestContext = createAgentRequestContext(options, prepared);
+  const toolPolicy = resolveAgentToolPolicy({
+    projectMode: input.input.projectMode,
+    ...(input.input.runIntent ? { runIntent: input.input.runIntent } : {}),
+    ...(input.input.selectedTool ? { selectedTool: input.input.selectedTool } : {}),
+    usesManagedPreview: input.usesManagedPreview,
+  });
   const step = await generateGeneralAgentStep({
     abortSignal: AbortSignal.timeout(MODEL_STEP_TIMEOUT_MS),
-    ...(input.input.runIntent === "skill-creator"
-      ? {
-          includedTools: [
-            "fs_apply",
-            "fs_delete",
-            "fs_list",
-            "fs_read",
-            "fs_search",
-            "fs_write",
-            "shell_exec",
-            "skill_create",
-          ],
-        }
-      : {}),
-    ...(input.usesManagedPreview ? { excludedTools: ["code_start_dev_server"] } : {}),
+    ...toolPolicy,
     isDeepSeek: input.primary.transportProvider === "deepseek",
     messages: input.messages,
     requestContext,

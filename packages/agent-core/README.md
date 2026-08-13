@@ -47,6 +47,11 @@ ports and Git destinations stable between resolution and execution.
 Explicit composer intent is authoritative before message keyword classification on general-project
 runs. A selected skill or connected app arrives as validated request context, prompts the agent to
 load or use that exact capability, and never mutates the user's message into internal command syntax.
+Each explicit non-app intent also selects a model-facing capability profile and a matching skill
+catalog. Document, slide, data, research, and media runs retain the bounded file and supporting
+artifact tools appropriate to their outcome while excluding browser, dev-server, git, and
+background-process capabilities. The selected surface is therefore an execution boundary, not only
+prompt guidance; a document about a website cannot drift into building or previewing that website.
 The managed browser follows
 the same boundary: observation reads Stagehand's native accessibility snapshot without model
 inference and returns page-bound element refs. Execution accepts only a single-use ref from the
