@@ -34,6 +34,17 @@ export const GenerateOrExtendVideoInputSchema = z
         path: ["reference_video"],
       });
     }
+    if (
+      (input.reference_images?.length || input.reference_video) &&
+      input.duration !== undefined &&
+      input.duration !== 8
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Reference-based video generation and extension require an 8-second duration.",
+        path: ["duration"],
+      });
+    }
   });
 
 const MediaArtifactShape = {

@@ -6,18 +6,16 @@ import {
   type OutputPreviewState,
   useNearViewport,
 } from "@/components/chat/output-preview-support";
-import { loadOutputImagePreview } from "@/lib/api/outputs";
+import { createOutputDownloadUrl } from "@/lib/api/outputs";
 
-export type OutputImagePreviewState = OutputPreviewState;
-
-export function useLazyOutputImagePreview(
+export function useLazyOutputVideoPreview(
   data: OutputPreviewIdentity,
   getToken: () => Promise<null | string>,
-): OutputImagePreviewState {
+): OutputPreviewState {
   const hostRef = useRef<HTMLDivElement | null>(null);
   const getTokenRef = useRef(getToken);
   const isNearViewport = useNearViewport(hostRef);
-  const [preview, setPreview] = useState<Omit<OutputImagePreviewState, "hostRef">>({
+  const [preview, setPreview] = useState<Omit<OutputPreviewState, "hostRef">>({
     message: null,
     status: "idle",
     url: null,
@@ -30,17 +28,10 @@ export function useLazyOutputImagePreview(
   useEffect(() => {
     if (!isNearViewport) return;
     const controller = new AbortController();
-    let objectUrl: string | null = null;
     setPreview({ message: null, status: "loading", url: null });
-    void loadOutputImagePreview(
-      () => getTokenRef.current(),
-      data.outputId,
-      data.sizeBytes,
-      controller.signal,
-    )
-      .then((blob) => {
-        objectUrl = URL.createObjectURL(blob);
-        setPreview({ message: null, status: "ready", url: objectUrl });
+    void createOutputDownloadUrl(() => getTokenRef.current(), data.outputId, controller.signal)
+      .then((capability) => {
+        setPreview({ message: null, status: "ready", url: capability.downloadUrl });
       })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
@@ -50,11 +41,8 @@ export function useLazyOutputImagePreview(
           url: null,
         });
       });
-    return () => {
-      controller.abort();
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [data.outputId, data.sizeBytes, isNearViewport]);
+    return () => controller.abort();
+  }, [data.outputId, isNearViewport]);
 
   return { ...preview, hostRef };
 }
