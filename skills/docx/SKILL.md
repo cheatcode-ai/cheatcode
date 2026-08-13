@@ -13,14 +13,30 @@ compatibility: Requires the snapshot-bundled Python Office scripts, OOXML schema
 
 A .docx file is a ZIP archive containing XML files.
 
-Before using this skill, always install the required dependencies first or verify they are already installed.
+The sandbox snapshot already contains the document runtime. Do not install packages or probe for
+dependencies before starting. Only diagnose a dependency after a real tool or command reports that
+it is missing.
+
+## Choose the production path
+
+- For a routine new memo, report, letter, brief, one-pager, or other document that can be expressed
+  as titled sections and paragraphs, call `docs_generate_docx` once. It validates the bounded
+  structure, publishes the finished file as a Deliverable, and returns the canonical project path
+  and authoritative section count. Confirm that returned count and finish. Do not write a generator
+  script, run dependency checks, convert the result, search for the file, or take screenshots.
+- Use the custom `docx` path in **Creating custom documents** only when the user requests a template,
+  precise visual layout, document features the structured generator cannot represent, or explicit
+  visual QA. Render and inspect the result in that path.
+- For an existing document, use the read or edit workflow below. Preserve its formatting unless the
+  user asks for a redesign.
 
 ## Quick Reference
 
 | Task | Approach |
 |------|----------|
 | Read/analyze content | `pandoc` or unpack for raw XML |
-| Create new document | Use `docx-js` - see Creating New Documents below |
+| Create a routine new document | Call `docs_generate_docx` once |
+| Create a custom-layout document | Use `docx` - see Creating custom documents below |
 | Edit existing document | Unpack → edit XML → repack - see Editing Existing Documents below |
 
 ### Converting .doc to .docx
@@ -28,7 +44,7 @@ Before using this skill, always install the required dependencies first or verif
 Legacy `.doc` files must be converted before editing:
 
 ```bash
-python scripts/office/soffice.py --headless --convert-to docx document.doc
+python3 scripts/office/soffice.py --headless --convert-to docx document.doc
 ```
 
 ### Reading Content
@@ -38,13 +54,13 @@ python scripts/office/soffice.py --headless --convert-to docx document.doc
 pandoc --track-changes=all document.docx -o output.md
 
 # Raw XML access
-python scripts/office/unpack.py document.docx unpacked/
+python3 scripts/office/unpack.py document.docx unpacked/
 ```
 
 ### Converting to Images
 
 ```bash
-python scripts/office/soffice.py --headless --convert-to pdf document.docx
+python3 scripts/office/soffice.py --headless --convert-to pdf document.docx
 pdftoppm -jpeg -r 150 document.pdf page
 ```
 
@@ -53,14 +69,15 @@ pdftoppm -jpeg -r 150 document.pdf page
 To produce a clean document with all tracked changes accepted (requires LibreOffice):
 
 ```bash
-python scripts/accept_changes.py input.docx output.docx
+python3 scripts/accept_changes.py input.docx output.docx
 ```
 
 ---
 
-## Creating New Documents
+## Creating custom documents
 
-Generate .docx files with JavaScript, then validate. Install: `npm install -g docx`
+Generate .docx files with the snapshot-bundled `docx` library, then validate. Do not install or
+probe for the library before use; handle a genuine missing-dependency error if one occurs.
 
 ### Setup
 ```javascript
@@ -79,7 +96,7 @@ Packer.toBuffer(doc).then(buffer => fs.writeFileSync("doc.docx", buffer));
 ### Validation
 After creating the file, validate it. If validation fails, unpack, fix the XML, and repack.
 ```bash
-python scripts/office/validate.py doc.docx
+python3 scripts/office/validate.py doc.docx
 ```
 
 ### Page Size
@@ -406,7 +423,7 @@ sections: [{
 
 ### Step 1: Unpack
 ```bash
-python scripts/office/unpack.py document.docx unpacked/
+python3 scripts/office/unpack.py document.docx unpacked/
 ```
 Extracts XML, pretty-prints, merges adjacent runs, and converts smart quotes to XML entities (`&#x201C;` etc.) so they survive editing. Use `--merge-runs false` to skip run merging.
 
@@ -432,15 +449,15 @@ Edit files in `unpacked/word/`. See XML Reference below for patterns.
 
 **Adding comments:** Use `comment.py` to handle boilerplate across multiple XML files (text must be pre-escaped XML):
 ```bash
-python scripts/comment.py unpacked/ 0 "Comment text with &amp; and &#x2019;"
-python scripts/comment.py unpacked/ 1 "Reply text" --parent 0  # reply to comment 0
-python scripts/comment.py unpacked/ 0 "Text" --author "Custom Author"  # custom author name
+python3 scripts/comment.py unpacked/ 0 "Comment text with &amp; and &#x2019;"
+python3 scripts/comment.py unpacked/ 1 "Reply text" --parent 0  # reply to comment 0
+python3 scripts/comment.py unpacked/ 0 "Text" --author "Custom Author"  # custom author name
 ```
 Then add markers to document.xml (see Comments in XML Reference).
 
 ### Step 3: Pack
 ```bash
-python scripts/office/pack.py unpacked/ output.docx --original document.docx
+python3 scripts/office/pack.py unpacked/ output.docx --original document.docx
 ```
 Validates with auto-repair, condenses XML, and creates DOCX. Use `--validate false` to skip.
 
@@ -590,6 +607,6 @@ After running `comment.py` (see Step 2), add markers to document.xml. For replie
 ## Dependencies
 
 - **pandoc**: Text extraction
-- **docx**: `npm install -g docx` (new documents)
+- **docx**: snapshot-bundled for custom documents
 - **LibreOffice**: PDF conversion (auto-configured for sandboxed environments via `scripts/office/soffice.py`)
 - **Poppler**: `pdftoppm` for images
