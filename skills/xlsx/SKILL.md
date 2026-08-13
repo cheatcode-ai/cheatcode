@@ -15,6 +15,8 @@ The sandbox snapshot already contains the supported spreadsheet dependencies. Do
 
 Use `docs_generate_xlsx` exactly once for a new routine workbook made from bounded tables, simple workbook-local formulas, and standard number formats. The tool creates and publishes the finished XLSX, so do not write a script, recalculate it, search for it, publish it again, or open a browser.
 
+After the tool succeeds, say the named workbook is ready below and finish. Do not write a Markdown link; the Deliverable card owns the preview, Files, and download actions.
+
 Use the custom Python/LibreOffice path only when the user needs an existing workbook edited, a template preserved, charts or macros, non-standard formatting, complex financial modeling, or high-stakes formula verification.
 
 Typed formula cells for `docs_generate_xlsx` have this shape:
