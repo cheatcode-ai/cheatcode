@@ -32,7 +32,7 @@ export {
   mastraDocsGenerateSlides,
   mastraDocsGenerateXlsx,
 } from "./document-tools";
-export { mastraGenerateOrEditMedia } from "./media-tools";
+export { mastraGenerateOrEditImage, mastraGenerateOrExtendVideo } from "./media-tools";
 export {
   mastraDeepResearch,
   mastraFirecrawlExtract,

@@ -91,7 +91,7 @@ export const SKILL_MANIFEST: SkillManifestEntry[] = [
   },
   {
     "name": "generate-media",
-    "description": "Use this skill whenever you need to generate or edit images, or generate or extend videos using the generate_or_edit_media tool. Covers prompt engineering, parameter selection, reference image usage, and video generation/extension. Trigger when the user asks to create, generate, edit, modify, or extend any image or video asset.",
+    "description": "Use this skill whenever you need to generate or edit an image, or generate or extend a video. Route images to generate_or_edit_image and videos to generate_or_extend_video, with one bounded generation call and no cross-mode parameters. Trigger when the user asks to create, generate, edit, modify, or extend any image or video asset.",
     "category": "Data & Media",
     "tags": [
       "image",

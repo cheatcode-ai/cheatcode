@@ -53,7 +53,26 @@ export const GenerateMarkdownPdfInputSchema = z.strictObject({
   title: TextValueSchema.optional(),
 });
 
-const SpreadsheetCellSchema = z.union([z.string(), z.number(), z.boolean(), z.null()]);
+const SpreadsheetScalarSchema = z.union([
+  z.string().max(10_000),
+  z.number(),
+  z.boolean(),
+  z.null(),
+]);
+
+const SpreadsheetFormulaSchema = z.strictObject({
+  formula: z
+    .string()
+    .trim()
+    .min(1)
+    .max(1_000)
+    .refine(isSafeSpreadsheetFormula, "Formula must use workbook-local values and functions."),
+  numberFormat: z.enum(["general", "integer", "decimal", "percent", "currency"]).optional(),
+  result: z.union([z.string().max(10_000), z.number(), z.boolean()]),
+  type: z.literal("formula"),
+});
+
+const SpreadsheetCellSchema = z.union([SpreadsheetScalarSchema, SpreadsheetFormulaSchema]);
 const SpreadsheetRowSchema = z.record(z.string().min(1).max(80), SpreadsheetCellSchema);
 
 const SpreadsheetSheetSchema = z.strictObject({
@@ -107,3 +126,9 @@ export type GenerateSlidesInput = z.input<typeof GenerateSlidesInputSchema>;
 export type GenerateSlidesOutput = z.output<typeof GenerateSlidesOutputSchema>;
 export type GenerateSpreadsheetInput = z.input<typeof GenerateSpreadsheetInputSchema>;
 export type GenerateXlsxOutput = z.output<typeof GenerateXlsxOutputSchema>;
+
+function isSafeSpreadsheetFormula(value: string): boolean {
+  const formula = value.startsWith("=") ? value.slice(1) : value;
+  const blockedFunction = /\b(?:CALL|DDE|EXEC|FILTERXML|HYPERLINK|RTD|WEBSERVICE)\s*\(/i;
+  return formula.length > 0 && !/[[\]"'|@]/.test(formula) && !blockedFunction.test(formula);
+}

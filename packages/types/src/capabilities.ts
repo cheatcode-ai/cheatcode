@@ -54,10 +54,11 @@ export const TOOL_CAPABILITIES = [
   tool("docs", "docs_generate_pdf", "Generate a signed PDF artifact.", DELIVERABLE_TOOL),
   tool("docs", "docs_generate_slides", "Generate a signed PPTX artifact.", DELIVERABLE_TOOL),
   tool("docs", "docs_generate_xlsx", "Generate a signed XLSX artifact.", DELIVERABLE_TOOL),
+  tool("data", "generate_or_edit_image", "Generate or edit an image artifact.", DELIVERABLE_TOOL),
   tool(
     "data",
-    "generate_or_edit_media",
-    "Generate or edit an image or video artifact.",
+    "generate_or_extend_video",
+    "Generate or extend a video artifact.",
     DELIVERABLE_TOOL,
   ),
   tool(
