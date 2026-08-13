@@ -177,6 +177,10 @@ so the agent does not rediscover, convert, or screenshot the same file before fi
 
 Composio REST tool discovery and execution responses are byte-bounded before
 parsing, then projected into bounded, valid JSON before entering model context.
+The durable tool executor binds each checkpointed tool-call identity into the
+request context before Mastra execution. Composio quota charging derives its
+idempotency key from that explicit context value instead of relying on
+compatibility-layer execution fields that Mastra does not preserve.
 Toolkit names use the shared open-slug contract from
 `@cheatcode/types/integrations` across API, context, and tool boundaries.
 Discovery first uses Composio's full-text query. Because that query can return zero for an
