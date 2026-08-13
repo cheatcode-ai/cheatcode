@@ -5,6 +5,7 @@ import Image from "next/image";
 import { useEffect, useId, useState } from "react";
 import { toast } from "sonner";
 import { formatBytes } from "@/components/chat/message-deliverable-model";
+import { MessageDoubleShell } from "@/components/chat/message-part-blocks";
 import type { ArtifactData } from "@/components/chat/message-parts.types";
 import {
   type OutputImagePreviewState,
@@ -36,18 +37,17 @@ interface DeliverablesBlockProps {
 export function DeliverablesBlock({ items, threadId }: DeliverablesBlockProps) {
   useAutoOpenLatestImage(items, threadId);
   return (
-    <div
-      className="cc-fade-in rounded-[14px] border border-thread-border bg-[var(--thread-code-bg)] p-3"
-      data-chat-deliverables="true"
-    >
-      <div className="mb-2 text-[10px] text-thread-text-muted uppercase tracking-[0.18em]">
-        Deliverables
-      </div>
-      <div className="space-y-2">
-        {items.map((item) => (
-          <DeliverableCard data={item} key={item.outputId} threadId={threadId} />
-        ))}
-      </div>
+    <div data-chat-deliverables="true">
+      <MessageDoubleShell innerClassName="p-3">
+        <div className="mb-2 text-[10px] text-thread-text-muted uppercase tracking-[0.18em]">
+          Deliverables
+        </div>
+        <div className="space-y-2">
+          {items.map((item) => (
+            <DeliverableCard data={item} key={item.outputId} threadId={threadId} />
+          ))}
+        </div>
+      </MessageDoubleShell>
     </div>
   );
 }
