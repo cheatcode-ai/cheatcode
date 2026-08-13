@@ -76,6 +76,14 @@ Run creation validates the gateway payload with the shared `CreateRunSchema` fro
 validated request keeps the user's exact message separate from explicit non-app run intent,
 selected skill, and selected connected-app metadata. Those selections remain in the
 checkpointed Workflow input and request context; they are never encoded into visible prompt text.
+Before each model step, the Worker resolves that metadata through the agent-core capability policy.
+Explicit non-app surfaces receive an allowlisted tool registry that cannot start or inspect an app
+preview; app-builder topology remains authoritative, and ambiguous generalist runs retain the full
+registry. Tool execution still occurs as a separately checkpointed Workflow step after the model
+chooses from that bounded registry.
+The projectless app-inference fallback runs only when no explicit intent exists. Words such as
+"website" or "app" inside a selected memo, deck, analysis, research, or media request cannot
+materialize an app-builder project before model execution.
 The database binds a gateway-hashed idempotency key to the exact body and thread. After the
 pending run and thread pointer commit, start delivery is retried and then reconciled through
 an ordered run-key presence probe. A present object reconnects its stream (and finalizes a

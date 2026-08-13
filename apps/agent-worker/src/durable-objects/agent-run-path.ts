@@ -89,6 +89,11 @@ function appBuilderModeForRun(input: StartRunInput): "app-builder" | "app-builde
   if (isAppBuilderMode(input.projectMode)) {
     return input.projectMode;
   }
+  // A composer surface is an explicit outcome choice. Do not reinterpret words inside that
+  // artifact request as an instruction to build an app (for example, a memo about a website).
+  if (input.runIntent) {
+    return null;
+  }
   if (input.projectId || !IMPERATIVE_BUILD_PATTERN.test(input.messageText)) {
     return null;
   }

@@ -99,7 +99,9 @@ The composer keeps three independent product concepts separate:
   Artifact kind and MIME type decide how an output renders. A generated artifact selects Files.
   Browser actions automatically select Browser only for web/mobile app project modes, where that
   surface is the product result; browser tools used internally by a general project do not steal
-  focus from Files. Explicit browser takeover still selects Browser. The selected tab is not persisted
+  focus from Files. A project that has not hydrated yet is treated as non-app for this automatic
+  selection, so an early browser event cannot flash or pin the wrong surface. Explicit browser
+  takeover still selects Browser. The selected tab is not persisted
   across unrelated chats.
 
 Composer selections are request metadata: `@`-selected skills and connected apps are
