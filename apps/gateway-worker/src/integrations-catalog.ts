@@ -11,6 +11,7 @@ import {
   type ToolkitCategory,
 } from "@cheatcode/types/api";
 import { z } from "zod";
+import { presentIntegrationAction } from "./integration-action-presentation-support";
 import {
   loadIntegrationAccountSnapshot,
   reconcileIntegrationAccountSnapshot,
@@ -112,17 +113,9 @@ export async function getIntegrationCatalog(
 
 const TOOLKIT_ACTION_LIMIT = 30;
 
-const RawComposioToolSchema = z.object({
-  description: z.string().max(4_000).optional(),
-  isDeprecated: z.boolean().optional(),
-  name: z.string().max(200),
-  slug: z.string().max(200),
-});
-const RawComposioToolsSchema = z.array(RawComposioToolSchema).max(TOOLKIT_ACTION_LIMIT);
-
-// Lists a toolkit's top actions for the detail drawer (name + description). Uses the
-// raw, user-independent tool definitions so it works whether or not the user has
-// connected the toolkit yet.
+// Lists a toolkit's top actions for the detail drawer. Provider descriptions are
+// agent-facing API documentation, so this boundary converts them into safe starter
+// prompts that remain useful without exposing IDs, schemas, or transport jargon.
 export async function listToolkitActions(
   env: IntegrationCatalogEnv,
   slug: string,
@@ -130,23 +123,25 @@ export async function listToolkitActions(
   const apiKey = await requireComposioApiKey(env.COMPOSIO_API_KEY);
   const composio = new ComposioClient(apiKey);
   try {
-    const page = await composio.listTools(
-      {
-        important: true,
-        limit: TOOLKIT_ACTION_LIMIT,
-        toolkit: slug,
-      },
-      COMPOSIO_REQUEST_TIMEOUT_MS,
-    );
-    const tools = RawComposioToolsSchema.parse(page.items)
+    const [page, catalog] = await Promise.all([
+      composio.listTools(
+        {
+          important: true,
+          limit: TOOLKIT_ACTION_LIMIT,
+          toolkit: slug,
+        },
+        COMPOSIO_REQUEST_TIMEOUT_MS,
+      ),
+      readCachedCatalog(env.ENTITLEMENTS_CACHE),
+    ]);
+    const toolkitDisplayName = catalog?.toolkits.find(
+      (toolkit) => toolkit.name === slug,
+    )?.displayName;
+    const tools = page.items
       .filter((tool) => tool.isDeprecated !== true)
       .slice(0, TOOLKIT_ACTION_LIMIT);
     return {
-      actions: tools.map((tool) => ({
-        description: tool.description ?? "",
-        name: tool.name ?? tool.slug,
-        slug: tool.slug,
-      })),
+      actions: tools.map((tool) => presentIntegrationAction(tool, toolkitDisplayName)),
     };
   } catch (error) {
     throw new APIError(503, "upstream_provider_outage", "Unable to load toolkit actions", {

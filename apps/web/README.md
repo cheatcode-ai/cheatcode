@@ -40,6 +40,9 @@ Deliverable inserts its stable `/deliverables/<output-id>/<filename>` project re
 `@` is exclusively the skill picker: it merges custom skills with active connected apps from the
 lightweight database-backed skill catalog. The file browser reads durable project-file metadata and
 does not create or wake Daytona merely because the user opens it.
+Connected-app detail drawers launch the gateway's product-owned starter prompt for an action.
+The browser never derives user copy from provider API documentation; clicking an action produces a
+plain-language request that can be sent immediately and asks for missing or high-stakes details.
 Computer preview wakeups run only while Browser is selected; opening Files never revives an
 unrelated dev server or changes the selected surface. Browser wakeups rotate the preview session
 and reload the visible iframe once after an actual sandbox/process recovery. Silent capability

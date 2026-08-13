@@ -292,9 +292,9 @@ export const IntegrationCatalogSchema = z.strictObject({
 });
 
 const ToolkitActionSchema = z.strictObject({
-  description: z.string(),
-  name: z.string(),
-  slug: z.string(),
+  name: z.string().min(1).max(200),
+  prompt: z.string().min(1).max(400),
+  slug: z.string().min(1).max(200),
 });
 
 export const ToolkitActionsResponseSchema = z.strictObject({

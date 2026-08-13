@@ -12,6 +12,7 @@ import type {
 const IdentifierSchema = z.string().min(1).max(500);
 const SlugSchema = z.string().min(1).max(200);
 const TimestampSchema = z.string().datetime();
+const ToolDescriptionSchema = z.string().max(16_000);
 
 const RawConnectedAccountSchema = z
   .object({
@@ -85,11 +86,16 @@ const RawToolkitPageSchema = z.object({ items: z.array(RawToolkitSchema).max(500
 
 const RawToolSchema = z
   .object({
-    description: z.string().max(4_000).optional(),
+    description: ToolDescriptionSchema.optional(),
+    human_description: ToolDescriptionSchema.optional(),
     input_parameters: z.unknown().optional(),
     is_deprecated: z.boolean().optional(),
     name: z.string().max(200).optional(),
     slug: z.string().min(1).max(200),
+    toolkit: z
+      .object({ name: z.string().min(1).max(200), slug: SlugSchema })
+      .strip()
+      .optional(),
     version: z.string().max(120).optional(),
   })
   .strip();
@@ -173,10 +179,12 @@ export function parseToolPage(value: unknown): ComposioToolPage {
     const inputParameters = normalizeToolParameters(item.input_parameters);
     return {
       ...(item.description !== undefined ? { description: item.description } : {}),
+      ...(item.human_description !== undefined ? { humanDescription: item.human_description } : {}),
       ...(inputParameters !== undefined ? { inputParameters } : {}),
       ...(item.is_deprecated !== undefined ? { isDeprecated: item.is_deprecated } : {}),
       ...(item.name !== undefined ? { name: item.name } : {}),
       slug: item.slug,
+      ...(item.toolkit !== undefined ? { toolkit: item.toolkit } : {}),
       ...(item.version !== undefined ? { version: item.version } : {}),
     };
   });

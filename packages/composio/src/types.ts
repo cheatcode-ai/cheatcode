@@ -42,10 +42,12 @@ export interface ComposioToolkit {
 
 export interface ComposioTool {
   description?: string;
+  humanDescription?: string;
   inputParameters?: unknown;
   isDeprecated?: boolean;
   name?: string;
   slug: string;
+  toolkit?: { name: string; slug: string };
   version?: string;
 }
 

@@ -21,6 +21,10 @@ The client intentionally exposes only the v3.1 routes Cheatcode owns:
 - list toolkits and tools
 - execute a version-selected tool
 
+Tool parsing preserves Composio's agent-facing description, optional human
+description, and input schema as separate fields. Callers define their own
+presentation contract instead of displaying provider tool documentation as UI copy.
+
 There is no generic request escape hatch.
 
 ## Code Checks

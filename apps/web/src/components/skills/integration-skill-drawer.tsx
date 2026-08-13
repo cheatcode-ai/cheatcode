@@ -287,7 +287,6 @@ function ActionRow({
   toolkit: ToolkitCatalogEntry;
 }) {
   const Icon = actionIcon(action.slug);
-  const example = actionExample(action);
   return (
     <div className={cn("relative", isLast ? null : "pb-6")}>
       {isLast ? null : (
@@ -296,7 +295,7 @@ function ActionRow({
       <span className="absolute top-0 -left-5 h-[18px] w-4 rounded-bl-lg border-border-tree border-b-[1.5px] border-l-[1.5px]" />
       <PromptLaunchButton
         className="group block cursor-pointer rounded-xl px-2 py-1 transition-colors duration-150 hover:bg-background active:bg-background"
-        prompt={example}
+        prompt={action.prompt}
         query={{ tool: toolkit.name }}
       >
         <span className="mt-[3px] flex items-start gap-3">
@@ -308,7 +307,7 @@ function ActionRow({
               {action.name}
             </span>
             <span className="mt-1.5 line-clamp-2 block text-fg-secondary text-sm leading-5">
-              “{example}”
+              “{action.prompt}”
             </span>
           </span>
         </span>
@@ -336,18 +335,6 @@ function actionIcon(slug: string) {
     return Plus;
   }
   return FileText;
-}
-
-function actionExample(action: ToolkitAction): string {
-  const description = action.description
-    .trim()
-    .replace(/^[-–—\s]+/, "")
-    .replace(/\s+/g, " ");
-  if (!description) {
-    return action.name;
-  }
-  const firstSentence = description.match(/^.*?[.!?](?:\s|$)/)?.[0]?.trim();
-  return firstSentence ?? description;
 }
 
 function accountDescription(account: IntegrationAccount): string {
