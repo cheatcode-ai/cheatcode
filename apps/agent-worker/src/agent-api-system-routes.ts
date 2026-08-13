@@ -162,21 +162,56 @@ async function downloadOutput(c: AgentContext): Promise<Response> {
     });
   }
   const output = await findDownloadableOutput(c.env, outputId, query.userId);
-  const object = await c.env.R2_OUTPUTS.get(output.r2Key);
+  const object = await c.env.R2_OUTPUTS.get(output.r2Key, {
+    range: c.req.raw.headers,
+  });
   if (!object?.body) {
     throw new APIError(404, "resource_output_not_found", "Output object not found", {
       retriable: false,
     });
   }
+  const headers = outputDownloadHeaders(output, object);
   return new Response(object.body, {
-    headers: {
-      "Cache-Control": "private, max-age=0, no-store",
-      "Content-Disposition": downloadContentDisposition(output.filename),
-      "Content-Type": output.mimeType,
-      "Referrer-Policy": "no-referrer",
-      "X-Content-Type-Options": "nosniff",
-    },
+    headers,
+    status: object.range ? 206 : 200,
   });
+}
+
+function outputDownloadHeaders(
+  output: { filename: string; mimeType: string },
+  object: R2ObjectBody,
+): Headers {
+  const headers = new Headers({
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=0, no-store",
+    "Content-Disposition": downloadContentDisposition(output.filename),
+    "Content-Type": output.mimeType,
+    "Cross-Origin-Resource-Policy": "cross-origin",
+    ETag: object.httpEtag,
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  });
+  const range = resolveOutputRange(object.range, object.size);
+  headers.set("Content-Length", String(range?.length ?? object.size));
+  if (range) {
+    headers.set("Content-Range", `bytes ${range.offset}-${range.end}/${object.size}`);
+  }
+  return headers;
+}
+
+function resolveOutputRange(
+  range: R2Range | undefined,
+  objectSize: number,
+): { end: number; length: number; offset: number } | undefined {
+  if (!range) return undefined;
+  if ("suffix" in range) {
+    const length = Math.min(range.suffix, objectSize);
+    const offset = objectSize - length;
+    return { end: objectSize - 1, length, offset };
+  }
+  const offset = range.offset ?? 0;
+  const boundedLength = Math.min(range.length ?? objectSize - offset, objectSize - offset);
+  return { end: offset + boundedLength - 1, length: boundedLength, offset };
 }
 
 function parseOutputId(value: string | undefined): string {

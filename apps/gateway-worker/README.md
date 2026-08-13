@@ -74,7 +74,9 @@ Public Clerk credentials, cookies, proxy credentials, plaintext idempotency keys
 caller-supplied `X-Cheatcode-*` headers terminate at the gateway. Normal service-binding
 requests receive only gateway-minted internal identity/idempotency headers. Artifact downloads
 use that boundary to mint an owner-checked short-lived URL; only the resulting HMAC-bound
-streaming URL is public. Local preview traffic has a separate, explicit capability/cookie bridge.
+streaming URL is public. The gateway preserves the download response's explicit cross-origin
+resource policy for browser media while defaulting every other response to `same-origin`.
+Local preview traffic has a separate, explicit capability/cookie bridge.
 
 Composio account sync follows provider cursors instead of treating the first
 page as complete, and fails closed if a user exceeds the 1,000-account safety

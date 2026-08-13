@@ -32,8 +32,9 @@ deletion RPCs terminate the run's Workflow before removing its durable state.
 Artifact messages persist only the output UUID and presentation metadata. The authenticated
 `POST /v1/outputs/:outputId/download-url` path rechecks tenant ownership, retention, and R2
 existence before minting a one-hour HMAC capability; the public signed download route is only the
-streaming second hop. Expiring capabilities and internal R2 keys are never stored in transcripts or
-returned by artifact tools.
+streaming second hop. That route forwards single HTTP byte ranges to R2 and returns `206` metadata,
+so browser media previews seek and start without downloading the entire artifact. Expiring
+capabilities and internal R2 keys are never stored in transcripts or returned by artifact tools.
 
 Browser screenshots use the same crash-consistent R2 persistence but are classified as internal
 tool evidence. Their reserved filenames keep them out of project-file and slash-command catalogs,

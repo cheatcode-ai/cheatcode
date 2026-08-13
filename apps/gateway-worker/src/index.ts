@@ -64,6 +64,7 @@ const GATEWAY_SECURITY_HEADERS = {
     styleSrc: ["'self'", "'unsafe-inline'"],
     workerSrc: ["'none'"],
   },
+  crossOriginResourcePolicy: false,
   referrerPolicy: "strict-origin-when-cross-origin",
   strictTransportSecurity: "max-age=31536000; includeSubDomains; preload",
   xFrameOptions: "DENY",
@@ -88,6 +89,12 @@ gatewayApp.onError((error, context) => {
 });
 
 gatewayApp.use("*", secureHeaders(GATEWAY_SECURITY_HEADERS));
+gatewayApp.use("*", async (c, next) => {
+  await next();
+  if (!c.res.headers.has("Cross-Origin-Resource-Policy")) {
+    c.res.headers.set("Cross-Origin-Resource-Policy", "same-origin");
+  }
+});
 gatewayApp.use("/v1/*", async (c, next) => {
   let handle: DatabaseHandle | undefined;
   c.set("database", () => {
