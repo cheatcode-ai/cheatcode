@@ -64,6 +64,8 @@ const TOOL_VERBS: Record<string, ToolVerbSpec> = {
   docs_generate_pdf: { verb: "Generated a PDF" },
   docs_generate_slides: { verb: "Generated slides" },
   docs_generate_xlsx: { verb: "Generated a spreadsheet" },
+  generate_or_edit_image: { verb: "Generated or edited an image" },
+  generate_or_extend_video: { verb: "Generated or extended a video" },
   search_scrape: { verb: "Scraped", argKeys: ["url"] },
   search_web_content: { verb: "Searched the web", argKeys: ["query", "q"] },
   search_extract: { verb: "Extracted", argKeys: ["url"] },

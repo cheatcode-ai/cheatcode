@@ -27,8 +27,11 @@ Sandbox and artifact capabilities cross tool-domain boundaries only through
 Single-consumer data, document, and media implementations live under
 `src/tools/`. Data tools profile and normalize bounded tabular inputs and render
 deterministic SVG/Recharts output. Document tools generate sandbox-side PPTX,
-DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`. Media and Google-backed
-browser tools resolve the user's Google AI BYOK key lazily when invoked. All three receive
+DOCX, XLSX, and PDF source against `/opt/cheatcode-doc-runtime`; routine XLSX generation
+supports bounded scalar and workbook-local formula cells with cached results and standard number
+formats, while complex models remain on the custom Office path. Image and video generation use
+separate strict contracts so one mode cannot acquire the other mode's arguments. Media and
+Google-backed browser tools resolve the user's Google AI BYOK key lazily when invoked. All three receive
 sandbox and R2 artifact capabilities through request-scoped contracts; they do
 not read environment variables, persist credentials, or log keys.
 Published media is rendered automatically in the chat artifact card and is available in Files;

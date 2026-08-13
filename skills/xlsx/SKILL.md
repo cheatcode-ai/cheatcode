@@ -4,12 +4,31 @@ description: "Use this skill any time a spreadsheet file is the primary input or
 category: Data & Media
 tags: xlsx, excel, spreadsheet, formulas
 license: Proprietary. LICENSE.txt has complete terms
-compatibility: Requires the snapshot-bundled Python Office scripts, OOXML schemas, openpyxl, and LibreOffice Calc.
+compatibility: Routine workbooks use docs_generate_xlsx. Complex or existing-workbook operations use the snapshot-bundled Python Office scripts, OOXML schemas, openpyxl, and LibreOffice Calc.
 ---
 
 # Requirements for Outputs
 
-Before using this skill, always install the required dependencies first or verify they are already installed.
+The sandbox snapshot already contains the supported spreadsheet dependencies. Do not install packages or run dependency probes.
+
+## Choose the production path
+
+Use `docs_generate_xlsx` exactly once for a new routine workbook made from bounded tables, simple workbook-local formulas, and standard number formats. The tool creates and publishes the finished XLSX, so do not write a script, recalculate it, search for it, publish it again, or open a browser.
+
+Use the custom Python/LibreOffice path only when the user needs an existing workbook edited, a template preserved, charts or macros, non-standard formatting, complex financial modeling, or high-stakes formula verification.
+
+Typed formula cells for `docs_generate_xlsx` have this shape:
+
+```json
+{
+  "type": "formula",
+  "formula": "=SUM(B2:B5)",
+  "result": 700,
+  "numberFormat": "integer"
+}
+```
+
+`result` is the expected cached display value; the workbook still contains the editable Excel formula. Supported number formats are `general`, `integer`, `decimal`, `percent`, and `currency`.
 
 ## All Excel files
 
@@ -76,7 +95,7 @@ A user may ask you to create, edit, or analyze the contents of an .xlsx file. Yo
 
 ## Important Requirements
 
-**LibreOffice Required for Formula Recalculation**: You can assume LibreOffice is installed for recalculating formula values using the `scripts/recalc.py` script. The script automatically configures LibreOffice on first run, including in sandboxed environments where Unix sockets are restricted (handled by `scripts/office/soffice.py`)
+**LibreOffice is required only for custom formula workbooks**: It is installed for recalculating formula values using `scripts/recalc.py`. The script configures LibreOffice on first run, including in sandboxed environments where Unix sockets are restricted.
 
 ## Reading and analyzing data
 
@@ -134,14 +153,14 @@ sheet['D20'] = '=AVERAGE(D2:D19)'
 
 This applies to ALL calculations - totals, percentages, ratios, differences, etc. The spreadsheet should be able to recalculate when source data changes.
 
-## Common Workflow
+## Custom Workflow
 1. **Choose tool**: pandas for data, openpyxl for formulas/formatting
-2. **Create/Load**: Create new workbook or load existing file
+2. **Create/Load**: Create a custom workbook or load an existing file
 3. **Modify**: Add/edit data, formulas, and formatting
-4. **Save**: Write to file
-5. **Recalculate formulas (MANDATORY IF USING FORMULAS)**: Use the scripts/recalc.py script
+4. **Save safely**: Generate or recalculate a ZIP-based workbook under `/tmp`, then copy the completed file into the project. Do not finalize XLSX bytes directly on the project mount.
+5. **Recalculate custom formulas**: Use `scripts/recalc.py`
    ```bash
-   python scripts/recalc.py output.xlsx
+   python3 scripts/recalc.py /tmp/output.xlsx
    ```
 6. **Verify and fix any errors**: 
    - The script returns JSON with error details
@@ -179,7 +198,7 @@ sheet['A1'].alignment = Alignment(horizontal='center')
 # Column width
 sheet.column_dimensions['A'].width = 20
 
-wb.save('output.xlsx')
+wb.save('/tmp/output.xlsx')
 ```
 
 ### Editing existing Excel files
@@ -206,7 +225,7 @@ sheet.delete_cols(3)  # Delete column 3
 new_sheet = wb.create_sheet('NewSheet')
 new_sheet['A1'] = 'Data'
 
-wb.save('modified.xlsx')
+wb.save('/tmp/modified.xlsx')
 ```
 
 ## Recalculating formulas
@@ -214,12 +233,12 @@ wb.save('modified.xlsx')
 Excel files created or modified by openpyxl contain formulas as strings but not calculated values. Use the provided `scripts/recalc.py` script to recalculate formulas:
 
 ```bash
-python scripts/recalc.py <excel_file> [timeout_seconds]
+python3 scripts/recalc.py <excel_file> [timeout_seconds]
 ```
 
 Example:
 ```bash
-python scripts/recalc.py output.xlsx 30
+python3 scripts/recalc.py /tmp/output.xlsx 30
 ```
 
 The script:

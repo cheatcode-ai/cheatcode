@@ -3,10 +3,14 @@ import type { ArtifactUploadResult, CodeRuntimeContext } from "@cheatcode/sandbo
 import { GoogleGenAI, type Image, type Video, VideoGenerationReferenceType } from "@google/genai";
 import { z } from "zod";
 import {
-  type GenerateOrEditMediaInput,
-  GenerateOrEditMediaInputSchema,
-  type GenerateOrEditMediaOutput,
-  GenerateOrEditMediaOutputSchema,
+  type GenerateImageOutput,
+  GenerateImageOutputSchema,
+  type GenerateOrEditImageInput,
+  GenerateOrEditImageInputSchema,
+  type GenerateOrExtendVideoInput,
+  GenerateOrExtendVideoInputSchema,
+  type GenerateVideoOutput,
+  GenerateVideoOutputSchema,
 } from "./schemas";
 
 const IMAGE_MODEL = "gemini-3.1-flash-image";
@@ -43,37 +47,53 @@ const InteractionStepsSchema = z.array(
   }),
 );
 
-export async function executeGenerateOrEditMedia(
-  input: GenerateOrEditMediaInput,
+export async function executeGenerateOrEditImage(
+  input: GenerateOrEditImageInput,
   runtimeContext: CodeRuntimeContext,
   googleApiKey: string,
-): Promise<GenerateOrEditMediaOutput> {
-  const parsed = GenerateOrEditMediaInputSchema.parse(input);
+): Promise<GenerateImageOutput> {
+  const parsed = GenerateOrEditImageInputSchema.parse(input);
   const apiKey = requiredApiKey(googleApiKey);
   const client = new GoogleGenAI({ apiKey });
-  const media =
-    parsed.type === "image"
-      ? await generateImage(client, parsed, runtimeContext)
-      : await generateVideo(client, apiKey, parsed, runtimeContext);
-  const filename = generatedFilename(parsed.prompt, media.extension);
-  const sandboxPath = await writeMediaToWorkspace(
-    runtimeContext,
-    parsed.type,
-    filename,
-    media.bytes,
-  );
-  const artifact = await storeArtifact(runtimeContext, parsed.type, filename, media);
-  return GenerateOrEditMediaOutputSchema.parse({
-    artifact,
-    model: media.model,
-    sandboxPath,
-    type: parsed.type,
+  const media = await generateImage(client, parsed, runtimeContext);
+  const result = await persistGeneratedMedia(runtimeContext, "image", parsed.prompt, media);
+  return GenerateImageOutputSchema.parse({
+    ...result,
+    type: "image",
   });
+}
+
+export async function executeGenerateOrExtendVideo(
+  input: GenerateOrExtendVideoInput,
+  runtimeContext: CodeRuntimeContext,
+  googleApiKey: string,
+): Promise<GenerateVideoOutput> {
+  const parsed = GenerateOrExtendVideoInputSchema.parse(input);
+  const apiKey = requiredApiKey(googleApiKey);
+  const client = new GoogleGenAI({ apiKey });
+  const media = await generateVideo(client, apiKey, parsed, runtimeContext);
+  const result = await persistGeneratedMedia(runtimeContext, "video", parsed.prompt, media);
+  return GenerateVideoOutputSchema.parse({
+    ...result,
+    type: "video",
+  });
+}
+
+async function persistGeneratedMedia(
+  runtime: CodeRuntimeContext,
+  type: "image" | "video",
+  prompt: string,
+  media: GeneratedMedia,
+) {
+  const filename = generatedFilename(prompt, media.extension);
+  const sandboxPath = await writeMediaToWorkspace(runtime, type, filename, media.bytes);
+  const artifact = await storeArtifact(runtime, type, filename, media);
+  return { artifact, model: media.model, sandboxPath };
 }
 
 async function generateImage(
   client: GoogleGenAI,
-  input: GenerateOrEditMediaInput,
+  input: GenerateOrEditImageInput,
   runtime: CodeRuntimeContext,
 ): Promise<GeneratedMedia> {
   const references = await loadReferences(input.reference_images ?? [], runtime);
@@ -110,7 +130,7 @@ function imageInteractionInput(prompt: string, references: MediaReference[]) {
   ];
 }
 
-function imagePrompt(input: GenerateOrEditMediaInput): string {
+function imagePrompt(input: GenerateOrEditImageInput): string {
   if (!input.reference_images?.length) {
     return input.prompt;
   }
@@ -155,7 +175,7 @@ function extractInteractionImage(steps: unknown): MediaReference | null {
 async function generateVideo(
   client: GoogleGenAI,
   apiKey: string,
-  input: GenerateOrEditMediaInput,
+  input: GenerateOrExtendVideoInput,
   runtime: CodeRuntimeContext,
 ): Promise<GeneratedMedia> {
   const references = await loadReferences(input.reference_images ?? [], runtime);
@@ -186,7 +206,7 @@ async function generateVideo(
   return generatedMedia(bytesToBase64(bytes), generated.mimeType ?? "video/mp4", VIDEO_MODEL);
 }
 
-function videoConfig(input: GenerateOrEditMediaInput, references: MediaReference[]) {
+function videoConfig(input: GenerateOrExtendVideoInput, references: MediaReference[]) {
   return {
     aspectRatio: input.aspect_ratio ?? "16:9",
     durationSeconds: input.duration ?? 8,

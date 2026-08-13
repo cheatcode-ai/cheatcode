@@ -54,7 +54,10 @@ const DOCUMENT_TOOLS = [
   "docs_generate_xlsx",
 ] as const satisfies readonly ToolCapabilityName[];
 
-const MEDIA_TOOLS = ["generate_or_edit_media"] as const satisfies readonly ToolCapabilityName[];
+const MEDIA_TOOLS = [
+  "generate_or_edit_image",
+  "generate_or_extend_video",
+] as const satisfies readonly ToolCapabilityName[];
 
 const RESEARCH_TOOLS = [
   "search_extract",

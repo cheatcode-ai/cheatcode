@@ -45,7 +45,7 @@ export const mastraDocsGenerateDocx = createTool({
 export const mastraDocsGenerateXlsx = createTool({
   id: "docs_generate_xlsx",
   description:
-    "Generate an XLSX workbook from sheets, columns, and rows. Publishes it as a Deliverable and returns its exact project filePath.",
+    "Generate an XLSX workbook from sheets, columns, scalar cells, and typed formula cells with cached results and number formats. Publishes it as a Deliverable and returns its exact project filePath; routine workbooks need no custom script or recalculation pass.",
   inputSchema: GenerateSpreadsheetInputSchema,
   outputSchema: GenerateXlsxOutputSchema,
   execute: async (input, context) =>

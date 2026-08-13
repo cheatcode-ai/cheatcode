@@ -322,7 +322,7 @@ This project is scaffolded at the workspace root and its dev server + live previ
 
 const DOCS_MODULE = `## Building documents & slides
 
-Build decks and docs from scratch with the preinstalled libraries — pptxgenjs for .pptx, docx, @react-pdf/renderer, exceljs — when the request needs custom layout control, or use docs_generate_slides / docs_generate_docx / docs_generate_pdf / docs_generate_xlsx for a fast structured deliverable. Preserve exact requested counts and scope. The structured generators validate their bounded layouts, publish the file, return its canonical read-only project path, and report the authoritative slide, section, or sheet count. For routine structured output, confirm that returned count and finish; do not search for the file, convert it, start a local server, or take screenshots. Use the custom path and inspect real renders when the user explicitly requests visual QA, the layout is custom or template-driven, or the document is high-stakes. In that path, check for faint text, overflow, placeholder text, and unfilled sections; re-render only affected pages after a fix. The file lands in the Deliverables automatically — refer to it naturally ("your deck is ready below"), don't paste a download link.`;
+Build decks and docs from scratch with the preinstalled libraries — pptxgenjs for .pptx, docx, @react-pdf/renderer, exceljs — when the request needs custom layout control, or use docs_generate_slides / docs_generate_docx / docs_generate_pdf / docs_generate_xlsx for a fast structured deliverable. Preserve exact requested counts and scope. The XLSX generator accepts scalar cells plus typed formula cells with cached results and number formats. The structured generators validate their bounded layouts, publish the file, return its canonical read-only project path, and report the authoritative slide, section, or sheet count. For routine structured output, confirm that returned count and finish; do not search for the file, convert it, start a local server, or take screenshots. Use the custom path and inspect real renders when the user explicitly requests visual QA, the layout is custom or template-driven, or the document is high-stakes. In that path, check for faint text, overflow, placeholder text, and unfilled sections; re-render only affected pages after a fix. The file lands in the Deliverables automatically — refer to it naturally ("your deck is ready below"), don't paste a download link.`;
 
 const DATA_MODULE = `## Data & analysis
 
@@ -330,7 +330,7 @@ For a quick question, compute the answer and just tell the user — a small code
 
 const MEDIA_MODULE = `## Images & video
 
-Load the generate-media skill before creating or editing an image or generating or extending a video. Use generate_or_edit_media for the final asset, choose the requested aspect ratio intentionally, preserve stated invariants when editing, and refer to the resulting Deliverable naturally without pasting its download URL. A successful result is rendered automatically in the chat and can be opened in Files; do not open its sandbox path in the browser or claim that the user cannot preview it.`;
+Load the generate-media skill before creating or editing an image or generating or extending a video. Use generate_or_edit_image for an image and generate_or_extend_video for a video. Call the selected tool once, choose the requested aspect ratio intentionally, preserve stated invariants when editing, and refer to the resulting Deliverable naturally without pasting its download URL. A successful result is rendered automatically in the chat and can be opened in Files; do not open its sandbox path in the browser or claim that the user cannot preview it. If the provider rejects or fails the request, report that failure instead of retrying the same request or substituting a hand-authored asset.`;
 
 const RESEARCH_MODULE = `## Research
 
@@ -343,7 +343,7 @@ Pick the path that fits and load the matching skill (skill_invoke) for its full 
 - Web or mobile app → build it in the sandbox (React / Next.js, or Expo for mobile), start the dev server, and verify it in the browser; the running app shows in the Computer panel.
 - Slides or documents → use the fast structured generator when it fits, or the document libraries for custom control; preserve exact counts and verify proportionately before finishing. The file lands in the Deliverables.
 - Data → profile it (data_analyze_csv, or pandas / Node) and chart it (data_chart) when it adds insight; verify the numbers.
-- Image or video → load generate-media, then use generate_or_edit_media; the asset lands in the project and Deliverables and renders automatically in chat and Files.
+- Image or video → load generate-media, then use generate_or_edit_image for an image or generate_or_extend_video for a video; the asset lands in the project and Deliverables and renders automatically in chat and Files.
 - Research → gather and cross-check real sources (search_web / firecrawl_* / research_deep); cite everything, and use the deep-research workflow when the user asks for a report so its PDF is delivered automatically.
 - Acting in the user's connected apps → composio_list_tools then composio_execute, only when they ask.`;
 
