@@ -207,16 +207,24 @@ async function generateVideo(
 }
 
 function videoConfig(input: GenerateOrExtendVideoInput, references: MediaReference[]) {
+  if (input.reference_video) {
+    return {
+      numberOfVideos: 1,
+      resolution: "720p",
+    };
+  }
   return {
     aspectRatio: input.aspect_ratio ?? "16:9",
     durationSeconds: input.duration ?? 8,
-    generateAudio: true,
     numberOfVideos: 1,
-    referenceImages: references.map((reference) => ({
-      image: referenceImage(reference),
-      referenceType: VideoGenerationReferenceType.ASSET,
-    })),
-    resolution: "1080p",
+    ...(references.length > 0
+      ? {
+          referenceImages: references.map((reference) => ({
+            image: referenceImage(reference),
+            referenceType: VideoGenerationReferenceType.ASSET,
+          })),
+        }
+      : {}),
   };
 }
 

@@ -44,7 +44,7 @@ image_reference_mode: "edit"
 |---|---|---|
 | `prompt` | Yes | Subject, action, visual style, camera motion, and audio cues |
 | `aspect_ratio` | No | `16:9` or `9:16` |
-| `duration` | No | `4`, `6`, or `8` seconds |
+| `duration` | No | `4`, `6`, or `8` seconds; reference-image generation and extension require `8` |
 | `reference_images` | No | Up to 3 real project paths or public HTTPS URLs |
 | `reference_video` | No | The exact `sandboxPath` from an earlier video result, or a public HTTPS URL |
 
@@ -73,6 +73,7 @@ Order prompts as: **scene and backdrop → subject → action or key details →
 - For product visuals, name the material, camera angle, lighting setup, and whether text, logos, or watermarks are allowed.
 - For rendered text, provide the exact copy, typography direction, and placement.
 - For video, include action, camera movement, pacing, dialogue in quotes, sound effects, and ambience.
+- Veo generates synchronized audio natively from those prompt cues; do not add an audio configuration field.
 - Prefer concrete positive descriptions. State edit invariants explicitly.
 
 ## Execution contract

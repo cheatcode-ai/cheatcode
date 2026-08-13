@@ -11,6 +11,8 @@ import {
   type OutputImagePreviewState,
   useLazyOutputImagePreview,
 } from "@/components/chat/output-image-preview";
+import type { OutputPreviewState } from "@/components/chat/output-preview-support";
+import { useLazyOutputVideoPreview } from "@/components/chat/output-video-preview";
 import {
   Code,
   Download,
@@ -35,7 +37,7 @@ interface DeliverablesBlockProps {
 }
 
 export function DeliverablesBlock({ items, threadId }: DeliverablesBlockProps) {
-  useAutoOpenLatestImage(items, threadId);
+  useAutoOpenLatestMedia(items, threadId);
   return (
     <div data-chat-deliverables="true">
       <MessageDoubleShell innerClassName="p-3">
@@ -65,7 +67,97 @@ function DeliverableCard({ data, threadId }: { data: ArtifactData; threadId: str
       />
     );
   }
+  if (isVideoArtifact(data)) {
+    return (
+      <VideoDeliverableCard
+        data={data}
+        download={download}
+        getToken={getToken}
+        threadId={threadId}
+      />
+    );
+  }
   return <FileDeliverableCard data={data} download={download} />;
+}
+
+function VideoDeliverableCard({
+  data,
+  download,
+  getToken,
+  threadId,
+}: {
+  data: ArtifactData;
+  download: DeliverableDownload;
+  getToken: () => Promise<null | string>;
+  threadId: string;
+}) {
+  const preview = useLazyOutputVideoPreview(data, getToken);
+  const openInFiles = useOpenMediaInFiles(data, threadId, "video");
+  return (
+    <div className="overflow-hidden rounded-[12px] border border-border bg-background">
+      <VideoPreview data={data} preview={preview} />
+      <div className="flex flex-wrap items-center gap-2 px-2.5 py-2.5">
+        <Video aria-hidden="true" className="h-4 w-4 shrink-0 text-fg-secondary" />
+        <DeliverableMetadata data={data} />
+        <button
+          className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-full px-2 text-[12px] text-fg-secondary transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={openInFiles}
+          type="button"
+        >
+          <FolderOpen aria-hidden="true" className="h-3.5 w-3.5" />
+          Open in Files
+        </button>
+        <DownloadButton download={download} filename={data.filename} />
+      </div>
+    </div>
+  );
+}
+
+function VideoPreview({ data, preview }: { data: ArtifactData; preview: OutputPreviewState }) {
+  return (
+    <div
+      className="relative aspect-video w-full overflow-hidden bg-secondary"
+      ref={preview.hostRef}
+    >
+      {preview.url ? (
+        // Generated assets do not include a timed-text sidecar to attach here.
+        // biome-ignore lint/a11y/useMediaCaption: No caption track exists for arbitrary provider output.
+        <video
+          aria-label={`Generated video: ${readableFilename(data.filename)}`}
+          className="h-full w-full bg-black object-contain"
+          controls
+          playsInline
+          preload="metadata"
+          src={preview.url}
+        />
+      ) : (
+        <VideoPreviewPlaceholder message={preview.message} status={preview.status} />
+      )}
+    </div>
+  );
+}
+
+function VideoPreviewPlaceholder({
+  message,
+  status,
+}: Pick<OutputPreviewState, "message" | "status">) {
+  const isLoading = status === "idle" || status === "loading";
+  return (
+    <div
+      aria-live="polite"
+      className={cn(
+        "flex h-full w-full flex-col items-center justify-center gap-2 p-5 text-center text-[12px] text-fg-secondary",
+        isLoading && "motion-safe:animate-pulse",
+      )}
+    >
+      {isLoading ? (
+        <Loader2 aria-hidden="true" className="h-5 w-5 animate-spin motion-reduce:animate-none" />
+      ) : (
+        <Video aria-hidden="true" className="h-5 w-5" />
+      )}
+      <span>{isLoading ? "Preparing video…" : (message ?? "Video preview unavailable")}</span>
+    </div>
+  );
 }
 
 function FileDeliverableCard({
@@ -98,7 +190,7 @@ function ImageDeliverableCard({
 }) {
   const [isViewerOpen, setViewerOpen] = useState(false);
   const preview = useLazyOutputImagePreview(data, getToken);
-  const openInFiles = useOpenImageInFiles(data, threadId, () => setViewerOpen(false));
+  const openInFiles = useOpenMediaInFiles(data, threadId, "image", () => setViewerOpen(false));
   return (
     <div className="overflow-hidden rounded-[12px] border border-border bg-background">
       <ImageThumbnail data={data} onOpen={() => setViewerOpen(true)} preview={preview} />
@@ -349,14 +441,19 @@ function useDeliverableDownload(
   return { isPreparing, start };
 }
 
-function useOpenImageInFiles(data: ArtifactData, threadId: string, afterOpen: () => void) {
+function useOpenMediaInFiles(
+  data: ArtifactData,
+  threadId: string,
+  type: "image" | "video",
+  afterOpen: () => void = () => undefined,
+) {
   const requestFileOpen = useAppStore((state) => state.requestFileOpen);
   const setActiveComputerTab = useAppStore((state) => state.setActiveComputerTab);
   const setPreviewPanelOpen = useAppStore((state) => state.setPreviewPanelOpen);
   return () => {
-    const path = imageWorkspacePath(data);
+    const path = mediaWorkspacePath(data, type);
     if (!path) {
-      toast.error("This image does not have a safe workspace path.");
+      toast.error(`This ${type} does not have a safe workspace path.`);
       return;
     }
     requestFileOpen(threadId, path);
@@ -366,36 +463,47 @@ function useOpenImageInFiles(data: ArtifactData, threadId: string, afterOpen: ()
   };
 }
 
-function useAutoOpenLatestImage(items: readonly ArtifactData[], threadId: string): void {
+function useAutoOpenLatestMedia(items: readonly ArtifactData[], threadId: string): void {
   const activeComputerTab = useAppStore((state) => state.activeComputerTab);
   const previewPanelOpen = useAppStore((state) => state.previewPanelOpen);
   const requestFileOpen = useAppStore((state) => state.requestFileOpen);
-  const latestImage = items.findLast(isImageArtifact);
-  const latestImagePath = latestImage ? imageWorkspacePath(latestImage) : null;
+  const latestMedia = items.findLast((item) => isImageArtifact(item) || isVideoArtifact(item));
+  const latestMediaPath = latestMedia
+    ? mediaWorkspacePath(latestMedia, isVideoArtifact(latestMedia) ? "video" : "image")
+    : null;
   useEffect(() => {
-    if (!previewPanelOpen || activeComputerTab !== "files" || !latestImagePath) return;
-    requestFileOpen(threadId, latestImagePath);
-  }, [activeComputerTab, latestImagePath, previewPanelOpen, requestFileOpen, threadId]);
+    if (!previewPanelOpen || activeComputerTab !== "files" || !latestMediaPath) return;
+    requestFileOpen(threadId, latestMediaPath);
+  }, [activeComputerTab, latestMediaPath, previewPanelOpen, requestFileOpen, threadId]);
 }
 
-function imageWorkspacePath(data: ArtifactData): string | null {
-  if (!isImageArtifact(data) || /[/\\]/u.test(data.filename) || data.filename.includes("..")) {
+function mediaWorkspacePath(data: ArtifactData, type: "image" | "video"): string | null {
+  const matchesType = type === "image" ? isImageArtifact(data) : isVideoArtifact(data);
+  if (!matchesType || /[/\\]/u.test(data.filename) || data.filename.includes("..")) {
     return null;
   }
-  return `.cheatcode/assets/images/${data.filename}`;
+  return `.cheatcode/assets/${type === "image" ? "images" : "videos"}/${data.filename}`;
 }
 
 function imageAlt(filename: string): string {
-  const readable = filename
+  const readable = readableFilename(filename);
+  return readable ? `Generated image: ${readable}` : "Generated image";
+}
+
+function readableFilename(filename: string): string {
+  return filename
     .replace(/\.[^.]+$/u, "")
     .replace(/[-_]+/gu, " ")
     .replace(/\s+/gu, " ")
     .trim();
-  return readable ? `Generated image: ${readable}` : "Generated image";
 }
 
 function isImageArtifact(data: ArtifactData): boolean {
   return data.kind === "image" || data.mimeType.startsWith("image/");
+}
+
+function isVideoArtifact(data: ArtifactData): boolean {
+  return data.kind === "video" || data.mimeType.startsWith("video/");
 }
 
 function deliverableIcon(kind: ArtifactData["kind"], mimeType: string) {
