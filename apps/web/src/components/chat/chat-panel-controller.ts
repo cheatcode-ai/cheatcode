@@ -33,7 +33,7 @@ import type { OlderMessagesLoadResult } from "@/components/chat/use-message-list
 import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
 import { invalidateChatLists, projectKeys, threadKeys } from "@/lib/api/query-keys";
-import { USER_SKILLS_QUERY } from "@/lib/api/skills";
+import { COMPOSER_SKILLS_QUERY, USER_SKILLS_QUERY } from "@/lib/api/skills";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 
@@ -402,6 +402,7 @@ function handleSkillCreatedData(
 ): void {
   const parsed = CHEATCODE_DATA_SCHEMAS["skill-created"].safeParse(data);
   if (parsed.success) {
+    void queryClient.invalidateQueries({ queryKey: COMPOSER_SKILLS_QUERY });
     void queryClient.invalidateQueries({ queryKey: USER_SKILLS_QUERY });
     actions.setActiveComputerTab("files");
     actions.setPreviewPanelOpen(true);

@@ -37,7 +37,8 @@ as raw bounded requests, show per-batch progress and actionable failures, and be
 a compact `/uploads/...` reference after each successful save. `/` is exclusively the
 persistent project-file browser and merges durable uploads with generated Deliverables. A selected
 Deliverable inserts its stable `/deliverables/<output-id>/<filename>` project reference;
-`@` is exclusively the user-skill picker. The file browser reads durable project-file metadata and
+`@` is exclusively the skill picker: it merges custom skills with active connected apps from the
+lightweight database-backed skill catalog. The file browser reads durable project-file metadata and
 does not create or wake Daytona merely because the user opens it.
 Computer preview wakeups run only while Browser is selected; opening Files never revives an
 unrelated dev server or changes the selected surface. Browser wakeups rotate the preview session

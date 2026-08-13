@@ -6,7 +6,7 @@ import { authenticate } from "./authenticate";
 import { type GatewayApp, type GatewayContext, requestDatabase } from "./gateway-env";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
 import { readDownstreamReleaseHealth } from "./release-health";
-import { listUserSkillsRoute } from "./skills-routes";
+import { listComposerSkillsRoute, listUserSkillsRoute } from "./skills-routes";
 import { clientErrorRoute, clientUserEventRoute, vitalsRoute } from "./telemetry-routes";
 
 export function registerCoreHttpRoutes(app: GatewayApp): void {
@@ -82,6 +82,11 @@ function registerOutputRoute(app: GatewayApp): void {
 }
 
 function registerSkillRoutes(app: GatewayApp): void {
+  app.get("/v1/composer/skills", async (c) => {
+    const userId = await authenticate(c);
+    await rateLimit(c, userId);
+    return listComposerSkillsRoute(requestDatabase(c), userId);
+  });
   app.get("/v1/skills", async (c) => {
     const userId = await authenticate(c);
     await rateLimit(c, userId);

@@ -14,8 +14,8 @@ Perform the user's requested action through their connected account. This playbo
 ## Workflow
 
 1. Identify the provider, intended action, target object, and whether the operation mutates external state.
-2. Call `composio_list_tools` with the provider and a focused search term to discover the exact supported action.
-3. If the list is truncated, narrow the search rather than guessing a tool slug.
+2. Call `composio_list_tools` with the provider and a concise action/object search to discover the exact supported action. The runtime automatically relaxes an over-specific zero-result query into ranked toolkit candidates.
+3. Inspect the returned candidates and their input schemas. If the list is truncated and no candidate fits, retry with a shorter action or object keyword rather than guessing a tool slug.
 4. Call `composio_execute` only for the explicit action the user requested.
 5. Verify the returned identifier, status, or content before reporting success.
 

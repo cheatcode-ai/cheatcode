@@ -1,29 +1,9 @@
 "use client";
 
-import type { IntegrationName } from "@cheatcode/types";
+import { type IntegrationName, integrationDisplayName } from "@cheatcode/types";
 import { Link as LinkIcon, X } from "@/components/ui";
 import { CheatcodeMark } from "@/components/ui/cheatcode-mark";
 import { cn } from "@/lib/ui/cn";
-
-// Curated display names for the most common toolkits. Any other connected toolkit
-// slug falls back to a prettified label via toolLabel().
-const TOOL_LABELS: Record<string, string> = {
-  github: "GitHub",
-  gmail: "Gmail",
-  linear: "Linear",
-  notion: "Notion",
-  slack: "Slack",
-};
-
-function toolLabel(slug: string): string {
-  return (
-    TOOL_LABELS[slug] ??
-    slug
-      .split("_")
-      .map((word) => (word ? word.charAt(0).toUpperCase() + word.slice(1) : word))
-      .join(" ")
-  );
-}
 
 export function ComposerContextChips({
   className,
@@ -49,7 +29,7 @@ export function ComposerContextChips({
       ) : null}
       {tool ? (
         <ComposerContextChip
-          label={toolLabel(tool)}
+          label={integrationDisplayName(tool)}
           onClear={onClearTool}
           tone="tool"
           typeLabel="Tool"

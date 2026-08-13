@@ -1,22 +1,20 @@
-import type { ToolkitCatalogEntry, UserSkill } from "@cheatcode/types/api";
+import type { ConnectedAppSkill, UserSkill } from "@cheatcode/types/api";
 import type { ComposerMenuItem } from "@/components/composer/composer-popover";
 
-const MAX_SLASH_ITEMS = 200;
+const MAX_MENTION_ITEMS = 200;
 
 /**
- * Builds the skill catalog used by the `@` composer trigger. The optional toolkit
- * input remains available to non-composer callers, while chat intentionally passes
- * skills only so `@` has one predictable meaning.
+ * Builds the custom-skill and connected-app catalog used by the `@` trigger.
  */
-export function slashSkillItems(
+export function mentionSkillItems(
   query: string,
   userSkills: UserSkill[] = [],
-  toolkits: readonly ToolkitCatalogEntry[] = [],
+  connectedApps: readonly ConnectedAppSkill[] = [],
 ): ComposerMenuItem[] {
   const needle = query.trim().toLowerCase();
   const items: ComposerMenuItem[] = [];
   for (const skill of userSkills) {
-    if (matchesQuery(skill.name, skill.description, needle) && items.length < MAX_SLASH_ITEMS) {
+    if (matchesQuery(skill.name, skill.description, needle) && items.length < MAX_MENTION_ITEMS) {
       items.push({
         hint: skill.description,
         id: `user-skill:${skill.id}`,
@@ -27,17 +25,15 @@ export function slashSkillItems(
       });
     }
   }
-  for (const toolkit of toolkits) {
-    if (
-      matchesQuery(toolkit.displayName, toolkit.description, needle) &&
-      items.length < MAX_SLASH_ITEMS
-    ) {
+  for (const app of connectedApps) {
+    const hint = `Use ${app.displayName} through your connected account.`;
+    if (matchesQuery(app.displayName, hint, needle) && items.length < MAX_MENTION_ITEMS) {
       items.push({
-        hint: toolkit.description,
-        id: `integration:${toolkit.name}`,
+        hint,
+        id: `integration:${app.name}`,
         insert: "",
-        integrationName: toolkit.name,
-        label: toolkit.displayName,
+        integrationName: app.name,
+        label: app.displayName,
         visual: "integration",
       });
     }

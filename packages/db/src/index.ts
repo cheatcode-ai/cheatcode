@@ -46,6 +46,7 @@ export {
   deleteUserIntegrationAccounts,
   expireComposioConnection,
   findUserIntegrationByConnectionId,
+  listActiveUserIntegrationNames,
   listAgentIntegrations,
   listUserIntegrations,
   setDefaultUserIntegration,

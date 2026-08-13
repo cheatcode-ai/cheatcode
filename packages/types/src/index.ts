@@ -35,7 +35,7 @@ export { ErrorCodeSchema, ErrorResponseSchema } from "./errors";
 export type { AgentRunId, ProjectId, ThreadId, UserId } from "./ids";
 export { toAgentRunId, toProjectId, toThreadId, toUserId } from "./ids";
 export type { IntegrationName } from "./integrations";
-export { IntegrationNameSchema } from "./integrations";
+export { IntegrationNameSchema, integrationDisplayName } from "./integrations";
 export type { CatalogModelId, LogicalModelId } from "./models";
 export {
   AGENT_MODEL_CATALOG,

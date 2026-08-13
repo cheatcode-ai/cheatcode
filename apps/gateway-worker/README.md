@@ -92,6 +92,8 @@ OAuth link.
 Composio v3.1 REST pages and catalog/tool payloads are byte-bounded before
 parsing, then schema- and cardinality-bounded so a provider pagination fault
 cannot grow Worker memory without limit.
+The lightweight `/v1/composer/skills` catalog reads active connected-app slugs from the reconciled
+database state alongside custom skills; opening `@` never waits on a provider catalog or account sync.
 Catalog and connected-account provider snapshots may load in parallel, but DB
 reconciliation begins only after both external reads settle. Connect creates
 the provider link first and compensates by deleting it if response validation

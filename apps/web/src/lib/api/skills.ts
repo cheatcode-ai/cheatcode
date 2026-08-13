@@ -1,6 +1,8 @@
 "use client";
 
 import {
+  type ComposerSkillsResponse,
+  ComposerSkillsResponseSchema,
   type SandboxIdeSession,
   SandboxIdeSessionSchema,
   type UserSkill,
@@ -13,7 +15,19 @@ import {
   readBoundedJsonResponse,
 } from "@/lib/api/authorized-fetch";
 
+export const COMPOSER_SKILLS_QUERY = ["composer-skills"] as const;
 export const USER_SKILLS_QUERY = ["user-skills"] as const;
+
+/** Custom skills and active connected apps available to the composer. */
+export async function fetchComposerSkills(
+  getToken: () => Promise<null | string>,
+  signal?: AbortSignal,
+): Promise<ComposerSkillsResponse> {
+  const response = await authorizedFetch(getToken, "/v1/composer/skills", signal ? { signal } : {});
+  return ComposerSkillsResponseSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
+  );
+}
 
 /** The caller's custom skills (body-less summaries). */
 export async function listUserSkills(
