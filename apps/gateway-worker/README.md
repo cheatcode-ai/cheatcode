@@ -92,6 +92,10 @@ OAuth link.
 Composio v3.1 REST pages and catalog/tool payloads are byte-bounded before
 parsing, then schema- and cardinality-bounded so a provider pagination fault
 cannot grow Worker memory without limit.
+The toolkit-action endpoint returns product-owned starter prompts, not Composio's
+agent-facing API descriptions. One shared presentation boundary covers every
+toolkit, removes transport jargon, asks for missing details in plain language,
+and requires confirmation before permanent changes.
 The lightweight `/v1/composer/skills` catalog reads active connected-app slugs from the reconciled
 database state alongside custom skills; opening `@` never waits on a provider catalog or account sync.
 Catalog and connected-account provider snapshots may load in parallel, but DB
