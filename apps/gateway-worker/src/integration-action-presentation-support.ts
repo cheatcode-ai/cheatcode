@@ -149,13 +149,7 @@ function naturalActionGoal(value: string): string {
   const nounPhrase = match[2].split(/\s+(?:by|for|from|in|inside|on|to|with)\s+/iu)[0] ?? match[2];
   const firstNoun = nounPhrase.split(/\s+/u)[0]?.toLocaleLowerCase() ?? "";
   const noun = nounPhrase.split(/\s+/u).at(-1)?.toLocaleLowerCase() ?? "";
-  if (
-    !noun ||
-    UNCOUNTABLE_NOUNS.has(firstNoun) ||
-    UNCOUNTABLE_NOUNS.has(noun) ||
-    isPluralNoun(firstNoun) ||
-    isPluralNoun(noun)
-  ) {
+  if (!noun || UNCOUNTABLE_NOUNS.has(noun) || isPluralNoun(firstNoun) || isPluralNoun(noun)) {
     return value;
   }
   const article = articleFor(match[2]);
