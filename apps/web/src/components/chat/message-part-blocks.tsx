@@ -10,11 +10,28 @@ export function MessageStatusShell({
   tone?: "danger" | "neutral";
 }) {
   return (
+    <MessageDoubleShell innerClassName="px-4 py-3.5" tone={tone}>
+      {children}
+    </MessageDoubleShell>
+  );
+}
+
+export function MessageDoubleShell({
+  children,
+  innerClassName,
+  tone = "neutral",
+}: {
+  children: ReactNode;
+  innerClassName?: string;
+  tone?: "danger" | "neutral";
+}) {
+  return (
     <div className="cc-fade-in overflow-hidden rounded-[20px] border-2 border-border bg-background p-0.5">
       <div
         className={cn(
-          "rounded-[16px] bg-gradient-to-b to-background px-4 py-3.5",
+          "rounded-[16px] bg-gradient-to-b to-background",
           tone === "danger" ? "from-danger-bg" : "from-bg-secondary",
+          innerClassName,
         )}
       >
         {children}
