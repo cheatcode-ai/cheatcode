@@ -1,5 +1,7 @@
 # Cheatcode
 
+[![Static Checks](https://github.com/cheatcode-ai/cheatcode/actions/workflows/static-checks.yml/badge.svg?branch=main)](https://github.com/cheatcode-ai/cheatcode/actions/workflows/static-checks.yml) [![Node.js 24.18.0](https://img.shields.io/badge/Node.js-24.18.0-5FA04E?logo=nodedotjs&logoColor=white)](package.json) [![pnpm 11.15.0](https://img.shields.io/badge/pnpm-11.15.0-F69220?logo=pnpm&logoColor=white)](package.json) [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?logo=typescript&logoColor=white)](tsconfig.base.json) [![License: PolyForm Noncommercial 1.0.0](https://img.shields.io/badge/license-PolyForm%20Noncommercial%201.0.0-111827)](LICENSE)
+
 Cheatcode is a source-available generalist AI agent platform. Give it an
 outcome—not a sequence of tool calls—and it can build applications, create
 documents and media, research the live web, and operate browser workflows in an
@@ -10,7 +12,18 @@ stack without surrendering provider choice. Users bring their own model keys;
 the platform keeps long-running work, browser execution, files, generated
 outputs, and tenant data behind explicit boundaries.
 
-![Cheatcode home screen](.github/assets/cheatcode-home.png)
+[Try Cheatcode](https://trycheatcode.com) · [Quickstart](#quickstart) · [Architecture](#architecture) · [Contributing](CONTRIBUTING.md) · [Security](SECURITY.md)
+
+## What it does
+
+| Surface | Outcome |
+|---|---|
+| Web and mobile apps | Builds, runs, inspects, and iterates on applications inside isolated project workspaces. |
+| Research | Searches the live web, synthesizes cited findings, and produces reusable reports. |
+| Documents and data | Creates documents, slides, spreadsheets, PDFs, and other downloadable outputs. |
+| Media | Generates and works with images, audio, and video through configured providers. |
+| Browser workflows | Navigates and operates websites in a project-scoped browser runtime. |
+| Connected apps | Uses explicitly connected services through bounded, user-authorized actions. |
 
 ## Architecture
 
@@ -34,7 +47,8 @@ flowchart LR
 - Daytona supplies one isolated workspace and browser runtime per project.
 - Supabase Postgres stores metadata and durable workflow state through three
   least-privilege roles. Generated files live in R2, not Postgres.
-- Clerk provides authentication; Polar and Composio are optional local groups.
+- Clerk provides authentication; Polar and Composio support billing and
+  connected-app access.
 
 Package and application READMEs document the detailed ownership boundaries.
 
@@ -45,7 +59,7 @@ You need:
 - Node `24.18.0` and pnpm `11.15.0` (the exact versions in `package.json`);
 - Docker with Docker Compose;
 - a dedicated Supabase project—the free tier is sufficient;
-- Clerk development keys; and
+- Clerk development keys;
 - a Daytona API key plus an immutable Cheatcode sandbox snapshot; and
 - a Morph API key for server-side FastApply edits.
 
