@@ -21,6 +21,7 @@ export interface ModelMenuController {
     displayOption: AgentModelOption;
     disabledModels: readonly string[];
     isOpen: boolean;
+    isPolicyLoading: boolean;
     selectedOption: AgentModelOption;
     shouldRender: boolean;
   };
@@ -37,13 +38,14 @@ export function useModelMenuController({
 }): ModelMenuController {
   const agentModelId = useAppStore((state) => state.agentModelId);
   const setAgentModelId = useAppStore((state) => state.setAgentModelId);
-  const disabledModels = useProfileQuery().data?.disabledModels ?? [];
   const menuRef = useRef<HTMLDivElement>(null);
   const menuId = `model-menu-${useId()}`;
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const setIsOpen = onOpenChange ?? setInternalOpen;
   const shouldRender = useMenuPresence(isOpen);
+  const profileQuery = useProfileQuery(shouldRender);
+  const disabledModels = profileQuery.data?.disabledModels ?? [];
   const selectedOption = agentModelOption(agentModelId);
   const resolvedOption = resolvedModelId ? agentModelOption(resolvedModelId) : null;
   const displayOption =
@@ -61,7 +63,14 @@ export function useModelMenuController({
       toggle: () => setIsOpen(!isOpen),
     },
     meta: { menuId, menuRef },
-    state: { displayOption, disabledModels, isOpen, selectedOption, shouldRender },
+    state: {
+      displayOption,
+      disabledModels,
+      isOpen,
+      isPolicyLoading: shouldRender && profileQuery.isLoading,
+      selectedOption,
+      shouldRender,
+    },
   };
 }
 
