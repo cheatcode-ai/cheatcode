@@ -21,8 +21,6 @@ export interface AgentEnv extends AnalyticsBindings {
   DAYTONA_WORKSPACE_VOLUME: string;
   HYPERDRIVE: Hyperdrive;
   MORPH_API_KEY: WorkerSecret;
-  OUTPUT_DOWNLOAD_BASE_URL?: string;
-  OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
   PREVIEW_TOKEN_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME?: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;

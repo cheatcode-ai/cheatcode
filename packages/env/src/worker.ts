@@ -1,4 +1,5 @@
 export { AgentWorkerEnvSchema } from "./agent-worker";
+export { ArtifactWorkerEnvSchema } from "./artifact-worker";
 export { GatewayWorkerEnvSchema } from "./gateway-worker";
 export { type PreviewProxyEnv, PreviewProxyEnvSchema } from "./preview-proxy";
 export { WebhooksWorkerEnvSchema } from "./webhooks-worker";

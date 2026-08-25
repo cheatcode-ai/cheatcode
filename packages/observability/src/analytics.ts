@@ -100,18 +100,39 @@ export interface ErrorEvent {
   workerName: string;
 }
 
-interface PerformanceMetric {
+export interface PerformanceMetric {
+  authSecretMs?: number;
+  authVerificationMs?: number;
+  coldState?: string;
+  colo?: string;
+  dbConnectionMs?: number;
+  dbContextMs?: number;
   dbQueryMs?: number;
+  durableObjectMs?: number;
   envTag?: string;
+  finalTokenMs?: number;
+  firstModelTextMs?: number;
+  firstStatusMs?: number;
   llmMs?: number;
+  logicalModelId?: LogicalModelId;
   metricName?: string;
+  placement?: string;
+  provider?: string;
   queueWaitMs?: number;
+  rateLimitMs?: number;
+  reconnectState?: "new" | "reconnect";
+  responseHeadersMs?: number;
   route: string;
+  runCompletionMs?: number;
   sandboxMs?: number;
+  serviceBindingMs?: number;
   statusClass: string;
   totalMs?: number;
   ttftMs?: number;
+  userLookupMs?: number;
+  variant?: string;
   versionTag?: string;
+  workflowAcceptanceMs?: number;
   workerName: string;
 }
 
@@ -215,6 +236,13 @@ export function emitPerformanceMetric(env: AnalyticsBindings, metric: Performanc
       metric.versionTag,
       metric.statusClass,
       metric.metricName,
+      metric.colo,
+      metric.placement,
+      metric.reconnectState,
+      metric.provider,
+      metric.logicalModelId,
+      metric.variant,
+      metric.coldState,
     ],
     doubles: [
       metric.ttftMs,
@@ -223,6 +251,20 @@ export function emitPerformanceMetric(env: AnalyticsBindings, metric: Performanc
       metric.sandboxMs,
       metric.llmMs,
       metric.queueWaitMs,
+      metric.authSecretMs,
+      metric.authVerificationMs,
+      metric.userLookupMs,
+      metric.rateLimitMs,
+      metric.dbConnectionMs,
+      metric.dbContextMs,
+      metric.serviceBindingMs,
+      metric.durableObjectMs,
+      metric.workflowAcceptanceMs,
+      metric.responseHeadersMs,
+      metric.firstStatusMs,
+      metric.firstModelTextMs,
+      metric.finalTokenMs,
+      metric.runCompletionMs,
     ],
   });
 }

@@ -72,7 +72,7 @@ export interface LocalEnvSurface {
   workersOnly: boolean;
 }
 
-export interface SupabasePoolerTarget {
+export interface SupabaseDirectTarget {
   database: string;
   hostname: string;
   port: string;
@@ -88,6 +88,7 @@ const RUNTIME_DATABASE_KEYS = [
 const SUPABASE_PROJECT_REF_PATTERN = /^[a-z0-9]{20}$/u;
 const SUPABASE_POOLER_HOST_PATTERN =
   /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+pooler\.supabase\.com$/u;
+const SUPABASE_DIRECT_HOST_PATTERN = /^db\.([a-z0-9]{20})\.supabase\.co$/u;
 
 export function parseSupabaseProjectRef(value: string, label = "Supabase project ref"): string {
   if (!SUPABASE_PROJECT_REF_PATTERN.test(value)) {
@@ -104,46 +105,51 @@ export function validateSupabasePoolerHost(value: string): string {
   return hostname;
 }
 
-export function validateSupabaseSessionPoolerUrl(
+export function validateSupabaseDirectUrl(
   raw: string,
   envKey: string,
   expectedRole: string,
-): SupabasePoolerTarget {
+): SupabaseDirectTarget {
   const url = parsePostgresUrl(raw, envKey);
-  const username = decodeUrlComponent(url.username, `${envKey} username`);
-  const separator = username.lastIndexOf(".");
-  const role = username.slice(0, separator);
-  const projectRef = parseSupabaseProjectRef(
-    username.slice(separator + 1),
-    `${envKey} project ref`,
-  );
-  validatePoolerUrlShape(url, envKey, role, expectedRole);
-  return {
-    database: url.pathname.slice(1),
-    hostname: url.hostname,
-    port: url.port,
-    projectRef,
-  };
+  const projectRef = SUPABASE_DIRECT_HOST_PATTERN.exec(url.hostname)?.[1];
+  const hasTlsParameters =
+    url.searchParams.size === 2 &&
+    url.searchParams.get("sslmode") === "require" &&
+    url.searchParams.get("uselibpqcompat") === "true";
+  const isValid =
+    decodeUrlComponent(url.username, `${envKey} username`) === expectedRole &&
+    Boolean(url.password) &&
+    projectRef !== undefined &&
+    url.port === "5432" &&
+    url.pathname === "/postgres" &&
+    hasTlsParameters &&
+    !url.hash;
+  if (!isValid || !projectRef) {
+    throw new Error(
+      `${envKey} must use ${expectedRole} on the Supabase Direct endpoint (db.<project-ref>.supabase.co:5432/postgres) with sslmode=require and uselibpqcompat=true.`,
+    );
+  }
+  return { database: "postgres", hostname: url.hostname, port: url.port, projectRef };
 }
 
 export function validateSupabaseRuntimeDatabaseUrls(
   values: Record<string, string>,
-): SupabasePoolerTarget {
+): SupabaseDirectTarget {
   const targets = RUNTIME_DATABASE_KEYS.map(([envKey, role]) => {
     const value = values[envKey];
     if (!value) {
       throw new Error(`.env.local is missing ${envKey}.`);
     }
-    return [envKey, validateSupabaseSessionPoolerUrl(value, envKey, role)] as const;
+    return [envKey, validateSupabaseDirectUrl(value, envKey, role)] as const;
   });
   const first = targets[0]?.[1];
   if (!first) {
     throw new Error("Supabase runtime database URL contract is empty.");
   }
   for (const [envKey, target] of targets.slice(1)) {
-    if (!samePoolerTarget(first, target)) {
+    if (!sameRuntimeTarget(first, target)) {
       throw new Error(
-        `${envKey} must share the session-pooler host, port, database, and project ref used by all runtime database URLs.`,
+        `${envKey} must share the direct host, port, database, and project ref used by all runtime database URLs.`,
       );
     }
   }
@@ -220,31 +226,6 @@ function parsePostgresUrl(raw: string, envKey: string): URL {
   }
 }
 
-function validatePoolerUrlShape(
-  url: URL,
-  envKey: string,
-  actualRole: string,
-  expectedRole: string,
-): void {
-  const hasTlsParameters =
-    url.searchParams.size === 2 &&
-    url.searchParams.get("sslmode") === "require" &&
-    url.searchParams.get("uselibpqcompat") === "true";
-  const isValid =
-    actualRole === expectedRole &&
-    Boolean(url.password) &&
-    SUPABASE_POOLER_HOST_PATTERN.test(url.hostname) &&
-    url.port === "5432" &&
-    url.pathname === "/postgres" &&
-    hasTlsParameters &&
-    !url.hash;
-  if (!isValid) {
-    throw new Error(
-      `${envKey} must use ${expectedRole}.<project-ref> on a Supabase session pooler (*.pooler.supabase.com:5432/postgres) with sslmode=require and uselibpqcompat=true.`,
-    );
-  }
-}
-
 function decodeUrlComponent(value: string, label: string): string {
   try {
     return decodeURIComponent(value);
@@ -253,7 +234,7 @@ function decodeUrlComponent(value: string, label: string): string {
   }
 }
 
-function samePoolerTarget(left: SupabasePoolerTarget, right: SupabasePoolerTarget): boolean {
+function sameRuntimeTarget(left: SupabaseDirectTarget, right: SupabaseDirectTarget): boolean {
   return (
     left.hostname === right.hostname &&
     left.port === right.port &&

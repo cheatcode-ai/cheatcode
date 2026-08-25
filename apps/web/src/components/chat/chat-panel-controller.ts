@@ -7,6 +7,7 @@ import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChatOnDataCallback, ChatStatus } from "ai";
 import { useRouter } from "next/navigation";
+import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ChatSubmissionSelection } from "@/components/chat/chat-panel-submission";
@@ -34,10 +35,18 @@ import { agentModelRequestValue } from "@/lib/agent-models";
 import { cancelRun, getThread } from "@/lib/api/project-thread";
 import { invalidateChatLists, projectKeys, threadKeys } from "@/lib/api/query-keys";
 import { COMPOSER_SKILLS_QUERY, USER_SKILLS_QUERY } from "@/lib/api/skills";
+import { type BrowserPerformanceMetricName, reportBrowserPerformanceMetric } from "@/lib/rum";
 import { useAppStore } from "@/lib/store/app-store";
 import { rememberStreamSeq, streamResumeCursor } from "@/lib/stream/stream-seq";
 
 const EMPTY_MESSAGES: CheatcodeUIMessage[] = [];
+const EMPTY_PROVISIONAL_MODEL = { streamId: null, text: "" } as const;
+type ProvisionalModelState = { streamId: string | null; text: string };
+type RunTimingMetric = Extract<BrowserPerformanceMetricName, `run_${string}`>;
+interface RunTimingState {
+  reported: Set<RunTimingMetric>;
+  startedAt: number | null;
+}
 
 export interface ChatPanelProps {
   activeRunId: null | string;
@@ -108,18 +117,18 @@ function useChatRuntimeBase(
   const hasReceivedStreamDataRef = useRef(false);
   const hasSubmittedRef = useRef(false);
   const pendingSubmissionRef = useRef<PendingSubmission | null>(null);
+  const runTimingRef = useRef<RunTimingState>({ reported: new Set(), startedAt: null });
   const [runStartedAt, setRunStartedAt] = useState<null | number>(() =>
     input.activeRunId ? Date.now() : null,
   );
+  const [provisionalModel, setProvisionalModel] =
+    useState<ProvisionalModelState>(EMPTY_PROVISIONAL_MODEL);
   useEffect(() => {
     if (input.activeRunId !== null) {
       setRunStartedAt((current) => current ?? Date.now());
     }
   }, [input.activeRunId]);
-  const transport = useMemo(
-    () => createChatTransport(input.threadId, getToken),
-    [getToken, input.threadId],
-  );
+  const transport = useRunTimingTransport(input.threadId, getToken, runTimingRef);
   const cancelRunMutation = useCancelRun(input.threadId, getToken);
   const chat = useChatSession({
     activeRunId: input.activeRunId,
@@ -129,6 +138,8 @@ function useChatRuntimeBase(
     initialMessages: input.initialMessages ?? EMPTY_MESSAGES,
     pendingSubmissionRef,
     queryClient,
+    runTimingRef,
+    setProvisionalModel,
     setRunStartedAt,
     sandboxActions: store,
     viewApplier,
@@ -145,11 +156,28 @@ function useChatRuntimeBase(
     hasReceivedStreamDataRef,
     hasSubmittedRef,
     pendingSubmissionRef,
+    provisionalModel,
     queryClient,
+    runTimingRef,
     router,
     runStartedAt,
+    setProvisionalModel,
     setRunStartedAt,
   };
+}
+
+function useRunTimingTransport(
+  threadId: string,
+  getToken: () => Promise<null | string>,
+  runTimingRef: { current: RunTimingState },
+) {
+  return useMemo(
+    () =>
+      createChatTransport(threadId, getToken, () => {
+        recordRunTiming(runTimingRef.current, "run_response_headers");
+      }),
+    [getToken, runTimingRef, threadId],
+  );
 }
 
 function usePanelSubmission(
@@ -172,6 +200,8 @@ function usePanelSubmission(
       selectedModel,
       sendMessage: runtime.chat.sendMessage,
       setDraft: runtime.store.setDraft,
+      startRunTiming: (startedAt: number) =>
+        startRunTiming(runtime.runTimingRef.current, startedAt),
       setRunStartedAt: runtime.setRunStartedAt,
       status: runtime.chat.status,
       threadId: input.threadId,
@@ -193,6 +223,7 @@ function usePanelSubmission(
       runtime.queryClient,
       runtime.router,
       runtime.store.setDraft,
+      runtime.runTimingRef,
       runtime.setRunStartedAt,
       selectedModel,
     ],
@@ -241,9 +272,15 @@ function useChatPanelActions(
   submission: ReturnType<typeof useChatSubmission>,
 ) {
   const stopRun = useCallback(() => {
+    runtime.setProvisionalModel(EMPTY_PROVISIONAL_MODEL);
     runtime.chat.stop();
     runtime.cancelRunMutation.mutate(input.activeRunId);
-  }, [input.activeRunId, runtime.cancelRunMutation, runtime.chat.stop]);
+  }, [
+    input.activeRunId,
+    runtime.cancelRunMutation,
+    runtime.chat.stop,
+    runtime.setProvisionalModel,
+  ]);
   const setDraft = useCallback(
     (value: string) => runtime.store.setDraft(input.threadId, value),
     [input.threadId, runtime.store.setDraft],
@@ -271,6 +308,7 @@ function chatPanelState(input: ChatPanelProps, runtime: ReturnType<typeof useCha
       (runtime.pendingSubmissionRef.current !== null ||
         (!runtime.hasReceivedStreamDataRef.current && lastMessage?.role !== "assistant")),
     messages: runtime.messages,
+    provisionalText: runtime.provisionalModel.text,
     runStartedAt: runtime.runStartedAt,
   };
 }
@@ -319,6 +357,8 @@ function useChatSession(input: {
   initialMessages: CheatcodeUIMessage[];
   pendingSubmissionRef: { current: PendingSubmission | null };
   queryClient: ReturnType<typeof useQueryClient>;
+  runTimingRef: { current: RunTimingState };
+  setProvisionalModel: Dispatch<SetStateAction<ProvisionalModelState>>;
   setRunStartedAt: (value: null | number) => void;
   sandboxActions: SandboxStatusActions;
   viewApplier: ComputerViewApplier;
@@ -363,8 +403,18 @@ function handleStreamData(
 ): void {
   input.hasReceivedStreamDataRef.current = true;
   input.pendingSubmissionRef.current = null;
+  if (isFirstStatusPart(part)) {
+    recordRunTiming(input.runTimingRef.current, "run_first_status");
+  }
   if (part.type === "data-seq") {
     handleSequenceData(part.data, input.threadId);
+  }
+  if (part.type === "data-model-provisional") {
+    const provisional = CHEATCODE_DATA_SCHEMAS["model-provisional"].safeParse(part.data);
+    if (provisional.success && provisional.data.phase === "delta") {
+      recordRunTiming(input.runTimingRef.current, "run_first_model_text");
+    }
+    handleProvisionalModelData(part.data, input.setProvisionalModel);
   }
   const viewCommand = computerViewEffect(part);
   if (viewCommand) {
@@ -383,6 +433,23 @@ function handleSequenceData(data: unknown, threadId: string): void {
   if (parsed.success) {
     rememberStreamSeq(threadId, parsed.data.seq);
   }
+}
+
+function handleProvisionalModelData(
+  data: unknown,
+  setProvisionalModel: Dispatch<SetStateAction<ProvisionalModelState>>,
+): void {
+  const parsed = CHEATCODE_DATA_SCHEMAS["model-provisional"].safeParse(data);
+  if (!parsed.success || parsed.data.phase === "reset") {
+    if (parsed.success) setProvisionalModel(EMPTY_PROVISIONAL_MODEL);
+    return;
+  }
+  const delta = parsed.data;
+  setProvisionalModel((current) =>
+    current.streamId === delta.streamId
+      ? { streamId: current.streamId, text: current.text + delta.delta }
+      : { streamId: delta.streamId, text: delta.delta },
+  );
 }
 
 function handleProjectCreatedData(
@@ -425,15 +492,34 @@ function handleProjectCreated(
 }
 
 function handleStreamFinish(isError: boolean, input: Parameters<typeof useChatSession>[0]): void {
+  recordRunTiming(input.runTimingRef.current, "run_stream_finished");
   if (!isError) {
     input.pendingSubmissionRef.current = null;
   }
   input.hasSubmittedRef.current = false;
+  input.setProvisionalModel(EMPTY_PROVISIONAL_MODEL);
   input.setRunStartedAt(null);
   for (const queryKey of [threadKeys.detail(input.threadId), threadKeys.messages(input.threadId)]) {
     void input.queryClient.invalidateQueries({ queryKey });
   }
   void invalidateChatLists(input.queryClient);
+}
+
+function isFirstStatusPart(part: Parameters<ChatOnDataCallback<CheatcodeUIMessage>>[0]): boolean {
+  return part.type === "data-sandbox-status" || part.type === "data-error";
+}
+
+function startRunTiming(state: RunTimingState, startedAt: number): void {
+  state.startedAt = startedAt;
+  state.reported.clear();
+}
+
+function recordRunTiming(state: RunTimingState, metric: RunTimingMetric): void {
+  if (state.startedAt === null || state.reported.has(metric)) {
+    return;
+  }
+  state.reported.add(metric);
+  reportBrowserPerformanceMetric(metric, Math.max(0, Date.now() - state.startedAt));
 }
 
 function useOlderMessageLoader(

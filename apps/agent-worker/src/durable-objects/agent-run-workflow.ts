@@ -14,6 +14,7 @@ import { z } from "zod";
 import type { AgentRun } from "./agent-run";
 import type { AgentRunEnv } from "./agent-run-env";
 import { toAgentRunStreamError } from "./agent-run-errors";
+import { provisionalModelResetChunk } from "./agent-run-provisional";
 import {
   canonicalResearchReport,
   isResearchReportTool,
@@ -290,13 +291,14 @@ async function executeModelWorkflowStep(input: {
   const serialized = await input.workflowStep.do(
     `generate model turn ${input.stepIndex}`,
     MODEL_STEP,
-    async () =>
+    async (stepContext) =>
       serializeWorkflowValue(
         await generateWorkflowModelStep(
           input.env,
           input.workflowInstanceId,
           input.payload,
           input.state,
+          { stepIndex: input.stepIndex, workflowAttempt: stepContext.attempt },
         ),
       ),
   );
@@ -391,7 +393,7 @@ async function publishModelStep(
   model: WorkflowModelStepResult,
   stepIndex: number,
 ): Promise<WorkflowAgentState> {
-  const chunks: UIMessageChunk[] = [];
+  const chunks: UIMessageChunk[] = [provisionalModelResetChunk()];
   if (model.fallback) {
     chunks.push({ data: { ...model.fallback, v: 1 }, type: "data-model-fallback" });
   }

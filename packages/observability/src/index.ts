@@ -1,4 +1,4 @@
-export type { AgentMetric, AnalyticsBindings } from "./analytics";
+export type { AgentMetric, AnalyticsBindings, PerformanceMetric } from "./analytics";
 export {
   emitAgentMetric,
   emitErrorEvent,
@@ -16,6 +16,8 @@ export {
 } from "./http-json";
 export type { Logger } from "./logger";
 export { createLogger } from "./logger";
+export type { PerformanceRecorder } from "./performance";
+export { createPerformanceRecorder, safeServerTiming } from "./performance";
 export { redactSecrets } from "./redact";
 export {
   createPerformanceMetricMiddleware,

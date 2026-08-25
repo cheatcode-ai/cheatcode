@@ -22,12 +22,13 @@ interface ReconnectRequest {
 export function createChatTransport(
   threadId: string,
   getToken: () => Promise<null | string>,
+  onRunResponseHeaders?: () => void,
 ): CheatcodeChatTransport {
   let cursorSource = () => "0";
   const encodedThreadId = encodeURIComponent(threadId);
   const transport = new DefaultChatTransport<CheatcodeUIMessage>({
     api: gatewayRequestUrl(`/v1/threads/${encodedThreadId}/runs`),
-    fetch: createBoundedChatFetch(getToken),
+    fetch: createBoundedChatFetch(getToken, onRunResponseHeaders),
     prepareReconnectToStreamRequest: async (): Promise<ReconnectRequest> => {
       const cursor = cursorSource();
       if (cursor !== "0") {
@@ -89,7 +90,10 @@ export function chatErrorMessage(message: string): string {
   return hint ? `${parsedResponse.data.error.message}. ${hint}` : parsedResponse.data.error.message;
 }
 
-function createBoundedChatFetch(getToken: () => Promise<null | string>) {
+function createBoundedChatFetch(
+  getToken: () => Promise<null | string>,
+  onRunResponseHeaders?: () => void,
+) {
   return async (input: RequestInfo | URL, init: RequestInit = {}): Promise<Response> => {
     const timeout = AbortSignal.timeout(CHAT_AUTH_TIMEOUT_MS);
     const authSignal = init.signal ? AbortSignal.any([init.signal, timeout]) : timeout;
@@ -100,6 +104,9 @@ function createBoundedChatFetch(getToken: () => Promise<null | string>) {
     const headers = new Headers(init.headers);
     headers.set("Authorization", `Bearer ${token}`);
     const response = await globalThis.fetch(input, { ...init, headers });
+    if (init.method?.toUpperCase() === "POST") {
+      onRunResponseHeaders?.();
+    }
     if (response.ok) {
       return response;
     }

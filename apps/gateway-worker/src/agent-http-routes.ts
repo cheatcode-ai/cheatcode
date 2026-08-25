@@ -1,3 +1,4 @@
+import { createLogger } from "@cheatcode/observability";
 import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
 import {
   agentServiceHeaders,
@@ -6,7 +7,7 @@ import {
 } from "./agent-forwarding";
 import { validateSandboxConsoleQuery } from "./agent-proxy-routes";
 import { authenticate, requireVerifiedClerkEmail } from "./authenticate";
-import type { GatewayApp, GatewayContext } from "./gateway-env";
+import { type GatewayApp, type GatewayContext, requestPerformance } from "./gateway-env";
 import { completeIdempotentRunRequest, prepareIdempotentRunRequest } from "./idempotency";
 import { rateLimit, withRateLimitHeaders } from "./rate-limit";
 
@@ -29,8 +30,10 @@ export function registerAgentHttpRoutes(app: GatewayApp): void {
 async function createRunRoute(c: GatewayContext): Promise<Response> {
   const userId = await authenticate(c);
   const rateLimitHeaders = await rateLimit(c, userId);
-  await requireVerifiedClerkEmail(c.req.raw, c.env);
-  const prepared = await prepareIdempotentRunRequest(c.env, c.req.raw, userId);
+  await requireVerifiedClerkEmail(c);
+  const prepared = await requestPerformance(c).measure("durableObject", () =>
+    prepareIdempotentRunRequest(c.env, c.req.raw, userId),
+  );
   if (prepared.replay) {
     return withRateLimitHeaders(prepared.replay, rateLimitHeaders);
   }
@@ -43,7 +46,7 @@ async function createRunRoute(c: GatewayContext): Promise<Response> {
     request.headers.set("X-Cheatcode-Idempotency-Key-Hash", prepared.keyHash);
     request.headers.set("X-Cheatcode-Request-Body-Hash", prepared.bodyHash);
     request.headers.set("X-Cheatcode-User-Id", userId);
-    return c.env.AGENT.fetch(request);
+    return requestPerformance(c).measure("serviceBinding", () => c.env.AGENT.fetch(request));
   };
   let response: Response;
   let hasRetried = false;
@@ -61,6 +64,16 @@ async function createRunRoute(c: GatewayContext): Promise<Response> {
     // its response was delivered. The same persisted request identity makes retry safe.
     response = await forward();
   }
-  await completeIdempotentRunRequest(c.env, userId, prepared.key, prepared.claimId, response);
+  if (response.status === 202) {
+    c.executionCtx.waitUntil(
+      completeIdempotentRunRequest(c.env, userId, prepared.key, prepared.claimId, response).catch(
+        (error: unknown) => {
+          createLogger({ userId }).warn("run_idempotency_completion_deferred", { error });
+        },
+      ),
+    );
+  } else {
+    await completeIdempotentRunRequest(c.env, userId, prepared.key, prepared.claimId, response);
+  }
   return withRateLimitHeaders(response, rateLimitHeaders);
 }

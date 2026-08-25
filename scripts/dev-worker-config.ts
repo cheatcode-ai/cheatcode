@@ -3,8 +3,8 @@ import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type ConfigRecord, isRecord, parseJsoncObject } from "./jsonc";
 import {
+  validateSupabaseDirectUrl,
   validateSupabaseRuntimeDatabaseUrls,
-  validateSupabaseSessionPoolerUrl,
 } from "./local-env-contract";
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -13,6 +13,7 @@ const GATEWAY_WORKER_DIR = join(ROOT, "apps/gateway-worker");
 const WORKER_CONFIGS = [
   "wrangler.jsonc",
   "../agent-worker/wrangler.jsonc",
+  "../artifact-worker/wrangler.jsonc",
   "../webhooks-worker/wrangler.jsonc",
   "../preview-proxy/wrangler.jsonc",
 ] as const;
@@ -24,6 +25,10 @@ const PRODUCTION_DATABASE_URL_BINDINGS: Partial<
 > = {
   "wrangler.jsonc": { envKey: "SUPABASE_GATEWAY_DATABASE_URL", role: "app_gateway" },
   "../agent-worker/wrangler.jsonc": {
+    envKey: "SUPABASE_AGENT_DATABASE_URL",
+    role: "app_agent",
+  },
+  "../artifact-worker/wrangler.jsonc": {
     envKey: "SUPABASE_AGENT_DATABASE_URL",
     role: "app_agent",
   },
@@ -47,8 +52,11 @@ const LOCAL_WORKER_SECRET_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "DAYTONA_API_KEY",
     "DEEPSEEK_PLATFORM_API_KEY",
     "MORPH_API_KEY",
-    "OUTPUT_DOWNLOAD_SIGNING_SECRET",
     "PREVIEW_TOKEN_SECRET",
+  ],
+  "../artifact-worker/wrangler.jsonc": [
+    "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
+    "OUTPUT_DOWNLOAD_SIGNING_SECRET",
   ],
   "../webhooks-worker/wrangler.jsonc": [
     "CLERK_WEBHOOK_SIGNING_SECRET",
@@ -72,6 +80,7 @@ const LOCAL_WORKER_VAR_BINDINGS: Record<WorkerConfig, readonly string[]> = {
     "DAYTONA_TARGET",
     "DAYTONA_WORKSPACE_VOLUME",
   ],
+  "../artifact-worker/wrangler.jsonc": [],
   "../webhooks-worker/wrangler.jsonc": [
     "POLAR_PRODUCT_ID_PREMIUM",
     "POLAR_PRODUCT_ID_PRO",
@@ -150,6 +159,12 @@ function applyLocalWorkerOverrides(
       },
     };
   }
+  if (configPath === "../artifact-worker/wrangler.jsonc") {
+    return {
+      ...configWithLocalDatabase,
+      vars: { ...localVars, OUTPUT_DOWNLOAD_BASE_URL: "http://127.0.0.1:8787" },
+    };
+  }
   if (configPath !== "../agent-worker/wrangler.jsonc") {
     return { ...configWithLocalDatabase, vars: localVars };
   }
@@ -157,7 +172,6 @@ function applyLocalWorkerOverrides(
     ...configWithLocalDatabase,
     vars: {
       ...localVars,
-      OUTPUT_DOWNLOAD_BASE_URL: "http://127.0.0.1:8787",
       PREVIEW_HOSTNAME: "localhost:8787",
     },
   };
@@ -237,7 +251,7 @@ function productionDatabaseConnectionString(
   if (!raw) {
     throw new Error(`.env.local is missing ${expected.envKey}.`);
   }
-  validateSupabaseSessionPoolerUrl(raw, expected.envKey, expected.role);
+  validateSupabaseDirectUrl(raw, expected.envKey, expected.role);
   return raw;
 }
 
@@ -260,10 +274,13 @@ function productionVarsRemovedForLocal(configPath: WorkerConfig, vars: ConfigRec
       DAYTONA_SANDBOX_SNAPSHOT: _snapshot,
       DAYTONA_TARGET: _target,
       DAYTONA_WORKSPACE_VOLUME: _workspaceVolume,
-      OUTPUT_DOWNLOAD_BASE_URL: _outputDownloadBaseUrl,
       PREVIEW_HOSTNAME: _previewHostname,
       ...localVars
     } = vars;
+    return localVars;
+  }
+  if (configPath === "../artifact-worker/wrangler.jsonc") {
+    const { OUTPUT_DOWNLOAD_BASE_URL: _outputDownloadBaseUrl, ...localVars } = vars;
     return localVars;
   }
   if (configPath === "../preview-proxy/wrangler.jsonc") {

@@ -19,6 +19,7 @@ import { toAgentRunId, toProjectId, toThreadId, toUserId, type UserId } from "@c
 import type { CreateRun, ProjectSummary } from "@cheatcode/types/api";
 import { QUOTA_FEATURES } from "@cheatcode/types/quota";
 import type { AgentEnv } from "./agent-env";
+import { durableObjectLocationHint } from "./durable-object-location";
 import type { AgentRun } from "./durable-objects/agent-run";
 import { type StartRunInput, StartRunInputSchema } from "./durable-objects/agent-run-schemas";
 import type { ProjectSandbox } from "./durable-objects/project-sandbox";
@@ -63,7 +64,9 @@ export async function sandboxForUser(
 async function sandboxIdentityForUser(env: AgentEnv, userId: string) {
   const sandboxName = await userSandboxName(userId);
   return {
-    sandbox: env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName)),
+    sandbox: env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(sandboxName), {
+      locationHint: durableObjectLocationHint(env.DAYTONA_TARGET),
+    }),
     sandboxName,
   };
 }
@@ -159,7 +162,9 @@ export async function requireProjectAccess(
 }
 
 export function agentRunForRunId(env: AgentEnv, runId: string): DurableObjectStub<AgentRun> {
-  return env.AGENT_RUN.get(env.AGENT_RUN.idFromName(runId));
+  return env.AGENT_RUN.get(env.AGENT_RUN.idFromName(runId), {
+    locationHint: durableObjectLocationHint(env.DAYTONA_TARGET),
+  });
 }
 
 interface StartAgentRunInput {

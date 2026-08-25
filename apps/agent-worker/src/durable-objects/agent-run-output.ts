@@ -6,7 +6,7 @@ import {
 } from "../streaming/ui-message-stream";
 import { emitRunAbandoned } from "./agent-run-abandonment";
 import type { AgentRunEnv } from "./agent-run-env";
-import { emitFirstVisibleChunkMetric } from "./agent-run-performance";
+import { emitRunChunkPerformanceMetrics } from "./agent-run-performance";
 import {
   appendAgentRunMessagePart,
   appendAgentRunMessagePartOnce,
@@ -123,7 +123,7 @@ export class AgentRunOutput {
 
   private broadcast(chunk: UIMessageChunk, seq: number): void {
     const sequencedChunk = { chunk, seq };
-    emitFirstVisibleChunkMetric(this.options.ctx, this.options.env, chunk);
+    emitRunChunkPerformanceMetrics(this.options.ctx, this.options.env, chunk);
     for (const subscriber of [...this.subscribers]) {
       if ((subscriber.controller.desiredSize ?? 1) <= 0) {
         this.errorSubscriber(subscriber, new Error("Agent stream subscriber fell behind."));

@@ -23,6 +23,7 @@ import {
 } from "@cheatcode/types";
 import type { UIMessageChunk } from "ai";
 import { z } from "zod";
+import { durableObjectLocationHint } from "../durable-object-location";
 import type { AgentRun } from "./agent-run";
 import { storeAgentArtifact } from "./agent-run-artifacts";
 import { loadThreadModelContext } from "./agent-run-conversation";
@@ -35,6 +36,7 @@ import {
   prepareMastraContext,
 } from "./agent-run-mastra-context";
 import { finalizeAppBuilderRun, prepareAppBuilderRun } from "./agent-run-path";
+import { ProvisionalModelBatcher } from "./agent-run-provisional";
 import { type StartRunInput, StartRunInputSchema } from "./agent-run-schemas";
 import { guardSkillRuntimeCapabilities } from "./agent-run-skill-runtime";
 import { AgentToolErrorOutputSchema, agentToolErrorOutput } from "./agent-run-tool-error-support";
@@ -155,6 +157,7 @@ export async function generateWorkflowModelStep(
   workflowInstanceId: string,
   payload: AgentRunWorkflowPayload,
   state: WorkflowAgentState,
+  execution: { stepIndex: number; workflowAttempt: number },
 ): Promise<WorkflowModelStepResult> {
   const input = structuredClone(state.input);
   const callback = workflowCallback(payload, workflowInstanceId);
@@ -176,6 +179,7 @@ export async function generateWorkflowModelStep(
       logger,
       messages: state.messages,
       primary,
+      provisionalStreamId: provisionalStreamId(execution, 0),
       sandbox,
       stub,
       usesManagedPreview: state.appBuilderUsesManagedPreview,
@@ -192,6 +196,7 @@ export async function generateWorkflowModelStep(
       logger,
       messages: state.messages,
       primary: fallback,
+      provisionalStreamId: provisionalStreamId(execution, 1),
       sandbox,
       stub,
       usesManagedPreview: state.appBuilderUsesManagedPreview,
@@ -400,6 +405,7 @@ async function generateWithCredential(input: {
   logger: ReturnType<typeof createLogger>;
   messages: WorkflowJsonValue[];
   primary: LlmCredential;
+  provisionalStreamId: string;
   sandbox: ProjectSandboxStub;
   stub: DurableObjectStub<AgentRun>;
   usesManagedPreview: boolean;
@@ -417,25 +423,63 @@ async function generateWithCredential(input: {
   const options = runtime.mastraOptions(input.primary);
   const prepared = await prepareMastraContext(options);
   const requestContext = createAgentRequestContext(options, prepared);
+  const provisional = new ProvisionalModelBatcher(input.provisionalStreamId, (eventKey, chunk) =>
+    appendProvisionalEvent(input, eventKey, chunk),
+  );
+  const step = await generateStreamingModelStep(input, requestContext, provisional);
+  return WorkflowModelStepResultSchema.parse({
+    input: input.input,
+    logicalModelId: input.primary.logicalModelId,
+    step,
+  });
+}
+
+async function generateStreamingModelStep(
+  input: Parameters<typeof generateWithCredential>[0],
+  requestContext: ReturnType<typeof createAgentRequestContext>,
+  provisional: ProvisionalModelBatcher,
+) {
   const toolPolicy = resolveAgentToolPolicy({
     projectMode: input.input.projectMode,
     ...(input.input.runIntent ? { runIntent: input.input.runIntent } : {}),
     ...(input.input.selectedTool ? { selectedTool: input.input.selectedTool } : {}),
     usesManagedPreview: input.usesManagedPreview,
   });
-  const step = await generateGeneralAgentStep({
-    abortSignal: AbortSignal.timeout(MODEL_STEP_TIMEOUT_MS),
-    ...toolPolicy,
-    isDeepSeek: input.primary.transportProvider === "deepseek",
-    messages: input.messages,
-    requestContext,
-    runId: input.input.runId,
-  });
-  return WorkflowModelStepResultSchema.parse({
-    input: input.input,
-    logicalModelId: input.primary.logicalModelId,
-    step,
-  });
+  try {
+    return await generateGeneralAgentStep({
+      abortSignal: AbortSignal.timeout(MODEL_STEP_TIMEOUT_MS),
+      ...toolPolicy,
+      isDeepSeek: input.primary.transportProvider === "deepseek",
+      messages: input.messages,
+      onTextDelta: (delta) => provisional.push(delta),
+      requestContext,
+      runId: input.input.runId,
+    });
+  } finally {
+    await provisional.flush();
+  }
+}
+
+async function appendProvisionalEvent(
+  input: Parameters<typeof generateWithCredential>[0],
+  eventKey: string,
+  chunk: UIMessageChunk,
+): Promise<void> {
+  await requireCurrent(
+    await input.stub.appendWorkflowEvent({
+      ...input.callback,
+      chunks: [chunk],
+      eventKey,
+    }),
+    "append provisional model event",
+  );
+}
+
+function provisionalStreamId(
+  execution: { stepIndex: number; workflowAttempt: number },
+  providerAttempt: number,
+): string {
+  return `model-${execution.stepIndex}-workflow-${execution.workflowAttempt}-provider-${providerAttempt}`;
 }
 
 function workflowRuntimeOptions(input: {
@@ -569,7 +613,9 @@ async function restoreUploadedFiles(
 }
 
 function sandboxFor(env: AgentRunEnv, input: StartRunInput): ProjectSandboxStub {
-  return env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(input.sandboxName));
+  return env.PROJECT_SANDBOX.get(env.PROJECT_SANDBOX.idFromName(input.sandboxName), {
+    locationHint: durableObjectLocationHint(env.DAYTONA_TARGET),
+  });
 }
 
 function agentRunStub(

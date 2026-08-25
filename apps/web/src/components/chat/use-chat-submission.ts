@@ -32,6 +32,7 @@ interface ChatSubmissionInput {
   selectedModel: null | string;
   sendMessage: SendMessage;
   setDraft: (threadId: string, value: string) => void;
+  startRunTiming: (startedAt: number) => void;
   setRunStartedAt: (value: number) => void;
   status: ChatStatus;
   threadId: string;
@@ -80,6 +81,7 @@ export function useChatSubmission(input: ChatSubmissionInput): {
     input.hasReceivedStreamDataRef.current = false;
     const pending = pendingSubmission(messageId, text, false);
     input.pendingSubmissionRef.current = pending;
+    input.startRunTiming(pending.submittedAt);
     input.setRunStartedAt(pending.submittedAt);
     void input.sendMessage(userMessage(messageId, text, null), modelBody(input.selectedModel, {}));
   }, [input]);
@@ -99,6 +101,7 @@ function submitInCurrentThread(
   const messageId = crypto.randomUUID();
   const pending = pendingSubmission(messageId, text, true);
   input.pendingSubmissionRef.current = pending;
+  input.startRunTiming(pending.submittedAt);
   input.setRunStartedAt(pending.submittedAt);
   void input.sendMessage(
     userMessage(messageId, text, selection.intent ?? null),

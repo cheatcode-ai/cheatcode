@@ -10,11 +10,10 @@ export interface AgentRunEnv extends AnalyticsBindings {
   CHEATCODE_RELEASE_SHA?: string;
   COMPOSIO_API_KEY?: WorkerSecret;
   DATABASE_CONTEXT_SIGNING_SECRET_AGENT: WorkerSecret;
+  DAYTONA_TARGET?: string;
   DEEPSEEK_PLATFORM_API_KEY?: WorkerSecret;
   HYPERDRIVE: Hyperdrive;
   MORPH_API_KEY: WorkerSecret;
-  OUTPUT_DOWNLOAD_BASE_URL?: string;
-  OUTPUT_DOWNLOAD_SIGNING_SECRET: WorkerSecret;
   PREVIEW_HOSTNAME?: string;
   PROJECT_SANDBOX: DurableObjectNamespace<ProjectSandbox>;
   QUOTA_TRACKER: QuotaTrackerNamespace;

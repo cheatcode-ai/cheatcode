@@ -1,7 +1,11 @@
 import { APIError } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import { AGENT_FORWARD_ROUTES } from "@cheatcode/types/internal";
-import { forwardAgentRequest, forwardPublicAgentRequest } from "./agent-forwarding";
+import {
+  forwardAgentRequest,
+  forwardArtifactRequest,
+  forwardPublicArtifactRequest,
+} from "./agent-forwarding";
 import { authenticate } from "./authenticate";
 import { type GatewayApp, type GatewayContext, requestDatabase } from "./gateway-env";
 import { rateLimit, rateLimitPublic, withRateLimitHeaders } from "./rate-limit";
@@ -28,14 +32,20 @@ function registerHealthRoute(app: GatewayApp): void {
   app.get("/health/release", async (c) => {
     const headers = await rateLimitPublic(c, "publicRead");
     const releaseSha = c.env.CHEATCODE_RELEASE_SHA ?? "development";
-    const [{ health: agent }, { health: webhooks }] = await Promise.all([
+    const [{ health: agent }, { health: artifact }, { health: webhooks }] = await Promise.all([
       readDownstreamReleaseHealth(c.env, "agent"),
+      readDownstreamReleaseHealth(c.env, "artifact"),
       readDownstreamReleaseHealth(c.env, "webhooks"),
     ]);
-    if (agent.releaseSha !== releaseSha || webhooks.releaseSha !== releaseSha) {
+    if (
+      agent.releaseSha !== releaseSha ||
+      artifact.releaseSha !== releaseSha ||
+      webhooks.releaseSha !== releaseSha
+    ) {
       throw new APIError(503, "service_maintenance_unavailable", "Release is still converging", {
         details: {
           agentReleaseSha: agent.releaseSha,
+          artifactReleaseSha: artifact.releaseSha,
           gatewayReleaseSha: releaseSha,
           webhooksReleaseSha: webhooks.releaseSha,
         },
@@ -45,6 +55,7 @@ function registerHealthRoute(app: GatewayApp): void {
     return withRateLimitHeaders(
       c.json({
         agent,
+        artifact,
         ok: true,
         releaseSha,
         versionId: c.env.CF_VERSION_METADATA?.id ?? null,
@@ -74,10 +85,10 @@ function registerTelemetryRoutes(app: GatewayApp): void {
 function registerOutputRoute(app: GatewayApp): void {
   const { downloadOutput, mintOutputDownloadUrl } = AGENT_FORWARD_ROUTES.core;
   app.on(mintOutputDownloadUrl.method, mintOutputDownloadUrl.path, (c) =>
-    forwardAgentRequest(c, mintOutputDownloadUrl),
+    forwardArtifactRequest(c, mintOutputDownloadUrl),
   );
   app.on(downloadOutput.method, downloadOutput.path, (c) =>
-    forwardPublicAgentRequest(c, downloadOutput),
+    forwardPublicArtifactRequest(c, downloadOutput),
   );
 }
 

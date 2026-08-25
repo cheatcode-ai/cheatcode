@@ -6,6 +6,7 @@ import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
+import { preconnect } from "react-dom";
 import "./globals.css";
 import "./effects.css";
 import { ClientObservability } from "@/components/observability/client-observability";
@@ -33,6 +34,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   const clerkPublishableKey = env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+  preconnect(env.NEXT_PUBLIC_GATEWAY_URL);
 
   return (
     <html

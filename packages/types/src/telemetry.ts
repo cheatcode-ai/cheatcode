@@ -34,11 +34,23 @@ export const ClientErrorBodySchema = z.strictObject({
   url: z.string().max(2_000).optional(),
 });
 
+export const BrowserPerformanceMetricNameSchema = z.enum([
+  "CLS",
+  "FCP",
+  "INP",
+  "LCP",
+  "TTFB",
+  "run_response_headers",
+  "run_first_status",
+  "run_first_model_text",
+  "run_stream_finished",
+]);
+
 const WebVitalMetricSchema = z.strictObject({
   attributionTarget: z.string().max(1_000).optional(),
   delta: z.number().finite().optional(),
   id: z.string().max(200),
-  name: z.string().max(40),
+  name: BrowserPerformanceMetricNameSchema,
   navigationType: z.string().max(80).optional(),
   rating: z.enum(["good", "needs-improvement", "poor"]).optional(),
   url: z.string().max(2_000).optional(),

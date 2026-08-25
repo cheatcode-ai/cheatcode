@@ -39,6 +39,7 @@ export function ChatPanel(props: ChatPanelProps) {
         messages={controller.state.messages}
         onContinue={controller.actions.continueRun}
         onLoadOlderMessages={controller.actions.loadOlderMessages}
+        provisionalText={controller.state.provisionalText}
         runStartedAt={controller.state.runStartedAt}
         threadId={props.threadId}
       />

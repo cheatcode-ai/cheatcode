@@ -278,11 +278,20 @@ function useThreadQuery(getToken: () => Promise<null | string>, threadId: null |
     enabled: Boolean(threadId),
     queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
     queryKey: threadKeys.detail(threadId),
-    refetchInterval: (query) => (query.state.data?.activeRunId ? 2_000 : false),
+    refetchInterval: (query) => activeRunRecoveryInterval(query.state),
     refetchIntervalInBackground: false,
     retry: false,
     staleTime: 5_000,
   });
+}
+
+function activeRunRecoveryInterval(state: {
+  data?: Thread | undefined;
+  dataUpdateCount: number;
+}): false | number {
+  if (!state.data?.activeRunId) return false;
+  const exponent = Math.max(0, Math.min(state.dataUpdateCount - 1, 3));
+  return Math.min(2_000 * 2 ** exponent, 15_000);
 }
 
 function useReconcileTerminalRun(input: {

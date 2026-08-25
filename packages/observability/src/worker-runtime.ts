@@ -1,7 +1,8 @@
-import type { AnalyticsBindings } from "./analytics";
+import type { AnalyticsBindings, PerformanceMetric } from "./analytics";
 import { emitErrorEvent, emitPerformanceMetric } from "./analytics";
 import { safeErrorTelemetry, toAPIError } from "./errors";
 import { createLogger } from "./logger";
+import type { PerformanceRecorder } from "./performance";
 
 const ROUTED_WORKER_ERROR = Symbol("routed-worker-error");
 
@@ -40,7 +41,12 @@ interface PerformanceContext<Env extends AnalyticsBindings> {
 }
 
 interface PerformanceMiddlewareOptions<Context> {
+  decorateResponse?: (context: Context, recorder: PerformanceRecorder | undefined) => void;
   errorStatus?: (error: unknown) => number;
+  metricFields?: (
+    context: Context,
+  ) => Partial<Omit<PerformanceMetric, "route" | "statusClass" | "workerName">>;
+  recorder?: (context: Context) => PerformanceRecorder | undefined;
   routeName: (context: Context) => string;
   workerName: string;
 }
@@ -150,7 +156,10 @@ export function createPerformanceMetricMiddleware<
 >(
   options: PerformanceMiddlewareOptions<Context>,
 ): (context: Context, next: () => Promise<void>) => Promise<void> {
+  let hasHandledRequest = false;
   return async (context, next) => {
+    const coldState = hasHandledRequest ? "warm" : "cold";
+    hasHandledRequest = true;
     const startedAt = performance.now();
     let status = 500;
     try {
@@ -161,10 +170,16 @@ export function createPerformanceMetricMiddleware<
       status = options.errorStatus?.(sourceError) ?? toAPIError(sourceError).status;
       throw error;
     } finally {
+      const recorder = options.recorder?.(context);
+      recorder?.add("responseHeaders", recorder.elapsedMs());
+      options.decorateResponse?.(context, recorder);
       emitPerformanceMetric(context.env, {
+        ...options.metricFields?.(context),
+        ...recorder?.snapshot(),
+        coldState,
         route: options.routeName(context),
         statusClass: statusClass(status),
-        totalMs: performance.now() - startedAt,
+        totalMs: recorder?.elapsedMs() ?? performance.now() - startedAt,
         workerName: options.workerName,
       });
     }

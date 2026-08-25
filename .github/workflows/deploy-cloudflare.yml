@@ -50,6 +50,7 @@ jobs:
         run: >-
           pnpm exec turbo run build
           --filter=@cheatcode/agent-worker
+          --filter=@cheatcode/artifact-worker
           --filter=@cheatcode/webhooks-worker
           --filter=@cheatcode/gateway-worker
           --filter=@cheatcode/preview-proxy
@@ -58,6 +59,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           configs=(
+            apps/artifact-worker/wrangler.jsonc
             apps/agent-worker/wrangler.jsonc
             apps/webhooks-worker/wrangler.jsonc
             apps/preview-proxy/wrangler.jsonc

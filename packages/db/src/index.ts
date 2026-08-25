@@ -67,6 +67,8 @@ export {
   listUserDeletionRunPage,
   loadUserDeletionContext,
 } from "./lifecycle";
+export type { NavigationProjectRecord } from "./navigation-bootstrap";
+export { loadNavigationBootstrap } from "./navigation-bootstrap";
 export type { ReferencedProjectGeneratedOutputRecord } from "./outputs";
 export {
   findGeneratedOutput,

@@ -7,7 +7,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
 import type { ProjectRenameMutationState } from "@/components/shell/sidebar.types";
-import type { SidebarProject, useSidebarProjects } from "@/components/shell/sidebar-data";
+import type { SidebarProject, SidebarProjectCollection } from "@/components/shell/sidebar-data";
 import {
   SidebarDeleteDialog,
   SidebarInlineRenameInput,
@@ -33,7 +33,7 @@ export function ProjectList({
 }: {
   activeProjectId: string | null;
   onRename: (project: SidebarProject, name: string) => void;
-  projects: ReturnType<typeof useSidebarProjects>;
+  projects: SidebarProjectCollection;
   renameMutation: ProjectRenameMutationState;
 }) {
   const actions = useProjectActions(activeProjectId);
@@ -179,6 +179,7 @@ function useProjectChatMutation({
     onError: (error) =>
       toast.error(error instanceof Error ? error.message : "Couldn't start a chat"),
     onSuccess: (thread) => {
+      void queryClient.invalidateQueries({ queryKey: sidebarKeys.bootstrap });
       void queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads });
       void queryClient.invalidateQueries({ queryKey: sidebarKeys.chats });
       routerPush(`/chats/${encodeURIComponent(thread.id)}`);

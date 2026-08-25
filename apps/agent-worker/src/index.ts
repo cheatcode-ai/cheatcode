@@ -46,6 +46,17 @@ agentApp.use(
   "*",
   createPerformanceMetricMiddleware<AgentEnv, Context<{ Bindings: AgentEnv }>>({
     errorStatus: (error) => toAgentRouteError(error).status,
+    metricFields: (c) => {
+      const colo = requestColo(c.req.raw);
+      const placement = c.req.header("cf-placement");
+      const versionTag = c.env.CF_VERSION_METADATA?.id ?? c.env.CHEATCODE_RELEASE_SHA;
+      return {
+        ...(colo ? { colo } : {}),
+        envTag: c.env.CHEATCODE_ENVIRONMENT,
+        ...(placement ? { placement } : {}),
+        ...(versionTag ? { versionTag } : {}),
+      };
+    },
     routeName: registeredRouteName,
     workerName: "agent",
   }),
@@ -94,6 +105,11 @@ function registeredRouteName(c: Context<{ Bindings: AgentEnv }>): string {
   } catch {
     return routeName(c.req.raw);
   }
+}
+
+function requestColo(request: Request): string | undefined {
+  const colo = request.cf?.colo;
+  return typeof colo === "string" ? colo : undefined;
 }
 
 export default agentHandler;

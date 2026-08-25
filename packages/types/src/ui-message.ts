@@ -19,6 +19,17 @@ const ModelFallbackDataSchema = z.strictObject({
   reason: z.enum(["rate_limit", "provider_balance", "provider_error"]),
 });
 
+/** Replaceable live model text; transient events never enter the durable transcript. */
+const ModelProvisionalDataSchema = z.discriminatedUnion("phase", [
+  z.strictObject({
+    delta: z.string().min(1).max(8_192),
+    phase: z.literal("delta"),
+    streamId: z.string().min(1).max(100),
+    v: z.literal(1),
+  }),
+  z.strictObject({ phase: z.literal("reset"), v: z.literal(1) }),
+]);
+
 /* retained for historical transcripts */
 const PlanDataSchema = z.strictObject({
   v: z.literal(1),
@@ -123,6 +134,7 @@ export const CHEATCODE_DATA_SCHEMAS = {
   artifact: ArtifactDataSchema,
   error: ErrorDataSchema,
   "model-fallback": ModelFallbackDataSchema,
+  "model-provisional": ModelProvisionalDataSchema,
   plan: PlanDataSchema,
   "project-created": ProjectCreatedDataSchema,
   "run-intent": RunIntentDataSchema,

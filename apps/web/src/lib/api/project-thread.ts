@@ -2,15 +2,15 @@
 
 import { CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage, toAgentRunId } from "@cheatcode/types";
 import {
+  type NavigationBootstrapResponse,
+  NavigationBootstrapResponseSchema,
   Paginated,
   type ProjectSummary,
   ProjectSummarySchema,
-  RecentThreadsResponseSchema,
   type SandboxPreviewStatus,
   SandboxPreviewStatusSchema,
   type SandboxPreviewWake,
   SandboxPreviewWakeSchema,
-  type SearchResultThread,
   type Thread,
   type ThreadMessage,
   ThreadMessageSchema,
@@ -36,6 +36,23 @@ const PROJECT_ARCHIVE_CONTENT_TYPES = new Set([
   "application/x-zip-compressed",
   "application/zip",
 ]);
+
+/** Loads the sidebar's bounded navigation snapshot with one authenticated request. */
+export async function getNavigationBootstrap(
+  getToken: () => Promise<null | string>,
+  activeThreadId: string | null,
+  signal?: AbortSignal,
+): Promise<NavigationBootstrapResponse> {
+  const query = activeThreadId ? `?activeThreadId=${encodeURIComponent(activeThreadId)}` : "";
+  const response = await authorizedFetch(
+    getToken,
+    `/v1/bootstrap${query}`,
+    signal ? { signal } : {},
+  );
+  return NavigationBootstrapResponseSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
+  );
+}
 
 export interface CursorPage<T> {
   data: T[];
@@ -150,22 +167,6 @@ export async function listProjectThreadsPage(
   return ThreadPageSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.collections),
   );
-}
-
-/** The user's recent chats (threads) across all projects, newest first — chat-first sidebar. */
-export async function listRecentThreads(
-  getToken: () => Promise<null | string>,
-  limit = 20,
-  signal?: AbortSignal,
-): Promise<SearchResultThread[]> {
-  const response = await authorizedFetch(
-    getToken,
-    `/v1/threads?limit=${limit}`,
-    signal ? { signal } : {},
-  );
-  return RecentThreadsResponseSchema.parse(
-    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.metadata),
-  ).threads;
 }
 
 export async function getProject(

@@ -29,12 +29,13 @@ the exact R2 object again before returning. Terminal run
 persistence records upload quiescence only after the Workflow-owned tool steps have settled, while
 deletion RPCs terminate the run's Workflow before removing its durable state.
 
-Artifact messages persist only the output UUID and presentation metadata. The authenticated
-`POST /v1/outputs/:outputId/download-url` path rechecks tenant ownership, retention, and R2
-existence before minting a one-hour HMAC capability; the public signed download route is only the
-streaming second hop. That route forwards single HTTP byte ranges to R2 and returns `206` metadata,
-so browser media previews seek and start without downloading the entire artifact. Expiring
-capabilities and internal R2 keys are never stored in transcripts or returned by artifact tools.
+Artifact messages persist only the output UUID and presentation metadata. The lightweight
+Artifact Worker owns the authenticated `POST /v1/outputs/:outputId/download-url` path and public
+signed streaming hop; it rechecks the same tenant ownership, retention, and R2 existence through
+the `app_agent` database role before minting a one-hour HMAC capability. The streaming hop forwards
+single HTTP byte ranges to R2 and returns `206` metadata so browser media previews seek and start
+without downloading the entire artifact. Expiring capabilities and internal R2 keys are never
+stored in transcripts or returned by artifact tools.
 
 Browser screenshots use the same crash-consistent R2 persistence but are classified as internal
 tool evidence. Their reserved filenames keep them out of project-file and slash-command catalogs,
@@ -337,7 +338,8 @@ and it does not apply per-run or daily dollar caps. Provider usage remains an
 opaque SDK concern.
 
 AgentRun writes Workers Analytics Engine agent-run metrics on terminal statuses and emits
-a first-visible-chunk TTFT performance metric. Run
+separate first-status, first-model-text, final-token, run-completion, and Workflow-acceptance
+performance metrics. The legacy TTFT column aliases first model text only. Run
 admission events carry the planned logical model, while stream-attempt/completion events carry
 the resolved logical model. A failure before any stream attempt keeps planned attribution instead;
 provider-local transport IDs remain structured-log context. R2-backed artifact

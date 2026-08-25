@@ -535,6 +535,26 @@ export const RecentThreadsResponseSchema = z.strictObject({
   threads: z.array(SearchResultThreadSchema),
 });
 
+/** One sidebar project plus the newest chat used by its direct navigation link. */
+const NavigationBootstrapProjectSchema = ProjectSummarySchema.extend({
+  latestThreadId: z.string().uuid().nullable(),
+});
+
+/**
+ * The bounded navigation snapshot loaded after Clerk becomes ready. The active
+ * project is promoted into `projects` when it would otherwise fall outside the
+ * six most recently updated projects.
+ */
+export const NavigationBootstrapQuerySchema = z.strictObject({
+  activeThreadId: z.string().uuid().optional(),
+});
+
+export const NavigationBootstrapResponseSchema = z.strictObject({
+  activeProjectId: z.string().uuid().nullable(),
+  projects: z.array(NavigationBootstrapProjectSchema).max(6),
+  recentThreads: z.array(SearchResultThreadSchema).max(20),
+});
+
 export const GreetingResponseSchema = z.strictObject({
   city: z.string().nullable(),
   timezone: z.string().nullable(),
@@ -584,6 +604,8 @@ export type CreateRun = z.infer<typeof CreateRunSchema>;
 export type CreateThread = z.infer<typeof CreateThreadSchema>;
 export type RunIntent = z.infer<typeof RunIntentSchema>;
 export type GreetingResponse = z.infer<typeof GreetingResponseSchema>;
+export type NavigationBootstrapProject = z.infer<typeof NavigationBootstrapProjectSchema>;
+export type NavigationBootstrapResponse = z.infer<typeof NavigationBootstrapResponseSchema>;
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 export type SearchResultThread = z.infer<typeof SearchResultThreadSchema>;

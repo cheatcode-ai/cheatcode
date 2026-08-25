@@ -44,7 +44,7 @@ export function createAgentStreamResponse(options: {
   status?: number;
   stream: ReadableStream<UIMessageChunk>;
 }): Response {
-  const headers = { "Cache-Control": "private, no-store" };
+  const headers = { "Cache-Control": "private, no-store, no-transform" };
   if (options.status === undefined) {
     return createUIMessageStreamResponse({ headers, stream: options.stream });
   }

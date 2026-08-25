@@ -157,6 +157,7 @@
         "**/drizzle.config.ts",
         "**/commitlint.config.js",
         "apps/agent-worker/src/index.ts",
+        "apps/artifact-worker/src/index.ts",
         "apps/gateway-worker/src/index.ts",
         "apps/preview-proxy/src/index.ts",
         "apps/webhooks-worker/src/index.ts"

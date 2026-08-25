@@ -1,0 +1,29 @@
+{
+  "name": "@cheatcode/artifact-worker",
+  "private": true,
+  "license": "PolyForm-Noncommercial-1.0.0",
+  "version": "0.0.0",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "scripts": {
+    "build": "wrangler deploy --dry-run",
+    "lint": "biome check .",
+    "typecheck": "tsc -p tsconfig.json --noEmit --incremental false"
+  },
+  "dependencies": {
+    "@cheatcode/auth": "workspace:*",
+    "@cheatcode/db": "workspace:*",
+    "@cheatcode/env": "workspace:*",
+    "@cheatcode/observability": "workspace:*",
+    "@cheatcode/types": "workspace:*",
+    "hono": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@cheatcode/tsconfig": "workspace:*",
+    "@cloudflare/workers-types": "catalog:",
+    "typescript": "catalog:",
+    "wrangler": "catalog:"
+  }
+}

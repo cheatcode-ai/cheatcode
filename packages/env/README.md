@@ -21,9 +21,9 @@ pnpm --filter @cheatcode/env typecheck
 ## Env
 
 See root `.env.example` for the local application contract. `pnpm dev:setup`
-assembles project-agnostic URLs for a dedicated Supabase project's public
-session pooler on port 5432, using the three least-privilege runtime roles.
-Direct endpoints and transaction pooling are rejected for runtime connections.
+assembles URLs for a dedicated Supabase project's Direct endpoint on port 5432,
+using the three least-privilege runtime roles. Pooler endpoints are rejected for
+runtime connections because Hyperdrive already owns connection pooling.
 Administrative migration values live separately in git-ignored `.env.migrate`
 (template: `.env.migrate.example`) or protected automation environment
 variables and are never loaded by the app or copied into a Worker.

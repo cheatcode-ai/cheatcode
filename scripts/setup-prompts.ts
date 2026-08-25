@@ -4,7 +4,6 @@ import {
   parseSupabaseProjectRef,
   type RequiredKey,
   validateRequiredLocalValue,
-  validateSupabasePoolerHost,
 } from "./local-env-contract";
 import { SETUP_KEY_META } from "./setup-keys";
 import {
@@ -51,11 +50,10 @@ export async function collectSetupValues(
     "Use a dedicated Supabase project. Copy the project ref and Database connection values from https://supabase.com/dashboard.",
   );
   const projectRef = await promptProjectRef(existingLocal);
-  const poolerHost = await promptPoolerHost(existingLocal);
   const adminUrl = await promptAdminUrl(existingMigrate, projectRef);
   const rolePasswords = await promptRolePasswords(existingLocal);
   const localValues = await collectApplicationValues(existingLocal);
-  Object.assign(localValues, runtimeDatabaseUrls(projectRef, poolerHost, rolePasswords));
+  Object.assign(localValues, runtimeDatabaseUrls(projectRef, rolePasswords));
   return {
     adminTarget: parseAdminDatabaseUrl(adminUrl, projectRef),
     localValues,
@@ -226,22 +224,6 @@ async function promptProjectRef(existing: Record<string, string>): Promise<strin
   });
 }
 
-async function promptPoolerHost(existing: Record<string, string>): Promise<string> {
-  const value = await promptTextValue(
-    "Supabase session-pooler host",
-    inferPoolerHost(existing),
-    (candidate) => {
-      try {
-        validateSupabasePoolerHost(candidate);
-        return undefined;
-      } catch (error) {
-        return errorMessage(error);
-      }
-    },
-  );
-  return validateSupabasePoolerHost(value);
-}
-
 async function promptAdminUrl(
   existing: Record<string, string>,
   projectRef: string,
@@ -351,28 +333,30 @@ async function promptConfirm(message: string, initialValue: boolean): Promise<bo
 
 function runtimeDatabaseUrls(
   projectRef: string,
-  poolerHost: string,
   passwords: Readonly<Record<RuntimeRole, string>>,
 ): Record<string, string> {
   return Object.fromEntries(
     (Object.entries(ROLE_DATABASE_KEYS) as Array<[RuntimeRole, string]>).map(([role, key]) => [
       key,
-      `postgresql://${role}.${projectRef}:${encodeURIComponent(passwords[role])}@${poolerHost}:5432/postgres?sslmode=require&uselibpqcompat=true`,
+      `postgresql://${role}:${encodeURIComponent(passwords[role])}@db.${projectRef}.supabase.co:5432/postgres?sslmode=require&uselibpqcompat=true`,
     ]),
   );
 }
 
 function inferProjectRef(values: Record<string, string>): string | undefined {
+  const hostname = databaseUrlPart(values["SUPABASE_GATEWAY_DATABASE_URL"], "hostname");
+  const directProjectRef = hostname
+    ? /^db\.([a-z0-9]{20})\.supabase\.co$/u.exec(hostname)?.[1]
+    : undefined;
+  if (directProjectRef) {
+    return directProjectRef;
+  }
   const username = databaseUrlPart(values["SUPABASE_GATEWAY_DATABASE_URL"], "username");
   if (!username) {
     return undefined;
   }
   const separator = username.lastIndexOf(".");
   return separator === -1 ? undefined : username.slice(separator + 1);
-}
-
-function inferPoolerHost(values: Record<string, string>): string | undefined {
-  return databaseUrlPart(values["SUPABASE_GATEWAY_DATABASE_URL"], "hostname");
 }
 
 function existingRolePassword(

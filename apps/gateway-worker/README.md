@@ -114,8 +114,9 @@ that exact contract before using existing storage.
 
 `GET /health/live` is a cheap gateway-only liveness response.
 `GET /health/release` exposes the gateway release SHA plus the release SHAs
-reported by its agent and webhook service bindings, and returns 503 while they
-converge. Deployments publish the gateway last so public traffic observes only a
+for Agent, Artifact, and Webhooks Workers and remains unhealthy until all four
+versions converge.
+Deployments publish the gateway last so public traffic observes only a
 backend set built from the same reviewed revision. SQLite schema validation
 remains synchronous.
 
@@ -147,12 +148,15 @@ pnpm --filter @cheatcode/gateway-worker typecheck
 - `CHEATCODE_RELEASE_SHA` (required for production deployments)
 - `CF_VERSION_METADATA`
 - `AGENT`
+- `ARTIFACTS` (private Service Binding for signed R2 output minting and delivery)
 - `WEBHOOKS`
 - `RESOURCE_DELETION` (named `ResourceDeletionEntrypoint` Service Binding;
   granted only to gateway with authenticated caller/capability properties)
 - `PREVIEW_PROXY` (generated local-only Service Binding; production preview
   traffic reaches the preview Worker through its wildcard route)
 - `RATE_LIMITER`
+- `RATE_LIMIT_PUBLIC_READ`, `RATE_LIMIT_READ_CHEAP` (local, eventually
+  consistent native bindings for non-critical cheap reads)
 - `QUOTA_TRACKER` (named `GatewayQuotaEntrypoint` Service Binding to
   agent-worker; grants only `peek`, `history`, and `setLimit`)
 - `IDEMPOTENCY`

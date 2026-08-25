@@ -1,15 +1,17 @@
 import type { DatabaseHandle } from "@cheatcode/db";
 import type { CloudflareVersionMetadata, WorkerSecret } from "@cheatcode/env";
-import type { AnalyticsBindings } from "@cheatcode/observability";
+import type { AnalyticsBindings, PerformanceRecorder } from "@cheatcode/observability";
 import type { ResourceDeletionServiceBinding } from "@cheatcode/types/internal";
 import type { GatewayQuotaServiceBinding } from "@cheatcode/types/quota";
 import type { Context, Hono } from "hono";
+import type { GatewayPrincipal } from "./auth-context";
 import type { IdempotencyStore } from "./durable-objects/idempotency";
 import type { RateLimiter } from "./durable-objects/rate-limiter";
 import type { IdempotencyBindings } from "./idempotency";
 
 export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   AGENT: Fetcher;
+  ARTIFACTS: Fetcher;
   CF_VERSION_METADATA?: CloudflareVersionMetadata;
   CHEATCODE_ENVIRONMENT: "development" | "production";
   CHEATCODE_RELEASE_SHA?: string;
@@ -27,6 +29,8 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
   POLAR_SERVER?: "production" | "sandbox";
   PREVIEW_PROXY?: Fetcher;
   QUOTA_TRACKER: GatewayQuotaServiceBinding;
+  RATE_LIMIT_PUBLIC_READ: RateLimit;
+  RATE_LIMIT_READ_CHEAP: RateLimit;
   RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   RESOURCE_DELETION: ResourceDeletionServiceBinding;
   WEBHOOKS: Fetcher;
@@ -34,6 +38,8 @@ export interface GatewayEnv extends AnalyticsBindings, IdempotencyBindings {
 
 interface GatewayVariables {
   database: () => DatabaseHandle;
+  performance: PerformanceRecorder;
+  principal: () => Promise<GatewayPrincipal>;
 }
 
 export type GatewayHonoEnv = { Bindings: GatewayEnv; Variables: GatewayVariables };
@@ -42,4 +48,8 @@ export type GatewayContext = Context<GatewayHonoEnv>;
 
 export function requestDatabase(c: GatewayContext): DatabaseHandle {
   return c.get("database")();
+}
+
+export function requestPerformance(c: GatewayContext): PerformanceRecorder {
+  return c.get("performance");
 }
