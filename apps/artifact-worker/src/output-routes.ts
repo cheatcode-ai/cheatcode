@@ -137,12 +137,14 @@ function outputHeaders(object: R2Object, filename: string, mimeType: string): He
 }
 
 function normalizedRange(range: R2Range, size: number): { length: number; offset: number } {
-  if ("suffix" in range) {
+  if ("suffix" in range && typeof range.suffix === "number") {
     const length = Math.min(range.suffix, size);
     return { length, offset: size - length };
   }
-  const offset = range.offset ?? 0;
-  return { length: Math.min(range.length ?? size - offset, size - offset), offset };
+  const offset = "offset" in range && typeof range.offset === "number" ? range.offset : 0;
+  const requestedLength =
+    "length" in range && typeof range.length === "number" ? range.length : size - offset;
+  return { length: Math.min(requestedLength, size - offset), offset };
 }
 
 function setPrivateDownloadHeaders(headers: Headers): void {

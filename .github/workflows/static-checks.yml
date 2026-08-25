@@ -245,6 +245,15 @@ jobs:
         if: needs.changes.outputs.root_code == 'true'
         run: pnpm typecheck:scripts
 
+      - name: Build Worker performance-budget prerequisites
+        run: |
+          pnpm exec turbo run build \
+            --filter=@cheatcode/agent-worker \
+            --filter=@cheatcode/artifact-worker \
+            --filter=@cheatcode/gateway-worker \
+            --filter=@cheatcode/preview-proxy \
+            --filter=@cheatcode/webhooks-worker
+
       - name: Check Worker performance budgets
         run: pnpm worker:performance-budgets
 
