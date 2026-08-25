@@ -61,20 +61,28 @@ async function searchProjectRecords(
   pattern: string,
   limit: number,
 ): Promise<WorkspaceProjectSearchRecord[]> {
+  const latestThread = db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.projectId, projects.id),
+        eq(threads.userId, userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .orderBy(desc(threads.updatedAt), desc(threads.id))
+    .limit(1)
+    .as("latest_thread");
   const projectRows = await db
     .select({
       id: projects.id,
       name: projects.name,
       updatedAt: projects.updatedAt,
-      latestThreadId: sql<string | null>`(
-        select sub.id
-        from ${threads} as sub
-        where sub.project_id = ${projects.id} and sub.deleted_at is null
-        order by sub.updated_at desc
-        limit 1
-      )`,
+      latestThreadId: latestThread.id,
     })
     .from(projects)
+    .leftJoinLateral(latestThread, sql`true`)
     .where(
       and(
         eq(projects.userId, userId),

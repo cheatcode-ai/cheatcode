@@ -8,10 +8,10 @@ import { getProfile, updateProfile } from "@/lib/api/profile";
 
 const PROFILE_QUERY_KEY = ["me-profile"] as const;
 
-export function useProfileQuery() {
+export function useProfileQuery(enabled = true) {
   const { getToken, isSignedIn } = useAuth();
   return useQuery({
-    enabled: Boolean(isSignedIn),
+    enabled: Boolean(isSignedIn) && enabled,
     queryFn: ({ signal }) => getProfile(getToken, signal),
     queryKey: PROFILE_QUERY_KEY,
     staleTime: 30_000,

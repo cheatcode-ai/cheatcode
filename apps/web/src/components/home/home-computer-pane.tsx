@@ -89,7 +89,9 @@ function HomeComputerBody({
       />
       <ComputerSurfaceFrame
         consoleStrip={
-          activeTab === "files" ? <ConsoleStrip sandboxAvailable threadId={null} /> : null
+          activeTab === "files" ? (
+            <ConsoleStrip sandboxAvailable={computerOpen} threadId={null} />
+          ) : null
         }
       >
         <HomeComputerTabContent activeTab={activeTab} computerOpen={computerOpen} />

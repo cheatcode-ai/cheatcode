@@ -85,7 +85,9 @@ function ModelMenuOption({
   controller: ModelMenuController;
   option: AgentModelOption;
 }) {
-  const isDisabled = option.id !== "auto" && controller.state.disabledModels.includes(option.id);
+  const isDisabled =
+    option.id !== "auto" &&
+    (controller.state.isPolicyLoading || controller.state.disabledModels.includes(option.id));
   const isActive = option.id === controller.state.selectedOption.id;
   const select = () => controller.actions.select(option.id);
   return (
@@ -102,7 +104,13 @@ function ModelMenuOption({
         select();
       }}
       role="menuitemradio"
-      title={isDisabled ? "Disabled in Models settings" : option.label}
+      title={
+        controller.state.isPolicyLoading
+          ? "Loading model settings"
+          : isDisabled
+            ? "Disabled in Models settings"
+            : option.label
+      }
       type="button"
     >
       <ProviderIcon

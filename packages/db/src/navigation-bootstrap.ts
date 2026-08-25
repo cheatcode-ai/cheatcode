@@ -37,13 +37,26 @@ function listNavigationProjects(
   input: { activeThreadId?: ThreadId; userId: UserId },
 ) {
   const activeProjectId = activeProjectIdExpression(input);
+  const latestThread = db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.projectId, projects.id),
+        eq(threads.userId, input.userId),
+        isNull(threads.deletedAt),
+      ),
+    )
+    .orderBy(desc(threads.updatedAt), desc(threads.id))
+    .limit(1)
+    .as("latest_thread");
   return db
     .select({
       activeProjectId,
       archiveAfter: projects.archiveAfter,
       createdAt: projects.createdAt,
       id: projects.id,
-      latestThreadId: latestThreadIdExpression(input.userId),
+      latestThreadId: latestThread.id,
       mode: projects.mode,
       name: projects.name,
       overQuota: projects.overQuota,
@@ -52,6 +65,7 @@ function listNavigationProjects(
       workspaceSlug: projects.workspaceSlug,
     })
     .from(projects)
+    .leftJoinLateral(latestThread, sql`true`)
     .where(and(eq(projects.userId, input.userId), isNull(projects.deletedAt)))
     .orderBy(
       sql`case when ${projects.id} = ${activeProjectId} then 0 else 1 end`,
@@ -73,18 +87,6 @@ function activeProjectIdExpression(input: { activeThreadId?: ThreadId; userId: U
      where active_thread.id = ${input.activeThreadId}
        and active_thread.user_id = ${input.userId}
        and active_thread.deleted_at is null
-     limit 1
-  )`;
-}
-
-function latestThreadIdExpression(userId: UserId) {
-  return sql<string | null>`(
-    select latest_thread.id
-      from ${threads} latest_thread
-     where latest_thread.project_id = ${projects.id}
-       and latest_thread.user_id = ${userId}
-       and latest_thread.deleted_at is null
-     order by latest_thread.updated_at desc, latest_thread.id desc
      limit 1
   )`;
 }

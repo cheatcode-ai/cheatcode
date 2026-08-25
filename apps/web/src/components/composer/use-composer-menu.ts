@@ -39,11 +39,6 @@ export interface ComposerMenuController {
 }
 
 export function useComposerMenu(options: UseComposerMenuOptions): ComposerMenuController {
-  const skillsCatalog = useQuery({
-    queryFn: ({ signal }) => fetchComposerSkills(options.getToken, signal),
-    queryKey: COMPOSER_SKILLS_QUERY,
-    staleTime: 60_000,
-  });
   const triggers = useComposerTriggers({
     onChange: options.onChange,
     onInsert: (kind, item) => {
@@ -58,6 +53,12 @@ export function useComposerMenu(options: UseComposerMenuOptions): ComposerMenuCo
     sources: COMPOSER_SOURCES,
     textareaRef: options.textareaRef,
     value: options.value,
+  });
+  const skillsCatalog = useQuery({
+    enabled: triggers.kind === "mention",
+    queryFn: ({ signal }) => fetchComposerSkills(options.getToken, signal),
+    queryKey: COMPOSER_SKILLS_QUERY,
+    staleTime: 60_000,
   });
   const fileItems = useProjectFileItems({
     enabled: triggers.kind === "slash",
