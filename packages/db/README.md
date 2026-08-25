@@ -22,8 +22,9 @@ Administrative migration credentials are never exported by this package or
 loaded by an application process.
 
 Self-hosted and local environments use a dedicated Supabase project. The three
-runtime URLs target that project's shared session pooler on port 5432 with
-role-qualified usernames (`app_<role>.<project-ref>`). There is no local
+runtime URLs target that project's Direct endpoint on port 5432 with
+least-privilege usernames (`app_<role>`); Hyperdrive owns connection pooling.
+There is no local
 Postgres mode and runtime code never receives the Supabase admin connection.
 
 ## Current schema
@@ -158,6 +159,12 @@ pnpm --filter @cheatcode/db build
 
 Runtime callers supply their Worker-specific Hyperdrive binding and matching
 tenant-context signing secret. Migration tooling uses:
+
+Query caching stays disabled on every current runtime Hyperdrive configuration:
+all present reads are tenant-, auth-, billing-, or RLS-sensitive. A cache-enabled
+configuration must be separate and may be introduced only with a dedicated
+unauthenticated public catalog/reference Worker whose staleness is explicit;
+there is no eligible public database surface in the current architecture.
 
 - `SUPABASE_MIGRATION_URL`
 - `SUPABASE_MIGRATION_EXPECTED_HOST`

@@ -40,6 +40,7 @@ interface GenerateGeneralAgentStepOptions {
   includedTools?: readonly CheatcodeToolName[];
   isDeepSeek: boolean;
   messages: JSONValue[];
+  onTextDelta?: (delta: string) => Promise<void>;
   requestContext: RequestContext;
   runId: string;
 }
@@ -62,7 +63,7 @@ export async function generateGeneralAgentStep(
 ): Promise<GeneralAgentStepResult> {
   const messages = options.messages.map((message) => modelMessageSchema.parse(message));
   const clientTools = resolveClientTools(options);
-  const result = await mastra.getAgent("generalStep").generate(messages as never, {
+  const result = await mastra.getAgent("generalStep").stream(messages as never, {
     ...(options.abortSignal ? { abortSignal: options.abortSignal } : {}),
     clientTools,
     ...(options.isDeepSeek
@@ -74,12 +75,23 @@ export async function generateGeneralAgentStep(
     requestContext: options.requestContext,
     runId: options.runId,
   });
+  for await (const chunk of result.fullStream) {
+    if (chunk.type === "text-delta" && chunk.payload.text.length > 0) {
+      await options.onTextDelta?.(chunk.payload.text);
+    }
+  }
+  const [finishReason, response, text, toolCalls] = await Promise.all([
+    result.finishReason,
+    result.response,
+    result.text,
+    result.toolCalls,
+  ]);
   return {
-    finishReason: GeneralAgentFinishReasonSchema.parse(result.finishReason),
-    responseMessages: toJsonValues(result.response.messages ?? []),
-    text: result.text,
-    toolCalls: result.toolCalls.map((call) => ({
-      input: toJsonValue(call.payload.args),
+    finishReason: GeneralAgentFinishReasonSchema.parse(finishReason),
+    responseMessages: toJsonValues(response.messages ?? []),
+    text,
+    toolCalls: toolCalls.map((call) => ({
+      input: toJsonValue(call.payload.args ?? null),
       toolCallId: call.payload.toolCallId,
       toolName: call.payload.toolName,
     })),

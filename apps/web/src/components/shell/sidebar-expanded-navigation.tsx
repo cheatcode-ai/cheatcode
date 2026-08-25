@@ -8,9 +8,9 @@ import type {
 } from "@/components/shell/sidebar.types";
 import { ChatList } from "@/components/shell/sidebar-chat-list";
 import type {
+  SidebarChatCollection,
   SidebarProject,
-  useSidebarChats,
-  useSidebarProjects,
+  SidebarProjectCollection,
 } from "@/components/shell/sidebar-data";
 import { SidebarChatsIcon, SidebarProjectsIcon } from "@/components/shell/sidebar-nav-icons";
 import {
@@ -42,8 +42,8 @@ interface SidebarNavigationProps {
   pathname: string;
   projectsOpen: boolean;
   renameMutation: ProjectRenameMutationState;
-  sidebarChats: ReturnType<typeof useSidebarChats>;
-  sidebarProjects: ReturnType<typeof useSidebarProjects>;
+  sidebarChats: SidebarChatCollection;
+  sidebarProjects: SidebarProjectCollection;
 }
 
 export function SidebarMainNavigation(props: SidebarNavigationProps) {

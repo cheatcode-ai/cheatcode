@@ -11,6 +11,8 @@ Shared authentication and signed-capability protocols for Workers.
 - `updateClerkUserPublicMetadata`
 - `hmacSha256Base64`
 - `timingSafeEqual`
+- `createOutputDownloadCapability`
+- `verifySignedOutputDownload`
 - `mintPreviewCapability`
 - `verifyPreviewCapability`
 - `PreviewCapabilityError`
@@ -22,6 +24,9 @@ The shared verifier rejects legacy formats, oversized inputs, future-issued
 claims outside the protocol tolerance, and excessive lifetimes.
 Every shared HMAC operation rejects secrets shorter than 32 UTF-8 bytes before
 key import; configuration errors never include the secret value.
+Output-download capabilities are one-hour, user/output-bound HMAC credentials;
+their public URL remains the gateway so moving byte delivery between internal
+Workers does not alter the browser contract.
 
 Clerk user and JWKS reads use the documented Backend REST API with 10-second
 deadlines and pre-parse response ceilings. The canonical sync snapshot validates

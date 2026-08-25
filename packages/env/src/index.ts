@@ -5,6 +5,7 @@ export {
 export type { CloudflareVersionMetadata, PreviewProxyEnv, WorkerSecret } from "./worker";
 export {
   AgentWorkerEnvSchema,
+  ArtifactWorkerEnvSchema,
   DEFAULT_DAYTONA_TARGET,
   GatewayWorkerEnvSchema,
   PreviewProxyEnvSchema,

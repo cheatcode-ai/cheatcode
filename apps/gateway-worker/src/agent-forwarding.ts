@@ -1,6 +1,6 @@
 import { type AgentForwardRoute, agentForwardRouteKey } from "@cheatcode/types/internal";
 import { authenticate } from "./authenticate";
-import type { GatewayContext } from "./gateway-env";
+import { type GatewayContext, requestPerformance } from "./gateway-env";
 import { rateLimitForwarded, rateLimitPublicForwarded, withRateLimitHeaders } from "./rate-limit";
 
 const PUBLIC_CREDENTIAL_HEADERS = [
@@ -59,14 +59,34 @@ export async function forwardAgentRequest(
   const headers = await rateLimitForwarded(c, userId, routeKey, route.rateLimitCost);
   validate?.(c);
   const forwarded = agentServiceRequest(c.req.raw, userId);
-  return withRateLimitHeaders(await c.env.AGENT.fetch(forwarded), headers);
+  const response = await requestPerformance(c).measure("serviceBinding", () =>
+    c.env.AGENT.fetch(forwarded),
+  );
+  return withRateLimitHeaders(response, headers);
 }
 
-export async function forwardPublicAgentRequest(
+export async function forwardArtifactRequest(
+  c: GatewayContext,
+  route: AgentForwardRoute,
+): Promise<Response> {
+  const userId = await authenticate(c);
+  const routeKey = agentForwardRouteKey(route);
+  const headers = await rateLimitForwarded(c, userId, routeKey, route.rateLimitCost);
+  const request = agentServiceRequest(c.req.raw, userId);
+  const response = await requestPerformance(c).measure("serviceBinding", () =>
+    c.env.ARTIFACTS.fetch(request),
+  );
+  return withRateLimitHeaders(response, headers);
+}
+
+export async function forwardPublicArtifactRequest(
   c: GatewayContext,
   route: AgentForwardRoute,
 ): Promise<Response> {
   const routeKey = agentForwardRouteKey(route);
   const headers = await rateLimitPublicForwarded(c, routeKey, "publicRead", route.rateLimitCost);
-  return withRateLimitHeaders(await c.env.AGENT.fetch(agentServiceRequest(c.req.raw)), headers);
+  const response = await requestPerformance(c).measure("serviceBinding", () =>
+    c.env.ARTIFACTS.fetch(agentServiceRequest(c.req.raw)),
+  );
+  return withRateLimitHeaders(response, headers);
 }

@@ -6,12 +6,7 @@ import type { Dispatch, SetStateAction } from "react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import type { AuthMode } from "@/components/auth/auth-modal";
-import {
-  type SidebarProject,
-  useActiveProjectId,
-  useSidebarChats,
-  useSidebarProjects,
-} from "@/components/shell/sidebar-data";
+import { type SidebarProject, useSidebarBootstrap } from "@/components/shell/sidebar-data";
 import { activeChatIdFromPathname } from "@/components/shell/sidebar-navigation-model";
 import { updateProject } from "@/lib/api/project-thread";
 import { invalidateChatLists } from "@/lib/api/query-keys";
@@ -43,13 +38,13 @@ export function useSidebarNavigationData({
 }) {
   const { getToken } = useAuth();
   const activeThreadId = activeChatIdFromPathname(pathname);
-  const activeProjectId = useActiveProjectId(getToken, activeThreadId, isSignedIn);
+  const bootstrap = useSidebarBootstrap(getToken, activeThreadId, isSignedIn);
   return {
-    activeProjectId,
+    activeProjectId: bootstrap.activeProjectId,
     activeThreadId,
     renameMutation: useProjectRenameMutation(getToken),
-    sidebarChats: useSidebarChats(getToken, isSignedIn),
-    sidebarProjects: useSidebarProjects(getToken, isSignedIn, activeProjectId),
+    sidebarChats: bootstrap.sidebarChats,
+    sidebarProjects: bootstrap.sidebarProjects,
   };
 }
 

@@ -37,6 +37,10 @@ function isKvNamespaceBinding(value: unknown): value is KVNamespace {
   return hasBindingMethods(value, ["get", "put", "delete", "list"]);
 }
 
+function isRateLimitBinding(value: unknown): value is RateLimit {
+  return hasBindingMethods(value, ["limit"]);
+}
+
 function isDurableObjectNamespaceBinding(value: unknown): value is DurableObjectNamespace {
   return hasBindingMethods(value, [
     "newUniqueId",
@@ -92,6 +96,10 @@ export const KvNamespaceBindingSchema = z.custom<KVNamespace>(
 export const R2BucketBindingSchema = z.custom<R2Bucket>(
   isR2BucketBinding,
   "Expected a Cloudflare R2 bucket binding",
+);
+export const RateLimitBindingSchema = z.custom<RateLimit>(
+  isRateLimitBinding,
+  "Expected a Cloudflare Rate Limiting binding",
 );
 export const WorkflowBindingSchema = z.custom<Workflow<unknown>>(
   isWorkflowBinding,

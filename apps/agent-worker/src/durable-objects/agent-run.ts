@@ -13,6 +13,8 @@ import {
 } from "./agent-run-message-persistence";
 import { persistAgentRunLogicalModel } from "./agent-run-model-persistence";
 import { AgentRunOutput } from "./agent-run-output";
+import { emitWorkflowAcceptanceMetric } from "./agent-run-performance";
+import { provisionalModelResetChunk } from "./agent-run-provisional";
 import {
   absentAgentRunOkResponse,
   absentAgentRunWorkflowResponse,
@@ -344,7 +346,8 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       this.setOwnerUserId(input.userId);
       this.setStatus("running");
     });
-    await this.workflow.admit(admission);
+    this.appendRunStart(input.runId);
+    this.scheduleWorkflowAdmission(admission);
     const stream = this.output.resume(0);
     if (!stream) {
       return agentRunStreamCapacityResponse();
@@ -366,7 +369,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       return agentRunStreamCapacityResponse();
     }
     if (hasActiveRun(this.getStatus())) {
-      await this.workflow.admit(await this.workflow.createAdmission(input));
+      this.scheduleWorkflowAdmission(await this.workflow.createAdmission(input));
     }
     const stream = this.output.resume(0);
     if (!stream) {
@@ -464,6 +467,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       createLogger().warn("agent_run_workflow_termination_failed", { error });
     });
     try {
+      await this.append(provisionalModelResetChunk(), { allowAfterCancelRequest: true });
       await this.append(
         {
           type: "data-error",
@@ -505,10 +509,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     const outcome = await this.workflow.authorizeCallback(input);
     if (outcome !== "current") return Response.json({ outcome });
     setAgentRunStage(this.ctx, "Preparing project sandbox.");
-    this.output.appendWorkflowEvent("run:start", [
-      { messageId: input.input.runId, type: "start" },
-      { data: { status: "starting", v: 1 }, type: "data-sandbox-status" },
-    ]);
+    this.appendRunStart(input.input.runId);
     await this.persistRunStatusById({
       isArtifactsQuiesced: false,
       runId: input.input.runId,
@@ -639,6 +640,7 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
     message: string;
     retriable: boolean;
   }): Promise<void> {
+    await this.append(provisionalModelResetChunk(), { allowAfterCancelRequest: true });
     await this.append(
       {
         type: "data-error",
@@ -671,6 +673,30 @@ export class AgentRun extends DurableObject<AgentRunEnv> {
       plannedLogicalModelId: input.model,
       runId: input.runId,
     });
+  }
+
+  private appendRunStart(runId: string): void {
+    this.output.appendWorkflowEvent("run:start", [
+      { messageId: runId, type: "start" },
+      { data: { status: "starting", v: 1 }, type: "data-sandbox-status" },
+    ]);
+  }
+
+  private scheduleWorkflowAdmission(
+    admission: Awaited<ReturnType<AgentRunWorkflowController["createAdmission"]>>,
+  ): void {
+    const startedAt = performance.now();
+    this.ctx.waitUntil(
+      this.workflow
+        .admit(admission)
+        .then(() => emitWorkflowAcceptanceMetric(this.ctx, this.env, performance.now() - startedAt))
+        .catch((error: unknown) => {
+          createLogger({ runId: admission.input.runId }).warn(
+            "agent_run_workflow_admission_deferred",
+            { error },
+          );
+        }),
+    );
   }
 
   private getOwnerUserId(): string | undefined {

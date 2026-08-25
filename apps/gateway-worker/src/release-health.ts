@@ -7,7 +7,7 @@ const DownstreamReleaseHealthSchema = z.strictObject({
   ok: z.literal(true),
   releaseSha: z.string().min(1),
   versionId: z.string().min(1).nullable(),
-  worker: z.enum(["agent", "webhooks"]),
+  worker: z.enum(["agent", "artifact", "webhooks"]),
 });
 
 export type DownstreamWorker = z.infer<typeof DownstreamReleaseHealthSchema>["worker"];
@@ -19,7 +19,7 @@ export interface DownstreamReleaseHealthResult {
 }
 
 export async function readDownstreamReleaseHealth(
-  env: Pick<GatewayEnv, "AGENT" | "WEBHOOKS">,
+  env: Pick<GatewayEnv, "AGENT" | "ARTIFACTS" | "WEBHOOKS">,
   worker: DownstreamWorker,
 ): Promise<DownstreamReleaseHealthResult> {
   const response = await fetchHealth(env, worker);
@@ -50,11 +50,12 @@ export async function readDownstreamReleaseHealth(
 }
 
 async function fetchHealth(
-  env: Pick<GatewayEnv, "AGENT" | "WEBHOOKS">,
+  env: Pick<GatewayEnv, "AGENT" | "ARTIFACTS" | "WEBHOOKS">,
   worker: DownstreamWorker,
 ): Promise<Response> {
   try {
-    const binding = worker === "agent" ? env.AGENT : env.WEBHOOKS;
+    const binding =
+      worker === "agent" ? env.AGENT : worker === "artifact" ? env.ARTIFACTS : env.WEBHOOKS;
     return await binding.fetch(
       new Request(`https://${worker}.internal/health`, {
         signal: AbortSignal.timeout(3_000),
@@ -80,5 +81,6 @@ function unhealthyService(worker: DownstreamWorker, status: number): APIError {
 }
 
 function serviceLabel(worker: DownstreamWorker): string {
-  return worker === "agent" ? "Agent" : "Webhooks";
+  if (worker === "agent") return "Agent";
+  return worker === "artifact" ? "Artifact" : "Webhooks";
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { normalizeTelemetryPath } from "@cheatcode/types";
+import { type BrowserPerformanceMetricNameSchema, normalizeTelemetryPath } from "@cheatcode/types";
 import {
   type MetricWithAttribution,
   onCLS,
@@ -9,11 +9,15 @@ import {
   onLCP,
   onTTFB,
 } from "web-vitals/attribution";
+import type { z } from "zod";
 import { gatewayRequestUrl } from "@/lib/api/gateway-url";
 
 const VITALS_ENDPOINT = gatewayRequestUrl("/v1/vitals");
 const queue = new Set<WebVitalPayload>();
 let initialized = false;
+let flushTimer: ReturnType<typeof setTimeout> | null = null;
+
+export type BrowserPerformanceMetricName = z.infer<typeof BrowserPerformanceMetricNameSchema>;
 
 interface WebVitalPayload {
   attributionTarget?: string;
@@ -46,6 +50,34 @@ export function initWebVitals(): void {
   addEventListener("pagehide", flush);
 }
 
+/** Records an anonymous, bounded product milestone using the Web Vitals delivery path. */
+export function reportBrowserPerformanceMetric(
+  name: Exclude<BrowserPerformanceMetricName, "CLS" | "FCP" | "INP" | "LCP" | "TTFB">,
+  value: number,
+): void {
+  if (!Number.isFinite(value) || value < 0) {
+    return;
+  }
+  queue.add({
+    delta: value,
+    id: `${name}-${Date.now().toString(36)}-${crypto.randomUUID()}`,
+    name,
+    url: normalizeTelemetryPath(window.location.pathname),
+    value,
+  });
+  scheduleFlush();
+}
+
+function scheduleFlush(): void {
+  if (flushTimer !== null) {
+    return;
+  }
+  flushTimer = setTimeout(() => {
+    flushTimer = null;
+    flush();
+  }, 1_000);
+}
+
 function report(metric: MetricWithAttribution): void {
   const target = attributionTarget(metric);
   queue.add({
@@ -61,6 +93,10 @@ function report(metric: MetricWithAttribution): void {
 }
 
 function flush(): void {
+  if (flushTimer !== null) {
+    clearTimeout(flushTimer);
+    flushTimer = null;
+  }
   if (queue.size === 0) {
     return;
   }

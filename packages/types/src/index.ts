@@ -62,6 +62,7 @@ export { sandboxFileEntryShape } from "./sandbox-wire";
 export type { SkillRuntimeScope } from "./skill-runtime";
 export { SkillRuntimeScopeSchema } from "./skill-runtime";
 export {
+  BrowserPerformanceMetricNameSchema,
   ClientErrorBodySchema,
   ClientUserEventBodySchema,
   normalizeTelemetryPath,

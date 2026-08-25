@@ -245,6 +245,9 @@ jobs:
         if: needs.changes.outputs.root_code == 'true'
         run: pnpm typecheck:scripts
 
+      - name: Check Worker performance budgets
+        run: pnpm worker:performance-budgets
+
       - name: Check affected architecture boundaries
         if: steps.workspace-scope.outputs.directories != '[]'
         env:

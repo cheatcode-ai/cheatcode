@@ -26,6 +26,10 @@
       "service": "cheatcode-agent"
     },
     {
+      "binding": "ARTIFACTS",
+      "service": "cheatcode-artifacts"
+    },
+    {
       "binding": "WEBHOOKS",
       "service": "cheatcode-webhooks"
     },
@@ -87,6 +91,24 @@
       }
     ]
   },
+  "ratelimits": [
+    {
+      "name": "RATE_LIMIT_PUBLIC_READ",
+      "namespace_id": "10001",
+      "simple": {
+        "limit": 300,
+        "period": 60
+      }
+    },
+    {
+      "name": "RATE_LIMIT_READ_CHEAP",
+      "namespace_id": "10002",
+      "simple": {
+        "limit": 600,
+        "period": 60
+      }
+    }
+  ],
   "kv_namespaces": [
     {
       "binding": "ENTITLEMENTS_CACHE",

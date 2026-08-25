@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { toast } from "sonner";
-import type { SidebarChat, useSidebarChats } from "@/components/shell/sidebar-data";
+import type { SidebarChat, SidebarChatCollection } from "@/components/shell/sidebar-data";
 import {
   SidebarDeleteDialog,
   SidebarInlineRenameInput,
@@ -28,7 +28,7 @@ export function ChatList({
   chats,
 }: {
   activeThreadId: string | null;
-  chats: ReturnType<typeof useSidebarChats>;
+  chats: SidebarChatCollection;
 }) {
   const actions = useChatActions(activeThreadId);
   if (chats.isLoading) return <SidebarListLoading label="Loading chats" />;
@@ -60,7 +60,7 @@ function ChatRows({
 }: {
   actions: ReturnType<typeof useChatActions>;
   activeThreadId: string | null;
-  chats: ReturnType<typeof useSidebarChats>["items"];
+  chats: SidebarChatCollection["items"];
 }) {
   return (
     <div className="space-y-0.5 py-1">

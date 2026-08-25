@@ -24,6 +24,7 @@ interface MessageListProps {
   messages: readonly CheatcodeUIMessage[];
   onContinue: () => void;
   onLoadOlderMessages: () => Promise<OlderMessagesLoadResult>;
+  provisionalText: string;
   runStartedAt: null | number;
   threadId: string;
 }
@@ -36,11 +37,17 @@ export function MessageList({
   messages,
   onContinue,
   onLoadOlderMessages,
+  provisionalText,
   runStartedAt,
   threadId,
 }: MessageListProps) {
   const scrollState = useMessageScrollState();
-  const displayMessages = withPendingAssistant(messages, isWaitingForFirstResponse, threadId);
+  const displayMessages = withLiveAssistant(
+    messages,
+    isWaitingForFirstResponse,
+    provisionalText,
+    threadId,
+  );
   const turns = groupMessagesIntoTurns(displayMessages);
   const virtualizer = useVirtualizer({
     count: turns.length,
@@ -83,11 +90,15 @@ export function MessageList({
   );
 }
 
-function withPendingAssistant(
+function withLiveAssistant(
   messages: readonly CheatcodeUIMessage[],
   isWaitingForFirstResponse: boolean,
+  provisionalText: string,
   threadId: string,
 ): readonly CheatcodeUIMessage[] {
+  if (provisionalText.length > 0) {
+    return withProvisionalText(messages, provisionalText, threadId);
+  }
   if (!isWaitingForFirstResponse) {
     return messages;
   }
@@ -98,5 +109,21 @@ function withPendingAssistant(
       parts: [],
       role: "assistant",
     },
+  ];
+}
+
+function withProvisionalText(
+  messages: readonly CheatcodeUIMessage[],
+  text: string,
+  threadId: string,
+): readonly CheatcodeUIMessage[] {
+  const last = messages.at(-1);
+  const part = { state: "streaming" as const, text, type: "text" as const };
+  if (last?.role === "assistant") {
+    return [...messages.slice(0, -1), { ...last, parts: [...last.parts, part] }];
+  }
+  return [
+    ...messages,
+    { id: `provisional-assistant-${threadId}`, parts: [part], role: "assistant" },
   ];
 }

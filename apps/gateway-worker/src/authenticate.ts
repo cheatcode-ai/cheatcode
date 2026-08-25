@@ -17,7 +17,8 @@ import {
 } from "@cheatcode/env";
 import { APIError } from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
-import { type GatewayContext, requestDatabase } from "./gateway-env";
+import type { GatewayPrimaryEmailStatus, GatewayPrincipal } from "./auth-context";
+import { type GatewayContext, requestDatabase, requestPerformance } from "./gateway-env";
 
 /**
  * Narrow env surface the auth helpers depend on. `GatewayEnv` structurally
@@ -32,9 +33,29 @@ export interface AuthEnv {
 }
 
 export async function authenticate(c: GatewayContext): Promise<UserId> {
-  const { secretKey, verificationOptions } = await clerkVerification(c.env);
-  const session = await verifyClerkBearerToken(c.req.raw, verificationOptions);
-  return resolveOrSyncClerkUser(requestDatabase(c).db, session.clerkUserId, secretKey);
+  return (await c.get("principal")()).userId;
+}
+
+export async function resolveGatewayPrincipal(c: GatewayContext): Promise<GatewayPrincipal> {
+  const recorder = requestPerformance(c);
+  const { secretKey, verificationOptions } = await recorder.measure("authSecret", () =>
+    clerkVerification(c.env),
+  );
+  const session = await recorder.measure("authVerification", () =>
+    verifyClerkBearerToken(c.req.raw, verificationOptions),
+  );
+  const userId = await recorder.measure("userLookup", () =>
+    resolveOrSyncClerkUser(requestDatabase(c).db, session.clerkUserId, secretKey),
+  );
+  let emailStatus: Promise<GatewayPrimaryEmailStatus> | undefined;
+  return {
+    clerkUserId: session.clerkUserId,
+    primaryEmailStatus() {
+      emailStatus ??= fetchClerkEmailStatus(session.clerkUserId, secretKey);
+      return emailStatus;
+    },
+    userId,
+  };
 }
 
 async function clerkVerification(env: AuthEnv) {
@@ -124,13 +145,8 @@ async function fetchCanonicalClerkSnapshot(
   }
 }
 
-export async function requireVerifiedClerkEmail(request: Request, env: AuthEnv): Promise<void> {
-  const secretKey = await readRequiredClerkSecret(env);
-  const session = await verifyClerkBearerToken(request, {
-    authorizedParties: clerkAuthorizedParties(env),
-    secretKey,
-  });
-  const emailStatus = await fetchClerkEmailStatus(session.clerkUserId, secretKey);
+export async function requireVerifiedClerkEmail(c: GatewayContext): Promise<void> {
+  const emailStatus = await (await c.get("principal")()).primaryEmailStatus();
   if (emailStatus.verified) {
     return;
   }
@@ -236,24 +252,6 @@ export async function readOptionalClerkSecret(
 ): Promise<string | undefined> {
   const value = await readOptionalSecret(env.CLERK_SECRET_KEY, "CLERK_SECRET_KEY");
   return value ? assertClerkSecretKeyFamily(value, env.CHEATCODE_ENVIRONMENT) : undefined;
-}
-
-async function readRequiredClerkSecret(
-  env: Pick<AuthEnv, "CHEATCODE_ENVIRONMENT" | "CLERK_SECRET_KEY">,
-): Promise<string> {
-  const value = await readOptionalClerkSecret(env);
-  if (!value) {
-    throw new APIError(
-      503,
-      "service_maintenance_unavailable",
-      "CLERK_SECRET_KEY is not configured",
-      {
-        hint: "Set CLERK_SECRET_KEY in the gateway Worker environment.",
-        retriable: false,
-      },
-    );
-  }
-  return value;
 }
 
 function assertClerkSecretKeyFamily(

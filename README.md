@@ -104,8 +104,9 @@ different cookie site from `localhost`.
 
 Supabase is the only supported Postgres topology. Cheatcode does not start a
 local database, use Supabase Storage or Realtime, or expose runtime Workers to
-an administrative credential. Each Worker connects through the shared Supabase
-session pooler with its own `app_gateway`, `app_agent`, or `app_webhooks` login.
+an administrative credential. Each database-backed Worker connects through
+Hyperdrive to the Supabase Direct endpoint with its own `app_gateway`,
+`app_agent`, or `app_webhooks` login.
 
 Before setup, publish an immutable Daytona snapshot from
 [`infra/containers/sandbox`](infra/containers/sandbox). The protected workflow
@@ -120,7 +121,7 @@ or follow the container README to build the same sandbox image in your own
 Daytona environment. Enter the resulting immutable snapshot name in
 `DAYTONA_SANDBOX_SNAPSHOT`; setup will not inherit the hosted project's value.
 
-Production deployments use Vercel for `apps/web` and Cloudflare for the four
+Production deployments use Vercel for `apps/web` and Cloudflare for the five
 Workers. Review each app's `wrangler.jsonc`, `apps/web/vercel.json`, and the
 deployment workflows before changing that topology. Runtime provider keys are
 BYOK and must continue through `packages/byok`.

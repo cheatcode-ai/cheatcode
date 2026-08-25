@@ -1,15 +1,9 @@
 "use client";
 
-import type { ProjectSummary, Thread } from "@cheatcode/types/api";
-import { useQueries, useQuery } from "@tanstack/react-query";
-import {
-  getProject,
-  getThread,
-  listProjectsPage,
-  listProjectThreadsPage,
-  listRecentThreads,
-} from "@/lib/api/project-thread";
-import { projectKeys, sidebarKeys, threadKeys } from "@/lib/api/query-keys";
+import type { NavigationBootstrapProject, SearchResultThread } from "@cheatcode/types/api";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { getNavigationBootstrap } from "@/lib/api/project-thread";
+import { sidebarKeys } from "@/lib/api/query-keys";
 
 export interface SidebarChat {
   activeRunId: string | null;
@@ -24,93 +18,79 @@ export interface SidebarProject {
   name: string;
 }
 
-export function useSidebarChats(getToken: () => Promise<null | string>, enabled: boolean) {
-  const { data, isPending } = useQuery({
-    enabled,
-    queryFn: ({ signal }) => listRecentThreads(getToken, 20, signal),
-    queryKey: sidebarKeys.chats,
-    retry: false,
-    staleTime: 30_000,
-  });
-  return {
-    isLoading: enabled && isPending,
-    items: enabled ? (data ?? []) : [],
-  };
+export interface SidebarChatCollection {
+  isLoading: boolean;
+  items: SidebarChat[];
 }
 
-export function useActiveProjectId(
-  getToken: () => Promise<null | string>,
-  threadId: string | null,
-  enabled: boolean,
-): string | null {
-  const threadQuery = useQuery({
-    enabled: enabled && Boolean(threadId),
-    queryFn: ({ signal }) => getThread(getToken, String(threadId), signal),
-    queryKey: threadKeys.detail(threadId),
-    retry: false,
-    staleTime: 5_000,
-  });
-  return threadQuery.data?.projectId ?? null;
+export interface SidebarProjectCollection {
+  isLoading: boolean;
+  items: SidebarProject[];
 }
 
-export function useSidebarProjects(
+export function useSidebarBootstrap(
   getToken: () => Promise<null | string>,
+  activeThreadId: string | null,
   enabled: boolean,
-  activeProjectId: string | null,
 ) {
-  const projectsQuery = useQuery({
+  const query = useQuery({
     enabled,
-    queryFn: ({ signal }) => listProjectsPage(getToken, null, 6, signal),
-    queryKey: sidebarKeys.projectFirstPage,
+    placeholderData: keepPreviousData,
+    queryFn: ({ signal }) => getNavigationBootstrap(getToken, activeThreadId, signal),
+    queryKey: sidebarKeys.bootstrapFor(activeThreadId),
     retry: false,
     staleTime: 30_000,
   });
-  const activeProjectQuery = useQuery({
-    enabled: enabled && Boolean(activeProjectId),
-    queryFn: ({ signal }) => getProject(getToken, String(activeProjectId), signal),
-    queryKey: projectKeys.detail(activeProjectId),
-    retry: false,
-    staleTime: 5_000,
-  });
-  const projects = projectsWithActive(
-    enabled ? (projectsQuery.data?.data ?? []) : [],
-    activeProjectQuery.data ?? null,
-  ).slice(0, 6);
-  const threadQueries = useQueries({
-    queries: projects.map((project) => ({
-      enabled: enabled && projectsQuery.isSuccess,
-      queryFn: ({ signal }) => listProjectThreadsPage(getToken, project.id, null, 1, signal),
-      queryKey: sidebarKeys.projectThreadsFor(project.id),
-      retry: false,
-      staleTime: 30_000,
+  const recentThreads = enabled ? (query.data?.recentThreads ?? []) : [];
+  return {
+    activeProjectId: activeProjectForThread(
+      recentThreads,
+      activeThreadId,
+      query.isPlaceholderData ? null : (query.data?.activeProjectId ?? null),
+    ),
+    sidebarChats: sidebarChats(recentThreads, enabled && query.isPending),
+    sidebarProjects: sidebarProjects(
+      enabled ? (query.data?.projects ?? []) : [],
+      enabled && query.isPending,
+    ),
+  };
+}
+
+function activeProjectForThread(
+  recentThreads: readonly SearchResultThread[],
+  activeThreadId: string | null,
+  resolvedActiveProjectId: string | null,
+): string | null {
+  if (!activeThreadId) return null;
+  const recentThread = recentThreads.find((thread) => thread.id === activeThreadId);
+  return recentThread ? recentThread.projectId : resolvedActiveProjectId;
+}
+
+function sidebarChats(
+  recentThreads: readonly SearchResultThread[],
+  isLoading: boolean,
+): SidebarChatCollection {
+  return {
+    isLoading,
+    items: recentThreads.map((thread) => ({
+      activeRunId: thread.activeRunId,
+      id: thread.id,
+      projectId: thread.projectId,
+      title: thread.title,
     })),
-  });
-  const items = projects.map((project, index) =>
-    sidebarProjectFromApi(project, threadQueries[index]?.data?.data[0] ?? null),
-  );
-
-  return {
-    isLoading:
-      enabled &&
-      (projectsQuery.isPending ||
-        (Boolean(activeProjectId) && activeProjectQuery.isPending) ||
-        threadQueries.some((query) => query.isPending)),
-    items,
   };
 }
 
-function sidebarProjectFromApi(project: ProjectSummary, newest: Thread | null): SidebarProject {
+function sidebarProjects(
+  projects: readonly NavigationBootstrapProject[],
+  isLoading: boolean,
+): SidebarProjectCollection {
   return {
-    href: newest ? `/chats/${encodeURIComponent(newest.id)}` : null,
-    id: project.id,
-    name: project.name,
+    isLoading,
+    items: projects.map((project) => ({
+      href: project.latestThreadId ? `/chats/${encodeURIComponent(project.latestThreadId)}` : null,
+      id: project.id,
+      name: project.name,
+    })),
   };
-}
-
-function projectsWithActive(
-  projects: readonly ProjectSummary[],
-  activeProject: ProjectSummary | null,
-): ProjectSummary[] {
-  if (!activeProject) return [...projects];
-  return [activeProject, ...projects.filter((project) => project.id !== activeProject.id)];
 }

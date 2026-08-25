@@ -12,6 +12,8 @@ export const projectKeys = {
 };
 
 export const sidebarKeys = {
+  bootstrap: ["sidebar-bootstrap"] as const,
+  bootstrapFor: (threadId: string | null) => ["sidebar-bootstrap", threadId] as const,
   chats: ["sidebar-chats"] as const,
   projectFirstPage: ["sidebar-projects", "first-page"] as const,
   projectPicker: ["sidebar-projects", "picker"] as const,
@@ -22,6 +24,7 @@ export const sidebarKeys = {
 
 export async function invalidateChatLists(queryClient: QueryClient): Promise<void> {
   await Promise.all([
+    queryClient.invalidateQueries({ queryKey: sidebarKeys.bootstrap }),
     queryClient.invalidateQueries({ queryKey: sidebarKeys.chats }),
     queryClient.invalidateQueries({ queryKey: sidebarKeys.projectThreads }),
     queryClient.invalidateQueries({ queryKey: sidebarKeys.projects }),

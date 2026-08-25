@@ -30,7 +30,8 @@
     "prepare": "lefthook install",
     "skills:build": "turbo skills:build",
     "typecheck": "turbo typecheck && pnpm typecheck:scripts",
-    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit"
+    "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
+    "worker:performance-budgets": "tsx scripts/check-worker-performance-budgets.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "catalog:",

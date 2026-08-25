@@ -1,0 +1,73 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cheatcode-artifacts",
+  "workers_dev": false,
+  "preview_urls": false,
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "placement": {
+    "mode": "smart"
+  },
+  "version_metadata": {
+    "binding": "CF_VERSION_METADATA"
+  },
+  "vars": {
+    "CHEATCODE_ENVIRONMENT": "production"
+  },
+  "secrets_store_secrets": [
+    {
+      "binding": "DATABASE_CONTEXT_SIGNING_SECRET_AGENT",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "database-context-signing-secret-agent"
+    },
+    {
+      "binding": "OUTPUT_DOWNLOAD_SIGNING_SECRET",
+      "store_id": "ba25994718db4707ab99a498e22eb5a6",
+      "secret_name": "output-download-signing-secret"
+    }
+  ],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "6fda3a31b1dc46e8ac736cbad79d5bc8"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "R2_OUTPUTS",
+      "bucket_name": "cheatcode-outputs"
+    }
+  ],
+  "analytics_engine_datasets": [
+    {
+      "binding": "USER_EVENTS",
+      "dataset": "cc_user_events"
+    },
+    {
+      "binding": "AGENT_METRICS",
+      "dataset": "cc_agent_metrics"
+    },
+    {
+      "binding": "ERROR_EVENTS",
+      "dataset": "cc_error_events"
+    },
+    {
+      "binding": "PERFORMANCE_METRICS",
+      "dataset": "cc_performance_metrics"
+    }
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 0.1,
+      "persist": true
+    }
+  }
+}

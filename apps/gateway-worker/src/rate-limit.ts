@@ -1,4 +1,9 @@
-import { APIError, createLogger, safeErrorTelemetry } from "@cheatcode/observability";
+import {
+  APIError,
+  createLogger,
+  type PerformanceRecorder,
+  safeErrorTelemetry,
+} from "@cheatcode/observability";
 import type { UserId } from "@cheatcode/types";
 import type { Context } from "hono";
 import { routePath } from "hono/route";
@@ -28,6 +33,8 @@ export interface RateLimitHeaders {
 
 export interface RateLimitContext {
   env: {
+    RATE_LIMIT_PUBLIC_READ: RateLimit;
+    RATE_LIMIT_READ_CHEAP: RateLimit;
     RATE_LIMITER: DurableObjectNamespace<RateLimiter>;
   };
   header(name: string, value: string): void;
@@ -143,6 +150,24 @@ async function consumeRateLimit(
   route: string,
   policy: RateLimitPolicy,
 ): Promise<RateLimitHeaders | null> {
+  const recorder = rateLimitRecorder(c);
+  if (recorder) {
+    return recorder.measure("rateLimit", () =>
+      consumeRateLimitUnmeasured(c, subject, route, policy),
+    );
+  }
+  return consumeRateLimitUnmeasured(c, subject, route, policy);
+}
+
+async function consumeRateLimitUnmeasured(
+  c: RateLimitContext,
+  subject: RateLimitSubject,
+  route: string,
+  policy: RateLimitPolicy,
+): Promise<RateLimitHeaders | null> {
+  if (usesNativeRateLimit(policy)) {
+    return consumeNativeRateLimit(c, subject, route, policy);
+  }
   const id = c.env.RATE_LIMITER.idFromName(subject.durableObjectName);
   const stub = c.env.RATE_LIMITER.get(id);
   let result: RateLimitResult;
@@ -157,6 +182,57 @@ async function consumeRateLimit(
   }
   setRateLimitHeaders(c, headers);
   return headers;
+}
+
+async function consumeNativeRateLimit(
+  c: RateLimitContext,
+  subject: RateLimitSubject,
+  route: string,
+  policy: RateLimitPolicy,
+): Promise<null> {
+  const binding =
+    policy.className === "public.read" ? c.env.RATE_LIMIT_PUBLIC_READ : c.env.RATE_LIMIT_READ_CHEAP;
+  let success: boolean;
+  try {
+    ({ success } = await binding.limit({ key: subject.key }));
+  } catch (error) {
+    return handleRateLimitFailure(route, policy, error);
+  }
+  if (!success) {
+    const retryAfterMs = 60_000;
+    throw new RateLimitExceededError(
+      {
+        limit: String(policy.limitPerMinute),
+        remaining: "0",
+        reset: rateLimitReset(retryAfterMs),
+      },
+      policy,
+      retryAfterMs,
+    );
+  }
+  return null;
+}
+
+function usesNativeRateLimit(policy: RateLimitPolicy): boolean {
+  return (
+    policy.cost === 1 && (policy.className === "public.read" || policy.className === "read.cheap")
+  );
+}
+
+function rateLimitRecorder(c: RateLimitContext): PerformanceRecorder | undefined {
+  try {
+    const get = Reflect.get(c, "get");
+    if (typeof get !== "function") return undefined;
+    const recorder: unknown = Reflect.apply(get, c, ["performance"]);
+    return isPerformanceRecorder(recorder) ? recorder : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isPerformanceRecorder(value: unknown): value is PerformanceRecorder {
+  if (typeof value !== "object" || value === null) return false;
+  return typeof Reflect.get(value, "measure") === "function";
 }
 
 export function withRateLimitErrorHeaders(response: Response, error: unknown): Response {

@@ -330,6 +330,43 @@ importers:
         specifier: 'catalog:'
         version: 4.114.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@5.0.10)
 
+  apps/artifact-worker:
+    dependencies:
+      '@cheatcode/auth':
+        specifier: workspace:*
+        version: link:../../packages/auth
+      '@cheatcode/db':
+        specifier: workspace:*
+        version: link:../../packages/db
+      '@cheatcode/env':
+        specifier: workspace:*
+        version: link:../../packages/env
+      '@cheatcode/observability':
+        specifier: workspace:*
+        version: link:../../packages/observability
+      '@cheatcode/types':
+        specifier: workspace:*
+        version: link:../../packages/types
+      hono:
+        specifier: 'catalog:'
+        version: 4.12.34
+      zod:
+        specifier: 'catalog:'
+        version: 4.4.3
+    devDependencies:
+      '@cheatcode/tsconfig':
+        specifier: workspace:*
+        version: link:../../packages/tsconfig
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20260722.1
+      typescript:
+        specifier: 'catalog:'
+        version: 6.0.3
+      wrangler:
+        specifier: 'catalog:'
+        version: 4.114.0(@cloudflare/workers-types@5.20260722.1)(bufferutil@4.1.0)(utf-8-validate@5.0.10)
+
   apps/gateway-worker:
     dependencies:
       '@cheatcode/auth':
@@ -646,6 +683,9 @@ importers:
       '@cheatcode/observability':
         specifier: workspace:*
         version: link:../observability
+      '@cheatcode/types':
+        specifier: workspace:*
+        version: link:../types
       '@clerk/backend':
         specifier: 'catalog:'
         version: 3.11.6(react-dom@19.2.7(react@19.2.7))(react@19.2.7)

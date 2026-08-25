@@ -14,6 +14,7 @@ export interface PreviewLiveState {
 }
 
 const STATUS_POLL_MS = 20_000;
+const STATUS_POLL_MAX_MS = 60_000;
 const STATUS_REQUEST_TIMEOUT_MS = 15_000;
 const PREVIEW_SESSION_CHECK_MS = 60_000;
 const PREVIEW_SESSION_REFRESH_MS = 8 * 60 * 1000;
@@ -242,24 +243,28 @@ function usePreviewStatusPolling(
     if (!active || !threadId) return;
     const controller = new AbortController();
     let polling = false;
+    let pollDelay = STATUS_POLL_MS;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const poll = async () => {
       if (polling) return;
       polling = true;
       try {
-        await pollPreviewStatus({
+        const didRecover = await pollPreviewStatus({
           getToken: runtime.deps.getToken,
           isWaking: () => runtime.refreshRequest !== null,
           signal: controller.signal,
           threadId,
           wake,
         });
+        pollDelay = didRecover ? STATUS_POLL_MS : Math.min(pollDelay * 2, STATUS_POLL_MAX_MS);
       } finally {
         polling = false;
+        if (!controller.signal.aborted) timer = setTimeout(() => void poll(), pollDelay);
       }
     };
-    const id = setInterval(() => void poll(), STATUS_POLL_MS);
+    timer = setTimeout(() => void poll(), pollDelay);
     return () => {
-      clearInterval(id);
+      if (timer) clearTimeout(timer);
       controller.abort();
     };
   }, [active, runtime, threadId, wake]);
@@ -314,7 +319,7 @@ async function pollPreviewStatus(input: {
   signal: AbortSignal;
   threadId: string;
   wake: () => Promise<void>;
-}): Promise<void> {
+}): Promise<boolean> {
   try {
     const status = await getSandboxPreviewStatus(
       input.getToken,
@@ -323,12 +328,15 @@ async function pollPreviewStatus(input: {
     );
     if (!input.signal.aborted && previewStatusNeedsWake(status) && !input.isWaking()) {
       await input.wake();
+      return true;
     }
+    return false;
   } catch (error) {
     if (isAbortError(error)) {
-      return;
+      return false;
     }
     // Best-effort; the wake path surfaces hard failures.
+    return false;
   }
 }
 

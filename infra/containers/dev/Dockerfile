@@ -14,6 +14,7 @@ WORKDIR /workspace
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .npmrc ./
 COPY apps/agent-worker/package.json apps/agent-worker/package.json
+COPY apps/artifact-worker/package.json apps/artifact-worker/package.json
 COPY apps/gateway-worker/package.json apps/gateway-worker/package.json
 COPY apps/preview-proxy/package.json apps/preview-proxy/package.json
 COPY apps/web/package.json apps/web/package.json
@@ -26,6 +27,7 @@ COPY packages/composio/package.json packages/composio/package.json
 COPY packages/db/package.json packages/db/package.json
 COPY packages/durable-storage/package.json packages/durable-storage/package.json
 COPY packages/env/package.json packages/env/package.json
+COPY packages/morph/package.json packages/morph/package.json
 COPY packages/observability/package.json packages/observability/package.json
 COPY packages/preview-bridge/package.json packages/preview-bridge/package.json
 COPY packages/sandbox-contracts/package.json packages/sandbox-contracts/package.json

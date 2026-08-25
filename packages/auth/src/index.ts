@@ -12,6 +12,11 @@ export {
   hmacSha256Base64,
   timingSafeEqual,
 } from "./crypto";
+export {
+  createOutputDownloadCapability,
+  OutputDownloadQuerySchema,
+  verifySignedOutputDownload,
+} from "./output-download";
 export type {
   PreviewCapabilityKind,
   VerifiedPreviewCapability,

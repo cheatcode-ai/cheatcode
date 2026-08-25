@@ -1,8 +1,8 @@
 import type { AuthMode } from "@/components/auth/auth-modal";
 import type {
+  SidebarChatCollection,
   SidebarProject,
-  useSidebarChats,
-  useSidebarProjects,
+  SidebarProjectCollection,
 } from "@/components/shell/sidebar-data";
 
 export type SidebarBooleanUpdater = (updater: (current: boolean) => boolean) => void;
@@ -36,7 +36,7 @@ export interface ExpandedSidebarContentProps {
   projectsOpen: boolean;
   renameMutation: ProjectRenameMutationState;
   settingsOpen: boolean;
-  sidebarChats: ReturnType<typeof useSidebarChats>;
-  sidebarProjects: ReturnType<typeof useSidebarProjects>;
+  sidebarChats: SidebarChatCollection;
+  sidebarProjects: SidebarProjectCollection;
   signOut: () => void;
 }

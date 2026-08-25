@@ -5,6 +5,9 @@ node_modules/
 .wrangler/
 .next/
 .vercel/
+.terraform/
+*.tfstate
+*.tfstate.*
 dist/
 .qa/
 *.tsbuildinfo

@@ -1,0 +1,3 @@
+zone_id                  = "<cloudflare-zone-id>"
+vercel_apex_record_type  = "A"
+vercel_apex_content      = "<current-value-from-vercel>"

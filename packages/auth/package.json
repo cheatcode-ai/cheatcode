@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@cheatcode/observability": "workspace:*",
+    "@cheatcode/types": "workspace:*",
     "@clerk/backend": "catalog:",
     "zod": "catalog:"
   },
