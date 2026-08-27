@@ -11,6 +11,9 @@ import {
   SandboxConsoleSnapshotSchema,
   type SandboxIdeSession,
   SandboxIdeSessionSchema,
+  type SandboxIdeStartupPhase,
+  type SandboxIdeStartupStatus,
+  SandboxIdeStartupStatusSchema,
   SandboxTerminalCommandSchema,
   type SandboxTerminalContext,
   SandboxTerminalContextSchema,
@@ -20,6 +23,7 @@ import {
 import {
   API_REQUEST_TIMEOUT_MS,
   API_RESPONSE_LIMIT_BYTES,
+  AuthorizedFetchError,
   authorizedFetch,
   readBoundedJsonResponse,
 } from "@/lib/api/authorized-fetch";
@@ -90,17 +94,9 @@ export async function readSandboxTerminalContext(
 export async function openSandboxIde(
   getToken: () => Promise<null | string>,
   threadId: string,
-  signal?: AbortSignal,
+  options: SandboxIdeOpenOptions = {},
 ): Promise<SandboxIdeSession> {
-  const response = await authorizedFetch(
-    getToken,
-    sandboxIdePath(threadId),
-    signal ? { signal } : {},
-    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
-  );
-  return SandboxIdeSessionSchema.parse(
-    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
-  );
+  return openPreparedIde(getToken, sandboxIdePath(threadId), options);
 }
 
 export async function readBrowserTakeoverStatus(
@@ -152,14 +148,111 @@ export async function resumeBrowserAutomation(
 
 export async function openComputerIde(
   getToken: () => Promise<null | string>,
+  options: SandboxIdeOpenOptions = {},
+): Promise<SandboxIdeSession> {
+  return openPreparedIde(getToken, "/v1/computer/ide", options);
+}
+
+export interface SandboxIdeOpenOptions {
+  onPhase?: (phase: SandboxIdeStartupPhase) => void;
+  signal?: AbortSignal;
+}
+
+async function openPreparedIde(
+  getToken: () => Promise<null | string>,
+  path: string,
+  options: SandboxIdeOpenOptions,
+): Promise<SandboxIdeSession> {
+  let status = await beginIdeStartup(getToken, path, options.signal);
+  if (status === null) {
+    return readIdeSession(getToken, path, options.signal);
+  }
+  options.onPhase?.(status.phase);
+  while (isIdeStartupPending(status)) {
+    await waitForIdePoll(status.retryAfterMs ?? 1_000, options.signal);
+    status = await readIdeStartupStatus(getToken, path, status.operationId, options.signal);
+    options.onPhase?.(status.phase);
+  }
+  if (status.phase === "failed") {
+    throw new Error(status.message ?? "Files couldn't start. Try again.");
+  }
+  return readIdeSession(getToken, path, options.signal);
+}
+
+async function beginIdeStartup(
+  getToken: () => Promise<null | string>,
+  path: string,
+  signal?: AbortSignal,
+): Promise<SandboxIdeStartupStatus | null> {
+  try {
+    const response = await authorizedFetch(
+      getToken,
+      `${path}/open`,
+      { method: "POST", ...(signal ? { signal } : {}) },
+      { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
+    );
+    return SandboxIdeStartupStatusSchema.parse(
+      await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+    );
+  } catch (error) {
+    if (error instanceof AuthorizedFetchError && (error.status === 404 || error.status === 405)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+async function readIdeStartupStatus(
+  getToken: () => Promise<null | string>,
+  path: string,
+  operationId: string,
+  signal?: AbortSignal,
+): Promise<SandboxIdeStartupStatus> {
+  const response = await authorizedFetch(
+    getToken,
+    `${path}/status/${encodeURIComponent(operationId)}`,
+    signal ? { signal } : {},
+    { timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning },
+  );
+  return SandboxIdeStartupStatusSchema.parse(
+    await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
+  );
+}
+
+async function readIdeSession(
+  getToken: () => Promise<null | string>,
+  path: string,
   signal?: AbortSignal,
 ): Promise<SandboxIdeSession> {
-  const response = await authorizedFetch(getToken, "/v1/computer/ide", signal ? { signal } : {}, {
+  const response = await authorizedFetch(getToken, path, signal ? { signal } : {}, {
     timeoutMs: API_REQUEST_TIMEOUT_MS.provisioning,
   });
   return SandboxIdeSessionSchema.parse(
     await readBoundedJsonResponse(response, API_RESPONSE_LIMIT_BYTES.sandboxMetadata),
   );
+}
+
+function isIdeStartupPending(status: SandboxIdeStartupStatus): boolean {
+  return (
+    status.phase === "queued" ||
+    status.phase === "starting_sandbox" ||
+    status.phase === "starting_files"
+  );
+}
+
+function waitForIdePoll(delayMs: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.reject(signal.reason);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      window.clearTimeout(timeout);
+      reject(signal?.reason);
+    };
+    const timeout = window.setTimeout(() => {
+      signal?.removeEventListener("abort", onAbort);
+      resolve();
+    }, delayMs);
+    signal?.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 export async function readComputerTerminalContext(

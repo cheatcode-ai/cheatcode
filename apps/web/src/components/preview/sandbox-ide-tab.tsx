@@ -1,5 +1,6 @@
 "use client";
 
+import type { SandboxIdeStartupPhase } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useQuery } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
@@ -76,13 +77,16 @@ function ActiveSandboxIdeTab({
   const iframeUrl = useStablePreviewSource(requestedIframeUrl);
   const bridge = useCodeServerBridge(iframeUrl, threadId);
   const refetchSession = () => void ideQuery.refetch();
-  const reloadFrame = () => setFrameReloadToken((current) => current + 1);
+  const recoverFrame = () => {
+    setFrameReloadToken((current) => current + 1);
+    void ideQuery.refetch();
+  };
   return (
     <SandboxIdeContent
       bridge={bridge}
       ideQuery={ideQuery}
       iframeUrl={iframeUrl}
-      onFrameRetry={reloadFrame}
+      onFrameRetry={recoverFrame}
       onSessionRetry={refetchSession}
       requestedIframeUrl={requestedIframeUrl}
     />
@@ -90,13 +94,14 @@ function ActiveSandboxIdeTab({
 }
 
 function useSandboxIdeQuery(threadId: string | null, getToken: () => Promise<null | string>) {
+  const [startupPhase, setStartupPhase] = useState<SandboxIdeStartupPhase>("queued");
   // Files resolves either the per-user computer root or the active project folder.
-  return useQuery({
+  const query = useQuery({
     gcTime: 0,
     queryFn: ({ signal }) =>
       threadId === null
-        ? openComputerIde(getToken, signal)
-        : openSandboxIde(getToken, threadId, signal),
+        ? openComputerIde(getToken, { onPhase: setStartupPhase, signal })
+        : openSandboxIde(getToken, threadId, { onPhase: setStartupPhase, signal }),
     queryKey: ["sandbox-ide", threadId ?? "computer"],
     refetchInterval: (query) =>
       (query?.state.fetchFailureCount ?? 0) > 0 ? 60_000 : PREVIEW_SESSION_REFRESH_MS,
@@ -105,6 +110,7 @@ function useSandboxIdeQuery(threadId: string | null, getToken: () => Promise<nul
     retry: 1,
     staleTime: 0,
   });
+  return { ...query, startupPhase };
 }
 
 function SandboxIdeContent({
@@ -123,14 +129,14 @@ function SandboxIdeContent({
   requestedIframeUrl: string | null;
 }) {
   if (ideQuery.isPending) {
-    return <IdePlaceholder label="Opening Files" />;
+    return <IdePlaceholder phase={ideQuery.startupPhase} />;
   }
   if (ideQuery.isError) {
     return <IdeError isRetrying={ideQuery.isFetching} onRetry={onSessionRetry} />;
   }
 
   if (!iframeUrl) {
-    return <IdePlaceholder label="Opening Files" />;
+    return <IdePlaceholder phase="ready" />;
   }
   return (
     <SandboxIdeFrame
@@ -416,8 +422,41 @@ function FileExplorerToggleIcon({ visible }: { visible: boolean }) {
   );
 }
 
-function IdePlaceholder({ label }: { label: string }) {
-  return <CheatcodeLoader className="h-full min-h-[420px] bg-bg-secondary" label={label} />;
+function IdePlaceholder({ phase }: { phase: SandboxIdeStartupPhase }) {
+  const copy = ideStartupCopy(phase);
+  return (
+    <div
+      aria-live="polite"
+      className="grid h-full min-h-[420px] place-items-center bg-bg-secondary p-6"
+    >
+      <div className="flex max-w-64 flex-col items-center gap-3 text-center">
+        <CheatcodeLoader className="size-10" label={copy.title} />
+        <div className="space-y-1">
+          <p className="font-medium text-foreground text-sm">{copy.title}</p>
+          <p className="text-fg-secondary text-xs">{copy.description}</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ideStartupCopy(phase: SandboxIdeStartupPhase): {
+  description: string;
+  title: string;
+} {
+  if (phase === "queued") {
+    return { description: "This usually takes a few seconds.", title: "Preparing your computer" };
+  }
+  if (phase === "starting_sandbox") {
+    return { description: "Your workspace is waking up.", title: "Starting your computer" };
+  }
+  if (phase === "starting_files") {
+    return {
+      description: "Your files will appear as soon as they're ready.",
+      title: "Opening Files",
+    };
+  }
+  return { description: "Connecting to your workspace.", title: "Opening Files" };
 }
 
 function IdeError({ isRetrying, onRetry }: { isRetrying: boolean; onRetry: () => void }) {

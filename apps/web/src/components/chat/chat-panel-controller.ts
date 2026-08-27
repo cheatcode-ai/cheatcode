@@ -2,7 +2,7 @@
 
 import { useChat } from "@ai-sdk/react";
 import { CHEATCODE_DATA_SCHEMAS, type CheatcodeUIMessage } from "@cheatcode/types";
-import type { ProjectSummary, Thread } from "@cheatcode/types/api";
+import type { ProjectMode, ProjectSummary, Thread } from "@cheatcode/types/api";
 import { useAuth } from "@clerk/nextjs";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { ChatOnDataCallback, ChatStatus } from "ai";
@@ -458,7 +458,12 @@ function handleProjectCreatedData(
 ): void {
   const parsed = CHEATCODE_DATA_SCHEMAS["project-created"].safeParse(data);
   if (parsed.success) {
-    handleProjectCreated(parsed.data.projectId, input);
+    handleProjectCreated(
+      parsed.data.projectId,
+      parsed.data.projectMode,
+      parsed.data.previewBuilding === true,
+      input,
+    );
   }
 }
 
@@ -478,12 +483,19 @@ function handleSkillCreatedData(
 
 function handleProjectCreated(
   projectId: string,
+  projectMode: ProjectMode | undefined,
+  previewBuilding: boolean,
   input: Parameters<typeof useChatSession>[0],
 ): void {
   input.queryClient.setQueryData<Thread>(threadKeys.detail(input.threadId), (thread) =>
     thread ? { ...thread, projectId } : thread,
   );
-  input.sandboxActions.setActiveComputerTab("files");
+  input.sandboxActions.setActiveComputerTab(
+    projectMode === "app-builder" || projectMode === "app-builder-mobile" ? "browser" : "files",
+  );
+  if (previewBuilding) {
+    input.sandboxActions.setAppPreviewStatus("building");
+  }
   input.sandboxActions.setPreviewPanelOpen(true);
   for (const queryKey of [threadKeys.detail(input.threadId), projectKeys.detail(projectId)]) {
     void input.queryClient.invalidateQueries({ queryKey });

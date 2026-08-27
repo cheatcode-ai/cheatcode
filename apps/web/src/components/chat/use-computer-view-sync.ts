@@ -295,6 +295,13 @@ function applyComputerViewCommand(
     if (useAppStore.getState().appPreviewStatus !== command.status) {
       actions.setAppPreviewStatus(command.status);
     }
+    if (
+      command.status === "building" &&
+      (projectMode === "app-builder" || projectMode === "app-builder-mobile")
+    ) {
+      actions.setActiveComputerTab("browser");
+      actions.setPreviewPanelOpen(true);
+    }
     return;
   }
   if (!shouldApplyComputerViewCommand(command, projectMode)) {

@@ -15,7 +15,13 @@ import type {
   ProjectFile,
   ProjectFileUploadResponse,
   SandboxConsoleSnapshot,
+  SandboxIdeStartupStatus,
 } from "@cheatcode/types/api";
+import {
+  projectSandboxAlarmTasksDue,
+  rescheduleProjectSandboxAlarm,
+} from "./project-sandbox-alarm";
+import { type CodeServerOps, createCodeServerOps } from "./project-sandbox-code-server-runtime";
 import { type ContentOps, createContentOps } from "./project-sandbox-content";
 import {
   createGeneratedOutputOps,
@@ -67,7 +73,8 @@ type ProjectSandboxOperations = LifecycleOps &
   ProcessOps &
   FileOps &
   ContentOps &
-  GeneratedOutputOps;
+  GeneratedOutputOps &
+  CodeServerOps;
 
 /**
  * Public Durable Object facade. The policy table is interpreted only here;
@@ -86,6 +93,10 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     let process: ProcessOps;
     const coordinated = this.coordinatedProcessOps(() => process);
     process = createProcessOps(this.runtime, coordinated);
+    const codeServer = createCodeServerOps(this.runtime, {
+      coordinatedProcess: coordinated,
+      process,
+    });
     const files = createFileOps(this.runtime);
     const generatedOutputs = createGeneratedOutputOps(this.runtime);
     const content = createContentOps(this.runtime, {
@@ -95,7 +106,14 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
       sandboxRuntimeState: () =>
         this.withLease("sandboxRuntimeState", undefined, lifecycle.sandboxRuntimeState),
     });
-    this.operations = { ...lifecycle, ...process, ...files, ...content, ...generatedOutputs };
+    this.operations = {
+      ...lifecycle,
+      ...process,
+      ...files,
+      ...content,
+      ...generatedOutputs,
+      ...codeServer,
+    };
   }
 
   // Account deletion fences and drains active operations; taking a lease would deadlock.
@@ -128,7 +146,23 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
   }
 
   public override alarm(): Promise<void> {
-    return this.withLease("alarm", undefined, this.operations.alarm);
+    return this.withLease("alarm", undefined, async () => {
+      const tasks = await projectSandboxAlarmTasksDue(this.runtime.storage);
+      const errors: unknown[] = [];
+      if (tasks.keepalive) {
+        await this.operations.alarm().catch((error: unknown) => errors.push(error));
+      }
+      if (tasks.codeServer) {
+        await this.operations
+          .continueCodeServerStartup()
+          .catch((error: unknown) => errors.push(error));
+      }
+      await rescheduleProjectSandboxAlarm(this.runtime.storage).catch((error: unknown) =>
+        errors.push(error),
+      );
+      if (errors.length === 1) throw errors[0];
+      if (errors.length > 1) throw new AggregateError(errors, "Project sandbox alarm tasks failed");
+    });
   }
 
   public runtimeSandboxId(): Promise<string> {
@@ -283,6 +317,18 @@ export class ProjectSandbox extends DurableObject<ProjectSandboxEnv> {
     workspacePath: string;
   }> {
     return this.withLease("exposeCodeServer", input, () => this.operations.exposeCodeServer(input));
+  }
+
+  public beginCodeServerStartup(): Promise<SandboxIdeStartupStatus> {
+    return this.withLease("beginCodeServerStartup", undefined, () =>
+      this.operations.beginCodeServerStartup(),
+    );
+  }
+
+  public codeServerStartupStatus(operationId: string): Promise<SandboxIdeStartupStatus> {
+    return this.withLease("codeServerStartupStatus", operationId, () =>
+      this.operations.codeServerStartupStatus(operationId),
+    );
   }
 
   public wakePreview(input: ProjectWakePreviewInput): Promise<ProjectWakePreviewResult> {

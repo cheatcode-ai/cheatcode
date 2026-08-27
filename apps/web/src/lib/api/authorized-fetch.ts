@@ -18,6 +18,16 @@ export interface AuthorizedFetchOptions {
   timeoutMs?: number;
 }
 
+export class AuthorizedFetchError extends Error {
+  public readonly status: number;
+
+  public constructor(status: number, message: string) {
+    super(message);
+    this.name = "AuthorizedFetchError";
+    this.status = status;
+  }
+}
+
 export const API_RESPONSE_LIMIT_BYTES = {
   archive: PROJECT_ARCHIVE_MAX_OUTPUT_BYTES,
   archiveFallback: 64 * MEBIBYTE,
@@ -58,7 +68,7 @@ export async function authorizedFetch(
     signal,
   });
   if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
+    throw new AuthorizedFetchError(response.status, await readErrorMessage(response));
   }
   return response;
 }

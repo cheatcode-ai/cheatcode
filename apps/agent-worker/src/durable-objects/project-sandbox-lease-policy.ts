@@ -37,6 +37,7 @@ const LEASE_POLICIES = {
   searchFiles: ["workspace", "path"], deleteFile: ["workspace", "path"],
   getSignedPreviewUrl: ["sandbox"], exposeBrowserTakeover: ["sandbox"],
   stopBrowserTakeover: ["cleanup-signal"],
+  beginCodeServerStartup: ["sandbox"], codeServerStartupStatus: ["sandbox"],
   exposeCodeServer: ["workspace", "workspace-path"],
   wakePreview: ["workspace", "workspace-slug"],
   projectPreviewStatus: ["workspace", "workspace-slug"],

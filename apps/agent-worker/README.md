@@ -257,6 +257,17 @@ before executing against a user-connected OAuth account.
 ProjectSandbox records elapsed sandbox-hours to the same `QuotaTracker` as a soft
 meter so Settings can show real monthly sandbox consumption without blocking
 sandbox file/process work.
+
+Opening Files admits code-server startup durably instead of holding the browser request open while
+Daytona starts. ProjectSandbox stores one generation-checked startup operation, schedules it through
+the alarm shared with run keepalive, and reports bounded queued, sandbox-starting, files-starting,
+ready, or failed status. Alarm handling runs keepalive first so every retry leaves the next lease
+refresh scheduled; a retriable Files failure then moves that alarm forward to its earlier retry.
+At-least-once delivery is safe because every completion write compares the operation generation and
+code-server keeps its deterministic process identity. The legacy session GET remains synchronous for
+rollout compatibility, while a fresh ready record tied to the current Daytona sandbox lets the normal
+path mint its short-lived capability without re-probing the container. Preview-origin credentials
+remain owned by the preview proxy and are never persisted in the startup record.
 Lazy workspace materialization resolves the effective project ceiling from the authoritative
 entitlement row, including an operator-granted override when present, before creating a project.
 
