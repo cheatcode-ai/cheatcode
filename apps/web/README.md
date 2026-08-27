@@ -59,6 +59,13 @@ the same mark in place until the final document has loaded. Preview wake and cap
 paused during fresh scaffold generation; readiness acquires a new one-minute handoff immediately
 before the iframe mounts and exchanges it for the renewable ten-minute host cookie. Existing project
 edits remain visible and continue hot-reloading normally.
+Fresh app-builder project creation selects Browser and commits the local `building` state in the
+same client update before opening Computer. That closes the gap where Files used to become the
+temporary default and where Browser could wake before the streamed build status arrived. An
+intentional Files open now posts a durable startup request, polls its lightweight authenticated
+status with cancellation, displays the current preparation phase, and requests the iframe session
+only after code-server is ready. The previous session GET remains the final capability-minting step,
+so no preview credential enters query storage or client persistence.
 When the agent completes a browser-open action for an app-builder project, the Browser panel requests
 one authenticated reload so the user sees the same freshly verified build. The preview owner first
 renews the short-lived handoff capability and only then remounts the entry document; an old capability

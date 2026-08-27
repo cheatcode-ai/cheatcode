@@ -58,7 +58,15 @@ async function resolveWorkspace(input: WorkspaceResolverInput): Promise<Workspac
   input.input.workspaceSlug = project.workspaceSlug;
   if (result.kind === "created") {
     await input.append({
-      data: { projectId: project.id, projectName: project.name, v: 1 },
+      data: {
+        projectId: project.id,
+        projectMode: project.mode,
+        projectName: project.name,
+        previewBuilding:
+          (project.mode === "app-builder" || project.mode === "app-builder-mobile") &&
+          !input.input.importRepoUrl,
+        v: 1,
+      },
       type: "data-project-created",
     });
   }

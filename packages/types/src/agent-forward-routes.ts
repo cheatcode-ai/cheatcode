@@ -52,6 +52,16 @@ export const AGENT_FORWARD_ROUTES = {
       path: "/v1/computer/ide",
       rateLimitCost: 5,
     },
+    computerIdeOpen: {
+      method: "POST",
+      path: "/v1/computer/ide/open",
+      rateLimitCost: 3,
+    },
+    computerIdeStatus: {
+      method: "GET",
+      path: "/v1/computer/ide/status/:operationId",
+      rateLimitCost: 1,
+    },
     computerTerminal: {
       method: "POST",
       path: "/v1/computer/terminal",
@@ -76,6 +86,16 @@ export const AGENT_FORWARD_ROUTES = {
       method: "GET",
       path: "/v1/threads/:threadId/sandbox/ide",
       rateLimitCost: 5,
+    },
+    sandboxIdeOpen: {
+      method: "POST",
+      path: "/v1/threads/:threadId/sandbox/ide/open",
+      rateLimitCost: 3,
+    },
+    sandboxIdeStatus: {
+      method: "GET",
+      path: "/v1/threads/:threadId/sandbox/ide/status/:operationId",
+      rateLimitCost: 1,
     },
     sandboxPreviewStatus: {
       method: "GET",

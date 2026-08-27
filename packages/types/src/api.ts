@@ -1,9 +1,13 @@
 import { z } from "zod";
 import { OutputIdSchema } from "./artifacts";
+import { ErrorCodeSchema } from "./errors";
 import { IntegrationNameSchema } from "./integrations";
 import { LogicalModelIdSchema } from "./models";
+import { ProjectModeSchema } from "./project-mode";
 import { extendSandboxExecResultShape, sandboxFileEntryShape } from "./sandbox-wire";
 import { MessagePartsSchema } from "./ui-message";
+
+export { ProjectModeSchema } from "./project-mode";
 
 /** Canonical total character budget for one submitted user message, including inline attachments. */
 export const USER_MESSAGE_MAX_CHARACTERS = 20_000;
@@ -30,9 +34,6 @@ export const GitHubRepoUrlSchema = z
     /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+(?:\.git)?\/?$/,
     "Must be a public https://github.com/{owner}/{repo} URL",
   );
-
-const PROJECT_MODES = ["app-builder", "app-builder-mobile", "general"] as const;
-export const ProjectModeSchema = z.enum(PROJECT_MODES);
 
 /** Explicit non-app work paths selected by the composer; app topology remains a project mode. */
 const RUN_INTENTS = ["data", "documents", "media", "research", "skill-creator", "slides"] as const;
@@ -363,6 +364,24 @@ export const SandboxIdeSessionSchema = z.strictObject({
   workspacePath: SandboxFilePathSchema,
 });
 
+export const SandboxIdeStartupPhaseSchema = z.enum([
+  "queued",
+  "starting_sandbox",
+  "starting_files",
+  "ready",
+  "failed",
+]);
+
+export const SandboxIdeStartupStatusSchema = z.strictObject({
+  errorCode: ErrorCodeSchema.optional(),
+  message: z.string().min(1).max(300).optional(),
+  operationId: z.string().uuid(),
+  phase: SandboxIdeStartupPhaseSchema,
+  retriable: z.boolean().optional(),
+  retryAfterMs: z.number().int().min(250).max(10_000).optional(),
+  updatedAt: z.string().datetime(),
+});
+
 const BrowserTakeoverActiveSchema = z.strictObject({
   expiresAt: z.string().datetime(),
   status: z.literal("active"),
@@ -632,6 +651,8 @@ export type SandboxConsoleProcess = z.infer<typeof SandboxConsoleProcessSchema>;
 export type SandboxConsoleSnapshot = z.infer<typeof SandboxConsoleSnapshotSchema>;
 export type SandboxFileEntry = z.infer<typeof SandboxFileEntrySchema>;
 export type SandboxIdeSession = z.infer<typeof SandboxIdeSessionSchema>;
+export type SandboxIdeStartupPhase = z.infer<typeof SandboxIdeStartupPhaseSchema>;
+export type SandboxIdeStartupStatus = z.infer<typeof SandboxIdeStartupStatusSchema>;
 export type BrowserTakeoverStatus = z.infer<typeof BrowserTakeoverStatusSchema>;
 export type BrowserTakeoverSession = z.infer<typeof BrowserTakeoverSessionSchema>;
 export type SandboxPreviewWake = z.infer<typeof SandboxPreviewWakeSchema>;

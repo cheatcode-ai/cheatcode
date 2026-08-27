@@ -12,16 +12,6 @@ import { encodeBase64, shellQuote } from "../sandbox-support";
 import { expoPreviewEnvironment } from "./app-builder-local-preview";
 import { metroForwardedHostFixScript } from "./expo-metro-forwarded-host";
 import {
-  CODE_SERVER_DISPLAY_DIR,
-  CODE_SERVER_PORT,
-  CODE_SERVER_PROCESS_ID,
-  CODE_SERVER_SETTINGS_MARKER,
-  CODE_SERVER_START_TIMEOUT_MS,
-  codeServerFolderUrl,
-  codeServerStartCommand,
-  codeServerTrustedOrigins,
-} from "./project-sandbox-code-server";
-import {
   assertDeletableWorkspacePath,
   buildGrepCommand,
   PROJECT_ARCHIVE_MAX_BYTES,
@@ -53,8 +43,6 @@ import {
   ProjectBrowserTakeoverStopInputSchema,
   type ProjectCleanupWorkspaceInput,
   ProjectCleanupWorkspaceInputSchema,
-  type ProjectCodeServerInput,
-  ProjectCodeServerInputSchema,
   type ProjectCompareAndSwapFileInput,
   type ProjectDeleteFileInput,
   ProjectDeleteFileInputSchema,
@@ -94,12 +82,6 @@ export interface ContentOps {
   exposeBrowserTakeover: (
     input: ProjectBrowserTakeoverInput,
   ) => Promise<ProjectBrowserTakeoverResult>;
-  exposeCodeServer: (input: ProjectCodeServerInput) => Promise<{
-    expiresAt: string;
-    port: number;
-    url: string;
-    workspacePath: string;
-  }>;
   getSignedPreviewUrl: (
     input: ProjectSignedPreviewUrlInput,
   ) => Promise<{ token: string; url: string }>;
@@ -122,14 +104,11 @@ type ContentRuntime = Pick<
   | "ensureSandbox"
   | "previewHostname"
   | "previewSecret"
-  | "releaseSha"
   | "toUpstreamError"
 >;
 
 type ContentProcessOps = Pick<
   ProcessOps,
-  | "deleteProcessRecord"
-  | "deleteProcessesOnPort"
   | "freeProjectPort"
   | "httpPortReady"
   | "isPortAlive"
@@ -169,7 +148,6 @@ export function createContentOps(
     downloadProjectArchive: (input, onFinished) =>
       downloadProjectArchive(context, input, onFinished),
     exposeBrowserTakeover: (input) => exposeBrowserTakeover(context, input),
-    exposeCodeServer: (input) => exposeCodeServer(context, input),
     getSignedPreviewUrl: (input) => getSignedPreviewUrl(runtime, input),
     listFiles: (input) => listFiles(runtime, input),
     projectPreviewStatus: (input) => projectPreviewStatus(context, input),
@@ -393,42 +371,6 @@ async function stopBrowserTakeover(
   });
 }
 
-async function exposeCodeServer(
-  context: ContentContext,
-  input: ProjectCodeServerInput,
-): Promise<{
-  expiresAt: string;
-  port: number;
-  url: string;
-  workspacePath: string;
-}> {
-  const parsed = ProjectCodeServerInputSchema.parse(input);
-  const id = await context.runtime.ensureSandbox();
-  await ensureCodeServer(context, id);
-  const displayFolder =
-    parsed.workspacePath === WORKSPACE_DIR
-      ? await ensureCodeServerDisplayFolder(context.runtime, id, parsed.workspacePath)
-      : parsed.workspacePath;
-  await context.runtime
-    .client()
-    .getPreviewLink(id, CODE_SERVER_PORT)
-    .catch(() => undefined);
-  const built = await buildPreviewUrl({
-    hostname: context.runtime.previewHostname(),
-    port: CODE_SERVER_PORT,
-    sandboxId: id,
-    secret: await context.runtime.previewSecret(),
-    useSubdomain: true,
-  });
-  const bridgeRelease = context.runtime.releaseSha();
-  return {
-    expiresAt: built.expiresAt,
-    port: CODE_SERVER_PORT,
-    url: codeServerFolderUrl(built.url, displayFolder, bridgeRelease, parsed.initialFilePath),
-    workspacePath: parsed.workspacePath,
-  };
-}
-
 async function wakePreview(
   context: ContentContext,
   input: ProjectWakePreviewInput,
@@ -592,124 +534,6 @@ async function ensureMobileMetroForwardedHostConfig(
     );
   }
   return true;
-}
-
-async function ensureCodeServer(context: ContentContext, id: string): Promise<void> {
-  const [isPortReady, hasCurrentSettings] = await Promise.all([
-    context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000),
-    hasCodeServerSettingsMarker(context.runtime, id),
-  ]);
-  if (isPortReady && hasCurrentSettings) {
-    return;
-  }
-  const tracked = await context.dependencies.process.processRecord(CODE_SERVER_PROCESS_ID);
-  if (hasCurrentSettings && tracked?.port === CODE_SERVER_PORT) {
-    await relaunchTrackedCodeServer(context, id, tracked);
-    return;
-  }
-  if (!(await hasCodeServerRuntime(context.runtime, id))) {
-    throw new APIError(502, "sandbox_start_failed", "code-server is not installed", {
-      hint: "Start a new project sandbox from the current Daytona snapshot to use the Files viewer.",
-      retriable: false,
-    });
-  }
-  await context.dependencies.process.deleteProcessRecord(id, CODE_SERVER_PROCESS_ID);
-  await context.dependencies.process.deleteProcessesOnPort(
-    id,
-    CODE_SERVER_PORT,
-    CODE_SERVER_PROCESS_ID,
-  );
-  await context.runtime
-    .client()
-    .execute(id, { command: "pkill -f code-server || true", timeout: 5 })
-    .catch(() => null);
-  await startCodeServer(context);
-  if (!(await context.dependencies.process.httpPortReady(id, CODE_SERVER_PORT, "/", 5_000))) {
-    throw new APIError(502, "sandbox_start_failed", "Unable to start code-server", {
-      hint: "Rebuild the Daytona sandbox snapshot with code-server, then retry the Files tab.",
-      retriable: true,
-    });
-  }
-}
-
-async function relaunchTrackedCodeServer(
-  context: ContentContext,
-  id: string,
-  record: ProcessRecord,
-): Promise<void> {
-  const relaunched = await context.dependencies.process.relaunchDevServer(
-    id,
-    CODE_SERVER_PROCESS_ID,
-    record,
-    codeServerEnvironment(context.runtime.previewHostname()),
-  );
-  await context.dependencies.process.waitForPort(
-    id,
-    CODE_SERVER_PORT,
-    "/",
-    CODE_SERVER_START_TIMEOUT_MS,
-    { cmdId: relaunched.cmdId, sessionId: relaunched.sessionId },
-  );
-}
-
-async function startCodeServer(context: ContentContext): Promise<void> {
-  await context.dependencies.coordinatedProcess.startProcess({
-    command: ["bash", "-lc", codeServerStartCommand()],
-    cwd: WORKSPACE_DIR,
-    env: codeServerEnvironment(context.runtime.previewHostname()),
-    keepAliveTimeoutMs: 0,
-    maxRestarts: 3,
-    processId: CODE_SERVER_PROCESS_ID,
-    restartOnFailure: true,
-    timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
-    waitForPort: {
-      path: "/",
-      port: CODE_SERVER_PORT,
-      timeoutMs: CODE_SERVER_START_TIMEOUT_MS,
-    },
-  });
-}
-
-function codeServerEnvironment(previewHostname: string): Record<string, string> {
-  return {
-    CODE_SERVER_PORT: String(CODE_SERVER_PORT),
-    CODE_SERVER_TRUSTED_ORIGINS: codeServerTrustedOrigins(previewHostname),
-    CODE_SERVER_WORKSPACE: WORKSPACE_DIR,
-  };
-}
-
-async function hasCodeServerRuntime(runtime: ContentRuntime, id: string): Promise<boolean> {
-  const probe = await runtime
-    .client()
-    .execute(id, { command: "command -v code-server >/dev/null", timeout: 5 })
-    .catch(() => null);
-  return probe?.exitCode === 0;
-}
-
-async function hasCodeServerSettingsMarker(runtime: ContentRuntime, id: string): Promise<boolean> {
-  const probe = await runtime
-    .client()
-    .execute(id, {
-      command: `test -f ${shellQuote(CODE_SERVER_SETTINGS_MARKER)}`,
-      timeout: 5,
-    })
-    .catch(() => null);
-  return probe?.exitCode === 0;
-}
-
-async function ensureCodeServerDisplayFolder(
-  runtime: ContentRuntime,
-  id: string,
-  workspacePath: string,
-): Promise<string> {
-  const probe = await runtime
-    .client()
-    .execute(id, {
-      command: `ln -sfn ${shellQuote(workspacePath)} ${shellQuote(CODE_SERVER_DISPLAY_DIR)} && test -d ${shellQuote(CODE_SERVER_DISPLAY_DIR)}`,
-      timeout: 10,
-    })
-    .catch(() => null);
-  return probe?.exitCode === 0 ? CODE_SERVER_DISPLAY_DIR : workspacePath;
 }
 
 async function removeWorkspaceFolder(

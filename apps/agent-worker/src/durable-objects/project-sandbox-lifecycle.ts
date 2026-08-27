@@ -1,4 +1,5 @@
 import { createLogger } from "@cheatcode/observability";
+import { scheduleKeepaliveAlarm } from "./project-sandbox-alarm";
 import {
   DEFAULT_IDLE_STOP_MIN,
   KEEPALIVE_ALARM_MS,
@@ -67,7 +68,7 @@ async function beginRun(runtime: LifecycleRuntime, runId: string): Promise<void>
       .setAutoStopInterval(id, 0)
       .catch(() => undefined);
     await beginSandboxUsageBestEffort(await runtime.meteringContext());
-    await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+    await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS);
   } catch (error) {
     await compensateFailedRunStart(runtime, runId);
     throw error;
@@ -83,7 +84,7 @@ async function renewRun(runtime: LifecycleRuntime, runId: string): Promise<void>
   const renewed = leases.filter((candidate) => candidate.runId !== runId);
   renewed.push({ runId, startedMs: Date.now() });
   await runtime.storage.put(RUN_LEASES_KEY, renewed);
-  await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+  await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS);
 }
 
 async function endRun(runtime: LifecycleRuntime, runId: string): Promise<void> {
@@ -101,7 +102,7 @@ async function compensateFailedRunStart(runtime: LifecycleRuntime, runId: string
     const remaining = (await runLeases(runtime.storage)).filter((lease) => lease.runId !== runId);
     await runtime.storage.put(RUN_LEASES_KEY, remaining);
     if (remaining.length > 0) {
-      await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+      await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS);
       return;
     }
     await finalizeLastRunLease(runtime);
@@ -111,17 +112,19 @@ async function compensateFailedRunStart(runtime: LifecycleRuntime, runId: string
       runId,
       sandboxId: runtime.sandboxName(),
     });
-    await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS).catch(() => undefined);
+    await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS).catch(
+      () => undefined,
+    );
   }
 }
 
 async function finalizeLastRunLease(runtime: LifecycleRuntime): Promise<void> {
   await finalizeSandboxUsageBestEffort(await runtime.meteringContext());
   if (await restoreIdleAutoStop(runtime)) {
-    await runtime.storage.deleteAlarm();
+    await scheduleKeepaliveAlarm(runtime.storage, null);
     return;
   }
-  await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+  await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS);
 }
 
 async function handleAlarm(runtime: LifecycleRuntime): Promise<void> {
@@ -137,7 +140,7 @@ async function handleAlarm(runtime: LifecycleRuntime): Promise<void> {
   try {
     await recordSandboxUsageBestEffort(await runtime.meteringContext());
   } finally {
-    await runtime.storage.setAlarm(Date.now() + KEEPALIVE_ALARM_MS);
+    await scheduleKeepaliveAlarm(runtime.storage, Date.now() + KEEPALIVE_ALARM_MS);
   }
 }
 

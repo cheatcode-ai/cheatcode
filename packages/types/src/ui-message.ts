@@ -3,6 +3,7 @@ import { z } from "zod";
 import { ArtifactKindSchema, OutputIdSchema } from "./artifacts";
 import type { AgentRunId, UserId } from "./ids";
 import { type LogicalModelId, LogicalModelIdSchema } from "./models";
+import { ProjectModeSchema } from "./project-mode";
 
 const TaskStatusSchema = z.enum(["pending", "running", "completed", "failed"]);
 const SandboxStreamStatusSchema = z.enum(["starting", "ready", "failed"]);
@@ -63,7 +64,9 @@ const AppPreviewStatusDataSchema = z.strictObject({
 const ProjectCreatedDataSchema = z.strictObject({
   v: z.literal(1),
   projectId: z.string().uuid(),
+  projectMode: ProjectModeSchema.optional(),
   projectName: z.string().min(1).max(200),
+  previewBuilding: z.boolean().optional(),
 });
 
 const SkillCreatedDataSchema = z.strictObject({
