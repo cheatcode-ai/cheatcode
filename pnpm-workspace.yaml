@@ -117,7 +117,7 @@ catalog:
   lefthook: 2.1.10
   lucide-react: 1.24.0
   marked: 17.0.6
-  next: 16.2.11
+  next: 16.3.3
   next-themes: 0.4.6
   nuqs: 2.9.0
   pg: 8.22.0
